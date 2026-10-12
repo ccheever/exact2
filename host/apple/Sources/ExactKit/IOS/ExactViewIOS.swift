@@ -220,11 +220,11 @@ public final class ExactView: UIView {
     func fit() {
         let presenter = session.presenter
         // Containment may synchronously lay us out during a partial batch.
-        // Let the next layout read the fully mounted tree before resizing it.
+        // Finish that batch, then resize synchronously before returning to UIKit.
         if presenter.applying {
             if !fitPending {
                 fitPending = true
-                DispatchQueue.main.async { [weak self] in
+                presenter.afterBatch { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
                     self.fit()
@@ -360,6 +360,12 @@ public final class ExactView: UIView {
             lastSize = size
             session.resize(size)
             session.natives.scopesChanged()
+            // The keys came or went: the tab bar stays under them, and the
+            // field being edited is shown in what they leave (LLP 1116.003
+            // D2.1). Usually already done in the keyboard's animation; this
+            // catches a guide that moved after its notification.
+            presenter.navigation.fitOwner()
+            if presenter.keyboardInset > 0 { presenter.reveal(presenter.editing) }
         }
         if fold.fold != lastFold {
             lastFold = fold.fold

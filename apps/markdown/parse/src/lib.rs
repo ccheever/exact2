@@ -13,7 +13,7 @@
 //! HTML are not interpreted; raw HTML stays visible and inert, which is
 //! what a reader that cannot render it should do rather than hide it.
 //!
-//! @ref LLP 1033 (the reader), `rules/RULES.md` §Scope (the web is the standard)
+//! @ref LLP 1033 (the reader), LLP 1115 §2 (names stay CSS)
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]

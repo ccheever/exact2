@@ -72,6 +72,7 @@ final class T3Module: ExactModule {
         activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), pageFacts: true)
         transport = T3Transport(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), credentials: credentials, savedEnvironments: saved, activity: activity, changed: changed)
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: changed)
+        fleet.transportCreated = T3TerminalSessions.fleetObserver(focused: transport) // terminal-drawer-unthreaded: a background environment's terminals
         devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         r9 = R9Input(agent: context.agent)

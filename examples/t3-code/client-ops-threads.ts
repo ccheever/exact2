@@ -4,7 +4,7 @@
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { sidebarSelecting } from './sidebar-commands';
-import { parseFleetThreadId, focusFleetThread } from './settings-b-fleet';
+import { parseFleetThreadId, focusFleetThread, focusFleetProject } from './settings-b-fleet';
 import { dismissThreadError } from './requests';
 import { clearRowDrops } from './legacy-sidebar-drop';
 import { composerTakesFocus } from './legacy-sidebar-links';
@@ -23,6 +23,15 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       resultMessage = 'Copied message';
     } else if (op === 'dismiss-error') { dismissThreadError(this); this.error = ''; }
     else if (op === 'select-project' || op === 'new-thread' || op.startsWith('pages:hero-')) {
+      // A project named with its environment (a clone toast's Open project, project-clones.ts): the focused one's draft
+      // opens here, another environment's opens there (settings-b-fleet.ts focusFleetProject).
+      const named = op === 'new-thread' ? parseFleetThreadId(id) : null;
+      if (named && named.environmentId !== this.environmentId) {
+        const focused = await focusFleetProject(this, native, named.environmentId, named.threadId);
+        this.adoptStatus(focused.value, focused.generation);
+        return true;
+      }
+      if (named) id = named.threadId;
       const carry = op.startsWith('pages:hero-') ? await heroCarry(this, op.slice(11), id, () => ensureScratchProject(this, native!)) : null;
       if (carry) id = carry.projectId;
       if (id && this.shell.projects.some(project => project.id === id)) this.projectId = id;

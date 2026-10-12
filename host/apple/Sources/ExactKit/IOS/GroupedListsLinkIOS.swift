@@ -19,6 +19,11 @@ package protocol GroupedLists: AnyObject {
     func scroller(for id: UInt32) -> UIScrollView?
     /// Whether a list draws `id` (a row, or a row's toggle or detail button).
     func draws(_ id: UInt32) -> Bool
+    /// The agent's reveal of what a list draws or carries: its row's cell
+    /// scrolled into `port` (the collection view's visible part, in its
+    /// bounds), with or without a cell now. Nil for a node no list draws or
+    /// carries; else whether the list scrolled.
+    func reveal(_ id: UInt32, port: (UIScrollView) -> CGRect) -> Bool?
     /// Where a real finger aimed at `node` lands, for a row a list draws.
     func shown(_ node: NodeView) -> GroupedAim?
     /// The agent's `tap` on a row UIKit draws.
@@ -38,6 +43,12 @@ package enum GroupedAim { case view(UIView, port: UIScrollView), refused(String)
 /// A grouped list's collection view, which scrolls in its list's place
 /// (LLP 1084 D8).
 package protocol GroupedScroller: UIScrollView {}
+
+extension Presenter {
+    /// A grouped list's collection view scrolled (LLP 1116.003 D7): its
+    /// text is scheduled as any scroller's is (`ScrollPump.scrolled`).
+    package func groupedListScrolled() { scrollPump.scrolled(nil) }
+}
 
 /// The grouped lists module's hooks, installed by the composition.
 package enum GroupedListsLink {

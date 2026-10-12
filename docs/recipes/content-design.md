@@ -1,60 +1,84 @@
 # Recipe: content design
 
-`bun exact.mjs pattern dashboard` lays this out, working and tested; read on to add the
-parts to a screen you have. The platform draws the controls, bars and type; the content
-is yours. `exact:content` draws its parts in the platform's roles and the app's accent
-(`accent-color` on the root). Every prop is required: `none` for an option.
+- **Chrome is the platform's.** Bars, sheets, alerts, tabs and a form's controls stay
+  unsaid, so they look native and follow dark mode.
+- **The content is yours:** rows, grouping, where actions sit, the layout. The screen's
+  purpose gets a focal point: large type, a fill (the accent or a system colour), a
+  shape, room.
+- **Emphasis is a part, not paint on a control.** A `background-color`, `border` or
+  `font-size` on a `button` makes it your own box. These parts keep a button's
+  semantics, a 44-point target and legible ink in both schemes.
+- **A wide window gets a layout:** two columns or cards (`flex="1 1 320px"` in a wrapping
+  row), not a phone's column centred.
+- **Colour is a role, a system colour or the accent** (`accent-color` on the root), never
+  a hex. Surfaces pair with their page: a card on a plain page is
+  `-exact-secondary-background`, on a `-exact-grouped-background` page
+  `-exact-secondary-grouped-background`; a surface inside a card the tertiary role.
 
-| Part | Props | For |
+| Part | Props (`none` for an option) | For |
 | --- | --- | --- |
+| `RoundButton` | `label`, `tint: option<string>`, `press`, `disabled`, `testId` | Start, Stop, Lap: an 80-point circle, `none` grey |
+| `AnswerTile` | `label`, `status`, `press`, `testId` | a choice: `"idle"`, `"selected"`, `"correct"`, `"wrong"`, `"dimmed"` |
 | `SummaryCard` | `label`, `value`, `detail`, `progress: option<number>`, `symbol: option<string>` | the screen's one number, leading it |
-| `RingProgress` | `label`, `value`, `fraction: number`, `tint: option<string>` | one fraction as a ring around its number: a timer, a day's goal |
-| `StatBar` | `label`, `value`, `fraction: number`, `tint: option<string>` | one of several numbers that compare |
-| `RowText` | `title`, `detail` (`""` for none), `value: option<string>` | a row's title over a secondary line, the value trailing |
-| `DoneMark` | `label`, `done: bool` | one done or not-done mark: a habit's day, a step (green check, grey circle) |
-| `EmptyState` | `symbol`, `title`, `message`; your `button` indented under it | nothing to show yet: why, and the next step |
+| `RingProgress` | `label`, `value`, `fraction`, `tint: option<string>` | one fraction as a ring around its number |
+| `StatBar` | `label`, `value`, `fraction`, `tint: option<string>` | one of several numbers that compare |
+| `RowText` | `title`, `detail` (`""` for none), `value: option<string>` | a row: title, line under it, value |
+| `DoneMark` | `caption` (a weekday: it shows), `done` | a habit's day: check or circle |
+| `EmptyState` | `symbol`, `title`, `message`; your `button` under it | nothing yet, and the next step |
+
+A timer: round buttons at the ends of a row under the readout.
 
 ```contract
-use SummaryCard, StatBar, EmptyState from "exact:content"
+use RoundButton from "exact:content"
 
-shape Category
-  id: string
-  name: string
-  spent: number
-  budget: number
-
-shape Summary
-  spent: number
-  budget: number
-  categories: list<Category>
-
-fn money(n: number): string = formatNumber(n, "currency", "USD")
-
-component Budget
-  resource summary = loadSummary() as shape Summary else empty()
-  derive left = summary.budget - summary.spent
+component Stopwatch
+  state running = false
+  state laps = 0
+  action toggle
+    running = not running
+  action lapOrReset
+    laps = running ? laps + 1 : 0
   view
-    scroll height="100%" testId="app"
-      column gap=16 padding=16
-        SummaryCard(label="Spent", value=money(summary.spent), detail=`${money(left)} left`, progress=some(summary.spent / summary.budget), symbol=some("symbol:chart"))
-        when length(summary.categories) == 0
-          EmptyState(symbol="symbol:chart", title="Nothing spent yet", message="Expenses show here by category as you add them.")
-        else
-          text "By Category" role="heading" aria-level=2
-          each c in summary.categories key=c.id
-            StatBar(label=c.name, value=`${money(c.spent)} of ${money(c.budget)}`, fraction=c.spent / c.budget, tint=(c.spent > c.budget ? some("-exact-system-red") : none))
+    column gap=32 padding=24
+      text "00:12.40" font-size="4.5rem" font-variant-numeric="tabular-nums" text-align="center"
+        -exact-fit="shrink" white-space="nowrap" testId="readout"
+      row justify-content="space-between"
+        RoundButton(label=(running ? "Lap" : "Reset"), tint=none, press=lapOrReset, disabled=(not running and laps == 0), testId="lap")
+        RoundButton(label=(running ? "Stop" : "Start"), tint=some(running ? "-exact-system-red" : "-exact-system-green"), press=toggle, disabled=false, testId="start")
 ```
 
-- **Lead with the summary**: the screen's one number in tabular figures, its context
-  beside it, a `progress` or a ring for how far along it is.
-- **Colour means something.** The accent is the ordinary state; a second colour is the
-  other: `-exact-system-green` done or under, `-exact-system-red` over or failed,
-  `-exact-secondary-label` not yet. Pass it as a part's `tint`. A brand is the accent (a
-  role or one `light-dark()` pair); a card, page or text is a role, never a hex.
-- **Bars where numbers compare**, a ring for one fraction; never a drawn track.
-- **Rows** are records, not a settings list: inset-grouped is for settings and forms.
-- The data module adds, groups and sorts (Contract has no `reduce` or `sort`); the view
-  shows.
-- Big type is a text style (`-exact-large-title`); a literal `font-size` only on a
-  readout's digits ([numeric-readout](numeric-readout.md)). Wide on the web: two
-  columns ([responsive-columns](responsive-columns.md)).
+A quiz: one tile an answer, told in place.
+
+```contract
+use AnswerTile from "exact:content"
+
+component Quiz
+  state picked = ""
+  action pick(a: string)
+    picked = a
+  view
+    column gap=12 padding=16
+      text "Which planet is the largest?" role="heading" aria-level=2
+      each a in ["Mars", "Jupiter", "Venus"] key=a
+        AnswerTile(label=a, status=(picked == "" ? "idle" : a == "Jupiter" ? "correct" : a == picked ? "wrong" : "dimmed"), press=pick(a), testId=`answer-${a}`)
+```
+
+A dashboard: the hero leads; a wide window puts the breakdown beside it.
+
+```contract
+use SummaryCard, StatBar from "exact:content"
+
+component Budget
+  view
+    scroll height="100%"
+      row flex-wrap="wrap" align-items="flex-start" gap=24 padding=16
+        column flex="1 1 320px" min-width=0
+          SummaryCard(label="Spent", value="$794.90", detail="$5.10 left", progress=some(0.99), symbol=some("symbol:chart"))
+        column flex="1 1 320px" min-width=0 gap=14
+          text "By Category" role="heading" aria-level=3
+          StatBar(label="Groceries", value="$412 of $450", fraction=0.92, tint=none)
+          StatBar(label="Eating Out", value="$286 of $200", fraction=1.43, tint=some("-exact-system-red"))
+```
+
+`pattern dashboard` is this over a data module, which adds and sorts (Contract has no
+`reduce` or `sort`); a readout's size: [numeric-readout](numeric-readout.md).

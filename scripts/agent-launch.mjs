@@ -414,26 +414,69 @@ const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
 const HELPER = /\.(?:sh|ops)$/;
 const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
+// What app.ts reaches (LLP 1116.003 D1.1). The bake captures every TypeScript
+// and JSON file but type-checks and bundles from the entry alone (its tsconfig's
+// `files` is `__exact_entry.ts`, which imports app.ts: js/bake/src/typescript.mjs),
+// so a file app.ts never imports — a backend the app reaches only over HTTP
+// (round 5's book-club `server/index.ts`), a script — is no build's input. Read
+// by scanning each source's module specifiers (type-only imports and references
+// included) and taking every file a relative one can resolve to as the bake's
+// resolution would, a `typescript.sources` mount as if beside app.ts under its
+// name: over-inclusion costs only a rebuild. Null (every TypeScript file counts)
+// without an app.ts, or when tsconfig maps bare specifiers (`paths`, `baseUrl`).
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|<reference\s+path\s*=\s*)(['"])([^'"\n]+)\1/g;
+export const MODULE_FILE = /\.(tsx?|json)$/;
+export const CONFIG_JSON = /^(app|package|jsconfig|tsconfig[^/]*)\.json$/;
+/** The declarations the bake writes beside app.ts: its output, never an input. */
+export const DECLARATIONS = 'app.contract.d.ts';
+/** The files app.ts imports, transitively (and itself), by path; or null. */
+export function moduleGraph(dir, manifest) {
+  const entry = resolve(dir, 'app.ts');
+  if (!existsSync(entry)) return null;
+  try { if (/"(paths|baseUrl)"\s*:/.test(readFileSync(resolve(dir, 'tsconfig.json'), 'utf8'))) return null; } catch {}
+  const mounts = Object.entries(manifest?.typescript?.sources ?? {}).map(([name, path]) => [resolve(dir, name), resolve(dir, String(path))]);
+  const disk = path => { for (const [at, real] of mounts) if (path === at || path.startsWith(at + '/')) return real + path.slice(at.length); return path; };
+  const graph = new Set(), seen = new Set(), queue = [entry];
+  while (queue.length) {
+    const at = queue.pop(), file = disk(at);
+    let isFile = false; try { isFile = statSync(file).isFile(); } catch {}
+    if (seen.has(at) || !isFile) continue;
+    seen.add(at); graph.add(file);
+    if (!/\.tsx?$/.test(file)) continue;
+    for (const [, , spec] of readFileSync(file, 'utf8').matchAll(SPECIFIER)) {
+      if (!spec.startsWith('.')) continue;
+      const base = resolve(dirname(at), spec), stem = base.replace(/\.(m?js|jsx)$/, '');
+      queue.push(base, ...['.ts', '.tsx', '.d.ts', '.json', '/index.ts', '/index.tsx', '/index.d.ts'].map(end => base + end), ...['.ts', '.tsx', '.mts', '.d.ts'].map(end => stem + end));
+    }
+  }
+  return graph;
+}
+
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the
  * app's Rust crates (which can `include_bytes!` any file beside them), and
  * what `app.json` names (an icon). Shots, tools, repros and test files never
- * count (LLP 1012: a drive refuses a stale build, not an agent's notes). Of
- * the rest, a helper script outside a script tree, a gitignored file, or a
- * picture, log, note, export or saved world is not an input. */
+ * count (LLP 1012: a drive refuses a stale build, not an agent's notes), nor
+ * TypeScript or JSON app.ts never imports (`moduleGraph`). Of the rest, a
+ * helper script outside a script tree, a gitignored file, or a picture, log,
+ * note, export or saved world is not an input. */
 export function notBuildInput(dir, keep = []) {
   const ignored = gitIgnored(dir, keep);
   const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
   let manifest = ''; try { manifest = readFileSync(resolve(dir, 'app.json'), 'utf8'); } catch {}
+  let parsed = {}; try { parsed = JSON.parse(manifest); } catch {}
+  const graph = moduleGraph(dir, parsed);
   const inCrate = path => {
     for (let at = dirname(path); at.startsWith(dir + '/'); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
     return false;
   };
   return path => {
     const rel = relative(dir, path);
-    if ((AGENT_TREE.test(rel) && !under(path, keep)) || TEST_FILE.test(rel)) return true;
-    if (BUILD_SOURCE.test(rel) || INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel)) return false;
+    if ((AGENT_TREE.test(rel) && !under(path, keep)) || TEST_FILE.test(rel) || rel === DECLARATIONS) return true;
+    const native = INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel);
+    if (graph && MODULE_FILE.test(rel) && !CONFIG_JSON.test(rel) && !native && !graph.has(path)) return true;
+    if (BUILD_SOURCE.test(rel) || native) return false;
     if (HELPER.test(rel) && !SCRIPT_TREE.test(rel)) return true;
     return OUTPUT.test(rel) || ignored(path);
   };
@@ -458,7 +501,10 @@ export function receiptChanges(receipt, app) {
   const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-  const tools = info ? depInfoNewer(since, null, info) : [];
+  // It names every source the bake captured (its rerun-if-changed): of the app's own, those the
+  // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
+  const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
+  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
   return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
 }
 

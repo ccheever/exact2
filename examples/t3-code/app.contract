@@ -921,6 +921,10 @@ component T3Code
       pendingModal = "theme-dialog"
       modalError = ""
       send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value, 0)
+  mutation automationRecordingServed0 as shape Change queue refreshes data // the agent's recordings: four sends, each queued (automationRecording)
+  mutation automationRecordingServed1 as shape Change queue refreshes data
+  mutation automationRecordingServed2 as shape Change queue refreshes data
+  mutation automationRecordingServed3 as shape Change queue refreshes data
   mutation themeLive as shape Change refreshes data // the colour picker's own, so no other local op forgets its reply (the picker waits for it)
   action coreThemeLive(part: string, id: string, value: string, n: number) // the colour picker's draft ops (theme-color-picker.contract), never behind another command
     send themeLive = command(`themelocal:${part}`, id, value, n)
@@ -1277,6 +1281,22 @@ component T3Code
       chatLocal("surface-browser-annotation-held", "", "")
     else
       send()
+  // browser-recording-and-downloads BR-1: a recording request the agent's previewAutomation host handed over runs in a
+  // queued send whose answer lives until the recording started or stopped (browser-automation-recording.ts), on one of
+  // four the panel names free, so a request never waits for another's upload.
+  state automationRecordingHandled = 0
+  task automationRecording when shell.panel.automationRecording.serial > automationRecordingHandled key=shell.panel.automationRecording.serial
+    after(1, automationRecordingNow)
+  action automationRecordingNow
+    automationRecordingHandled = shell.panel.automationRecording.serial
+    if shell.panel.automationRecording.slot == 1
+      send automationRecordingServed1 = command("shelllocal:surface-browser-automation-recording", "1", "", 0)
+    else if shell.panel.automationRecording.slot == 2
+      send automationRecordingServed2 = command("shelllocal:surface-browser-automation-recording", "2", "", 0)
+    else if shell.panel.automationRecording.slot == 3
+      send automationRecordingServed3 = command("shelllocal:surface-browser-automation-recording", "3", "", 0)
+    else
+      send automationRecordingServed0 = command("shelllocal:surface-browser-automation-recording", "0", "", 0)
   task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
     after(1, terminalCloseConfirm)
   action terminalCloseConfirm

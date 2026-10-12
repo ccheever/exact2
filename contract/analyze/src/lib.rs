@@ -16,6 +16,7 @@ mod arity;
 mod calls;
 mod gates;
 mod payload;
+mod rereads;
 mod sends;
 
 pub use payload::handler_arity_message;
@@ -171,6 +172,14 @@ pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeErro
         }
     }
     Ok(())
+}
+
+/// `analyze-read-after-assign` (@ref LLP 1116.003 D6): each read of a state
+/// or mutation slot that its action assigned before it on a path to it,
+/// which sees the value from before the action. Lowering reports them as
+/// warnings; a read behind a call is [`check_all`]'s refusal instead.
+pub fn read_after_assign(checked: &Checked<'_>) -> Vec<AnalyzeError> {
+    rereads::check(&checked.expanded.root)
 }
 
 /// Analyze the authored file using its type-checked expansion.

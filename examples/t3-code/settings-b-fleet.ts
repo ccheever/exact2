@@ -313,6 +313,22 @@ export async function focusFleetThread(client: { local: { selections: Record<str
   if (!thread) throw new Error('That thread is no longer available.');
   client.local.selections[parsed.environmentId] = { projectId: str(thread.projectId), threadId: parsed.threadId };
   handoffKeptThread(client, entry, parsed.threadId); // keep-alive.ts: a running thread opens from its kept detail, no replay
+  return refocus(native, entry, source);
+}
+/**
+ * Open a background environment's project on its new-thread draft (useNewThreadHandler with another environment's
+ * project ref: a clone toast's Open project, scheduled-tasks-followups ST-2): that environment's selection is the
+ * project's draft, then T3Client reconnects there. The project need not be in the entry's shell yet: a clone's project
+ * is the server's from projectClone.start on, and the reconnected shell reads it.
+ */
+export async function focusFleetProject(client: { local: { selections: Record<string, { projectId: string; threadId: string }> } }, native: Native, environmentId: string, projectId: string, source: EnvironmentFleet = fleet): Promise<{ value: Obj; generation: number }> {
+  const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
+  if (!entry) throw new Error('That environment is no longer connected.');
+  client.local.selections[environmentId] = { projectId, threadId: '' };
+  return refocus(native, entry, source);
+}
+/** The window moves to a background environment: its fleet transport stops and T3Client connects there. */
+async function refocus(native: Native, entry: FleetEntry, source: EnvironmentFleet): Promise<{ value: Obj; generation: number }> {
   source.forget(entry.key);
   await native.later({ op: 'fleetStop', fleet: entry.key }).catch(() => {});
   const reply = await bridgeReply(native, { op: 'connect', origin: entry.origin, ...(entry.primary ? { primary: true } : { credential: '' }) });
