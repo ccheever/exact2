@@ -169,7 +169,8 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     expect(column).toContain('BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)');
     expect(window).toContain('canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerPointer, ');
     // It closes as the press ends (armed at the primary button's down), so a pill button's own press still lands.
-    expect(under(window, 'action detailsPlayerPointer(e: PointerEvent)').join('\n')).toBe('    if e.buttons == 1\n      detailsPlayerArmed = true\n    else\n      if detailsPlayerArmed and detailsOpen\n        detailsAct("dismiss", "", "")\n      detailsPlayerArmed = false');
+    // A skill chip's details close on it too: the player takes the press from the window's `main`.
+    expect(under(window, 'action detailsPlayerPointer(e: PointerEvent)').join('\n')).toBe('    if e.buttons == 1\n      detailsPlayerArmed = true\n    else\n      if detailsPlayerArmed and detailsOpen\n        detailsAct("dismiss", "", "")\n      if detailsPlayerArmed and chipShown\n        chipClose(false)\n      detailsPlayerArmed = false');
     expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 pointerdown=outside pointerup=outside role="region" aria-label="Floating device preview"');
     expect(await component('browser-capture.contract', 'BrowserMiniPlayer')).toContain('z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside pointerup=outside role="region" aria-label="Floating browser preview"');
     expect(root).toContain('op != "ui:changes" and op != "dismiss")');
