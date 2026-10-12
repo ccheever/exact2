@@ -120,7 +120,9 @@ shape ThreadComposerState
   modelUnavailable: bool
   running: bool
   queueCount: number
+use PendingInputView from "./pending-input-shapes.contract"
 shape ThreadSnapshot
+  pendingInput: PendingInputView
   queuedCanSelect: bool
   queued: bool
   queuedOwner: string

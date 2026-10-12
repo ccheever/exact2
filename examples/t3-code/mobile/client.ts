@@ -18,6 +18,7 @@ import { mobileVoiceObserveDraft } from './voice-data';
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
+import { mobilePendingInputCommand, mobilePendingInputRetry } from './pending-input';
 import { decodePrefs, environmentSources, machineKind, savedStatus } from './shared/connections';
 import { connectionRouteAddress, connectionRouteKind, connectionRouteLabel, gitHubRoutingConnectionKey, hasRelayRoute } from './shared/connection-routes';
 import { arr, obj, str, type Obj } from './shared/domain';
@@ -240,6 +241,11 @@ async function runMobileCommand(args: unknown[], nativeInput: Native | null | un
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);
+  if (op.startsWith('pending-input:')) {
+    const { revision, message } = await mobilePendingInputCommand(mobileClient, native, storage, id, op.slice('pending-input:'.length), value, str(args[3]));
+    return { revision, message };
+  }
+  if (op === 'retry') { const result = await mobilePendingInputRetry(mobileClient, native, storage); if (result) return result; }
   if (op === 'select-thread') return mobileThreadSelection(mobileClient, id, native, storage);
   if (op === 'thread-answer-file') return mobileOpenAnswerFile(mobileClient, id, native, Number(args[3]));
   if (op === 'send' || op === 'send-alternate' || op === 'queued-edit-cancel') {

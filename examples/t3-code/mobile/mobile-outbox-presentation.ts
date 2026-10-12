@@ -3,6 +3,7 @@
 import { arr, obj } from './shared/domain';
 import { mobileOutboxRootFailure } from './mobile-outbox-root';
 import { mobileClient } from './client';
+import { emptyPendingInput } from './pending-input';
 import type { T3Client } from './shared/client';
 import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileOutboxCreationShell, mobileOutboxDriveCompleted, mobileOutboxDriveSnapshot } from './mobile-outbox-drive';
@@ -63,7 +64,7 @@ export function mobileOutboxThread(environmentId: string, threadId: string, now:
   if (!failure) previous.set(client, { key, item: { ...item!, record: JSON.parse(JSON.stringify(record)) } });
   const status = failure ? 'Could not start task' : mobileOutboxStatus(item!.status);
   const rows = detail ? mobileThreadRows(client, now, dark) : [];
-  return { revision: client.revision, environmentId, threadId, title: homeDraftTitle(record.text, record.attachments.length),
+  return { pendingInput: emptyPendingInput(), revision: client.revision, environmentId, threadId, title: homeDraftTitle(record.text, record.attachments.length),
     queuedCanSelect: !!shell && !failure, queued: true, queuedOwner: mobileOutboxOwner(record), queuedStatus: status, queuedReason: failure?.reason ?? item!.reason,
     queuedCanRetry: !failure && item!.canRetry, queuedFailed: !!failure, queuedCanEdit: failure?.editable ?? false,
     loaded: true, loading: false, emptyTitle: '', emptyDetail: '', error: '', uncertain: false, hasMore: false,

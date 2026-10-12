@@ -1,3 +1,4 @@
+import { questionJournalDocument, questionJournalHydrate, questionJournalReconcile, questionJournalPersistence } from './pending-input-journal';
 import { mobileEditorDocumentsHydrate, mobileEditorPersistSnapshot, mobileEditorPersistDocument, mobileEditorSendCapture, mobileEditorSendFailed, mobileEditorSendConfirmed } from './composer-editor-persistence';
 import { mobileComposerContextsHydrate, mobileComposerContextsPersisted, mobileComposerContextForSend } from './composer-command-context';
 import { mobileObserveFaviconRpc } from './mobile-favicon-runtime';
@@ -99,6 +100,7 @@ export function mobileRecoveredDraftMarker(client: T3Client, owner: string): Obj
 function hydrate(client: T3Client, saved: Obj) {
   if (!client.preferencesLoaded || hydrated.has(client.local) || saved.version !== 1) return;
   hydrated.add(client.local);
+  questionJournalHydrate(client, saved);
   mobilePendingTaskEditorsHydrate(client, saved);
   mobileIncomingShareImportsHydrate(client, saved);
   mobileComposerContextsHydrate(client, saved);
@@ -301,6 +303,7 @@ export class MobileDraftClient extends T3Client {
     }
   }
   override reconcilePending(): boolean {
+    const question = questionJournalReconcile(this); if (question !== null) return question;
     return mobileNewTaskLaunchCanReconcile(this) && super.reconcilePending();
   }
   override async flushSnapshotReleases(native: Native, storage: Files): Promise<void> {
@@ -320,6 +323,7 @@ export class MobileDraftClient extends T3Client {
     if (independent) mobileNewTaskDraftChoicesRestore(this, independent.key);
   }
   override async persist(storage: Files): Promise<void> {
+    const questionSaved = questionJournalPersistence(this);
     pruneRetiredMarkers(this);
     const store = mobileNewTaskDraftStore(this);
     for (const slot of Object.keys(store.receipts)) {
@@ -331,7 +335,7 @@ export class MobileDraftClient extends T3Client {
     const composerContexts = mobileComposerContextsPersisted(this);
     const editorSnapshot = mobileEditorPersistSnapshot(this);
     // Transform only serialized output; never swap live draft slots around an await.
-    return super.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
+    await super.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
       const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
       Object.assign(document, { mobileComposerContexts: composerContexts });
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
@@ -350,8 +354,9 @@ export class MobileDraftClient extends T3Client {
         }
       }
       output = mobileEditorPersistDocument(editorSnapshot, output);
-      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(output)));
+      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(questionJournalDocument(output))));
     } } });
+    questionSaved();
   }
   override async write(native: Native, storage: Files, pending: Parameters<T3Client['write']>[2], beforeRequest?: () => void): Promise<Obj> {
     const previous = this.local.pending[this.environmentId];
