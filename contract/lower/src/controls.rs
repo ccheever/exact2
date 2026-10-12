@@ -266,55 +266,43 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
         "button" => native_tag(),
         // A file input (LLP 1069.002 D1): the kernel's `Control`, a measured
         // leaf the host presents as its own control (the browser's "Choose
-        // File"); no margins, as Chrome's UA sheet gives `input[type=file]`
-        // none.
+        // File"). No control has a margin of its own (below).
         "file" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
             fixed_props: &[],
             positional: None,
         },
-        // A checkbox: the margins Chrome's UA sheet gives
-        // `input[type=checkbox]` (`3px 3px 3px 4px`) and ARIA's role;
-        // `switch` or `role="switch"` replaces the role (LLP 1069.001 D1, D3).
+        // A checkbox: ARIA's role; `switch` or `role="switch"` replaces it
+        // (LLP 1069.001 D1, D3). No margin of its own, on any host (LLP
+        // 1115.000 D10.1): Chrome's UA sheet gives a checkbox `3px 3px 3px
+        // 4px`, a radio `3px 3px 0 5px` and a range `2px`, which no platform
+        // control has and the common resets zero (the web's sheet does too,
+        // `host/web/index.html`). The space beside a label is the author's
+        // `gap`; a native control's alignment inset is inside its
+        // presentation and is not layout.
         "checkbox" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[
-                (StyleId::MarginTop, "3"),
-                (StyleId::MarginRight, "3"),
-                (StyleId::MarginBottom, "3"),
-                (StyleId::MarginLeft, "4"),
-            ],
+            fixed_styles: &[],
             fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
             positional: None,
         },
-        // A radio (x2apps survey #2): the margins Chrome's UA sheet gives
-        // `input[type=radio]` (`3px 3px 0px 5px`) and ARIA's role.
+        // A radio (x2apps survey #2): ARIA's role.
         "radio" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[
-                (StyleId::MarginTop, "3"),
-                (StyleId::MarginRight, "3"),
-                (StyleId::MarginBottom, "0"),
-                (StyleId::MarginLeft, "5"),
-            ],
+            fixed_styles: &[],
             fixed_props: &[(PropId::AccessibilityRole, "radio")],
             positional: None,
         },
-        // A range: Chrome's UA margin (`2px`) and ARIA's role.
+        // A range: ARIA's role.
         "range" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[
-                (StyleId::MarginTop, "2"),
-                (StyleId::MarginRight, "2"),
-                (StyleId::MarginBottom, "2"),
-                (StyleId::MarginLeft, "2"),
-            ],
+            fixed_styles: &[],
             fixed_props: &[(PropId::AccessibilityRole, "slider")],
             positional: None,
         },
-        // A date, time or local date and time: no UA margin in Chrome, and
-        // no ARIA role (HTML-AAM maps none).
+        // A date, time or local date and time: no ARIA role (HTML-AAM maps
+        // none).
         "date" | "time" | "datetime-local" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],

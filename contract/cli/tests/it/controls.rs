@@ -61,7 +61,7 @@ fn checked(r: &Runner<NoData>, test_id: &str) -> (Option<bool>, Option<bool>) {
 }
 
 #[test]
-fn a_checkbox_is_a_control_with_a_role_and_chromes_margins() {
+fn a_checkbox_is_a_control_with_a_role() {
     let r = boot(SETTINGS);
     let muted = r.kernel().node(view_of(&r, "muted")).unwrap();
     assert_eq!(muted.node_type, NodeType::Control);
@@ -72,17 +72,58 @@ fn a_checkbox_is_a_control_with_a_role_and_chromes_margins() {
         airplane.props.str(PropId::AccessibilityRole),
         Some("checkbox")
     );
-    assert_eq!(
-        airplane.style.margin_left,
-        exact_kernel::Dimension::Points(4.0)
-    );
-    assert_eq!(
-        airplane.style.margin_top,
-        exact_kernel::Dimension::Points(3.0)
-    );
     let draft = r.kernel().node(view_of(&r, "draft")).unwrap();
     assert_eq!(draft.node_type, NodeType::TextInput);
     assert_eq!(checked(&r, "muted"), (Some(false), Some(false)));
+}
+
+/// LLP 1115.000 D10.1: a checkbox, a radio and a range have no margin of
+/// their own on any host (Chrome's UA sheet gives them `3px 3px 3px 4px`,
+/// `3px 3px 0 5px` and `2px`, which lowering wrote into every plan). The
+/// rows are unset, so the space beside a label is the author's `gap`, and a
+/// margin the author writes is the control's.
+#[test]
+fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    row testId="root"
+      input type="checkbox" testId="check"
+      input type="checkbox" switch testId="switch"
+      input type="radio" testId="radio"
+      input type="range" width=90 testId="range"
+      input type="checkbox" margin-left=6 testId="spaced"
+"#,
+    );
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let margins = [
+        StyleId::MarginTop,
+        StyleId::MarginRight,
+        StyleId::MarginBottom,
+        StyleId::MarginLeft,
+    ];
+    for id in ["check", "switch", "radio", "range"] {
+        let node = r.kernel().node(view_of(&r, id)).unwrap();
+        for margin in margins {
+            assert!(!node.style.mask.has(margin), "{id} sets {margin:?}");
+        }
+        let frame = node.frame;
+        assert_eq!(frame.y, 0.0, "{id} sits at the top of its row");
+    }
+    // Nothing between the controls but their own boxes.
+    let x = |id: &str| r.kernel().node(view_of(&r, id)).unwrap().frame;
+    assert_eq!(x("check").x, 0.0);
+    assert_eq!(x("switch").x, x("check").width);
+    assert_eq!(x("radio").x, x("switch").x + x("switch").width);
+    assert_eq!(x("range").x, x("radio").x + x("radio").width);
+    let spaced = r.kernel().node(view_of(&r, "spaced")).unwrap();
+    assert_eq!(spaced.style.margin_left, Dimension::Points(6.0));
+    assert!(spaced.style.written.has(StyleId::MarginLeft));
+    assert_eq!(spaced.frame.x, x("range").x + x("range").width + 6.0);
 }
 
 #[test]
@@ -204,11 +245,9 @@ fn a_radio_is_a_control_of_its_name_whose_change_carries_its_value() {
     assert_eq!(node.node_type, NodeType::Control);
     assert_eq!(node.props.str(PropId::AccessibilityRole), Some("radio"));
     assert_eq!(node.props.str(PropId::Name), Some("color"));
-    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(5.0));
-    assert_eq!(
-        node.style.margin_bottom,
-        exact_kernel::Dimension::Points(0.0)
-    );
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `3px 3px 0 5px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginLeft));
+    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(0.0));
     let green = view_of(&r, "green");
     assert_eq!(
         r.kernel().node(green).unwrap().props.str(PropId::Type),
@@ -534,7 +573,9 @@ fn a_range_carries_a_number_clamped_and_snapped_as_html_does() {
     assert_eq!(node.props.str(PropId::Min), Some("0"));
     assert_eq!(node.props.str(PropId::Step), Some("5"));
     assert_eq!(node.props.str(PropId::Value), Some("40"));
-    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(2.0));
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `2px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginTop));
+    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(0.0));
     // `input` moves, `change` commits; each payload a number on the step.
     r.dispatch(volume, Event::Input("62".into())).unwrap();
     let preview = r.kernel().node(view_of(&r, "preview")).unwrap();

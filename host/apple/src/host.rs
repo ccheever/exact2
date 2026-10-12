@@ -89,6 +89,9 @@ use layout::content_size;
 #[path = "resize.rs"]
 mod resize;
 #[cfg(test)]
+#[path = "spacing_tests.rs"]
+mod spacing_tests;
+#[cfg(test)]
 #[path = "storage_tests.rs"]
 mod storage_tests;
 #[path = "svg.rs"]

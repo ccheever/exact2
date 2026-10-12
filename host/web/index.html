@@ -118,7 +118,12 @@
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
   #exact-root [data-native], input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* A checkbox, radio, range or date control is the platform's again (LLP 1069.001 D3, D6): its
-     size is the UA's; `appearance: none` on the node hands it to the author. */
+     size is the UA's; `appearance: none` on the node hands it to the author. Its margin is not the UA's (LLP
+     1115.000 D10.1): a checkbox's `3px 3px 3px 4px`, a radio's `3px 3px 0 5px` and a range's `2px` are zero here, as
+     in every common reset and in the kernel's layout on every host, so a control sits where its row puts it and the
+     space beside a label is the author's `gap`. The reset above (`all: unset`) zeroes them already; this says so,
+     under any margin the author writes. */
+  input[type="checkbox"], input[type="radio"], input[type="range"] { margin: 0; }
   input[type="checkbox"], input[type="radio"], input[type="file"], input[type="range"], input[type="date"], input[type="time"], input[type="datetime-local"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
   input[type="checkbox"], input[type="radio"] { box-sizing: border-box; }
   /* LLP 1104 D4: native buttons inherit the page's typography. Face fields

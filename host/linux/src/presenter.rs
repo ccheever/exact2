@@ -109,6 +109,10 @@ mod events_tests;
 #[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
+#[cfg(test)]
+#[path = "presenter/spacing_tests.rs"]
+mod spacing_tests;
+
 pub use device::Device;
 pub use hosted::action as field_action;
 use painter::cpu_info;

@@ -21,6 +21,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   with `overflow-y="auto"`, or a `column height="100%"` holding a `scroll` with `flex=1
   min-height=0`. (Authoring bench, LLP 1087, r33 t1-tip and ios25 t1-tip, 2026-10-06.)
 
+- **A checkbox, a radio or a range touches the text beside it.** Cause: a control
+  has no margin of its own on any host (LLP 1115.000 D10.1): the few pixels a
+  browser's own sheet puts around them are reset, as every common reset does, so
+  the page and the native control are laid out alike. Fix: `gap` on the row
+  (`row align-items="center" gap=8`), which a grouped `list`'s rows already have.
+  (Wave 2 of LLP 1115.000, a scratch page on the web, the Mac and iOS, 2026-10-11.)
+
 - **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
   number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
   28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
