@@ -63,26 +63,33 @@ package final class TextSelection {
         if let shown { return shown }
         guard let presenter else { return [] }
         var result: [NodeView] = []
-        func walk(_ view: NSView) {
-            if view.isHidden { return }
-            if let node = view as? NodeView, presenter.session?.regions.owns(node) == true { return }
-            if let node = view as? NodeView, node.isParagraph { result.append(node); return }
-            for child in view.subviews { walk(child) }
-        }
-        walk(presenter.root)
-        for dialog in presenter.dialogs.presented { walk(dialog) }
-        for popover in presenter.menus.presented { walk(popover) }
+        let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
+        for top in tops { texts(in: top) { result.append($0) } }
         shown = result
         return result
     }
 
     var paragraphs: [NodeView] {
         if let ordered { return ordered.filter(selectable) }
-        guard presenter != nil else { return [] }
-        let result = shownParagraphs.filter(selectable)
+        guard let presenter else { return [] }
+        var result: [NodeView] = []
+        let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
+        for top in tops { texts(in: top) { if selectable($0) { result.append($0) } } }
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result
+    }
+
+    /// The paragraphs under `view` in order, selectable or not, as the
+    /// runner's text projection walks a row: a hidden view and a region's
+    /// own are left out, and an inline run is its paragraph's.
+    private func texts(in view: NSView, _ found: (NodeView) -> Void) {
+        if view.isHidden { return }
+        if let node = view as? NodeView {
+            if presenter?.session?.regions.owns(node) == true { return }
+            if node.isParagraph { found(node); return }
+        }
+        for child in view.subviews { texts(in: child, found) }
     }
 
     private func invalidate() {
