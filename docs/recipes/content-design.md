@@ -1,13 +1,12 @@
 # Recipe: content design
 
-- **Chrome is the platform's.** Bars, sheets, alerts, tabs and a form's controls stay
-  unsaid, so they look native and follow dark mode.
-- **The content is yours:** rows, grouping, where actions sit, the layout. The screen's
-  purpose gets a focal point: large type, a fill (the accent or a system colour), a
-  shape, room.
+- **Chrome is the platform's** (bars, sheets, alerts, tabs, a form's controls: unsaid, they
+  look native and follow dark mode); **the content is yours:** rows, grouping, where
+  actions sit, the layout. The screen's purpose gets a focal point: large type, a fill
+  (the accent or a system colour), a shape, room.
 - **Emphasis is a part, not paint on a control.** A `background-color`, `border` or
-  `font-size` on a `button` makes it your own box. These parts keep a button's
-  semantics, a 44-point target and legible ink in both schemes.
+  `font-size` on a `button` makes it your own box. The parts keep a button's
+  semantics, a 44-point target and legible ink.
 - **A wide window gets a layout:** two columns or cards (`flex="1 1 320px"` in a wrapping
   row), not a phone's column centred.
 - **A status is a `Badge`, not coloured text:** "Full" or "Cancelled" in a capsule beside
@@ -16,9 +15,7 @@
   in a grouped list, the section's `footer`), never left enabled to refuse after the tap.
   `pattern list-detail` shows both.
 - **Colour is a role, a system colour or the accent** (`accent-color` on the root), never
-  a hex. Surfaces pair with their page: a card on a plain page is
-  `-exact-secondary-background`, on a `-exact-grouped-background` page
-  `-exact-secondary-grouped-background`; a surface inside a card the tertiary role.
+  a hex; a card's surface pairs with its page ([start-here](../start-here.md)).
 
 | Part | Props (`none` for an option) | For |
 | --- | --- | --- |
@@ -88,3 +85,28 @@ component Budget
 
 `pattern dashboard` is this over a data module, which adds and sorts (Contract has no
 `reduce` or `sort`); a readout's size: [numeric-readout](numeric-readout.md).
+
+A history: a row a day, its bar against the goal, a badge when met: in a column on a
+wide window, under the bar on a phone.
+
+```contract
+use StatBar, Badge from "exact:content"
+
+shape Day
+  label: string
+  ml: number
+
+component History
+  state goal = 2000
+  resource days = loadWeek() as shape list<Day> else empty()
+  view
+    column gap=14 padding=16 max-width=720
+      text "Last 7 Days" role="heading" aria-level=3
+      each d in days key=d.label
+        row flex-wrap="wrap" align-items="center" column-gap=16 row-gap=6
+          column flex="1 1 300px" min-width=0
+            StatBar(label=d.label, value=`${d.ml} of ${goal} ml`, fraction=d.ml / goal, tint=none)
+          column flex="0 0 80px"
+            when d.ml >= goal
+              Badge(label="Goal met", tint=some("-exact-system-green"))
+```
