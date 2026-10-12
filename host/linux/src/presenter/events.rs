@@ -357,6 +357,20 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(id)
             .is_some_and(|node| node.props.str(PropId::ContextPopover).is_some());
+        // Where the top layer is windows (LLP 1115.001 D10) the menu a node
+        // names opens as a finger held on it opens it: its `contextmenu`
+        // runs, then the menu shows at the point (the node's middle unsaid).
+        if names_popover && self.has_windows() {
+            let b = self
+                .box_of(id)
+                .ok_or_else(|| format!("no view {id} on screen"))?;
+            let (dx, dy) = at.unwrap_or((b.rect.2 / 2.0, b.rect.3 / 2.0));
+            let now = self.host.now();
+            return match self.long_press(b.rect.0 + dx, b.rect.1 + dy, now) {
+                true => Ok(format!("{{\"tapped\":{id},\"contextmenu\":true}}")),
+                false => Err(format!("view {id} opened no context menu")),
+            };
+        }
         self.mouse_click(id, at, true).map_err(|refusal| {
             if names_popover && refusal.contains("canvas") {
                 self.host.log(crate::navigation::POPOVER_UNSUPPORTED);

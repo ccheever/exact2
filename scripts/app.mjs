@@ -272,7 +272,7 @@ export function wasmRemapFlags(app, toolchain = null) {
  * reads no trap. Everything else builds with rust-toolchain.toml's stable. */
 export const WEB_TOOLCHAIN = 'nightly-2026-08-21';
 export const WEB_STD = ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'];
-// Deprecation is stable's to judge (the five checks' clippy): the nightly
+// Deprecation is stable's to judge (the six checks' clippy): the nightly
 // deprecates names, like `fetch_update`, before stable has their successors.
 const WEB_RUSTFLAGS = ['-Zunstable-options', '-Cpanic=immediate-abort', '-Zlocation-detail=none', '-Adeprecated'];
 /** The environment for a web build, refusing a machine without the toolchain
@@ -589,7 +589,7 @@ export function readManifest(dir, name) {
     : /^game\.presentation: /.test(p)
       ? 'game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (LLP 1046.008, amendment of 2026-10-04)'
       : p);
-  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...appleIconProblems(parsed, dir));
+  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...protocolHandlerProblems(parsed), ...appleIconProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   macResourceMappings(parsed);
   return { host: {}, deploy: {}, ...parsed };
@@ -646,7 +646,6 @@ export function ownDocumentType(appId, mime) {
     conformsTo: [...(base ? [base] : mime.startsWith('text/') ? ['public.plain-text'] : ['public.data']), 'public.content'],
   };
 }
-
 function documentTypeProblems(manifest) {
   return (manifest.file_handlers ?? []).flatMap((handler, i) => Object.entries(handler.accept)
     .flatMap(([mime, extensions]) => Object.hasOwn(DOCUMENT_UTIS, mime) ? []
@@ -654,13 +653,14 @@ function documentTypeProblems(manifest) {
       : ![extensions].flat().some((e) => /^\.[^./]+$/.test(e)) ? [`file_handlers[${i}].accept: ${mime}, the app's own type, names no extension (".board")`]
       : []));
 }
-
+function protocolHandlerProblems({ protocol_handlers = [] }) {
+  return protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]);
+}
+export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {})}; }
 let cachedSchema = null;
 function schema() {
-  cachedSchema ??= JSON.parse(readFileSync(resolve(ROOT, 'scripts/app.schema.json'), 'utf8'));
-  return cachedSchema;
+  return cachedSchema ??= JSON.parse(readFileSync(resolve(ROOT, 'scripts/app.schema.json'), 'utf8'));
 }
-
 /** The subset of JSON Schema the manifest's schema uses — type, required, properties, additionalProperties, items, minItems, enum, pattern, minLength, oneOf, $ref into $defs — checked by hand so the reader needs no dependency. Every problem in one pass. */
 export function validate(value, node, at, root) {
   const problems = [];
@@ -1179,7 +1179,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     else absent.set(nameOf(path), path);
   }
   for (const entry of appleAssetCatalogs) add(resolve(app.dir, entry.path));
-  const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(nativeResources.length ? {nativeResources} : {}),app:app.manifest.app,host:app.manifest.host?.[platform]??{},icons:app.manifest.icons??[],delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
+  const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
@@ -1222,7 +1222,7 @@ export function awaitBuildOutput(app, path, waiting) {
   }
 }
 
-function claimLive(text) {
+export function claimLive(text) {
   let claim;
   try { claim = JSON.parse(text); } catch { return true; } // unreadable: never guess
   if (!Number.isSafeInteger(claim.pid) || claim.pid <= 0) return true;

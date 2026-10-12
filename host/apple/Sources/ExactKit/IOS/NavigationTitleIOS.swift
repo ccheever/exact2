@@ -1,21 +1,29 @@
 // @ref LLP 1075.003 §9.10 — what a route's authored header and the root's
 // tablist say about the bars beyond a title and items, declared, with no
 // module: the heading's group as a richer title (an avatar, a subtitle, a
-// press), the bar hidden for a route with no header, and the tab bar hidden
-// for a route pushed while the authored tablist is. The web, macOS, Linux
-// and the agent paint what is authored, which is where each rule comes from.
+// press), and the tab bar hidden for a route pushed while the authored
+// tablist is. The web, macOS, Linux and the agent paint what is authored,
+// which is where each rule comes from.
+// @ref LLP 1115.000 D5.2, D5.3 — which routes show the bar (`routeShowsBar`,
+// by `NavigationRules.bar`): each route's own header, the system Back alone
+// on a pushed route with none, and no bar where the route says so.
 #if os(iOS) || os(tvOS)
 import UIKit
 
 /// The heading's group in a header-shaped route: the element around the
 /// heading that holds no bar item, search field or tablist — or the
-/// pressable element around it, which a tap on the title presses. Before
-/// the heading, a filled box holding a text or a symbol is the title's
-/// avatar; after it, the first text is its subtitle.
+/// pressable element around it, which a tap on the title presses — else
+/// the header itself (LLP 1116 D2). Before the heading, a filled box
+/// holding a text or a symbol is the title's avatar (in a wrapper group
+/// only: a box beside the heading in the header is no avatar); after it,
+/// the first text is its subtitle.
 struct HeaderTitle: Equatable {
     let id: UInt32, testId: String?
     let avatar: BadgeFace?
     let subtitle: String
+    /// The nodes the title shows besides the heading: the avatar's box and
+    /// the subtitle's text or glyph line (`HeaderShape.placed`).
+    let placed: [NodeView]
     /// The subtitle as a line of symbols and texts, in order, when it is one
     /// (a box of symbol images and texts after the heading): Signal's "🔕 Muted
     /// ⏱ 1w". Empty for a plain text subtitle.
@@ -28,6 +36,7 @@ struct HeaderTitle: Equatable {
     struct Glyph: Equatable { let symbol: String?; let text: String }
     /// The element a tap on the title presses.
     let tap: UInt32?
+    let accessibilityDisabled: Bool
 
     init?(header: NodeView, heading: NodeView, tap: NodeView?, apart: [NodeView]) {
         // The heading's ancestors below the header, innermost first.
@@ -36,8 +45,14 @@ struct HeaderTitle: Equatable {
             if let node = view as? NodeView { chain.append(node) }
             at = view.superview
         }
-        guard let group = tap ?? chain.last(where: { a in !apart.contains { $0.isDescendant(of: a) } }) else { return nil }
+        // No wrapper qualifies (the heading is the header's own child, or
+        // what wraps it holds a bar item): the header is the group, whose
+        // walk passes over the items, the search field and the tablist as
+        // controls (LLP 1116 D2, amending LLP 1075.003 §9.10).
+        let wrapper = tap ?? chain.last(where: { a in !apart.contains { $0.isDescendant(of: a) } })
+        let group = wrapper ?? header
         var avatar: BadgeFace?, subtitle = "", glyphs: [Glyph] = [], passed = false, spoken: String?, rtl = false
+        var placed: [NodeView] = []
         func shown(_ node: NodeView) -> [NodeView] {
             node.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
         }
@@ -74,10 +89,13 @@ struct HeaderTitle: Equatable {
             for child in shown(node) {
                 if child === heading { passed = true; continue }
                 if control(child) { continue }
-                if !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) { avatar = face; continue }
-                if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; continue }
+                if wrapper != nil, !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) {
+                    avatar = face; placed.append(child); continue
+                }
+                if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; placed.append(child); continue }
                 if passed, subtitle.isEmpty, let pieces = line(child) {
                     glyphs = pieces
+                    placed.append(child)
                     subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
                     // What it says, as the author named it, else its texts.
                     spoken = child.authoredLabel ?? subtitle
@@ -97,29 +115,69 @@ struct HeaderTitle: Equatable {
         testId = group.props["testId"]
         self.avatar = avatar
         self.subtitle = subtitle
+        self.placed = placed
         self.glyphs = glyphs
         self.spoken = spoken ?? subtitle
         self.rtl = rtl
         self.tap = tap?.id
+        accessibilityDisabled = tap?.ariaUnavailable == true
+    }
+
+    /// Whether the title is a drawn title view rather than UIKit's own
+    /// title and subtitle: an avatar, a press or a glyph line, or any
+    /// subtitle before iOS 26, which has no `navigationItem.subtitle`.
+    var drawn: Bool {
+        var subtitled = false
+        if #available(iOS 26.0, *) { subtitled = true }
+        return avatar != nil || tap != nil || !glyphs.isEmpty || !subtitled
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0):\(accessibilityDisabled)" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
         node.container.subviews.contains { child in
             guard let child = child as? NodeView else { return false }
-            return (child.isParagraph && child.headingLevel != nil) || holdsHeading(child)
+            return child.isHeading || holdsHeading(child)
         }
     }
 }
 
 extension HeaderShape {
-    /// The shape, unless its header is hidden as authored (`display: none`):
-    /// a route whose header the web does not show has no bar (§9.10).
-    static func shown(_ shape: HeaderShape) -> HeaderShape? {
-        shape.header.style["display"]?.string == "none" ? nil : shape
+    /// The header a route's bar is projected from in the app: its shape,
+    /// unless the route says it has no bar (`navigationBar="none"`, LLP
+    /// 1115.000 D5.2), where its header paints in the page as written, or
+    /// its header is hidden as authored (`display: none`): a header the web
+    /// does not show is no bar's (§9.10), and its route is one with no
+    /// header. Both are the shared rule's (`HeaderRule`, `projected`).
+    static func bar(of route: NodeView, back: String? = nil, backIsUIKits: Bool = true) -> HeaderShape? {
+        HeaderShape(route: route, back: back, backIsUIKits: backIsUIKits, projected: true)
+    }
+
+    /// The heading's group as the bar shows it (§9.10). A tablist's
+    /// segments take the title view first (§9.8): beside them a group
+    /// shows only as UIKit's own subtitle (iOS 26), never drawn.
+    static func presented(_ group: HeaderTitle?, segments: NodeView?) -> HeaderTitle? {
+        guard let group else { return nil }
+        return segments == nil || !group.drawn ? group : nil
+    }
+
+    /// Whether the bar shows `node`, a node of the header it replaces, or
+    /// stands for it (LLP 1116 D2): a node it places, one inside such a
+    /// node (a button's face), or one holding one (the header, a wrapper).
+    /// Everything else in the header is hidden with it on iOS, which the
+    /// agent says under its own chrome (`unshownByBar`). A node outside the
+    /// header, or one the web does not show either (`display: none`), is
+    /// not the bar's to judge.
+    func presents(_ node: NodeView) -> Bool {
+        guard node === header || node.isDescendant(of: header) else { return true }
+        var at: UIView? = node
+        while let view = at, view !== header.superview {
+            if (view as? NodeView)?.style["display"]?.string == "none" { return true }
+            at = view.superview
+        }
+        return placed.contains { node === $0 || node.isDescendant(of: $0) || $0.isDescendant(of: node) }
     }
 }
 
@@ -225,7 +283,7 @@ final class HeaderTitleView: UIControl {
         isEnabled = group.tap != nil
         accessibilityLabel = text
         accessibilityValue = group.subtitle.isEmpty ? nil : group.spoken
-        accessibilityTraits = group.tap == nil ? .header : .button
+        accessibilityTraits = group.tap == nil ? .header : group.accessibilityDisabled ? [.button, .notEnabled] : .button
         accessibilityIdentifier = group.testId
         invalidateIntrinsicContentSize()
     }
@@ -236,10 +294,54 @@ final class HeaderTitleView: UIControl {
 }
 
 extension NavigationHost {
-    /// Whether a route shows its stack's bar: the stack has one and the
-    /// route's header is shaped for it and shown (§9.10).
+    /// What the agent says of a header node the bar leaves out.
+    static let unshownReason = "the iOS navigation bar does not show this node; in the app it is not visible (the bar shows a header's heading, the first text after it as its subtitle, one search field, one tablist and its buttons)"
+
+    /// The authored header nodes the iOS navigation bar would not show
+    /// (LLP 1116 D2), by id. Under the agent's own chrome the header paints
+    /// as on the web, so such a node still answers `expect` and shows in a
+    /// screenshot; the agent marks it, and refuses a tap on it, by this.
+    /// Each shown header of a route whose stack has a bar in the app (not
+    /// as the agent's chrome draws it) is judged by `HeaderShape.presents`.
+    func unshownByBar() -> [UInt32: String] {
+        var out: [UInt32: String] = [:]
+        let back = container?.props["navigationBack"]
+        for nav in allNavigations where stacks[ObjectIdentifier(nav)]?.showsBar == true {
+            for (index, controller) in nav.viewControllers.enumerated() {
+                guard let c = controller as? RouteController,
+                      let shape = HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) else { continue }
+                func walk(_ node: NodeView) {
+                    for case let child as NodeView in node.container.subviews {
+                        if !shape.presents(child) { out[child.id] = Self.unshownReason }
+                        walk(child)
+                    }
+                }
+                walk(shape.header)
+            }
+        }
+        return out
+    }
+
+    /// Whether the platform's bar has a Back button for a pushed route to
+    /// show alone: tvOS's has none (its Back is the remote's Menu).
+    #if os(tvOS)
+    static let barHasBackButton = false
+    #else
+    static let barHasBackButton = true
+    #endif
+
+    /// What a route shows of the bar, where its stack's routes may show it
+    /// (`NavigationRules.bar`, LLP 1115.000 D5.2): its header, the system
+    /// Back alone, or nothing.
+    func bar(of route: NodeView, pushed: Bool) -> NavigationRules.Bar {
+        NavigationRules.bar(asked: route.props["navigationBar"], header: HeaderShape.bar(of: route) != nil,
+                            pushed: pushed, backButton: Self.barHasBackButton)
+    }
+
+    /// Whether a route shows the bar: its stack's routes may, and the route
+    /// has something to show in it.
     func routeShowsBar(_ c: RouteController, in nav: UINavigationController) -> Bool {
-        barShows(nav) && HeaderShape(route: c.node, back: nil).flatMap(HeaderShape.shown) != nil
+        barShows(nav) && bar(of: c.node, pushed: c.pushed) != .hidden
     }
 
     /// Whether the bar is UIKit's for now on a route's account: its header
@@ -272,10 +374,8 @@ extension NavigationHost {
     /// another title view, its own subtitle — is left alone.
     func richTitle(_ shape: HeaderShape?, in c: RouteController) {
         let item = c.navigationItem
-        let group = shape?.segments == nil ? shape?.group : nil
-        var subtitled = false
-        if #available(iOS 26.0, *) { subtitled = true }
-        let drawn = group.map { $0.avatar != nil || $0.tap != nil || !$0.glyphs.isEmpty || !subtitled } ?? false
+        let group = HeaderShape.presented(shape?.group, segments: shape?.segments)
+        let drawn = group?.drawn ?? false
         // tvOS's navigation item has no subtitle.
         #if !os(tvOS)
         if #available(iOS 26.0, *) {
@@ -310,7 +410,7 @@ extension NavigationHost {
     /// `setTabBarHidden` (iOS 18), as Signal hides its tab bar for the chat
     /// list's multi-select.
     func followTablist(_ routes: [RouteController], in nav: UINavigationController) {
-        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
+        guard !ExactEnv.authoredChrome, let key = selectedKey,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"
@@ -382,7 +482,7 @@ extension NavigationHost {
     /// A transition settled (`didShow`): the root, if it is on top now,
     /// reconciles the bar with its tablist.
     func settleTablist(_ nav: UINavigationController) {
-        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
+        guard !ExactEnv.authoredChrome, let key = selectedKey,
               let root = nav.viewControllers.first as? RouteController, root.key == key, nav.topViewController === root,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }

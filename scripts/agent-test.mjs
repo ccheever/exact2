@@ -10,6 +10,7 @@ import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
+import { serverUrl } from './verify.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
@@ -23,6 +24,25 @@ export function textOf(nodes, node, live = false) {
   // `live`: only what an active screen shows (a covered descendant's text is not this node's name).
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null && !(live && nodes[i].inactive)) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
+}
+
+/** The node a test's target names in a tree: a covered screen's copy only when no active one carries it (shop F16). */
+const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.props.testId === target); return matches.find((m) => !m.inactive) ?? matches[0]; };
+
+/** `expect text <target> == <value>` over a `tree` reply's nodes: null when it holds, else `{ message }` — with
+ * `unshown` when the tree's text is right but the shipped app does not show the node: a header node the iOS
+ * navigation bar leaves out, which the agent's own chrome still paints (LLP 1116 D2). No clock can change that. */
+export function textExpectation(nodes, target, value) {
+  const n = targetNode(nodes, target), got = n ? textOf(nodes, n) : undefined;
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}` };
+  return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
+}
+
+/** `expect tree <present|missing> <target>`, as `textExpectation`: a node present in the tree that the shipped app does not show is not present. */
+export function treeExpectation(nodes, target, present) {
+  const n = targetNode(nodes, target);
+  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : 'absent'}` };
+  return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
 }
 
 // What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
@@ -127,6 +147,21 @@ export function driveNotes(s, { host, storage }) {
     } catch { /* advice only */ }
   };
 }
+/** A test's `request` line (LLP 1116.006 D8): `st.path` under `base`, the server URL the app calls (or a whole URL),
+ * its body as JSON, `as` the bearer token, as the rest pattern names a persona. A refusal or no answer throws, saying
+ * what came back. */
+export async function serverRequest(base, st) {
+  const whole = /^https?:\/\//.test(st.path);
+  if (!whole && !base) throw new Error(`request: app.ts calls no local server (http://127.0.0.1:<port>), so ${JSON.stringify(st.path)} is under nothing; write the whole URL`);
+  const url = whole ? st.path : `${base}${st.path}`, said = `request ${st.method} ${url}${st.as ? ` as ${st.as}` : ''}`;
+  const headers = { ...(st.body != null ? { 'content-type': 'application/json' } : {}), ...(st.as ? { authorization: `Bearer ${st.as}` } : {}) };
+  let res;
+  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
+  catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
+  const text = (await res.text().catch(() => '')).trim();
+  if (!res.ok) throw new Error(`${said}: the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`);
+}
+
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
 const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
 
@@ -141,8 +176,11 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`, each result `{ name, failures, notes }`: notes are advice, never a failure.
+ * `atEnd(s, { name, index, size, store, failures, reload, launch })` (verify's, LLP 1116.005 D7; `launch`: the epoch, zone, locale
+ * and seed the test launched with, LLP 1116.007 D3.4) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
+ * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', atEnd } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -151,15 +189,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const results = [];
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };
-  const id = resolveApp(app).id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
-  const base = device ? null : chrome ? driveStore(id, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
+  const selected = resolveApp(app), id = selected.id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
+  const base = device ? null : chrome ? driveStore(selected, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
   // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
   // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
   // Android's stores are on the device, out of the driver's reach, but a run's names stay its own there too (LLP 1107).
   const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
+  const server = serverUrl(selected.dir); // where a `request` line's path is (LLP 1116.006 D8)
   for (const [n, t] of tests.entries()) {
     const failures = [];
+    let end = null;
     const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
@@ -225,6 +265,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     let loaded = !beforeData;
     // The line whose `close` closed the window, if one did.
     let closedAt = null;
+    // A `request` line's, until the clock moves on: the app shows the write when it next reads (its poll, `clock +N`).
+    let unpolled = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
     let current = null;
@@ -235,6 +277,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
       const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('');
+      if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
       failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}`);
@@ -254,7 +297,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       };
       // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
       // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
-      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize']);
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize', 'back']);
       const settleFired = async () => {
         if (!armed.size) return;
         const faults = (await s.state()).faults ?? [];
@@ -310,27 +353,32 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
-            case 'clock': await s.clock(st.arg); input = null; loaded = true; break;
+            case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
+            // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
+            // shows changes until it reads again.
+            case 'request': await serverRequest(server, st); unpolled = st.line; break;
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
             // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
             // one that closed takes the session, so a step after it fails naming it.
             // Counted faults are checked first: a window that closes takes the table with it.
             case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
+            // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
+            // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
+            case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();
-              const found = tree.nodes.some((n) => n.props.testId === st.target);
+              const f = treeExpectation(tree.nodes, st.target, st.present);
               // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
               const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
-              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+              if (f?.unshown) failures.push(`${at}: ${f.message}`);
+              else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
               break;
             }
             case 'expect-text': {
-              const { nodes } = await s.tree();
-              // As a target is found: a covered screen's copy only when no active one carries it (shop F16).
-              const matches = nodes.filter((n) => n.props.testId === st.target), n = matches.find((m) => !m.inactive) ?? matches[0];
-              const got = n ? textOf(nodes, n) : undefined;
-              if (got !== st.value) await fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
+              const f = textExpectation((await s.tree()).nodes, st.target, st.value);
+              if (f?.unshown) failures.push(`${at}: ${f.message}`);
+              else if (f) await fail(`${at}: ${f.message}`);
               break;
             }
             case 'expect-state': {
@@ -344,7 +392,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
                 if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
                 got = got[field]; path += `.${field}`;
               }
-              if (missing != null) { failures.push(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
+              if (missing != null) { await fail(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
               if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
@@ -385,12 +433,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
+      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, env: env ?? {} }) }).catch((e) => ({ error: e.message }));
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
-    results.push({ name: t.name, failures, notes });
-    if (base) rmSync(resolve(base, store), { recursive: true, force: true });
+    results.push({ name: t.name, failures, notes, ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
+    if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length;
   return { passed: results.length - failed, failed, results };

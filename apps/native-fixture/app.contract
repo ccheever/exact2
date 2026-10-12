@@ -230,6 +230,10 @@ component NativeFixture
   // LLP 1115 D5: Plain (pushed) and Note (a sheet) declare no Back control;
   // the platform's Back still goes, delivered here as the web's history
   // Back is: the location beneath.
+  state focusPlain = false
+  action openFocusedPlain
+    focusPlain = true
+    nav = push(nav, "/plain")
   action openPlain
     nav = push(nav, "/plain")
   action openNote
@@ -293,7 +297,7 @@ component NativeFixture
   action askedMenu
     nav = push((top(nav).name == "sheet" ? nav : push(nav, "/sheet")), "/menu")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
-  // route pushed with the tablist hidden, and one with no header.
+  // route pushed with the tablist hidden, and one that asks for no bar.
   state subtitle = "Online"
   state titlePresses = 0
   action openChat
@@ -308,6 +312,16 @@ component NativeFixture
   state muted = false
   action toggleMuted
     muted = not muted
+  // Chat's scroller with its tall box gone: a column that fills its height,
+  // laid out between the bar and the home indicator (LLP 1116.000 D1.2).
+  state shortChat = false
+  action toggleShortChat
+    shortChat = not shortChat
+  // Second's scroller replaced in place by a taller or a shorter one, as a
+  // quiz's results replace its question: each opens at its top.
+  state secondPage = ""
+  action showSecondPage(page: string)
+    secondPage = page
   // The tablist hidden over the root, as Signal's chat-list multi-select
   // hides its tab bar (LLP 1075.003 §3.7, amended 2026-10-05).
   state choosing = false
@@ -319,8 +333,13 @@ component NativeFixture
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             each e in t.stack key=e.id
-              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
-                // A route with no header has no bar (§9.10).
+              // Second names no scroller: its `scroll` right after the header
+              // is the bar's with nothing written (LLP 1115.000 D11.1), and
+              // its large title collapses with it. The others name theirs.
+              column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+                // Photo is a full-bleed viewer that draws its own Close: it
+                // says it has no bar (`navigationBar="none"`, LLP 1115.000
+                // D5.2). Menu, a sheet's first route, has nothing to go back to.
                 when e.name != "photo" and e.name != "menu"
                   header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
                     when e.name == "detail" or e.name == "rows" or e.name == "chat"
@@ -355,7 +374,7 @@ component NativeFixture
                         column width=32 height=32 border-radius="50%" background-color="#dcfce7" align-items="center" justify-content="center"
                           text "CD" font-size=13 color="#166534"
                         column
-                          text "Chat" aria-level=2 testId="title-chat" font-weight=700 font-size=17
+                          text "Chat" role="heading" aria-level=2 testId="title-chat" font-weight=700 font-size=17
                           when subtitle != "" and not muted
                             text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
                           when muted
@@ -365,7 +384,13 @@ component NativeFixture
                               image "symbol:sf/timer" width=12 height=12 object-fit="contain"
                               text "1w" font-size=12 color="#6b7280"
                     when e.name != "chat"
-                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") role="heading" aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                    // The heading the header holds directly: the first text
+                    // after it is the bar's subtitle; a second is not shown
+                    // on iOS, which the agent says (LLP 1116 D2).
+                    when e.name == "plain"
+                      text "No Back control" testId="subtitle-plain" font-size=12 color="#6b7280"
+                      text "Draft" testId="aside-plain" font-size=12 color="#6b7280"
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
                 when e.name == "home"
@@ -395,9 +420,12 @@ component NativeFixture
                         text "Chat"
                       button press=openPlain testId="open-plain" padding=6 background-color="#e5e7eb"
                         text "Plain"
+                      button press=openFocusedPlain testId="open-focused-plain" height=44
+                        text "Focus fields"
                       button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
                         text "Note"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
+                        head description="Badge"
                     text ("composed " + toString(composed)) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
@@ -578,15 +606,19 @@ component NativeFixture
                         text "Cancel"
                 when e.name == "chat"
                   scroll id="list-chat" testId="list-chat" flex=1 min-height=0
-                    column padding=12 gap=8
+                    column padding=12 gap=8 min-height="100%" box-sizing="border-box"
                       button press=openPhoto testId="photo" padding=6 background-color="#e5e7eb"
                         text "Photo"
                       button press=toggleSubtitle testId="toggle-subtitle" padding=6 background-color="#e5e7eb"
                         text "Subtitle"
                       button press=toggleMuted testId="toggle-muted" padding=6 background-color="#e5e7eb"
                         text "Muted"
+                      button press=toggleShortChat testId="toggle-short-chat" padding=6 background-color="#e5e7eb"
+                        text "Short"
                       text ("title presses " + toString(titlePresses)) testId="title-presses"
-                      column testId="tall-chat" height=1600 background-color="#f0fdf4"
+                      when not shortChat
+                        column testId="tall-chat" height=1600 background-color="#f0fdf4"
+                      text "End" testId="chat-end" margin-top="auto"
                 // Rows that may shrink (CSS's default), measured as asked for.
                 when e.name == "menu"
                   column testId="menu-rows" padding=16
@@ -613,11 +645,14 @@ component NativeFixture
                     // Back and the edge swipe pop it back to Sheet.
                     button press=detail testId="sheet-detail" height=44
                       text "Detail in the sheet"
+                when e.name == "plain" and focusPlain
+                  input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
+                  input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
                 when e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"
                       text "Close"
-                when e.name == "second"
+                when e.name == "second" and secondPage == ""
                   scroll id="list-second" testId="list-second" flex=1 min-height=0
                     column padding=12 gap=8
                       input appearance="none" value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
@@ -628,6 +663,19 @@ component NativeFixture
                       exact-screen testId="screen" width="100%" height=96
                       text "Second" testId="second-top"
                       column testId="tall-second" height=1600 background-color="#eef2ff"
+                      button press=showSecondPage("taller") testId="second-taller" padding=6 background-color="#e5e7eb"
+                        text "Taller"
+                when e.name == "second" and secondPage == "taller"
+                  scroll id="list-second" testId="list-second-taller" flex=1 min-height=0
+                    column padding=12 gap=8
+                      text "Taller" testId="second-taller-top"
+                      button press=showSecondPage("shorter") testId="second-shorter" padding=6 background-color="#e5e7eb"
+                        text "Shorter"
+                      column height=2400 background-color="#fef3c7"
+                when e.name == "second" and secondPage == "shorter"
+                  scroll id="list-second" testId="list-second-shorter" flex=1 min-height=0
+                    column padding=12 gap=8
+                      text "Shorter" testId="second-shorter-top"
       // Hidden on Chat and Photo, so the tab bar hides for them (§9.10);
       // its accent tints the bar's selected item.
       row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" display=((choosing and top(nav).name == "home") or top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
@@ -676,8 +724,10 @@ component HatchedRows
       column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
         button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
           text "Close"
-      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
+      list virtualized=true hatch="feed" width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
         each r in items key=r.n
           row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
             column hatch="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
             text ("Row " + toString(r.n))
+            button press=toggleReuse testId=`row-button-${r.n}`
+              text "Toggle"

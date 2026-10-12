@@ -1,8 +1,9 @@
 # Contract: a guide for humans
 
 Contract describes an application's interface, state, and interactions. Exact
-compiles it for the web and native hosts. You write the view once; CSS names and
-web behavior are the default across those hosts. Network access, persistent
+compiles it for the web and native hosts. You write the view once, in CSS's names
+and layout; what you leave unsaid (controls, colour, type, how a press or a scroll
+feels) is each platform's own (LLP 1115). Network access, persistent
 storage, and substantial computation belong in a TypeScript or Rust data module.
 
 This guide describes the implementation on `main` on 2026-10-02, including
@@ -289,8 +290,9 @@ component Snapshot
       text `${count}/${observed}` testId="value"
 ```
 
-After the first press, the text is `1/0`. The local `before` saw the old count.
-To reuse a newly computed value, compute it once first:
+After the first press, the text is `1/0`. The local `before` saw the old count,
+and the compiler warns of the read (`analyze-read-after-assign`). To reuse a newly
+computed value, compute it once first:
 
 ```text
 action step
@@ -376,7 +378,7 @@ inside parentheses. The compiler checks tags, attributes, leaf-node children,
 and handler signatures.
 
 ```text
-text "Heading" font-size=24
+text "Heading" role="heading"
 image "/assets/photo.jpg" width=120 height=80 object-fit="cover"
 Card(title="Heading", selected=selected)
 ```
@@ -798,7 +800,7 @@ call outside them fails. The capabilities are:
 
 | Grant | Allows |
 |---|---|
-| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains). A redirect must stay inside the grants too; one that leaves them fails naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
+| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains). Native checks each redirect before contact. Web checks the final response URL. On render-server pages, `connect-src` uses app grants: a hop outside the page origin and app grants is blocked before contact (`Network`); a hop the app grants but this source does not can receive a 307 POST body and return to a source-granted final URL, succeeding on web while native refuses. Static and dev pages have no such CSP, so even an app-ungranted hop can be contacted and a return chain can succeed. Without CSP, an ungranted final URL fails after contact, naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
 | `net.websocket wss://api.example.com` | a WebSocket to that origin |
 | `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
 | `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
@@ -945,7 +947,9 @@ blurs the backdrop, then increases its saturation. `saturate(0)` is grayscale;
 `saturate(180%)` is the same as `saturate(1.8)`. A function may appear only once.
 Web, macOS and Linux apply these functions; iOS/tvOS use the fixed `.light`
 system material approximation. macOS samples only the parent layer's subtree
-and clips children to the filter's border box. `backgroundMaterial` wins when
+and clips children to the filter's border box, so make a glass panel a sibling
+of what it covers (a floating composer beside its scrolling transcript), not a
+child of an empty wrapper. `backgroundMaterial` wins when
 both are present, and backdrop filters do not animate.
 
 Bound scroll containers. A typical full-height column gives its scroller
@@ -964,7 +968,13 @@ one, as a radiogroup names itself by its visible heading) wins over `aria-label`
 this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
-property for those four, so iOS exposes none of them.
+property for those four, so iOS exposes none of them. A drawn range —
+`role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
+takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
+and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
+children unread, and its value is the platform's (UIKit's `accessibilityValue`
+as a percentage, "30%", or the text; AppKit's value, minimum and maximum, the
+text its description). A `progress` or `input type="range"` says its own value.
 Leave font sizes, colours and control metrics unsaid and the platform supplies them;
 what you set on a node wins.
 
@@ -1022,8 +1032,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`, and `progress` with no `value`, the platform's activity indicator
-([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress`: with `value` and `max` the platform's progress bar,
+with no `value` its activity indicator ([progress](contract-grammar.md#progress-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.
@@ -1038,8 +1048,9 @@ compiler does not check most commands' arguments, and hosts differ: the
 JavaScript web target has no `openURL`, and Linux carries neither `focus` nor
 `openURL`. Check the host you target.
 
-A file `input` needs a literal `accept`; types other than images and video must
-be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
+A file `input` with no `accept`, an empty `accept`, or `accept="*/*"` offers any
+file. A specific `accept` must be literal; types other than images and video
+must be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
 cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
@@ -1299,8 +1310,9 @@ keeps no host awake. The action runs at the deadline exactly, so it clears the
 toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
-under the agent); it is not a date. For the date, read the reserved `exactTime`
+`performanceNow()` reads milliseconds since this launch of the app on the runner's clock (it
+restarts at 0 on every launch; the driver's clock under the agent); it is not a date, and
+anything stored or sent takes `time.epochAtZero + performanceNow()` instead. For the date, read the reserved `exactTime`
 source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
 compiler refuses it and names both. Advancing the clock alone does not
 necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later

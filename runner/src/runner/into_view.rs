@@ -31,6 +31,30 @@ impl IntoView {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Materialize a logical row for a host's keyboard focus traversal, using
+    /// the same nearest alignment as `scrollIntoView`. The host can inspect
+    /// the mounted row, focus a descendant, then send its measurement/pin
+    /// feedback. No unmounted records or keys cross the host seam.
+    /// `None` means that the list or row no longer exists.
+    pub fn reveal_collection_index(
+        &mut self,
+        view: ViewId,
+        index: usize,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let Some(lists) = self.links.lists else {
+            return Ok(None);
+        };
+        let mut found = false;
+        let receipt = self.update_tree(false, |tree, u| {
+            found = (lists.reveal_index)(tree, u, view, index)?;
+            Ok(())
+        })?;
+        Ok(found.then_some(receipt))
+    }
+
     /// Bring a virtualized list's row into view by key, as the agent's `tap
     /// <list> into <key>` asks (LLP 1070.000 §5): the same request an
     /// action's command makes, committed now. Its outcome is in `state`.

@@ -208,6 +208,9 @@ package final class CollectionHost {
         /// leave above a deep offset shrink the document first, and the
         /// platform's clamp to it is not a scroll (`endBatch`'s shift).
         var batchStart: Double?
+        /// The platform's insets of the port when the batch began
+        /// (`portInsets`): one that changed under it moved the port.
+        var batchInsets: [Double]?
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -372,7 +375,7 @@ package final class CollectionHost {
         #endif
     }
     func beginBatch(_ batch: Batch) {
-        if batchDepth == 0 { for (view, entry) in entries { entry.batchStart = geometry(view)?.offset } }
+        if batchDepth == 0 { for (view, entry) in entries { entry.batchInsets = portInsets(view); entry.batchStart = geometry(view)?.offset } }
         batchDepth += 1
         for op in batch.ops where op.op == .collections {
             guard let items = op.payload["items"] as? [[String: Any]] else { continue }
@@ -406,6 +409,18 @@ package final class CollectionHost {
             let planned = entry.cursor.sequence, jumped = entry.cursor.jumpedAt
             if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
             entry.port = dimensions
+            // The port went under the bar or came out from under it (LLP
+            // 1116.000 D1.3): the platform's clamp to the new frame and its
+            // compensation for the new inset are not the reader moving, and
+            // together they put an opened transcript's end an inset short.
+            // Where the port starts stays (CSS's scrollTop), before any
+            // correction lands.
+            if let start = entry.batchStart, let insets = entry.batchInsets, insets != portInsets(view) {
+                correcting = true
+                keepStart(view, at: start)
+                correcting = false
+            }
+            entry.batchInsets = nil
             if let correction = entry.snapshot.correction, correction.from != nil {
                 // Rows before the anchor changed size in this batch: the
                 // offset moves with them before this frame displays, even

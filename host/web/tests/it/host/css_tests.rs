@@ -156,6 +156,7 @@ fn style_rows_lower_to_css_by_their_names() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
     use exact_motion::{
         Easing, LinearStop, SpringConfig, StepPosition, TimingFunction, Transition,
@@ -214,10 +215,9 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
         ])),
         "linear(0 0%,0.9 50%,1 100%)"
     );
-    let mut s = exact_kernel::StyleProps {
-        transition: rows,
-        ..Default::default()
-    };
+    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+    let mut s = exact_kernel::StyleProps::default();
+    s.transition = rows;
     s.mask.set(exact_kernel::StyleId::Transition);
     let (css, skipped) = css_text(&s, &[]);
     assert!(css.starts_with("transition:opacity 0.25s"));

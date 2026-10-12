@@ -10,7 +10,15 @@
 
 use crate::tags::{self, AttrTarget, Tag};
 use contract_syntax::{Attr, Expr, Span};
-use exact_kernel::{StyleCodec, StyleId};
+use exact_kernel::{PropId, StyleCodec, StyleId};
+
+/// A prop's literal value grammar, shared by its refusal and `contract vocab`.
+pub fn accepts(prop: PropId) -> Option<&'static str> {
+    match prop {
+        PropId::NavigationDetent => Some("space-separated large, medium, or finite positive point heights; fit-content alone or as fit-content large"),
+        _ => None,
+    }
+}
 
 include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 
@@ -45,6 +53,23 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "an `audio` or `video` with `metadata=`",
     ),
 ];
+
+/// What a tag means beyond its node, where the hosts make more of it than
+/// the web: `contract vocab <tag>` prints it under the tag.
+pub const TAG_NOTES: &[(&str, &str)] = &[(
+    "header",
+    // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
+    // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
+    "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it; the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). docs/recipes/navigation-stack.md",
+)];
+
+/// A tag's note, if it has one ([`TAG_NOTES`]).
+pub fn tag_note(name: &str) -> Option<&'static str> {
+    TAG_NOTES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, note)| *note)
+}
 
 /// The open set of tags: a hyphenated name is a native module.
 pub const MODULE_NOTE: &str = "a hyphenated tag (`map-view`) is a native module, admitted when app.json's `modules` declares it; its other attributes are the module's props";
@@ -170,6 +195,7 @@ pub fn refusal(name: &str) -> String {
         name: name.into(),
         value: Expr::Bool(true, span),
         span,
+        written: true,
     };
     let attr = crate::lint::unknown_attr("view", &attr).message;
     let mut hints: Vec<&str> = Vec::new();

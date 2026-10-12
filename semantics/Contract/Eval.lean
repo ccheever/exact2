@@ -97,7 +97,12 @@ def formatting (f : String) (args : List Value) : Result Value :=
   | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
   | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
   | "formatDate", [.num e, .num o, .str "iso"] => .ok (.str (Format.formatIsoDate e o))
-  | "formatNumber", [.num n, .str "compact"] => .ok (.str (Format.compact n))
+  | "formatNumber", [.num n, .str "compact", _] => .ok (.str (Format.compact n))
+  -- LLP 1116 D8: `decimal`, `percent`, and `currency` with its code.
+  | "formatNumber", [.num n, .str style, .str code] =>
+    match Format.styled n style code with
+    | .some s => .ok (.str s)
+    | .none => .error (.unsupported "`formatNumber` of a style or code it does not take")
   -- LLP 1102 §3.2: `digits` a whole-number literal the compiler admitted.
   | "toFixed", [.num x, .num d] =>
     match Format.digitsOf d 100 with

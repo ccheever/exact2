@@ -28,7 +28,10 @@
   function fixed(object, name, value) {
     Object.defineProperty(object, name, { value: value, writable: false, configurable: false });
   }
-  var NativeDate = global.Date;
+  // The engine's own Date, through its prototype: a browser realm under a
+  // page's fake clock (Playwright's `clock.install`) has a fake `Date` that
+  // keeps the real prototype.
+  var NativeDate = global.Date.prototype.constructor;
   var construct = Reflect.construct;
   var InputDate = new Proxy(NativeDate, {
     apply: function () { return refuseAmbient("Date()"); },
@@ -42,7 +45,7 @@
   fixed(global, "Date", InputDate);
   // Not a second door to randomness: `crypto` below is the secure one.
   fixed(global.Math, "random", function () {
-    throw new Error("Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues");
+    throw new Error("Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument");
   });
 
   // No timers and no clock to read (LLP 1027.000): refused by name, as the
@@ -110,7 +113,15 @@
   // format getter or formatToParts method; explicit timestamps still use
   // the engine's locale/timezone implementation unchanged.
   if (global.Intl && global.Intl.DateTimeFormat) {
-    var dateFormat = global.Intl.DateTimeFormat.prototype;
+    // The engine's prototype, the one with the `format` accessor: a fake
+    // clock's DateTimeFormat only inherits it, and answers an omitted date
+    // from its clock, so the engine's constructor takes its place.
+    var dateFormat = global.Intl.DateTimeFormat.prototype, engineFormat = dateFormat;
+    while (engineFormat && !(Object.getOwnPropertyDescriptor(engineFormat, "format") || {}).get) engineFormat = Object.getPrototypeOf(engineFormat);
+    if (engineFormat && engineFormat !== dateFormat) {
+      dateFormat = engineFormat;
+      global.Intl.DateTimeFormat = engineFormat.constructor;
+    }
     var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get;
     var formats = new WeakMap();
     var apply = Reflect.apply;
@@ -662,6 +673,14 @@
         return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
       if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
     }
+    // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
+    // before the signal, and a throw rejects. Rust follows redirects, checking
+    // each hop's grant, so "manual" answers with the 3xx and its Location.
+    var redirect;
+    try { var asked = init ? init.redirect : undefined; redirect = asked !== undefined ? String(asked) : undefined; }
+    catch (e) { return Promise.reject(e); }
+    if (redirect !== undefined && redirect !== "follow" && redirect !== "manual" && redirect !== "error")
+      return Promise.reject(new TypeError("redirect must be follow, manual or error"));
     // The web's `signal`: an aborted fetch rejects with its reason at once.
     // The host's request still runs; its reply is dropped (`__exact_fulfill`).
     var signal = init ? init.signal : undefined;
@@ -671,7 +690,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;

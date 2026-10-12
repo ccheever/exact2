@@ -64,8 +64,9 @@ final class AccessibilityTreeMacTests: XCTestCase {
     }
 
     /// A box whose ARIA role is `button` is one, as the web's tree has it
-    /// (chat F14); an empty date reads empty and shows its format, never
-    /// the picker's 1/1/2001 (kanban F23).
+    /// (chat F14); an empty date reads empty and shows its author's
+    /// `placeholder` or no words (LLP 1115.000 D13.1), never the picker's
+    /// 1/1/2001 (kanban F23) and never a browser's `mm/dd/yyyy`.
     func testARoleButtonBoxIsAButtonAndAnEmptyDateReadsEmpty() throws {
         let p = try fixture()
         p.apply(wireBatch([
@@ -81,9 +82,17 @@ final class AccessibilityTreeMacTests: XCTestCase {
         let date = DateField()
         date.empty = true
         XCTAssertEqual(date.accessibilityValue() as? String, "")
-        XCTAssertEqual(DateField.placeholder("date", Locale(identifier: "en_US")), "mm/dd/yyyy")
-        XCTAssertEqual(DateField.placeholder("date", Locale(identifier: "en_GB")), "dd/mm/yyyy")
-        XCTAssertEqual(DateField.placeholder("time", Locale(identifier: "en_US")), "--:-- --")
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "control", "props": ["type": "date", "value": ""], "handlers": ["change"], "style": [:]],
+            ["op": "create", "id": 6, "kind": "control", "props": ["type": "time", "value": "", "placeholder": "Any time"], "handlers": ["change"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 150.0, "w": 140.0, "h": 24.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 180.0, "w": 140.0, "h": 24.0],
+        ]))
+        let bare = try XCTUnwrap(p.controls.controls[5] as? DateField), said = try XCTUnwrap(p.controls.controls[6] as? DateField)
+        XCTAssertTrue(bare.empty && said.empty)
+        XCTAssertEqual(bare.placeholder, "", "with no placeholder, no words: not a date format")
+        XCTAssertEqual(said.placeholder, "Any time", "the author's placeholder")
     }
 
     /// A date shows the person's choice until its bound value changes, as the
@@ -299,6 +308,51 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertFalse(p.shortcutAdmits(done, key: "Enter", held: "", focus: back), "the focused button's own Enter")
         XCTAssertTrue(p.shortcutAdmits(done, key: "Enter", held: "Meta+", focus: back))
         XCTAssertTrue(p.shortcutAdmits(done, key: "Enter", held: "", focus: done))
+    }
+
+    /// #278: a `dialog` or `alertdialog` role is a group with WebKit's
+    /// subrole, named by its author, holding its children; a status
+    /// paragraph with a link holds its words around the link, so each word
+    /// is read once, as Chrome's tree has them.
+    func testDialogRolesAndAStatusWithALinkReadAsTheWebsTree() throws {
+        let p = try fixture()
+        func run(_ id: Int, _ text: String, link: Bool = false) -> [String: Any] {
+            ["id": id, "parent": 20, "paint": true, "style": ["font_size": 16.0],
+             "props": link ? ["text": text, "href": "https://example.com/undo", "testId": "undo"] : ["text": text]]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "dialog", "accessibilityLabel": "Setup", "testId": "dlg"]],
+            ["op": "create", "id": 11, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "OK"]],
+            ["op": "create", "id": 12, "kind": "view", "props": ["accessibilityRole": "alertdialog", "accessibilityLabel": "Discard draft?", "testId": "confirm"]],
+            ["op": "create", "id": 20, "kind": "text", "props": ["accessibilityRole": "status", "testId": "archived"], "style": ["font_size": 16.0]],
+            ["op": "paragraph", "id": 20, "runs": [run(21, "Archived. "), run(22, "Undo", link: true), run(23, " or keep it.")]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 1, "ids": [2, 3, 10, 12, 20]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 100.0, "w": 200.0, "h": 60.0],
+            ["op": "frame", "id": 11, "x": 10.0, "y": 10.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 12, "x": 0.0, "y": 170.0, "w": 200.0, "h": 40.0],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 220.0, "w": 400.0, "h": 24.0],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        p.syncAccessibility()
+        let all = elements(p.axElements(roots: [p.viewport]))
+        func element(_ id: UInt32) throws -> [String: Any] {
+            try XCTUnwrap(all.first { $0["id"] as? UInt32 == id && $0["via"] as? String == "self" }, "\(id) in \(all.map { "\($0["role"] ?? "") \($0["id"] ?? "")" })")
+        }
+        func children(_ e: [String: Any]) -> [String] {
+            all.filter { $0["parent"] as? Int == e["i"] as? Int }.map { "\($0["role"] ?? "") \($0["name"] ?? "")" }
+        }
+        let dialog = try element(10), confirm = try element(12), status = try element(20)
+        XCTAssertEqual(dialog["role"] as? String, "dialog")
+        XCTAssertEqual(dialog["name"] as? String, "Setup")
+        XCTAssertEqual((dialog["native"] as? [String: Any])?["subrole"] as? String, "AXApplicationDialog")
+        XCTAssertEqual(children(dialog), ["button OK"])
+        XCTAssertEqual(confirm["role"] as? String, "alertdialog")
+        XCTAssertEqual(confirm["name"] as? String, "Discard draft?")
+        XCTAssertEqual((confirm["native"] as? [String: Any])?["subrole"] as? String, "AXApplicationAlertDialog")
+        XCTAssertEqual(status["role"] as? String, "status")
+        XCTAssertEqual(status["name"] as? String, "", "named only by its author")
+        XCTAssertEqual(children(status), ["text Archived. ", "link Undo", "text  or keep it."], "each word once, in reading order")
     }
 
     func testATargetScopesTheReply() throws {

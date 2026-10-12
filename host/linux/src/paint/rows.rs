@@ -205,6 +205,22 @@ impl Painter {
         }
     }
 
+    /// The backend has none of the kept rows any more (it is another one, or
+    /// its reader was made again): none is drawn from a recording and none
+    /// is freed, each is recorded again as a new row.
+    pub(crate) fn forget_rows(&mut self) {
+        self.rows = Rows::default();
+    }
+
+    /// The platform's colours resolve differently (LLP 1115.001 D4):
+    /// nothing kept from a paint under the old ones stands. Every kept row
+    /// is freed and recorded again, and the next paint is whole.
+    pub(crate) fn colors_changed(&mut self) {
+        self.rows.world = None;
+        self.damage.pixels = None;
+        self.region_picture = None;
+    }
+
     /// At a walk's start: whether rows are kept this walk.
     pub(super) fn rows_begin(&mut self, walk: &Walk<'_, '_>) {
         let off = *self
@@ -367,8 +383,13 @@ impl Painter {
         if let Some(dst) = object_fit(img.natural(), node.style.object_fit, content) {
             let shown = (walk.scene.presented)(node.id);
             let tint = image_tint(node, &shown, self.dark);
-            self.backend
-                .image(img, dst, &[Shape::rect(content), outer], ts, tint);
+            self.backend.image(
+                img,
+                img.placed(dst),
+                &[Shape::rect(content), outer],
+                ts,
+                tint,
+            );
         }
     }
 

@@ -40,6 +40,22 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(button.accessibilityLabel, "Go", "without an authored name the face names the control")
     }
 
+    func testAncestorARIAUnavailabilityReachesButtonAndRefreshes() throws {
+        let p = presenter(box(1, ["accessibilityRole": "group", "accessibilityDisabled": "true"])
+                          + native(2, ["testId": "nested"])
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Update")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonIOS)
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled))
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled), "an explicit false overrides the ancestor")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityDisabled"]]]))
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled))
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+    }
+
     private func face(_ title: String?, symbol: String? = nil, style: String = "bordered", ios: String = "bordered") -> ButtonFace {
         var f = ButtonFace()
         f.title = title; f.symbol = symbol; f.style = style; f.ios = ios; f.iosBefore26 = "bordered"
@@ -117,6 +133,25 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [2, 1], "disabled: no press")
     }
 
+    func testARIAUnavailabilityKeepsNativeButtonEnabledAndPressable() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityDisabled": "true", "testId": "update"])
+                          + box(3, ["accessibilityRole": "button", "tabIndex": "0", "accessibilityDisabled": "true"], handlers: ["press"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]], faces: [2: face("Check for updates")])
+        let control = try button(p, 2)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(control.isEnabled)
+        XCTAssertTrue(control.accessibilityTraits.contains(.notEnabled))
+        let ax = p.axElements(roots: [p.viewport])
+        let update = try XCTUnwrap((ax["elements"] as? [[String: Any]])?.first { $0["testId"] as? String == "update" })
+        XCTAssertEqual((update["states"] as? [String: Any])?["disabled"] as? Bool, true)
+        XCTAssertTrue(try XCTUnwrap(p.views[3]).accessibilityTraits.contains(.notEnabled))
+        control.sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(pressed, [2])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(control.accessibilityTraits.contains(.notEnabled))
+    }
+
     func testItsActionMovesFocusAsACustomButtonsTouchDoes() throws {
         let p = presenter(box(1) + box(5, ["retainFocus": "true"]) + native(2) + native(3)
                           + [["op": "create", "id": 4, "kind": "input", "props": [:], "handlers": [], "style": ["text_color": [0, 0, 0, 255]]],
@@ -129,8 +164,8 @@ final class NativeButtonsIOSTests: XCTestCase {
         try button(p, 3).sendActions(for: .primaryActionTriggered)
         XCTAssertTrue(field.isFirstResponder, "a retainFocus ancestor keeps the editor")
         try button(p, 2).sendActions(for: .primaryActionTriggered)
-        XCTAssertFalse(field.isFirstResponder, "otherwise the press takes the focus")
-        XCTAssertTrue(try XCTUnwrap(p.views[2]).isFirstResponder, "to the button's node, the focus owner")
+        XCTAssertFalse(field.isFirstResponder, "otherwise the press ends the editing")
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).isFirstResponder, "and the button takes no focus, as UIKit's does not")
     }
 
     func testItTakesTheFocusWithNoPressAnywhere() throws {

@@ -334,6 +334,12 @@ instead of rescanning and sorting the whole plan for every row. Within a group,
 `order` then site index retain the prior ordering; a tied node precedes a region.
 The index stores plan structure only, is rebuilt with each runner, and uses
 memory proportional to plan sites rather than mounted rows or history length.
+Complete row-field projections, string-default expressions and literal choices
+from projected booleans are also recognized once per binding. A one-byte kind
+keeps operands in the original bytecode; each evaluation still checks its runtime
+scopes, field kinds and string pool. Lowered functions still read both arguments
+before branching, and only the selected branch reads its literal. Every other
+expression uses the existing VM.
 
 **Atomicity.** An action, a reply and a recommit each take one checkpoint —
 slots, the store, pending requests, commands, and the flags settlement sets
@@ -440,6 +446,11 @@ and the rows enclosing it); a visited node evaluates only its stale bindings,
 and a parent rebuilds its child list only when a region's roots changed. An
 `each` keyed from the same subject object with unchanged key inputs is not
 re-keyed; a windowed list with unchanged items only refreshes its mounted rows.
+Ordinary `each` rows omit their empty state table when they own no slots and
+their body's dependencies contain neither row-slot reads nor opaque reads.
+An ancestor of a state-reading subtree retains its table as an identity for
+the written row's scope chain; windowed collection rows retain their tables.
+The decision is made only when creating rows, once per region update.
 Settlement keeps a derive's value, and a resource its arguments, when every
 input has settled to the value it had when they were last computed — dynamic
 `Pending` retries and cycle refusals are unchanged; a derive whose value is the

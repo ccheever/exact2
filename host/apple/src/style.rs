@@ -11,7 +11,10 @@
 //! `vec2` as `[x,y]`; numbers as numbers. The four motion targets
 //! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
 //! applies their *presentation* values from `present` ops, never the style.
-//! Rows a presenter cannot use yet are named, not guessed.
+//! Rows a presenter cannot use yet are named, not guessed. Beside the rows,
+//! `"written"` names those of them the author wrote on this node (LLP
+//! 1115.000 D2): a presenter reads it where the platform's answer stands for
+//! what the author left unsaid, and an inherited value is never in it.
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
@@ -112,6 +115,8 @@ fn style_json_rows(
     let mut first = true;
     // Colour rows that name a system colour (LLP 1077 D13), by row.
     let mut systems: Vec<(&str, &str)> = Vec::new();
+    // @ref LLP 1115.000 D2 — the rows sent that the author wrote here.
+    let mut written = String::new();
     for id in style.mask.iter() {
         let name = id.name();
         // LLP 1043.000 M3: the presenter will use resolved shapes.
@@ -422,6 +427,10 @@ fn style_json_rows(
         };
         if wrote {
             first = false;
+            if style.written.has(id) {
+                let comma = if written.is_empty() { "" } else { "," };
+                let _ = write!(written, "{comma}\"{name}\"");
+            }
         } else {
             out.truncate(mark);
         }
@@ -438,6 +447,10 @@ fn style_json_rows(
             let _ = write!(out, "\"{row}\":\"{system}\"");
         }
         out.push('}');
+    }
+    // A written row was sent, so an entry precedes this one.
+    if !written.is_empty() {
+        let _ = write!(out, ",\"written\":[{written}]");
     }
     out.push('}');
     (out, skipped)
@@ -508,26 +521,7 @@ pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
             return;
         }
     }
-    let native = match c {
-        // An id past the table names no role: its transparent fallback.
-        ColorValue::Role(id) => exact_kernel::style::roles::role_of(id).map(|r| {
-            std::borrow::Cow::Borrowed(if cfg!(target_os = "macos") {
-                r.macos
-            } else {
-                r.ios
-            })
-        }),
-        ColorValue::Platform(id) => exact_kernel::style::roles::platform(id).and_then(|p| {
-            let name = if cfg!(target_os = "macos") {
-                p.macos.clone()
-            } else {
-                p.ios.clone()
-            };
-            name.map(|n| std::borrow::Cow::Owned(n.into_string()))
-        }),
-        _ => None,
-    };
-    if let Some(name) = native {
+    if let Some(name) = native_name(c) {
         out.push_str("{\"sys\":\"");
         out.push_str(&name);
         out.push_str("\",\"c\":");
@@ -550,6 +544,39 @@ pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
         | ColorValue::Moving(..)
         | ColorValue::Profiled(_) => push_rgba(out, [0; 4]),
     }
+}
+
+/// The platform colour `c` names here (`{"sys": …}` on the wire): a role's, or
+/// a `-exact-platform-color()`'s where it has a name for this platform.
+fn native_name(c: ColorValue) -> Option<std::borrow::Cow<'static, str>> {
+    match c {
+        // An id past the table names no role: its transparent fallback.
+        ColorValue::Role(id) => exact_kernel::style::roles::role_of(id).map(|r| {
+            std::borrow::Cow::Borrowed(if cfg!(target_os = "macos") {
+                r.macos
+            } else {
+                r.ios
+            })
+        }),
+        ColorValue::Platform(id) => exact_kernel::style::roles::platform(id).and_then(|p| {
+            let name = if cfg!(target_os = "macos") {
+                p.macos.clone()
+            } else {
+                p.ios.clone()
+            };
+            name.map(|n| std::borrow::Cow::Owned(n.into_string()))
+        }),
+        _ => None,
+    }
+}
+
+/// Whether `c` is a colour its author fixed: any that names no system
+/// colour (the app's own asset, `named:`, is the author's), as the presenter
+/// tells one from its wire form (`fixesInk`). A surface that crosses its
+/// colours already resolved says so beside them.
+/// @ref LLP 1115.000 D7.9
+pub(crate) fn fixes_ink(c: ColorValue) -> bool {
+    native_name(c).is_none_or(|name| name.starts_with("named:"))
 }
 
 /// A profile's colour as `{"cs": [{"s": "cg:<name>" | "icc:<asset>", "i":
@@ -765,30 +792,19 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
 pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
     let mut paint = StyleProps::default();
     paint_over(&mut paint, shown);
-    let sides = [
-        (
-            Property::BorderTopColor,
-            StyleId::BorderColorTop,
-            &mut paint.border_color_top,
-        ),
-        (
-            Property::BorderRightColor,
-            StyleId::BorderColorRight,
-            &mut paint.border_color_right,
-        ),
-        (
-            Property::BorderBottomColor,
-            StyleId::BorderColorBottom,
-            &mut paint.border_color_bottom,
-        ),
-        (
-            Property::BorderLeftColor,
-            StyleId::BorderColorLeft,
-            &mut paint.border_color_left,
-        ),
-    ];
-    for (p, id, side) in sides {
+    for (p, id) in [
+        (Property::BorderTopColor, StyleId::BorderColorTop),
+        (Property::BorderRightColor, StyleId::BorderColorRight),
+        (Property::BorderBottomColor, StyleId::BorderColorBottom),
+        (Property::BorderLeftColor, StyleId::BorderColorLeft),
+    ] {
         if let Some(c) = shown.get(p) {
+            let side = match p {
+                Property::BorderTopColor => &mut paint.border_color_top,
+                Property::BorderRightColor => &mut paint.border_color_right,
+                Property::BorderBottomColor => &mut paint.border_color_bottom,
+                _ => &mut paint.border_color_left,
+            };
             *side = Some(fixed(c));
             paint.mask.set(id);
         }
@@ -1319,6 +1335,66 @@ mod flow_tests {
             json(4).get("visibility").is_none(),
             "initial visible is not sent"
         );
+    }
+
+    /// LLP 1115.000 D2: the dictionary names the rows its author wrote on
+    /// the node. A colour the compiler implied or a child only inherits
+    /// crosses as a value and is not named; a platform colour and a colour
+    /// equal to the parent's are named like any other; a written row no
+    /// presenter is sent (a margin) is not.
+    #[test]
+    fn the_dictionary_names_the_rows_its_author_wrote() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let patch = |rows: &[(StyleId, &str, bool)]| {
+            let mut p = StyleProps::default();
+            for (id, value, written) in rows {
+                p.set_dynamic(*id, &StyleValue::Text((*value).into()))
+                    .unwrap();
+                if *written {
+                    p.written.set(*id);
+                }
+            }
+            Box::new(p)
+        };
+        let (red, view) = ("-exact-system-red", NodeType::View);
+        let mut ops: Vec<Op> = (1..=5)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: view,
+            })
+            .collect();
+        let page = [
+            (StyleId::TextColor, red, true),
+            (StyleId::MarginTop, "8px", true),
+            (StyleId::BackgroundColor, "#ffffff", false),
+        ];
+        let (same, implied) = (
+            [(StyleId::TextColor, red, true)],
+            [(StyleId::TextColor, "#111111", false)],
+        );
+        for (id, rows) in [(1, &page[..]), (3, &same[..]), (4, &implied[..])] {
+            let patch = patch(rows);
+            ops.push(Op::SetStyle { id, patch });
+        }
+        let children = vec![2, 3, 4];
+        ops.push(Op::SetChildren { id: 1, children });
+        kernel.apply(0, 1, &ops).unwrap();
+        let json = |id: u32| -> serde_json::Value {
+            serde_json::from_str(&style_json_for(&kernel.node(id).unwrap(), &Env::default()).0)
+                .unwrap()
+        };
+        assert_eq!(json(1)["written"], serde_json::json!(["text_color"]));
+        assert_eq!(json(1)["text_color"]["sys"], "systemRedColor");
+        assert_eq!(json(2)["text_color"], json(1)["text_color"], "inherited");
+        assert!(json(2).get("written").is_none(), "{}", json(2));
+        assert_eq!(
+            json(3)["written"],
+            serde_json::json!(["text_color"]),
+            "the parent's colour, written again"
+        );
+        assert!(json(4).get("written").is_none(), "the compiler's row");
+        assert!(json(5).get("written").is_none(), "no row");
     }
 
     /// Quarters are written as `{n}` writes them.

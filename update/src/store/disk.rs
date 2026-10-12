@@ -6,7 +6,7 @@
 
 use crate::envelope::{sha256_hex, FileCard};
 use std::collections::BTreeSet;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 /// Refuse an unqualified durable-store platform before touching its directory.
@@ -40,16 +40,46 @@ pub(super) fn regular_file(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
 
-pub(super) fn read_card(path: &Path, card: &FileCard) -> Result<Vec<u8>, String> {
+pub(super) fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     if !regular_file(path) {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    let file =
+        std::fs::File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    if max >= isize::MAX as u64 {
         return Err(format!(
-            "{} is not a regular file for {}",
-            path.display(),
-            card.name
+            "{} has an unsupported size limit {max}",
+            path.display()
         ));
     }
-    let bytes = std::fs::read(path)
-        .map_err(|e| format!("cannot read {} for {}: {e}", path.display(), card.name))?;
+    if metadata.len() > max {
+        return Err(format!(
+            "{} is {} bytes, exceeds {max} before reading",
+            path.display(),
+            metadata.len()
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.take(max + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if bytes.len() as u64 > max {
+        return Err(format!(
+            "{} grew beyond {max} bytes while reading",
+            path.display()
+        ));
+    }
+    Ok(bytes)
+}
+
+pub(super) fn read_card(path: &Path, card: &FileCard) -> Result<Vec<u8>, String> {
+    let bytes = read_bounded(path, card.bytes)?;
     if bytes.len() as u64 != card.bytes {
         return Err(format!(
             "{} is {} bytes; the signed card declared {}",
@@ -189,5 +219,35 @@ impl Blobs {
                 let _ = std::fs::remove_file(item.path());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_card_is_refused_before_reading_its_bytes() {
+        let path = std::env::temp_dir().join(temporary_name());
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(4 * 1024 * 1024).unwrap();
+        drop(file);
+        let card = FileCard {
+            name: "app.plan".into(),
+            url: "app.plan".into(),
+            bytes: 1,
+            sha256: "0".repeat(64),
+        };
+        let error = read_card(&path, &card).unwrap_err();
+        for max in [
+            crate::MAX_ENVELOPE_BYTES as u64,
+            super::super::MAX_RECORD_BYTES,
+        ] {
+            assert!(read_bounded(&path, max)
+                .unwrap_err()
+                .contains("before reading"));
+        }
+        std::fs::remove_file(path).unwrap();
+        assert!(error.contains("before reading"), "{error}");
     }
 }

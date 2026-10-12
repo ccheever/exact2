@@ -247,17 +247,28 @@ fn fs_value(result: FsResult) -> Value {
 /// A `doc:` path (LLP 1069.010 D1): the file or folder the person chose,
 /// through ibex2's one executor for documents, the one a TypeScript
 /// source's `storage.fs` runs, so a grant means the same in either language.
-fn document_request(grants: &GrantSet, op: &str, args: &Value) -> Result<Value, String> {
+fn document_request(
+    grants: &GrantSet,
+    op: &str,
+    args: &Value,
+    owner: u64,
+) -> Result<Value, String> {
     let path = text(args, "path")?;
     let (operation, _, data) = operation(op, args)?;
-    fs::run_document(grants, Some(&documents), operation, path, data.as_deref())
-        .map(fs_value)
-        .map_err(error)
+    fs::run_document(
+        grants,
+        Some(&move |path| documents(path, owner)),
+        operation,
+        path,
+        data.as_deref(),
+    )
+    .map(fs_value)
+    .map_err(error)
 }
 /// [`exact_data::documents`] as ibex2's table.
-fn documents(path: &str) -> Result<fs::Document, String> {
+fn documents(path: &str, owner: u64) -> Result<fs::Document, String> {
     use exact_data::documents::{resolve, Resolved};
-    Ok(match resolve(path)? {
+    Ok(match resolve(path, owner)? {
         Resolved::Root(name) => fs::Document::Root(name),
         Resolved::Real { directory, path } => fs::Document::Real { directory, path },
     })
@@ -292,7 +303,12 @@ pub(super) fn independent_storage(payload: &[u8]) -> bool {
                 .is_some_and(|op| native_filesystem(op, &r["args"]))
     })
 }
-pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> Outcome {
+pub(super) fn run(
+    paths: Option<&Directories>,
+    grants: &str,
+    payload: &[u8],
+    owner: u64,
+) -> Outcome {
     let result = (|| {
         if payload.len() > exact_data::storage::MAX_BYTES {
             return Err("storage request exceeds its byte limit".into());
@@ -316,7 +332,7 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
             .as_str()
             .is_some_and(exact_data::documents::is_document)
         {
-            return document_request(&grants, op, args);
+            return document_request(&grants, op, args, owner);
         }
         if native_filesystem(op, args) {
             return execute(&grants, None, op, args);
@@ -342,6 +358,12 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
                 }
             } else {
                 Outcome::Storage(bytes)
+            }
+        }
+        Err(message) if message.contains("storage result exceeds its byte limit") => {
+            Outcome::Failed {
+                kind: FailureKind::Unsupported,
+                message: "storage result exceeds its byte limit".into(),
             }
         }
         Err(message) => Outcome::Storage(serde_json::to_vec(&json!({"error":message})).unwrap()),

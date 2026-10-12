@@ -65,10 +65,12 @@ final class NativeContextsIOSTests: XCTestCase {
     }
     func testANativeSwipeActionIsDrawnFromItsFace() throws {
         let p = presenter(
-            view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin flag"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])
-                + view(2, w: 490, h: 80) + view(3, ["id": "body"], h: 80)
+            view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin flag archive"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])
+                + view(2, w: 540, h: 80) + view(3, ["id": "body"], h: 80)
+                // An accent it only inherits (LLP 1115.000 D2): the value, and no word that its author wrote it.
+                + native(11, ["id": "archive", "accessibilityLabel": "Archive"], style: ["accent_color": [88, 86, 214, 255]], x: 490, w: 50, h: 50)
                 + native(4, ["id": "delete", "destructive": "true"], style: ["accent_color": [0, 255, 0, 255]], x: 300, w: 50, h: 50)
-                + native(5, ["id": "mute", "accessibilityLabel": "Hide alerts"], style: ["accent_color": [88, 86, 214, 255]], x: 360, w: 50, h: 50)
+                + native(5, ["id": "mute", "accessibilityLabel": "Hide alerts"], style: ["accent_color": [88, 86, 214, 255], "written": ["accent_color"]], x: 360, w: 50, h: 50)
                 + [["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": ["id": "pin", "accessibilityLabel": "Pin"], "style": ["text_color": [0, 0, 0, 255]]],
                    ["op": "frame", "id": 6, "x": 410.0, "y": 0.0, "w": 40.0, "h": 50.0],
                    ["op": "create", "id": 9, "kind": "button", "handlers": ["press"], "props": ["id": "flag", "accessibilityLabel": "Flag"], "style": ["text_color": [0, 0, 0, 255]]],
@@ -77,15 +79,16 @@ final class NativeContextsIOSTests: XCTestCase {
                 + [["op": "create", "id": 7, "kind": "text", "props": [:], "handlers": [], "style": [:]],
                    ["op": "create", "id": 10, "kind": "text", "props": [:], "handlers": [], "style": ["display": "none"]],
                    ["op": "children", "id": 6, "ids": [7]], ["op": "children", "id": 9, "ids": [10]]]
-                + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3, 4, 5, 6, 9]], ["op": "roots", "ids": [1]],
-                   ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0], ["op": "content", "id": 1, "x": 0.0, "y": 0.0, "w": 490.0, "h": 80.0]],
-            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face("Pin", symbol: "pin", label: "Pin"), 9: face("Flag", symbol: "flag", label: "Flag")])
+                + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3, 4, 5, 6, 9, 11]], ["op": "roots", "ids": [1]],
+                   ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0], ["op": "content", "id": 1, "x": 0.0, "y": 0.0, "w": 540.0, "h": 80.0]],
+            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face("Pin", symbol: "pin", label: "Pin"), 9: face("Flag", symbol: "flag", label: "Flag"),
+                    11: face(nil, symbol: "archivebox", label: "Archive")])
         let owner = try XCTUnwrap(p.views[1])
         p.swipeActions.touch(owner)
         let table = try XCTUnwrap(owner.subviews.compactMap { $0 as? UITableView }.first)
         XCTAssertTrue(table.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())), "a pan takes a native body button's touch")
         let configuration = try XCTUnwrap(table.delegate?.tableView?(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 0)))
-        XCTAssertEqual(configuration.actions.count, 4)
+        XCTAssertEqual(configuration.actions.count, 5)
         let delete = configuration.actions[0], mute = configuration.actions[1], pin = configuration.actions[2], flag = configuration.actions[3]
         XCTAssertEqual(delete.style, .destructive)
         XCTAssertNotNil(delete.image, "its symbol")
@@ -98,7 +101,9 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pin.image?.isSymbolImage, true, "a custom action's symbol is a system image, not a snapshot")
         XCTAssertEqual(delete.accessibilityLabel, "Delete", "its title names it")
         XCTAssertEqual(mute.accessibilityLabel, "Hide alerts")
-        XCTAssertEqual(mute.backgroundColor, TextEngine.color([88, 86, 214, 255]), "its accent")
+        XCTAssertEqual(mute.backgroundColor, TextEngine.color([88, 86, 214, 255]), "the accent its author wrote on it")
+        XCTAssertEqual(configuration.actions[4].backgroundColor, UIContextualAction(style: .normal, title: nil) { _, _, _ in }.backgroundColor,
+                       "UIKit's grey: an accent the action only inherits is not its own")
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         mute.handler(mute, UIView()) { _ in }
@@ -177,6 +182,123 @@ final class NativeContextsIOSTests: XCTestCase {
         let rebuilt = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
         XCTAssertEqual(rebuilt.numberOfSegments, 4)
         XCTAssertEqual(rebuilt.selectedSegmentIndex, 0, "a rebuilt control shows the selection")
+    }
+
+    /// A radio group of three native radios, the one `checked` checked.
+    private func radiogroup(_ faces: [UInt32: ButtonFace], checked: UInt32 = 3) -> Presenter {
+        var ops = view(1, ["accessibilityRole": "radiogroup", "accessibilityLabel": "Tip"])
+        for (i, id) in [2, 3, 4].enumerated() {
+            ops += native(id, ["accessibilityRole": "radio", "accessibilityChecked": id == checked ? "true" : "false", "testId": "tip-\(id)"],
+                          x: Double(i) * 100, w: 100)
+        }
+        return presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]], faces: faces)
+    }
+
+    /// LLP 1116.004 D5.2: a value chosen from a few is a radio group, and a
+    /// radio group of radios is UIKit's segmented control, as a tablist of
+    /// tabs is: its selection the checked radio, a pick pressing that radio,
+    /// the next sync showing what the app checked. A value is never a tab:
+    /// symbol-over-label radios are no tab bar.
+    func testARadioGroupIsASegmentedControlWhosePickPressesItsRadio() throws {
+        var p = radiogroup([2: face("15%"), 3: face("18%"), 4: face("20%")])
+        defer { window.isHidden = true }
+        let segments = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual((0..<3).map { segments.titleForSegment(at: $0) }, ["15%", "18%", "20%"])
+        XCTAssertEqual(segments.selectedSegmentIndex, 1, "the checked radio is the selected segment")
+        XCTAssertEqual(segments.accessibilityLabel, "Tip", "the group's label names the control")
+        XCTAssertEqual(p.views[2]?.isHidden, true, "the authored radios are the control's")
+        XCTAssertEqual(p.segments.observation(try XCTUnwrap(p.views[4]))?["view"] as? String, "UISegmentedControl")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        segments.selectedSegmentIndex = 2
+        report(segments)
+        XCTAssertEqual(pressed, [4], "a pick presses its radio")
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 1, "unchecked by the app, the pick does not stay")
+        p.views[3]?.props["accessibilityChecked"] = "false"
+        p.views[4]?.props["accessibilityChecked"] = "true"
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 2, "the radio the app checked")
+        // The agent's tap of an authored radio presses it through the control.
+        XCTAssertEqual(p.segments.activate(try XCTUnwrap(p.views[2])), true)
+        XCTAssertEqual(pressed, [4, 2])
+        // Symbols over labels: no tab bar and no segments; the radios stay as authored, the checked one selected.
+        p = radiogroup([2: face("Low", symbol: "drop"), 3: face("Mid", symbol: "drop.halffull"), 4: face("High", symbol: "drop.fill")])
+        let group = try XCTUnwrap(p.views[1])
+        XCTAssertTrue(group.subviews.compactMap { $0 as? UITabBar }.isEmpty, "a value is never a tab bar")
+        XCTAssertTrue(group.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty)
+        XCTAssertEqual(p.views[3]?.isHidden, false)
+        XCTAssertFalse(group.accessibilityTraits.contains(.tabBar))
+        let checked = try XCTUnwrap(p.controls.controls[3] as? UIButton), other = try XCTUnwrap(p.controls.controls[2] as? UIButton)
+        XCTAssertTrue(checked.accessibilityTraits.contains(.selected), "a checked radio is selected, as Safari's VoiceOver reads one")
+        XCTAssertFalse(other.accessibilityTraits.contains(.selected))
+    }
+
+    /// The same from Contract (scripts/fixtures/native-buttons.contract, its
+    /// `period`): a `row role="radiogroup"` of default `button role="radio"`s
+    /// compiles to native radios, which UIKit draws as one segmented control;
+    /// a pick runs that radio's `press`, and the runner's `aria-checked` keeps it.
+    func testAContractRadioGroupIsOneSegmentedControlAndAPickRunsItsPress() throws {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_BUTTONS_PLAN"])
+        let session = ExactApp.shared.makeSession(label: "radio-group")
+        defer { session.destroy() }
+        let controller = UIViewController()
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: .zero)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 850)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        session.presenter.viewport.frame = window.bounds
+        controller.view.addSubview(session.presenter.viewport)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: window.bounds.size).error)
+        window.layoutIfNeeded()
+        let p = session.presenter
+        let node = { (id: String) in p.views.values.first { $0.props["testId"] == id } }
+        let group = try XCTUnwrap(node("period"))
+        let segments = try XCTUnwrap(group.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual((0..<segments.numberOfSegments).map { segments.titleForSegment(at: $0) }, ["Day", "Week", "Month"])
+        XCTAssertEqual(segments.selectedSegmentIndex, 1, "the checked radio, Week")
+        XCTAssertEqual(segments.accessibilityLabel, "Period")
+        XCTAssertEqual(node("period-Day")?.isHidden, true)
+        segments.selectedSegmentIndex = 2
+        report(segments)
+        XCTAssertEqual(node("period-Month")?.props["accessibilityChecked"], "true", "the pick ran Month's press")
+        XCTAssertEqual(node("period-Week")?.props["accessibilityChecked"], "false")
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 2)
+    }
+
+    /// LLP 1116.003 (r5 weather: "ExactSegmentedControl covers its middle"):
+    /// a real touch on a tab a segmented control draws aims at its segment,
+    /// the control taking the touch, never at the hidden authored tab.
+    func testARealTouchAimsAtTheSegmentItsControlDraws() throws {
+        let session = ExactApp.shared.makeSession(label: "segment-aim")
+        defer { session.destroy() }
+        let p = session.presenter
+        let faces: [UInt32: ButtonFace] = [2: face("Day"), 3: face("Week"), 4: face("Month")]
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        var ops = view(1, ["accessibilityRole": "tablist"])
+        for (i, id) in [2, 3, 4].enumerated() { ops += native(id, ["accessibilityRole": "tab"], x: Double(i) * 100, w: 100) }
+        p.apply(wireBatch(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]]))
+        let control = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        control.layoutIfNeeded()
+        let reply = Agent(session: session).aim(["id": 3, "aim": ["press": true]])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+        let w = try XCTUnwrap(aim["window"] as? [Double])
+        let local = control.convert(CGPoint(x: w[0], y: w[1]), from: nil)
+        XCTAssertTrue(control.bounds.contains(local), "on the control: \(local)")
+        XCTAssertEqual(Int(local.x / (control.bounds.width / 3)), 1, "on Week, the middle segment: \(local)")
+        XCTAssertEqual(aim["hit"] as? Int, 1, "the touch lands in the tablist's node: \(aim)")
     }
 
     func testAMenuRowsSymbolIsItsItemsImageNativeOrCustom() throws {

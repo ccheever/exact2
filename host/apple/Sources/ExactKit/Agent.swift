@@ -27,11 +27,14 @@ public final class Agent {
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
-        // The system appearance is the agent's from its first operation:
-        // light, as `prefer` would set it, never the machine's (LLP 1069.007
-        // D2). Reduced motion and transparency start at no-preference
-        // (`DisplayPreferences.agent`).
+        // The system appearance is the agent's: light, as `prefer` would set
+        // it, never the machine's (LLP 1069.007 D2). On iOS and tvOS the
+        // scene's, from the agent's first operation; on the Mac the app's,
+        // from launch (`Agent.systemAppearance`). Reduced motion and
+        // transparency start at no-preference (`DisplayPreferences.agent`).
+        #if os(iOS) || os(tvOS)
         if ExactEnv.agentMode { systemScheme(dark: false) }
+        #endif
     }
 
     /// Inline IDs name shaped fragments, not their paragraph owner's box.
@@ -211,6 +214,13 @@ public final class Agent {
                 #else
                 r = ["error": "unsupported: an iOS app closes no window; close drives a macOS window or the browser's page (`beforeunload`)"]
                 #endif
+            } else if req["back"] != nil {
+                // The platform's Back, as a person takes it (LLP 1116.006
+                // D4): an input, as `close` is (AgentIOS, AgentMac `back`).
+                guard req.keys.allSatisfy({ ["op", "session", "back"].contains($0) }), req["back"] as? Bool == true else {
+                    Agent.reply(["error": "tap back takes no other input fields"]); return
+                }
+                r = back()
             } else if req["resize"] != nil {
                 // LLP 1041 §8's opt-in diagnostic is an input variant, not a
                 // ninth operation. Reject ambiguous input before touching UI.
@@ -249,6 +259,13 @@ public final class Agent {
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
         case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
+        // What is wrong with the presented screen, as observations the driver judges (LLP 1116.003 D8).
+        case "check":
+            #if os(iOS) || os(tvOS)
+            Agent.reply(tagged(check(req)))
+            #else
+            Agent.reply(["error": "check: the web and iOS hosts carry it, not macOS yet"])
+            #endif
         case "sample": Agent.reply(tagged(sample(req)))
         case "logs":
             var forward = req
@@ -340,6 +357,17 @@ public final class Agent {
         return out
     }
 
+    /// `back`'s reply (LLP 1116.006 D4) from the way it went and why the app
+    /// refused it ("" when it did not): nil is nothing to go back from, an
+    /// error. A refusal is no error (a test may assert the sheet stays); it
+    /// is the reply's `refused` and a journal line.
+    func backReply(_ went: (way: String, refused: String)?) -> [String: Any] {
+        guard let went else { return ["error": "back: nothing to go back from: no dialog is open, no sheet is up and no route is beneath the selected one"] }
+        guard !went.refused.isEmpty else { return ["back": went.way, "delivery": "platform"] }
+        session.log("back refused: \(went.refused)")
+        return ["back": went.way, "delivery": "platform", "refused": went.refused]
+    }
+
     /// A field's value as a reply shows it (#134): a password's, when not
     /// empty, is a fixed mark whatever its length — the runner's
     /// `agent::MASKED`, which its tree already shows.
@@ -415,9 +443,16 @@ public final class Agent {
             }
         }
         var facts = PageFacts.agent
+        #if os(macOS)
+        var keyboardNavigation: Bool?
+        #endif
         for (name, raw) in page ?? [:] {
             let value = name == "root-font-size" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
             switch (name, value) {
+            #if os(macOS)
+            // The Mac's Keyboard Navigation setting (LLP 1115.000 D7.2): whether Tab reaches every control.
+            case ("keyboard-navigation", "true"), ("keyboard-navigation", "false"): keyboardNavigation = value == "true"
+            #endif
             case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
             case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
@@ -438,6 +473,13 @@ public final class Agent {
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
+        var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
+                                       "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
+                                       "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize]
+        #if os(macOS)
+        if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
+        pageFacts["keyboard-navigation"] = KeyboardNavigation.on
+        #endif
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
@@ -445,9 +487,7 @@ public final class Agent {
                           "prefers-color-scheme": systemDark ? "dark" : "light",
                           "color-gamut": DisplayPreferences.gamut,
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
-                "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
-                         "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize],
+                "page": pageFacts,
                 "fold": presenter.fold.env]
     }
 

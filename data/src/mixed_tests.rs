@@ -524,7 +524,7 @@ fn a_worker_child_orders_every_member_that_shares_a_secret_and_commits_through_p
     assert_eq!(mixed.placement(), Placement::Worker);
     let mut store = Store::new(
         "secret.keep js\nsecret.keep rust\nsecret.keep shared",
-        [("shared".to_string(), "before".to_string())],
+        [("shared".to_string(), "before".into())],
     );
     // Nothing ran at `answer`: both calls are recorded, both answer later.
     let a = token(mixed.answer(&mut store, "jssecret", &[]).unwrap());
@@ -660,7 +660,7 @@ fn a_placed_source_runs_its_turns_on_its_own_thread_and_the_runner_commits_them(
     assert_eq!(placed.placement(), Placement::Worker);
     let mut store = Store::new(
         "secret.keep rust\nsecret.keep shared",
-        [("shared".to_string(), "s".to_string())],
+        [("shared".to_string(), "s".into())],
     );
     let arg = Value::str("arg");
     let t = token(

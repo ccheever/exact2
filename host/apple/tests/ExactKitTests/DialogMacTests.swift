@@ -6,6 +6,8 @@ import XCTest
 final class DialogMacTests: XCTestCase {
     private var window: NSWindow!
     override func tearDown() { window?.close(); window = nil }
+    /// These cases walk a dialog's Tab through its buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private func fixture() -> Presenter {
         _ = NSApplication.shared
@@ -81,6 +83,30 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(presses, [5], "the confirmation action is dispatched once before closing")
         XCTAssertNil(p.dialogs.active)
     }
+    func testActionCommandsShareModalFocusInertnessAndEscape() throws {
+        let p = fixture(), opener = p.views[2]!, dialog = p.views[3]!, last = p.views[5]!
+        let field = try XCTUnwrap(p.views[4]?.field)
+        window.makeFirstResponder(opener)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(opener.inert)
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(window.firstResponder === last)
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.active === dialog)
+        p.dialogCommand("close", "form")
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertFalse(opener.inert)
+        XCTAssertTrue(window.firstResponder === opener)
+        p.dialogCommand("showModal", "form")
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        XCTAssertNil(p.dialogs.active)
+        XCTAssertTrue(window.firstResponder === opener)
+    }
+
     /// The web's order (docs/contract-grammar.md#keys): a field's `key`
     /// handlers hear Escape and Tab before the dialog's defaults, and one that
     /// calls `preventDefault()` keeps the dialog open and the focus put.
@@ -433,6 +459,35 @@ final class DialogMacTests: XCTestCase {
         p.dialogs.close(p.views[3]!)
     }
 
+    /// A node in the dialog that holds the focus and is no stop, a
+    /// `tabindex=-1` box an action focused, is where Tab starts, as on the
+    /// page: the stop after it in tree order, and Shift-Tab the one before
+    /// it, not the trap's first and last
+    /// (issues/closed/20261010-macos-tab-from-a-focused-box.md).
+    func testTabFromAFocusedBoxThatIsNoStopInTheDialog() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view", "props": ["tabIndex": "-1"]],
+            ["op": "create", "id": 7, "kind": "button"],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 3, "ids": [4, 6, 5]],
+            ["op": "frame", "id": 6, "x": 10, "y": 45, "w": 200, "h": 30],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 80, "h": 30],
+        ]))
+        p.press(2)
+        let box = try XCTUnwrap(p.views[6])
+        XCTAssertTrue(window.makeFirstResponder(box))
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(window.firstResponder === p.views[7], "Tab from the box: its button, not the dialog's first stop")
+        XCTAssertTrue(window.makeFirstResponder(box))
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(p.views[4]!.field?.currentEditor() === window.firstResponder, "Shift-Tab: the field before it, not the dialog's last stop")
+        XCTAssertTrue(window.makeFirstResponder(p.views[3]!))
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(window.firstResponder === p.views[5], "the dialog itself: Shift-Tab to its last stop")
+        p.dialogs.close(p.views[3]!)
+    }
+
     func testExplicitInsetsAndNestedDialogs() {
         let p = fixture()
         p.views[3]!.applyStyle(["left": 12, "bottom": ["pct": 10, "px": 8]])
@@ -460,12 +515,17 @@ final class DialogMacTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = """
         component App
+          action openDialog
+            showModal("form")
+          action closeDialog
+            close("form")
           view
             column width="100%" height="100%"
-              button "Open" testId="open" commandfor="form" command="show-modal"
+              button "Open" testId="open" press=openDialog
               dialog id="form" width=240 padding=16
                 input testId="edit" value="draft" autofocus=true
                 button "Close" commandfor="form" command="close"
+                button "Close action" testId="close-action" press=closeDialog
 
         """
         let input = directory.appendingPathComponent("app.contract")
@@ -491,6 +551,9 @@ final class DialogMacTests: XCTestCase {
             p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open" }).id)
             XCTAssertNotNil(p.dialogs.active)
         }
+        try open()
+        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "close-action" }).id)
+        XCTAssertNil(p.dialogs.active, "close(id) is dispatched by the session")
         try open()
         let stale = p.dialogs.command(try XCTUnwrap(p.views.values.first { $0.props["command"] == "close" }))
         view.removeFromSuperview()

@@ -9,7 +9,7 @@ import AppKit
 
 extension ControlHost {
     func makeRange() -> NSControl {
-        let slider = NSSlider(value: 0, minValue: 0, maxValue: 100, target: nil, action: nil)
+        let slider = SliderMac(value: 0, minValue: 0, maxValue: 100, target: nil, action: nil)
         slider.isContinuous = true
         return slider
     }
@@ -57,5 +57,16 @@ extension ControlHost {
         // What it shows, as the web's reply says.
         return ["typed": Int(node.id), "value": RangeSpec.format(RangeSpec(node.props).sanitize(slider.doubleValue)), "delivery": "host-activation", "native": "control"]
     }
+}
+
+/// A range's slider, AppKit's own, but for a Control-click its node's
+/// `contextmenu` answers (X85, `contextClicked`).
+final class SliderMac: NSSlider {
+    override class var cellClass: AnyClass? { get { SliderCellMac.self } set {} }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif

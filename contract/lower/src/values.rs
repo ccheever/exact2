@@ -2,10 +2,11 @@
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
 
-use crate::{err, media, tags, FontUse, LowerError};
+use crate::{err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
-use contract_types::Ty;
+use contract_types::{Ref, Scope, Shapes, Ty};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
+use std::{cell::Cell, rc::Rc};
 
 /// A literal, as an author wrote it, for a message.
 fn literal_text(e: &Expr) -> String {
@@ -14,6 +15,17 @@ fn literal_text(e: &Expr) -> String {
         Expr::Str(s, _) => format!("\"{s}\""),
         Expr::Bool(b, _) => format!("{b}"),
         _ => "…".into(),
+    }
+}
+
+/// `navigationSplit`'s column width written as a number: its text, as the
+/// prop carries it (LLP 1116.004 D1.2).
+pub(crate) fn split_width(prop: PropId, e: &Expr) -> Option<Expr> {
+    match e {
+        Expr::Number(n, span) if prop == PropId::NavigationSplit => {
+            Some(Expr::Str(n.to_string(), *span))
+        }
+        _ => None,
     }
 }
 
@@ -463,11 +475,27 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
     )
 }
 
+impl crate::Lowerer<'_> {
+    /// `check_style_value` with this lowering's shapes.
+    pub(crate) fn check_style(
+        &self,
+        a: &Attr,
+        rows: &[StyleId],
+        ty: &Ty,
+        fonts: &[FontUse],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        check_style_value(a, rows, ty, fonts, scope, &self.types.shapes)
+    }
+}
+
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
     ty: &Ty,
     fonts: &[FontUse],
+    scope: &Scope,
+    shapes: &Shapes,
 ) -> Result<(), LowerError> {
     if rows
         .iter()
@@ -479,7 +507,7 @@ pub(crate) fn check_style_value(
         if let Some(sides) = sides(&a.name, &a.value)? {
             for (row, value) in rows.iter().zip(sides) {
                 let side = Attr { value, ..a.clone() };
-                check_style_value(&side, std::slice::from_ref(row), ty, fonts)?;
+                check_style_value(&side, std::slice::from_ref(row), ty, fonts, scope, shapes)?;
             }
             return Ok(());
         }
@@ -719,7 +747,7 @@ pub(crate) fn check_style_value(
                 } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
                     StyleValue::Percent(pct)
                 } else {
-                    StyleValue::Text(s.clone())
+                    StyleValue::Text(s.as_str().into())
                 },
             ),
             Expr::Bool(b, _) => {
@@ -785,22 +813,6 @@ pub(crate) fn check_style_value(
                     }
                 }
             }
-            // A number row with no text form refuses every string where it
-            // binds, as it refuses the literal; a browser would apply one
-            // (`opacity: 0.5`), so a host would disagree.
-            None if std::ptr::eq(value, &a.value)
-                && matches!(ty, Ty::String)
-                && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) =>
-            {
-                return err(
-                    "lower-attr-type",
-                    format!(
-                        "`{}` takes a number where it is computed; this expression is `string`, which no native host reads on this row while a browser would apply it: bind the number itself (`{}=n` for a number `n`, not `` `${{n}}` ``)",
-                        a.name, a.name
-                    ),
-                    span,
-                );
-            }
             None if std::ptr::eq(value, &a.value)
                 && !matches!(ty, Ty::Number | Ty::String | Ty::Unknown) =>
             {
@@ -862,7 +874,127 @@ pub(crate) fn check_style_value(
         let Some(next) = pending.pop() else { break };
         current = next;
     }
+    if !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
+        let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
+            (matches!(ty, Ty::String) && !css_wide_branches(&a.value, rows))
+                .then_some(a.value.span())
+        });
+        if let Some(span) = offending {
+            return err(
+                "lower-attr-type",
+                format!(
+                    "`{}` takes a number in every branch; this arm is `string`, which a native host does not read on this row",
+                    a.name
+                ),
+                span,
+            );
+        }
+    }
     Ok(())
+}
+
+fn css_wide_branches(e: &Expr, rows: &[StyleId]) -> bool {
+    match e {
+        Expr::Str(s, _) => rows
+            .iter()
+            .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)),
+        Expr::Ternary(_, yes, no, _) => css_wide_branches(yes, rows) && css_wide_branches(no, rows),
+        Expr::Match { some, none, .. } => {
+            css_wide_branches(some, rows) && css_wide_branches(none, rows)
+        }
+        Expr::Let { body, .. } | Expr::Typed(body, _, _) => css_wide_branches(body, rows),
+        _ => false,
+    }
+}
+
+#[derive(Clone)]
+struct Bound<'a> {
+    name: &'a str,
+    value: Option<&'a Expr>,
+    scope: Scope,
+    checked: Rc<Cell<Option<Option<Span>>>>,
+}
+
+fn computed_string_arm<'a>(
+    e: &'a Expr,
+    scope: &Scope,
+    shapes: &Shapes,
+    rows: &[StyleId],
+    bound: &[Bound<'a>],
+) -> Option<Span> {
+    #[cfg(test)]
+    tests::record_string_arm_visit();
+    match e {
+        Expr::Ternary(_, yes, no, _) => computed_string_arm(yes, scope, shapes, rows, bound)
+            .or_else(|| computed_string_arm(no, scope, shapes, rows, bound)),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => {
+            let ty = match contract_types::infer(subject, scope, shapes) {
+                Ok(Ty::Option(inner)) => *inner,
+                Err(e) if e.id == "type-branches" => return Some(e.span),
+                _ => Ty::Unknown,
+            };
+            let mut inner = scope.clone();
+            inner.push(vec![(var.clone(), Ref::Local(0), ty)]);
+            let mut bound_some = bound.to_vec();
+            bound_some.push(Bound {
+                name: var,
+                value: None,
+                scope: scope.clone(),
+                checked: Rc::new(Cell::new(None)),
+            });
+            computed_string_arm(some, &inner, shapes, rows, &bound_some)
+                .or_else(|| computed_string_arm(none, scope, shapes, rows, bound))
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let ty = contract_types::infer(value, scope, shapes).unwrap_or(Ty::Unknown);
+            let mut inner = scope.clone();
+            inner.push(vec![(name.clone(), Ref::Local(0), ty)]);
+            let mut bound_body = bound.to_vec();
+            bound_body.push(Bound {
+                name,
+                value: Some(value),
+                scope: scope.clone(),
+                checked: Rc::new(Cell::new(None)),
+            });
+            computed_string_arm(body, &inner, shapes, rows, &bound_body)
+        }
+        Expr::Ident(name, _) => {
+            if let Some(index) = bound.iter().rposition(|binding| binding.name == name) {
+                let binding = &bound[index];
+                if let Some(value) = binding.value {
+                    if let Some(result) = binding.checked.get() {
+                        return result;
+                    }
+                    let result =
+                        computed_string_arm(value, &binding.scope, shapes, rows, &bound[..index]);
+                    binding.checked.set(Some(result));
+                    return result;
+                }
+            }
+            matches!(contract_types::infer(e, scope, shapes), Ok(Ty::String)).then_some(e.span())
+        }
+        Expr::Typed(inner, _, _) => computed_string_arm(inner, scope, shapes, rows, bound),
+        Expr::Str(s, _)
+            if rows
+                .iter()
+                .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)) =>
+        {
+            None
+        }
+        _ => match contract_types::infer(e, scope, shapes) {
+            Ok(Ty::String) => Some(e.span()),
+            Err(error) if error.id == "type-branches" => Some(error.span),
+            _ => None,
+        },
+    }
 }
 
 /// HTML's enumerated attributes whose IDL attributes are bools, as the words
@@ -884,6 +1016,15 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
         ),
         _ => return None,
     })
+}
+
+pub(crate) fn aria_disabled_literal(prop: PropId, value: &Expr) -> Option<Expr> {
+    match (prop, value) {
+        (PropId::AccessibilityDisabled, Expr::Str(s, span)) if s == "true" || s == "false" => {
+            Some(Expr::Bool(s == "true", *span))
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
@@ -944,7 +1085,10 @@ pub(crate) fn check_prop_value(
             }) {
                 return err(
                     "lower-attr-value",
-                    format!("`navigationDetent` takes space-separated \"large\", \"medium\", \"fit-content\" or a positive point height; given \"{word}\""),
+                    format!(
+                        "`navigationDetent` accepts {}; given \"{word}\"",
+                        vocab::accepts(prop).unwrap()
+                    ),
                     span,
                 );
             }
@@ -956,11 +1100,32 @@ pub(crate) fn check_prop_value(
             {
                 return err(
                     "lower-attr-value",
-                    format!("`navigationDetent` takes \"fit-content\" alone or as \"fit-content large\": a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\""),
+                    format!("`navigationDetent` accepts {}: a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\"", vocab::accepts(prop).unwrap()),
                     span,
                 );
             }
         }
+    }
+    // @ref LLP 1116.004 D1.2, LLP 1116.006 D2 — a stack's split on a wide window: off, or the list column's
+    // width; or, on a box in the root route, the detail pane's placeholder.
+    if prop == PropId::NavigationSplit
+        && matches!(value, Expr::Str(s, _) if s != "none" && s != "placeholder" && !s.parse::<f64>().is_ok_and(|w| w.is_finite() && w > 0.0))
+    {
+        return err(
+            "lower-attr-value",
+            "`navigationSplit` takes \"none\" (the stack pushes on a wide window too) or the list column's width, a positive number, on the root route; or \"placeholder\" on a box in it, which the detail pane shows while nothing is selected",
+            span,
+        );
+    }
+    // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
+    if prop == PropId::NavigationBar
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "auto"))
+    {
+        return err(
+            "lower-attr-value",
+            "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)",
+            span,
+        );
     }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
         return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
@@ -990,20 +1155,7 @@ pub(crate) fn check_prop_value(
         }
     }
     if prop == PropId::ImageSource {
-        if let Expr::Str(source, _) = value {
-            if let Some(role) = source.strip_prefix("symbol:") {
-                if !role.starts_with("sf/") && exact_kernel::generated::symbol(role).is_none() {
-                    return err(
-                        "lower-attr-value",
-                        format!(
-                            "symbol `{role}` is not a role; roles: {}",
-                            exact_kernel::generated::SYMBOL_ROLES.join(", ")
-                        ),
-                        span,
-                    );
-                }
-            }
-        }
+        symbols::check(value, span)?;
     }
     if want == tags::PropTy::Int {
         if let Some(number) = numeric_literal(value) {
@@ -1311,10 +1463,9 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
     None
 }
 
-/// LLP 1081 D2: the hint for a refused colour written with an Exact role's
-/// bare name (`secondary-label`), which is spelled `-exact-secondary-label`.
-/// A word is split at whitespace, commas and parentheses, so a role inside a
-/// gradient, a shadow, a filter or `light-dark()` is found too.
+/// LLP 1081 D2: a bare colour role (`secondary-label`) is spelled
+/// `-exact-secondary-label`. Splitting at spaces, commas and parentheses
+/// finds roles in gradients, shadows, filters and `light-dark()`.
 pub(crate) fn role_hint(text: &str) -> Option<String> {
     text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
         .find_map(|w| {
@@ -1329,3 +1480,6 @@ pub(crate) fn role_hint(text: &str) -> Option<String> {
             )
         })
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
@@ -173,9 +174,155 @@ fn main() {
   };
 }
 
+/** A new app's identity (LLP 1116.004 D8): its name and six random hex digits,
+ * `com.example.notes-3f9a2c`, so two apps of one name (a bake-off's rounds, a
+ * copy beside the first) never share a store on a device or a web origin. An
+ * existing app keeps the id it has: `update` and `pattern` read it from app.json. */
+export const newAppId = (name, random = randomBytes(3).toString('hex')) => `com.example.${name}-${random}`;
+
+/** The three files \`exact new\` writes for the app itself: the view, its data
+ * module and its tests. \`exact.mjs pattern\` replaces them, and reads them
+ * to tell an untouched file from one the author edited (LLP 1116.001 D3). */
+export function appSources(name, title, id = `com.example.${name}`) {
+  return {
+    'app.contract': `// ${title}: the view. app.ts answers what it asks for. Colours, fonts,
+// sizes and the safe area are left unsaid, so each platform supplies its own:
+// the header is the navigation bar, its heading the title, its button a bar item.
+shape Greeting
+  text: string
+
+routes nav
+  home "/"
+
+component ${title.replaceAll(' ', '')}
+  resource greeting = greeting("${title}") as shape Greeting
+  state liked = false
+  action like
+    liked = not liked
+  view
+    main testId="root" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
+          header display="flex" align-items="center" justify-content="space-between"
+            text "${title}" role="heading" aria-level=1
+            button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
+              image (liked ? "symbol:heart-fill" : "symbol:heart")
+          scroll id="content" flex=1 min-height=0 padding=16
+            text greeting.text testId="greeting"
+`,
+    'app.test.contract': `test "the greeting loads"
+  expect tree has "root"
+  expect text "greeting" == "Hello from ${title}."
+
+test "the header's button likes it"
+  tap "like"
+  expect state liked == true
+`,
+    'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
+
+export const appId = '${id}';
+export const grants = '';
+
+const sources: Sources = {
+  greeting: ([name]): Result<'greeting'> => ({ text: \`Hello from \${name}.\` }),
+};
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+`,
+  };
+}
+
+/** The starter patterns (LLP 1116.001 D3): each a working app under
+ * docs/patterns/<name>/, its app.contract, app.ts and app.test.contract and any
+ * file it needs beside them (rest's server.ts), compiled by the docs check and run
+ * on the web by the async lane. A pattern.json there holds keys the app's app.json
+ * gains (rest's `commands`). Its first line names the app `Starter` and says what it is. */
+export const PATTERNS = resolve(ROOT, 'docs/patterns');
+const PATTERN_ORDER = ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest'];
+
+/** Each pattern's name and line, in the order to read them. */
+export function patterns() {
+  const rank = name => (PATTERN_ORDER.indexOf(name) + 1) || PATTERN_ORDER.length + 1;
+  return readdirSync(PATTERNS).filter(name => existsSync(resolve(PATTERNS, name, 'app.contract')))
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+    .map(name => ({ name, line: readFileSync(resolve(PATTERNS, name, 'app.contract'), 'utf8').split('\n')[0].replace(/^\/\/ Starter: /, '') }));
+}
+
+/** A pattern's files as an app writes them, by path: its placeholder id and name
+ * (`com.example.starter`, `Starter`) become the app's; and the keys its pattern.json adds. */
+export function patternFiles(pattern, { id, title }) {
+  const dir = resolve(PATTERNS, pattern), files = {};
+  const quoted = JSON.stringify(title).slice(1, -1).replaceAll('$', '\\$');
+  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || entry.name === 'pattern.json' || entry.name === 'app.contract.d.ts') continue;
+    const path = relative(dir, resolve(entry.parentPath, entry.name));
+    let text = readFileSync(resolve(dir, path), 'utf8').replaceAll('com.example.starter', id);
+    if (path.endsWith('.contract')) text = text.replaceAll('"Starter"', `"${quoted}"`).replace(/^\/\/ Starter: /, `// ${title}: `);
+    files[path] = text;
+  }
+  const keys = existsSync(resolve(dir, 'pattern.json')) ? JSON.parse(readFileSync(resolve(dir, 'pattern.json'), 'utf8')) : {};
+  return { files, keys };
+}
+
+/** `exact.mjs pattern <name> [--force]`: the pattern's files in place of the app's
+ * own. A file is replaced when it is missing, or what `exact new` or a pattern wrote
+ * for this app; one the author edited is refused, unless `force`. Another pattern's
+ * files the author left alone go. Returns what it did and the next command. */
+export function applyPattern(dir, pattern, { force = false } = {}) {
+  const known = patterns().map(p => p.name);
+  if (!known.includes(pattern)) throw new Error(`pattern: no pattern ${pattern}; there are ${known.join(', ')}`);
+  const manifestPath = resolve(dir, 'app.json');
+  if (!existsSync(manifestPath) || !existsSync(resolve(dir, 'app.contract'))) throw new Error(`pattern: ${dir} is not an app (no app.json and app.contract); run it in the directory exact new made`);
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const id = manifest.app?.id ?? manifest.id, title = manifest.app?.name ?? manifest.name;
+  // The template's name is its crates', as `update` reads it: a renamed folder keeps it.
+  const name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
+    .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? basename(dir);
+  const template = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id);
+  const others = known.filter(p => p !== pattern).map(p => patternFiles(p, { id, title }));
+  const untouched = (path, text) => text === template[path] || others.some(o => o.files[path] === text);
+  const { files, keys } = patternFiles(pattern, { id, title });
+  const read = path => existsSync(resolve(dir, path)) ? readFileSync(resolve(dir, path), 'utf8') : null;
+  const edited = Object.entries(files).filter(([path, text]) => { const now = read(path); return now !== null && now !== text && !untouched(path, now); }).map(([path]) => path);
+  if (edited.length && !force) throw new Error(`pattern: ${edited.join(', ')} ${edited.length > 1 ? 'were' : 'was'} edited (not what exact new or a pattern wrote); --force replaces ${edited.length > 1 ? 'them' : 'it'}`);
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(resolve(dir, path)), { recursive: true });
+    writeFileSync(resolve(dir, path), text);
+  }
+  // Another pattern's files and commands the author left as written go with it.
+  const gone = [];
+  for (const other of others) for (const [path, text] of Object.entries(other.files)) {
+    if (!(path in files) && read(path) === text) { rmSync(resolve(dir, path)); gone.push(path); }
+  }
+  const commands = { ...(manifest.commands ?? {}) };
+  for (const other of others) for (const [verb, argv] of Object.entries(other.keys.commands ?? {})) {
+    if (!keys.commands?.[verb] && JSON.stringify(commands[verb]) === JSON.stringify(argv)) delete commands[verb];
+  }
+  Object.assign(commands, keys.commands ?? {});
+  if (JSON.stringify(commands) !== JSON.stringify(manifest.commands ?? {})) {
+    const next = { ...manifest, commands };
+    if (!Object.keys(commands).length) delete next.commands;
+    writeFileSync(manifestPath, JSON.stringify(next, null, 2) + '\n');
+  }
+  const first = ['app.contract', 'app.ts', 'app.test.contract'];
+  const wrote = [...first.filter(path => path in files), ...Object.keys(files).filter(path => !first.includes(path)).sort()];
+  const verbs = Object.keys(keys.commands ?? {});
+  return { said: `${pattern}: wrote ${wrote.join(', ')} as ${title} (${id})${verbs.length ? `; app.json commands: ${verbs.join(', ')}` : ''}${gone.length ? `; removed ${gone.sort().join(', ')}` : ''}`,
+    next: `Then: bun exact.mjs ${verbs[0] ?? 'test'} web` };
+}
+
+/** What `exact.mjs pattern` with no name prints. */
+export function patternList() {
+  const list = patterns(), width = Math.max(...list.map(p => p.name.length));
+  return ['bun exact.mjs pattern <name> [--force]   writes a working, tested starting app here:', '',
+    ...list.map(p => `  ${p.name.padEnd(width)}  ${p.line}`), '',
+    'It replaces app.contract, app.ts and app.test.contract (refusing a file you edited unless',
+    '--force), with this app\'s id and name. Then: bun exact.mjs test web.'].join('\n');
+}
+
 function writeApp(dir, name) {
   for (const host of ['apple', 'linux', 'web']) mkdirSync(resolve(dir, host));
-  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id = newAppId(name);
   const exact2 = pathFrom(dir, ROOT);
   const dep = (host, path) => `{ path = ${JSON.stringify(pathFrom(resolve(dir, host), resolve(ROOT, path)))} }`;
   const files = {
@@ -204,55 +351,12 @@ ${patchLines(dir).join('\n')}
     'AGENTS.md': agentNotes(dir, name),
     'app.json': JSON.stringify({
       $schema: pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json')),
-      name: title, short_name: title, id: `com.example.${name}`, start_url: '/', display: 'standalone',
-      app: { id: `com.example.${name}`, name: title },
+      name: title, short_name: title, id, start_url: '/', display: 'standalone',
+      app: { id, name: title },
       host: { ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] }, macos: { minimumOS: '14.0', window: { width: 900, height: 700 } }, web: {} },
       deploy: { store: { web: '0', macos: '0', ios: '0', linux: '0' } },
     }, null, 2) + '\n',
-    'app.contract': `// ${title}: the view. app.ts answers what it asks for. Colours, fonts,
-// sizes and the safe area are left unsaid, so each platform supplies its own:
-// the header is the navigation bar, its heading the title, its button a bar item.
-shape Greeting
-  text: string
-
-routes nav
-  home "/"
-
-component ${title.replaceAll(' ', '')}
-  resource greeting = greeting("${title}") as shape Greeting
-  state liked = false
-  action like
-    liked = not liked
-  view
-    main testId="root" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
-          header display="flex" align-items="center" justify-content="space-between"
-            text "${title}" role="heading" aria-level=1
-            button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
-              image (liked ? "symbol:heart-fill" : "symbol:heart")
-          scroll id="content" flex=1 min-height=0
-            text greeting.text testId="greeting"
-`,
-    'app.test.contract': `test "the greeting loads"
-  expect tree has "root"
-  expect text "greeting" == "Hello from ${title}."
-
-test "the header's button likes it"
-  tap "like"
-  expect state liked == true
-`,
-    'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
-
-export const appId = 'com.example.${name}';
-export const grants = '';
-
-const sources: Sources = {
-  greeting: ([name]): Result<'greeting'> => ({ text: \`Hello from \${name}.\` }),
-};
-export const answer: Answer = (source, args, store, storage, native) =>
-  sources[source](args, store, storage, native);
-`,
+    ...appSources(name, title, id),
     'apple/Cargo.toml': `[package]
 name = "${name}-apple"
 version.workspace = true
@@ -358,118 +462,57 @@ exact_web::host!(
   const run = 'bun exact.mjs';
   return `Created ${dir}
   cd '${dir.replaceAll("'", "'\\''")}'
+  ${run} pattern      start from a working app: ${patterns().map(p => p.name).join(', ')}
   ${run} web          the web dev loop
-  ${run} contract types app.contract -o app.contract.d.ts   the types app.ts imports
-  ${run} test web     build, then run app.test.contract, or the files named (web; macos or ios after mac/ios)
+  ${run} test web     build, then run app.test.contract, or the files named (web, ios or macos)
+  ${run} verify       build, the tests, check where each ends, relaunch: done when clean
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
-  ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)${deferred ? `
+  ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)
+  ${run} help         every verb; ${run} <verb> --help gives its flags and an example${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
 }
 
 const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
 
-/** What an agent in the app's directory can't discover (LLP 1086 D1): where
- * the guides are, the app's commands, and the loop. Paths are from the app to
- * this checkout, so \`update\` follows a checkout that moved. */
+/** What an agent in the app's directory can't discover (LLP 1086 D1): what
+ * its files are and the one guide to read, at most 1.5 KB because every step
+ * carries it (LLP 1116.007 D2); `help` holds the rest. Paths are from the app to
+ * this checkout, so \`update\` follows a checkout that moved. The authoring
+ * diary's instructions are \`feedback status\`'s to print, for a project that
+ * keeps one (LLP 1116 D3), so a project that doesn't never carries them. */
 function agentNotes(dir, name, {game = false} = {}) {
   const doc = file => pathFrom(dir, resolve(ROOT, 'docs', file));
+  const sdk = file => pathFrom(dir, resolve(ROOT, file));
   if (game) return gameNotes(dir, name, doc);
   return `${BEGIN}
 # ${name}: an Exact app
 
-The view is \`app.contract\` (Contract), its data is \`app.ts\` (TypeScript), and
-\`app.json\` is the manifest (its \`$schema\` gives an editor every key). The app uses
-the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
+\`app.contract\` is the view, \`app.ts\` its data module, \`app.test.contract\` its tests, \`app.json\`
+the manifest. The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
+overrides it).
 
-Read before writing code: ${doc('start-here.md')}. It is the only required
-reading (LLP 1115 D7): the workflow, Contract in one pass, the native patterns as
-copyable snippets, the data module, tests, and the pitfalls that cost the most.
+Read ${doc('start-here.md')} before writing code: the only
+required reading (LLP 1115 D7); it names the one recipe to open for each feature when you
+write that part.
 
-The rest is lookup only, by the section start-here's last table names, or by grep;
-do not read these front to back:
+${DIARY_LINE}
 
-- ${doc('contract-for-agents.md')}: the full working guide.
-- ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
-- ${doc('contract-for-humans.md')}: explanations and complete examples, including the data module.
-- ${doc('contract-grammar.md')}: exact forms, built-in functions, events.
-
-Commands, from this directory:
-
-| | |
-|---|---|
-| \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
-| \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
-| \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
-| \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
-| \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
-| \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot out.png"\` | drive the app as a person would; \`--storage <name>\` gives its storage sources a scratch store (without it their writes are refused; \`logs\` has the detail) |
-| \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
-| \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
-| \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
-| \`bun exact.mjs hatch <word>\` | an access hatch: a stub for each target the app builds, and its \`app.json\` entry (\`--app\`, \`--window\` for those scopes) |
-| \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
-| app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here; \`update\` keeps them |
-
-Keep drive scripts, evidence, logs and runtime files in \`.exact/\` (git-ignored):
-no build, watcher or freshness check reads it. Anything else in this folder is a
-source: changing it makes the driver refuse to drive until the app is rebuilt.
-
-The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
-\`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
-Before the first native TypeScript build on a machine, run the one-time installer
-\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup\`; it installs the pinned
-host bundle and the iOS/tvOS bundles this Mac builds.
-\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` only checks and
-names anything this machine is missing. Cargo builds themselves are forced offline for Hermes.
-
-Build it native and write less style (LLP 1115): say what a thing is (a \`header\`
-with its heading and buttons, a \`tablist\`, a \`dialog role="alertdialog"\`) and leave
-colours, fonts and control metrics to the platform; a hand-built lookalike of a
-system control is a bug. start-here has the forms; the recipe app to copy from is
-${pathFrom(dir, resolve(ROOT, 'apps/shelf/app.contract'))} (and its \`app.ts\`,
-\`app.test.contract\`). \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/no-tells.mjs'))} .\`
-lists every literal colour, font size and weight the app's \`.contract\` files
-still write. Drive by \`testId\`, never by screen coordinates. Match a reference's
-structure, controls and hierarchy, not its pixels.
-
-Access hatches, for what only the platform's own object can do: mark a node
-\`hatch="word"\` and the app's native code (Swift in \`modules/apple\`, the page
-module in \`modules/web/index.js\`) is handed the view or element Exact built,
-at defined moments. \`bun exact.mjs hatch <word>\` writes the stubs. A hatch
-configures what Exact made; it changes Contract state only by acting on an
-authored node, as a person would: \`click()\`, \`focus()\`, \`blur()\`, and
-\`input(text)\` for a field's whole value. It reads state only through
-\`data-*\` words the Contract puts on the node. The app must work without it:
-\`EXACT_HATCHES=off\` (\`?hatches=off\` on the web) runs a development build
-with no hatch connected. Make a hatch say what it does, so the agent can see
-it: \`diagnostics.log/count/measure/publish\` show in \`logs\`, \`state\`
-(\`state.hatches\`) and \`agent … "perf hatches"\`; \`owns(view, "what")\` puts
-what it added in \`tree\` under its node, and \`parts\` names a control it drew
-so \`tap <testId>/<part>\` can reach it as a real click.
-
-A backend: an app that keeps shared, server-authoritative data (accounts,
-other people's rows, offline writes that sync) uses Snapback 4 through this
-checkout's first-party client, never hand-written HTTP: read
-${pathFrom(dir, resolve(ROOT, 'snapback4/README.md'))} before any data code. It
-mounts \`${pathFrom(dir, resolve(ROOT, 'snapback4/ts'))}\` in \`app.json\`'s
-\`typescript.sources\` and gives \`app.ts\` a local-first device
-(\`Snapback.open\`, \`read\`, \`write\`, \`sync\`, \`outcome\`).
-
-Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
-\`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
-\`package.json\` for a local one), and \`use Activity from "exact:motion"\` a
-built-in. Each file sees only the names its \`use\` lines list.
-
-Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
-\`rust-toolchain.toml\`, \`.cargo/config.toml\`, \`exact.mjs\`, and this block.
-
-${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
+The rest: \`bun exact.mjs help\` lists every verb (\`mac\`, \`linux\`, \`android\`, \`hatch\`, \`update\`, and
+your own in app.json \`"commands"\`); a verb's \`--help\` only when a flag is in question.
+\`bun exact.mjs contract vocab <name>\` answers for any tag, property or function, and
+\`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
+Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
+\`Cargo.toml\`'s \`[patch.crates-io]\` and this block.
 ${END}
 `;
 }
+
+/** The one line that stands for the authoring diary (docs/diary.md): \`feedback
+ * status\` prints the instructions when the project keeps a diary. */
+const DIARY_LINE = 'Run `bun exact.mjs feedback status` first; it prints what to keep.';
 
 /** A game's notes: the app's, for a world in Rust under Contract's menus. */
 function gameNotes(dir, name, doc) {
@@ -497,6 +540,7 @@ Commands, from this directory:
 
 | | |
 |---|---|
+| \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, whether it stays in the foreground, and an example (\`--help all\`: every flag, its ports); the verbs |
 | \`bun exact.mjs test-rust\` | the hostless Rust tests (\`logic/tests\`) and the determinism lints |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (a game builds the wasm target) |
@@ -518,7 +562,7 @@ change \`Options\` or the scene, before the first \`prove\`.
 
 Generated, so don't edit: \`exact.mjs\` and this block.
 
-${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
+${DIARY_LINE}
 ${END}
 `;
 }
@@ -580,102 +624,26 @@ function updateNotes(dir, name, options = {}) {
   return changed;
 }
 
-/** The app's own command runner. EXACT2 names the checkout once (D3); the
- * default is the one that created the app, so a sibling checkout needs nothing. */
+/** The app's command runner: a launcher that finds the checkout (EXACT2 names it once, D3; the default
+ * is the one that created the app, so a sibling checkout needs nothing) and hands the verb to its
+ * scripts/app-cli.mjs, which holds the verbs (LLP 1116.006 D7), so a builder reading it reads a few lines. */
 function commandsFor(dir, name, {game = false} = {}) {
   return `#!/usr/bin/env bun
-// ${name}'s commands, run with the exact2 checkout named by EXACT2
-// (default ${pathFrom(dir, ROOT)}). Generated by \`exact new\`; \`bun exact.mjs update\` rewrites
-// this file, the crates.io patches, the toolchain and the exact2 dependency paths. The app's own
-// verbs live in app.json's \`commands\`, which update leaves alone.
-import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { constants } from 'node:os';
-import { relative, resolve } from 'node:path';
+// ${name}'s commands: \`bun exact.mjs --help\` lists the verbs, \`bun exact.mjs <verb> --help\` a verb's flags.
+// They live in the exact2 checkout named by EXACT2 (default ${pathFrom(dir, ROOT)}), in its
+// scripts/app-cli.mjs. Generated by \`exact new\`; \`bun exact.mjs update\` rewrites this file, the crates.io
+// patches, the toolchain and the exact2 dependency paths. The app's own verbs are app.json's \`commands\`.
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
-const [verb, ...rest] = process.argv.slice(2);
-const host = (verb === 'test' || verb === 'agent') && rest[0] && !rest[0].startsWith('-') ? rest.shift() : 'web';
-const verbs = {
-  web: ['host/web/dev.mjs', '--app', '${name}'],
-  'web-build': ['host/web/build.mjs', '${name}'],
-  test: ['scripts/agent.mjs', host, '--app', '${name}'],
-  agent: ['scripts/agent.mjs', host, '--app', '${name}'],
-  ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
-  mac: ['host/apple/build.mjs', '${name}-apple'],
-  linux: ['scripts/build-linux.mjs', '${name}'],
-  android: ['scripts/agent-android.mjs', 'build', '${name}'],
-  update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],
-  contract: ['scripts/exact.mjs', 'contract'],
-  hatch: ['scripts/exact.mjs', 'hatch'],
-  feedback: ['scripts/feedback.mjs'],${game ? `
-  // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
-  'test-rust': ['game/app/shells.mjs', import.meta.dir, '--test'],
-  lock: ['game/app/shells.mjs', import.meta.dir, '--lock'],
-  windows: ['host/windows/build.mjs', '${name}'],
-  prove: ['game/prove.mjs', import.meta.dir],` : ''}
-};
-// The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added here): app.json's
-// \`commands\`, each a command as argv (\`"verify": ["bun", "verify.mjs"]\`), run in this directory with the
-// arguments after the verb. A game's app.json is optional.
-const manifest = resolve(import.meta.dir, 'app.json');
-const own = (existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).commands : null) ?? {};
-const clash = Object.keys(own).find((name) => verbs[name]);
-if (clash) {
-  console.error(\`app.json commands.\${clash}: \${clash} is one of exact.mjs's own verbs; give the app's another name\`);
-  process.exit(2);
+const cli = resolve(EXACT2, 'scripts/app-cli.mjs');
+if (!existsSync(cli)) {
+  console.error(\`no exact2 at \${EXACT2} (no scripts/app-cli.mjs): EXACT2 names the checkout\`);
+  process.exit(1);
 }
-if (!verbs[verb] && !own[verb]) {
-  console.error(\`Usage: bun exact.mjs <\${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\`);
-  process.exit(2);
-}
-// The automatic build reports on stderr, so a drive's stdout stays its reply (\`--json\`).
-// The child ends with this process: a signal here is passed on, and a dev server
-// stops when this process is gone however it ended (\`EXACT_LAUNCHER_PID\`).
-const spawned = (command, args, stdio = 'inherit', cwd = undefined) => new Promise((done) => {
-  const child = spawn(command, args, {
-    stdio,
-    cwd,
-    env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_APP_DIR: import.meta.dir, EXACT2, EXACT_LAUNCHER_PID: String(process.pid) },
-  });
-  const pass = (signal) => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-  for (const signal of signals) process.on(signal, pass);
-  child.on('error', () => done(1));
-  child.on('exit', (code, signal) => {
-    for (const s of signals) process.off(s, pass);
-    done(code ?? 128 + (constants.signals[signal] ?? 0));
-  });
-});
-const run = ([script, ...args], more = [], stdio = 'inherit') => spawned(process.execPath, [resolve(EXACT2, script), ...args, ...more], stdio);
-const started = Date.now();
-// The diary's command log (exact2's docs/diary.md): which exact2, what ran, how it ended. No arguments.
-const log = exit => { if (verb !== 'feedback') try {
-  const exact2 = spawnSync('git', ['-C', EXACT2, 'rev-parse', '--short=9', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null;
-  mkdirSync(resolve(import.meta.dir, '.exact'), { recursive: true });
-  appendFileSync(resolve(import.meta.dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2, verb: verb === 'test' || verb === 'agent' ? \`\${verb} \${host}\` : verb, exit, ms: Date.now() - started }) + '\\n');
-} catch {} return exit; };
-// The web build is about a second when nothing changed, so a web drive builds
-// first rather than refusing a stale build; a native build stays explicit.
-const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some(a => a === '--url' || a === '--web-dist');
-// \`test [host] [file|glob …]\`: the test files named (each \`.contract\`, a glob or \`--test <file>\`, from the
-// current directory), else app.test.contract; each runs in turn and any failure fails the command.
-const tests = [];
-for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
-  const named = rest[i] === '--test' ? rest.splice(i, 2)[1] : /\\.contract$|\\*/.test(rest[i]) ? rest.splice(i, 1)[0] : (i++, null);
-  if (named == null) continue;
-  const found = named.includes('*') ? [...new Bun.Glob(named).scanSync({ absolute: true })].sort() : [resolve(named)];
-  if (!found.length) { console.error(\`no test file matches \${named}\`); process.exit(log(2)); }
-  tests.push(...found);
-}
-if (drivesWeb) { const built = await run(verbs['web-build'], [], [0, 2, 2]); if (built) process.exit(log(built)); }
-if (own[verb]) { const [command, ...args] = own[verb]; process.exit(log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', import.meta.dir))); }
-if (verb !== 'test') process.exit(log(await run(verbs[verb], rest)));
-let failed = 0;
-for (const file of tests.length ? tests : [resolve(import.meta.dir, 'app.test.contract')]) {
-  if (tests.length > 1) console.log(\`# \${relative(process.cwd(), file)}\`);
-  failed = (await run(verbs.test, ['--test', file, ...rest])) || failed;
-}
-process.exit(log(failed));
+const { run } = await import(cli);
+process.exit(await run({ dir: import.meta.dir, name: ${JSON.stringify(name)},${game ? ' game: true,' : ''} exact2: EXACT2, args: process.argv.slice(2) }));
 `;
 }
 

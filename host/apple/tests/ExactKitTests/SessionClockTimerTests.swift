@@ -34,10 +34,14 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertNil(LaunchPlace(environment: [:]).epoch)
         let custom = LaunchPlace(environment: ["EXACT_AGENT": "1",
             "EXACT_AGENT_LOCALE": "fr-CA", "EXACT_AGENT_TIME_ZONE": "America/Toronto",
-            "EXACT_AGENT_SEED": "9007199254740991", "EXACT_AGENT_EPOCH": "1790000000000"])
+            "EXACT_AGENT_SEED": "4294967295", "EXACT_AGENT_EPOCH": "1790000000000"])
         XCTAssertEqual(custom.locale, "fr-CA")
         XCTAssertEqual(custom.timeZone, "America/Toronto")
-        XCTAssertEqual(custom.seed, (1 << 53) - 1)
+        XCTAssertEqual(custom.seed, (1 << 32) - 1)
+        // The launch seed is below 2^32 on every host (LLP 1116.005 D5): a
+        // drawn one, and a given one past it is 1, as the agent's stream takes it.
+        for _ in 0..<64 { XCTAssertLessThan(LaunchPlace(environment: [:]).seed, 1 << 32) }
+        XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_SEED": "4294967296"]).seed, 1)
         XCTAssertEqual(custom.epoch, 1_790_000_000_000)
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }

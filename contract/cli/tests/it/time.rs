@@ -122,7 +122,14 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
         .set_place("en-GB", "Europe/London", Some(123_456_789.0))
         .unwrap()
         .is_none());
-    for bad in [-1.0, 0.5, f64::NAN, 9_007_199_254_740_992.0] {
+    // Below 2^32 (LLP 1116.005 D5): a seed past it is refused, not wrapped.
+    for bad in [
+        -1.0,
+        0.5,
+        f64::NAN,
+        4_294_967_296.0,
+        9_007_199_254_740_991.0,
+    ] {
         assert!(matches!(
             r.set_place("fr-FR", "Europe/Paris", Some(bad)),
             Err(RunnerError::InvalidPlace)
@@ -133,6 +140,9 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
             "bad seed refuses the whole place"
         );
     }
+    r.set_place("en-GB", "Europe/London", Some(4_294_967_295.0))
+        .unwrap();
+    assert_eq!(text(&r), "4294967295|en-GB", "2^32 - 1 is the largest seed");
 }
 
 // ---------------------------------------------------------------- gated tasks

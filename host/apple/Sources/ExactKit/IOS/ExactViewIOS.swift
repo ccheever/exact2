@@ -3,7 +3,8 @@
 // — the safe area of its own container, or the whole of it when the first
 // root says `viewport-fit="cover"`, the safe-area insets then going to the
 // kernel for its `env()` lengths (LLP 1008 §9) — and, under
-// `interactive-widget="resizes-content"`, the keyboard's top. The plan
+// `interactive-widget="resizes-content"` (the default, LLP 1116 D2), the
+// keyboard's top. The plan
 // boots at the first layout that has a size and follows every later size
 // (a rotation, a split) and every change of the insets. Bounded
 // containment: the session's page scrolls inside this view exactly as the
@@ -14,6 +15,9 @@ import UIKit
 public final class ExactView: UIView {
     public let session: ExactSession
     private var fitPending = false
+    /// The canvas's colour, which this view shows wherever the viewport does
+    /// not reach (`paintUnderKeys`).
+    private var canvas: UIColor?
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
     private var lastFold = ViewportFold.flat
@@ -56,6 +60,7 @@ public final class ExactView: UIView {
         // The launch screen's colour (the manifest's `launch`) until the first
         // frame names the canvas; unset, the platform's (LLP 1115 D2).
         backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground
+        canvas = backgroundColor
         addSubview(session.presenter.viewport)
         #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
@@ -65,7 +70,7 @@ public final class ExactView: UIView {
         #endif
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
-        session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
+        session.presenter.onCanvasColor = { [weak self] color in self?.canvas = color; self?.paintUnderKeys(); self?.onCanvasColor?(color) }
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
         #if os(iOS)
         session.presenter.onStatusBar = { [weak self] choice in self?.onStatusBarStyle?(choice.style) }
@@ -179,6 +184,8 @@ public final class ExactView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        // The window it joined takes the accent; one it left has its own back
+        session.presenter.accent.apply()
         if window != nil { reportScheme() }
         session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.natives.scopesChanged()
@@ -209,7 +216,7 @@ public final class ExactView: UIView {
     }
 
     /// Frame the viewport to the safe area or the whole view — and, under
-    /// `interactive-widget="resizes-content"`, to the keyboard's top, where
+    /// `resizes-content` (`keyboardPolicy`), to the keyboard's top, where
     /// the bottom inset is the keyboard's and not the home indicator's (the
     /// web's rule) — and, once booted, tell the kernel about new insets or a
     /// new size. Called inside the keyboard's animation block, so the frames
@@ -217,11 +224,11 @@ public final class ExactView: UIView {
     func fit() {
         let presenter = session.presenter
         // Containment may synchronously lay us out during a partial batch.
-        // Let the next layout read the fully mounted tree before resizing it.
+        // Finish that batch, then resize synchronously before returning to UIKit.
         if presenter.applying {
             if !fitPending {
                 fitPending = true
-                DispatchQueue.main.async { [weak self] in
+                presenter.afterBatch { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
                     self.fit()
@@ -243,7 +250,7 @@ public final class ExactView: UIView {
         let whole = cover || presenter.navigation.wantsWholeView
         var frame = whole ? container.bounds : container.bounds.inset(by: safe)
         var insets = cover ? safe : .zero
-        if presenter.interactiveWidget == "resizes-content" {
+        if presenter.keyboardPolicy == "resizes-content" {
             let top: CGFloat
             // A sheet's guide remains in its local coordinates as UIKit moves
             // the sheet, including during interactive dismissal.
@@ -357,11 +364,30 @@ public final class ExactView: UIView {
             lastSize = size
             session.resize(size)
             session.natives.scopesChanged()
+            // The keys came or went: the tab bar stays under them, and the
+            // field being edited is shown in what they leave (LLP 1116.003
+            // D2.1). Usually already done in the keyboard's animation; this
+            // catches a guide that moved after its notification.
+            presenter.navigation.fitOwner()
+            if presenter.keyboardInset > 0 { presenter.reveal(presenter.editing) }
         }
         if fold.fold != lastFold {
             lastFold = fold.fold
             session.segments(fold.fold)
         }
+        paintUnderKeys()
+    }
+
+    /// What shows below the viewport while the keyboard ends it above the
+    /// screen's bottom (`resizes-content`): behind the keyboard's accessory
+    /// bar (the pads' ± and Done, LLP 1116.003 D7), which UIKit draws with no
+    /// fill of its own, the colour the content at the viewport's bottom edge
+    /// goes on with, a grouped list's background as a hand-built screen's
+    /// list shows there, never the canvas's band across the width (LLP
+    /// 1116.006 D6).
+    private func paintUnderKeys() {
+        let color = (session.presenter.keyboardInset > 0 ? session.presenter.bottomEdgeColor() : nil) ?? canvas
+        if let color, backgroundColor != color { backgroundColor = color }
     }
 
     /// The segments the container's division regions make of the viewport

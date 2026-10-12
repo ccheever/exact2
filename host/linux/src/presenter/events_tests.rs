@@ -577,6 +577,33 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
 }
 
 #[test]
+fn aria_disabled_keeps_a_linux_button_in_tab_order_and_runs_press() {
+    const APP: &str = "component App\n  state count = 0\n  action tick\n    count = count + 1\n  view\n    column width=200 height=100\n      button \"First\" testId=\"first\" height=20\n      button \"Update\" aria-disabled=true press=tick testId=\"update\" height=20\n      button \"Last\" testId=\"last\" height=20\n      text `${count}` testId=\"count\"\n";
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(APP).unwrap().encode(),
+        Keeps,
+        (200., 100.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.advance(16.);
+    p.tap(id(&p, "first")).unwrap();
+    p.hardware_key("Tab", "Tab", true, false);
+    p.hardware_key("Tab", "Tab", false, false);
+    assert_eq!(p.focus(), Some(id(&p, "update")));
+    p.tap(id(&p, "update")).unwrap();
+    let n = p
+        .host()
+        .kernel()
+        .node_by_key(p.host().kernel().find_by_test_id("count")[0])
+        .unwrap();
+    assert_eq!(n.props.str(PropId::Text), Some("1"));
+}
+
+#[test]
 fn agent_typing_commits_only_on_enter_or_blur() {
     let mut p = boot();
     let field = id(&p, "field");

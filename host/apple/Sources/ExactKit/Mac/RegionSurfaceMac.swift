@@ -294,8 +294,11 @@ final class RegionSurfaceMac: NSView {
             "windowBounds": [windowBacking.minX,windowBacking.minY,windowBacking.width,windowBacking.height],
             "clip": [visibleBounds.minX,visibleBounds.minY,visibleBounds.width,visibleBounds.height],
             "profileBytes": profile.bytes.count]
-        let color = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).usingColorSpace(.deviceRGB) ?? .blue
-        let selectionColor = [color.redComponent,color.greenComponent,color.blueComponent,color.alphaComponent]
+        // The ordinary paragraph's fill and selected glyphs (`TextSelection.fill`,
+        // `ink`), here too. They stay the focused colours: a sampled palette
+        // change drops the retained pixels, which would blank the region at
+        // each change of focus until its next raster.
+        let selectionColor = TextSelection.rasterColors(focused: true, in: effectiveAppearance, space: .deviceRGB) ?? [0, 0, 1, 1, 0, 0, 0, 1, 0]
         let desired = CGPoint(x: 0, y: min(max(0, scrollOffset.y), max(0, presentation.extent.height - ink.bounds.height)))
         var rows = presentation.rows
         for i in rows.indices { rows[i].selection = selections[rows[i].artifact] ?? NSRange(location: 0, length: 0) }

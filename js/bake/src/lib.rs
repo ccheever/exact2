@@ -289,6 +289,13 @@ fn build_sources(
         composer,
         None,
     )?;
+    // Cargo says a build script's warnings (prefixed with the crate) as the
+    // script runs, which is when the plan's sources changed.
+    for warning in &baked.warnings {
+        for line in warning.lines().take(1) {
+            println!("cargo:warning={line}");
+        }
+    }
     let meta: serde_json::Value =
         serde_json::from_str(&baked.receipt).map_err(|e| e.to_string())?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("build requires OUT_DIR")?);
@@ -471,6 +478,9 @@ pub struct Baked {
     /// Development-only source locations, keyed by the final plan digest.
     /// Absent from standalone and Cargo bakes, receipts and module payloads.
     pub source_map: Option<String>,
+    /// The compiler's warnings, each as `contract build` prints it, its file
+    /// from the app's directory: the bake's caller says them (LLP 1116.004 D7).
+    pub warnings: Vec<String>,
 }
 
 /// A temporary directory we created, cleaned on every success/refusal path.
@@ -879,7 +889,22 @@ fn bake_in(
     // Every independent refusal, one after another as `contract build`
     // prints them, in the bake's output and the dev overlay.
     let development = matches!(mode, BakeMode::Development { .. });
-    let compiled = contract::compile_path_all(&app.join("app.contract"), development);
+    let (compiled, warned) =
+        contract::compile_path_all_with_warnings(&app.join("app.contract"), development);
+    // Each from the app's directory, as `contract build app.contract` there names it.
+    let warnings = warned
+        .into_iter()
+        .map(|mut warning| {
+            if let Some(file) = warning
+                .file
+                .as_deref()
+                .and_then(|f| f.strip_prefix(&app).ok())
+            {
+                warning.file = Some(file.into());
+            }
+            warning.to_string()
+        })
+        .collect();
     // A changed graph (including a newly added import) is a refused capture.
     if sources(&app)? != captured || contract_inputs(&app)? != inputs {
         return Err("app sources changed during capture; retry the build".into());
@@ -995,6 +1020,7 @@ fn bake_in(
         declarations,
         receipt,
         source_map,
+        warnings,
     })
 }
 

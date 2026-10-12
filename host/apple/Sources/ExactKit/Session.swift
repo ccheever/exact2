@@ -26,13 +26,13 @@ struct LaunchPlace: Equatable {
         if environment["EXACT_AGENT"] == "1" {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
             timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
-            seed = UInt64(environment["EXACT_AGENT_SEED"] ?? "1") ?? 1
+            seed = UInt32(environment["EXACT_AGENT_SEED"] ?? "1").map(UInt64.init) ?? 1 // below 2^32 (LLP 1116.005 D5); else 1, as exact_data::crypto takes it
             epoch = Double(environment["EXACT_AGENT_EPOCH"] ?? "1767225600000") ?? 1_767_225_600_000
         } else {
             epoch = nil
             locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
             timeZone = TimeZone.current.identifier
-            seed = UInt64.random(in: 0..<(1 << 53))
+            seed = UInt64(UInt32.random(in: .min ... .max))
         }
     }
 }
@@ -302,6 +302,7 @@ public final class ExactApp {
         lastModule = module
         selectedToken = token
         if let shaderSources { surfaces?.replaceShaders(shaderSources) }
+        for (session, _) in batches { session.awaitingTree = true } // each report waits for its own tree: one tree may retint the window
         for (session, batch) in batches { session.presentCommitted(batch, label: label) }
         for session in participants { session.apply(session.runtime.deliverySync()) }
         transaction = false
@@ -355,8 +356,9 @@ public final class ExactSession {
     var dataActivated: Bool { dataGeneration == generation }
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
-
     package let runtime: Runtime
+    /// This session's file roots, captured outside a native module callback.
+    var appFileRoots: [String: String] = [:]
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
@@ -366,6 +368,8 @@ public final class ExactSession {
     let buttonMeasurements = ButtonMeasureCache()
     package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
+    var pendingLaunchLocations: [String] = []
+    var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
     let webviews: WebViews
@@ -803,24 +807,22 @@ public final class ExactSession {
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
     }
-
     private func finishBoot(_ batch: Batch, started: Double) -> Batch {
         rustMs = (CACurrentMediaTime() - started) * 1000
         ExactEnv.stamp("runner + layout")
         let tApply = CACurrentMediaTime()
         if batch.error == nil {
             sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
-            // A fresh boot over a running app (the dev menu's reload from
-            // the baked plan) starts the views over; the library already
-            // replaced its host.
+            // A fresh boot over a running app (the dev menu's reload from the baked plan) starts the views over; the library already replaced its host.
             routerOp = nil
             generation += 1
-            if booted { presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
+            if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
-            AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
+            appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
+        treeIsIn()
         if batch.error == nil { tellTime(); refuseUnheardLaunch() }
         // A fresh runner must receive the view's current viewport and insets.
         if batch.error == nil { view?.rebooted() }
@@ -900,21 +902,23 @@ public final class ExactSession {
         routerOp = nil
         let restart = booted, kept = keptFocus
         keptFocus = nil
+        awaitingTree = true // the tint a reset gives back is reported with the new tree
         presenter.reset()
         forgetAppearances()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
-        AppFiles.learn(runtime)
+        appFileRoots = AppFiles.learn(runtime)
         apply(batch)
+        treeIsIn()
         tellTime()
         refuseUnheardLaunch()
         view?.rebooted()
         autofocusHeld = false
         if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
         state = .ready
-        fputs("reloaded \(label)\n", stderr)
+        if restart { fputs("reloaded \(label)\n", stderr) } // a launch generation's first boot is no reload
     }
 
     /// A host may replace one session's plan transactionally; app delivery
@@ -1026,13 +1030,12 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
+            if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
             while !holdingReports, !pendingViewDark.isEmpty {
                 let (id, dark) = pendingViewDark.removeFirst()
                 apply(runtime.viewScheme(id, dark: dark))
             }
             presenter.collections.flush()
-            // Route projection and all structural/style changes are now final.
-            // Ineligible recognizers may never receive another mouse/touch event.
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
             transformInputHold?.cancelIfInputIneligible()
@@ -1064,8 +1067,8 @@ public final class ExactSession {
                     continue
                 }
                 if name == "reload" {
-                    // The dev menu's Reload, from the app; a build without the dev menu refuses it.
-                    guard DevMenu.enabled else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
+                    // The dev menu's Reload, from the app, in a release build too (a Mac one has no menu, LLP 1115.000 D7.8); `EXACT_DEV_MENU=0` refuses it.
+                    guard ExactEnv.environment["EXACT_DEV_MENU"] != "0" else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
                     app.deliver { DevMenu.reload() }
                     continue
                 }
@@ -1083,7 +1086,6 @@ public final class ExactSession {
                     continue
                 }
                 if name == "postMessage" {
-                    // The inverse of `message=`: text into the named surface, in order.
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
                     app.deliver { [weak self] in self?.canvases.post(surface, text) }
                     continue
@@ -1164,15 +1166,14 @@ public final class ExactSession {
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
-            // The app module is ready before any source can call it: its load
-            // never lands inside a `native.call`'s budget (LLP 1067.000 D8).
+            // Prepare before any source calls the module (LLP 1067.000 D8).
             natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
                 return
             }
-            AppFiles.learn(runtime) // the roots storage configured
+            appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
             if batch.error == nil {
@@ -1194,9 +1195,7 @@ public final class ExactSession {
         let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent)
         // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
         frames.timerSoon = wake == .frame || (frames.tasks && !agent)
-        // A timer armed for this same deadline stays: most batches leave the
-        // runner's next deadline where it was, and a new timer each batch
-        // cost more than the batch's other bookkeeping.
+        // Keep a timer already armed for this deadline; most batches leave it unchanged.
         if case .timeout = wake, let armed = clockTimer, armed.isValid, clockDue == due {
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
             return
@@ -1322,34 +1321,33 @@ public final class ExactSession {
             let early = unreported; unreported.removeAll()
             for id in early { if let v = presenter.views[id] { noteAppearance(v) } }
         }
-        // A subtree with a `color-scheme` of its own keeps its appearance
-        // when the session's changes, so no trait callback says it: said
-        // here, after the scheme. Its views' appearance is the row's, already
-        // settled, whatever the platform's walk has reached.
+        // A subtree with a `color-scheme` of its own keeps its appearance when the session's changes, so no trait
+        // callback says it: said here, after the scheme. Its views' appearance is the row's, already settled,
+        // whatever the platform's walk has reached.
         for v in presenter.views.values where v.style["color_scheme"] != nil { noteAppearance(v) }
         apply(runtime.scheme(dark: dark))
     }
-    /// @ref LLP 1095 D9 — the platform's resolution of every reference the
-    /// kernel paints itself, with the app's tint read here, on main: one
-    /// for every session (`SystemColor.appTint`), since the table is the
-    /// process's; a view's own tint is the host's to paint (`ownTint`).
+    /// @ref LLP 1095 D9 — the platform's resolution of every reference the kernel paints itself, with the app's tint
+    /// read here, on main: one for every session (`SystemColor.appTint`), since the table is the process's; a view's
+    /// own tint is the host's to paint (`ownTint`).
     func reportColors() {
         guard booted, state != .destroyed else { return }
         #if os(iOS) || os(tvOS)
-        // No window, no report: attaching reports (`didMoveToWindow`),
-        // before its scheme, so nothing eases from a stand-in blue.
+        // No window, no report: attaching reports (`didMoveToWindow`), before its scheme, so nothing eases from a stand-in blue.
         guard view?.window != nil else { return }
         #endif
+        if applying || awaitingTree { colorsOwed = true; return } // a tint the batch being applied set, reported once the batch is in
         // No app tint: `@tint` is left out, and the kernel keeps the last.
         apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) }))
     }
-    /// The appearance last reported for the session, and each node view
-    /// found painting motion in another (a sheet's override, say), by id.
+    /// The appearance last reported for the session, and each node view found painting motion in another (a sheet's override, say), by id.
     private(set) var schemeDark: Bool?
     private(set) var viewDark: [UInt32: Bool] = [:]
-    private var pendingViewDark: [(UInt32, Bool)] = []
-    /// A view painting motion: when its own appearance is not the one its
-    /// node's colours resolve by, say so after the batch (LLP 1062 D4).
+    private var pendingViewDark: [(UInt32, Bool)] = [], colorsOwed = false
+    fileprivate(set) var awaitingTree = false // committed to a new runner whose tree is not in: a report would reach the old views
+    private func treeIsIn() { awaitingTree = false; if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
+    /// A view painting motion: when its own appearance is not the one its node's colours resolve by, say so after
+    /// the batch (LLP 1062 D4).
     func noteAppearance(_ view: NodeView) {
         guard let session = schemeDark else { unreported.insert(view.id); return }
         let dark = view.drawsDark
@@ -1397,12 +1395,12 @@ public final class ExactSession {
               let batch = runtime.selection(node, json: json, now: now()) else { return }
         apply(batch)
     }
-    /// A host URL before boot is a launch fact; afterwards it is one event.
-    /// @ref LLP 1038 D8/D11 — development links are consumed by the adapter first.
+    /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
     @discardableResult public func openURL(_ url: URL) -> Bool {
         guard state != .destroyed else { return false }
-        let location = runtime.location(of: url.absoluteString)
-        if !booted { runtime.launch(location); launchLocation = location; return true }
+        let location = incomingLocation(url)
+        if !booted { if launchLocation == nil { runtime.launch(location); launchLocation = location }
+                     else { pendingLaunchLocations.append(location) }; return true }
         return navigate(location)
     }
     /// A link the reader followed — a `link href`, a text run's `href`, a

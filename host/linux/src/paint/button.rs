@@ -199,7 +199,7 @@ impl Painter {
             c
         };
         let authored_accent = control::accent(node, dark);
-        let accent = authored_accent.unwrap_or(control::ACCENT);
+        let (accent, on_accent) = control::accents(authored_accent, dark);
         let accent_paint = |c| if authored_accent.is_some() { c } else { dim(c) };
         let soft = |a| [accent[0], accent[1], accent[2], a];
         let label = if dark { [255; 4] } else { [0, 0, 0, 255] };
@@ -251,7 +251,7 @@ impl Painter {
             }
             "fill" | "glass-fill" => {
                 self.backend.fill(&shape, accent_paint(accent), ts);
-                [255; 4]
+                on_accent
             }
             "glass" => {
                 self.backend.fill(

@@ -92,6 +92,9 @@ app's directory can't discover:
   `rust-toolchain.toml`, forced-offline `.cargo/config.toml`, and `exact.mjs`
   are rewritten by `bun exact.mjs update`.
 
+> **Amended by LLP 1115 D7.** `docs/start-here.md` is the only required reading; the long
+> guides are lookup.
+
 The generated text sits between `<!-- exact:begin -->` and `<!-- exact:end -->`
 markers. `--update` rewrites only what is between the markers, and appends the
 block when they are missing, so an author's own notes survive. An app that has
@@ -111,6 +114,9 @@ minutes): `viewport-fit="cover"` on `main`, and padding of
 `calc(env(safe-area-inset-*) + 24px)` on each side, so the background fills
 behind the status bar and the content keeps clear of it. On the web the insets
 are 0 and the page is unchanged.
+
+> **Amended by LLP 1115 D7.** The template writes no colour, no font size and no safe-area
+> padding; it says structure and leaves the rest to the platform.
 
 The app's workspace holds three host crates: `apple/`, `web/` and, since
 2026-10-07 (Charlie, toward Android bench cells, LLP 1107), `linux/`, in the

@@ -1,7 +1,14 @@
 //! What the host reads from and writes to the machine outside the tree: the
 //! app's store files (a named agent drive's, or the app's own) and physical
 //! memory.
-use super::*;
+
+/// The kv scope the runner's kept answers live in, beside secrets
+/// (LLP 1027 D4). The same scope Apple's store writes.
+const KEPT: &str = "exact.kept";
+
+/// The kv scope persisted states live in (LLP 1116 D5): a preference, never
+/// a secret. The same scope Apple's agent stores write.
+const STATE: &str = "exact.state";
 
 /// What the app has kept — in a named agent drive's scratch tree, or outside
 /// the agent in its own data root ([`crate::picker::secret_root`], LLP
@@ -10,7 +17,7 @@ use super::*;
 /// tree is emptied first, once a process and before anything is written there
 /// (`picker::empty_fresh_tree`); one that cannot be emptied gives nothing,
 /// said at boot and again by the activation.
-pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
+pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, Vec<u8>)> {
     if carried {
         return Vec::new();
     }
@@ -41,15 +48,18 @@ pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String
     let mut out = Vec::new();
     for name in names {
         if let Ok(Some(value)) = ibex2::secrets::SecretStore::get(&secrets, &name) {
-            out.push((name, value));
+            out.push((name, value.into_bytes()));
         }
     }
-    if let Ok(keys) = ibex2::kv::KvStore::keys(&kv, KEPT) {
-        for key in keys {
-            if let Ok(Some(bytes)) = ibex2::kv::KvStore::get(&kv, KEPT, &key) {
-                if let Ok(value) = String::from_utf8(bytes) {
-                    out.push((format!("{}{key}", exact_runner::Store::KEPT), value));
-                }
+    // The runner's own: kept answers and persisted states (LLP 1116 D5),
+    // each a kv scope of its own beside the secrets.
+    for (scope, prefix) in [
+        (KEPT, exact_runner::Store::KEPT),
+        (STATE, exact_runner::Store::STATE),
+    ] {
+        for key in ibex2::kv::KvStore::keys(&kv, scope).unwrap_or_default() {
+            if let Ok(Some(value)) = ibex2::kv::KvStore::get(&kv, scope, &key) {
+                out.push((format!("{prefix}{key}"), value));
             }
         }
     }
@@ -74,13 +84,23 @@ pub(super) fn persist_store_writes(
     let kv = ibex2::kv::FileStore::new(root.join("kv"));
     let mut errors = Vec::new();
     for write in writes {
-        let result = match write.name.strip_prefix(exact_runner::Store::KEPT) {
-            Some(key) => match &write.value {
-                Some(value) => ibex2::kv::KvStore::set(&kv, KEPT, key, value.as_bytes()),
-                None => ibex2::kv::KvStore::delete(&kv, KEPT, key),
+        let owned = [
+            (KEPT, exact_runner::Store::KEPT),
+            (STATE, exact_runner::Store::STATE),
+        ]
+        .into_iter()
+        .find_map(|(scope, prefix)| Some((scope, write.name.strip_prefix(prefix)?)));
+        let result = match owned {
+            Some((scope, key)) => match &write.value {
+                Some(value) => ibex2::kv::KvStore::set(&kv, scope, key, value),
+                None => ibex2::kv::KvStore::delete(&kv, scope, key),
             },
             None => match &write.value {
-                Some(value) => ibex2::secrets::SecretStore::set(&secrets, &write.name, value),
+                Some(value) => ibex2::secrets::SecretStore::set(
+                    &secrets,
+                    &write.name,
+                    &String::from_utf8_lossy(value),
+                ),
                 None => ibex2::secrets::SecretStore::forget(&secrets, &write.name),
             },
         };

@@ -24,6 +24,7 @@ extension NodeView {
     func layoutField() {
         guard let field else { return }
         field.frame = isNativeTextControl ? bounds : contentBox()
+        layoutStepper() // a number input's stepper takes the field's trailing end (LLP 1116.007 D4)
         field.needsDisplay = true
     }
     /// The AppKit class an input's field is: a password's secure field; a
@@ -61,7 +62,8 @@ extension NodeView {
         field.bezelStyle = standard.bezelStyle
         field.drawsBackground = native && standard.drawsBackground
         field.backgroundColor = native ? standard.backgroundColor : .clear
-        field.focusRingType = native ? .default : .exterior
+        field.focusRingType = outlineNone ? .none : native ? .default : .exterior
+        restyleFieldFocus()
         field.alignment = fieldAlignment
         if native, field.currentEditor() == nil {
             field.attributedStringValue = NSAttributedString(string: field.stringValue, attributes: fieldTextAttributes)
@@ -126,13 +128,8 @@ enum FieldClass {
 /// the kernel's content rect (measured from this same class,
 /// `FieldChromeCache`), its buttons where AppKit puts them.
 final class SearchFieldCell: NSSearchFieldCell {
-    private lazy var clipboardEditor: FieldEditor = {
-        let editor = FieldEditor(frame: .zero)
-        editor.isFieldEditor = true
-        return editor
-    }()
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)

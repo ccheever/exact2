@@ -51,6 +51,9 @@ pub(super) struct RawFontMetrics {
     pub(super) ascent: f32,
     pub(super) descent: f32,
     pub(super) leading: f32,
+    /// The cap height and x-height, for `text-box-edge` (font units).
+    pub(super) cap_height: f32,
+    pub(super) x_height: f32,
 }
 
 /// Chrome's line-break choices for ordinary paragraphs (LLP 1085.000 G6):
@@ -637,6 +640,9 @@ impl ShapedSource {
             h += above + below;
             bottoms.push(h);
         }
+        let mut height = if explicit { h } else { h.ceil() };
+        let cut = text_box_trim(spec, &lines, &mut catalog, &baselines, height, 0.0);
+        trim_lines(cut, &mut height, &mut baselines, &mut bottoms);
         drop(catalog);
         // A clamped or ellipsized width keeps its lines (its ellipsis was
         // shaped for it); any other keeps only its scalars until painted,
@@ -656,7 +662,7 @@ impl ShapedSource {
             #[cfg(test)]
             layout_lifetime: Arc::new(()),
             width: w.ceil(),
-            height: if explicit { h } else { h.ceil() },
+            height,
             first_baseline: baselines.first().copied().unwrap_or(0.),
             baselines: Arc::new(baselines),
             bottoms: Arc::new(bottoms),
@@ -825,5 +831,77 @@ impl<'a> Iterator for Runs<'a> {
             line_height,
             line_w: line.w,
         })
+    }
+}
+
+/// CSS `text-box-trim` (Inline Layout 3 §4.2): how much comes off a laid-out
+/// paragraph's top and bottom, from the first line's baseline up to the
+/// root inline box's ascent, cap height or x-height, and from the last
+/// line's baseline down to its descent or nothing (the paragraph's own font,
+/// as on Apple and in CSS). `first_top` is where the first line's box starts:
+/// a flowed line pushed below an obstacle keeps its clearance.
+pub(super) fn text_box_trim(
+    spec: &Spec,
+    lines: &Lines,
+    catalog: &mut catalog::Catalog,
+    baselines: &[f32],
+    height: f32,
+    first_top: f32,
+) -> (f32, f32) {
+    let trim = spec.text_box_trim;
+    if trim == exact_kernel::TextBoxTrim::None || baselines.is_empty() || lines.lines.is_empty() {
+        return (0.0, 0.0);
+    }
+    // The root inline box's (ascent, cap height, x-height, descent): the
+    // paragraph's own font, as CSS trims to it, never an inline run's.
+    let edges = catalog.edge_metrics(&spec.strut);
+    let top = if trim.start() {
+        let [ascent, cap, x, _] = edges;
+        baselines[0]
+            - first_top
+            - match spec.text_box_edge.over() {
+                exact_kernel::OverEdge::Cap => cap,
+                exact_kernel::OverEdge::Ex => x,
+                exact_kernel::OverEdge::Text => ascent,
+            }
+    } else {
+        0.0
+    };
+    let bottom = if trim.end() {
+        let under = match spec.text_box_edge.under() {
+            exact_kernel::UnderEdge::Alphabetic => 0.0,
+            exact_kernel::UnderEdge::Text => edges[3],
+        };
+        height - (baselines[baselines.len() - 1] + under)
+    } else {
+        0.0
+    };
+    (
+        if top.is_finite() { top } else { 0.0 },
+        if bottom.is_finite() { bottom } else { 0.0 },
+    )
+}
+
+/// A paragraph trimmed in place: its baselines and line bottoms move up by
+/// the top's cut, the last bottom ends at the trimmed height (a column of it
+/// is that tall), and the height loses both cuts.
+pub(super) fn trim_lines(
+    (top, bottom): (f32, f32),
+    height: &mut f32,
+    baselines: &mut [f32],
+    bottoms: &mut [f32],
+) {
+    if top == 0.0 && bottom == 0.0 {
+        return;
+    }
+    *height = (*height - top - bottom).max(0.0);
+    for b in baselines.iter_mut() {
+        *b -= top;
+    }
+    for b in bottoms.iter_mut() {
+        *b = (*b - top).min(*height);
+    }
+    if let Some(last) = bottoms.last_mut() {
+        *last = *height;
     }
 }

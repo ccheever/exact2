@@ -84,6 +84,7 @@ impl Parser {
                     name: aname,
                     value,
                     span: aspan,
+                    written: true,
                 });
             }
             p.newline()?;

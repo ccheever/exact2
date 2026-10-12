@@ -90,6 +90,85 @@ fn find_walks_the_matches_in_the_page() {
 }
 
 #[test]
+fn closing_the_tree_releases_its_rows_and_reopening_restores_them() {
+    for (name, ops, shown) in [
+        ("unopened", vec![], false),
+        ("opened", vec!["key", "t"], true),
+        ("dismissed", vec!["key", "t", "key", "Escape"], false),
+        (
+            "reopened",
+            vec!["key", "t", "key", "Escape", "key", "t"],
+            true,
+        ),
+        ("picked", vec!["key", "t", "key", "Enter"], false),
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_llp"))
+            .arg(corpus(name))
+            .args(["--size", "80x20", "until", "LLP 0001"])
+            .args(ops)
+            .arg("tree")
+            .output()
+            .expect("runs");
+        assert!(out.status.success(), "{name}: {:?}", out.stderr);
+        let tree = String::from_utf8(out.stdout).unwrap();
+        for number in ["0001", "0002", "0002.000"] {
+            assert_eq!(
+                tree.contains(&format!("#tree-{number} ")),
+                shown,
+                "{name}, {number}: {tree}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_tree_opens_on_a_document_beyond_its_first_window() {
+    let dir = corpus("deep-tree");
+    for n in 3..80 {
+        std::fs::write(
+            dir.join(format!("{n:04}-document.explainer.md")),
+            format!("# LLP {n:04}: Document {n}\n\nBody.\n"),
+        )
+        .unwrap();
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_llp"))
+        .arg(dir.join("0060-document.explainer.md"))
+        .args([
+            "--size",
+            "80x20",
+            "until",
+            "Document 60",
+            "key",
+            "t",
+            "print",
+            "key",
+            "Enter",
+            "print",
+            "key",
+            "t",
+            "key",
+            "ArrowDown",
+            "key",
+            "Enter",
+            "until",
+            "Document 61",
+            "print",
+        ])
+        .output()
+        .expect("runs");
+    assert!(out.status.success(), "{:?}", out.stderr);
+    let text = String::from_utf8(out.stdout).unwrap();
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(lines.len(), 60, "{text}");
+    assert!(
+        lines[..20].iter().any(|l| l.contains("Document 60")),
+        "{text}"
+    );
+    assert!(lines[20].contains("LLP 0060  Document 60"), "{text}");
+    assert!(lines[40].contains("LLP 0061  Document 61"), "{text}");
+}
+
+#[test]
 fn the_tree_filters_the_corpus_and_opens_with_the_find() {
     let screens = run(
         "tree",

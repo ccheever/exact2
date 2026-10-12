@@ -2,7 +2,9 @@
 // shape iOS presents as an action sheet — one or more press rows that hide
 // it (the actions), at most one handlerless hide-only cancel, text rows (the
 // message) — is an NSMenu popped up against its invoker by its
-// `position-area`, as a button menu is.
+// `position-area`, as a button menu is. (One in the alert shape, with text,
+// a cancel and at most three buttons, is `NSAlert` first: AlertsMac.swift,
+// LLP 1115.000 D7.6. What reaches this is a chooser, or text with no cancel.)
 // One item per action: its title, its image (a symbol, else its `img` once
 // loaded), checked for `aria-checked`, dimmed when disabled, red when
 // destructive. A chooser (more than one action, no text) is headed by its
@@ -112,7 +114,8 @@ extension MenuHost {
         if !owner.message.isEmpty { menu.addItem(.separator()) }
         for (index, entry) in owner.actions.enumerated() {
             guard let row = entry.node else { continue }
-            let item = NSMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
+            let item = AccessibleMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
+            item.owner = row
             item.target = self
             item.representedObject = Choice(owner, index)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
@@ -155,7 +158,7 @@ extension MenuHost {
         owner.finished = true
         owner.chosen = choice.index
         choosing.append(owner)
-        DispatchQueue.main.async { [weak self, owner] in self?.dispatch(owner) }
+        afterNativeTracking { [weak self, owner] in self?.dispatch(owner) }
     }
     /// The recorded choice, once, if the menu still showed what is there.
     private func dispatch(_ owner: Confirmation) {

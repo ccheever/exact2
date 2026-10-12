@@ -38,6 +38,23 @@ extension NodeView {
         return text.isEmpty ? nil : text
     }
     var accessibleName: String { authoredLabel ?? accessibleText }
+    /// ARIA disabled applies to focusable descendants, without changing input.
+    package var ariaUnavailable: Bool {
+        #if os(macOS)
+        var ancestor: NSView? = self
+        #else
+        var ancestor: UIView? = self
+        #endif
+        while let view = ancestor {
+            if let value = (view as? NodeView)?.props["accessibilityDisabled"] { return value == "true" }
+            #if os(macOS)
+            ancestor = presenter?.menus.parent(of: view) ?? view.superview
+            #else
+            ancestor = (view as? NodeView).flatMap { presenter?.navigation.logicalParent(of: $0) } ?? view.superview
+            #endif
+        }
+        return false
+    }
     /// A button to assistive technology: a `button`, or a box whose ARIA
     /// role is `button` or `link`, as the web's tree has a `div` with one
     /// (chat F14: a message bubble with `role="button"` was no button natively).
@@ -68,13 +85,14 @@ extension NodeView {
         }
         return props["accessibilityHint"].flatMap { $0.isEmpty ? nil : $0 }
     }
-    /// The ARIA states AppKit has no property for, under the attribute
-    /// names browsers serve them by: WebKit's `AXInvalid` (onboarding F22),
+    /// The ARIA states served under AppKit attribute names: `AXEnabled`
+    /// for ARIA disabled, WebKit's `AXInvalid` (onboarding F22),
     /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20), WebKit's
     /// `AXARIACurrent` (Depot: a navigation link's `aria-current`). A
     /// `false` (or absent) state serves none.
     func ariaAttribute(_ name: String) -> Any? {
         switch name {
+        case "AXEnabled": return ariaUnavailable ? false : nil
         case "AXInvalid": return props["accessibilityInvalid"].flatMap { ["", "false"].contains($0) ? nil : $0 }
         case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
         case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
@@ -82,7 +100,57 @@ extension NodeView {
         default: return nil
         }
     }
-    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    static let ariaAttributes = ["AXEnabled", "AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    /// ARIA's live-region roles with an implicit `aria-live` (WAI-ARIA 1.2):
+    /// `status` is polite, `alert` assertive.
+    static let liveRoles = ["status": "polite", "alert": "assertive"]
+    var liveRole: String? { props["accessibilityRole"].flatMap { Self.liveRoles[$0] == nil ? nil : $0 } }
+    #if os(macOS)
+    /// The ARIA roles WebKit serves as AppKit's group with the role as its
+    /// subrole (Core-AAM): the live regions and the dialogs, a `dialog`
+    /// element's implicit role among them (HTML-AAM).
+    static let groupSubroles = ["status": "AXApplicationStatus", "alert": "AXApplicationAlert",
+                                "dialog": "AXApplicationDialog", "alertdialog": "AXApplicationAlertDialog"]
+    var groupSubrole: String? {
+        (props["accessibilityRole"] ?? (props["semanticTag"] == "dialog" ? "dialog" : nil)).flatMap { Self.groupSubroles[$0] }
+    }
+    #endif
+    /// How a live region speaks: its `aria-live`, else its role's; nil when
+    /// `off` or neither.
+    var livePoliteness: String? {
+        let live = props["accessibilityLive"] ?? liveRole.flatMap { Self.liveRoles[$0] }
+        return live == "polite" || live == "assertive" ? live : nil
+    }
+    /// Whether a live region speaks as its text becomes `text`: when it
+    /// changed, and an `alert` as it appears, as a browser's alert event has
+    /// it (Core-AAM); one there at launch is read with the screen.
+    func liveSpeaks(_ text: String, launching: Bool) -> Bool {
+        guard accessibilityVisible, !text.isEmpty else { return false }
+        if let previous = liveText { return previous != text }
+        return liveRole == "alert" && !launching
+    }
+    /// ARIA's range roles (LLP 1116 D8): a value is `aria-valuenow` between
+    /// `aria-valuemin` and `aria-valuemax`, and the children are
+    /// presentational, so the node is one element. A control's own view
+    /// (a `progress`'s indicator) says its role and value itself.
+    static let rangeRoles: Set<String> = ["progressbar", "slider", "meter", "scrollbar", "spinbutton"]
+    var rangeRole: String? { kind == "control" ? nil : props["accessibilityRole"].flatMap { Self.rangeRoles.contains($0) ? $0 : nil } }
+    /// A range role's numbers, ARIA's 0 and 100 where a bound is unsaid;
+    /// nil with no readable `aria-valuenow` or another role.
+    var rangeNumbers: (now: Double, min: Double, max: Double)? {
+        let number = { (key: String) in self.props[key].flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.flatMap { $0.isFinite ? $0 : nil } }
+        guard rangeRole != nil, let now = number("accessibilityValueNow") else { return nil }
+        return (now, number("accessibilityValueMin") ?? 0, number("accessibilityValueMax") ?? 100)
+    }
+    /// What the platform speaks for a range role: `aria-valuetext`, else
+    /// its value as a percentage of its bounds, as UIKit's progress view and
+    /// slider speak theirs ("30%"); nil with neither.
+    var rangeValueText: String? {
+        if rangeRole != nil, let text = props["accessibilityValueText"], !text.isEmpty { return text }
+        guard let n = rangeNumbers else { return nil }
+        let fraction = n.max > n.min ? (Swift.min(Swift.max(n.now, n.min), n.max) - n.min) / (n.max - n.min) : 0
+        return NumberFormatter.localizedString(from: NSNumber(value: fraction), number: .percent)
+    }
     var accessibilityVisible: Bool {
         guard paragraphOwner.window != nil, !inert, accessibilityExposed else { return false }
         #if os(macOS)
@@ -110,6 +178,8 @@ extension NodeView {
         // A control's typed values are what AppKit serves its cell.
         let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
         let required = props["accessibilityRequired"] == "true"
+        let enabled = !disabled && !ariaUnavailable
+        if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
         if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
         if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
         // An `input`'s `aria-label` names its field, as a text area's names it.
@@ -117,6 +187,8 @@ extension NodeView {
         #else
         // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
+        if disabled || ariaUnavailable { target.accessibilityTraits.insert(.notEnabled) }
+        else { target.accessibilityTraits.remove(.notEnabled) }
         if target.accessibilityHint != description { target.accessibilityHint = description }
         #endif
     }
@@ -127,14 +199,9 @@ extension NodeView {
 /// the ARIA states AppKit has no property for (`NodeView.ariaAttribute`),
 /// read from the node that holds the field.
 final class FieldCell: NSTextFieldCell {
-    private lazy var clipboardEditor: FieldEditor = {
-        let editor = FieldEditor(frame: .zero)
-        editor.isFieldEditor = true
-        return editor
-    }()
-    /// Its own editor while a clipboard event would be heard (`FieldEditor`, #125).
+    /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
@@ -165,6 +232,90 @@ final class SecureFieldCell: NSSecureTextFieldCell {
     }
 }
 
+extension NodeView {
+    /// What VoiceOver reaches, as the web's accessibility tree and iOS's
+    /// traits have it: a pressable is a button — a link, checkbox, radio or
+    /// switch when its role says so — a labelled image (or `role="img"`,
+    /// an svg's) an image, and a `group` or `radiogroup` a group of its
+    /// children. Headings are paragraphs (`updateTextAccessibility`); names
+    /// come from `syncAccessibility`.
+    func updateRoleAccessibility() {
+        let role = props["accessibilityRole"]
+        if actsAsButton {
+            setAccessibilityElement(true)
+            if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
+            else { setAccessibilityToggle(pressedState, else: role == "link" ? .link : .button) }
+            // A link's `AXURL` is its `href`, as a run's is (X78).
+            let url = role == "link" ? props["href"].flatMap { URL(string: $0) } : nil
+            if accessibilityURL() != url { setAccessibilityURL(url) }
+            setAccessibilitySelected(props["accessibilitySelected"] == "true")
+            if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
+        } else if kind == "image" || role == "img" {
+            let labelled = authoredLabel != nil
+            setAccessibilityElement(labelled)
+            setAccessibilityRole(labelled ? .image : nil)
+        } else if role == "group" || role == "radiogroup" {
+            setAccessibilityElement(true)
+            setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
+            if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
+        } else if let subrole = groupSubrole.map(NSAccessibility.Subrole.init(rawValue:)) {
+            // A live-region or dialog role as WebKit serves it (Core-AAM): a
+            // group whose subrole is the role, named only by its author, a
+            // paragraph's words its children (`textAccessibilityChildren`).
+            setAccessibilityElement(true)
+            if accessibilityRole() != .group { setAccessibilityRole(.group) }
+            if accessibilitySubrole() != subrole { setAccessibilitySubrole(subrole) }
+            if isParagraph, accessibilityValue() != nil { setAccessibilityValue(nil); setAccessibilityLabel(props["accessibilityLabel"]) }
+        } else if let range = rangeRole {
+            // A range role is one element, its value between its bounds and
+            // its `aria-valuetext` the description, as WebKit serves a drawn
+            // one (LLP 1116 D8). Only a change is written: each posts.
+            let axRole: NSAccessibility.Role = ["slider": .slider, "meter": .levelIndicator, "scrollbar": .scrollBar, "spinbutton": .incrementor][range] ?? .progressIndicator
+            setAccessibilityElement(true)
+            if accessibilityRole() != axRole { setAccessibilityRole(axRole) }
+            let n = rangeNumbers
+            let now = n.map { NSNumber(value: $0.now) }, low = n.map { NSNumber(value: $0.min) }, high = n.map { NSNumber(value: $0.max) }
+            if (accessibilityValue() as? NSNumber) != now { setAccessibilityValue(now) }
+            if (accessibilityMinValue() as? NSNumber) != low { setAccessibilityMinValue(low) }
+            if (accessibilityMaxValue() as? NSNumber) != high { setAccessibilityMaxValue(high) }
+            let text = props["accessibilityValueText"].flatMap { $0.isEmpty ? nil : $0 }
+            if accessibilityValueDescription() != text { setAccessibilityValueDescription(text) }
+        } else if !isParagraph, super.isAccessibilityElement() {
+            // None of these roles now (one removed at runtime): a plain view
+            // again, as a new one is, without the role's subrole or values.
+            // A paragraph is reset by `updateTextAccessibility`.
+            setAccessibilityElement(false)
+            setAccessibilityRole(nil)
+            if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
+            if accessibilityValue() != nil { setAccessibilityValue(nil) }
+            if accessibilityMinValue() != nil { setAccessibilityMinValue(nil) }
+            if accessibilityMaxValue() != nil { setAccessibilityMaxValue(nil) }
+            if accessibilityValueDescription() != nil { setAccessibilityValueDescription(nil) }
+        }
+    }
+}
+
+extension NodeView {
+    /// VoiceOver's show menu (AXShowMenu, VO-⇧-M) is the ContextMenu key's
+    /// request at this node (X84), as Chrome sends both through Blink's
+    /// `ShowNonLocatedContextMenu`: its `contextmenu`, then its
+    /// `contextPopover`'s menu, at its drawn middle.
+    package override func accessibilityPerformShowMenu() -> Bool {
+        guard offersShowMenu, let presenter, let point = presenter.contextPoint(self) else { return false }
+        return presenter.contextMenu(self, at: point)
+    }
+    /// AppKit offers every action whose method the class implements; show
+    /// menu only where something answers it, as AppKit offers it only on a
+    /// view with a `menu` (no node has one).
+    package override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        selector == #selector(accessibilityPerformShowMenu) ? offersShowMenu : super.isAccessibilitySelectorAllowed(selector)
+    }
+    private var offersShowMenu: Bool {
+        guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil else { return false }
+        return answersContextMenu
+    }
+}
+
 extension NSView {
     /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
     /// or 2 (mixed); `role` when `pressed` is nil.
@@ -190,17 +341,19 @@ extension UIView {
         if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
         accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
     }
-    /// A checkable role as Safari's VoiceOver reads one: a checkbox or
-    /// switch is a button whose value is `checked` or `unchecked` (as the
+    /// A checkable role as UIKit reads one (LLP 1115.000 D13.3): a checkbox
+    /// or switch is a toggle, the `toggleButton` trait with UIKit's value,
+    /// "1" or "0", which VoiceOver speaks in the reader's language (as the
     /// native checkbox, `ControlsIOS`); a radio is a button, selected while
     /// checked. Called after `setAccessibilityToggle`, which it overrides.
     func setAccessibilityChecked(_ role: String, _ checked: Bool) {
-        accessibilityTraits.remove(.toggleButton)
         if role == "radio" {
+            accessibilityTraits.remove(.toggleButton)
             accessibilityValue = nil
             if checked { accessibilityTraits.insert(.selected) }
         } else {
-            accessibilityValue = checked ? "checked" : "unchecked"
+            accessibilityTraits.insert(.toggleButton)
+            accessibilityValue = checked ? "1" : "0"
         }
     }
 }
@@ -213,16 +366,18 @@ enum SegmentFace: Equatable { case image(NodeView), symbol(String), title(String
 extension NodeView {
     /// How this tab shows as a segment, or nil when a segment cannot show
     /// what was authored: exactly one image child is the segment's image;
-    /// text alone, whose words are its accessible name, is its title. An
-    /// icon beside a label, a badge, or any other node keeps the authored
-    /// rendering — the web's, where a role never changes what is drawn.
+    /// text alone is its title — the visible words, with an `aria-label`
+    /// that says more (`Temp`, named `Temperature`) its accessibility label
+    /// (LLP 1116 D6). An icon beside a label, a badge, or any other node
+    /// keeps the authored rendering — the web's, where a role never changes
+    /// what is drawn.
     var segmentFace: SegmentFace? {
         // A native button's face, not views (LLP 1069.011.000 D4): a symbol
-        // alone (named by its label), or a title its label agrees with.
+        // alone (named by its label), or a title.
         if isNativeButton {
             guard let face, face.fits else { return nil }
             if let symbol = face.symbol, face.title == nil { return .symbol(symbol) }
-            if let title = face.title, face.symbol == nil, (props["accessibilityLabel"] ?? title) == title { return .title(title) }
+            if let title = face.title, face.symbol == nil { return .title(title) }
             return nil
         }
         let children = container.subviews.compactMap { $0 as? NodeView }
@@ -231,8 +386,7 @@ extension NodeView {
         if children.contains(where: { $0.props["accessibilityElementsHidden"] == "true" }) { return nil }
         if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
         let text = accessibleText
-        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),
-              (props["accessibilityLabel"] ?? text) == text else { return nil }
+        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph) else { return nil }
         return .title(text)
     }
 }
@@ -242,15 +396,33 @@ extension Presenter {
     /// views a batch touched and their ancestors — a button's name reads its
     /// subtree — plus every live region and pending autofocus; nil reads
     /// every view.
-    func syncAccessibility(changed: Set<UInt32>? = nil) {
+    func syncAccessibility(changed: Set<UInt32>? = nil, disabledRoots: Set<UInt32> = []) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
             return
         }
         let nodes: [NodeView]
         if let changed {
-            let indexed = chrome.ids("accessibilityLive").union(chrome.ids("autofocus"))
-            nodes = changed.union(indexed).compactMap { views[$0] }.sorted { $0.id < $1.id }
+            let indexed = chrome.ids("accessibilityLive").union(chrome.ids("role:status")).union(chrome.ids("role:alert")).union(chrome.ids("autofocus"))
+            var ids = changed.union(indexed)
+            if !disabledRoots.isEmpty {
+                for node in views.values {
+                    #if os(macOS)
+                    var ancestor: NSView? = node
+                    #else
+                    var ancestor: UIView? = node
+                    #endif
+                    while let view = ancestor {
+                        if let owner = view as? NodeView, disabledRoots.contains(owner.id) { ids.insert(node.id); break }
+                        #if os(macOS)
+                        ancestor = menus.parent(of: view)
+                        #else
+                        ancestor = (view as? NodeView).flatMap { navigation.logicalParent(of: $0) } ?? view.superview
+                        #endif
+                    }
+                }
+            }
+            nodes = ids.compactMap { views[$0] }.sorted { $0.id < $1.id }
         } else {
             autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
             nodes = views.values.sorted(by: { $0.id < $1.id })
@@ -291,10 +463,9 @@ extension Presenter {
                 node.accessibilityLabel = node.accessibleName
                 #endif
             }
-            if let live = node.props["accessibilityLive"], live == "polite" || live == "assertive" {
+            if let live = node.livePoliteness {
                 let text = node.accessibleText
-                if node.accessibilityVisible,
-                   let previous = node.liveText, previous != text, !text.isEmpty {
+                if node.liveSpeaks(text, launching: launchAutofocusPending) {
                     #if os(macOS)
                     NSAccessibility.post(element: node.paragraphOwner, notification: .announcementRequested,
                         userInfo: [.announcement: text, .priority: (live == "assertive" ? NSAccessibilityPriorityLevel.high : .low).rawValue])
@@ -320,12 +491,12 @@ extension Presenter {
             // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took,
             // nor is a button's that came from a touch (Safari's buttons take none from a tap): the button that
             // opened a sheet must not keep the sheet's field from its autofocus. A button reached by Tab or
-            // `focus(id)` keeps it, and a canvas HUD button's hand-back to the canvas still holds it pending.
-            func touchFocused(_ view: UIView) -> Bool { (view as? NodeView).map { $0.isButton && $0.focusedByTouch && !$0.returnsPointerFocusToCanvas } == true }
+            // `focus(id)` keeps it.
+            func touchFocused(_ view: UIView) -> Bool { (view as? NodeView).map { $0.isButton && $0.focusedByTouch } == true }
             func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !touchFocused(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
-            if !views.values.contains(where: { $0.isFirstResponder && $0.returnsPointerFocusToCanvas }) { autofocusProcessed.insert(ObjectIdentifier(node)) }
-            guard let window = node.window, !hasFocus(window) else { continue }
+            guard let window = node.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
+            guard !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
             node.focusedByTouch = false // the app's focus now, as Tab's and focus(id)'s
             _ = target.becomeFirstResponder()
@@ -471,6 +642,9 @@ extension Presenter {
             guard let self, !launchAutofocusReleased, session?.state != .destroyed else { return }
             launchAutofocusReleased = true
             syncAccessibility()
+            #if os(macOS)
+            focusInitialKeyView() // LLP 1115.000 D7.5, after the author's `autofocus` had its say
+            #endif
         }
     }
 
@@ -495,11 +669,18 @@ extension Agent {
     func decorateTree(_ reply: [String: Any]) -> [String: Any] {
         var reply = reply
         let focus = (stateSections()["focus"] as? [String: Any])?["logical"] as? Int
+        #if os(iOS) || os(tvOS)
+        // A header node the navigation bar leaves out (LLP 1116 D2).
+        let unshown = presenter.navigation.unshownByBar()
+        #endif
         reply["nodes"] = (reply["nodes"] as? [[String: Any]] ?? []).map { row in
             var row = row
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
                 if node.props["popover"] != nil { row["open"] = presenter.menus.isOpen(node) }
+                #if os(iOS) || os(tvOS)
+                if let why = unshown[node.id] { row["unshown"] = why }
+                #endif
             }
             return row
         }

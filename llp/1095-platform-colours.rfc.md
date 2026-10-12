@@ -260,6 +260,32 @@ The macOS rows are AppKit's own semantics, which are not iOS's. Where they
 differ visibly (`controlBackgroundColor`), the table says so. Open question
 §6.3 asks for a side-by-side on macOS 26.
 
+> **Amended by LLP 1115.000 D3.2 (2026-10-11).** The table holds two pairs a
+> role (`kernel/tables/schema.json`, `_colors`). Apple's are re-measured on
+> iOS 27 where the grouped list's sheet and the table disagreed: `separator`
+> is `#3c3c431f` / `#54545880`, `system-red` `#ff383c` / `#ff4245`, and
+> `system-blue` and the tint (`AccentColor`, `LinkText`, `Highlight` at 0.2)
+> `#0088ff` / `#0091ff`. The second pair is neutral, no platform's palette:
+> the web's under the neutral look and a painted host's (LLP 1115.000 D4,
+> D17). A host says which column it falls back to (`roles::set_column`), and
+> none says neutral yet, so every host still shows Apple's.
+>
+> **And by its D3.6.** On iOS `ButtonText` is the inherited `tintColor` (it was
+> `linkColor`, which no authored accent reaches), and so is `link`, which
+> therefore resolves as `LinkText` does. An unset page background is
+> `background` (`windowBackgroundColor` on the Mac); `Canvas` stays
+> `textBackgroundColor` there, the document's white.
+>
+> **And by its D3.4.** On the Mac `AccentColor` is the view's tint too (`@tint`):
+> the nearest authored `accent-color` up the view chain, else
+> `controlAccentColor`, so an authored accent reaches a row, a symbol or an
+> `svg` paint that names it, as on iOS and the web, and not only a control.
+>
+> **And by its D3.9.** `tint-color`'s initial value (D8, below) is a role of its
+> own, `symbol`, with a column a platform: the inherited `tintColor` on iOS, as
+> before, and `secondaryLabelColor` on the Mac, as AppKit draws a template image
+> nobody tinted (it was `controlAccentColor`, a tell). The web draws its accent.
+
 **There is no `accent` role.** `AccentColor` is the accent: on iOS it is
 the view's inherited `tintColor`, which is what an app's `accent-color` row
 already sets. So `accent-color` stays the way to *set* the accent, and
@@ -480,6 +506,9 @@ CSS's light-mode result instead of CSS's value.
   Effects specs' initial values, and a drawing's black is a drawing's black,
   not a text colour. `currentColor` stays the way to make an icon follow
   text.
+  > **Superseded for `fill` by LLP 1115.000 D3.8 (2026-10-11).** An unsaid `fill`
+  > is `currentcolor` on every host, the web's sheet included: black is what an
+  > author writes when they mean it. The other three keep SVG's values.
 - **Inheritance** is unchanged: `color` inherits the reference, not a
   resolved value, so a child in an elevated sheet resolves `CanvasText`
   itself (D1).
@@ -803,6 +832,9 @@ recommendation on that basis; the maintainer decides.
      inheritance, `currentcolor`, motion), not for a native platform's
      palette values, and each such difference is declared in LLP 1001. Confirm
      this reading of "the web is the standard" for colour values.
+   > **Settled by LLP 1115 (2026-10-09).** The platform wins on that platform:
+   > author > platform > CSS default. Unsaid motion is the platform's too, so "motion"
+   > above now means motion the author wrote.
 
 **From stage 2 (D8–D11, §10):**
 
@@ -950,6 +982,14 @@ paint keeps SVG's initials (`fill` black), as the web does.
   (`@tint` in the schema) resolve in the kernel to one tint per process, as
   the presenter reports it; a report without them keeps the last. What the
   presenter draws itself uses each view's own tint.
+  > **Amended by LLP 1116.001 D2 (2026-10-11).** The tint at full strength
+  > (`AccentColor`, `LinkText`) is the nearest `accent-color` a node or an
+  > ancestor sets, else the platform's, as UIKit's inherited `tintColor` is:
+  > iOS sets an authored accent as the view's `tintColor`, and an SVG paint
+  > naming the tint crosses as `{"sys": "@tint"}` so its view resolves it;
+  > the web writes the role as `var(--exact-accent, AccentColor)`, which
+  > reads back as the role (`roles::follows_accent`). macOS keeps the system
+  > accent, which AppKit gives no view tint to override.
 - A session's first report corrects what boot resolved without motion; only
   later reports transition. A box filter's `drop-shadow` crosses resolved
   for both appearances (`p`, and `pd` when dark differs), and each view

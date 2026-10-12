@@ -13,6 +13,7 @@ import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic } from '../serve.mjs';
+import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
@@ -475,16 +476,18 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
   }, { html, files });
 }, 60000);
 
-// LLP 1069.011.001 D5/D6/D16: the shipped shell isolates button layout,
-// truncates only the requested titles, and keeps authored disabled colours.
-for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
+// LLP 1069.011.001 D5/D6: the shipped shell isolates button layout and
+// truncates only the requested titles. LLP 1116.005 D8 (superseding D16's
+// kept accent on the web): a disabled button is the disabled look whatever
+// its accent, a glass its own material (form-chrome.test.mjs has the rest).
+for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
   const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
   const button = (id, style = '', extra = '') => `<button id="${id}" data-native data-button-style="${id === 'plain-accent' ? 'plain' : id === 'glass-accent' ? 'glass' : id === 'clear-glass-accent' ? 'clear-glass' : 'filled'}" style="display:grid;width:120px;${style}" ${extra}><span data-exact-text>A native title long enough to wrap onto several lines</span></button>`;
-  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;--exact-button-title-min:0px;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div><div style="display:flex;width:40px">${button('floor', 'width:auto;flex:1 1 0;')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'native fixture');
-    const facts = await page(`(() => { const read = id => { const b=document.getElementById(id),t=b.firstElementChild,s=getComputedStyle(b),c=getComputedStyle(t); return {whiteSpace:s.whiteSpace,align:s.textAlign,display:c.display,height:t.getBoundingClientRect().height,width:t.clientWidth,scroll:t.scrollWidth,ellipsis:c.textOverflow,background:s.backgroundColor,color:s.color}; }; return Object.fromEntries(['wrap','nowrap','clamp','authored','default-off','align','plain-accent','glass-accent','clear-glass-accent'].map(id=>[id,read(id)])); })()`);
+    const facts = await page(`(() => { const read = id => { const b=document.getElementById(id),t=b.firstElementChild,s=getComputedStyle(b),c=getComputedStyle(t); return {whiteSpace:s.whiteSpace,align:s.textAlign,display:c.display,height:t.getBoundingClientRect().height,width:t.clientWidth,scroll:t.scrollWidth,ellipsis:c.textOverflow,background:s.backgroundColor,color:s.color}; }; return Object.fromEntries(['wrap','nowrap','clamp','authored','default-off','align','plain-accent','glass-accent','clear-glass-accent','floor'].map(id=>[id,read(id)])); })()`);
     if (concern === 'defaults') {
       expect(facts.wrap.whiteSpace).toBe('normal');
       expect(facts.wrap.align).toBe('center');
@@ -502,16 +505,197 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabl
       expect(facts.nowrap.scroll).toBeGreaterThan(facts.nowrap.width);
       expect(facts.nowrap.ellipsis).toBe('ellipsis');
     }
-    if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
-    if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
-    if (concern === 'disabled plain accent') expect(facts['plain-accent'].color).toBe('rgb(255, 0, 0)');
+    // LLP 1116 D1: a wrapping title keeps its min-content floor in a squeezed
+    // row, so no word is cut to an ellipsis.
+    if (concern === 'floor') {
+      expect(facts.floor.width).toBeGreaterThan(40);
+      expect(facts.floor.scroll).toBeLessThanOrEqual(facts.floor.width);
+    }
+    if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('rgba(255, 255, 255, 0.7)');
+    if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('rgba(255, 255, 255, 0.15)');
+    if (concern === 'disabled plain accent') {
+      expect(facts['plain-accent'].color).not.toBe('rgb(255, 0, 0)');
+      expect(facts['plain-accent'].color).toBe(facts['default-off'].color);
+    }
     if (concern === 'disabled accent') {
-      expect(facts.authored.background).toBe('rgb(255, 0, 0)');
-      expect(facts['default-off'].background).not.toBe(facts.authored.background);
+      expect(facts.authored.background).toBe('rgba(118, 118, 128, 0.12)');
+      expect(facts['default-off'].background).toBe(facts.authored.background);
     }
   }, {html});
 });
 
+// LLP 1116.003 D3.1: the ink on an accent fill is white until white falls
+// under 3:1 against the accent as the scheme resolves it, then black: a pale
+// dark-scheme accent (event-rsvp's, recipe-finder's) takes black there; the
+// unsaid accent and the destructive red keep white; an authored colour wins.
+browserCheck('the ink on an accent fill is chosen for contrast in each scheme', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const cases = {
+    pale: ['bordered-prominent', '--exact-accent:light-dark(#6652c5, #b5a4ff);'],
+    salmon: ['filled', '--exact-accent:light-dark(#b74e2e, #f49d7d);'],
+    teal: ['prominent-glass', '--exact-accent:light-dark(#16766c, #74d6c5);'],
+    unsaid: ['bordered-prominent', ''],
+    blue: ['filled', '--exact-accent:light-dark(#007aff, #0a84ff);'],
+    destructive: ['bordered-prominent', '', 'data-destructive="true"'],
+    authored: ['bordered-prominent', '--exact-accent:#b5a4ff;color:rgb(255, 0, 0);'],
+    disabled: ['bordered-prominent', '--exact-accent:#b5a4ff;', 'disabled'],
+  };
+  const buttons = scheme => Object.entries(cases).map(([id, [look, style, extra = '']]) =>
+    `<button id="${scheme}-${id}" data-native data-button-style="${look}" style="display:grid;${style}" ${extra}><span data-exact-text>Going</span></button>`).join('');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light">${buttons('light')}</div><div style="color-scheme:dark">${buttons('dark')}</div><span id="gray" style="color:GrayText"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'accent fill fixture');
+    const ink = await page(`(() => { const x = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+      const rgb = e => { x.clearRect(0, 0, 1, 1); x.fillStyle = getComputedStyle(e).color; x.fillRect(0, 0, 1, 1); const [r, g, b] = x.getImageData(0, 0, 1, 1).data; return r + ',' + g + ',' + b; };
+      return Object.fromEntries([...document.querySelectorAll('button, #gray')].map(e => [e.id, rgb(e)])); })()`);
+    const [white, black] = ['255,255,255', '0,0,0'];
+    expect(ink['light-pale']).toBe(white);
+    expect(ink['dark-pale']).toBe(black);
+    expect(ink['light-salmon']).toBe(white);
+    expect(ink['dark-salmon']).toBe(black);
+    expect(ink['light-teal']).toBe(white);
+    expect(ink['dark-teal']).toBe(black);
+    for (const scheme of ['light', 'dark']) {
+      expect(ink[`${scheme}-unsaid`]).toBe(white);
+      expect(ink[`${scheme}-blue`]).toBe(white);
+      expect(ink[`${scheme}-destructive`]).toBe(white);
+      expect(ink[`${scheme}-authored`]).toBe('255,0,0');
+      expect(ink[`${scheme}-disabled`]).toBe(ink.gray);
+    }
+  }, {html});
+});
+
+// LLP 1116.003 D3.2: a symbol that names no tint is the nearest authored
+// accent, as `AccentColor` is (LLP 1116.001 D2) and UIKit's inherited tint
+// is: event-rsvp's calendar under `light-dark(#6652c5, #b5a4ff)` drew the
+// browser's blue. Both targets' symbol sheets; an authored tint still wins.
+for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is the nearest accent (${sheet})`, async () => {
+  const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
+  const html = shell.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root"><div style="--exact-accent:light-dark(#6652c5, #b5a4ff)"><div style="color-scheme:light">${img('light')}</div><div style="color-scheme:dark">${img('dark')}</div>${img('authored', '--exact-tint:rgb(255, 0, 0)')}</div>${img('unsaid')}<span id="system" style="color:AccentColor"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'symbol fixture');
+    const tint = await page(`(() => Object.fromEntries(['light', 'dark', 'authored', 'unsaid'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor]).concat([['system', getComputedStyle(document.getElementById('system')).color]])))()`);
+    expect(tint.light).toBe('rgb(102, 82, 197)');
+    expect(tint.dark).toBe('rgb(181, 164, 255)');
+    expect(tint.authored).toBe('rgb(255, 0, 0)');
+    expect(tint.unsaid).toBe(tint.system);
+  }, {html});
+});
+
+// LLP 1115.000 D3.8: an SVG shape nobody filled is its text's colour, where
+// the browser's own initial `fill` is black. The page's sheet says it on the
+// outermost `svg`, so a `fill` on a shape or on a group wins and reaches a
+// nested `svg` below the group; `currentcolor` is each element's own colour;
+// a gradient's stop and a filter's flood stay SVG's black.
+browserCheck('an unsaid SVG fill is the text colour', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const rect = (id, css = '') => `<rect id="${id}" width="4" height="4"${css ? ` style="${css}"` : ''}/>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color:rgb(10, 20, 30)">
+    <svg id="root" viewBox="0 0 20 20" style="width:20px;height:20px">${rect('unsaid')}${rect('own', 'fill:rgb(255, 0, 0)')}
+      <g style="fill:rgb(0, 128, 0)">${rect('group')}<svg>${rect('nested')}</svg></g>
+      <g style="color:rgb(1, 2, 3)">${rect('recoloured')}<svg>${rect('nested-colour')}</svg></g>
+      <g style="fill:none">${rect('none')}</g>
+      <linearGradient><stop id="stop"/></linearGradient><filter><feFlood id="flood"/></filter>
+    </svg></div><svg id="plain" viewBox="0 0 4 4" style="width:4px;height:4px">${rect('page')}</svg><span id="ink">ink</span></div>`)
+    .replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'svg fixture');
+    const of = (id, property = 'fill') => `[${JSON.stringify(id)}, getComputedStyle(document.getElementById(${JSON.stringify(id)}))[${JSON.stringify(property)}]]`;
+    const got = await page(`Object.fromEntries([${['unsaid', 'own', 'group', 'nested', 'recoloured', 'nested-colour', 'none', 'page'].map((id) => of(id)).join(',')},
+      ${of('stop', 'stopColor')}, ${of('flood', 'floodColor')}, ${of('ink', 'color')}])`);
+    expect(got.unsaid).toBe('rgb(10, 20, 30)');
+    expect(got.own).toBe('rgb(255, 0, 0)');
+    expect(got.group).toBe('rgb(0, 128, 0)');
+    expect(got.nested).toBe('rgb(0, 128, 0)'); // a nested svg does not end the group's fill
+    expect(got.recoloured).toBe('rgb(1, 2, 3)');
+    expect(got['nested-colour']).toBe('rgb(1, 2, 3)');
+    expect(got.none).toBe('none');
+    expect(got.page).toBe(got.ink); // no colour written: the page's own text colour
+    expect(got.stop).toBe('rgb(0, 0, 0)');
+    expect(got.flood).toBe('rgb(0, 0, 0)');
+  }, {html});
+});
+
+// LLP 1116.001 D1: a date, time or local date-time control takes the text
+// field's look (a 1 px line, 8 px corners, the field's background, 36 px
+// tall at the body size) in light and dark, as a border box the kernel
+// models; the author's rows win, and `appearance: none` (no marker) is bare.
+browserCheck('date and time controls take the field look', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const field = (id, type, extra = '') => `<input id="${id}" type="${type}" ${extra}>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="width:300px">${
+    field('date', 'date', 'data-exact-field')}${field('time', 'time', 'data-exact-field value="14:30"')}${
+    field('local', 'datetime-local', 'data-exact-field')}${field('off', 'date', 'data-exact-field disabled')}${
+    field('authored', 'date', 'data-exact-field style="border:2px solid rgb(255, 0, 0);padding:3px;border-radius:0;box-sizing:content-box;width:200px"')}${
+    field('bare', 'date', 'style="appearance:none"')}<input id="text" data-native><div style="color-scheme:dark">${
+    field('dark', 'date', 'data-exact-field')}<input id="dark-text" data-native></div></div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'field fixture');
+    const facts = await page(`(() => Object.fromEntries(['date','time','local','off','authored','bare','text','dark','dark-text'].map(id => { const e = document.getElementById(id), s = getComputedStyle(e), r = e.getBoundingClientRect(); return [id, {width: r.width, height: r.height, border: s.borderTopWidth + ' ' + s.borderTopStyle + ' ' + s.borderTopColor, radius: s.borderTopLeftRadius, background: s.backgroundColor, sizing: s.boxSizing, appearance: s.appearance, color: s.color}]; })))()`);
+    for (const id of ['date', 'time', 'local']) {
+      expect(facts[id].height).toBe(36);
+      expect(facts[id].sizing).toBe('border-box');
+      expect(facts[id].appearance).toBe('auto');
+      expect(facts[id].border).toBe(facts.text.border);
+      expect(facts[id].radius).toBe(facts.text.radius);
+      expect(facts[id].background).toBe(facts.text.background);
+    }
+    expect(facts.date.border).toBe('1px solid rgb(199, 199, 204)');
+    expect(facts.dark.border).toBe(facts['dark-text'].border);
+    expect(facts.dark.background).toBe(facts['dark-text'].background);
+    expect(facts.dark.background).not.toBe(facts.date.background);
+    expect(facts.off.background).not.toBe(facts.date.background);
+    expect(facts.authored.border).toBe('2px solid rgb(255, 0, 0)');
+    expect(facts.authored.radius).toBe('0px');
+    expect(facts.authored.width).toBe(210);
+    expect(facts.bare.border).toBe('0px none rgb(0, 0, 0)');
+    expect(facts.bare.sizing).toBe('content-box');
+  }, {html});
+});
+
+// LLP 1116.003: a determinate progress is the platform's bar, as UIKit draws
+// its own and Linux paints it: a 4 px capsule centred across its box, the
+// accent's over a track of the system fill, the same fill whatever the
+// accent, in light and dark. Chrome's own takes its track by contrast with
+// the accent (near black under teal in light, near white under indigo in
+// dark). An authored background is the box's, under the track, as on iOS.
+browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  // As both targets write a role's accent: `accent-color` and the custom property beside it.
+  const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
+  const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
+  const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light;background:#fff;padding:8px">${
+    bar('teal-light', teal)}${bar('indigo-light', indigo)}${bar('authored', teal + 'background-color:rgb(255, 0, 0)')}</div><div style="color-scheme:dark;background:#000;padding:8px">${
+    bar('teal-dark', teal)}${bar('indigo-dark', indigo)}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'progress fixture');
+    await page(settled);
+    const boxes = await page(`(() => Object.fromEntries([...document.querySelectorAll('progress')].map(e => { const r = e.getBoundingClientRect(); return [e.id, [r.x, r.y, r.width, r.height]]; })))()`);
+    const { data } = await page.call('Page.captureScreenshot', { format: 'png' });
+    const shot = decodePng(Buffer.from(data, 'base64'));
+    const at = (id, dx, dy) => { const [x, y] = boxes[id], i = (Math.round(y + dy) * shot.width + Math.round(x + dx)) * 4; return [...shot.data.slice(i, i + 3)]; };
+    const near = (seen, want, what) => expect(seen.every((c, i) => Math.abs(c - want[i]) <= 3), `${what}: ${seen} for ${want}`).toBe(true);
+    for (const id of Object.keys(boxes)) expect(boxes[id].slice(2)).toEqual([160, 16]);
+    // The fill over white (#78788033) and over black (#7878805c).
+    for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), [228, 228, 230], `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
+    for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), [43, 43, 46], `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
+    near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
+    near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
+    near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
+    near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
+    near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
+    near(at('authored', 120, 8), [228, 24, 26], 'the track over it');
+    near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
+  }, {html});
+});
 
 test('native button WebKit allowance ends at exactly 6.00 px', () => {
   const known = JSON.parse(readFileSync(resolve(ROOT, 'host/web-js/conformance/known-webkit.json'), 'utf8'));

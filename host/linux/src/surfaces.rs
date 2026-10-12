@@ -1250,7 +1250,7 @@ impl<D: DataSource> Presenter<D> {
         self.surfaces.pointer = Some((view, x, y));
         // The agent's hover is a mouse with nothing held, as everywhere.
         let hover = phase == "move" && buttons & 1 == 0;
-        let kind = if self.surfaces.finger && !hover {
+        let kind = if (self.surfaces.finger || self.direct()) && !hover {
             "touch"
         } else {
             "mouse"

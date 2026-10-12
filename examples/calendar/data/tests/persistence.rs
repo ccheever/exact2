@@ -59,7 +59,7 @@ impl App {
         data.activate().unwrap();
         Self {
             data,
-            store: Store::new(GRANTS, Vec::<(String, String)>::new()),
+            store: Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new()),
             requests: 0,
         }
     }
@@ -216,7 +216,7 @@ fn sql(root: &Root, transaction: bool, commands: Json) -> Json {
     )
     .unwrap();
     data.activate().unwrap();
-    let mut store = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let Answer::Later(request) = data.answer(&mut store, "fixture", &[]).unwrap() else {
         panic!("fixture request")
     };

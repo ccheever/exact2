@@ -764,7 +764,7 @@ impl<'a> Replay<'a> {
                             if let Some(dst) = object_fit(image.natural(), *fit, g.content) {
                                 painter.backend.image(
                                     image,
-                                    dst,
+                                    image.placed(dst),
                                     &[Shape::rect(g.content), g.outer],
                                     parent,
                                     *tint,

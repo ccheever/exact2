@@ -261,6 +261,26 @@ fn least_authority_checks_both_operands_and_never_creates_ungranted_ancestors() 
 }
 
 #[test]
+fn recursive_remove_drains_more_than_one_directory_batch() {
+    let f = Fixture::new();
+    f.call(FsOp::Mkdir, "data/many", None, None).unwrap();
+    for index in 0..300 {
+        f.call(
+            FsOp::WriteFile,
+            &format!("data/many/{index:03}"),
+            None,
+            Some(b""),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        f.call(FsOp::Remove, "data/many", None, None).unwrap(),
+        FsResult::Done
+    );
+    assert!(!f.root.join("data/many").exists());
+}
+
+#[test]
 fn drive_root_can_be_read_but_not_removed_or_renamed() {
     let f = Fixture::new();
     let p = NativePath::parse(&f.path("data"), true).unwrap();

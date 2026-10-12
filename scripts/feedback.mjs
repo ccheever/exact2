@@ -15,13 +15,16 @@
 // `*` key there answers `local` or `never` (and nothing else) for every project
 // without its own; a study that hands an agent a private EXACT_CONFIG_DIR sets
 // `{"*": "local"}` before the app exists.
-// `local` keeps the diary and never asks or sends. With EXACT_DIARY=detailed set,
-// `status` also prints the detailed diary's extra instructions (DETAILED below), so
-// only a study's agents carry them in context.
+// `local` keeps the diary and never asks or sends. `status` prints the diary's
+// instructions (docs/diary.md) under any answer that keeps one, so the app's AGENTS.md
+// carries one line for them and a `never` project carries none (LLP 1116 D3). With
+// EXACT_DIARY=detailed set, it also prints the detailed diary's extra instructions
+// (DETAILED below), so only a study's agents carry them in context.
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { guardFlags } from './help.mjs';
 
 export const ENDPOINT = process.env.EXACT_FEEDBACK_URL ?? 'https://exact-diaries.ccheever-0f6.workers.dev';
 const SETTINGS = () => resolve(process.env.EXACT_CONFIG_DIR ?? resolve(homedir(), '.config/exact'), 'feedback.json');
@@ -124,20 +127,32 @@ export const DETAILED = `This session keeps the detailed diary. In the same diar
 - Every workaround left in the app.
 - At the end, a self-assessment for each platform: what works, how you checked it, and what you are unsure of.`;
 
+/** What a project that keeps the diary is told to keep (docs/diary.md, from "What to
+ * keep" on): everything for `ask` and `always`, which share it; `local` stops before
+ * "Asking to share", since it never asks or sends. `never` keeps nothing. */
+export function instructions(answer, doc = readFileSync(resolve(import.meta.dir, '../docs/diary.md'), 'utf8')) {
+  if (answer === 'never') return '';
+  const from = doc.indexOf('## What to keep'), share = doc.indexOf('## Asking to share');
+  if (from < 0 || share < from) throw new Error('docs/diary.md has lost its "What to keep" or "Asking to share" section');
+  return doc.slice(from, answer === 'local' ? share : undefined).trim();
+}
+
 const MEANING = {
   ask: 'keep the diary; ask once before sending',
   always: 'keep the diary; send it at the end of each task, saying so',
   never: 'keep no diary; never ask',
 };
 
-/** The standing answer and what is unsent; the detailed diary's instructions when a study asks for them. */
+/** The standing answer and what is unsent, then what to keep for an answer that keeps a
+ * diary (docs/diary.md's instructions), and the detailed diary's when a study asks for them. */
 export function status(dir, env = process.env) {
   const { diaries, commands } = pending(dir);
   const answer = standing(dir);
   // Each answer says what it asks of the agent (docs/diary.md; the chess diary read `ask` as undefined).
   const line = answer === 'local' ? `local (keep the diary; ask nothing, send nothing): ${diaries.length} unsent diaries, kept on this machine; ${commands.length} logged commands`
     : `${answer} (${MEANING[answer]}): ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
-  return env.EXACT_DIARY === 'detailed' && answer !== 'never' ? `${line}\n\n${DETAILED}` : line;
+  if (answer === 'never') return line;
+  return [line, `# The authoring diary\n\n${instructions(answer)}`, ...(env.EXACT_DIARY === 'detailed' ? [DETAILED] : [])].join('\n\n');
 }
 
 async function main([verb = 'preview', ...rest]) {
@@ -156,6 +171,6 @@ async function main([verb = 'preview', ...rest]) {
 }
 
 if (import.meta.main) {
-  try { console.log(await main(process.argv.slice(2))); }
+  try { console.log(await main(guardFlags('feedback', process.argv.slice(2)))); }
   catch (e) { console.error(`feedback: ${e.message}`); process.exit(1); }
 }

@@ -3,6 +3,10 @@
 use super::*;
 
 impl DataSource for Module {
+    fn set_document_owner(&mut self, owner: u64) {
+        self.document_owner = owner;
+    }
+
     fn take_logs(&mut self) -> Vec<String> {
         self.journal_lines()
     }
@@ -132,6 +136,7 @@ impl DataSource for Module {
             .map(|pair| {
                 let mut module = pair.module;
                 module.directories = self.directories.clone();
+                module.document_owner = self.document_owner;
                 module.native_factory = self.native_factory;
                 module
             })

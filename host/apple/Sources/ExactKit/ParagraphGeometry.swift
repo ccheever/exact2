@@ -156,8 +156,14 @@ extension Paragraph {
     }
 
     func selectionRects(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
+        selectedLines(range, align: align, in: bounds, dirty: dirty).map(\.rect)
+    }
+
+    /// `selectionRects`, each with the line it is on: what paints a
+    /// selection's glyphs as well as its fill.
+    func selectedLines(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [(line: Int, rect: CGRect)] {
         guard range.location >= 0, range.length > 0 else { return [] }
-        var rects: [CGRect] = []
+        var rects: [(line: Int, rect: CGRect)] = []
         for i in lines.indices {
             let line = lines[i], r = CTLineGetStringRange(line)
             let lo = max(range.location, r.location), hi = min(NSMaxRange(range), r.location + r.length)
@@ -168,7 +174,7 @@ extension Paragraph {
             guard y + below >= dirty.minY, y - above <= dirty.maxY else { continue }
             let x = bounds.minX + origin(i, align: align, width: bounds.width)
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-            rects.append(CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below))
+            rects.append((i, CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below)))
         }
         return rects
     }

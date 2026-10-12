@@ -450,6 +450,25 @@ fn provisional_counts_once_per_successful_layout_only_for_native_fields() {
     assert_eq!(k.node(2).unwrap().frame.width, 100.0);
 }
 
+/// LLP 1116.007 D4: `appearance: textfield` is the platform's field, its
+/// chrome measured and its content rect published as `auto`'s are; only
+/// `none` is the author's box.
+#[test]
+fn a_textfield_appearance_is_a_native_field() {
+    let (mut k, state) = tree(chrome());
+    k.set_env(env(16.0)).unwrap();
+    layout(&mut k);
+    let auto = k.node(2).unwrap().field_content_rect();
+    assert!(auto.is_some());
+    patch(&mut k, 2, &[(StyleId::Appearance, "textfield")]);
+    state.borrow_mut().1.clear();
+    layout(&mut k);
+    assert_eq!(k.node(2).unwrap().field_content_rect(), auto);
+    patch(&mut k, 2, &[(StyleId::Appearance, "none")]);
+    layout(&mut k);
+    assert_eq!(k.node(2).unwrap().field_content_rect(), None);
+}
+
 #[test]
 fn secure_search_and_textarea_requests_use_resolved_authored_fonts() {
     let (mut k, state) = tree(FieldChrome::default());
@@ -800,5 +819,93 @@ fn root_font_change_relayouts_web_fields_but_preserves_platform_fonts() {
                 assert_eq!(k.node(id).unwrap().frame.height, 30.0);
             }
         }
+    }
+}
+
+/// LLP 1116.005 D2: a native field in a grouped list's row, at any depth in
+/// it, asks for the field a platform draws in a list's cell; a bare field, a
+/// search field, a field in a section's header and one outside the list ask
+/// for nothing of the kind.
+#[test]
+fn a_native_field_in_a_grouped_row_asks_for_the_cells_field() {
+    let state = Rc::new(RefCell::new((chrome(), Vec::new())));
+    let mut k = Kernel::new(Box::new(Fields(state.clone())));
+    let view = |id| Op::CreateView {
+        id,
+        node_type: NodeType::View,
+    };
+    let field = |id| Op::CreateView {
+        id,
+        node_type: NodeType::TextInput,
+    };
+    let size = |id: u32, px: &str| Op::SetStyle {
+        id,
+        patch: rows(&[(StyleId::FontSize, px)]),
+    };
+    let children = |id, children: Vec<u32>| Op::SetChildren { id, children };
+    let mut ops = vec![
+        view(1),
+        view(10),
+        view(11),
+        view(12),
+        view(13),
+        view(14),
+        view(15),
+    ];
+    ops.extend((20..=26).map(field));
+    ops.extend([
+        prop(10, PropId::ListStyle, "inset-grouped"),
+        prop(11, PropId::SemanticTag, "section"),
+        prop(12, PropId::SemanticTag, "header"),
+        prop(21, PropId::SemanticTag, "textarea"),
+        prop(22, PropId::Type, "search"),
+        Op::SetStyle {
+            id: 23,
+            patch: rows(&[(StyleId::Appearance, "none")]),
+        },
+        size(20, "21"),
+        size(21, "22"),
+        size(22, "23"),
+        size(24, "24"),
+        size(25, "25"),
+        size(26, "26"),
+        children(1, vec![10, 25]),
+        children(10, vec![11]),
+        children(11, vec![12, 13]),
+        children(12, vec![24]),
+        children(13, vec![14]),
+        children(14, vec![15, 26]),
+        children(15, vec![20, 21, 22, 23]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    k.apply(0, 0, &ops).unwrap();
+    k.set_env(env(17.0)).unwrap();
+    layout(&mut k);
+    let cell = |id| k.node(id).unwrap().is_cell_field();
+    assert_eq!(
+        [20, 21, 22, 23, 24, 25, 26].map(cell),
+        [true, true, false, false, false, false, true],
+        "in a row's column, a textarea there, search, bare, in the header, outside, in the row"
+    );
+    let asked: Vec<(f32, bool)> = state
+        .borrow()
+        .1
+        .iter()
+        .map(|r| (r.font.size, r.cell))
+        .collect();
+    for (px, want) in [
+        (21.0, true),
+        (22.0, true),
+        (23.0, false),
+        (24.0, false),
+        (25.0, false),
+        (26.0, true),
+    ] {
+        assert!(asked.contains(&(px, want)), "{px}: {want} in {asked:?}");
+        assert!(
+            !asked.contains(&(px, !want)),
+            "{px}: never {} in {asked:?}",
+            !want
+        );
     }
 }

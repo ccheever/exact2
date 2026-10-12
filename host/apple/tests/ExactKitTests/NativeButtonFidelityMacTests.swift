@@ -380,7 +380,10 @@ final class NativeButtonFidelityMacTests: XCTestCase {
     func testAllFixtureRowsPixelDiffAgainstHandConfiguredAppKit() throws {
         let session = try fixture(); defer { session.destroy() }
         let host = try XCTUnwrap(window.contentView)
-        let buttons = session.presenter.controls.controls.values.compactMap { $0 as? NativeButtonMac }.sorted { ($0.written?.testId ?? "") < ($1.written?.testId ?? "") }
+        // The fixture's radios are its radio group's segments, which AppKit's segmented control draws (LLP 1116.004 D5.2).
+        let buttons = session.presenter.controls.controls.values.compactMap { $0 as? NativeButtonMac }
+            .filter { $0.owner?.props["accessibilityRole"] != "radio" }
+            .sorted { ($0.written?.testId ?? "") < ($1.written?.testId ?? "") }
         XCTAssertGreaterThan(buttons.count, 50)
         for native in buttons {
             let id = try XCTUnwrap(native.written?.testId), hand = try reference(id)

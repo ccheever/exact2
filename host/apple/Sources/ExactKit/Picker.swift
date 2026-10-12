@@ -1,6 +1,6 @@
 // @ref LLP 1069.002 — the file picker on Apple. `showPicker(id)` presents
 // PHPicker on iOS (no permission, no usage string) or a document picker for
-// the manifest's non-media types, and a filtered NSOpenPanel sheet on macOS
+// non-media or unrestricted input, and an NSOpenPanel sheet on macOS
 // (D8). Native hosts don't enforce user activation (ruled, Q2). Each chosen
 // file is copied into `app:/tmp/picked/` before `change` fires (D4), a HEIC
 // photo becoming a JPEG when `accept` names images but not HEIC (D6,
@@ -32,9 +32,11 @@ enum AppFiles {
     }
     /// The roots the library has now (`appRoots`), before the first frame's
     /// images load and again once storage is configured.
-    static func learn(_ runtime: Runtime) {
+    @discardableResult static func learn(_ runtime: Runtime) -> [String: String] {
         let reply = try? JSONSerialization.jsonObject(with: Data(runtime.agent("{\"op\":\"appRoots\"}").utf8))
-        learn(reply as? [String: Any] ?? [:])
+        let object = reply as? [String: Any] ?? [:]
+        learn(object)
+        return object["roots"] as? [String: String] ?? [:]
     }
     /// The file an `app:/data|cache|tmp/…` path names; nil for `..` or a root.
     static func url(_ path: String) -> URL? {
@@ -115,9 +117,7 @@ final class Picker: NSObject {
         for f in files {
             let ext = (f.name as NSString).pathExtension.lowercased()
             let mime = UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
-            let heic = mime == "image/heic" || mime == "image/heif"
-            let keeps = accept.contains { ["image/*", "image/heic", "image/heif", ".heic", ".heif"].contains($0) }
-            let convert = heic && !keeps && accept.contains { $0.hasPrefix("image/") }
+            let convert = Picker.converts(mime, accept: accept)
             let stored = convert ? (f.name as NSString).deletingPathExtension + ".jpg" : f.name
             let reply = object(session.agent("{\"op\":\"pickedPath\",\"name\":\(quoted(stored))}"))
             AppFiles.learn(reply)
@@ -128,7 +128,7 @@ final class Picker: NSObject {
             do {
                 try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? FileManager.default.removeItem(at: target)
-                if convert { try Picker.jpeg(from: f.url, to: target) } else { try FileManager.default.copyItem(at: f.url, to: target) }
+                try Picker.copy(f.url, to: target, accept: accept, mime: mime)
             } catch {
                 session.log("picker: refused: \(f.name): \(error.localizedDescription)"); cancel(view); return
             }
@@ -141,6 +141,18 @@ final class Picker: NSObject {
             lines.append(([path, name, type, "\(bytes)"] + size).joined(separator: "\t"))
         }
         session.apply(session.runtime.picked(view, lines.joined(separator: "\n"), now: session.now()))
+    }
+
+    static func converts(_ mime: String, accept: [String]) -> Bool {
+        let heic = mime == "image/heic" || mime == "image/heif"
+        let keeps = accept.contains { ["*/*", "image/*", "image/heic", "image/heif", ".heic", ".heif"].contains($0) }
+        return heic && !keeps && accept.contains { $0.hasPrefix("image/") }
+    }
+
+    static func copy(_ source: URL, to target: URL, accept: [String], mime: String? = nil) throws {
+        let type = mime ?? UTType(filenameExtension: source.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        if converts(type, accept: accept) { try jpeg(from: source, to: target) }
+        else { try FileManager.default.copyItem(at: source, to: target) }
     }
 
     /// Pixels, orientation applied, from the header alone.
@@ -198,10 +210,11 @@ final class Picker: NSObject {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)?.colorSpace.map(isHDRSpace) ?? false
     }
 
-    /// `accept` as Apple's types: `image/*` and `video/*` their families,
-    /// a MIME type or extension its UTType.
+    /// `accept` as Apple's types: no filter is `.item`; `image/*` and
+    /// `video/*` their families, a MIME type or extension its UTType.
     static func types(_ accept: [String]) -> [UTType] {
-        accept.compactMap { token in
+        if accept.isEmpty || accept.contains("*/*") { return [.item] }
+        return accept.compactMap { token in
             switch token {
             case "image/*": return .image
             case "video/*": return .movie
@@ -291,12 +304,17 @@ extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
 }
 #else
 extension Picker {
-    func present(_ r: Request) {
+    static func panel(for r: Request) -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = r.multiple
-        panel.allowedContentTypes = Picker.types(r.accept)
+        if !r.accept.isEmpty && !r.accept.contains("*/*") { panel.allowedContentTypes = types(r.accept) }
+        return panel
+    }
+
+    func present(_ r: Request) {
+        let panel = Picker.panel(for: r)
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self, weak panel] response in
             guard let self else { return }
             guard response == .OK, let urls = panel?.urls, !urls.isEmpty else { self.cancel(r.view); return }

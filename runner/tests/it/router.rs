@@ -779,3 +779,45 @@ fn a_host_back_pops_the_selected_top_as_its_own_commit() {
     );
     assert_eq!(nav(&r).tabs[0].stack.len(), 1);
 }
+
+/// LLP 1115.000 D4.3 with no `navigate` handler: the host's own navigation
+/// to a location (the browser's Forward, a link to a declared route) is the
+/// router's `go`, one commit journaled as `host go`; nothing when `go`
+/// leaves the router as it is.
+#[test]
+fn a_host_go_goes_to_a_location_as_its_own_commit() {
+    let mut r = boot(fixture::plan(&table()), "/t/1");
+    r.take_router_change();
+    let stack = nav(&r).tabs[0].stack.clone();
+    // Forward to a visit that was popped: a push.
+    assert!(r.host_go("/t/1/details").unwrap().is_some());
+    let change = r.take_router_change().unwrap();
+    assert_eq!(
+        (
+            change.url.as_str(),
+            change.removed,
+            nav(&r).tabs[0].stack.len()
+        ),
+        ("/t/1/details", vec![], 3)
+    );
+    // A location beneath the top: back to it, however many visits away.
+    assert!(r.host_go("/").unwrap().is_some());
+    let change = r.take_router_change().unwrap();
+    assert_eq!((change.top, change.removed.len()), (stack[0].id, 2));
+    // Another tab's top: that tab is selected.
+    assert!(r.host_go("/search").unwrap().is_some());
+    assert_eq!(nav(&r).tab, "search");
+    assert_eq!(r.journal().filter(|l| l.contains("host go")).count(), 3);
+    // The location on top, and one no route matches: no commit, and the refusal is journaled.
+    r.take_router_change();
+    assert!(r.host_go("/search").unwrap().is_none());
+    assert!(r.host_go("/nowhere").unwrap().is_none());
+    assert!(r.take_router_change().is_none());
+    assert_eq!(r.journal().filter(|l| l.contains("host go")).count(), 3);
+    assert_eq!(
+        r.journal()
+            .filter(|l| l.contains("refused") && l.contains("/nowhere"))
+            .count(),
+        1
+    );
+}

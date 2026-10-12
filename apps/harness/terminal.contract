@@ -9,7 +9,7 @@
 // The conversation, the models and the tools live in the Rust data module
 // (apps/harness/data); this file is only the screen.
 
-use Run, Line, Block, Entry, Approval, ModelChoice, Session, Frame, Ack from "./shapes.contract"
+use Run, Line, Block, Entry, Approval, ModelChoice, Session, Workspace, FrameRun, Frame, Ack from "./shapes.contract"
 
 shape Cmd
   name: string
@@ -34,8 +34,8 @@ shape Terminal
 
 fn fg(c: string): string = c == "" ? "inherit" : c
 fn bg(c: string): string = c == "" ? "transparent" : c
-fn weight(r: Run): number = r.bold ? 700 : (r.dim ? 300 : 400)
-fn deco(r: Run): string = r.under ? (r.strike ? "underline line-through" : "underline") : (r.strike ? "line-through" : "none")
+fn weight(bold: bool, dim: bool): number = bold ? 700 : (dim ? 300 : 400)
+fn deco(under: bool, strike: bool): string = under ? (strike ? "underline line-through" : "underline") : (strike ? "line-through" : "none")
 fn frameOf(frames: list<string>, n: number): string = match at(frames, n % length(frames)) { case some(f) => f, case none => "" }
 fn spinner(n: number): string = frameOf(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], n)
 fn star(n: number): string = frameOf(["✻", "✽", "✶", "✳", "✢", "·", "✢", "✳", "✶", "✽"], n)
@@ -47,8 +47,9 @@ fn isCommand(s: string): bool = indexOf(s, "/") == 0
 fn matching(cmds: list<Cmd>, draft: string): list<Cmd> = filter(cmds, c => indexOf(c.name, trim(draft)) == 0)
 
 component Harness
-  resource session = session() as shape Session
   resource terminal = exactSurface("terminal") as shape Terminal
+  resource workspace = workspace() as shape Workspace
+  resource session = session(terminal.mode) as shape Session
   mutation sent as shape Ack queue
   mutation answered as shape Ack
   mutation stopped as shape Ack
@@ -266,7 +267,7 @@ component Harness
               button appearance="none" press=stopAnimation margin-left="auto" testId="stop-animation"
                 text "esc to stop" color="#6c6c6c"
             each l, i in frame.lines key=i
-              Runs(runs=l.runs, pre=true)
+              FrameRuns(runs=l.runs)
         when length(matches) > 0
           column margin-top="1lh" testId="completions"
             each c, i in matches key=c.name
@@ -285,7 +286,7 @@ component Harness
         row padding="0 1ch" color="#6c6c6c" gap="2ch"
           button appearance="none" commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
             text `${session.model} (${session.provider})` color="#87afff"
-          text `${session.cwd}${session.branch == "" ? "" : ` (${session.branch})`}` white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
+          text `${session.cwd}${workspace.branch == "" ? "" : ` (${workspace.branch})`}` white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
           text `↑ ${kilo(session.tokensIn)} ↓ ${kilo(session.tokensOut)} · ${floor(session.contextPct)}% context` margin-left="auto" white-space="nowrap"
         when quitArmed
           text "Press Ctrl-C again to exit" color="#ffaf00" padding="0 1ch"
@@ -337,7 +338,16 @@ component Runs
   view
     text white-space=(pre ? "pre" : "pre-wrap")
       each r, i in runs key=i
-        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=weight(r) font-style=(r.italic ? "italic" : "normal") text-decoration-line=deco(r) href=r.href
+        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=weight(r.bold, r.dim) font-style=(r.italic ? "italic" : "normal") text-decoration-line=deco(r.under, r.strike) href=r.href
+
+// Animation runs carry only their effective terminal style.
+component FrameRuns
+  props
+    runs: list<FrameRun>
+  view
+    text white-space="pre"
+      each r, i in runs key=i
+        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=r.weight font-style="normal" text-decoration-line="none" href=""
 
 // One block of rendered Markdown, or of pre-coloured lines.
 component BlockView

@@ -1731,18 +1731,27 @@ equal on the wasm page, the JS page and the Linux reference.
   `net.fetch` grant (a request outside the grants went out where the wasm
   host refused it); it has since 001e43d03, the whole-set grant admission
   (`issues/20260924-grant-readers-disagree.md`). The page consumes the Rust
-  parser's deeply frozen normalized form and applies native outcome parity to
-  Exact API fetches. It follows redirects, then refuses and discards a response
-  whose final URL is outside the grants. Browser fetch cannot expose a manual
-  redirect target, so an intermediate hop is necessarily contacted before
-  that final admission. If the browser itself rejects a redirect hop before
-  producing any `Response` — for example CORS rejection or an unreachable
-  destination — the page cannot observe the destination and reports `Network`,
-  not native's per-hop `Refused`; this is the declared web deviation. Every
-  redirect that does produce a response retains outcome parity: an ungranted
-  final URL is `Refused` with `outside the app's grants (net.fetch)`. Web grants
-  are parity, not a security boundary (the app is page code and retains direct
-  browser fetch). The other two are fixed below.
+  parser's deeply frozen normalized form to check Exact API fetches. It follows
+  redirects, then refuses and discards a response whose final URL is outside
+  the grants. Browser fetch cannot expose a manual
+  redirect target, so Exact cannot admit every hop before contact. On pages
+  served by the render server, CSP `connect-src` allows the page's own origin
+  and the app's granted origins; a scoped request can have narrower grants.
+  CSP blocks a hop outside the page origin and app grants before contact:
+  browser fetch reports `Network`, while native refuses that hop as `Refused`.
+  A hop granted to the app but not the source can still receive a 307 POST body
+  and return to a source-granted final URL: web succeeds while native refuses
+  before contacting that hop. Static and dev pages have no CSP. There, a 307
+  can send its method and body to an ungranted intermediate origin. If the
+  chain then returns to a granted origin, the web accepts its final response while native refuses
+  at the ungranted hop. Without CSP, an ungranted final URL is refused and
+  discarded with `outside the app's grants (net.fetch)` after contact. If the
+  browser rejects a hop before producing any `Response` — for example CORS
+  rejection or an unreachable destination — the page cannot observe that
+  destination and reports `Network`, not native's per-hop `Refused`. Web
+  grants seek parity for Exact API fetches, not a standalone browser sandbox:
+  page code retains direct browser fetch, subject to a rendered page's CSP
+  where present. The other two are fixed below.
 
 **Navigation roots without a router, and `prepend` under Bun** (2026-10-02):
 - *A navigation root in a plan with no `routes`.* The emitted module

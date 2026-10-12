@@ -19,6 +19,7 @@ extension Agent {
     /// `sessions` are what a request's `session` label routes among.
     public static func startSocket(ready: [String: Any], sessions: [(String, ExactSession)]) {
         routes = sessions
+        _ = KeyboardMotion.shared // a press waits out the keyboard's motion (`settleForPress`)
         // Agent input does not reset UIKit's user-idle timer. Keep an explicitly
         // driven test launch awake; normal launches never enter this carrier.
         UIApplication.shared.isIdleTimerDisabled = true
@@ -196,7 +197,7 @@ extension Agent {
         let keyboardContainer = presenter.modals.coordinateView ?? presenter.session?.view
         let keyboardTop = keyboardContainer.flatMap { presenter.keyboardGuideTop(in: $0) }
         var keyboard: [String: Any] = ["visible": keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
-                                       "policy": presenter.interactiveWidget ?? "resizes-visual", "interactive": presenter.interactiveKeyboardDrag]
+                                       "policy": presenter.keyboardPolicy, "interactive": presenter.interactiveKeyboardDrag]
         if let top = keyboardTop, let container = keyboardContainer {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
         }
@@ -408,6 +409,9 @@ extension Agent {
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
         if let canvas { native["canvas"] = "#\(canvas.id)" }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.isFirstResponder }
+        #if os(iOS)
+        if let stepper = host.stepperObservation { native["stepper"] = stepper }
+        #endif
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = t.isFirstResponder }
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
         host.glassAgentFields(&native)
@@ -441,48 +445,25 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
-    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
-    /// view whose middle is out of view is scrolled to the middle of each
-    /// enclosing scroll view it is outside of, innermost first, then the
-    /// page's — as the web's `scrollIntoView` does there (block centre,
-    /// inline only as far as it takes) — unanimated, as far as each one's
-    /// range allows; their delegates tell the app, as a finger's scroll does.
-    /// In view is what a person sees: inside the scroll view's insets, as the
-    /// presenter's own reveal of a focused field measures it, so the bars and,
-    /// under the default `interactive-widget`, the keyboard (the viewport's
-    /// bottom inset) are out of view. `overlays-content` insets nothing, so
-    /// there the keyboard's top bounds it (LLP 1086.000.000 D2).
-    func reveal(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        let from = box(v)
-        // The keyboard's top in the window, as the presenter last applied it.
-        let keyboard = presenter.interactiveWidget == "overlays-content" ? presenter.keyboardTop : nil
-        var scrolled = false
-        for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
-            let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
-            var port = sv.bounds.inset(by: i)
-            if let keyboard { port.size.height = max(0, min(port.maxY, sv.convert(CGPoint(x: 0, y: keyboard), from: nil).y) - port.minY) }
-            if port.contains(mid) { continue }
-            var o = sv.contentOffset
-            if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
-            // Inline, only as far as it takes from the side its middle is on; a
-            // target wider than the port is centred, so its middle comes in.
-            if mid.x < port.minX || mid.x >= port.maxX {
-                o.x += frame.width > port.width ? mid.x - port.midX : mid.x < port.minX ? frame.minX - port.minX : frame.maxX - port.maxX
-            }
-            o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-            o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
-            if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
-        }
-        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
-        presenter.settlePump()
-        let to = box(v)
-        return ["revealed": Int(v.id), "scrolled": to.origin != from.origin,
-                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    /// `tap {back:true}` (LLP 1116.006 D4): the platform's Back as a person
+    /// takes it — an open confirmation's cancel (a keyboard's Escape, a tap
+    /// outside), else a pushed route's Back button, else the top sheet's
+    /// swipe down. The system's button is no node, so no tap reaches it.
+    func back() -> [String: Any] {
+        if let cancelled = presenter.menus.agentCancel() { return backReply(("dialog", cancelled ? "" : "the alert is still moving: `clock settle` first")) }
+        if let refused = presenter.navigation.agentBack() { return backReply(("route", refused)) }
+        return backReply(presenter.modals.agentDismiss().map { ("sheet", $0) })
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // A header node the app's navigation bar leaves out is not there to
+        // tap, whatever the agent's chrome paints (LLP 1116 D2).
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)], let why = presenter.navigation.unshownByBar()[node.id] {
+            return ["error": "tap #\(id)\(node.props["testId"].map { " [\($0)]" } ?? ""): \(why)"]
+        }
         if let reply = touchForm(req) { return reply }
+        settleForPress()
+        if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
            let node = view(req), node.isDescendant(of: presenter.viewport), presenter.groupedLists?.draws(node.id) != true,
@@ -539,6 +520,11 @@ extension Agent {
             if let unsupported = presenter.controls.unopened(node) { return unsupported }
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
                 : ["error": "control #\(id) is disabled, inert or not shown"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let why = drawnCovered(node) {
+            return ["error": "tap #\(id): \(why)"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
@@ -673,6 +659,10 @@ extension Agent {
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        #if os(iOS)
+        // A finger on a number input's stepper steps it (LLP 1116.007 D4).
+        if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return stepped }
+        #endif
         var n: UIView? = hit
         while let cur = n, !(cur is NodeView) { n = cur.superview }
         // What a touch up does first (`NodeView.touchesEnded`, up the
@@ -698,24 +688,23 @@ extension Agent {
         var took = false
         while let cur = f {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
+            // A node settles the press's focus as a finger's does
+            if let node = cur as? NodeView { node.focusForPress(target: action); took = true; break }
+            // A native module's responder takes it, unless under `retainFocus`
             if cur.canBecomeFirstResponder {
-                // Under `retainFocus` the press takes nothing (`touchesEnded`).
-                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { if let node = cur as? NodeView { node.takeTouchFocus() } else { _ = cur.becomeFirstResponder() } }; took = true }
+                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
                 break
             }
-            // A pressed node handles touchesEnded without forwarding it to
-            // its parent. An enclosing key handler must not steal the editor.
-            if cur === action { break }
             f = cur.superview
         }
-        // Nothing took the focus: the field being edited loses it (a page
-        // blurs its input on a click anywhere else), and the keyboard goes.
-        if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
+        // Nothing settled the focus, as in `focusForPress`: the text being
+        // edited loses it, and any other focus stays.
+        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         var pressed: Any = NSNull()
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
         if let element { presenter.press(element, held: held); pressed = Int(element) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); action.finishPointerPress(); pressed = Int(action.id) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); pressed = Int(action.id) }
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
         // Its middle reaches a control inside it: the tap landed beside it.
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
@@ -747,7 +736,13 @@ extension Agent {
             // A native button's control stands for its node (LLP 1069.011 D4);
             // any other enabled control, or a text editor, takes the touch itself.
             if let button = cur as? NativeButtonIOS, let owner = button.owner { node = owner; break }
-            if (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true, let n = Agent.enclosing(cur).first { return .control(n) }
+            // tvOS has no editable text view (`isEditable` is unavailable there).
+            #if os(tvOS)
+            let takes = (cur as? UIControl)?.isEnabled == true
+            #else
+            let takes = (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true
+            #endif
+            if takes, let n = Agent.enclosing(cur).first { return .control(n) }
             at = cur.superview
         }
         guard let node, !node.inert else { return .nothing }
@@ -1048,6 +1043,8 @@ extension Agent {
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
         let loading = settleForPicture()
+        // UIKit's own motion lands first, unless the picture is a film's frame (LLP 1116.003 D8).
+        if req["film"] as? Bool != true { settleMotion() }
         // A canvas painting its children through its surface (LLP 1014)
         // shows its last capture: what is pending is captured and rendered
         // at the agent's clock first, as `clock` leaves it.
@@ -1086,8 +1083,26 @@ extension Agent {
         let captured = presenter.views.values.filter { Capture.web[$0.id] != nil || $0.kind == "canvas" }
         for node in captured { node.setNeedsDisplay(); node.layer.displayIfNeeded() }
         session.natives.redrawForCapture()
+        // Header nodes the app's navigation bar leaves out, as the agent's
+        // chrome paints them: struck through in red (LLP 1116 D2).
+        let unshown = presenter.navigation.unshownByBar().keys.sorted().compactMap { presenter.views[$0] }.filter {
+            $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
+        }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            UIColor.systemRed.setStroke()
+            for node in unshown {
+                let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1)
+                let outline = UIBezierPath(rect: r)
+                outline.lineWidth = 2
+                outline.setLineDash([4, 3], count: 2, phase: 0)
+                outline.stroke()
+                let strike = UIBezierPath()
+                strike.move(to: CGPoint(x: r.minX, y: r.maxY))
+                strike.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+                strike.lineWidth = 1.5
+                strike.stroke()
+            }
         }
         Capture.capturing = false
         #if !targetEnvironment(simulator)
@@ -1100,6 +1115,10 @@ extension Agent {
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if req["window"] as? Bool == true { r["window"] = true }
         if loading > 0 { r["imagesPending"] = loading }
+        if !unshown.isEmpty {
+            r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
+            r["unshownNote"] = "struck through in red: \(NavigationHost.unshownReason)"
+        }
         // The software keyboard is not in the capture and the app may stand above it (LLP 1102 §3.17):
         // say so, where the image alone reads as a shortened screen.
         let container = session.presenter.modals.coordinateView ?? session.view

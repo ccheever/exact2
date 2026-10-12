@@ -233,7 +233,7 @@ final class ElementHatches {
         for entry in nodes.values where entry.told {
             let node = entry.node
             var changed: [String] = []
-            if let sv = node.scrollView { changed += NavigationHost.ownedChanges(sv, of: node, collapsing: node.scrollOrigin > 0) }
+            if let sv = node.scrollView { changed += NavigationHost.ownedChanges(sv, of: node, insetByUIKit: node.scrollOrigin > 0 || presenter.navigation.insetByUIKit(node)) }
             if let field = node.field, field.delegate !== node { changed.append("the text field's delegate") }
             if let text = node.textArea, text.delegate !== node { changed.append("the text view's delegate") }
             for property in changed {
@@ -355,6 +355,8 @@ final class ElementHatches {
                 t.replaceCharacters(in: NSRange(location: 0, length: (t.string as NSString).length), with: value)
             }
             #endif
+            // The app is told whatever the hatch wrote, and that is the text it knows from here.
+            node.toldText = value
             self.presenter.typed(id, value, input: node.handlers.contains("input"))
             self.said(id, "input (\(node.props["type"] == "password" ? "protected" : "\(value.count) chars"), delivery: hatch)")
         }

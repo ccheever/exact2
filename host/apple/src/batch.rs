@@ -86,14 +86,21 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// The editor box inside a field, or an explicit clear after appearance changes.
-    pub(crate) fn field_content(&mut self, id: u32, rect: Option<exact_kernel::Frame>) {
+    /// The editor box inside a field, or an explicit clear after appearance
+    /// changes; `cell` when the field is a grouped list row's content, which
+    /// iOS draws borderless in its cell (LLP 1116.005 D2).
+    pub(crate) fn field_content(&mut self, id: u32, rect: Option<exact_kernel::Frame>, cell: bool) {
         let value = rect.map_or_else(
             || "null".into(),
             |r| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
         );
+        let cell = if cell && rect.is_some() {
+            ",\"cell\":true"
+        } else {
+            ""
+        };
         self.push_op(format!(
-            "{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":{value}}}"
+            "{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":{value}{cell}}}"
         ));
     }
 

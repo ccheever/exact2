@@ -4,8 +4,9 @@ For the agent working on an Exact app. The exact2 team asks you to keep a diary 
 how Exact went, so it can fix what was rough and keep what was good. The diary
 stays on this machine. Nothing is sent unless the person you work for says yes.
 
-Run `bun exact.mjs feedback status` once at the start. It prints this project's
-standing answer first:
+Run `bun exact.mjs feedback status` once at the start (the app's AGENTS.md says so in
+one line). It prints this project's standing answer first, then, for an answer that
+keeps a diary, the instructions below from "What to keep" on:
 
 - `ask`, the default: keep the diary, and ask before sending (Asking to share).
 - `local`: keep the diary and skip Asking to share; nothing is sent.

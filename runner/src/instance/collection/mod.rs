@@ -836,10 +836,22 @@ impl Collection {
         update: bool,
         fill: CollectionFill,
     ) -> Result<(), InstanceError> {
+        self.realize_window_with_row(u, frames, update, fill, None)
+    }
+
+    /// A requested row is owed even when its measured height or port is zero.
+    fn realize_window_with_row(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        update: bool,
+        fill: CollectionFill,
+        required: Option<usize>,
+    ) -> Result<(), InstanceError> {
         let limit = fill.limit.filter(|_| !update);
         let mut owed: Vec<std::ops::Range<usize>> = Vec::new();
         let mut port = None;
-        let ranges = if let Some(g) = &self.geometry {
+        let mut ranges = if let Some(g) = &self.geometry {
             let pins = self.pins();
             let focus = self.pin(pins[0]);
             let interaction = self
@@ -869,6 +881,13 @@ impl Collection {
             let first = self.bootstrap_first()?;
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
+        if let Some(position) = required {
+            owed.push(position..position + 1);
+            if !ranges.iter().any(|range| range.contains(&position)) {
+                ranges.push(position..position + 1);
+                ranges.sort_unstable_by_key(|range| range.start);
+            }
+        }
         let mut old: BTreeMap<String, Mounted> = std::mem::take(&mut self.mounted)
             .into_iter()
             .map(|row| {
@@ -1152,7 +1171,7 @@ impl Collection {
             key: self.keys[position].clone(),
             frame,
             roots,
-            slots,
+            slots: Some(slots),
         })
     }
     /// Preflight the entire report before releasing any other collection's pins.

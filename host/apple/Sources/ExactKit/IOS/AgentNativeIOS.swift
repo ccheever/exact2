@@ -118,6 +118,8 @@ extension Presenter {
             if Self.platformKinds.contains(o.kind) || o.props["hatch"] != nil { return ("platform", id) }
         }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
+        // A grouped list's background past the viewport's edge, beside it (LLP 1116.004 D2).
+        if owner == nil, groupedLists?.inspectionOwns(sub) == true { return ("grouped-list", nil) }
         if sub === viewport { return ("viewport", nil) }
         if sub === root { return ("document", nil) }
         if session?.view?.inspectionOwned.contains(where: { $0 === sub }) == true { return ("probe", nil) }

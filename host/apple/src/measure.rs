@@ -102,6 +102,12 @@ pub struct CRequest {
     pub lang: *const u8,
     /// Its length in bytes.
     pub lang_len: usize,
+    /// CSS `text-box-trim`: 0 none, 1 trim-start, 2 trim-end, 3 trim-both.
+    pub text_box_trim: u8,
+    /// `text-box-edge`'s over edge: 0 text, 1 cap, 2 ex.
+    pub text_box_over: u8,
+    /// `text-box-edge`'s under edge: 0 text, 1 alphabetic.
+    pub text_box_under: u8,
 }
 
 /// What the callback returns.
@@ -369,6 +375,9 @@ impl CallbackMeasurer {
             },
             lang: self.language.as_ptr(),
             lang_len: self.language.len(),
+            text_box_trim: request.paragraph.text_box_trim as u8,
+            text_box_over: request.paragraph.text_box_edge.over() as u8,
+            text_box_under: request.paragraph.text_box_edge.under() as u8,
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.

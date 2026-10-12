@@ -77,6 +77,20 @@ fn pairs(pairs: &[(String, String)]) -> Json {
     )
 }
 
+/// A module's store snapshot as the realm reads it: text, as `Store::get`
+/// reads it, so a value that is not text is absent there as it is here.
+fn store_pairs(pairs: &[(String, Vec<u8>)]) -> Json {
+    Json::Array(
+        pairs
+            .iter()
+            .filter_map(|(k, v)| {
+                let text = std::str::from_utf8(v).ok()?;
+                Some(Json::Array(vec![k.as_str().into(), text.into()]))
+            })
+            .collect(),
+    )
+}
+
 /// Whether a `waiting` key names a target: `[null, …]` is a caller's that
 /// named none, which only that caller can let go.
 fn targeted(key: &str) -> bool {
@@ -221,7 +235,7 @@ impl Module {
             ("target", target),
             ("source", source.into()),
             ("args", Json::Array(args)),
-            ("store", pairs(&snapshot)),
+            ("store", store_pairs(&snapshot)),
             ("grants", grants),
         ]);
         let response = match outcome {
@@ -656,7 +670,7 @@ impl DataSource for Module {
             ("op", "dispatch".into()),
             ("id", self.id.into()),
             ("token", token.into()),
-            ("store", pairs(&snapshot)),
+            ("store", store_pairs(&snapshot)),
             ("grants", grants),
         ]))
         .and_then(|bytes| json::parse(&bytes).map_err(|e| unavailable(e.to_string())))
@@ -844,6 +858,24 @@ impl DataSource for Module {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The realm reads a secret as `Store::get` does: a value that is not
+    /// text is absent, never a replacement character.
+    #[test]
+    fn a_secret_that_is_not_text_is_absent_in_the_realm() {
+        let pairs = store_pairs(&[
+            ("token".into(), vec![0xff]),
+            ("name".into(), b"ada".to_vec()),
+        ]);
+        assert_eq!(
+            pairs,
+            Json::Array(vec![Json::Array(vec!["name".into(), "ada".into()])])
+        );
+        assert_eq!(
+            Store::new("secret.keep token", [("token".to_string(), vec![0xff])]).get("token"),
+            None
+        );
+    }
 
     #[test]
     fn two_targets_asking_one_source_with_equal_arguments_keep_their_own_turns() {

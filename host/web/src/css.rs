@@ -1,6 +1,6 @@
 //! Style rows → CSS declarations.
 //!
-//! @ref `rules/RULES.md` §Scope (the web is the standard: a row's CSS name is
+//! @ref LLP 1115 §2 (names stay CSS: a row's CSS name is
 //! the row's name with `-` for `_`, and its value the CSS value; the few rows
 //! that are not one CSS property each are listed here by hand)
 //! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
@@ -11,6 +11,9 @@
 //! reaches the page with no change here unless it needs a unit or a name
 //! this table does not know — in which case it is skipped and named in
 //! [`Skipped`], never guessed.
+
+mod fonts;
+pub use fonts::{font_alias, font_family_names};
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
@@ -299,6 +302,9 @@ fn css_text_in(
                 });
                 out.push(';');
             }
+            (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
+                crate::text_box_css::push_edge(edge, &mut out)
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
@@ -353,6 +359,13 @@ fn css_text_in(
             (StyleId::PressHaptic, RowValue::Enum(kind)) => {
                 if *kind != "none" {
                     push_text!(&mut out, "--exact-press-haptic:{};", kind);
+                }
+            }
+            // @ref LLP 1116.001 D1.4 — not CSS: the browser lays the text out,
+            // and navigation.js `fitText` scales it by the kernel's rule.
+            (StyleId::Fit, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-fit:{};", kind);
                 }
             }
             // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
@@ -1175,7 +1188,9 @@ mod declaration_tests {
     /// the page as CSS.
     #[test]
     fn layout_rows_keep_their_css() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         for (rows, want) in [
             (
                 vec![(StyleId::AspectRatio, t("16/9"))],
@@ -1218,7 +1233,9 @@ mod declaration_tests {
 
     #[test]
     fn every_grid_row_has_css_and_none_is_skipped() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         for (row, value, want) in [
             (
                 StyleId::GridTemplateColumns,
@@ -1256,7 +1273,9 @@ mod declaration_tests {
     /// resolve, and `none` clears.
     #[test]
     fn a_3d_rotate_and_translate_are_one_declaration_each() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::Rotate, t("y 30deg")),
@@ -1286,7 +1305,9 @@ mod declaration_tests {
 
     #[test]
     fn text_stroke_is_the_compat_standards_two_properties() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::TextStrokeWidth, t("2px #ff0000")),
@@ -1300,7 +1321,9 @@ mod declaration_tests {
 
     #[test]
     fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::BorderRadiusTopLeft, StyleValue::Number(10.0)),
@@ -1322,7 +1345,9 @@ mod declaration_tests {
 
     #[test]
     fn background_image_is_one_declaration_over_the_colour() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(
                 &[
@@ -1358,7 +1383,9 @@ mod declaration_tests {
     /// with the angle and skips nothing (kanban F30).
     #[test]
     fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let mut style = StyleProps::default();
         style
             .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
@@ -1372,12 +1399,28 @@ mod declaration_tests {
         assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
     }
 
+    /// `-exact-fit` is the custom property navigation.js `fitText` reads
+    /// (LLP 1116.001 D1.4); its initial value writes nothing.
+    #[test]
+    fn fit_is_navigations_property() {
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
+        assert_eq!(
+            css(&[(StyleId::Fit, t("shrink"))], &[]),
+            "--exact-fit:shrink;"
+        );
+        assert_eq!(css(&[(StyleId::Fit, t("none"))], &[]), "");
+    }
+
     /// The feedback's separate factor leaves the row's scale and
     /// authored transition list intact; 1 needs no effect.
     #[test]
     fn a_press_scale_keeps_the_authored_scale_and_transitions() {
         let n = StyleValue::Number;
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(&[(StyleId::PressScale, n(0.97))], &[]),
             "scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.97;"
@@ -1433,44 +1476,4 @@ mod declaration_tests {
             list.css().replace(" grow,", " grow-exact-press,")
         );
     }
-}
-
-/// CSS family aliases for declared fonts; local families keep their CSS names.
-pub fn font_alias(plan: &exact_plan::Plan, family: exact_plan::FamiliesId) -> String {
-    let row = plan.familie(family);
-    if row.faces.len == 0 {
-        return plan.str(row.name).into();
-    }
-    let i = plan
-        .stacks
-        .iter()
-        .position(|s| {
-            s.members.len == 1
-                && plan.stack_member(s.members.iter().next().unwrap()).family == Some(family)
-        })
-        .unwrap_or(8 + family.0 as usize);
-    format!("ExactPlanStack{i}")
-}
-
-/// Every stack's complete CSS fallback list in authored order.
-pub fn font_family_names(plan: &exact_plan::Plan) -> Vec<String> {
-    plan.stacks
-        .iter()
-        .map(|stack| {
-            stack
-                .members
-                .iter()
-                .map(|id| {
-                    let member = plan.stack_member(id);
-                    match member.kind {
-                        exact_plan::StackMemberKind::Family => {
-                            css_string(&font_alias(plan, member.family.unwrap()))
-                        }
-                        generic => generic_stack(generic.name()).into(),
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join(", ")
-        })
-        .collect()
 }

@@ -145,6 +145,46 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertEqual(view.inputView?.bounds.height, 0, "shortcut focus requests no keyboard again after editing")
     }
 
+    /// A press leaves its button focused (a vote, then the `select` below
+    /// it): the select's menu keeps that focus and raises no keyboard over
+    /// its options, as with the view's shortcut focus (polls, LLP 1116 D2).
+    func testAButtonAPressLeftFocusedRequestsNoKeyboardForASelectsMenu() throws {
+        guard #available(iOS 17.4, *) else { throw XCTSkip("UIKit menu activation requires iOS 17.4") }
+        let session = ExactApp.shared.makeSession(label: "select-after-press")
+        let view = ExactView(session: session), host = UIViewController()
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        defer { window.endEditing(true); session.destroy(); window.isHidden = true }
+        let p = session.presenter
+        let vote = NodeView(id: 902, kind: "button", presenter: p)
+        p.views[vote.id] = vote
+        p.root.addSubview(vote)
+        vote.frame = CGRect(x: 32, y: 120, width: 100, height: 44)
+        vote.handlers = ["press"]
+        let button = try XCTUnwrap(p.controls.makeValueControl("select", 903) as? UIButton)
+        button.frame = CGRect(x: 32, y: 200, width: 250, height: 44)
+        button.menu = UIMenu(children: [UIAction(title: "Alice") { _ in }, UIAction(title: "Bob") { _ in }])
+        view.addSubview(button)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(vote.takeTouchFocus(), "the press focuses its button")
+        button.performPrimaryAction()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        func containsOption(_ node: UIView) -> Bool { (node as? UILabel)?.text == "Bob" || node.subviews.contains(where: containsOption) }
+        XCTAssertTrue(containsOption(window), "the real UIKit menu opened")
+        XCTAssertTrue(vote.isFirstResponder, "the button's focus survives the menu")
+        XCTAssertEqual(vote.inputView?.bounds.height, 0, "a focused button requests no system keyboard")
+        button.contextMenuInteraction?.dismissMenu()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertTrue(vote.resignFirstResponder())
+        XCTAssertNil(vote.inputView, "unfocused, it supplies none")
+    }
+
     func testTabWalksControlsInTreeOrderAndSkipsText() throws {
         let (p, first, text, field, last) = fixture()
         defer { withExtendedLifetime(p) {} }

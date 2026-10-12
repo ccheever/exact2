@@ -130,6 +130,11 @@
           "name": "late",
           "codec": "bool",
           "_comment": "@ref LLP 1017.000 (child state): a root slot holding the state of a child used outside every region; its init runs once at the boot render, after boot settlement (so it may read derives and resources), not with the other root slots before it. Always false when owner is set."
+        },
+        {
+          "name": "persist",
+          "codec": "bool",
+          "_comment": "@ref LLP 1116 D5 (`state ... persist`): a root slot the host keeps across launches. Boot takes the store's value under `exact.state.<name>` where it decodes to the slot's type (else the initializer's value stands, and the mismatch is journaled); after every commit that stands the store holds the slot's value. Only a root slot (no owner, not late) of a number, string or bool, or an option or list of those."
         }
       ]
     },
@@ -479,6 +484,11 @@
         {
           "name": "expr",
           "codec": "code"
+        },
+        {
+          "name": "written",
+          "codec": "bool",
+          "_comment": "@ref LLP 1115.000 D2: whether the author wrote this row on this node: an attribute of the node, or a row of a `style` its `class` names. False for a row the compiler implies (a tag's fixed row, a heading's size and weight, a link run's colour, a sheet's rows, a row derived from another). Set where lowering emits the row; where two rows set one property, the winner's. The runner hands a style row's to the kernel, which keeps it beside the row (`StyleProps::written`); a prop row's is carried and read by nothing yet."
         }
       ]
     },
@@ -1221,9 +1231,10 @@
     },
     {
       "name": "formatNumber",
-      "params": ["number", "\"compact\""],
+      "params": ["number", "\"compact\" | \"decimal\" | \"currency\" | \"percent\"", "\"USD\" | \"EUR\" | \"GBP\" | \"JPY\" | \"CNY\" | \"INR\" | \"CAD\" | \"AUD\" | \"NZD\" | \"HKD\" | \"SGD\" | \"CHF\" | \"SEK\" | \"NOK\" | \"DKK\" | \"PLN\" | \"MXN\" | \"BRL\" | \"KRW\" | \"ZAR\" | \"TWD\" | \"ILS\" | \"PHP\" | \"VND\""],
+      "optional": ["\"\""],
       "returns": "string",
-      "_comment": "@ref LLP 1054.000.003 D3/D7/D8: Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). The linked capability `format`."
+      "_comment": "@ref LLP 1054.000.003 D3/D7/D8: `compact` is Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). @ref LLP 1116 D8: `decimal` is Intl.NumberFormat(\"en-US\") (grouped, at most three fraction digits), `currency` with an ISO 4217 code { style: \"currency\", currency } (`$1,481.47`, `-$5.00`, the code's own fraction digits), `percent` { style: \"percent\" } (`26%`): each rounds the value's shortest decimal digits half away from zero, as ICU does, and signs a negative zero. The code is written only with `currency`, and the compiler fills `\"\"` for a call that omits it. Every style prints `\"\"` for a non-finite value (D7). The linked capability `format`."
     },
     {
       "name": "frame",

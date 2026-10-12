@@ -63,6 +63,42 @@ extension Agent {
             clientX: Double(client.x), clientY: Double(client.y)))
     }
 
+    /// `tap <scroller> drag <dx> <dy>` without real touches (LLP 1116.003; r5
+    /// weather, mood journal): what a finger's drag on a scroller ends with,
+    /// its content moved with the finger — up 300 points for a drag of
+    /// -300 — as far as its range allows, lifted with no fling. Only on a
+    /// node that scrolls itself (a scroll container, a grouped list), where
+    /// the scroll view's pan is what takes the drag; a finger there must
+    /// land on it. A drag on anything else reaches whatever UIKit's
+    /// arbitration gives it, which only a real touch tests: refused, naming
+    /// `--touch platform`.
+    func scrollDrag(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard let delta = req["scrollDrag"] as? [Double], delta.count == 2, delta.allSatisfy(\.isFinite) else { return ["error": "drag: dx and dy must be finite"] }
+        if v.scrollDormant { v.needScroll() }
+        let list = presenter.groupedLists?.scroller(for: v.id).flatMap { $0.superview === v ? $0 : nil }
+        guard let sv = list ?? v.scroll, sv.isScrollEnabled else {
+            return ["error": "drag #\(v.id): without --touch platform a drag scrolls a scroller it starts on (`tap <scroll or list> drag 0 -300`); any other drag is a real gesture, --touch platform's (LLP 1080.000 §11)"]
+        }
+        // Where the finger goes down: the request's point in the viewport, else the middle.
+        let b = box(v), vp = presenter.viewport
+        let start = (req["from"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: b.midX, y: b.midY)
+        let p = vp.convert(CGPoint(x: start.x + vp.contentOffset.x, y: start.y + vp.contentOffset.y), to: nil)
+        if let why = offscreen(v, box: CGRect(origin: start, size: .zero), hit: win.hitTest(p, with: nil)) { return ["error": "drag #\(v.id): \(why)"] }
+        if let hit = win.hitTest(p, with: nil), let why = obscured(v, at: p, hit: hit) { return ["error": "drag #\(v.id) at (\(Agent.r2(start.x)), \(Agent.r2(start.y))): \(why)"] }
+        let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
+        let i = sv.adjustedContentInset, o = sv.contentOffset
+        let maxX = max(-i.left, sv.contentSize.width + i.right - sv.bounds.width), maxY = max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)
+        let to = CGPoint(x: scrollsX ? min(max(o.x - CGFloat(delta[0]), -i.left), maxX) : o.x,
+                         y: scrollsY ? min(max(o.y - CGFloat(delta[1]), -i.top), maxY) : o.y)
+        // A drag ends a smooth correction, as a wheel does (LLP 1070.000 §11).
+        if let owner = sv.superview as? NodeView, presenter.collections.animating.contains(owner.id) { presenter.collections.animationEnded(owner.id, dragging: true) }
+        sv.setContentOffset(to, animated: false)
+        presenter.settlePump()
+        return ["tapped": Int(v.id), "at": [Agent.r2(start.x), Agent.r2(start.y)], "scrolledBy": [Agent.r2(to.x - o.x), Agent.r2(to.y - o.y)],
+                "delivery": "recognized", "native": "scroll"]
+    }
+
     /// The phase's reply, or nil where no pan contact applies (`unsupported`).
     func recognizedPan(_ phase: String, _ req: [String: Any]) -> [String: Any]? {
         let point = { (p: CGPoint) in [Agent.r2(p.x), Agent.r2(p.y)] }

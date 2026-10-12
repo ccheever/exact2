@@ -25,6 +25,43 @@ use std::path::{Path, PathBuf};
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
 
+// Exact patch 12: the storage envelope is capped at 16 MiB. A readFile
+// result is {"base64":"..."}, whose fixed JSON overhead is 13 bytes.
+const RESULT_BYTES: usize = 16 << 20;
+const READ_BYTES: usize = ((RESULT_BYTES - 13) / 4) * 3;
+pub(crate) const RESULT_LIMIT: &str = "storage result exceeds its byte limit";
+
+pub(crate) fn read_result(mut file: std::fs::File) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    if file.metadata()?.len() > READ_BYTES as u64 {
+        return Err(std::io::Error::other(RESULT_LIMIT));
+    }
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take((READ_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > READ_BYTES {
+        return Err(std::io::Error::other(RESULT_LIMIT));
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn push_name(
+    names: &mut Vec<String>,
+    used: &mut usize,
+    name: String,
+) -> std::io::Result<()> {
+    let encoded = serde_json::to_string(&name)
+        .map_err(std::io::Error::other)?
+        .len();
+    *used = used.saturating_add(encoded + usize::from(!names.is_empty()));
+    if *used > RESULT_BYTES - 2 {
+        return Err(std::io::Error::other(RESULT_LIMIT));
+    }
+    names.push(name);
+    Ok(())
+}
+
 // Exact patch 9: `fs.compressImage`, over the embedder's image codec.
 pub use super::fs_image::{
     compress_image, Abandoned, CommitGate, CompressedImage, ImageCodec, ImageFile, TRIAL_BUDGET,
@@ -233,7 +270,10 @@ pub fn perform(
     let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
     match op {
         FsOp::AtomicWriteFile => super::app_fs::atomic_native(path, data.unwrap_or(&[])),
-        FsOp::ReadFile => std::fs::read(path).map(FsResult::Bytes).map_err(failed),
+        FsOp::ReadFile => std::fs::File::open(path)
+            .and_then(read_result)
+            .map(FsResult::Bytes)
+            .map_err(failed),
         FsOp::WriteFile => std::fs::write(path, data.unwrap_or(&[]))
             .map(|_| FsResult::Done)
             .map_err(failed),
@@ -248,11 +288,16 @@ pub fn perform(
                 .map_err(failed)
         }
         FsOp::ReadDir => {
-            let mut names: Vec<String> = std::fs::read_dir(path)
-                .map_err(failed)?
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect();
+            let mut names = Vec::new();
+            let mut used = 0;
+            for entry in std::fs::read_dir(path).map_err(failed)?.flatten() {
+                push_name(
+                    &mut names,
+                    &mut used,
+                    entry.file_name().to_string_lossy().into_owned(),
+                )
+                .map_err(failed)?;
+            }
             // Sorted, so a directory listing does not depend on filesystem
             // ordering and a test can assert it.
             names.sort();
@@ -569,6 +614,58 @@ mod tests {
         // Removing what is gone is not an error.
         perform(FsOp::Remove, &copy, None, None).expect("rm again");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn oversized_read_is_refused_before_becoming_a_result() {
+        let file = std::env::temp_dir().join(format!("ibex2-fs-large-{}", std::process::id()));
+        std::fs::File::create(&file)
+            .unwrap()
+            .set_len(20 << 20)
+            .unwrap();
+        let result = perform(FsOp::ReadFile, &file, None, None);
+        assert!(matches!(result, Err(e) if e.to_string().contains(RESULT_LIMIT)));
+        std::fs::File::create(&file)
+            .unwrap()
+            .set_len(READ_BYTES as u64)
+            .unwrap();
+        assert!(
+            matches!(perform(FsOp::ReadFile, &file, None, None), Ok(FsResult::Bytes(bytes)) if bytes.len() == READ_BYTES)
+        );
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn read_limit_applies_when_metadata_reports_no_length() {
+        use std::io::Write;
+        use std::os::fd::FromRawFd;
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let mut writer = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        let sending = std::thread::spawn(move || {
+            let block = [0u8; 8192];
+            for _ in 0..(READ_BYTES / block.len() + 2) {
+                if writer.write_all(&block).is_err() {
+                    break;
+                }
+            }
+        });
+        assert!(read_result(reader)
+            .unwrap_err()
+            .to_string()
+            .contains(RESULT_LIMIT));
+        sending.join().unwrap();
+    }
+
+    #[test]
+    fn directory_names_are_bounded_before_collection() {
+        let mut names = Vec::new();
+        let mut used = 0;
+        assert!(push_name(&mut names, &mut used, "small".into()).is_ok());
+        assert!(push_name(&mut names, &mut used, "x".repeat(RESULT_BYTES)).is_err());
+        assert_eq!(names, ["small"]);
     }
 }
 

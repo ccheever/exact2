@@ -449,8 +449,8 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 for child in children {
                     if staged.parent_of(*child) != Some(*id) {
                         arrivals.push((op_index, *child));
+                        staged.parents.insert(*child, Some(*id));
                     }
-                    staged.parents.insert(*child, Some(*id));
                 }
                 staged.children.insert(*id, children.clone());
             }
@@ -539,14 +539,14 @@ pub(crate) fn apply_document(
     // once: at its style when that changes a layout row, else at the end of
     // the batch (`unstyled`). A list row's mount is a create and a style per
     // node.
-    let styled: IdSet<u32> = ops
-        .iter()
-        .filter_map(|op| match op {
-            Op::SetStyle { id, .. } => Some(*id),
-            _ => None,
-        })
-        .collect();
+    // Most updates create no engine nodes; collect this lookup only when
+    // a non-text creation actually needs it.
+    let mut styled: Option<IdSet<u32>> = None;
     let mut unstyled: IdSet<u32> = IdSet::default();
+    // A text node's final parent decides whether it is a measured paragraph
+    // or an inline run. Only paragraphs need an engine node. Defer creation
+    // and changes of ownership until this batch's topology and styles settle.
+    let mut text_nodes = Vec::new();
 
     let applied = (|| -> Result<(), ApplyError> {
         for (op_index, op) in ops.iter().enumerate() {
@@ -564,7 +564,20 @@ pub(crate) fn apply_document(
                             op_index,
                             what: "validated batch exhausted slot space",
                         })?;
-                    let leaf = if styled.contains(id) {
+                    let leaf = if *node_type == NodeType::Text {
+                        text_nodes.push(arena.key(slot));
+                        None
+                    } else if styled
+                        .get_or_insert_with(|| {
+                            ops.iter()
+                                .filter_map(|op| match op {
+                                    Op::SetStyle { id, .. } => Some(*id),
+                                    _ => None,
+                                })
+                                .collect()
+                        })
+                        .contains(id)
+                    {
                         unstyled.insert(slot);
                         layout.new_leaf_unstyled(slot, node_type.is_measured_leaf())
                     } else {
@@ -630,12 +643,14 @@ pub(crate) fn apply_document(
                             value.as_str(),
                         );
                     }
-                    arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
+                    arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                    // A first `value` makes a `progress` the bar (LLP 1116 D8).
                     if matches!(
                         prop,
                         PropId::Type | PropId::AccessibilityRole | PropId::Href
-                    ) {
+                    ) || (*prop == PropId::Value && old.is_none())
+                    {
                         if let Some(node) = arena.taffy(slot) {
                             layout.restyle(arena, slot, node);
                         }
@@ -661,11 +676,11 @@ pub(crate) fn apply_document(
                         if *prop == PropId::Id {
                             selectors.update_id(slot, old.as_str(), None);
                         }
-                        arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
+                        arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, &mut receipt);
                         if matches!(
                             prop,
-                            PropId::Type | PropId::AccessibilityRole | PropId::Href
+                            PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Value
                         ) {
                             if let Some(node) = arena.taffy(slot) {
                                 layout.restyle(arena, slot, node);
@@ -691,9 +706,7 @@ pub(crate) fn apply_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    let mut next = arena.style(slot).clone();
-                    next.apply_patch(patch);
-                    arena.set_style(slot, next);
+                    arena.patch_style(slot, patch);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
@@ -712,9 +725,7 @@ pub(crate) fn apply_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    let mut next = arena.style(slot).clone();
-                    next.clear(*mask);
-                    arena.set_style(slot, next);
+                    arena.clear_style(slot, *mask);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
@@ -802,6 +813,9 @@ pub(crate) fn apply_document(
                     touched.push(arena.key(slot));
                     receipt.layout_invalidated = true;
                     for (orphan, before) in detached {
+                        if arena.node_type(orphan) == NodeType::Text {
+                            text_nodes.push(arena.key(orphan));
+                        }
                         inherited_after_move(
                             arena,
                             layout,
@@ -812,6 +826,9 @@ pub(crate) fn apply_document(
                         );
                     }
                     for (m, before) in moved {
+                        if arena.node_type(m) == NodeType::Text && !created.contains(&m) {
+                            text_nodes.push(arena.key(m));
+                        }
                         inherited_after_move(arena, layout, m, before, &mut touched, &mut receipt);
                     }
                 }
@@ -869,6 +886,7 @@ pub(crate) fn apply_document(
     }
 
     relative::resolve(arena, layout, &mut touched, &mut receipt);
+    sync_text_nodes(arena, layout, text_nodes);
 
     // A later op can destroy an exit's parent: then that op's root leaves
     // (and exits, if it declares one) and this node goes inside it.
@@ -897,6 +915,36 @@ pub(crate) fn apply_document(
     touched.shrink_to_fit();
     receipt.touched = touched;
     Ok(receipt)
+}
+
+/// Inline runs are part of their paragraph's measurement, never independent
+/// layout boxes. A run promoted to a paragraph gets its current computed style;
+/// a paragraph moved into another paragraph releases its derived engine node.
+/// Keys discard destroyed generations, including slots reused in this batch.
+fn sync_text_nodes(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, nodes: Vec<NodeKey>) {
+    let mut parents = IdSet::default();
+    for key in nodes {
+        let Some(slot) = arena.resolve(key) else {
+            continue;
+        };
+        if arena.is_inline_run(slot) {
+            if let Some(node) = arena.taffy(slot) {
+                layout.remove(node);
+                arena.set_taffy(slot, None);
+            }
+        } else if arena.taffy(slot).is_none() {
+            let node = layout.new_leaf(arena, slot, true);
+            arena.set_taffy(slot, node);
+            if node.is_some() {
+                parents.extend(arena.parent(slot));
+            }
+        }
+    }
+    // Every new handle exists before any parent is linked. Sync each parent
+    // once, so mounting a paragraph per list row remains linear in its rows.
+    for parent in parents {
+        sync_children(arena, layout, parent);
+    }
 }
 
 /// The exit a destroyed subtree root plays, if any (LLP 1063). Not for a
@@ -1159,7 +1207,7 @@ fn style_changed(
         receipt.layout_invalidated = true;
     }
     if !mask.minus(StyleMask::LAYOUT).is_empty() {
-        arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+        arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
         if !mask.intersects(StyleMask::TEXT) {
             arena.revise_text(slot, false);
         }
@@ -1223,7 +1271,7 @@ fn inherited_changed(
         receipt.layout_invalidated = true;
     }
     if !rows.minus(StyleMask::TEXT).is_empty() {
-        arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+        arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
         if !rows.intersects(StyleMask::TEXT) {
             arena.revise_text(slot, false);
         }
@@ -1233,7 +1281,7 @@ fn inherited_changed(
 /// A control's computed starting style changed outside an authored commit.
 pub(crate) fn control_env_changed(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
     arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
-    arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+    arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
     invalidate_text(arena, layout, slot);
     if let Some(node) = arena.taffy(slot) {
         layout.restyle(arena, slot, node);

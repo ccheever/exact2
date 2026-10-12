@@ -1038,6 +1038,31 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
             return;
         }
     }
+    // LLP 1116.001 D2: the tint crosses as a reference, so the presenter
+    // resolves it by the svg view's own tint (the nearest `accent-color`),
+    // the reported pair its fallback: UIKit's inherited tint, and on the Mac
+    // the nearest authored accent up the view chain (LLP 1115.000 D3.4).
+    if let ColorValue::Role(id) = paint.color {
+        if paint.pattern.is_none()
+            && exact_kernel::style::roles::follows_accent(id, cfg!(target_os = "macos"))
+        {
+            s.push_str("{\"sys\":\"@tint");
+            if paint.opacity < 1.0 {
+                let _ = write!(s, "/{}", paint.opacity.max(0.0));
+            }
+            s.push_str("\",\"c\":");
+            let pair = ColorValue::LightDark(paint.color.resolve(false), paint.color.resolve(true));
+            paint_json(
+                Some(&ShapePaint {
+                    color: pair,
+                    ..paint.clone()
+                }),
+                s,
+            );
+            s.push('}');
+            return;
+        }
+    }
     // LLP 1095 D1: a reference paints what the presenter reported; a new
     // report rebuilds the scene.
     let color = match paint.color {

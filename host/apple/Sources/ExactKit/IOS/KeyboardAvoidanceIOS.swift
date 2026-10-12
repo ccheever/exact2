@@ -1,0 +1,262 @@
+// @ref LLP 1116.003 D2.1 — a focused field and what follows it in its
+// section stay above the keyboard, as in a UIKit table or a SwiftUI `Form`:
+// the nearest scroller (a `scroll`, a list, a grouped list's collection
+// view) scrolls by the least that shows them, in the keyboard's own
+// animation (Presenter.applyKeyboard), on focus and on every keyboard frame;
+// and a tab container keeps the screen's height under the keys, so its
+// floating tab bar is covered by them as UIKit's is, never riding above them
+// over the field. The viewport itself ends at the keyboard's top
+// (`resizes-content`, LLP 1116 D2; ExactView `fit`).
+#if os(iOS) || os(tvOS)
+import CExact
+import UIKit
+
+extension Presenter {
+    /// Scroll a node into the part of the viewport the keyboard leaves —
+    /// the browser's rule for a focused field — through every scroll
+    /// container above it, each moving only as far as it must, never past
+    /// its edges. Animated by whatever animation block this runs inside.
+    /// The nearest one keeps the rest of the node's section in view too when
+    /// all of it fits (`kept`): the Add button under an inline number field.
+    func reveal(_ node: NodeView?) {
+        guard let node, node.window != nil else { return }
+        var v: UIView? = node.superview, nearest = true
+        while let cur = v {
+            var target: UIScrollView? = cur is ScrollView || cur is GroupedScroller ? cur as? UIScrollView : nil
+            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scrollView }
+            if let sv = target {
+                // A grouped list's collection view puts back the offset it
+                // had in the layout that follows a change of its size or
+                // insets (`_restoreOrAdjustContentOffset…`), and the bar's
+                // large title collapsing as it scrolls is one: it went back
+                // to its top under the keys. Each pass lays the window out,
+                // so the next one sees what that restored, until it holds;
+                // and the rows of the cells it brought in are carried there
+                // (a cell kept from before the keys came up showed empty).
+                for _ in 0..<(sv is GroupedScroller ? 3 : 1) {
+                    guard Self.show(node, in: sv, keep: nearest) else { break }
+                    guard sv is GroupedScroller else { continue }
+                    carryRows(laying: sv)
+                    sv.window?.layoutIfNeeded()
+                    carryRows(laying: sv)
+                }
+                nearest = false
+            }
+            v = cur.superview
+        }
+    }
+
+    /// The colour the content at the viewport's bottom edge goes on with
+    /// below it (ExactView `paintUnderKeys`): the background of the scroller
+    /// there (a grouped list's), or the nearest painted box above it (a
+    /// route's backdrop), never a row's own. Nil where nothing is painted.
+    func bottomEdgeColor() -> UIColor? {
+        let b = viewport.bounds
+        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
+        let from = chain.firstIndex { $0 is UIScrollView } ?? 0
+        return chain[from...].lazy.compactMap { v in
+            v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }
+        }.first
+    }
+
+    /// A grouped list laid out at its offset and the rows of its cells
+    /// carried into them: put in place, not slid there by the animation
+    /// this may run inside, which moves only the list's offset.
+    func carryRows(laying list: UIScrollView) {
+        UIView.performWithoutAnimation {
+            list.layoutIfNeeded()
+            groupedLists?.sync(changed: [])
+        }
+    }
+
+    /// Scroll `sv` by the least that shows the node, with a little air, and
+    /// with `keep` the rest of its section when all of it fits; whether it moved.
+    private static func show(_ node: NodeView, in sv: UIScrollView, keep: Bool) -> Bool {
+        let field = node.convert(node.bounds, to: sv)
+        let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+        let visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
+        var r = field.insetBy(dx: 0, dy: -8)
+        if keep, let span = kept(node, field: field, in: sv), span.height + 16 <= visible.height {
+            r = CGRect(x: field.minX, y: span.minY, width: field.width, height: span.height).insetBy(dx: 0, dy: -8)
+        }
+        var o = sv.contentOffset
+        if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
+        if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
+        let clamped = { (o: CGPoint, i: UIEdgeInsets) in
+            CGPoint(x: min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)),
+                    y: min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
+        }
+        let insets = sv.adjustedContentInset
+        o = clamped(o, insets)
+        guard abs(o.y - sv.contentOffset.y) > 0.5 || abs(o.x - sv.contentOffset.x) > 0.5 else { return false }
+        sv.contentOffset = o
+        // The bar's large title collapsing as the list scrolls changes its
+        // insets inside this assignment, and UIKit moves the offset on by the
+        // title's height to keep the content still: past the least scroll,
+        // with the field shown, so no later pass takes it back. The offset
+        // asked for, within the new insets, is the least.
+        if sv.adjustedContentInset != insets {
+            let held = clamped(o, sv.adjustedContentInset)
+            if abs(held.y - sv.contentOffset.y) > 0.5 || abs(held.x - sv.contentOffset.x) > 0.5 { sv.contentOffset = held }
+        }
+        return true
+    }
+
+    /// From the node's row to the end of its section, in `sv`'s content
+    /// space: in a grouped list, the rest of the list's section (its cells,
+    /// laid out or not); elsewhere, the rest of the nearest `section`, `form`
+    /// or `fieldset` around the node inside the scroller, else of its parent.
+    static func kept(_ node: NodeView, field: CGRect, in sv: UIScrollView) -> CGRect? {
+        if let list = sv as? UICollectionView {
+            var at: UIView? = node
+            while let view = at, view.superview !== list { at = view.superview }
+            guard let cell = at as? UICollectionViewCell, let path = list.indexPath(for: cell) else { return nil }
+            let count = list.numberOfItems(inSection: path.section)
+            guard count > 0, let last = list.layoutAttributesForItem(at: IndexPath(item: count - 1, section: path.section)) else { return nil }
+            return CGRect(x: cell.frame.minX, y: cell.frame.minY, width: cell.frame.width, height: max(0, last.frame.maxY - cell.frame.minY))
+        }
+        var group: NodeView?, at = node.superview
+        while let view = at, view !== sv {
+            if let box = view as? NodeView {
+                group = group ?? box
+                if ["section", "form", "fieldset"].contains(box.props["semanticTag"] ?? "") { group = box; break }
+            }
+            at = view.superview
+        }
+        guard let group else { return nil }
+        let box = group.convert(group.bounds, to: sv)
+        return CGRect(x: box.minX, y: field.minY, width: box.width, height: max(field.height, box.maxY - field.minY))
+    }
+}
+
+// @ref LLP 1115.000 D9.1 — how a drag puts the keyboard away.
+extension NodeView {
+    /// What a drag on this node's scroller does to the keyboard. Unsaid, on
+    /// a scroller that scrolls vertically, the keyboard follows a drag that
+    /// reaches it (`.interactive`), as a hand-built list or form has it; it
+    /// never takes the keyboard from someone who was only scrolling. A
+    /// sideways scroller keeps UIKit's `.none`. An authored
+    /// `keyboardDismissMode` wins, `none` included: the prop has no default
+    /// row, so unsaid it is absent from the node's props, and absence is the
+    /// whole test.
+    var keyboardDismissal: UIScrollView.KeyboardDismissMode {
+        switch props["keyboardDismissMode"] {
+        case "interactive": return .interactive
+        case "on-drag": return .onDrag
+        case "none": return .none
+        default: return scrollsVertically ? .interactive : .none
+        }
+    }
+    /// Written again when the prop or the axes the node scrolls change; a
+    /// grouped list's collection view takes it from here (`mount`).
+    func updateKeyboardDismissal() {
+        guard let scroll = scrollView, scroll.keyboardDismissMode != keyboardDismissal else { return }
+        scroll.keyboardDismissMode = keyboardDismissal
+    }
+}
+
+extension Presenter {
+    /// Return with `enterkeyhint="next"`: the next field, shown as focus
+    /// shows any (`reveal`). In a grouped list that is the list's own order,
+    /// which its cells among a window's views are not, and a row scrolled
+    /// away has no cell, its views hidden beneath the list: the list scrolls
+    /// to that row, which carries it into a cell, and its field takes focus,
+    /// as SwiftUI's focus moves through a `Form`. Past the list's last field
+    /// the keyboard goes; outside a list, the window's next field.
+    func focusNextField(after node: NodeView) -> Bool {
+        guard let (list, owner, path) = Self.listCell(of: node), let rows = session?.runtime.groupedRows(owner.id),
+              rows.indices.contains(path.section), rows[path.section].indices.contains(path.item) else {
+            return moveFocus(backward: false, fields: true)
+        }
+        // The fields after `node` in its own row, then each later row's.
+        var candidates = Self.fields(in: views[rows[path.section][path.item]]).drop { $0 !== node }.dropFirst().map { (path, $0) }
+        for (s, section) in rows.enumerated() where s >= path.section {
+            for (i, row) in section.enumerated() where s > path.section || i > path.item {
+                candidates += Self.fields(in: views[row]).map { (IndexPath(item: i, section: s), $0) }
+            }
+            if !candidates.isEmpty { break }
+        }
+        guard let (at, next) = candidates.first, let field = next.field ?? next.textArea else { return false }
+        let hidden = sequence(first: next as UIView, next: \.superview).contains { $0.isHidden }
+        if next.window == nil || hidden {
+            // Its row has no cell: bring it into the list's port first,
+            // which makes its cell and carries the row there.
+            guard let frame = list.layoutAttributesForItem(at: at)?.frame else { return false }
+            let visible = list.bounds.inset(by: list.adjustedContentInset), i = list.adjustedContentInset
+            var y = list.contentOffset.y
+            if frame.maxY > visible.maxY { y += frame.maxY - visible.maxY } else if frame.minY < visible.minY { y -= visible.minY - frame.minY }
+            y = min(max(y, -i.top), max(-i.top, list.contentSize.height + i.bottom - list.bounds.height))
+            if ExactEnv.agentFreezes { list.contentOffset.y = y } else { UIView.animate(withDuration: 0.25) { list.contentOffset.y = y } }
+            carryRows(laying: list)
+        }
+        next.focusedByTouch = false
+        return field.becomeFirstResponder()
+    }
+
+    /// The grouped list cell `node` is carried in: its collection view, the
+    /// list's node and the row's place.
+    private static func listCell(of node: NodeView) -> (UICollectionView, NodeView, IndexPath)? {
+        var at: UIView? = node
+        while let view = at, !(view is UICollectionViewCell && view.superview is GroupedScroller) { at = view.superview }
+        guard let cell = at as? UICollectionViewCell, let list = cell.superview as? UICollectionView,
+              let owner = list.superview as? NodeView, let path = list.indexPath(for: cell) else { return nil }
+        return (list, owner, path)
+    }
+
+    /// The enabled text fields and areas in a row, in document order.
+    private static func fields(in row: NodeView?) -> [NodeView] {
+        guard let row else { return [] }
+        var out: [NodeView] = []
+        func walk(_ node: NodeView) {
+            if (node.field != nil || node.textArea != nil), !node.disabled, node.props["inert"] != "true" { out.append(node) }
+            for case let child as NodeView in node.container.subviews { walk(child) }
+        }
+        walk(row)
+        return out
+    }
+}
+
+extension Runtime {
+    /// A grouped list's rows by section, in document order, as the grouped
+    /// lists module reads them to draw the list (LLP 1084 D4).
+    func groupedRows(_ view: UInt32) -> [[UInt32]]? {
+        #if os(iOS)
+        let data: Data = on(busy: Data()) {
+            let count = Int(exact_grouped_list(rt, view))
+            return Data(bytes: exact_out(rt), count: count)
+        }
+        guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return (o["sections"] as? [[String: Any]] ?? []).compactMap { s in
+            s["view"] == nil ? nil : (s["rows"] as? [[String: Any]] ?? []).compactMap { ($0["view"] as? NSNumber)?.uint32Value }
+        }
+        #else
+        return nil
+        #endif
+    }
+}
+
+extension NavigationHost {
+    /// The frame of the controller Exact installed under the root: the
+    /// root's bounds, and for a tab container, while the keyboard ends the
+    /// viewport above the screen's bottom, down to that bottom: its tab bar
+    /// stays under the keys, as UIKit's does, and the routes, laid out to
+    /// the keyboard's top, end there with nothing of the bar left over them
+    /// (`reportCovers` reads what is left of it).
+    func ownerFrame(_ owner: UIViewController, in root: UIView) -> CGRect {
+        var frame = root.bounds
+        if owner === tabOwner, !ExactEnv.authoredChrome, !presenter.modals.active, presenter.keyboardPolicy == "resizes-content" {
+            frame.size.height += presenter.keyboardInset
+        }
+        return frame
+    }
+
+    /// The keyboard moved the viewport (ExactView `fit`): the tab container
+    /// keeps the screen's height under it.
+    func fitOwner() {
+        guard let owner = tabOwner, modalNavigation == nil, let root = owner.view.superview else { return }
+        let frame = ownerFrame(owner, in: root)
+        if owner.view.frame != frame { owner.view.frame = frame }
+    }
+}
+#endif

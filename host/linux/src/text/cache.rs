@@ -987,6 +987,8 @@ fn fingerprint(spec: &Spec) -> u64 {
     std::mem::discriminant(&spec.direction).hash(&mut h);
     spec.line_clamp.hash(&mut h);
     spec.text_indent.to_bits().hash(&mut h);
+    std::mem::discriminant(&spec.text_box_trim).hash(&mut h);
+    std::mem::discriminant(&spec.text_box_edge).hash(&mut h);
     spec.runs.len().hash(&mut h);
     for run in std::iter::once(&spec.strut).chain(&spec.runs) {
         #[cfg(test)]
@@ -1012,6 +1014,8 @@ fn equal(a: &Spec, b: &Spec) -> bool {
         && a.white_space == b.white_space
         && a.direction == b.direction
         && a.line_clamp == b.line_clamp
+        && a.text_box_trim == b.text_box_trim
+        && a.text_box_edge == b.text_box_edge
         && a.runs.len() == b.runs.len()
         && std::iter::once(&a.strut)
             .chain(&a.runs)

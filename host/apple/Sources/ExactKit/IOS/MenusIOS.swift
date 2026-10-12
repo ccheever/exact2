@@ -117,6 +117,8 @@ final class MenuHost {
     #endif
     /// The focus a native menu sets aside while it shows (MenuFocusIOS.swift).
     private(set) lazy var focus = MenuFocus(presenter: presenter!)
+    /// A `dialog` that is not a confirmation, as UIKit's sheet (DialogSheetIOS.swift).
+    private(set) lazy var sheets = DialogSheets(presenter: presenter!)
 
     private func isDialog(_ node: NodeView) -> Bool { node.props["semanticTag"] == "dialog" }
     private func isConfirmation(_ node: NodeView) -> Bool {
@@ -150,6 +152,7 @@ final class MenuHost {
             surface.addGestureRecognizer(observer); touchObserver = observer
         }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
+        sheets.sync()
         var popovers: [String: NodeView] = [:]
         for (name, entry) in agentOpen {
             guard let pop = entry.popover, presenter.views[pop.id] === pop, pop.props["id"] == name,
@@ -168,7 +171,8 @@ final class MenuHost {
                 continue
             }
             // UIKit's setter is not free, even to the same value: every batch.
-            if !v.isHidden { v.isHidden = true }
+            // A dialog in its sheet shows there (LLP 1115.000 D11.5).
+            if !v.isHidden, !sheets.owns(v) { v.isHidden = true }
             if let name = v.props["id"] { popovers[name] = v }
         }
         // In the order they opened, so a submenu stays above its menu.
@@ -190,6 +194,8 @@ final class MenuHost {
                 button.accessibilityLabel = v.props["accessibilityLabel"] ?? title(of: v)
                 button.accessibilityIdentifier = v.props["testId"] ?? v.props["id"]
                 button.isEnabled = !v.disabled
+                if v.disabled || v.ariaUnavailable { button.accessibilityTraits.insert(.notEnabled) }
+                else { button.accessibilityTraits.remove(.notEnabled) }
                 let actionId = UIAction.Identifier("exact.confirmation")
                 button.removeAction(identifiedBy: actionId, for: .touchUpInside)
                 button.addAction(UIAction(identifier: actionId) { [weak self, weak v, weak pop] _ in
@@ -216,6 +222,8 @@ final class MenuHost {
             button.accessibilityLabel = v.props["accessibilityLabel"] ?? title(of: v)
             button.accessibilityIdentifier = v.props["testId"] ?? v.props["id"]
             button.isEnabled = !v.disabled
+            if v.disabled || v.ariaUnavailable { button.accessibilityTraits.insert(.notEnabled) }
+            else { button.accessibilityTraits.remove(.notEnabled) }
             // One menu per invoker and press shape, kept across batches: it
             // reads its rows each time it opens, so a batch (a poll's answer,
             // every second) has nothing to change in it, and replacing it
@@ -256,8 +264,10 @@ final class MenuHost {
     /// A custom hide-only control inside a lifted content popover has the
     /// same default activation as a native invoker, with or without a handler.
     func closesPresentedContent(_ source: NodeView) -> Bool {
-        guard source.isButton, let name = target(of: source),
-              let pop = agentOpen[name]?.popover else { return false }
+        guard source.isButton, let name = target(of: source) else { return false }
+        // A dialog's own close button, in its sheet (LLP 1115.000 D11.5).
+        if let dialog = sheets.topDialog, dialog.props["id"] == name { return closes(source, dialog) && eligible(source) }
+        guard let pop = agentOpen[name]?.popover else { return false }
         return !isConfirmation(pop) && closes(source, pop) && eligible(source)
     }
     /// D13: activation finished; now read the surviving control's live target.
@@ -266,6 +276,7 @@ final class MenuHost {
               let pop = popover(named: name), opens(source, pop) || closes(source, pop) else { return }
         if isConfirmation(pop) {
             if closes(source, pop), let owner = confirmation, owner.popover === pop { finish(owner, chosen: nil) }
+            else if closes(source, pop), sheets.isOpen(pop) { sheets.close(pop) }
             else if opens(source, pop) { _ = openConfirmation(from: source, popover: pop, dispatchPress: false) }
         } else {
             let toggle = source.props["command"] == "toggle-popover" ||
@@ -367,6 +378,7 @@ final class MenuHost {
     }
     func reset() {
         resetConfirmation()
+        sheets.reset()
         overlays.values.forEach { $0.removeFromSuperview() }
         overlays.removeAll()
         for name in Array(agentOpen.keys) { drop(name) }
@@ -380,7 +392,7 @@ final class MenuHost {
         #if os(iOS)
         if context.lifts(node) { return true }
         #endif
-        return agentOpen.values.contains { $0.popover === node }
+        return sheets.owns(node) || agentOpen.values.contains { $0.popover === node }
     }
     /// A children op on `parent` while a child of it is in the top layer:
     /// the child stays there, its index kept for its return; one the op
@@ -390,11 +402,13 @@ final class MenuHost {
         #if os(iOS)
         context.framed(node)
         #endif
+        sheets.framed(node)
     }
     func children(_ parent: UIView, _ wanted: [NodeView]) {
         #if os(iOS)
         context.children(parent, wanted)
         #endif
+        sheets.children(parent, wanted)
         for (name, entry) in agentOpen where entry.parent === parent {
             if let i = wanted.firstIndex(where: { $0 === entry.popover }) { entry.index = i } else { drop(name) }
         }
@@ -440,7 +454,7 @@ final class MenuHost {
     /// Whether `node`, a popover, is open: its confirmation presented, or,
     /// under the agent, its painted presentation shown.
     func isOpen(_ node: NodeView) -> Bool {
-        if confirmation?.popover === node { return true }
+        if confirmation?.popover === node || sheets.isOpen(node) { return true }
         return node.props["id"].map { agentOpen[$0] != nil } == true
     }
 
@@ -537,8 +551,9 @@ final class MenuHost {
         }
         return nil
     }
-    func unmounted() { resetConfirmation() }
+    func unmounted() { resetConfirmation(); sheets.reset() }
     var inTransition: Bool {
+        if sheets.inTransition { return true }
         guard let owner = confirmation else { return false }
         return owner.finishing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed
     }
@@ -549,7 +564,7 @@ final class MenuHost {
         if confirmation == nil, let open = agentOpen.values.max(by: { $0.order < $1.order }), let pop = open.popover {
             return ["kind": "popover", "source": Int(open.source), "popover": Int(pop.id), "phase": "open"]
         }
-        guard let owner = confirmation else { return nil }
+        guard let owner = confirmation else { return sheets.observation }
         return ["kind": "confirmation", "source": owner.source.map { Int($0.id) as Any } ?? NSNull(),
                 "popover": owner.popover.map { Int($0.id) as Any } ?? NSNull(), "phase": inTransition ? "transition" : "open",
                 "actionStyle": owner.alert.actions.first?.style == .destructive ? "destructive" : "default",
@@ -559,17 +574,18 @@ final class MenuHost {
     /// LLP 1080.001 D3: the views this host adds — a node's overlay button,
     /// an open popover's top layer — and the popovers it hides or lifts.
     func inspectionOwns(_ view: UIView) -> Bool {
-        overlays.values.contains { $0 === view } || agentOpen.values.contains { $0.layer === view }
+        overlays.values.contains { $0 === view } || agentOpen.values.contains { $0.layer === view } || sheets.inspectionOwns(view)
     }
     func hides(_ node: NodeView) -> Bool {
         presenter?.carrying("popover").contains { $0 === node } == true || presenter?.carrying("tag:dialog").contains { $0 === node } == true
     }
-    func projects(_ node: NodeView) -> Bool { agentOpen.values.contains { $0.popover === node } }
+    func projects(_ node: NodeView) -> Bool { sheets.owns(node) || agentOpen.values.contains { $0.popover === node } }
 
     func ownsConfirmationNode(_ node: NodeView) -> Bool {
         var ancestor: UIView? = node
         while let view = ancestor {
-            if let n = view as? NodeView, isConfirmation(n), n.props["popover"] != nil || isDialog(n) { return true }
+            // A dialog laid out in its sheet holds ordinary nodes (LLP 1115.000 D11.5).
+            if let n = view as? NodeView, isConfirmation(n), n.props["popover"] != nil || isDialog(n) { return !isSheet(n) }
             ancestor = view.superview
         }
         return false
@@ -593,6 +609,8 @@ final class MenuHost {
         guard let name = target(of: node), let pop = presenter?.views.values.first(where: {
             $0.props["id"] == name && isConfirmation($0) && ($0.props["popover"] != nil || isDialog($0))
         }) else { return nil }
+        // The close button of a dialog in its sheet takes the ordinary tap.
+        if sheets.owns(pop), !opens(node, pop) { return nil }
         guard opens(node, pop) else { return false }
         return openConfirmation(from: node, popover: pop)
     }
@@ -605,70 +623,109 @@ final class MenuHost {
         }
         finish(owner, chosen: node)
     }
-    /// `showModal(id)` from an action (LLP 1115 D6): the confirmation by its
-    /// `id`, a `dialog` or an alertdialog popover, presented with no invoker
-    /// (a context menu's item asks before it deletes). A menu that is still
+    /// `showModal(id)` from an action (LLP 1115 D6): a `dialog` or an
+    /// alertdialog popover by its `id`, presented with no invoker (a context
+    /// menu's item asks before it deletes): a confirmation as its alert, any
+    /// other `dialog` as a sheet (LLP 1115.000 D11.5). A menu that is still
     /// leaving holds UIKit's presentation; this waits out up to two seconds.
     func showModal(_ name: String, attempt: Int = 0) {
         guard let pop = popover(named: name) else {
             presenter?.session?.log("showModal \(name) refused: no dialog or popover has that id"); return
         }
         guard isConfirmation(pop) else {
-            presenter?.session?.log("showModal \(name) refused: iOS presents a dialog or a role=alertdialog popover, as its alert"); return
+            presenter?.session?.log("showModal \(name) refused: iOS presents a dialog, or a role=alertdialog popover as its alert"); return
         }
-        if confirmation?.popover === pop { return } // HTML: showModal on an open modal dialog does nothing
+        if confirmation?.popover === pop || sheets.owns(pop) { return } // HTML: showModal on an open modal dialog does nothing
         if confirmation == nil, showable(pop), let controller = controller(for: pop), busy(controller), attempt < 20 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.showModal(name, attempt: attempt + 1) }
             return
         }
-        if !openConfirmation(from: nil, popover: pop), confirmation?.popover !== pop {
+        if !openConfirmation(from: nil, popover: pop), confirmation?.popover !== pop, !sheets.owns(pop) {
             presenter?.session?.log("showModal \(name): nothing presented")
         }
     }
-    /// `close(id)` from an action: the confirmation by its `id`, as its cancel.
+    /// `close(id)` from an action: the confirmation by its `id`, as its
+    /// cancel; a dialog in its sheet, as its own close button.
     func closeModal(_ name: String) {
+        if let dialog = popover(named: name), sheets.isOpen(dialog) { sheets.close(dialog); return }
         guard let owner = confirmation, let pop = owner.popover, pop.props["id"] == name else { return }
         finish(owner, chosen: nil)
     }
+    /// The agent's `back` (LLP 1116.006 D4): the open confirmation's cancel,
+    /// as a keyboard's Escape or a tap outside it chooses it. nil with none
+    /// open; false while it is still moving.
+    func agentCancel() -> Bool? {
+        guard let owner = confirmation else { return nil }
+        guard !inTransition, valid(owner) else { return false }
+        finish(owner, chosen: nil)
+        return true
+    }
+
+    /// The controller a presentation from `view` goes over: its own, or the
+    /// dialog sheet that is already up over it.
     private func controller(for view: UIView) -> UIViewController? {
         var responder: UIResponder? = view
         while responder != nil && !(responder is UIViewController) { responder = responder?.next }
-        return responder as? UIViewController
+        guard let found = responder as? UIViewController else { return nil }
+        if let top = sheets.top, top !== found, found.presentedViewController != nil, top.view.window === found.view.window { return top }
+        return found
+    }
+    /// A confirmation's rows: its children, its actions (buttons with a
+    /// `press`) and its cancels (buttons that only close it).
+    private func rows(of pop: NodeView) -> (children: [NodeView], actions: [NodeView], cancels: [NodeView]) {
+        let children = pop.container.subviews.compactMap { $0 as? NodeView }
+        return (children, children.filter { $0.isButton && $0.handlers.contains("press") },
+                children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) })
+    }
+    /// Why `pop` is not a confirmation, or nil when it is one: text, actions
+    /// that also close it and at most one cancel, and, for a `dialog`, the
+    /// `closedby="any"` an alertdialog implies (an alert's Cancel or a tap
+    /// outside an action sheet always dismisses it).
+    private func unconfirmable(_ pop: NodeView) -> String? {
+        if isDialog(pop) && pop.props["closedby"] != "any" { return "closedby is \(pop.props["closedby"] ?? "closerequest")" }
+        let (children, actions, cancels) = rows(of: pop)
+        if actions.isEmpty { return "no action (a button with press)" }
+        if cancels.count > 1 { return "\(cancels.count) cancels; at most one hide-only button" }
+        if !children.allSatisfy({ child in child.kind == "text" || actions.contains { $0 === child } || cancels.contains { $0 === child } }) {
+            return "only text, actions and one cancel may be its rows"
+        }
+        return actions.allSatisfy({ closes($0, pop) }) ? nil : "each action must also hide it (popovertargetaction=hide)"
+    }
+    /// LLP 1115.000 D11.5: a `dialog` that is not a confirmation by its rows
+    /// is a sheet, its content laid out by the kernel (DialogSheetIOS.swift).
+    func isSheet(_ node: NodeView) -> Bool {
+        isDialog(node) && node.props["popover"] == nil && (sheets.owns(node) || unconfirmable(node) != nil)
     }
     private func busy(_ controller: UIViewController) -> Bool {
         controller.presentedViewController != nil || controller.isBeingDismissed || controller.isBeingPresented
     }
     private func openConfirmation(from source: NodeView?, popover pop: NodeView, dispatchPress: Bool = true) -> Bool {
         func openable() -> Bool {
-            guard confirmation == nil else { return false }
+            guard confirmation == nil, !sheets.owns(pop) else { return false }
             guard let source else { return showable(pop) }
             return eligible(source) && live(pop) && source.window != nil
         }
         guard openable() else { return false }
-        if isDialog(pop) && pop.props["closedby"] != "any" {
-            presenter?.session?.log("dialog refused: native confirmation currently requires closedby=any")
-            return false
-        }
         // Session.press applies its batch synchronously. Both invoker actions
         // fire, as on the web; read the updated rows only if these identities
         // survived that action (no elapsed-time guess or successor id).
         if dispatchPress, let source, source.handlers.contains("press") { presenter?.press(source.id) }
         guard openable() else { return false }
-        let children = pop.container.subviews.compactMap { $0 as? NodeView }
-        let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
-        let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) }
-        let boundary = isDialog(pop) ? pop.superview : nil
         // Refused shapes are said, never silently dropped: the tap opens nothing.
         func refuse(_ why: String) -> Bool {
             presenter?.session?.log("confirmation \(pop.props["id"] ?? "?") refused: \(why)")
             return false
         }
-        guard !actions.isEmpty else { return refuse("no action (a button with press)") }
-        guard cancels.count <= 1 else { return refuse("\(cancels.count) cancels; at most one hide-only button") }
-        guard children.allSatisfy({ child in child.kind == "text" || actions.contains { $0 === child } || cancels.contains { $0 === child } }) else {
-            return refuse("only text, actions and one cancel may be its rows")
+        // The split by shape (LLP 1115 D6, LLP 1115.000 D11.5): a `dialog`
+        // that is not a confirmation is a sheet; a popover that is not one
+        // has no other presentation here.
+        if let why = unconfirmable(pop) {
+            guard isDialog(pop), pop.props["popover"] == nil else { return refuse(why) }
+            guard let controller = controller(for: source ?? pop), !busy(controller) else { return false }
+            return sheets.show(pop, from: source, over: controller)
         }
-        guard actions.allSatisfy({ closes($0, pop) }) else { return refuse("each action must also hide it (popovertargetaction=hide)") }
+        let (children, actions, cancels) = rows(of: pop)
+        let boundary = isDialog(pop) ? pop.superview : nil
         // A disabled choice shows dimmed; the others stay choosable.
         guard actions.contains(where: { eligible($0, inertBoundary: boundary) }) else { return refuse("every action is disabled") }
         guard let controller = controller(for: source ?? pop), !busy(controller) else { return false }
@@ -680,10 +737,10 @@ final class MenuHost {
         // The alert's title is its aria-label ("Remove book?"), else its
         // first line; the message is the rest. A sheet is headed by its
         // label, its text the message (LLP 1115 D6).
-        var heading = label, lines = texts
-        if style == .alert, heading == nil, !lines.isEmpty { heading = lines.removeFirst() }
+        let words = style == .alert ? ConfirmationShape.alertText(label: label, lines: texts)
+            : (title: label, message: texts.isEmpty ? nil : texts.joined(separator: "\n"))
         let owner = Confirmation(host: self, source: source, popover: pop, actions: presented, style: style,
-                                 title: heading, message: lines.isEmpty ? nil : lines.joined(separator: "\n"))
+                                 title: words.title, message: words.message)
         // A native action's tint is its accent (LLP 1069.011.000 D5); the
         // alert has one tint, the first action's. Unsaid, it is UIKit's
         // (LLP 1115 D4): a `color` the action only inherits is not its own.
@@ -698,7 +755,6 @@ final class MenuHost {
                 if let owner { self?.select(owner, index) }
             }
             alertAction.isEnabled = entry.enabled
-            if action.props["accessibilityChecked"] == "true" { alertAction.accessibilityTraits.insert(.selected) }
             owner.alert.addAction(alertAction)
         }
         if let cancel = cancels.first {
@@ -730,7 +786,7 @@ final class MenuHost {
     /// when it has a cancel to show (UIKit draws no cancel in a popover), else a
     /// popover, which a tap outside dismisses.
     private static func style(texts: Int, actions: Int, cancels: Int, compact: Bool) -> Confirmation.Style {
-        if texts > 0, cancels == 1, actions + cancels <= 3 { return .alert }
+        if ConfirmationShape.isAlert(texts: texts, actions: actions, cancels: cancels) { return .alert }
         #if os(tvOS)
         return .sheet
         #else

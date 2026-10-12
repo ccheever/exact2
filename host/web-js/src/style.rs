@@ -72,9 +72,19 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
 
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
-/// the value at creation; the JS target from its presence).
-fn decides_tag(p: PropId) -> bool {
+/// the value at creation; the JS target from its presence). A `progress`'s
+/// `value` is one: with it HTML's `<progress>` bar, without it the drawn
+/// ring (LLP 1116 D8).
+fn decides_tag(plan: &Plan, node: &exact_plan::NodesRow, p: PropId) -> bool {
     matches!(p, PropId::Href | PropId::SemanticTag)
+        || p == PropId::Value
+            && node.bindings.iter().any(|b| {
+                let row = plan.binding(b);
+                row.kind == BindingKind::Prop
+                    && row.id == PropId::Type as u16
+                    && literal(plan, plan.code(row.expr))
+                        .is_some_and(|v| v.as_str() == Some("progress"))
+            })
 }
 
 fn sample(kind: PropKind) -> PropValue {
@@ -145,7 +155,7 @@ pub fn project(
                 }
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
-                    if decides_tag(prop) {
+                    if decides_tag(plan, node, prop) {
                         ops.push(Op::SetProp {
                             id: view(i),
                             prop,
@@ -237,7 +247,9 @@ pub fn project(
         for b in node.bindings.iter() {
             let row = plan.binding(b);
             if row.kind == BindingKind::Prop && literal(plan, plan.code(row.expr)).is_none() {
-                if let Some(prop) = PropId::from_wire(row.id).filter(|p| decides_tag(*p)) {
+                if let Some(prop) =
+                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, node, *p))
+                {
                     if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop)
                     {
                         parts.props.remove(&name);
@@ -528,9 +540,17 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-button-trailing-subtitle-areas", r#"v=>v==null?v:v.startsWith('column')?'"title" "subtitle" "space" "image"':'"title space image" "subtitle space image"'"#),
             with("--exact-button-space-width", "v=>v==null?v:v.startsWith('column')?'0px':'var(--exact-button-column-gap,auto)'"),
             with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,1em)':'0px'"),
-            with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(0,auto)':'auto auto minmax(0,auto)'"),
+            with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(var(--exact-button-title-min,min-content),auto)':'auto auto minmax(var(--exact-button-title-min,min-content),auto)'"),
             with("--exact-button-space", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-space)':'var(--exact-button-column-space)'"),
         ],
+        // @ref LLP 1116 D1 — a native button's title truncates only when the
+        // author keeps it to one line (exact_web's button_css.rs `rows`).
+        StyleId::WhiteSpace => {
+            let (name, unit) = style_row(id)?;
+            let mut writes = one(name, unit);
+            writes.push(with("--exact-button-title-min", "v=>v==null?v:/^\\s*(nowrap|pre)\\s*$/i.test(v)?'0px':null"));
+            writes
+        }
         StyleId::TextAlign => vec![with("text-align", "v=>v"), with("--exact-button-align", "v=>v==null?v:({left:'start',start:'start',right:'end',end:'end'})[v]??'center'")],
         StyleId::Cursor => vec![with("cursor", &CURSOR_MAP)],
         StyleId::ZIndex => vec![with("z-index", crate::paint::Z_INDEX)],
@@ -624,6 +644,11 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         StyleId::ColorScheme => vec![with(
             "color-scheme",
             "v=>v===\"light\"||v===\"dark\"?v:null",
+        )],
+        // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
+        StyleId::TextBoxEdge => vec![with(
+            "text-box-edge",
+            "v=>v==null?v:({cap:\"cap text\",ex:\"ex text\"})[v]??v.replace(\"-alphabetic\",\" alphabetic\")",
         )],
         StyleId::CornerShape => vec![with(
             "corner-shape",

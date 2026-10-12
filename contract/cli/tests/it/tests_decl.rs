@@ -255,11 +255,16 @@ fn a_file_and_a_test_carry_their_launch_facts() {
         ("test \"t\"\n  epoch today\n", 2),
         ("test \"t\"\n  epoch \"now\"\n", 2),
         ("test \"t\"\n  seed 1.5\n", 2),
+        ("test \"t\"\n  seed 4294967296\n", 2),
         ("test \"t\"\n  time-zone UTC\n", 2),
     ] {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
+    // The launch seed is below 2^32 on every host (LLP 1116.005 D5).
+    let e = contract::tests("test \"t\"\n  seed 4294967296\n").unwrap_err();
+    assert!(e.message.contains("0 through 2^32 - 1"), "{e}");
+    assert!(contract::tests("test \"t\"\n  seed 4294967295\n").is_ok());
 }
 
 #[test]
@@ -345,6 +350,18 @@ fn a_test_closes_the_window_as_its_close_button_does() {
     assert!(matches!(&tests[0].steps[1], Step::Close { .. }));
     let json = contract::tests_json(&tests);
     assert!(json.contains("{\"op\":\"close\",\"line\":3}"), "{json}");
+}
+
+#[test]
+fn a_test_goes_back_as_a_person_does() {
+    // LLP 1116.006 D4 (chat-rooms, round 8): a test that opened a detail
+    // returns to the list by the platform's Back, not the app's own control.
+    let tests = contract::tests("test \"t\"\n  tap \"row\"\n  back\n  clock settle\n").unwrap();
+    assert!(matches!(&tests[0].steps[1], Step::Back { .. }));
+    let json = contract::tests_json(&tests);
+    assert!(json.contains("{\"op\":\"back\",\"line\":3}"), "{json}");
+    let e = contract::tests("test \"t\"\n  back \"list\"\n").unwrap_err();
+    assert!(e.message.starts_with("`back` takes nothing"), "{e}");
 }
 
 #[test]
@@ -550,4 +567,47 @@ fn only_a_tests_leading_fail_fetch_overrides_the_files() {
         json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/\",\"times\":null,\"line\":1},{\"op\":\"tap\""),
         "{json}"
     );
+}
+
+#[test]
+fn a_test_writes_through_the_apps_server_as_another_person() {
+    // LLP 1116.006 D8: method, a path under the server the app calls (or a
+    // whole URL), a JSON body that may span lines, and the persona.
+    let src = "test \"t\"\n  request POST \"/polls/1/votes\" {\"option\": 2, \"note\": \"a \\\"b\\\"\", \"tags\": [true, null, -1.5], \"by\": {}} as bob\n  request DELETE \"/items/3\" as \"token-grace\"\n  request GET \"http://127.0.0.1:8787/health\"\n  request PATCH \"/items/1\" {\n    \"locked\": false\n  }\n  clock +5000\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(matches!(
+        &steps[0],
+        Step::Request { method, path, body: Some(body), persona: Some(who), .. }
+            if method == "POST" && path == "/polls/1/votes" && who == "bob"
+                && body == "{\"option\":2,\"note\":\"a \\\"b\\\"\",\"tags\":[true,null,-1.5],\"by\":{}}"
+    ));
+    assert!(
+        matches!(&steps[1], Step::Request { body: None, persona: Some(who), .. } if who == "token-grace")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"POST\",\"path\":\"/polls/1/votes\",\"body\":\"{\\\"option\\\":2,"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"GET\",\"path\":\"http://127.0.0.1:8787/health\",\"body\":null,\"as\":null,\"line\":4}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"PATCH\",\"path\":\"/items/1\",\"body\":\"{\\\"locked\\\":false}\",\"as\":null,\"line\":5},{\"op\":\"clock\""),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  request post \"/items\"\n", 2),
+        ("test \"t\"\n  request POST \"items\"\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": 1,}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {a: 1}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": x}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" as\n", 2),
+        ("test \"t\"\n  request POST \"/items\" \"body\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
 }

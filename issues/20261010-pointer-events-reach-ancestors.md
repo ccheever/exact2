@@ -7,6 +7,10 @@
 **Date:** 2026-10-10
 **Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x71-pointermove-without-press-capture.md; issues/20261009-macos-popover-pointer-passthrough.md (#281)
 
+## Current scope
+
+2026-10-12, #461: part 2 is fixed. On macOS, `pointerPressed` now walks the authored tree (`menus.parent(of:)`), so a press on Row C reaches the root's `pointerdown`. The repro's macOS count is now 4, the same as the web's (`PopoverMacTests.testAPressInAPopoverReachesItsAuthoredAncestorsPointerdown`). Part 1 remains and waits on the decision below.
+
 ## Summary
 
 Two related gaps, found together.

@@ -78,6 +78,48 @@ final class NavigationTabsIOSTests: XCTestCase {
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
     }
 
+    func testARIAUnavailableRootTabProjectsToItsBarItem() throws {
+        let session = try fixture("aria-root-tab")
+        let tab = try node(session, "tab-second")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "true"]]]))
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let item = try XCTUnwrap(tabs.viewControllers?[1].tabBarItem)
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled))
+        tapTab(tabs, 1)
+        until("ARIA-unavailable tab still selects") { tabs.selectedIndex == 1 }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(item.accessibilityTraits.contains(.notEnabled))
+    }
+
+    func testARIAUnavailableTabPanelReachesLiftedRouteAndRefreshesItsButton() throws {
+        let session = try fixture("aria-panel-route")
+        let p = session.presenter
+        let panel = try node(session, "panel-home")
+        let route = try node(session, "route-home")
+        let button = try node(session, "show-overlay")
+        XCTAssertTrue(p.navigation.logicalParent(of: route) === panel)
+        XCTAssertFalse(route.isDescendant(of: panel), "UIKit lifts the route into its controller")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+
+        p.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityDisabled": "true"]]]))
+        XCTAssertTrue(button.ariaUnavailable, "inherit from the authored panel")
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled), "the ancestor change refreshes the exposed button")
+        XCTAssertFalse(button.disabled, "ARIA state leaves input available")
+
+        p.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.ariaUnavailable, "an explicit false overrides the panel")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+        p.apply(wireBatch([["op": "props", "id": Int(button.id), "clear": ["accessibilityDisabled"]]]))
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled), "clearing the override restores inheritance")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(button.id)
+        XCTAssertEqual(pressed, [button.id], "the lifted descendant still dispatches its press")
+        p.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled), "the ancestor becoming available refreshes the lifted route")
+    }
+
     /// Regression (590d73531): a root overlay with a z-index after the
     /// tablist, the pattern docs/agent-pitfalls.md gives for full-screen
     /// overlays, paints and takes touches over the native tab container. Dense
@@ -305,6 +347,64 @@ final class NavigationTabsIOSTests: XCTestCase {
         spin(0.6)
         XCTAssertEqual(tabs.tabBar.frame, frame, "the bar did not minimize")
         XCTAssertEqual(route.view.safeAreaInsets.bottom, before, "the content area held")
+    }
+
+    /// The bottom edge under a tab bar (LLP 1116 D2): Second's scroller, its
+    /// route's last child, runs under the bar to the screen's edge, and UIKit
+    /// insets its content by the bar and the home indicator, as a table
+    /// view's under a tab bar is.
+    func testARoutesLastScrollerRunsUnderTheTabBar() throws {
+        let session = try fixture("tabs-edge")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        let second = try XCTUnwrap((tabs.viewControllers?[1] as? UINavigationController)?.topViewController as? RouteController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        XCTAssertFalse(tabs.tabBar.isHidden)
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always)
+        XCTAssertEqual(list.convert(list.bounds, to: second.view).maxY, second.view.bounds.maxY, accuracy: 0.5, "under the bar")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, second.view.safeAreaInsets.bottom, accuracy: 0.5, "inset by the bar and the home indicator")
+        XCTAssertGreaterThan(sv.adjustedContentInset.bottom, 40, "the bar's height and the indicator's")
+        XCTAssertTrue(second.contentScrollView(for: .bottom) === sv, "the bar's edge follows it")
+    }
+
+    /// LLP 1115.000 D11.3: the selected tab, tapped again at its stack's
+    /// root, scrolls that screen's content to the top, its large title
+    /// expanding, as every tab bar app does. The scroller is the route's
+    /// content scroller, the status bar's (D11.1). Another tab's tap only
+    /// selects it, and above the root the router pops (the test above).
+    func testTheSelectedTabTappedAgainAtItsRootScrollsToTheTop() throws {
+        let session = try fixture("tabs-retap")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        let nav = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
+        let expanded = nav.navigationBar.frame.height
+        list.pendingScrollTop = 600
+        list.applyPendingScroll()
+        spin(0.3)
+        XCTAssertEqual(css(), 600, accuracy: 0.5, "scrolled down")
+        XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the large title collapsed")
+        // The other tab, then back: selecting a tab keeps its scroll.
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        tapTab(tabs, 1)
+        until("Second selected again") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        XCTAssertEqual(css(), 600, accuracy: 0.5, "a tab selected from another keeps its place")
+        // The selected tab, tapped again at its root.
+        // (Unanimated: this host never moves UIKit's animated offset.)
+        session.presenter.navigation.scrollsToTopAnimated = false
+        tapTab(tabs, 1)
+        until("its content scrolled to the top") { abs(css()) < 0.5 && !sv.isDecelerating }
+        spin(0.5)
+        XCTAssertEqual(css(), 0, accuracy: 0.5)
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "and the large title expanded")
+        XCTAssertEqual(nav.viewControllers.count, 1)
     }
 
     func testUnmountingAndRemountingTheViewKeepsEveryTabsStack() throws {

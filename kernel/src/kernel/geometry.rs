@@ -153,6 +153,9 @@ impl Kernel {
         let root = nodes[&slot];
         let presented = engine(&mut self.layout).height_samples(self.epoch);
         let derive = |s: u32, mut t: taffy::style::Style| {
+            // A scroller the platform insets fits by its content alone: the
+            // detent leaves those insets to UIKit (LLP 1116.000 D1.2).
+            super::cover::without_inset(&self.arena, s, &mut t);
             let shown = presented
                 .iter()
                 .find(|p| p.node.index == s && self.arena.resolve(p.node) == Some(s));
@@ -162,7 +165,7 @@ impl Kernel {
             t
         };
         for (&s, &node) in nodes.iter().filter(|(&s, _)| s != slot) {
-            if presented.iter().any(|p| p.node.index == s) {
+            if presented.iter().any(|p| p.node.index == s) || super::cover::inset(&self.arena, s) {
                 tree.set_style(node, derive(s, taffy_style(&self.arena, s)));
             }
         }

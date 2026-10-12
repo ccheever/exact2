@@ -14,6 +14,7 @@ use std::{
 #[derive(Default)]
 struct Fixture {
     state: Mutex<(usize, bool, Vec<String>)>,
+    requests: Mutex<Vec<(String, Option<Vec<u8>>)>>,
     ready: Condvar,
 }
 impl Fixture {
@@ -48,6 +49,11 @@ impl Transport for Fake {
         });
         let mut state = self.0.state.lock().unwrap();
         state.2.push(request.url.clone());
+        self.0
+            .requests
+            .lock()
+            .unwrap()
+            .push((request.url.clone(), request.body.clone()));
         if request.url.ends_with("/release") {
             state.1 = true;
             self.0.ready.notify_all();
@@ -72,11 +78,23 @@ impl Transport for Fake {
         // `/away` redirects to an origin the fixture's grants lack.
         let mut headers = Headers::default();
         let away = request.url.ends_with("/away");
+        let return_start = request.url.ends_with("/return-start");
+        let return_middle = request.url.ends_with("/return-middle");
         if away {
             headers.set_response("location", "https://elsewhere.test/feed");
+        } else if return_start {
+            headers.set_response("location", "https://elsewhere.test/return-middle");
+        } else if return_middle {
+            headers.set_response("location", "https://finish.test/return-finish");
         }
         Ok(ibex2::stdlib::fetch::Response {
-            status: if away { 301 } else { 200 },
+            status: if away {
+                301
+            } else if return_start || return_middle {
+                307
+            } else {
+                200
+            },
             status_text: "OK".into(),
             headers,
             body: b"done".to_vec(),
@@ -87,8 +105,10 @@ impl Transport for Fake {
     }
 }
 fn setup() -> (Core, Arc<Fixture>, Receiver<()>) {
+    setup_with_grants("net.fetch https://example.test")
+}
+fn setup_with_grants(grants: &str) -> (Core, Arc<Fixture>, Receiver<()>) {
     let fixture = Arc::new(Fixture::default());
-    let grants = "net.fetch https://example.test";
     let owners = (0..WORKERS)
         .map(|_| {
             Some(
@@ -98,6 +118,7 @@ fn setup() -> (Core, Arc<Fixture>, Receiver<()>) {
         })
         .collect();
     let (wake, woke) = channel();
+    let scoped_fixture = fixture.clone();
     (
         Core::with_owners(
             owners,
@@ -105,7 +126,10 @@ fn setup() -> (Core, Arc<Fixture>, Receiver<()>) {
             Box::new(move || {
                 let _ = wake.send(());
             }),
-        ),
+        )
+        .streams_on(move || {
+            ibex2::host::Host::with_transport(Box::new(Fake(scoped_fixture.clone())))
+        }),
         fixture,
         woke,
     )
@@ -654,6 +678,61 @@ fn a_refused_redirect_names_where_it_led() {
     assert_eq!(
         fixture.state.lock().unwrap().2,
         ["https://example.test/away"]
+    );
+}
+
+#[test]
+fn native_post_refuses_a_source_ungranted_middle_hop_before_contact() {
+    let grants = "net.fetch https://example.test\nnet.fetch https://elsewhere.test\nnet.fetch https://finish.test";
+    let (core, fixture, woke) = setup_with_grants(grants);
+    core.run(
+        job(
+            1,
+            Request::post_json("https://example.test/return-start", "\"payload\""),
+        ),
+        None,
+    )
+    .unwrap();
+    assert!(matches!(
+        collect(&core, &woke, 1)[0].1,
+        Outcome::Response(Response { status: 200, .. })
+    ));
+    assert_eq!(
+        fixture.requests.lock().unwrap().as_slice(),
+        &[
+            (
+                "https://example.test/return-start".into(),
+                Some(b"\"payload\"".to_vec())
+            ),
+            (
+                "https://elsewhere.test/return-middle".into(),
+                Some(b"\"payload\"".to_vec())
+            ),
+            (
+                "https://finish.test/return-finish".into(),
+                Some(b"\"payload\"".to_vec())
+            ),
+        ]
+    );
+    fixture.requests.lock().unwrap().clear();
+    let mut request = Request::post_json("https://example.test/return-start", "\"payload\"");
+    request.grants = Some("net.fetch https://example.test\nnet.fetch https://finish.test".into());
+    core.run(job(2, request), None).unwrap();
+    let [(_, outcome)] = collect(&core, &woke, 1).try_into().unwrap();
+    assert_eq!(
+        outcome,
+        Outcome::Failed {
+            kind: FailureKind::Refused,
+            message: "outside the app's grants (net.fetch): redirected to https://elsewhere.test"
+                .into(),
+        }
+    );
+    assert_eq!(
+        fixture.requests.lock().unwrap().as_slice(),
+        &[(
+            "https://example.test/return-start".into(),
+            Some(b"\"payload\"".to_vec())
+        )]
     );
 }
 

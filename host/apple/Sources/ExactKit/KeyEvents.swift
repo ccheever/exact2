@@ -169,22 +169,18 @@ extension Presenter {
         return true
     }
     /// A ⌘ chord typed while an input method composes text in a node's field
-    /// or textarea: the text is committed as it stands, and the field's
-    /// `input` hears it, before the chord's `key` handlers run. They then
-    /// read the value Chrome's read, which has the composed text (Chrome
-    /// reports it to `input` as it is composed, AppKit only once committed,
-    /// and macOS's input methods commit on ⌘), and a value one writes lands
-    /// (a composer's ⌘Enter sends the text and clears the field). The chord
+    /// or textarea: the text is committed as it stands before the chord's
+    /// `key` handlers run. The app has heard it as `input` as it was
+    /// composed (`FieldComposition.swift`), as Chrome's page has, so the
+    /// commit is not heard again; a value the app wrote while it was marked
+    /// lands then; the handlers read the value Chrome's read, and a value
+    /// one writes lands on committed text (a composer's ⌘Enter sends the
+    /// text and clears the field). The chord
     /// presses no `aria-keyshortcuts` button, by its key or its menu item:
     /// the web's shortcut listener skips a keydown that arrived composing.
     func endComposition(_ event: NSEvent, at responder: NSResponder?) {
-        guard let editor = responder as? NSTextView, keyTarget(editor) != nil else { return }
-        // The input method is asked to let go of it first, which it does by
-        // inserting the text; what it leaves marked is committed here
-        // (Firefox's `CommitIMEComposition`). Committing first could insert
-        // the syllable twice.
-        editor.inputContext?.discardMarkedText()
-        if editor.hasMarkedText() { editor.unmarkText() }
+        guard let editor = responder as? NSTextView, let node = keyTarget(editor) else { return }
+        node.commitComposition(in: editor)
         composedChord = event
     }
     /// A keydown that was a ⌘ chord ending a composition (`endComposition`).
@@ -193,7 +189,7 @@ extension Presenter {
         return event === chord || event.timestamp == chord.timestamp && event.keyCode == chord.keyCode && event.windowNumber == chord.windowNumber
     }
     /// The node a responder is the focus of: the node itself, or its field
-    /// (and the field editor editing it), textarea or native button. Any other view a node
+    /// (and the field editor editing it), textarea, native button or date/select control. Any other view a node
     /// holds (a web view, a native module's) keeps its keys, as an iframe's
     /// never reach the page.
     func keyTarget(_ responder: NSResponder?) -> NodeView? {
@@ -201,7 +197,7 @@ extension Presenter {
         var next: NSView? = view
         while let v = next {
             if let node = v as? NodeView {
-                let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view || (node.isNativeButton && keyView(of: node) === view)
+                let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view || (node.isNativeButton && keyView(of: node) === view) || node.nativeValueControl.map { view.isDescendant(of: $0) } == true
                 return owns && views[node.id] === node ? node : nil
             }
             next = v.superview
@@ -292,9 +288,10 @@ extension NodeView {
     /// macOS's `passesComposition` (#140): while an input method composes
     /// text here, a modifier's own press and release still reach the
     /// handlers, and a ⌘ chord's keydown does once it has committed the
-    /// composition (UIKit has reported the composed text to `input` as it
-    /// was composed, so the app holds it; a value the app wrote meanwhile
-    /// lands); any other key is the composition's.
+    /// composition (the app has heard the composed text as `input` as it
+    /// was composed, so it holds it, and the commit is not heard again; a
+    /// value the app wrote meanwhile lands); any other key is the
+    /// composition's.
     func passesComposition(_ code: String, command: Bool, down: Bool) -> Bool {
         guard (field?.markedTextRange ?? textArea?.markedTextRange) != nil else { return true }
         if KeyCodes.modifier(code) { return true }

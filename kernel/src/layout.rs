@@ -15,11 +15,13 @@ mod containment_tests;
 #[cfg(test)]
 mod differential_tests;
 mod fields;
+mod fit;
 mod hoist;
 #[cfg(test)]
 mod memo_tests;
 mod order;
 mod publication;
+pub use publication::compute;
 
 use crate::id::{IdMap, IdSet};
 use crate::shared_style::Interner;
@@ -99,6 +101,9 @@ struct MeasureContext {
     // measured around (border-box coordinates), written only by settle_flow;
     // changing them clears `measurements`, whose key does not include them.
     flow: Vec<exact_textflow::FlowShape>,
+    // A fitted paragraph's unscaled min-content width (`fit`), cleared with
+    // `measurements`.
+    fit_natural: Option<f32>,
 }
 
 #[derive(Clone, Copy)]
@@ -106,6 +111,8 @@ struct Measurement {
     width: AxisOffer,
     height: AxisOffer,
     metrics: TextMetrics,
+    // The scale a fitted paragraph was measured at; 1 for any other.
+    scale: f32,
 }
 
 /// The engine tree. Measured leaves retain their height proof and bounded offers.
@@ -152,6 +159,8 @@ pub struct LayoutTree {
     // (its old containing block still counts the box that left).
     hoist_paths: IdSet<NodeId>,
     hoist_paths_prior: IdSet<NodeId>,
+    // The fitted paragraphs measured since they last stopped fitting (`fit`).
+    fitting: IdSet<u32>,
 }
 
 // A non-visible overflow on both axes establishes a formatting context and
@@ -334,6 +343,13 @@ impl LayoutMirror for Unmirrored {
 }
 
 impl LayoutTree {
+    /// A multi-column container's `min-height` and `max-height` as its last
+    /// final layout resolved and applied them, border box: a larger minimum
+    /// raises the maximum (Taffy patch 30).
+    pub(crate) fn multicol_bounds(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
+        self.taffy.multicol_bounds(node)
+    }
+
     /// An empty tree.
     pub fn new() -> Self {
         // Frames are CSS pixel geometry, not a host's raster grid. Rounding
@@ -365,6 +381,7 @@ impl LayoutTree {
             hoists_stale: false,
             hoist_paths: IdSet::default(),
             hoist_paths_prior: IdSet::default(),
+            fitting: IdSet::default(),
         }
     }
 
@@ -781,6 +798,7 @@ impl LayoutTree {
     fn clear_measurements(&mut self, node: NodeId) {
         if let Some(context) = self.taffy.get_node_context_mut(node) {
             context.measurements.clear();
+            context.fit_natural = None;
         }
     }
 
@@ -910,9 +928,11 @@ impl LayoutTree {
         self.pass += 1;
         let pass = self.pass;
         let mut runs: Vec<TextRun<'_>> = Vec::new();
+        let mut runs_slot = None;
         let mut invalid_metrics = None;
         let mut invalid_button = None;
         let mut provisional_button = false;
+        let mut fitted = Vec::new();
         let height_free = measurer.height_free();
         let chrome = &self.field_chrome;
         let mut minima = IdMap::default();
@@ -962,10 +982,10 @@ impl LayoutTree {
             // LayoutOutput, including baselines in border-box coordinates.
             let inset = style
                 .padding
-                .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0)
+                .resolve_or_zero(inputs.parent_size.width, crate::style::resolve_calc)
                 + style
                     .border
-                    .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
+                    .resolve_or_zero(inputs.parent_size.width, crate::style::resolve_calc);
             // @ref LLP 1043.000 §3 D3 — upstream supplies the full layout input.
             // The proof is separate from the ordinary size-only callback offers.
             let height_known = match (inputs.run_mode, inputs.sizing_mode) {
@@ -976,7 +996,7 @@ impl LayoutTree {
                         .or_else(|| {
                             style
                                 .size
-                                .maybe_resolve(inputs.parent_size, |_, _| 0.0)
+                                .maybe_resolve(inputs.parent_size, crate::style::resolve_calc)
                                 .maybe_apply_aspect_ratio(style.aspect_ratio)
                                 .height
                         })
@@ -989,7 +1009,7 @@ impl LayoutTree {
             let mut output = taffy::compute_leaf_layout(
                 inputs,
                 style,
-                |_, _| 0.0,
+                crate::style::resolve_calc,
                 |known, space| {
                     let Some(context) = context else {
                         return Size::ZERO;
@@ -1073,6 +1093,25 @@ impl LayoutTree {
                         .find(|m| m.width == width && (height_free || m.height == height))
                     {
                         cached.metrics
+                    } else if fit::fits(arena, slot) {
+                        fitted.push(slot);
+                        let natural = &mut context.fit_natural;
+                        let Some((metrics, scale)) =
+                            fit::measure(arena, slot, measurer, &mut runs, natural, width, height)
+                        else {
+                            return Size::ZERO;
+                        };
+                        if context.measurements.len() == LEAF_OFFERS {
+                            context.measurements.remove(0);
+                        }
+                        let m = Measurement {
+                            width,
+                            height,
+                            metrics,
+                            scale,
+                        };
+                        context.measurements.push(m);
+                        metrics
                     } else {
                         let stamp = arena.paragraph_stamp(slot); // held: no runs to flatten
                         let known = stamp
@@ -1084,8 +1123,13 @@ impl LayoutTree {
                         let metrics = if let Some(metrics) = known {
                             metrics
                         } else {
-                            runs.clear();
-                            arena.text_runs(slot, &mut runs);
+                            // A pass borrows an immutable arena. Consecutive offers
+                            // for one leaf can share its already flattened runs.
+                            if runs_slot != Some(slot) {
+                                runs.clear();
+                                arena.text_runs(slot, &mut runs);
+                                runs_slot = Some(slot);
+                            }
                             if runs.is_empty() {
                                 return Size::ZERO;
                             }
@@ -1111,10 +1155,7 @@ impl LayoutTree {
                                 width,
                                 height,
                             };
-                            match &stamp {
-                                Some(stamp) => measurer.measure_identified(stamp, &request),
-                                None => measurer.measure(&request),
-                            }
+                            fields::text(arena, slot, measurer, stamp.as_ref(), &request)
                         };
                         if !metrics.is_valid() {
                             invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
@@ -1127,6 +1168,7 @@ impl LayoutTree {
                             width,
                             height,
                             metrics,
+                            scale: 1.0,
                         });
                         metrics
                     };
@@ -1200,6 +1242,7 @@ impl LayoutTree {
             .taffy
             .compute_layout_with_measure(root, available, &mut measure);
         result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))?;
+        self.fitting.extend(fitted);
         self.provisional_chrome |= provisional_button;
         if let Some(view) = invalid_button {
             return Err(LayoutError::InvalidButtonMeasure(view));
@@ -1349,7 +1392,10 @@ impl LayoutTree {
     pub fn rebuild(arena: &mut NodeArena) -> LayoutTree {
         let mut tree = LayoutTree::new();
         arena.clear_taffy();
-        let slots: Vec<u32> = arena.iter_live().collect();
+        let slots: Vec<u32> = arena
+            .iter_live()
+            .filter(|s| !arena.is_inline_run(*s))
+            .collect();
         for slot in &slots {
             let node = tree.new_leaf(
                 taffy_style(arena, *slot),
@@ -1415,34 +1461,4 @@ impl LayoutTree {
             order::laid_out(arena, parent, &self.taffy, node, |c| nodes.get(&c).copied());
         self.set_children(node, &children);
     }
-}
-
-/// Lay out `root_slot` and publish frames and resolved flow. The receipt uses
-/// epoch zero; the kernel facade supplies its transaction epoch. Inline
-/// runs have no geometry of their own: their frames are zero and they never
-/// appear in the changed list, but their dirty bits are consumed like any
-/// other node's.
-pub fn compute(
-    arena: &mut NodeArena,
-    tree: &mut LayoutTree,
-    measurer: &mut dyn TextMeasurer,
-    root_slot: u32,
-    offer: Offer,
-) -> Result<LayoutReceipt, LayoutError> {
-    let root = arena
-        .taffy(root_slot)
-        .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
-    tree.compute(root, offer, arena, measurer)?;
-    let (flow_passes, flow_comparisons) =
-        tree.settle_flow(root, root_slot, offer, arena, measurer)?;
-    crate::fragment::settle(arena, tree, measurer, root_slot, offer)?;
-    for (&node, record) in &tree.button_records {
-        if let Some(&slot) = tree.slots.get(&node) {
-            arena.button_bases.insert(slot, record.parent_width);
-        }
-    }
-    let mut receipt = publication::publish(arena, tree, root_slot);
-    receipt.flow_passes = flow_passes;
-    receipt.flow_comparisons = flow_comparisons;
-    Ok(receipt)
 }
