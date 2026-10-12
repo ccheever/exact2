@@ -705,7 +705,8 @@ native `foreignObject`.
 `contract vocab` lists every tag, style and prop name the compiler admits,
 with each style row's codec, values and default, the renamed spellings and the
 contextual restrictions: `cargo run -q -p contract -- vocab padding` for one
-name, no name for all, `--json` for a document. From an app made by
+name, no name for the card (what an app writes, at most 8 KB), `--all` for everything,
+`--json` for a document. From an app made by
 `exact new`, run `bun exact.mjs contract vocab`.
 `padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and

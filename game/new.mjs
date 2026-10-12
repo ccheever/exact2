@@ -503,8 +503,9 @@ ${DIARY_LINE}
 
 The rest: \`bun exact.mjs help\` gives each verb's common flags (and lists \`mac\`, \`linux\`, \`android\`,
 \`hatch\`, \`update\`, your own in app.json \`"commands"\`); a verb's \`--help\` only for the rest.
-\`bun exact.mjs contract vocab <name>\` answers for any tag, property or function, and
-\`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
+Run \`bun exact.mjs contract vocab\` once for the card (every function, the tags with their
+attributes, each part's call, the test steps), then write; \`contract vocab <name>\` answers a
+name it leaves out. \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
 \`Cargo.toml\`'s \`[patch.crates-io]\` and this block.
 ${END}
