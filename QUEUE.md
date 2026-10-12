@@ -818,6 +818,18 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Cheap, any time
 
+- **iOS hit-testing under a positioned sibling** (bsky5, Bluesky clone b28 on 57ab536e3, 2026-10-12):
+  the profile avatar (`position="absolute"`, `profile.contract` before clone 1be739e) paints over
+  the in-flow info column that follows it, as LLP 1083.000 orders them, but a tap in the avatar went
+  to the column (`agent ios`: "node #983 covers its middle"); the web is right; `z-index=1` works
+  around it. `hitChildren`/`hitOrder` (`PaintOrder.swift`) already follow `zPosition`, so the
+  disagreement is elsewhere: a column whose positioned descendants lift its rank, a flattened layer
+  (`flatHit`) without the rank, or a native control's early return. Needs a repro on a fixture.
+- **The root's bottom bar during an interactive zoom dismissal** (bsky5, b28): while UIKit's zoom
+  (`ModalIOS.swift`, `preferredTransition = .zoom`) is dragged back, the view underneath has no
+  tab bar, and it appears when the dismissal ends. Likely the fullscreen presentation's presenting
+  view without the `UITabBarController`'s bar, or the bar's visibility following the route stack,
+  which still has the photo on top until UIKit finishes.
 - **The web JS target's build-time answer at a store holding secrets** (LLP 1027 D4,
   approved 2026-10-10): the Rust runner shows a store reader's declared `else` placeholder
   instead of the bake's empty-store answer when the store holds a granted secret and the
