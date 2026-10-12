@@ -49,7 +49,33 @@ package final class TextSelection {
         }
     }
 
-    init(_ presenter: Presenter) { self.presenter = presenter }
+    init(_ presenter: Presenter) {
+        self.presenter = presenter
+        focusObservers = PageFacts.observe { [weak self] in self?.focusChanged() }
+    }
+    deinit { PageFacts.forget(focusObservers) }
+
+    /// The fill of selected text (LLP 1115.000 D7.9): AppKit's selection
+    /// colour at full strength, and its unemphasized grey while the window
+    /// does not have the focus.
+    static func fill(focused: Bool) -> NSColor {
+        focused ? .selectedTextBackgroundColor : .unemphasizedSelectedTextBackgroundColor
+    }
+    /// The selected glyphs' colour: AppKit's own for text on that fill,
+    /// whatever ink the text had, since the fill alone hides light text that
+    /// stood on a dark ground. An `NSTextView` on macOS 27.0 does the same in
+    /// the dark appearance and, in the light one, for a system colour; there
+    /// it leaves a fixed colour as it was (white stays white on the pale
+    /// fill), which is the one case this departs from it.
+    static func ink(focused: Bool) -> NSColor {
+        focused ? .selectedTextColor : .unemphasizedSelectedTextColor
+    }
+    /// The window's focus may have changed (`PageFacts.hasFocus`): what is
+    /// selected is painted again, in the colour that goes with it.
+    private var focusObservers: [NSObjectProtocol] = []
+    func focusChanged() {
+        for id in painted.keys { presenter?.views[id]?.needsDisplay = true }
+    }
 
     /// Whether anything is selected at all: the cheap question a paragraph
     /// asks before the exact one (`range`).
@@ -436,12 +462,26 @@ package final class TextSelection {
 
     private func link(_ node: NodeView, at point: NSPoint) -> String? { node.inlineLink(at: point) }
 
-    func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, dirty: NSRect) {
+    /// Over the paragraph's own paint: the selection's fill, which covers
+    /// the ink and any inline background inside it, then the selected glyphs
+    /// in the selection's colour (`ink`), clipped to the fill.
+    func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, in ctx: CGContext, dirty: NSRect) {
         guard let selection = range(node), selection.length > 0 else { return }
-        NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).setFill()
-        for rect in paragraph.selectionRects(selection, align: spec.align, in: node.paragraphBox(), dirty: dirty) {
-            rect.fill()
+        let box = node.paragraphBox(), focused = PageFacts.hasFocus(node.window)
+        let lines = paragraph.selectedLines(selection, align: spec.align, in: box, dirty: dirty)
+        guard !lines.isEmpty else { return }
+        let ink = Self.ink(focused: focused).cgColor
+        ctx.saveGState()
+        ctx.clip(to: lines.map(\.rect))
+        ctx.setFillColor(Self.fill(focused: focused).cgColor)
+        ctx.fill(lines.map(\.rect))
+        for index in Set(lines.map(\.line)) {
+            let line = spec.ellipsis ? paragraph.ellipsized(index, spec: spec, width: box.width) : paragraph.lines[index]
+            let origin = CGPoint(x: box.minX + paragraph.origin(index, align: spec.align, width: box.width),
+                                 y: box.minY + paragraph.baselines[index].rounded())
+            TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, transparentInk: node.backgroundClip == "text")
         }
+        ctx.restoreGState()
     }
 }
 
