@@ -8,7 +8,7 @@
 import { languageIconToken } from './timeline-files';
 import { htmlTokens } from './r7-polish-html-syntax';
 import { TsStatements, importWord } from './r11-misc-ts-decl';
-import { HEURISTIC_MAX_CHARS, highlightDeferrals, shikiDeferred, shikiLanguage, shikiTokens } from './r12-render-highlight';
+import { HEURISTIC_MAX_CHARS, highlightDeferrals, shikiLanguage, shikiTokens } from './r12-render-highlight';
 
 type BaseCls = '' | 'kw' | 'decl' | 'type' | 'fn' | 'var' | 'const' | 'param' | 'pyparam' | 'str' | 'esc' | 'num' | 'nul'
   | 'op' | 'punct' | 'com' | 'key' | 'flag' | 'builtin' | 'interp' | 'heading' | 'bold' | 'tag' | 'attr'
@@ -381,16 +381,19 @@ function yaml(text: string): Token[] {
     return tokens;
   });
 }
-/** Tokens for one code block or diff line; unknown languages stay one plain token. */
-export function highlight(text: string, language: string): Token[] {
-  const grammar = languageOf(language);
+/** Tokens for one code block or diff line; unknown languages stay one plain token. `language` is a fence
+ *  word or a path (shikiLanguage); with `maxLineLength`, longer lines paint plain (lineTokens, as @pierre/diffs). */
+export function highlight(text: string, language: string, maxLineLength = 0): Token[] {
   if (!text) return [];
-  // lane r12-render: the reference's own grammars and themes where they are here (r12-render-highlight.ts).
-  const shiki = shikiTokens(text, language);
+  // code-highlighting-languages: every language of the reference's Shiki bundle has its grammar here
+  // (r12-render-highlight.ts); one Shiki lacks paints as plain text, as the reference falls back to "text".
+  if (!shikiLanguage(language)) return [{ text, cls: '' }];
+  const shiki = shikiTokens(text, language, maxLineLength);
   if (shiki) return shiki;
-  // shiki-residuals: a long text waiting for its Shiki tokens paints plain, not the slow heuristic.
-  if (text.length > HEURISTIC_MAX_CHARS && shikiDeferred(text, language)) return [{ text, cls: '' }];
-  switch (grammar) {
+  // shiki-residuals: a text waiting for its Shiki tokens paints the heuristic colours meanwhile, and
+  // plain text when it is long (the heuristic is slow there).
+  if (text.length > HEURISTIC_MAX_CHARS) return [{ text, cls: '' }];
+  switch (languageOf(language)) {
     case 'ts': return tsLike(text, 'ts');
     case 'c': return tsLike(text, 'c');
     case 'css': return tsLike(text, 'css');
@@ -417,7 +420,7 @@ export function messageCodeBlocks(markdownText: string): Highlighted[] {
     const indent = match[1]!.length, language = match[3]!.trim().split(/\s+/)[0] ?? '';
     const code = (indent ? match[4]!.split('\n').map(line => line.replace(new RegExp(`^ {0,${indent}}`), '')).join('\n') : match[4]!).replace(/\n+$/, '');
     if (blocks.some(block => block.code === code)) continue;
-    const tokens = languageOf(language) || shikiLanguage(language) ? highlight(code, language) : [{ text: code, cls: '' as Cls }];
+    const tokens = highlight(code, language);
     blocks.push({ id: String(blocks.length), code, icon: languageIconToken(language),
       tokens: tokens.map((token, index) => ({ id: String(index), text: token.text, cls: token.cls })) });
   }
