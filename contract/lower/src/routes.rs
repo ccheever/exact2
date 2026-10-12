@@ -231,6 +231,40 @@ impl NavPlace {
         })
     }
 
+    /// @ref LLP 1116.007 D5 — a route whose scroll is a grouped list is on
+    /// the grouped background, as a hand-built `UITableViewController`'s
+    /// screen is, bar to bottom edge: its unsaid `background-color` is the
+    /// role `-exact-grouped-background`, so what sits between the `header`
+    /// and the list (a segmented switcher, a summary) is on the list's grey,
+    /// not the page's white. The row is the compiler's, set and not written
+    /// (LLP 1115.000 D2), and pushed before the author's, so a
+    /// `background-color` on the route (or its class) wins; a box between the
+    /// header and the list paints its own, over it. Each host resolves the
+    /// role its own way (`systemGroupedBackground` on iOS). `None` where this
+    /// is no route, or the route's scroll is anything else or cannot be told.
+    pub(crate) fn grouped_page(
+        &self,
+        tag: &str,
+        attrs: &[Attr],
+        children: &[Node],
+        span: Span,
+    ) -> Option<Vec<Attr>> {
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let route = matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
+            && has("navigationKey")
+            && !has("navigationBack");
+        if !route || has("background-color") || !scrolls_a_grouped_list(tag, attrs, children) {
+            return None;
+        }
+        let role = Attr {
+            name: "background-color".into(),
+            value: Expr::Str("-exact-grouped-background".into(), span),
+            span,
+            written: crate::IMPLIED,
+        };
+        Some([&[role][..], attrs].concat())
+    }
+
     /// The place of `tag`'s children, or the refusal of a route `tag` that
     /// no host would find here.
     pub(crate) fn enter(
@@ -485,16 +519,18 @@ fn check_scroll(tag: &str, attrs: &[Attr], children: &[Node]) -> Result<(), Lowe
     }
 }
 
+/// The tags that are plain boxes: they scroll only where an `overflow` row says so.
+const PLAIN: &[&str] = &[
+    "view", "box", "column", "row", "main", "header", "nav", "section", "footer", "article",
+    "aside",
+];
+
 /// Whether a box provably never scrolls on y: a plain box, or a `scroll` or
 /// `list` (whose block axis scrolls unless a row says otherwise), whose
 /// literal overflow rows leave y visible or hidden, CSS's computation
 /// included (a visible y beside a non-visible x computes to auto). A class,
 /// a style or a computed row may say otherwise, so they are doubt.
 fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
-    const PLAIN: &[&str] = &[
-        "view", "box", "column", "row", "main", "header", "nav", "section", "footer", "article",
-        "aside",
-    ];
     let scrolls = matches!(tag, "scroll" | "list");
     if !scrolls && !PLAIN.contains(&tag) {
         return false;
@@ -527,4 +563,118 @@ fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
         }
     }
     y == "hidden" || (y == "visible" && x == "visible")
+}
+
+/// Whether a route's content scroller is a grouped list (`list
+/// appearance="auto"`, `listStyle` `inset-grouped` or `grouped`: the two that
+/// draw the grouped grey), resolved as the hosts resolve it (LLP 1115.000
+/// D11.1): the element a literal `navigationScroll` names by `id`, else the
+/// shallowest one that scrolls on y, eight levels down at most, in tree
+/// order at each depth. False where the compiler cannot tell (a computed
+/// name or id, a class or a computed row on a box that may scroll): the
+/// platform's default is then not supplied, as a doubt is never the author's
+/// loss.
+fn scrolls_a_grouped_list(tag: &str, attrs: &[Attr], children: &[Node]) -> bool {
+    type El<'a> = (&'a str, &'a [Attr], &'a [Node]);
+    // The elements `nodes` hold, through `when`, `each` and `match` but not
+    // through an element, in order.
+    fn level<'a>(nodes: &'a [Node], out: &mut Vec<El<'a>>) {
+        for node in nodes {
+            match node {
+                Node::Element {
+                    tag,
+                    attrs,
+                    children,
+                    ..
+                } => out.push((tag, attrs, children)),
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    level(then, out);
+                    level(otherwise, out);
+                }
+                Node::Each { body, .. } => level(body, out),
+                Node::Match { some, none, .. } => {
+                    level(&some.1, out);
+                    level(none, out);
+                }
+                Node::Use { .. } | Node::Children { .. } => {}
+            }
+        }
+    }
+    let grouped = |(tag, attrs, _): &El| {
+        matches!(
+            crate::grouped::style(tag, attrs),
+            Ok(Some("inset-grouped" | "grouped"))
+        )
+    };
+    let named = attrs.iter().rev().find(|a| a.name == "navigationScroll");
+    let named = match named.map(|a| &a.value) {
+        None => None,
+        Some(Expr::Str(name, _)) if name.is_empty() => None,
+        Some(Expr::Str(name, _)) => Some(name),
+        Some(_) => return false,
+    };
+    if let Some(name) = named {
+        // Every element of the route: the carriers of the id must all be
+        // grouped lists, and a computed id may name another.
+        let (mut carriers, mut all, mut stack) = (Vec::new(), Vec::new(), Vec::new());
+        level(children, &mut stack);
+        while let Some(el) = stack.pop() {
+            all.push(el);
+            level(el.2, &mut stack);
+        }
+        for el in all {
+            match el.1.iter().rev().find(|a| a.name == "id").map(|a| &a.value) {
+                Some(Expr::Str(id, _)) if id == name => carriers.push(el),
+                Some(Expr::Str(..)) | None => {}
+                Some(_) => return false,
+            }
+        }
+        return !carriers.is_empty() && carriers.iter().all(grouped);
+    }
+    // The route itself comes first, as the hosts' search starts at it.
+    let mut row: Vec<El> = vec![(tag, attrs, children)];
+    for _ in 0..8 {
+        for el in &row {
+            match scrolls_y(el.0, el.1) {
+                Some(false) => {}
+                Some(true) => return grouped(el),
+                None => return false,
+            }
+        }
+        let mut next = Vec::new();
+        for el in &row {
+            level(el.2, &mut next);
+        }
+        if next.is_empty() {
+            break;
+        }
+        row = next;
+    }
+    false
+}
+
+/// Whether a box scrolls on y by its literal rows, `None` where a class, a
+/// style or a computed row may say otherwise: a `scroll` or `list` unless an
+/// overflow row stills it, a plain box only by `overflow` `auto` or `scroll`.
+fn scrolls_y(tag: &str, attrs: &[Attr]) -> Option<bool> {
+    let scroller = matches!(tag, "scroll" | "list");
+    if !scroller && !PLAIN.contains(&tag) {
+        return Some(false);
+    }
+    let mut y = if scroller { "scroll" } else { "visible" };
+    for a in attrs {
+        match a.name.as_str() {
+            "class" | "style" | "overflow-x" | "overflowX" => return None,
+            "flex-direction" if scroller => return None,
+            name if name.starts_with("ua:") => return None,
+            "overflow" | "overflow-y" | "overflowY" => match &a.value {
+                Expr::Str(v, _) => y = v,
+                _ => return None,
+            },
+            _ => {}
+        }
+    }
+    Some(!matches!(y, "visible" | "hidden" | "clip"))
 }

@@ -2446,7 +2446,11 @@ the tint on iOS and the web, the secondary label colour on the Mac),
 in pairs: a card on a plain page (`-exact-background`, or unsaid) is
 `-exact-secondary-background`; on a `-exact-grouped-background` page it is
 `-exact-secondary-grouped-background` (white in light mode, so on a plain white page
-it vanishes); a surface inside either card is its pair's tertiary role. A brand colour
+it vanishes); a surface inside either card is its pair's tertiary role. A route whose
+scroll is a grouped list (`list appearance="auto"`, `inset-grouped` or `grouped`) is a
+`-exact-grouped-background` page with nothing written, bar to bottom edge, so a switcher
+or summary between its `header` and the list sits on the list's grey (LLP 1116.007 D5); a
+`background-color` on the route, or on that content, wins. A brand colour
 the platform has no role for is the one place for a literal.
 
 **Type: say a heading, not a size.** Body text is the platform's body size

@@ -162,11 +162,15 @@
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((61.65 - l) * 1e6 + 100) 0 0 / 1); }
   }
   /* LLP 1116 D1: `bordered` and `gray`, the unsaid button, as Apple draws
-     them: a neutral fill under the accent's ink, darker under the pointer
-     and while pressed (when the face also dims, as above). `destructive` is
-     the system red as the button's accent, so each style draws it: red ink,
-     a red tint, a red fill. An accent-color on the button still wins. */
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#7676801f, #7676803d); color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
+     them: a neutral fill under the label's ink, ButtonText (iOS 27's `.gray()` and
+     `.bordered()` draw `label` over the tinted app, which reads on every
+     accent: the accent's ink was 1.3:1 on yellow, LLP 1116.007 D3.10),
+     darker under the pointer and while pressed (when the face also dims, as
+     above). `destructive` is the system red as the button's accent, so each
+     style draws it: red ink, a red tint, a red fill. An accent-color on the
+     button still wins. */
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#7676801f, #7676803d); color: ButtonText; }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"])[data-destructive="true"] { color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
   @media (hover: hover) {
     #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 22%, transparent); }

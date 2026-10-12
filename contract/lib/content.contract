@@ -19,7 +19,12 @@
 // figures (it does not jitter as it changes), a line about it, and,
 // optionally, a fraction drawn as the platform's determinate progress and a
 // symbol (`"symbol:<role>"` or `"symbol:sf/<name>"`). The detail sits beside
-// the number where the card is wide enough, under it where it is not.
+// the number where the card is wide enough, under it where it is not. Its
+// surface is the platform's tertiary fill, a translucent grey that shows on
+// a plain page and on a `-exact-grouped-background` one alike: the
+// secondary background is the grouped page's own grey in the light scheme
+// and the grouped card's white is the plain page's, so a part that cannot
+// know its page takes neither.
 component SummaryCard
   props
     label: string
@@ -28,7 +33,7 @@ component SummaryCard
     progress: option<number>
     symbol: option<string>
   view
-    column gap=4 padding=20 border-radius=16 background-color="-exact-secondary-background" min-width=0
+    column gap=4 padding=20 border-radius=16 background-color="-exact-tertiary-fill" min-width=0
       row align-items="center" gap=6 min-width=0
         match symbol
           case some(s)
@@ -149,12 +154,14 @@ component RowText
 // A status in a word, as "Full", "Cancelled" or "Locked": the label in a
 // capsule, in the caption style (semibold), so a state reads as text, never
 // as a colour alone. `tint` is its fill: `none` the neutral grey, the accent
-// (`some("AccentColor")`) under the ink the platform pairs with it, or a
-// state's hue (`some("-exact-system-orange")` for Full, the system red for
-// Cancelled, green for Open) under dark ink, which reads on every system hue
-// but indigo (white there), in either scheme. It keeps its own size: centred
-// in a row, beside a title that gives way (`flex=1 min-width=0`), and at the
-// start of a column.
+// (`some("AccentColor")`) as a tint (the accent at 16% under the label's own
+// ink, which reads on every accent in either scheme: a solid accent under
+// white ink is 1.4:1 on yellow and 3.5:1 on the system blue, short of the
+// 4.5:1 a caption needs), or a state's hue (`some("-exact-system-orange")`
+// for Full, the system red for Cancelled, green for Open) under dark ink,
+// which reads on every system hue but indigo (white there), in either
+// scheme. It keeps its own size: centred in a row, beside a title that gives
+// way (`flex=1 min-width=0`), and at the start of a column.
 component Badge
   props
     label: string
@@ -162,10 +169,14 @@ component Badge
   derive fill = match tint { case some(t) => t, case none => "-exact-tertiary-fill" }
   view
     row flex-shrink=0 align-items="center"
-      when fill == "AccentColor" or fill == "-exact-tertiary-fill"
+      when fill == "-exact-tertiary-fill"
         row padding="2px 8px" border-radius=999 background-color=fill
-          text label font="-exact-caption1" font-weight=600 white-space="nowrap"
-            color=(fill == "AccentColor" ? "AccentColorText" : "-exact-label")
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
+      else when fill == "AccentColor"
+        row position="relative" padding="2px 8px" border-radius=999 overflow="hidden"
+          view position="absolute" inset=0 background-color="AccentColor" opacity=0.16 aria-hidden=true
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
+            position="relative"
       else
         row padding="2px 8px" border-radius=999 background-color=fill
           color-scheme=(fill == "-exact-system-indigo" ? "dark" : "light")

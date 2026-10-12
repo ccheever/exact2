@@ -755,9 +755,11 @@ component App
         under(k, at(k, t))
             .into_iter()
             .filter_map(|c| {
+                // A capsule holds its text, and the accent's tint a layer under it.
                 let only = c.children();
-                let text = k.node(*only.first()?).unwrap();
-                (only.len() == 1 && text.node_type == NodeType::Text).then_some((c, text))
+                let text = k.node(*only.last()?).unwrap();
+                (matches!(only.len(), 1 | 2) && text.node_type == NodeType::Text)
+                    .then_some((c, text))
             })
             .collect()
     };
@@ -800,6 +802,77 @@ component App
     );
     assert_eq!(full.1.style.text_color, named("-exact-label"));
     assert_eq!(indigo.0.color_scheme_dark(), Some(true), "white on indigo");
+    // LLP 1116.007 D3.10: the accent is a tint, not a fill under white ink (1.4:1 on
+    // yellow, 3.5:1 on the system blue, against a caption's 4.5:1): the accent at 16% on a
+    // layer under the label, which keeps its own ink, so it reads on every accent.
     assert_eq!(new.0.color_scheme_dark(), None);
-    assert_eq!(new.1.style.text_color, named("AccentColorText"));
+    assert_eq!(new.1.style.text_color, named("-exact-label"));
+    let tint = k.node(new.0.children()[0]).unwrap();
+    assert_eq!(tint.style.background_color, Some(named("AccentColor")));
+    assert!(
+        (tint.style.opacity - 0.16).abs() < 1e-3,
+        "{}",
+        tint.style.opacity
+    );
+    assert!(
+        new.0
+            .style
+            .background_color
+            .is_none_or(|c| c.resolve(false).a() == 0),
+        "the capsule paints nothing of its own: the layer is the tint"
+    );
+}
+
+/// LLP 1116.007 D3.10: `SummaryCard` cannot know its page, and the secondary
+/// background is the grouped page's own grey in the light scheme (the card
+/// vanished on unit-converter's grouped page, `check`'s `card` finding). Its
+/// surface is a translucent fill, which differs from the plain page and from
+/// the grouped page, by more than `check`'s four-step tolerance, in each
+/// scheme.
+#[test]
+fn a_summary_card_shows_on_a_plain_page_and_on_a_grouped_one_in_either_scheme() {
+    use exact_kernel::style::roles::role;
+    use exact_kernel::ColorValue;
+    let dir = Dir::new("card-surface");
+    let root = dir.write(
+        "app.contract",
+        r#"use SummaryCard from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=400
+      column testId="holder"
+        SummaryCard(label="Today", value="1", detail="of 2", progress=none, symbol=none)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let holder = k.node_by_key(k.find_by_test_id("holder")[0]).unwrap();
+    let card = k.node(holder.children()[0]).unwrap();
+    let fill = card.style.background_color.expect("the card has a fill");
+    for dark in [false, true] {
+        let over = |page: ColorValue| {
+            let (f, p) = (fill.resolve(dark), page.resolve(dark));
+            let a = f64::from(f.a()) / 255.0;
+            let mix = |f: u8, p: u8| f64::from(f) * a + f64::from(p) * (1.0 - a);
+            [mix(f.r(), p.r()), mix(f.g(), p.g()), mix(f.b(), p.b())]
+        };
+        for page in ["-exact-background", "-exact-grouped-background"] {
+            let page = ColorValue::Role(role(page).unwrap());
+            let (shown, behind) = (over(page), page.resolve(dark));
+            let behind = [behind.r(), behind.g(), behind.b()].map(f64::from);
+            let apart = (0..3).any(|i| (shown[i] - behind[i]).abs() > 4.0);
+            assert!(
+                apart,
+                "the card {shown:?} is its page {behind:?} (dark: {dark})"
+            );
+        }
+    }
 }

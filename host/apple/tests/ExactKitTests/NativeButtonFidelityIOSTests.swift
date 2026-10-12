@@ -62,6 +62,45 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             XCTAssertNotNil(c.preferredSymbolConfigurationForImage, name)
         }
     }
+    /// LLP 1116.007 D3.10: the ink on an accent fill is chosen for contrast, as the web draws it (LLP 1116.003
+    /// D3.1): black once white falls under 3:1 on the accent as the scheme resolves it, UIKit's own white on the
+    /// system blue and the darker hues; only the filled styles; an authored colour wins.
+    func testAFilledButtonOnAPaleAccentTakesDarkInkAndTheRestKeepUIKitsWhite() throws {
+        func rgb(_ r: Double, _ g: Double, _ b: Double) -> UIColor { UIColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1) }
+        // iOS 27's measured system colours, light (LLP 1115.000 D3.2).
+        let accents: [(String, UIColor, Bool)] = [("blue", rgb(0, 136, 255), false), ("indigo", rgb(97, 85, 245), false), ("red", rgb(255, 56, 60), false),
+                                                  ("brown", rgb(172, 127, 94), false), ("orange", rgb(255, 141, 40), true), ("yellow", rgb(255, 204, 0), true),
+                                                  ("green", rgb(52, 199, 89), true), ("teal", rgb(0, 195, 208), true)]
+        for style in ["filled", "borderedProminent", "tinted", "gray"] {
+            var face = ButtonFace(); face.title = "Go"; face.ios = style; face.iosBefore26 = style
+            for (name, accent, pale) in accents {
+                let b = UIButton(configuration: ControlHost.configuration(face).0)
+                ButtonConfigurationIOS.apply(face, to: b, traits: UITraitCollection(userInterfaceStyle: .light), accent: accent)
+                let ink = b.configuration?.baseForegroundColor
+                if pale && (style == "filled" || style == "borderedProminent") {
+                    XCTAssertEqual(ink.flatMap(rgba), [0, 0, 0, 1], "\(style) on \(name): dark ink")
+                } else {
+                    XCTAssertNil(ink, "\(style) on \(name): the factory's")
+                }
+            }
+            // No accent of the app's: UIKit's own tint, and its white.
+            let b = UIButton(configuration: ControlHost.configuration(face).0)
+            ButtonConfigurationIOS.apply(face, to: b, traits: b.traitCollection, accent: nil)
+            XCTAssertNil(b.configuration?.baseForegroundColor, style)
+        }
+        // An authored title colour wins over the chosen ink.
+        var face = ButtonFace(); face.title = "Go"; face.ios = "filled"; face.iosBefore26 = "filled"
+        face.rows.title["text_color"] = .array([.number(255), .number(0), .number(0), .number(255)])
+        let b = UIButton(configuration: ControlHost.configuration(face).0)
+        ButtonConfigurationIOS.apply(face, to: b, traits: b.traitCollection, accent: rgb(255, 204, 0))
+        XCTAssertEqual(b.configuration?.baseForegroundColor.flatMap(rgba), [1, 0, 0, 1])
+    }
+    /// A colour's sRGB components (UIColor.black is a gray-space colour, with two).
+    private func rgba(_ c: UIColor) -> [CGFloat]? {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        return c.getRed(&r, green: &g, blue: &b, alpha: &a) ? [r, g, b, a] : nil
+    }
+
     func testClearingControlSizeRestoresTheFactorySize() throws {
         for style in ["plain", "gray", "tinted", "filled", "bordered", "glass"] {
             var f = ButtonFace(); f.title = "Size"; f.ios = style

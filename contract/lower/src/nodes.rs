@@ -208,6 +208,10 @@ impl Lowerer<'_> {
                     );
         }
         controls::check_zero_size(tag, expanded, children, *span)?;
+        // @ref LLP 1116.007 D5 — a route that scrolls a grouped list is on
+        // the grouped background, unless its author said otherwise.
+        let grouped_page = self.nav_place.grouped_page(tag, expanded, children, *span);
+        let expanded = grouped_page.as_deref().unwrap_or(expanded);
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
         // @ref LLP 1038 D8 — only the first root selects navigation.
         if has(&["navigate"])
