@@ -7,19 +7,18 @@ use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
-/// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1):
-/// the UA stylesheet's `margin: 0.5em auto; overflow: hidden`, and in place
-/// of its two-toned `inset` 1px box a single solid top edge in the
-/// separator role (`-exact-separator`: `separatorColor` on Apple). The edge
-/// is `currentcolor`, so an author's `color` or `border-*` still wins
-/// (LLP 1021 D1).
+/// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1; LLP
+/// 1115.000 D10.3): one hairline, a single solid top edge one device pixel
+/// thick (`-exact-hairline`) in the separator role (`-exact-separator`:
+/// `separatorColor` on Apple), with no margin of its own, as `Divider()` and
+/// a table's separator have none and the common resets zero an `hr`'s. In
+/// place of the UA stylesheet's `margin: 0.5em auto` and its two-toned
+/// `inset` 1px box, which the web's sheet resets (`host/web/index.html`);
+/// its `overflow: hidden` stays. The edge is `currentcolor`, so an author's
+/// `color`, `border-*` or `margin` still wins (LLP 1021 D1).
 pub(crate) const HR: &[(StyleId, &str)] = &[
-    (StyleId::MarginTop, "0.5em"),
-    (StyleId::MarginBottom, "0.5em"),
-    (StyleId::MarginLeft, "auto"),
-    (StyleId::MarginRight, "auto"),
     (StyleId::BorderStyleTop, "solid"),
-    (StyleId::BorderWidthTop, "1"),
+    (StyleId::BorderWidthTop, "-exact-hairline"),
     (StyleId::TextColor, "-exact-separator"),
     (StyleId::OverflowX, "hidden"),
     (StyleId::OverflowY, "hidden"),

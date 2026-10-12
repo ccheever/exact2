@@ -56,7 +56,25 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
 > - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
 >   against that root, and a `role="heading"` is lowered to one by its level;
-> - `hr` is one solid edge in the separator role, not Chrome's two shades;
+> - `hr` is one solid edge in the separator role, not Chrome's two shades, and it is
+>   one hairline with no margin of its own (LLP 1115.000 D10.3): lowering writes it a
+>   top edge `-exact-hairline` thick and no margin, where Chrome's UA sheet gives it
+>   `margin: 0.5em auto` and a 1px inset border on four sides (2px tall, and 0 wide in
+>   a flex column, where the `auto` side margins stop the stretch); the web's sheet
+>   resets both;
+> - `-exact-hairline` is a length CSS does not have: one device pixel, 1 px over the
+>   display's scale, on every length row but `font-size` and `line-height`. The scale
+>   is a layout input the host sets, as it sets the root font size
+>   (`Kernel::set_display_scale`): UIKit's `displayScale`, AppKit's
+>   `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a point a Linux,
+>   Android or Windows shell draws at; 1 until a host says, which is what a terminal,
+>   whose border is a cell, keeps. The row holds the resolved pixels, re-resolved at
+>   the end of the commit after the scale changes (`kernel/src/style/relative.rs`), so
+>   layout and paint agree on one device pixel where an authored `0.5` is one only at
+>   2x. The web's JS target, which keeps no kernel, writes `var(--exact-hairline)`,
+>   which the sheet holds at 1px over the resolution a media query reports (1, 1.5, 2,
+>   2.5, 3 and 4 dppx; between two a border still snaps down to one device pixel).
+>   The schema's `lengths` names it, so `SCHEMA_DIGEST` covers it;
 > - an `href` run is `LinkText` and is not underlined, and so is a block `link` of
 >   text (LLP 1115.000 D3.5);
 > - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled

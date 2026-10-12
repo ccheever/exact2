@@ -518,6 +518,10 @@ uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 uint32_t exact_set_page(ExactRuntime rt, uint32_t bits);
 /* @ref LLP 1069.000 D3: the root font size `rem` follows, in points. */
 uint32_t exact_set_root_font_size(ExactRuntime rt, double px);
+/* @ref LLP 1115.000 D10.3: the display's scale, device pixels a point, which a
+ * hairline (`-exact-hairline`) is one device pixel of; told after boot and when
+ * the view moves to another display. */
+uint32_t exact_set_display_scale(ExactRuntime rt, double scale);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 /// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
 /// callable before boot. Returns the batch length.

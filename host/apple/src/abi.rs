@@ -1259,6 +1259,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
+    /// hairline.
+    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_display_scale(scale));
+        self.emit(out)
+    }
+
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet.
     pub fn set_page(&mut self, bits: u32) -> u32 {

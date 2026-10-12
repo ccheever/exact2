@@ -47,13 +47,13 @@ fn frame(host: &Host<NoData>, ops: &[serde_json::Value], test_id: &str) -> [f64;
     ["x", "y", "w", "h"].map(|k| op[k].as_f64().unwrap())
 }
 
-/// The style rows the batch gives `test_id`.
+/// The style rows the batch gives `test_id`, as it is made and restyled.
 fn style(host: &Host<NoData>, ops: &[serde_json::Value], test_id: &str) -> serde_json::Value {
     let id = view(host, test_id);
     let mut rows = serde_json::Map::new();
     for op in ops
         .iter()
-        .filter(|op| op["op"] == "style" && op["id"] == id)
+        .filter(|op| (op["op"] == "style" || op["op"] == "create") && op["id"] == id)
     {
         if let Some(style) = op["style"].as_object() {
             rows.extend(style.clone());
@@ -137,4 +137,47 @@ fn a_range_and_a_determinate_progress_are_full_width() {
     };
     assert!(!written("range") && !written("bar"), "the compiler's row");
     assert!(written("narrow"), "the author's");
+}
+
+/// D10.3: an `hr` is one hairline with no margin, a point until the
+/// presenter says its display's scale (`exact_set_display_scale`: UIKit's
+/// `displayScale`, AppKit's `backingScaleFactor`). Telling it sends the
+/// presenter the rule's new edge and the frames that move with it, in one
+/// batch; the same scale again sends nothing.
+#[test]
+fn an_hr_is_one_device_pixel_of_the_scale_the_presenter_reports() {
+    let (mut host, ops) = boot(
+        r#"component App
+  view
+    column width=200 testId="root"
+      box height=20 testId="above"
+      hr testId="rule"
+      box height=20 testId="below"
+"#,
+    );
+    assert_eq!(frame(&host, &ops, "rule"), [0.0, 20.0, 200.0, 1.0]);
+    assert_eq!(frame(&host, &ops, "below")[1], 21.0);
+    let rule = style(&host, &ops, "rule");
+    assert_eq!(rule["border_width_top"], 1.0, "{rule}");
+    assert!(rule.get("margin_top").is_none(), "{rule}");
+    // An iPhone's 3x display.
+    let told: serde_json::Value = serde_json::from_str(&host.set_display_scale(3.0)).unwrap();
+    let told = told["ops"].as_array().cloned().unwrap_or_default();
+    let width = style(&host, &told, "rule")["border_width_top"]
+        .as_f64()
+        .expect("the rule is restyled");
+    assert!((width - 1.0 / 3.0).abs() < 1e-4, "{width}");
+    let [_, y, w, h] = frame(&host, &told, "rule");
+    assert!(
+        (y, w) == (20.0, 200.0) && (h - 1.0 / 3.0).abs() < 1e-4,
+        "{h}"
+    );
+    let below = frame(&host, &told, "below")[1];
+    assert!((below - (20.0 + 1.0 / 3.0)).abs() < 1e-4, "{below}");
+    let again: serde_json::Value = serde_json::from_str(&host.set_display_scale(3.0)).unwrap();
+    assert!(
+        again["ops"].as_array().is_none_or(Vec::is_empty),
+        "the same scale again: {again}"
+    );
+    assert!(host.set_display_scale(0.0).contains("display scale"));
 }

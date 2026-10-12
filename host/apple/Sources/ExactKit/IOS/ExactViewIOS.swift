@@ -289,6 +289,7 @@ public final class ExactView: UIView {
             lastDisplayScale = scale
             session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
             session.rasters.displayChanged()
+            session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
         }
         var size = frame.size
         // LLP 1075.003 §9.11: the window — this view's own viewport, as it

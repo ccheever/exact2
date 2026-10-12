@@ -87,3 +87,65 @@ fn a_range_and_a_determinate_progress_are_sent_full_width() {
     let spinner = css_of(&host, &batch, "spinner");
     assert!(!spinner.contains("width:100%"), "{spinner}");
 }
+
+/// D10.3: an `hr` reaches the page as one hairline with no margin, a solid
+/// top edge one device pixel thick. The wasm page's kernel is told the
+/// page's `devicePixelRatio` (`exact_set_display_scale`) and writes the
+/// pixels: 1px until it is, half a pixel on a 2x display, and the batch that
+/// tells it restyles every hairline. The JS target, which keeps no kernel,
+/// is written the sheet's custom property, and the shell's sheet resets the
+/// UA's `hr` and holds the property at one device pixel.
+#[test]
+fn an_hr_is_one_hairline_the_displays_scale_resolves() {
+    let (mut host, batch) = boot(
+        r#"component App
+  view
+    column
+      hr testId="rule"
+      box testId="edged" border-bottom-width="-exact-hairline" border-bottom-style="solid"
+      box testId="half" border-bottom-width=0.5 border-bottom-style="solid"
+"#,
+    );
+    let rule = css_of(&host, &batch, "rule");
+    assert!(!rule.contains("margin"), "{rule}");
+    assert!(
+        rule.contains("border-top-width:1px") && rule.contains("border-top-style:solid"),
+        "{rule}"
+    );
+    let k = host.runner().kernel();
+    let id = |test_id: &str| k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id;
+    let (rule_id, edged_id, half_id) = (id("rule"), id("edged"), id("half"));
+    // A 2x display: both hairlines are restyled to half a pixel.
+    let told = host.set_display_scale(2.0);
+    for view in [rule_id, edged_id] {
+        let at = told
+            .find(&format!("{{\"op\":\"style\",\"id\":{view},"))
+            .unwrap_or_else(|| panic!("no restyle of {view} in {told}"));
+        let op = &told[at..told[at..].find('}').map_or(told.len(), |end| at + end)];
+        assert!(op.contains("-width:0.5px"), "{op}");
+    }
+    assert!(
+        !told.contains(&format!("{{\"op\":\"style\",\"id\":{half_id},")),
+        "an authored 0.5 does not move: {told}"
+    );
+    assert!(
+        !host.set_display_scale(2.0).contains("\"op\":\"style\""),
+        "the same scale again restyles nothing"
+    );
+    // The JS target: the property, for the browser to resolve.
+    let node = host.runner().kernel().node(rule_id).unwrap();
+    let (css, _) = exact_web::css::css_text_relative(node.style, &[]);
+    assert!(
+        css.contains("border-top-width:var(--exact-hairline, 1px);"),
+        "{css}"
+    );
+    let sheet = include_str!("../../index.html");
+    for rule in [
+        "hr { margin: 0; border: 0 none; }",
+        ":root { --exact-hairline: 1px; }",
+        "@media (min-resolution: 2dppx) { :root { --exact-hairline: .5px; } }",
+        "@media (min-resolution: 3dppx) { :root { --exact-hairline: calc(1px / 3); } }",
+    ] {
+        assert!(sheet.contains(rule), "the shell's sheet says `{rule}`");
+    }
+}

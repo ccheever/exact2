@@ -1289,6 +1289,7 @@ public final class ExactSession {
         guard booted, state != .destroyed else { return }
         apply(runtime.setPage(PageFacts.bits(view?.window)))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
+        tellDisplayScale()
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }

@@ -447,7 +447,7 @@ public final class Agent {
         var keyboardNavigation: Bool?
         #endif
         for (name, raw) in page ?? [:] {
-            let value = name == "root-font-size" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
+            let value = name == "root-font-size" || name == "display-scale" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
             switch (name, value) {
             #if os(macOS)
             // The Mac's Keyboard Navigation setting (LLP 1115.000 D7.2): whether Tab reaches every control.
@@ -459,6 +459,8 @@ public final class Agent {
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: facts.rootFontSize = Double(value)!
+            // The display's scale as the kernel is told it (LLP 1115.000 D10.3): layout follows; the display draws at its own.
+            case ("display-scale", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: PageFacts.agentDisplayScale = Double(value)!
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
         }
@@ -475,7 +477,8 @@ public final class Agent {
         if page != nil { PageFacts.agent = facts }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
-                                       "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize]
+                                       "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize,
+                                       "display-scale": PageFacts.displayScale(session.presenter.viewport)]
         #if os(macOS)
         if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
         pageFacts["keyboard-navigation"] = KeyboardNavigation.on

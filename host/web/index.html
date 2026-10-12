@@ -25,6 +25,16 @@
      first frame of an app that never calls `setScheme` is wrong. `setScheme`
      overrides this on the element, as an app choosing light or dark. */
   html { color-scheme: light dark; }
+  /* One device pixel (LLP 1115.000 D10.3): what `-exact-hairline` is on a page that keeps no kernel. The JS target
+     writes `var(--exact-hairline)` for it; the wasm page's kernel is told `devicePixelRatio` and writes the pixels.
+     It is 1px over the display's scale, by the resolutions a sheet can ask about, so it holds before any script runs.
+     Between two steps a border still snaps down to one device pixel. */
+  :root { --exact-hairline: 1px; }
+  @media (min-resolution: 1.5dppx) { :root { --exact-hairline: calc(1px / 1.5); } }
+  @media (min-resolution: 2dppx) { :root { --exact-hairline: .5px; } }
+  @media (min-resolution: 2.5dppx) { :root { --exact-hairline: .4px; } }
+  @media (min-resolution: 3dppx) { :root { --exact-hairline: calc(1px / 3); } }
+  @media (min-resolution: 4dppx) { :root { --exact-hairline: .25px; } }
   /* Every pressable shows its own press (LLP 1115.000 D6), so mobile WebKit's
      grey tap highlight, which would paint a second response over each button
      and link, stays off. A node's `-exact-press-scale` is its own (LLP 1061).
@@ -116,6 +126,11 @@
      for a title (LLP 1115 D3; LLP 1116 D7), the same rows on every host. They
      win here, inline or as the JS target's classes, as an author's do. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
+  /* An `hr` is one hairline with no margin of its own (LLP 1115.000 D10.3). Its look is the plan's rows, a solid top
+     edge `-exact-hairline` thick in the separator role, the same on every host; so the UA's `margin: 0.5em auto` and
+     its 1px inset border on all four sides go, as the common resets take them (the page drew it 2px tall, and no
+     wider than nothing in a flex column, where an `auto` side margin stops the stretch). */
+  hr { margin: 0; border: 0 none; }
   #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
   #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }

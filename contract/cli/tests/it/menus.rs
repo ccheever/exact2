@@ -1,5 +1,5 @@
-//! LLP 1021 (Menus): HTML's `hr`, a void separator row with the UA
-//! stylesheet's rows, and the confirmation shape the compiler refuses where a
+//! LLP 1021 (Menus): HTML's `hr`, a void separator row, one hairline (LLP
+//! 1115.000 D10.3), and the confirmation shape the compiler refuses where a
 //! literal shows an Apple host could not present it (`lower-alertdialog`),
 //! rather than at the tap.
 
@@ -50,10 +50,14 @@ fn refused(body: &str) -> (String, String) {
     (e.id.to_string(), e.message)
 }
 
+/// LLP 1115.000 D10.3: an `hr` is one hairline with no margin of its own:
+/// a solid top edge `-exact-hairline` thick in the separator role, where it
+/// was Chrome's `margin: 0.5em auto` around a 1px edge. The rows are the
+/// compiler's, not the author's (LLP 1115.000 D2), and the author's win.
 #[test]
-fn an_hr_is_a_view_with_the_ua_sheets_rows_and_its_own_win() {
+fn an_hr_is_one_hairline_with_no_margin_and_its_authors_rows_win() {
     let mut r = boot(&app(
-        "view width=200\n  hr testId=\"rule\"\n  hr testId=\"flat\" margin=0 border-style=\"solid\" border-color=\"#336699\"\n  hr testId=\"red\" color=\"red\" border-color=\"currentcolor\"",
+        "view width=200\n  hr testId=\"rule\"\n  hr testId=\"spaced\" margin=\"8px 0\" border-width=2 border-style=\"solid\" border-color=\"#336699\"\n  hr testId=\"red\" color=\"red\" border-color=\"currentcolor\"\ncolumn width=200 testId=\"stack\"\n  hr testId=\"stacked\"",
     ));
     let root = r.kernel().roots()[0];
     r.kernel_mut()
@@ -62,19 +66,34 @@ fn an_hr_is_a_view_with_the_ua_sheets_rows_and_its_own_win() {
     let rule = node(&r, "rule");
     assert_eq!(rule.props.str(PropId::SemanticTag), Some("hr"));
     let s = rule.style;
-    // `margin: 0.5em auto`, the em against the 16px font.
-    assert_eq!(s.margin_top, Dimension::Points(8.0));
-    assert_eq!(s.margin_bottom, Dimension::Points(8.0));
-    assert_eq!(s.margin_left, Dimension::Auto);
-    assert_eq!(s.margin_right, Dimension::Auto);
-    // The platform's separator (LLP 1115): one solid top edge, no box.
+    // No margin row at all: Chrome's `0.5em auto` is gone.
+    for margin in [
+        StyleId::MarginTop,
+        StyleId::MarginRight,
+        StyleId::MarginBottom,
+        StyleId::MarginLeft,
+    ] {
+        assert!(!s.mask.has(margin), "{margin:?}");
+    }
+    // The platform's separator (LLP 1115): one solid top edge, no box, one
+    // device pixel thick: 1 px where no host has said its display's scale.
     assert_eq!(s.border_style_top, BorderStyle::Solid);
     assert_eq!(s.border_style_left, BorderStyle::None);
     assert_eq!(s.border_widths(), [1.0, 0.0, 0.0, 0.0]);
+    assert_eq!(
+        s.relative.get(StyleId::BorderWidthTop),
+        Some((exact_kernel::style::relative::Unit::Hairline, 1.0))
+    );
+    assert!(!s.written.has(StyleId::BorderWidthTop), "the compiler's");
     assert_eq!(s.overflow_x, Overflow::Hidden);
     assert_eq!(s.overflow_y, Overflow::Hidden);
-    // A block in a block: the parent's width, its one edge tall.
-    assert_eq!((rule.frame.width, rule.frame.height), (200.0, 1.0));
+    // A block in a block: the parent's width, its one edge tall, at the
+    // parent's top with nothing above it.
+    let frame = rule.frame;
+    assert_eq!((frame.y, frame.width, frame.height), (0.0, 200.0, 1.0));
+    // In a flex column it is the column's width too: Chrome's `auto` side
+    // margins stopped the stretch there and left it 0 wide.
+    assert_eq!(node(&r, "stacked").frame.width, 200.0);
     // The edge is `currentcolor`, the separator role.
     let current = rule
         .computed_style(StyleMask::of(StyleId::TextColor))
@@ -89,13 +108,89 @@ fn an_hr_is_a_view_with_the_ua_sheets_rows_and_its_own_win() {
         .text_color;
     assert_eq!(red_current, ColorValue::Fixed(Color::rgba(255, 0, 0, 255)));
     assert_eq!(red.style.border_colors(red_current)[0], red_current);
-    // The author's rows replace the sheet's.
-    let flat = node(&r, "flat").style;
-    assert_eq!(flat.margin_top, Dimension::Points(0.0));
+    // The author's rows replace the sheet's: a margin, a width, a colour.
+    let spaced = node(&r, "spaced");
+    let flat = spaced.style;
+    assert_eq!(flat.margin_top, Dimension::Points(8.0));
     assert_eq!(flat.margin_left, Dimension::Points(0.0));
+    assert!(flat.written.has(StyleId::MarginTop));
     assert_eq!(flat.border_style_bottom, BorderStyle::Solid);
+    assert_eq!(flat.border_widths(), [2.0; 4]);
+    assert_eq!(flat.relative.get(StyleId::BorderWidthTop), None);
     let blue = ColorValue::Fixed(Color::rgba(0x33, 0x66, 0x99, 255));
     assert_eq!(flat.border_colors(current), [blue; 4]);
+}
+
+/// LLP 1115.000 D10.3: `-exact-hairline` is a width an author may write, in
+/// place of `0.5`: on a border's width, in the `border` shorthand, as a
+/// height or a gap, literal or bound. It is one device pixel, so it follows
+/// the display's scale the host reports, and with it the layout; a size of
+/// text is no width, and the compiler says so.
+#[test]
+fn a_hairline_is_one_device_pixel_of_the_scale_the_host_reports() {
+    let src = "component App\n  state on = true\n  action flip\n    on = not on\n  view\n    column width=200 testId=\"root\"\n      box testId=\"all\" height=20 border=\"-exact-hairline solid -exact-separator\"\n      box testId=\"bottom\" height=20 border-bottom-width=\"-exact-hairline\" border-bottom-style=\"solid\"\n      box testId=\"bound\" height=20 border-top-width=(on ? \"-exact-hairline\" : 0) border-top-style=\"solid\"\n      box testId=\"line\" height=\"-exact-hairline\"\n      row gap=\"-exact-HAIRLINE\" testId=\"gapped\"\n        box width=20 height=20\n        box width=20 height=20 testId=\"second\"\n      hr testId=\"rule\"\n      box testId=\"half\" height=20 border-bottom-width=0.5 border-bottom-style=\"solid\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n";
+    let mut r = boot(src);
+    let root = r.kernel().roots()[0];
+    let boxes = |r: &mut Runner<NoData>| {
+        r.kernel_mut()
+            .compute_layout(root, Offer::definite(400.0, 400.0))
+            .unwrap();
+        let frame = |id: &str| node(r, id).frame;
+        [
+            frame("all").height,
+            frame("bottom").height,
+            frame("bound").height,
+            frame("line").height,
+            frame("second").x,
+            frame("rule").height,
+            frame("half").height,
+        ]
+    };
+    assert_eq!(r.display_scale(), 1.0, "until a host says");
+    assert_eq!(boxes(&mut r), [22.0, 21.0, 21.0, 1.0, 21.0, 1.0, 20.5]);
+    // A 2x display: every hairline is half a point, and layout with it.
+    assert!(r.set_display_scale(2.0).unwrap().is_some());
+    assert_eq!(boxes(&mut r), [21.0, 20.5, 20.5, 0.5, 20.5, 0.5, 20.5]);
+    assert!(
+        r.set_display_scale(2.0).unwrap().is_none(),
+        "the same scale again commits nothing"
+    );
+    // A 3x display: a third, where an authored 0.5 is a pixel and a half.
+    r.set_display_scale(3.0).unwrap();
+    let third = 1.0 / 3.0;
+    let at3 = boxes(&mut r);
+    for (got, want) in at3.iter().zip([
+        20.0 + 2.0 * third,
+        20.0 + third,
+        20.0 + third,
+        third,
+        20.0 + third,
+        third,
+        20.5,
+    ]) {
+        assert!((got - want).abs() < 1e-4, "{at3:?}");
+    }
+    // A bound hairline leaves and comes back at the display's scale.
+    let flip = node(&r, "flip").id;
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(boxes(&mut r)[2], 20.0);
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert!((boxes(&mut r)[2] - (20.0 + third)).abs() < 1e-4);
+    // A scale that is no scale is refused and changes nothing.
+    assert!(r.set_display_scale(0.0).is_err());
+    assert!(r.set_display_scale(f64::NAN).is_err());
+    assert_eq!(r.display_scale(), 3.0);
+    // A hairline is a width: not a size of text.
+    for row in ["font-size", "line-height"] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    text \"a\" {row}=\"-exact-hairline\"\n"
+        ))
+        .unwrap_err();
+        assert!(
+            e.message.contains("`-exact-hairline` is a width"),
+            "{row}: {e}"
+        );
+    }
 }
 
 #[test]

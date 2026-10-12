@@ -16,7 +16,9 @@
 //!   each verified change prepares and commits a carried-state replacement.
 //! - `EXACT_ASSETS=<dir>` — the asset root (the current directory otherwise).
 //! - `EXACT_SIZE=WxH` — the headless viewport, points (420×860 otherwise).
-//! - `EXACT_SCALE=n` — device pixels per point (1 otherwise).
+//! - `EXACT_SCALE=n` — device pixels per point (1 otherwise): what the frame is
+//!   drawn at and what the kernel is told the display's scale is, so a
+//!   hairline is one of those pixels (LLP 1115.000 D10.3).
 //! - `EXACT_PAINTER=gpu|cpu` — the painter (the GPU when there is one otherwise).
 //! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).

@@ -67,6 +67,11 @@ pub struct NodeArena {
     /// A root font size the host set since the last commit, which that
     /// commit applies (LLP 1069.000 D3).
     pub(crate) root_font_size_next: Option<f32>,
+    /// The display's scale, device pixels a px, which a hairline resolves
+    /// against (LLP 1115.000 D10.3): 1 until the host says (`None`), and
+    /// its next commit applies what it says.
+    pub(crate) display_scale: Option<f32>,
+    pub(crate) display_scale_next: Option<f32>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
@@ -128,6 +133,8 @@ impl Clone for NodeArena {
             sticky_slots: self.sticky_slots.clone(),
             timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
+            display_scale: self.display_scale,
+            display_scale_next: self.display_scale_next,
             contents: self.contents.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),

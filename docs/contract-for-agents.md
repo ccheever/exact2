@@ -1949,7 +1949,10 @@ Production artifacts do not need a development source map.
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
-`"prefer prefers-reduced-motion reduce"`). Targets are `testId`s (or view ids): give every control a `testId` and
+`"prefer prefers-reduced-motion reduce"`). The display's scale, which a hairline is one
+device pixel of, is the device's: a simulator's or the Mac's own, and on the web and the
+Linux host what `EXACT_SCALE=2` launches them at (1 otherwise; `"prefer display-scale 2"`
+changes it under a native host, and `layout` shows the boxes that follow). Targets are `testId`s (or view ids): give every control a `testId` and
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
 On a machine with several booted iPhone simulators, name yours: `EXACT_SIM=<udid>`
 for `agent ios` and the smokes, `--sim <udid>` for `host/apple/build.mjs`; a
@@ -2507,7 +2510,12 @@ key on the web and iOS. A bare number on a length row is pixels (except
 `line-height`, where it is CSS's multiple of the font size), and the row takes
 CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
 `padding="1.5rem"`; `stroke-width="2px"` but no `rem` there), bound or literal
-(``font-size=`${size}px` ``). A row whose value is a number and no text
+(``font-size=`${size}px` ``). A separator's thickness is `-exact-hairline`, one
+device pixel on whatever display the app is on (a third of a point on a phone,
+half on a Retina Mac, a pixel on a 1x screen), where `0.5` is one only at 2x:
+`border-bottom="-exact-hairline solid -exact-separator"`, or `hr`, which is that
+line with no margin of its own (space around it is the `gap` or `margin` you
+write). A row whose value is a number and no text
 (`opacity`, `flex-grow`, `z-index`, `font-weight`, `column-count`,
 `column-rule-width`) takes a number where it is computed: a string-typed
 expression there is refused, since the native hosts read no text on it (the

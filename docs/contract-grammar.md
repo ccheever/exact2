@@ -695,6 +695,21 @@ top-right, bottom-right, bottom-left; no `/` elliptical radii).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
+`-exact-hairline` is a length every length row takes but a font's size and line
+height ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md) D10.3): one
+device pixel, 1 px over the display's scale, which each host tells the kernel as
+it tells it the root font size (UIKit's `displayScale`, AppKit's
+`backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a point a
+Linux, Android or Windows shell draws at; 1 where a host says none). It is a
+third of a point on a phone and half on a Retina Mac, in layout and in paint,
+and follows a window to another display. Write it where a separator's
+thickness was `0.5`, which is one device pixel only at 2x: `border-width`, the
+`border` shorthand (`border-bottom="-exact-hairline solid -exact-separator"`), a
+`height`, a `gap`; literal or bound. `hr` is that line: one solid top edge a
+hairline thick in the separator role, as wide as what holds it (a flex column
+included), with no margin of its own. Its `color`, `border-*` and `margin` are
+yours to write.
+
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
 (`appearance="none"`, or a button given a background, border, radius or rich

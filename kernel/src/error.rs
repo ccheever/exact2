@@ -334,6 +334,8 @@ pub enum LayoutError {
     InvalidSegments,
     /// A root font size that is not finite and positive (LLP 1069.000 D3).
     InvalidRootFontSize,
+    /// A display scale that is not finite and positive (LLP 1115.000 D10.3).
+    InvalidDisplayScale,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
     /// A host returned non-finite or negative field chrome.

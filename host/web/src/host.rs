@@ -25,6 +25,7 @@ mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 pub mod fonts;
+mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
 use fonts::{font_catalog, font_faces, font_names};
 #[path = "document.rs"]

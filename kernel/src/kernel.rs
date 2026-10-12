@@ -788,6 +788,45 @@ impl Kernel {
         self.arena.root_font_size()
     }
 
+    /// Set the display's scale, device pixels a px (1 by default): what a
+    /// hairline (`-exact-hairline`) resolves against. The host's fact, as the
+    /// root font size is: UIKit's `displayScale`, AppKit's
+    /// `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a
+    /// point a shell draws at. The next commit applies it, re-resolving
+    /// every hairline row, so an empty batch is enough. `false` when it is
+    /// the scale already set.
+    /// @ref LLP 1115.000 D10.3
+    pub fn set_display_scale(&mut self, scale: f32) -> Result<bool, KernelError> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(LayoutError::InvalidDisplayScale.into());
+        }
+        if self.display_scale() == scale {
+            return Ok(false);
+        }
+        self.arena.display_scale_next = Some(scale);
+        Ok(true)
+    }
+
+    /// Whether any live node has a hairline row: a new display scale moves
+    /// nothing otherwise.
+    pub fn has_hairlines(&self) -> bool {
+        use crate::style::relative::Unit;
+        let arena = &self.arena;
+        (arena.relative_slots.iter()).any(|slot| {
+            let rows = &arena.style(slot).relative;
+            rows.iter().any(|(_, unit, _)| unit == Unit::Hairline)
+        })
+    }
+
+    /// The display's scale, as last set (LLP 1115.000 D10.3).
+    pub fn display_scale(&self) -> f32 {
+        let arena = &self.arena;
+        arena
+            .display_scale_next
+            .or(arena.display_scale)
+            .unwrap_or(1.0)
+    }
+
     /// The EXNODE envelope for `root`, or for every root when `None`.
     pub fn export(&self, root: Option<ViewId>) -> Result<Vec<u8>, KernelError> {
         let slot = match root {

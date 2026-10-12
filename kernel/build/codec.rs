@@ -577,6 +577,18 @@ pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]
     }
     w.push_str("];\n");
 }
+/// `lengths` (LLP 1115.000 D10.3): the named lengths, each written
+/// `-exact-<name>`. What one resolves to is `style/relative.rs`'s.
+pub fn write_lengths(w: &mut String, lengths: &[String]) {
+    assert!(
+        lengths.iter().all(|name| !name.is_empty()
+            && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')),
+        "schema: a named length is kebab-case"
+    );
+    w.push_str(&format!(
+        "/// Every named length, without `-exact-` (LLP 1115.000 D10.3).\npub const NAMED_LENGTHS: &[&str] = &{lengths:?};\n"
+    ));
+}
 /// `#rrggbb` or `#rrggbbaa` as RGBA.
 fn hex_rgba(hex: &str) -> [u8; 4] {
     let h = hex

@@ -128,12 +128,12 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name`) : e;
   });
   const port = server.address().port;
-  const chrome = chromium().executable;
+  const chrome = chromium().executable, scale = Number(env?.EXACT_SCALE ?? process.env.EXACT_SCALE) || 0; // LLP 1115.000 D10.3: EXACT_SCALE, the Linux host's variable, launches Chrome at that device scale factor too, its own and not CDP's emulated one (which leaves a 0.5px border 1px): an override's 0 keeps it
   const profile = kept ? (mkdirSync(kept.profile, { recursive: true }), kept.profile) : mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
     child = spawn(chrome, [
-    '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars',
+    '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars', ...(scale ? [`--force-device-scale-factor=${scale}`] : []),
     '--enable-unsafe-webgpu', '--disable-smooth-scrolling', `--user-data-dir=${profile}`, '--no-sandbox',
     '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--no-first-run',
     '--no-default-browser-check',
@@ -229,7 +229,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     // (the document's autofocus at boot) moved the focus and fired no `focus` event, which iOS fires (splitter rough 13).
     await call('Emulation.setFocusEmulationEnabled', { enabled: true });
     // The viewport exactly: Chrome will not make a window narrower than 500.
-    await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
+    await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: scale ? 0 : 1, mobile: false });
     const evaluate = async (expression, timeoutMs) => {
       // A function of no arguments is called in the page, as Playwright's carriers do (a method's shorthand too).
       if (typeof expression === 'function') { let text = `${expression}`; try { new Function(`(${text})`); } catch { text = text.startsWith('async ') ? `async function ${text.slice(6)}` : `function ${text}`; } expression = `(${text})()`; }
@@ -274,7 +274,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         const pair = req.resize;
         if (Object.keys(req).some(k => !['op', 'resize'].includes(k)) || !Array.isArray(pair) || pair.length !== 2
           || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
-        await call('Emulation.setDeviceMetricsOverride', { width: pair[0], height: pair[1], deviceScaleFactor: 1, mobile: false }); size = [...pair]; // a later screenshot reports this size, not the launch's
+        await call('Emulation.setDeviceMetricsOverride', { width: pair[0], height: pair[1], deviceScaleFactor: scale ? 0 : 1, mobile: false }); size = [...pair]; // a later screenshot reports this size, not the launch's
         await frame();
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
       }
@@ -321,7 +321,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
-      prefer: (media, page, fold) => preferWeb({ media, page, fold, emulated, call, evaluate, frame, ask }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
+      prefer: (media, page, fold) => preferWeb({ media, page, fold, emulated, call, evaluate, frame, ask, scale }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
       // A click with modifiers named holds them as a keyboard does (`heldForClick`; Charlie, 2026-10-07).
       input(id, kind, opts) { return heldForClick(call, kind, opts, () => this.deliverInput(id, kind, opts)); },
       async deliverInput(id, kind, opts) {

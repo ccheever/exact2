@@ -25,7 +25,12 @@
 //   data sources they may ask; the JS side loads the same Rust module. A
 //   plan whose first lines say `// data: <app>` runs on that app's dist
 //   instead, for its sources and the capabilities it links; one that says
-//   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts.
+//   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts, and
+//   `scale=<n>` in that line opens all three at that display scale
+//   (EXACT_SCALE: Chrome's own device scale factor for both pages, the Linux
+//   host's pixels a point), so a hairline is the same device pixel on each
+//   (LLP 1115.000 D10.3, D14.2); with none every host is at the scale its
+//   environment names, 1 unless EXACT_SCALE says.
 //   Every page freezes media time (`mediaClock: 'frozen'`: rate 0 from a
 //   media element's first load): a playing video would otherwise follow the
 //   wall clock, so two pages read different positions; play, pause and seeks
@@ -289,8 +294,9 @@ async function drive(t, report, fail, dir, ws, js) {
   const reference = crossBrowser ? 'chrome' : 'wasm', other = crossBrowser ?? 'js';
   const pair = async (left, right) => crossBrowser ? [await left(), await right()] : Promise.all([left(), right()]);
   try {
-    // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both.
+    // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both. `scale=` is the display's, a launch fact of every host.
     const facts = Object.fromEntries([...(t.contract ? /^\/\/ agent: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1] ?? '' : '').matchAll(/(\w+)=(\S+)/g)].map(([, k, v]) => [k, k === 'epoch' ? Number(v) : v]));
+    const scaled = facts.scale ? { env: { EXACT_SCALE: String(facts.scale) } } : {}; delete facts.scale;
     if (crossBrowser) {
       // Both engines hold media time and the default line height equal (agent-launch.mjs `parityScript`):
       // `line-height: normal` is each engine's own font metric (Firefox 20 px where Chrome is 18 at 16px
@@ -301,16 +307,16 @@ async function drive(t, report, fail, dir, ws, js) {
       try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url, ...parity }); }
       catch (e) { return fail(`${reference}-open`, e.message.replace(/\s+/g, ' ').trim()); }
     } else {
-      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
+      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...scaled, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${reference}-open`, e.message.split('\n')[0]); }
-      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: js.url , mediaClock: 'frozen' }); }
+      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...scaled, url: js.url , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${other}-open`, e.message.split('\n')[0]); }
     }
     const linux = crossBrowser || t.urls ? null : linuxFor(t);
     if (linux?.why) report.steps.push({ target: t.name, step: 'linux', skipped: linux.why });
     else if (linux) {
       // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
-      try { L = await open({ host: 'linux', app: t.app, ...facts, ...(t.contract ? { plan: t.plan } : {}) }); }
+      try { L = await open({ host: 'linux', app: t.app, ...facts, ...scaled, ...(t.contract ? { plan: t.plan } : {}) }); }
       catch (e) { fail('linux-open', e.message.split('\n').filter(l => !/^crash report/.test(l)).slice(0, 4).join(' ').slice(0, 400)); }
     }
     // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).

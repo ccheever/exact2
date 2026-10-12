@@ -539,6 +539,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_size(px), |n| n)
         }
 
+        /// The display's scale, device pixels a point (UIKit's
+        /// `displayScale`, AppKit's `backingScaleFactor`): what a hairline is
+        /// one device pixel of (LLP 1115.000 D10.3).
+        #[no_mangle]
+        pub extern "C" fn exact_set_display_scale(rt: u32, scale: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_display_scale(scale), |n| n)
+        }
+
         /// The page's facts: bit 0 hidden, bit 1 offline, bit 2 a share sheet.
         #[no_mangle]
         pub extern "C" fn exact_set_page(rt: u32, bits: u32) -> u32 {

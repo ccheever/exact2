@@ -691,6 +691,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The display's scale (LLP 1115.000 D10.3): the page's
+    /// `devicePixelRatio`.
+    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_display_scale(scale),
+        );
+        self.emit(out)
+    }
+
     /// A topic the page module announced, in the input buffer.
     pub fn changed(&mut self, len: usize) -> u32 {
         let Ok(topic) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
@@ -1202,6 +1212,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_root_font_size(px: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_root_font_size(px))
+        }
+
+        /// The display's scale, the page's `devicePixelRatio` (LLP 1115.000
+        /// D10.3); returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_set_display_scale(scale: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_display_scale(scale))
         }
 
         /// A topic the page module announced, in the input buffer.
