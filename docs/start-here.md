@@ -245,3 +245,8 @@ rows by text or a position-based testId (`each t, i in tasks key=t.id`,
 
 Type the function returning a mutation’s reply (`Promise<Result<'post'>>`):
 the build names an extra field, and a failing test names a refused reply.
+
+`navigate=follow` needs your `action follow(url: string)`. `textarea` takes
+`input`’s `value`, `input=`, `change=` and `placeholder` for several lines.
+A date made from a value works (`new Date(ms)`, `Intl.DateTimeFormat`);
+reading the current date in a data module is refused.

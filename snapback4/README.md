@@ -146,7 +146,8 @@ mutation post(body: text 1..200):
 ```
 
 `app.contract` (a source's result type is keyed by its source name:
-`Result<'notes'>`, `Result<'post'>`):
+`Result<'notes'>`, `Result<'post'>`, never by the slot it fills, `posted`;
+a name that is not a source fails the build listing those that are):
 
 ```
 // Guestbook: the view. app.ts answers it through Snapback4.
@@ -412,7 +413,10 @@ const fate = await db.send(api.post, { body }, now); // fate.result: { id: strin
 ```
 
 The arguments are checked against the operation's (an unknown field fails
-the build: TS2353 names it), the answer is the server's type, and a query's
+the build: TS2353 names it; a Contract `string` given to an `enum` argument
+needs its type, `role as ArgsOf<typeof api.join>['role']` with `ArgsOf` from
+`./snapback4/snapback.ts`, and the server refuses any other value with
+`E_INPUT`), the answer is the server's type, and a query's
 handle is refused where a mutation goes. `write(api.post, …)` takes one
 too. A name still works (`db.read<Row[]>('recent', {}, now)`), typed by
 hand. `api.ts` imports its types from `snapback4/contract`; the build reads
@@ -530,7 +534,10 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   write's.
 - **Offline.** `sync()` resolves `{ok: false, offline: true}`; writes are kept
   and predicted (`pending: true` rows) and sent by the next round that
-  reaches the server, once each.
+  reaches the server, once each. A mutation source answers once: a write it
+  answered as pending stays so in its slot when a later round delivers it.
+  Show delivery from a resource that reads again (the guestbook's `sending`
+  count), not from the slot.
 - **In tests.** Let the app sync once (`clock data`) before `fail fetch`: a
   partition that has never synced cannot open offline. Assert a write's
   fate (`outcome`), not a notice the app shows while it is still pending.
