@@ -484,7 +484,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   }, "it keeps its last value", (error, code) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; write(pend.n, false); write(fail.n, failure()); });
   const m = memo(() => Ov.shown(r, (() => {
     ver();
-    const a = r.asked = args(); if (Restoring) return r.value; // `asked`: the overlay's arguments while a placeholder stands
+    const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
     const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
     r.forced = r.rev = r.reconciling = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.

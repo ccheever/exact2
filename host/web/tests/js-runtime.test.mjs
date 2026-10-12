@@ -314,6 +314,30 @@ test('a refused commit that fails an owed read leaves nothing owed when it is re
   } finally { clock.agent = false; }
 });
 
+// A refused commit puts a resource's failure back with the rest (LLP 1005 §6). New arguments clear a failure before the
+// source is asked, and a source that refuses those arguments refuses the commit: the state is as it was, so the resource
+// is failed for the arguments it had, as the runner's `failed_args` is with its checkpoint. The refused commit's settle
+// asks nothing, and `failed(x)` follows what was put back (conformance's `failed`, `tap ask-bad`).
+test('a commit refused after it cleared a failure shows the failure again', async () => {
+  const { res, W, data, commit, sig, act } = await import(resolve(dir, 'rt.js'));
+  let asks = 0;
+  data.answer = (source, [k]) => {
+    if (source !== 'lostProbe') return null;
+    asks++;
+    if (k < 0) throw Object.assign(new Error('argument 0 must not be negative'), { refuse: true });
+    if (k > 1) throw new Error('lost');
+    return { v: k };
+  };
+  const n = sig(1, 'n');
+  let probe;
+  commit(() => { probe = res('lostProbe', 'lostProbe', () => [n()], undefined, undefined, 'n', 0); probe(); });
+  expect([probe(), probe.f(), asks]).toEqual([1, false, 1]);
+  act(() => W(n, 2))();
+  expect([n(), probe(), probe.f(), probe.e()?.[1], asks]).toEqual([2, 1, true, 'lost', 2]);
+  act(() => W(n, -1))(); // refused: `n` is 2 again, and the probe is failed for it, as before the press
+  expect([n(), probe(), probe.f(), probe.e()?.[1], asks]).toEqual([2, 1, true, 'lost', 3]);
+});
+
 // An overlay outside the resource's shape counts as none: the answer shows, and an answered write it keeps retires.
 test('an overlay outside the shape keeps nothing', async () => {
   const { res, mut, M, data, commit, sig, writeRecords } = await import(resolve(dir, 'rt.js'));
