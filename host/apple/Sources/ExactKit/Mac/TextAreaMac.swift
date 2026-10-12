@@ -163,19 +163,28 @@ extension NodeView {
         color("caret_color", isNativeTextControl ? color("accent_color", .controlAccentColor) : color("text_color", .textColor))
     }
 
-    var allowsInputCorrection: Bool {
+    /// `autocorrect` as the author wrote it; nil when they said nothing (the
+    /// prop is then absent: it is a prop, not a style row, so there is no
+    /// written bit to read). An email, URL or password input says by its
+    /// type that its text is not prose.
+    var inputCorrection: Bool? {
         if textArea == nil, ["email", "url", "password"].contains((props["type"] ?? "").lowercased()) { return false }
-        return (props["autocorrect"] ?? "").lowercased() != "off"
+        return props["autocorrect"].map { $0.lowercased() != "off" }
     }
 
-    var allowsInputSpellChecking: Bool { props["spellcheck"] != "false" }
+    /// `spellcheck` as the author wrote it; nil when they said nothing.
+    var inputSpellChecking: Bool? { props["spellcheck"].map { $0.lowercased() != "false" } }
 
     /// What `autocorrect` and `spellcheck` ask of an editor: a textarea's
-    /// text view or an input's field editor.
+    /// text view or an input's field editor. Only what the author wrote is
+    /// written (LLP 1115.000 D7.7). Unsaid, both are the person's: what
+    /// AppKit gave the editor from System Settings (Correct spelling
+    /// automatically) and what they chose since in Edit ▸ Spelling and
+    /// Grammar, which a write at every update used to undo.
     func applyTextChecking(_ v: NSTextView) {
-        v.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
-        v.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
-        v.keepsTypedText(!allowsInputCorrection)
+        v.writes(\.isAutomaticSpellingCorrectionEnabled, inputCorrection, held: &heldCorrection)
+        v.writes(\.isContinuousSpellCheckingEnabled, inputSpellChecking, held: &heldSpelling)
+        v.keepsTypedText(inputCorrection == false)
     }
 
     func makeTextArea() {
@@ -327,8 +336,26 @@ extension NodeView {
 }
 
 private var heldSubstitutions: UInt8 = 0
+private var heldCorrection: UInt8 = 0
+private var heldSpelling: UInt8 = 0
 
 extension NSTextView {
+    /// A switch the author may have written. While they say what it is, it
+    /// is that, and what the view had (AppKit's, or the person's) is held;
+    /// when they say nothing it is given back and then left alone. The
+    /// window's one field editor serves every field, so a field that says
+    /// nothing must not keep the last field's answer.
+    func writes(_ path: ReferenceWritableKeyPath<NSTextView, Bool>, _ value: Bool?, held key: UnsafeRawPointer) {
+        let held = objc_getAssociatedObject(self, key) as? Bool
+        if let value {
+            if held == nil { objc_setAssociatedObject(self, key, self[keyPath: path], .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+            if self[keyPath: path] != value { self[keyPath: path] = value }
+        } else if let held {
+            objc_setAssociatedObject(self, key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            if self[keyPath: path] != held { self[keyPath: path] = held }
+        }
+    }
+
     /// No correction keeps the text as typed, as HTML's `autocorrect="off"`
     /// asks (#111): no smart quotes or dashes and no text replacement, which
     /// AppKit would otherwise apply after a pause in typing. What the view
