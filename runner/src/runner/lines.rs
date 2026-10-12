@@ -48,6 +48,15 @@ pub(super) fn build_time(resource: &str) -> String {
     )
 }
 
+/// A store reader's build-time answer is the bake's empty store's; a store
+/// holding secrets shows its placeholder instead (LLP 1027 D4, 2026-10-10).
+pub(super) fn secrets_unseen(resource: &str) -> String {
+    text!(
+        "{} shows its placeholder until its source answers: the store holds secrets its build-time answer did not see",
+        resource
+    )
+}
+
 /// That ask answered: the line says whether the first frame was right.
 pub(super) fn revalidated(resource: &str, same: bool) -> String {
     let what = if same {

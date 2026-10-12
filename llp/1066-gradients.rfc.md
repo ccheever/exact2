@@ -18,7 +18,7 @@ the entries scrolling under it fade out. There was no way to say it except a
 canvas, so the port used a flat veil. This RFC adds CSS `background-image`
 for `linear-gradient()` and `radial-gradient()`. It is one kernel row, carried
 as CSS text and painted natively on every host. Chrome is the oracle: a
-twelve-case parity page (`scripts/fixtures/gradients.contract`) and Chrome's
+eighteen-case parity page (`scripts/fixtures/gradients.contract`) and Chrome's
 pictures of it hold Linux's two painters and both Apple views within the
 border page's band.
 
@@ -134,6 +134,59 @@ Linux is also owed.
 *Rejected:* a per-app native module that recolours bubbles from the row's
 frame in the window. Every messenger port would write it again, and the
 gradient is CSS.
+
+## Repeating linear gradients and length stops (2026-10-12)
+
+Charlie’s issue-program ruling 9: “repeating gradients: (a) admit
+repeating-linear-gradient + length stops held to Chrome; defer
+background-attachment: local”. Implementer: Codex, gradients lane, 2026-10-12.
+Consumer: the T3 Code clone’s split-diff hatch
+(`issues/20261011-repeating-hatch-across-list-rows.md`). This amends D1, D2
+and LLP 1077 D2/D5: `repeating-linear-gradient()` takes the linear grammar;
+linear and radial stops also take CSS px lengths and unitless zero, including
+double positions. Other length units, `calc()` and negative radial lengths remain refused.
+Percentage positions retain the existing 0–100% restriction. `url()`,
+`image-set()`, `cross-fade()`, hints and repeating radial/conic stay refused.
+
+Length positions and omitted positions among them stay authored on the wire.
+CSS’s stop fix-up runs against the gradient line’s length at paint time (the
+horizontal radius for a radial gradient); resizing resolves them again.
+A repeating linear gradient repeats the interval from its first fixed-up
+stop to its last, in both directions, with adjacent end colours meeting at
+one hard stop. A zero period paints the last stop, matching Chrome 155’s
+solid blue for `red 0px, lime 0px, blue 0px` (2026-10-12); it does not
+average coincident stops. The two-, three- and four-stop zero-period cases
+are held to Chrome on the shared parity page. The web delegates to CSS. Native
+hosts consume one kernel resolution of stops and geometry,
+then use their existing gradient painters, masks and appearance resolution.
+Apple repetition is expanded over the gradient box. Core Graphics splits axial
+ramps at internal hard stops and draws each continuous run with its own endpoints:
+a single expanded ramp quantizes those boundaries, varying a hatch’s stripe widths.
+The gradient’s geometry and colour space stay unchanged. Core Animation’s single
+ramp has the same limitation, so repeating backgrounds use the drawn painter;
+repeating masks use its raster, as conic masks do. UIKit’s existing D7 drawn-gradient
+limitation therefore also covers repeating backgrounds with `fixed`.
+Linux’s CPU/GPU painters
+repeat a single period through their native spread mode so the GPU’s finite
+ramp texture samples the period, with the GPU brush shifted to sample pixel
+centres. Both Linux painters match the reported hatch’s Chrome pixels exactly.
+As CSS permits for repetitions too small to resolve, a period below 0.01 CSS px or more than
+8,192 periods across the box paints its average; that cutoff is a declared
+native deviation from Chrome’s device-dependent cutoff. Existing D5/D7
+background-origin/attachment deviations still apply.
+The parity page gains the reported hatch and nonrepeating length case.
+AppKit’s captured hatch is pixel-exact against Chrome after splitting the
+hard stops (0/255 in light and dark), with the 2/255 limit unchanged.
+The whole AppKit parity class passes: its Retina on-screen hatch, downsampled
+to 1×, measures 2.13/255 inside that test’s existing 3/255 band. Its other
+cases and length resize pass. UIKit remains unverified because
+simulator boot attempts failed, including the c1 continuation’s bounded attempt.
+The issue remains open for UIKit qualification.
+
+D7’s `local` remains deferred, including on virtualized lists. Repetition
+alone does not join independently painted row backgrounds or make a scroller’s
+background move with its content. The original issue remains open until its
+remaining scope is recorded against the ruling and native parity is verified.
 
 ## Verification
 

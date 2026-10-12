@@ -1,5 +1,6 @@
-// LLP 1116.005 D8 in a real browser: the form chrome a well-made web form has, as the shell's stylesheet
-// (index.html, both web targets) and the JS target's runtime (rt.js) draw it. focus-timer lost partly on its
+// LLP 1116.005 D8 in a real browser: the form chrome a well-made web form has, as a default build's stylesheet
+// (index.html and the neutral look's sheet after it, look.mjs; both web targets) and the JS target's runtime
+// (rt.js) draw it. focus-timer lost partly on its
 // form: a disabled Save that still drew the accent's fill under grey ink, no outline on the invalid field,
 // Enter that did not save. A disabled button looks disabled in each style and scheme whatever its accent,
 // and shows no hover or press; an authored colour on it still wins. A field marked `aria-invalid` is
@@ -13,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const WEB_JS = resolve(WEB, '../web-js');
@@ -29,7 +31,8 @@ const scheme = s => `<div style="color-scheme:${s};${ACCENT}" id="${s}">
   ${STYLES.map(look => button(`${s}-${look}-on`, look) + button(`${s}-${look}-off`, look, ' disabled')).join('')}
   ${button(`${s}-authored`, 'bordered-prominent', ' disabled', 'color:rgb(255, 0, 0);background-color:rgb(0, 0, 255)')}
   ${DESTRUCTIVE.map(look => button(`${s}-destructive-${look}`, look, ' data-destructive="true"')).join('')}
-  <span id="${s}-gray" style="color:GrayText"></span>
+  <span id="${s}-gray" style="color:var(--exact-gray-text);background-color:var(--exact-tertiary-fill)"></span>
+  <span id="${s}-red" style="color:var(--exact-system-red);background-color:var(--exact-secondary-background)"></span>
   <input data-native id="${s}-valid" value="25">
   <input data-native id="${s}-invalid" value="0" aria-invalid="true" aria-describedby="${s}-error"><span id="${s}-error">Enter a whole number from 1 to 60.</span>
   <input data-native id="${s}-false" value="25" aria-invalid="false">
@@ -38,7 +41,7 @@ const scheme = s => `<div style="color-scheme:${s};${ACCENT}" id="${s}">
   <input type="date" data-exact-field id="${s}-date" aria-invalid="true">
   <input data-native id="${s}-bordered" value="0" aria-invalid="true" style="border-color:rgb(0, 0, 255)">
 </div>`;
-const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">${scheme('light')}${scheme('dark')}
   <input data-native id="draft" value="25"><input data-native id="kept" value="5">
 </div>
@@ -104,24 +107,27 @@ async function inChrome(test) {
   }
 }
 
-const look = (evaluate, id) => evaluate(`(s => ({ background: s.backgroundColor, color: s.color }))(getComputedStyle(document.getElementById('${id}')))`);
+const look = (evaluate, id) => evaluate(`(s => ({ background: s.backgroundColor, color: s.color, wash: s.backgroundImage }))(getComputedStyle(document.getElementById('${id}')))`);
 const centre = (evaluate, id) => evaluate(`(r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('${id}').getBoundingClientRect())`);
-const NEUTRAL = { light: 'rgba(118, 118, 128, 0.12)', dark: 'rgba(118, 118, 128, 0.24)' }; // `bordered`'s fill, Apple's tertiary system fill
-const RED = { light: 'rgb(255, 56, 60)', dark: 'rgb(255, 66, 69)' }; // -exact-system-red, as iOS 27 measures it (LLP 1115.000 D3.2)
+// The look's own colours, read off the page where its sheet carries them as the role table's (neutral-look.test.mjs
+// holds the sheet to the table): the disabled ink (`GrayText`) on the disabled fill (`-exact-tertiary-fill`), and the
+// red (`-exact-system-red`) on the ground a card is (`-exact-secondary-background`).
+const roles = async (evaluate, s) => { const [gray, red] = [await look(evaluate, `${s}-gray`), await look(evaluate, `${s}-red`)]; return { gray: gray.color, fill: gray.background, red: red.color, card: red.background }; };
 
 check('a disabled button looks disabled in every style and scheme, whatever its accent; an authored colour wins', () => inChrome(async (evaluate, call) => {
   for (const s of ['light', 'dark']) {
-    const gray = (await look(evaluate, `${s}-gray`)).color;
+    const { gray, fill } = await roles(evaluate, s);
+    expect([s, gray, fill].includes('rgba(0, 0, 0, 0)')).toBe(false); // the sheet carries both
     for (const style of STYLES) {
       const [on, off] = [await look(evaluate, `${s}-${style}-on`), await look(evaluate, `${s}-${style}-off`)];
-      expect([s, style, off.color]).toEqual([s, style, gray]); // the browser's disabled ink, never the accent's
+      expect([s, style, off.color]).toEqual([s, style, gray]); // the look's disabled ink, never the accent's
       expect(off.color).not.toBe(on.color);
       // LLP 1116.007 D3.10: the unsaid button's ink is the label's (`ButtonText`, as iOS 27 draws `.gray()` and
       // `.bordered()`), never the accent's: a light system accent was 1.3:1 to 2.5:1 on its grey fill.
       if (style === 'gray' || style === 'bordered') expect([s, style, on.color]).toEqual([s, style, s === 'light' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)']);
       // Where the style fills with the accent, the neutral fill instead; a neutral or glass style keeps its own.
       if (['filled', 'bordered-prominent', 'tinted', 'bordered-tinted'].includes(style)) {
-        expect([s, style, off.background]).toEqual([s, style, NEUTRAL[s]]);
+        expect([s, style, off.background]).toEqual([s, style, fill]);
         expect(off.background).not.toBe(on.background);
       } else if (style === 'prominent-glass') expect(off.background).toBe((await look(evaluate, `${s}-glass-off`)).background);
       else expect([s, style, off.background]).toEqual([s, style, on.background]);
@@ -130,14 +136,16 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
     const save = await look(evaluate, `${s}-bordered-prominent-on`);
     expect(save.background).toBe(s === 'light' ? 'rgb(17, 111, 100)' : 'rgb(98, 213, 189)');
     // The author's own colour and fill on the disabled button still win.
-    expect(await look(evaluate, `${s}-authored`)).toEqual({ background: 'rgb(0, 0, 255)', color: 'rgb(255, 0, 0)' });
+    expect(await look(evaluate, `${s}-authored`)).toMatchObject({ background: 'rgb(0, 0, 255)', color: 'rgb(255, 0, 0)' });
   }
-  // No hover: the pointer over the disabled prominent button leaves its fill; over the enabled one it darkens.
+  // No hover: the pointer over the disabled prominent button leaves its face; over the enabled one it darkens
+  // (a wash of the button's ink over its fill, in this look).
   for (const [id, changes] of [['light-bordered-prominent-off', false], ['light-bordered-prominent-on', true]]) {
-    const before = (await look(evaluate, id)).background;
+    const before = await look(evaluate, id);
     const [x, y] = await centre(evaluate, id);
     await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-    expect([id, (await look(evaluate, id)).background !== before]).toEqual([id, changes]);
+    const over = await look(evaluate, id);
+    expect([id, over.background !== before.background || over.wash !== before.wash]).toEqual([id, changes]);
     await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
   }
   // No press: a pointer down on the disabled button marks nothing pressed (input-glue.js dims a pressed face).
@@ -150,6 +158,7 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
 // LLP 1116.008 D7: a destructive button passes `check` as the platform draws it (a control's label at 3:1 on its
 // own fill, over the card a row of buttons sits on), in every style and both schemes: team-kanban's Delete was
 // #ff383c at 2.7:1 on the grey fill over -exact-secondary-background, so its builder removed `destructive=true`.
+// The card is the look's own -exact-secondary-background.
 check('a destructive button reads at 3:1 on its own fill over a card, in every style and scheme', () => inChrome(async (evaluate) => {
   const contrast = (id, card) => evaluate(`(() => {
     const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true }), e = document.getElementById('${id}'), s = getComputedStyle(e);
@@ -158,7 +167,9 @@ check('a destructive button reads at 3:1 on its own fill over a card, in every s
     const bg = read(); x.clearRect(0, 0, 1, 1); x.fillStyle = s.color; x.fillRect(0, 0, 1, 1);
     const ink = read(), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
     const [hi, lo] = [lum(ink), lum(bg)].sort((a, b) => b - a); return (hi + .05) / (lo + .05); })()`);
-  for (const [s, card] of [['light', '#f2f2f7'], ['dark', '#1c1c1e']]) {
+  for (const s of ['light', 'dark']) {
+    const { card } = await roles(evaluate, s);
+    expect([s, /^rgb\(/.test(card)]).toEqual([s, true]); // an opaque ground, which the sheet carries
     for (const look of DESTRUCTIVE) expect([s, look, (await contrast(`${s}-destructive-${look}`, card)) >= 3]).toEqual([s, look, true]);
     // The red is still red: not the label's ink on a neutral fill.
     expect((await look(evaluate, `${s}-destructive-gray`)).color).not.toBe((await look(evaluate, `${s}-gray-on`)).color);
@@ -168,11 +179,11 @@ check('a destructive button reads at 3:1 on its own fill over a card, in every s
 check('a field marked aria-invalid is outlined in the system red, its focus ring red, in both schemes', () => inChrome(async (evaluate) => {
   const field = id => evaluate(`(e => { const s = getComputedStyle(e); return { border: s.borderTopColor, width: s.borderTopWidth, outline: s.outlineColor, style: s.outlineStyle, ring: s.outlineWidth }; })(document.getElementById('${id}'))`);
   for (const s of ['light', 'dark']) {
-    const valid = await field(`${s}-valid`);
-    for (const id of ['invalid', 'area', 'select', 'date']) expect([s, id, (await field(`${s}-${id}`)).border]).toEqual([s, id, RED[s]]);
+    const valid = await field(`${s}-valid`), { red } = await roles(evaluate, s);
+    for (const id of ['invalid', 'area', 'select', 'date']) expect([s, id, (await field(`${s}-${id}`)).border]).toEqual([s, id, red]);
     expect((await field(`${s}-invalid`)).width).toBe(valid.width); // the same line, only its colour
     expect((await field(`${s}-false`)).border).toBe(valid.border);
-    expect(valid.border).not.toBe(RED[s]);
+    expect(valid.border).not.toBe(red);
     expect((await field(`${s}-bordered`)).border).toBe('rgb(0, 0, 255)'); // an authored border wins
     // Focused, the ring is a 2 px red line where the valid field's is the browser's own (`auto`, which Firefox
     // and WebKit draw in their focus colour whatever `outline-color` says).
@@ -180,8 +191,8 @@ check('a field marked aria-invalid is outlined in the system red, its focus ring
     const ring = await field(`${s}-valid`);
     await evaluate(`document.getElementById('${s}-invalid').focus()`);
     const invalid = await field(`${s}-invalid`);
-    expect([s, invalid.outline, invalid.style, invalid.ring]).toEqual([s, RED[s], 'solid', '2px']);
-    expect([ring.outline, ring.style]).not.toEqual([RED[s], 'solid']);
+    expect([s, invalid.outline, invalid.style, invalid.ring]).toEqual([s, red, 'solid', '2px']);
+    expect([ring.outline, ring.style]).not.toEqual([red, 'solid']);
     // Its error text stays its description.
     expect(await evaluate(`document.getElementById('${s}-invalid').getAttribute('aria-describedby')`)).toBe(`${s}-error`);
   }

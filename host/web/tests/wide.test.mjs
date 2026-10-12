@@ -14,13 +14,14 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
 if (unavailable) console.warn(`SKIP: ${unavailable}`);
 const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
 
-const style = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0];
+const style = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0];
 const chevron = '<img data-symbol-source="symbol:forward-chevron" alt="" style="width:17px;height:17px">';
 const abs = 'position:absolute;inset:0;display:flex;flex-direction:column';
 // A route of rows (`rows` true: each row draws the disclosure), as the hosts write a `list` of `button`s; `inner` after it.
@@ -35,7 +36,7 @@ const tabs = (bar) => `<main id="nav" navigationKey="2" navigationBack="back" st
     ${bar}
   </main>`;
 const BAR = `<div role="tablist" id="bar" style="display:flex;flex-direction:row"><button role="tab" id="tab1" aria-controls="p1" aria-selected="true" data-button-style="bordered" data-native style="flex:1 1 0%"><img alt=""><span data-exact-text>People</span></button><button role="tab" id="tab2" aria-controls="p2" aria-selected="false" data-button-style="bordered" data-native style="flex:1 1 0%"><img alt=""><span data-exact-text>Saved</span></button></div>`;
-const page = (body) => style + `<div id="exact-root">${body}</div>
+const page = (body) => style + `<div id="exact-root">${body}</div><span id="secondary" style="position:absolute;color:var(--exact-secondary-label)"></span>
 <script type="module">
   import { navigation, unselected } from './navigation.js';
   const root = document.getElementById('exact-root');
@@ -113,18 +114,23 @@ check('an arrangement the app wrote stays its own on a wide window', async () =>
 
 check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
   // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is the
-  // platform's placeholder (LLP 1116.006 D2), one line in the secondary label's colour.
+  // platform's placeholder (LLP 1116.006 D2), one line in the secondary label's colour (the look's, which its sheet carries).
   await evaluate(`select('1')`);
+  const secondary = await evaluate(`getComputedStyle(document.getElementById('secondary')).color`);
+  expect(secondary).not.toBe(await evaluate(`getComputedStyle(document.body).color`));
   expect(await evaluate(`[document.getElementById('r1').getAttribute('data-exact-split'), box('r1'), getComputedStyle(document.querySelector('#r1 img')).display, shown('r1'), placeholder('p1')]`))
-    .toEqual(['list', [240, 0, 320, 800], 'none', true, ['"No Selection"', 320, 'rgba(60, 60, 67, 0.6)']]);
+    .toEqual(['list', [240, 0, 320, 800], 'none', true, ['"No Selection"', 320, secondary]]);
   // A row's press pushes its detail: both show, the list live and the row marked; the detail has no Back.
   await evaluate(`document.getElementById('r1-bo').click(); push('2', '/people/bo')`);
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off(), placeholder('p1')]`))
     .toEqual([true, true, [560, 0, 720, 800], 'detail', true, false, ['p2', 'r3'], null]);
-  // A sheet stays a sheet over both: the whole stack's width, the list and the detail inert beneath it.
+  // A sheet stays a sheet over both, the list and the detail inert beneath it. In a wide window the look draws it as a
+  // card (LLP 1115.000 D4.8): 560 wide, as tall as its content, in the window's middle.
   await evaluate(`push('3', '/people/bo/edit')`);
-  expect(await evaluate(`[box('r3'), document.getElementById('r3').hasAttribute('data-exact-split'), shown('r1'), shown('r2'), document.getElementById('r1').hasAttribute('data-exact-covered'), off()]`))
-    .toEqual([[240, 0, 1040, 800], false, false, false, true, ['p2', 'r1', 'r2']]);
+  const sheet = await evaluate(`box('r3')`);
+  expect([sheet[0], sheet[2], sheet[3] < 800, Math.abs(sheet[1] * 2 + sheet[3] - 800) <= 1]).toEqual([360, 560, true, true]);
+  expect(await evaluate(`[document.getElementById('r3').hasAttribute('data-exact-split'), shown('r1'), shown('r2'), document.getElementById('r1').hasAttribute('data-exact-covered'), off()]`))
+    .toEqual([false, false, false, true, ['p2', 'r1', 'r2']]);
   // A phone: the pushed stack, the list hidden and inert, the detail the whole width with Back; then wide again.
   await evaluate(`select('2')`);
   await size(390);
@@ -150,16 +156,19 @@ check('the author\'s placeholder in the root route takes the detail pane while n
   return inChrome(page(`<main id="nav" navigationKey="1" navigationBack="back" style="width:100%;height:100%;position:relative">${list('r1', 1, true, '', own)}${detail('r2', 2)}</main>`), async (evaluate, size) => {
     const hit = `(e => document.elementFromPoint(box(e)[0] + box(e)[2] / 2, box(e)[1] + box(e)[3] / 2)?.id)`;
     // Wide, nothing chosen: the author's box is the pane beside the list, its content centred and pressable; no host line.
+    // OWED (QUEUE.md, the neutral look): the pane starts at 319, not 320, and so ends a pixel short of the window. The
+    // shell places it at the list column's `100%`, and the neutral look draws that column's divider as a 1 px border
+    // where LLP 1116 D1's drew a shadow, so the column's own box is a pixel narrower. A detail is placed by the stack.
     expect(await evaluate(`[box('r1'), box('own'), shown('own'), Math.round(box('own-text')[0] + box('own-text')[2] / 2), ${hit}('own-add'), placeholder('nav'), document.getElementById('nav').hasAttribute('data-exact-split-empty')]`))
-      .toEqual([[0, 0, 320, 800], [320, 0, 960, 800], true, 800, 'own-add', null, false]);
+      .toEqual([[0, 0, 320, 800], [319, 0, 960, 800], true, 799, 'own-add', null, false]);
     // A narrower wide window: the pane follows.
     await size(1000);
-    expect(await evaluate(`box('own')`)).toEqual([320, 0, 680, 800]);
+    expect(await evaluate(`box('own')`)).toEqual([319, 0, 680, 800]);
     // A detail shown: the author's box is gone; back at the list, it returns.
     await evaluate(`document.getElementById('r1-bo').click(); push('2', '/people/bo')`);
     expect(await evaluate(`[box('own'), getComputedStyle(document.getElementById('own')).display, box('r2')]`)).toEqual([[0, 0, 0, 0], 'none', [320, 0, 680, 800]]);
     await evaluate(`push('1', '/')`);
-    expect(await evaluate(`box('own')`)).toEqual([320, 0, 680, 800]);
+    expect(await evaluate(`box('own')`)).toEqual([319, 0, 680, 800]);
     // A phone: the list alone, the author's box nowhere.
     await size(390);
     expect(await evaluate(`[box('r1'), getComputedStyle(document.getElementById('own')).display, placeholder('nav')]`)).toEqual([[0, 0, 390, 800], 'none', null]);

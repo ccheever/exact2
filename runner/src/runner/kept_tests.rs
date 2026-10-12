@@ -3,6 +3,8 @@ use super::*;
 
 #[path = "kept_identity_tests.rs"]
 mod identity;
+#[path = "kept_secrets_tests.rs"]
+mod secrets;
 use crate::{Answer, Outcome, Request, Store};
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, Plan, TypeKind, Value};

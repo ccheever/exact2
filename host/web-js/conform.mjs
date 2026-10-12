@@ -313,6 +313,9 @@ async function drive(t, report, fail, dir, ws, js) {
       catch (e) { return fail(`${other}-open`, e.message.split('\n')[0]); }
     }
     const linux = crossBrowser || t.urls ? null : linuxFor(t);
+    if (linux?.held) report.held.push({ target: t.name, cell: 'layout HELD', what: `linux layout: ${linux.held}` });
+    const heldFrom = linux && !linux.why ? LINUX_HELD_FROM[t.name] : null;
+    if (heldFrom) report.held.push({ target: t.name, cell: 'HELD', what: `linux from \`${heldFrom[0]}\`: ${heldFrom[1]}` });
     if (linux?.why) report.steps.push({ target: t.name, step: 'linux', skipped: linux.why });
     else if (linux) {
       // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
@@ -322,7 +325,7 @@ async function drive(t, report, fail, dir, ws, js) {
     // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).
     const onLinux = async (step, fn) => {
       if (!L) return;
-      const apart = LINUX_APART[t.name];
+      const apart = LINUX_APART[t.name] ?? heldFrom;
       if (apart && step === apart[0]) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${apart[1]}` }); await L.close?.().catch(() => {}); L = null; return; }
       try { await fn(L); } catch (e) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${e.message.split('\n')[0]}` }); await L.close?.().catch(() => {}); L = null; }
     };
@@ -690,12 +693,26 @@ const LINUX_APART = {
   'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
   textflow: ['drag orb-1 60 40 300', "a drag advances the scene's elapsed time on the Linux host and not on the page"],
 };
+// HELD: what the Linux reference does not compare since the web's default look became the neutral one (2026-10-12,
+// host/web/look.mjs), and nothing else is held for it. The kernel the Linux host lays out with still sizes LLP 1116
+// D1's controls, and a page draws the neutral look's, so in these `// linux: layout` plans the kernel's boxes are not
+// compared with the page's. Their state and tree still are, the wasm and JS pages still compare every box with each
+// other, and a held plan says so in the report and in a `HELD` line. Each entry says what differs and what takes it
+// out; QUEUE.md ("The web's neutral look") has both, and D17 ends the first.
+const LINUX_LAYOUT_HELD = {
+  'synthetic-spacing': "an unsaid checkbox and radio are the neutral look's 20 px on the page and 13 px in the kernel, and what follows them moves: LLP 1115.000 D17 gives the painted hosts the look's metrics",
+};
+// HELD for the same reason, in a plan whose drive the Linux host follows step by step: its comparison stops before the
+// step the two sizes send apart, as `LINUX_APART`'s do, and the run says so as the one above does. D17 ends it.
+const LINUX_HELD_FROM = {
+  'synthetic-intoview': ['tap far', "an unsaid button is the neutral look's 36 px on the page and 33 px in the kernel, which still sizes the old look's, so the list beneath is 3 px shorter on the page and a row centred in it is mounted a row apart"],
+};
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
 function linuxFor(t) {
   if (!linuxRef) return null;
   const why = t.contract && /^\/\/ linux: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1];
   if (why?.startsWith('state only')) return { stateOnly: true };
-  if (why === 'layout') return { layout: true };
+  if (why === 'layout') return LINUX_LAYOUT_HELD[t.name] ? { held: LINUX_LAYOUT_HELD[t.name] } : { layout: true };
   if (why) return { why: `not compared on Linux: ${why}` };
   const crate = linuxCrate(t.app);
   if (!crate) return { why: `not compared on Linux: ${t.app} has no Linux host` };
@@ -706,7 +723,7 @@ function linuxFor(t) {
 }
 
 // ---------------------------------------------------------------- the run
-const report = { at: new Date().toISOString(), targets: {}, steps: [], failures: [], known: [] };
+const report = { at: new Date().toISOString(), targets: {}, steps: [], failures: [], known: [], held: [] };
 let engineReady = true;
 if (crossBrowser) {
   try { await probePlaywrightBrowser(crossBrowser); }
@@ -809,7 +826,7 @@ const lines = [`# JS target ${crossBrowser ? `cross-browser conformance (Chrome 
 for (const t of targets) {
   const mine = report.steps.filter(x => x.target === t.name), s = mine.filter(x => x.differences != null && !x.reference), info = report.targets[t.name] ?? {};
   const lx = mine.filter(x => x.reference === 'linux'), lskip = mine.find(x => x.step === 'linux' || x.linux === 'stopped');
-  const lcell = lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`;
+  const lcell = (lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`) + (report.held.filter(h => h.target === t.name).map(h => `; ${h.cell}`).join(''));
   const testCell = info.tests ? crossBrowser ? `${info.tests.chrome} / ${info.tests[crossBrowser]}` : `${info.tests.wasm} / ${info.tests.js}` : '—';
   lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${testCell} |${crossBrowser ? ` ${(info.maxLayoutDelta ?? 0).toFixed(3)} px |` : ''}${linuxRef ? ` ${lcell} |` : ''}`);
 }
@@ -820,9 +837,16 @@ if (report.known.length) {
   for (const item of report.known) lines.push(`- **${item.target} / ${item.step} / ${item.field}** — ${item.what}; ${item.reason}`);
   lines.push('');
 }
+if (report.held.length) {
+  lines.push('## Held', '');
+  for (const item of report.held) lines.push(`- **${item.target}** — ${item.what}`);
+  lines.push('');
+}
 writeFileSync(resolve(out, 'report.md'), lines.join('\n'));
 console.log(lines.slice(0, targets.length + 4).join('\n'));
 console.log(`\n${report.failures.length} failures across ${targets.length} targets; ${resolve(out, 'report.md')}`);
+// A held comparison is said on every run, passing or not: it is a check this run did not make.
+for (const item of report.held) console.log(`HELD ${item.target} ${item.what}`);
 if (argv.includes('--strict') && report.failures.length) {
   for (const f of report.failures) {
     const what = f.what.replace(/\s+/g, ' ').trim();

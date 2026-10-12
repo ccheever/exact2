@@ -112,6 +112,11 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
  * the schema has no such material. */
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
 
+/* LLP 1066. Resolve length stops/repetition for a painted box. UTF-8 CSS in,
+ * JSON out; returns bytes needed, writing nothing when cap is too small. */
+size_t exact_gradient(const uint8_t *css, size_t len, float width, float height,
+                      uint8_t dark, uint8_t *out, size_t cap);
+
 /* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
  * (NaN is -exact-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
  * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */

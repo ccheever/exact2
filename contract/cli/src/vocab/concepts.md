@@ -709,3 +709,28 @@ component App
 - On iOS the stepper needs the field about 130 pt wide (`flex=1` in a row), else the field shows alone.
 - A test types the value (`type "qty" "5"`); `agent … layout qty` gives `native.stepper`'s
   `increment` point, and `tap qty at <x> <y>` presses it.
+
+
+## gradients: CSS backgrounds and masks
+names: background-image, mask-image, repeating-linear-gradient
+
+`background-image` takes `none` or up to four layers of `linear-gradient()`,
+`radial-gradient()`, `conic-gradient()` and `repeating-linear-gradient()`.
+`mask-image` takes one gradient. Each takes at most 64 colour stops.
+Linear/radial stops take percentages, px lengths, or unitless zero, with two
+positions allowed per colour. Omitted and mixed-unit stops are fixed up as
+CSS specifies once the box size is known. Conic stops take percentages or angles.
+Percentages outside 0–100%, negative radial lengths, other length units,
+`calc()`, colour hints, repeating radial/conic gradients, `url()`, `image-set()`
+and `cross-fade()` remain refused.
+
+```contract
+component Hatch
+  view
+    view width=320 height=200 background-color="#fcfcfc" background-image="repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"
+```
+
+The period is the distance between the first and last fixed-up stops, measured
+along the gradient line. `background-attachment` takes `scroll` or `fixed`;
+`local` remains deferred. Each row paints its own background, so a repeated
+hatch on separate rows does not establish one pattern across the list.

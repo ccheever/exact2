@@ -42,6 +42,7 @@ import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/ru
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks } from '../apple/build.mjs';
+import { DEFAULT_LOOK, LOOK } from './look.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
@@ -109,7 +110,9 @@ async function currentWebBuild() {
   if (!(producersOnly ? existsSync(plan) : await builtAppMatches(dist, app))) return false;
   try {
     const build = JSON.parse(readFileSync(graphPath, 'utf8'));
+    // A bake in this run's look (its receipt names one only where it is not the default: look.mjs), of these sources.
     return build.version === 1 && build.trust === 'development' && build.binary?.configuration?.flags?.EXACT_WEB_LINK === 'all'
+      && (build.binary.configuration.flags.EXACT_WEB_LOOK ?? DEFAULT_LOOK) === LOOK
       && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }

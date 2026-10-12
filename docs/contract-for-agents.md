@@ -994,6 +994,20 @@ a property's admitted value space; this does not add general union types.
 On a number-only row such as `opacity`, a computed branch known to be a string
 is refused at build time even when another branch is numeric.
 
+`background-image` takes up to four linear, radial, conic or repeating linear
+gradients; `mask-image` takes one. Stops take percentages, or px lengths for
+linear/radial gradients (unitless zero is allowed). For example,
+`background-image="repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"`.
+A repeating gradient’s px period stays fixed as a box resizes; mixed px/%
+and omitted stops use CSS fix-up after layout. A zero period paints its last
+stop, as Chrome does. `background-attachment="local"` is still
+refused: separate row backgrounds restart at each row, and repetition alone
+does not make a virtualized list’s background follow its content.
+`contract vocab background-image` gives the grammar and limits. AppKit’s captured
+hatch matches Chrome exactly; UIKit qualification is pending. On UIKit, repeating
+backgrounds share the existing drawn-gradient limitation for
+`background-attachment="fixed"` ([open issue](../issues/20261011-repeating-hatch-across-list-rows.md)).
+
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
 `each`, and one flow root per row. A vertical list needs `height`, `max-height`
