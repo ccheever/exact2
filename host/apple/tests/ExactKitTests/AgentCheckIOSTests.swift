@@ -1,6 +1,7 @@
 #if os(iOS)
 import XCTest
 @testable import ExactKit
+@testable import ExactGroupedLists
 import UIKit
 
 /// `check` on UIKit (LLP 1116.003 D8): the observations the driver judges —
@@ -342,6 +343,70 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertEqual(vis(3)?["y"] as? Double, 84, "the part below the bar's edge: \(items)")
         XCTAssertEqual(vis(3)?["h"] as? Double, 16)
         XCTAssertNil(vis(4), "below the bar it is whole: \(items)")
+    }
+
+    /// LLP 1116.009 D5 (round 11: book-club, expense-tracker, the grouped-form recipe's Quantity row, the dashboard
+    /// pattern's add sheet): a native field's box is its kernel box and no taller, and a text under it in the same
+    /// grouped row is not covered. A touch the row leaves to no control goes to the row's one field (the cell is the
+    /// field, LLP 1116.005 D2), a widening of the field's target and nothing drawn over the text; `check` read it as
+    /// the field covering "its middle". A text under a button of the row is still covered, and a finger's touch on the
+    /// text still reaches the field.
+    func testATextInAFieldsGroupedRowIsNotCoveredByTheFieldItsTouchFallsTo() throws {
+        ExactGroupedLists.install()
+        let session = ExactApp.shared.makeSession(label: "agent-check-cell-field")
+        self.session = session
+        let p = session.presenter
+        let host = try XCTUnwrap(p.groupedLists as? GroupedListHost)
+        host.model = { $0 == 1 ? GroupedListModel(style: "inset-grouped", sections: [.init(view: 2, header: nil, footer: nil, rows: [.init(view: 30, custom: true)])]) : nil }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 30, "kind": "view", "props": ["testId": "row"], "style": [:]],
+            ["op": "create", "id": 31, "kind": "input", "props": ["testId": "name", "placeholder": "Name"], "handlers": ["input"], "style": ["font_size": 17]],
+            ["op": "create", "id": 32, "kind": "text", "props": ["text": "Required"], "style": ["font_size": 13]],
+            ["op": "create", "id": 34, "kind": "text", "props": ["text": "Clear"], "style": ["font_size": 13]],
+            ["op": "create", "id": 33, "kind": "button", "props": ["testId": "clear"], "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 4, "ids": [30]],
+            ["op": "children", "id": 30, "ids": [31, 32, 34, 33]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 35.0, "w": 370.0, "h": 74.0],
+            ["op": "frame", "id": 31, "x": 16.0, "y": 15.0, "w": 260.0, "h": 22.0],
+            ["op": "frame", "id": 32, "x": 16.0, "y": 41.0, "w": 260.0, "h": 16.0],
+            ["op": "frame", "id": 34, "x": 300.0, "y": 20.0, "w": 54.0, "h": 16.0],
+            ["op": "frame", "id": 33, "x": 300.0, "y": 15.0, "w": 54.0, "h": 44.0],
+            ["op": "fieldContent", "id": 31, "rect": [0.0, 0.0, 260.0, 22.0], "cell": true],
+        ]))
+        host.lists[1]?.collection.layoutIfNeeded()
+        p.viewport.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let node = try XCTUnwrap(p.views[31]), message = try XCTUnwrap(p.views[32]), editor = try XCTUnwrap(node.field)
+        // The field is its kernel box and no taller: it draws nowhere near the message under it.
+        XCTAssertEqual(editor.frame, node.bounds)
+        XCTAssertEqual(node.bounds.size, CGSize(width: 260, height: 22))
+        let drawn = editor.convert(editor.bounds, to: nil), under = message.convert(message.bounds, to: nil)
+        XCTAssertFalse(drawn.intersects(under), "\(drawn) over \(under)")
+        XCTAssertGreaterThanOrEqual(under.minY - drawn.maxY, 4)
+        let middle = CGPoint(x: under.midX, y: under.midY)
+        XCTAssertTrue(window.hitTest(middle, with: nil) === editor, "a touch on the text reaches the field: it is the cell's")
+        let reply = Agent(session: session).check([:])
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]], "\(reply)")
+        func item(_ id: Int) -> [String: Any]? { items.first { $0["id"] as? Int == id } }
+        XCTAssertEqual(item(31)?["h"] as? Double, 22, "the field as observed is its kernel box: \(items)")
+        XCTAssertEqual(item(32)?["text"] as? String, "Required", "\(items)")
+        XCTAssertNil(item(32)?["cover"], "the text is not covered by the field its touch falls to: \(items)")
+        XCTAssertNil(item(31)?["cover"], "\(items)")
+        let over = try XCTUnwrap(item(34)?["cover"] as? [String: Any], "a text under the row's button is covered by it: \(items)")
+        XCTAssertEqual(over["by"] as? Int, 33)
+        XCTAssertTrue(window.hitTest(middle, with: nil) === editor, "the touch still falls to the field after the check")
     }
 }
 #endif

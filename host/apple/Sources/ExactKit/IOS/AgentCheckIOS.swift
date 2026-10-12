@@ -19,6 +19,12 @@ extension Agent {
         settleMotion()
         let vp = presenter.viewport
         guard let win = vp.window else { return ["error": "check: the app has no window yet"] }
+        // What lies over a view is what a finger at its middle lands on, not the cell's widening of its field's
+        // target: a touch a grouped row leaves to no control falls to the row's field, which covers nothing the
+        // row draws (LLP 1116.009 D5).
+        let falls = NodeView.touchFallsToCellField
+        NodeView.touchFallsToCellField = false
+        defer { NodeView.touchFallsToCellField = falls }
         let port = vp.convert(vp.bounds, to: nil).intersection(win.bounds)
         // While a sheet is up, it is what is presented; the screen under it is not.
         let scope: UIView = presenter.modals.coordinateView ?? win
