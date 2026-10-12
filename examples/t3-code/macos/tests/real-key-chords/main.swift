@@ -17,6 +17,9 @@ import XCTest
 // ShortcutHost's items, filed after the clone's augment as each plan batch files them, with the chords they take from
 // other items (`claim`). Compiled with every file in modules/apple (T3Module included); it runs NSApplication's own
 // event loop, so the app is active and its window key, as under real keys, where the session allows it (`screenLocked`).
+// A coverage guard, not a reproduction: SK-1's ⇧⌘F was lost before the app, so this passed on the modules from before
+// the task too (search-key-and-timeline-commit-title's record); it fails when a later module or menu change takes one
+// of these chords on the way.
 
 /// The reference's ⌘ chords (packages/shared/src/keybindings.ts DEFAULT_KEYBINDINGS; keybindingDefaults) whose
 /// `when` holds in an open thread with nothing focused or the composer focused, the composer's own send chords
@@ -71,7 +74,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         while let menu = menus.popLast() {
             for item in menu.items where !(item.target is ShortcutHost) {
                 if let sub = item.submenu { menus.append(sub) }
-                if !item.keyEquivalent.isEmpty, chords.contains(where: { $0.keyEquivalent == item.keyEquivalent.lowercased() && $0.mask == item.keyEquivalentModifierMask.intersection(chordMask) }) {
+                if !item.keyEquivalent.isEmpty, chords.contains(where: { Self.sameChord(item, key: $0.keyEquivalent, $0.mask) }) {
                     item.keyEquivalent = ""
                 }
             }
@@ -85,6 +88,14 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             item.allowsKeyEquivalentWhenHidden = true
             file.insertItem(item, at: index)
         }
+    }
+    /// ShortcutsMac.swift's `sameChord` and `same`, as they are: the item's key equivalent lowercased, its modifiers
+    /// against the command's. An uppercase equivalent is not read as ⇧ there (AppKit reads it so), so not here either:
+    /// a bar item with one would keep its chord beside a command's, which `testNoBarItemHasAnUppercaseKeyEquivalent`
+    /// rules out.
+    static func sameChord(_ item: NSMenuItem, key: String, _ mask: NSEvent.ModifierFlags) -> Bool {
+        !key.isEmpty && item.keyEquivalent.lowercased() == key.lowercased()
+            && item.keyEquivalentModifierMask.intersection(chordMask) == mask.intersection(chordMask)
     }
 }
 final class DevTarget: NSObject { @objc func reload(_ sender: Any?) {}; @objc func other(_ sender: Any?) {} }
@@ -262,6 +273,22 @@ final class RealKeyChordsTests: XCTestCase {
         checkEveryChord(focus: nil, label: "with nothing focused")
     }
 
+    /// AppKit reads an uppercase letter key equivalent as ⇧ with it; ShortcutHost.sync's claim compares it lowercased
+    /// with the item's own modifiers, so such an item in the clone's bar would keep a command's ⇧ chord beside the
+    /// command's item. None has one.
+    func testNoBarItemHasAnUppercaseKeyEquivalent() {
+        var menus = NSApp.mainMenu?.items.compactMap(\.submenu) ?? [], upper: [String] = [], chords = 0
+        while let menu = menus.popLast() {
+            for item in menu.items {
+                if let sub = item.submenu { menus.append(sub) }
+                if !item.keyEquivalent.isEmpty { chords += 1 }
+                if item.keyEquivalent.count == 1, item.keyEquivalent != item.keyEquivalent.lowercased() { upper.append("\(menu.title) › \(item.title) \(item.keyEquivalent)") }
+            }
+        }
+        XCTAssertGreaterThan(chords, referenceChords.count, "the host's, the clone's and the commands' items")
+        XCTAssertEqual(upper, [])
+    }
+
     func testCommandBIsTheRichTextComposersBold() {
         let f = fixture
         XCTAssertTrue(f.activate() || screenLocked)
@@ -293,7 +320,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             RealKeyChordsTests.shared?.destroy()
             let run = suite.testRun!
             print("Real key chords tests: \(run.executionCount) run, \(run.totalFailureCount) failed (\(screenLocked ? "screen locked: the app was not active, so no key window" : "the app active, its window key"))")
-            exit(run.executionCount == 3 && run.totalFailureCount == 0 ? 0 : 1)
+            exit(run.executionCount == suite.testCaseCount && run.totalFailureCount == 0 ? 0 : 1)
         }
     }
 }
