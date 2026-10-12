@@ -237,6 +237,9 @@ test('a padded percentage width past its parent is an overflow that names its ca
   const f = judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [padded] }, png);
   expect(f.map((x) => [x.kind, x.id, x.detail.past, x.detail.of, x.detail.pad, x.detail.written])).toEqual([['overflow', 4, 14, 3, 14, '100%']]);
   expect(f[0].hint).toContain('border-box');
+  // iOS is told no width (the kernel sized the box): the finding names the padding and the parent, and says no width.
+  const ios = judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 44, items: [{ id: 5, x: 0, y: 2, w: 54, h: 16, padded: { by: 3, dx: 14, pad: 14 } }] }, png, { host: 'ios' });
+  expect(ios.map((x) => [x.kind, x.detail.past, x.detail.of, x.detail.pad, x.detail.written, x.detail.unit])).toEqual([['overflow', 14, 3, 14, undefined, 'pt']]);
   // The viewport's own overflow is still there beside it, not instead: the cause is named first, once.
   expect(judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [{ ...padded, outX: 14 }] }, png)).toHaveLength(1);
 });
