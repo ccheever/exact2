@@ -1,9 +1,9 @@
 #if os(macOS)
 import AppKit
 
-/// The viewport: a click that reached it — on no node that takes the focus
-/// or a press — ends the editing, as a click on a page's blank ground blurs
-/// the field (LLP 1008 §9).
+/// The viewport: a click that reached it, on no node that takes the focus or
+/// a press, leaves the first responder where it is, as a click on a window's
+/// background does (LLP 1115.000 D7.1), and ends the reader's text selection.
 package final class PageScrollView: NSScrollView {
     private struct DocumentFit {
         let document: ObjectIdentifier
@@ -16,6 +16,27 @@ package final class PageScrollView: NSScrollView {
         let horizontal: Bool
         let autohides: Bool
     }
+    // One viewport tracking area sees overflowing descendants and exits even
+    // when no node's bounds contain the pointer. Nodes use the same hit test.
+    // It is the key window's, as AppKit's own hover is (LLP 1115.000 D7.9):
+    // a window behind another shows no hover, and `lostKey` ends what was
+    // hovered when this one stops being key.
+    var pointerTracking: ((NSEvent) -> Void)?
+    var lostKey: (() -> Void)?
+    private var keyObserver: NSObjectProtocol?
+    deinit { if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) } }
+    private var pointerArea: NSTrackingArea?
+    package override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if pointerArea == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+            addTrackingArea(area); pointerArea = area
+        }
+    }
+    package override func mouseEntered(with event: NSEvent) { pointerTracking?(event) }
+    package override func mouseMoved(with event: NSEvent) { pointerTracking?(event) }
+    package override func mouseExited(with event: NSEvent) { pointerTracking?(event) }
+
     private var documentFit: DocumentFit?
     private var prefittingDocument = false
     var permitsDocumentPrefit: (() -> Bool)?
@@ -73,18 +94,15 @@ package final class PageScrollView: NSScrollView {
         if size != document.frame.size { document.setFrameSize(size) }
     }
 
-    /// A click that reached the page blurs, as a click on nothing focusable
-    /// does on the web — unless a node under it just took the focus on the
-    /// way up (its `mouseDown`): the web focuses the nearest focusable
-    /// ancestor of what was clicked, a `tabindex` box's included (LLP 1088 D7.3).
-    /// The same click on the ground ends the reader's text selection.
+    /// A click that reached the page, on its empty ground: the field being
+    /// edited keeps its editor and its caret, as a click on a window's
+    /// background leaves them (LLP 1115.000 D7.1). It ends the reader's text
+    /// selection, unless a node under it took the focus on the way up (its
+    /// `mouseDown`: a `tabindex` box, LLP 1088 D7.3).
     var pressedGround: (() -> Void)?
     package override func mouseDown(with event: NSEvent) {
         let hit = window?.contentView?.hitTest(event.locationInWindow)
-        if let focused = window?.firstResponder as? NodeView, let hit, hit.isDescendant(of: focused) {} else {
-            window?.makeFirstResponder(nil)
-            pressedGround?()
-        }
+        if let focused = window?.firstResponder as? NodeView, let hit, hit.isDescendant(of: focused) {} else { pressedGround?() }
         super.mouseDown(with: event)
     }
     /// AppKit turns automatic titlebar insets back on when this view
@@ -93,6 +111,10 @@ package final class PageScrollView: NSScrollView {
     package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         pinInsets()
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = window.map { window in
+            NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.lostKey?() }
+        }
     }
     package override func tile() {
         super.tile()

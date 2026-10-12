@@ -188,6 +188,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.location_of(len), |n| n)
         }
 
+        /// Derive a declared protocol handler location from href, scheme and template.
+        #[no_mangle]
+        pub extern "C" fn exact_protocol_location_of(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.protocol_location_of(len), |n| n)
+        }
+
         /// Whether the input location names a declared route. @ref LLP 1038 §7
         #[no_mangle]
         pub extern "C" fn exact_route_matches(rt: u32, len: usize) -> u32 {
@@ -436,6 +442,39 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_gesture_constant(which: u32) -> f64 {
             $crate::abi::gesture_constant(which)
+        }
+
+        /// A route's header as its bar shows it (LLP 1115.001 D11): the
+        /// kernel's rule (`exact_kernel::bars`) over the host's own mirror
+        /// of the route, `count` words at `words`. Writes the answer to
+        /// `out` and returns its length; 0 for a route that is not
+        /// header-shaped, or an answer longer than `cap`. No runtime: the
+        /// rule reads only what it is handed.
+        ///
+        /// # Safety
+        /// `words` holds `count` words and `out` room for `cap`.
+        #[no_mangle]
+        pub unsafe extern "C" fn exact_header_shape(
+            words: *const u32, count: usize, flags: u32, out: *mut u32, cap: usize,
+        ) -> u32 {
+            if words.is_null() || out.is_null() {
+                return 0;
+            }
+            // SAFETY: the caller's buffers, as the contract above says.
+            let (words, out) = unsafe {
+                (::std::slice::from_raw_parts(words, count), ::std::slice::from_raw_parts_mut(out, cap))
+            };
+            $crate::abi::header_shape(words, flags, out)
+        }
+
+        /// What a route shows of the platform's bar (`exact_kernel::Bar`):
+        /// 0 its header, 1 the platform's Back alone, 2 nothing. `facts`:
+        /// bit 0 the route says `navigationBar="none"`, bit 1 its header is
+        /// the bar's, bit 2 it is pushed, bit 3 the platform's bar has a
+        /// Back button.
+        #[no_mangle]
+        pub extern "C" fn exact_route_bar(facts: u32) -> u32 {
+            $crate::abi::route_bar(facts)
         }
 
         /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
@@ -720,6 +759,25 @@ pub fn gesture_constant(which: u32) -> f64 {
         .get(which as usize)
         .copied()
         .unwrap_or(f64::NAN)
+}
+
+/// `exact_header_shape`: the kernel's header rule over a host's mirror of a
+/// route (`exact_kernel::bars::header_shape_words`), written to `out`; the
+/// answer's length, 0 for none or one that does not fit.
+pub fn header_shape(words: &[u32], flags: u32, out: &mut [u32]) -> u32 {
+    match exact_kernel::bars::header_shape_words(words, flags) {
+        Some(shape) if shape.len() <= out.len() => {
+            out[..shape.len()].copy_from_slice(&shape);
+            shape.len() as u32
+        }
+        _ => 0,
+    }
+}
+
+/// `exact_route_bar`: what a route shows of the platform's bar.
+pub fn route_bar(facts: u32) -> u32 {
+    let bit = |n: u32| facts & (1 << n) != 0;
+    exact_kernel::Bar::of(bit(0), bit(1), bit(2), bit(3)) as u32
 }
 
 /// The grouped list's export (LLP 1084 D4; LLP 1047.001 D3): beside `host!`,

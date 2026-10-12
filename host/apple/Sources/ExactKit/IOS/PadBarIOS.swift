@@ -43,11 +43,13 @@ extension NodeView {
     }
 
     /// Done: what Return does (the key its handlers hear, the commit, an
-    /// implicit submission), then the keyboard goes away, as its label says.
+    /// implicit submission, then the keyboard goes away unless the action
+    /// focused the field again, LLP 1115.000 D9.2). A Return a `key`
+    /// handler prevented does none of that, and Done still says done.
     @objc func padDone() {
         guard let f = field else { return }
         _ = textFieldShouldReturn(f)
-        if f.isFirstResponder { f.resignFirstResponder() }
+        if f.isFirstResponder, presenter?.focusAsked !== self { f.resignFirstResponder() }
     }
 }
 

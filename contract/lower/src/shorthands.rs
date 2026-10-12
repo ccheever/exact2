@@ -418,12 +418,8 @@ impl Lowerer<'_> {
             let value = component(&a.value, &a.name, index)?;
             let component = Attr { value, ..a.clone() };
             let (code, ty) = self.typed_code(&component.value, scope, locals)?;
-            values::check_style_value(&component, &[row], &ty, font)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: row as u16,
-                expr: code,
-            });
+            values::check_style_value(&component, &[row], &ty, font, scope, &self.types.shapes)?;
+            bindings.push(crate::style_row(row, code, a.written));
         }
         Ok(())
     }

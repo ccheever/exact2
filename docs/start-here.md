@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading; the rest is lookup, listed last.
+The only required reading; the rest is lookup.
 
 ## The idea
 
@@ -15,8 +15,7 @@ The only required reading; the rest is lookup, listed last.
    bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
    is the accent, on the root: any system colour (`accent-color="-exact-system-teal"`) or
    one `light-dark(light, dark)` pair, which controls, tabs, progress, links and
-   `exact:content` follow. Others are unsaid or roles, since a hex stays put in dark
-   mode. A card on a plain page is `-exact-secondary-background`, on a
+   `exact:content` follow. A card on a plain page is `-exact-secondary-background`, on a
    `-exact-grouped-background` page `-exact-secondary-grouped-background`; a surface
    inside a card is the tertiary role.
 4. **Design your content:** the screen's purpose gets a focal point (big type, a fill,
@@ -32,25 +31,26 @@ bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writ
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
-Start from the nearest pattern: it compiles and passes its tests.
+Start from the nearest pattern.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
-| `contract build app.contract --json` | `[]` or each diagnostic with its fix, after every edit; it rewrites the types `app.ts` imports. |
-| `test web`, `test ios` | Builds if stale, then runs `app.test.contract`. |
-| `agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"` | Drives the app as a person would; look at every screenshot. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
+| `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print warnings. |
+| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), `check`s the first screen and where each test ends light and dark at phone and desktop widths, relaunches once on real time: one report. A clean `verify` on the app's platform is done (`verify ios` for iPhone). |
+| `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app by hand, to see why something fails. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
-Edit and check on the web host (about a second a build); drive iOS at milestones,
-several checks a build: one in dark mode (`"prefer prefers-color-scheme dark"` first),
-one after a write. Drive by `testId`; keep scratch files in `.exact/` (any other new
-file is a source, and makes the build stale).
+Run `verify` after each edit, `verify ios` at milestones; look at its screenshots
+(`.exact/verify/`). Drive by `testId`; keep scratch files in `.exact/` (any other new
+file makes the build stale).
 
 ## One screen: the view, its data, its test
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests.
-`one-screen` holds the screen: a route whose `header` is the iOS navigation bar, over
-the `scroll` its `navigationScroll` names. This list takes the scroll's place:
+`one-screen` holds the screen: a route, its `header` the iOS navigation bar, over the
+`scroll` its `navigationScroll` names. A second screen is a route too (`contract vocab
+screen`), which gives the web Back and links and a wide window its split. This list
+takes the scroll's place:
 
 ```contract
 shape Item
@@ -62,7 +62,7 @@ shape Reply
   ok: bool
   error: string
 
-fn leftText(n: number): string = n == 1 ? "1 item left" : `${n} items left`
+fn leftText(n: number): string = `${n} ${n == 1 ? "item" : "items"} left`
 
 component Groceries
   state draft = ""
@@ -88,7 +88,7 @@ component Groceries
       section
         row gap=8 align-items="center"
           column flex=1 min-width=0 gap=4
-            input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
+            input value=draft input=edit submit=add placeholder="Add an item"
               aria-label="New item" enterkeyhint="done" testId="draft"
             when addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
@@ -171,26 +171,25 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 `clock data` lands replies the next `expect` reads; `clock settle` ends transitions;
-`reload` relaunches on the same storage. Every step, and the real-clock drive to end
-with: [tests](recipes/tests.md).
+`reload` relaunches on the same storage. Every step: [tests](recipes/tests.md).
 
 ## Pitfalls that cost the most
 
 1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`,
-   `height`) on a `button`, field or bar still makes it your box. Emphasis is a part
+   `height`) on a `button`, field or bar makes it your box. Emphasis is a part
    (`RoundButton`, `AnswerTile`, `SummaryCard`: `content-design`) or
    `buttonStyle="bordered-prominent"`.
-2. **`width="100%"` with padding overflows** (`content-box`, as in CSS). Drop the width;
+2. **`width="100%"` with padding overflows**, as in CSS. Drop the width;
    give a `flex=1` field `min-width=0`.
 3. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
    (or a search field, a `tablist`); anything else isn't in the iOS bar.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
-5. **Trusting green tests.** They pass on a layout that spills off the screen, and on
-   the virtual clock. Look at screenshots and drive each write once on the real clock.
+5. **A screen no test ends on** is one `verify` never checks or captures: end a test
+   there instead of driving it by hand.
 
 ## Look it up
 
-**A pattern** replaces the recipe beside it: read one or the other. A list, its pushed
+**A pattern** replaces the recipe beside it. A list, its pushed
 detail, a create sheet, a delete alert: `pattern list-detail` (in an app you
 have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
 `pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
@@ -203,6 +202,7 @@ have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a rin
 `web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
 **Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property,
-function or part; [contract-for-agents](contract-for-agents.md) and
+function, part or how-to (`screen`, `scroll`, `plural`, `modal`);
+[contract-for-agents](contract-for-agents.md) and
 [agent-pitfalls](agent-pitfalls.md) by section; [reference](reference.md) for the data
 module's globals and native hatches; `<exact2>/apps/shelf`, a whole app with tests.

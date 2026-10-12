@@ -14,6 +14,41 @@ v => {
     }
     out.push(s.slice(start)); return out;
   };
+  const springValid = ([stiffness, damping, mass]) => {
+    if (!(stiffness > 0 && damping >= 0 && mass > 0)) return false;
+    const alpha = damping / (2 * mass), omegaSquared = stiffness / mass;
+    const discriminant = alpha * alpha - omegaSquared;
+    if (![alpha, omegaSquared, discriminant].every(Number.isFinite)) return false;
+    for (const elapsed of [0, 1 / 240, 10]) for (const velocity of [3.4028234663852886e38, -3.4028234663852886e38]) {
+      const displacement = 3.4028234663852886e38;
+      const epsilon = omegaSquared * 1e-12, decay = Math.exp(-alpha * elapsed);
+      let x, speed;
+      if (discriminant < -epsilon) {
+        const omegaD = Math.sqrt(-discriminant), b = (velocity + alpha * displacement) / omegaD;
+        const cosine = Math.cos(omegaD * elapsed), sine = Math.sin(omegaD * elapsed);
+        if (Number.isFinite(b)) {
+          x = decay * (displacement * cosine + b * sine);
+          speed = decay * ((-alpha * displacement + b * omegaD) * cosine + (-alpha * b - displacement * omegaD) * sine);
+        } else {
+          const sineOverOmega = sine / omegaD;
+          x = decay * (displacement * cosine + velocity * sineOverOmega + alpha * displacement * sineOverOmega);
+          speed = decay * (velocity * cosine - alpha * velocity * sineOverOmega - omegaSquared * displacement * sineOverOmega);
+        }
+      } else if (Math.abs(discriminant) <= epsilon) {
+        const b = velocity + alpha * displacement;
+        x = decay * (displacement + b * elapsed);
+        speed = decay * (b - alpha * (displacement + b * elapsed));
+      } else {
+        const root = Math.sqrt(discriminant), r1 = -alpha + root, r2 = -alpha - root;
+        const c1 = (velocity - r2 * displacement) / (r1 - r2), c2 = displacement - c1;
+        const e1 = Math.exp(r1 * elapsed), e2 = Math.exp(r2 * elapsed);
+        x = c1 * e1 + c2 * e2;
+        speed = c1 * r1 * e1 + c2 * r2 * e2;
+      }
+      if (!Number.isFinite(x) || !Number.isFinite(speed)) return false;
+    }
+    return true;
+  };
   const easing = s => {
     if (["linear", "ease", "ease-in", "ease-out", "ease-in-out", "step-start", "step-end"].includes(s)) return 1;
     const open = s.indexOf("(");
@@ -53,7 +88,7 @@ v => {
     const n = args.map(number);
     if (!n.every(Number.isFinite)) return 0;
     if (name === "cubic-bezier") return +(n.length === 4 && n[0] >= 0 && n[0] <= 1 && n[2] >= 0 && n[2] <= 1);
-    if (name === "-exact-spring") return n.length === 0 || (n.length === 3 && n[0] > 0 && n[1] >= 0 && n[2] > 0) ? 2 : 0;
+    if (name === "-exact-spring") return n.length === 0 || (n.length === 3 && springValid(n)) ? 2 : 0;
     return 0;
   };
   const text = trim(String(v ?? ""));

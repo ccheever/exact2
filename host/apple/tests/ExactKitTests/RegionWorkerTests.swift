@@ -525,6 +525,47 @@ import CoreText
             } }
         }
     }
+
+    /// LLP 1115.000 D7.9: a request whose selection colour carries a colour
+    /// for the selected glyphs paints them in it, over the fill, as the
+    /// ordinary paragraph does on the Mac; with the fill alone the glyphs
+    /// keep their ink over it. What is not selected keeps its ink either way.
+    func testASelectionsOwnInkRepaintsItsGlyphs() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let profile = NativeProfile.capture(original: space, data: space.copyICCData(), account: NativeProfileAccount()).owner!
+        // A full block's middle is ink and nothing else. White ink, the first word selected.
+        let run = Run(text: "████ ████", size: 16, weight: 400, family: 0, italic: false, lineHeight: 26, letterSpacing: 0)
+        let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [255, 255, 255, 255], overflowWrap: 0, strut: run)
+        let source = RegionTextSource.capture(spec, engine: engine)
+        let ordinary = engine.paragraph(spec, width: 300), line = ordinary.lines[0]
+        func middle(_ index: Int) -> Int { Int((CTLineGetOffsetForStringIndex(line, index, nil) + CTLineGetOffsetForStringIndex(line, index + 1, nil)) / 2) }
+        let row = Int(ordinary.baselines[0].rounded()) - 5
+        let fill: [CGFloat] = [0.7, 0.84, 1, 1]
+        for (colour, selected) in [(fill, [255, 255, 255]), (fill + [0, 0, 0, 1], [0, 0, 0])] as [([CGFloat], [UInt8])] {
+            let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
+                rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 0, y: 0, width: 300, height: ordinary.height), selection: NSRange(location: 0, length: 4))],
+                scroll: .zero, size: CGSize(width: 320, height: 40), scale: 1,
+                profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue,
+                background: [0, 0, 0, 1], selectionColor: colour)
+            let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+            DispatchQueue(label: "region-selected-ink").async {
+                do {
+                    let layout = RegionWorkerLayout.shape(source, width: 300)
+                    let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
+                    box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
+                } catch { box.error = String(describing: error) }
+                done.signal()
+            }
+            done.wait()
+            XCTAssertEqual(box.error, "")
+            let pixels = try XCTUnwrap(box.raster?.image()?.dataProvider?.data as Data?)
+            func pixel(_ column: Int) -> [UInt8] { let at = (row * 320 + column) * 4; return Array(pixels[at..<at + 3]) }
+            XCTAssertEqual(pixel(middle(1)), selected, "a selected glyph, with \(colour.count) components")
+            XCTAssertEqual(pixel(middle(6)), [255, 255, 255], "a glyph outside the selection keeps its ink")
+            XCTAssertEqual(pixel(middle(4)), [0, 0, 0], "and the ground outside it its own")
+        }
+    }
 }
 // Glyph/layout objects are read only on their owning executor; only these
 // owned scalar arrays cross the semaphore handoff for the parity assertion.

@@ -245,6 +245,12 @@ try {
     assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
     rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
   });
+  // LLP 1115.000 D4.6: this plan has no strings table, so it names no language, and the running page keeps the one
+  // its build wrote from the manifest (the wasm runtime's `language` op used to clear it).
+  await run('the running page keeps the manifest\'s lang', async () => {
+    await fresh();
+    assert.deepEqual(await evaluate('[document.documentElement.lang, document.documentElement.dir]'), ['en', js ? '' : 'ltr']);
+  });
   await run('Back, Forward, replace and programmatic pop', async () => {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);
@@ -403,6 +409,29 @@ try {
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'accepted where it landed: no restoring go');
     assert.equal(back.logs.lines.filter(l => l.includes('history:')).length, 0, 'no Back refused');
   }, 'an in-document plan swap (exact.reload) is the wasm runner\'s; the JS target compiles one plan');
+  // LLP 1115.000 D4.3, on both targets: the handler-less plan is the JS target's own build, and the wasm page's swap.
+  await run('a link to a route and the browser\'s Forward with no navigate handler are the runner\'s own go', async () => {
+    if (js) { served = dir + '/no-navigate'; jsBuild('no-navigate.plan', served); }
+    try {
+      const n = await fresh();
+      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNavigate)}))`);
+      const boot = await evaluate('fixtureBoot'), own = js ? null : 'host go'; // the JS runtime journals no commit
+      await record('no-handler boot', '/', n, 1, 0);
+      await tap('link-post'); await until(`location.pathname==='/post/42'`);
+      const linked = await record('a link with no handler stays in this document', '/post/42', n + 1, 2, 0, own);
+      assert.equal(linked.calls.filter(c => c.name === 'pushState').length, 1, 'the link is one history entry');
+      // Back presses the route's Back control, as ever; Forward is the runner's own `go`, accepted where it landed.
+      await historyTap(-1); await until(`location.pathname==='/'`);
+      await record('Back after the link', '/', n + 1, 1, 1);
+      await historyTap(1); await until(`location.pathname==='/post/42'`);
+      const forward = await record('Forward without a handler', '/post/42', n + 1, 2, 1, own);
+      assert.deepEqual(forward.calls.filter(c => c.name === 'go').map(c => c.args[0]), [1], 'no restoring go');
+      assert.equal(String(forward.stamp.id), forward.navigation.route);
+      assert.equal(forward.navigatePresses, 0, 'no handler ran');
+      assert.equal(forward.logs.lines.filter(l => l.includes('history:')).length, 0, 'nothing refused');
+      assert.equal(await evaluate('fixtureBoot'), boot, 'one document throughout');
+    } finally { served = dist; }
+  });
   await run('navigate handler without a matching commit restores once', async () => {
     const n = await fresh(); await tap('push-post'); await historyTap(-1); await tap('refuse-link');
     await record('refused navigate prelude', '/', n + 1, 1, 1);

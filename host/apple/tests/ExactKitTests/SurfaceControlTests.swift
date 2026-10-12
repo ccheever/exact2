@@ -99,6 +99,7 @@ final class SurfaceControlTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
     func testR15PointerButtonReturnsSpaceToCanvasAndKeyboardKeepsFocus() {
+        keyboardNavigation(true) // Tab reaches the button below (LLP 1115.000 D7.2)
         let (s, canvas, button) = fixture(); defer { s.destroy() }
         button.props.removeValue(forKey:"action"); button.handlers.insert("press")
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
@@ -150,19 +151,25 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertTrue(controlEvents.contains { $0["code"] as? String == "KeyX" && $0["down"] as? Bool == true })
         withExtendedLifetime(window) {}
     }
-    func testDetachedKeyboardButtonReturnsEnterAndSpaceToOriginalCanvas() {
-        for (characters,keyCode): (String,UInt16) in [("\r",36),(" ",49)] {
+    /// Space presses the focused button (LLP 1115.000 D7.3), and the press
+    /// that removes it hands the keys back to its canvas; Return presses no
+    /// merely focused button, so it stays.
+    func testDetachedKeyboardButtonReturnsSpaceToOriginalCanvasAndReturnPressesNothing() {
+        for (characters,keyCode,presses): (String,UInt16,Bool) in [("\r",36,false),(" ",49,true)] {
             let (s, canvas, button) = fixture()
             button.props.removeValue(forKey:"action"); button.handlers.insert("press")
             let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
             window.contentView=s.presenter.viewport
             XCTAssertTrue(window.makeFirstResponder(button))
+            var pressed=0
             s.presenter.onPress = { _ in
+                pressed+=1
                 s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
             }
             let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:characters,charactersIgnoringModifiers:characters,isARepeat:false,keyCode:keyCode)!
             window.sendEvent(event)
-            XCTAssertTrue(window.firstResponder === canvas)
+            XCTAssertEqual(pressed,presses ? 1 : 0)
+            XCTAssertTrue(window.firstResponder === (presses ? canvas : button))
             s.destroy(); withExtendedLifetime(window) {}
         }
     }
@@ -179,8 +186,8 @@ final class SurfaceControlTests: XCTestCase {
                 s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
                 XCTAssertTrue(window.makeFirstResponder(explicit))
             }
-            let enter=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:36)!
-            window.sendEvent(enter)
+            let space=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:" ",charactersIgnoringModifiers:" ",isARepeat:false,keyCode:49)!
+            window.sendEvent(space)
             XCTAssertTrue(window.firstResponder === explicit)
             withExtendedLifetime((window,canvas)) {}
         }

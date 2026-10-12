@@ -297,7 +297,7 @@ component NativeFixture
   action askedMenu
     nav = push((top(nav).name == "sheet" ? nav : push(nav, "/sheet")), "/menu")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
-  // route pushed with the tablist hidden, and one with no header.
+  // route pushed with the tablist hidden, and one that asks for no bar.
   state subtitle = "Online"
   state titlePresses = 0
   action openChat
@@ -333,8 +333,13 @@ component NativeFixture
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             each e in t.stack key=e.id
-              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
-                // A route with no header has no bar (§9.10).
+              // Second names no scroller: its `scroll` right after the header
+              // is the bar's with nothing written (LLP 1115.000 D11.1), and
+              // its large title collapses with it. The others name theirs.
+              column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+                // Photo is a full-bleed viewer that draws its own Close: it
+                // says it has no bar (`navigationBar="none"`, LLP 1115.000
+                // D5.2). Menu, a sheet's first route, has nothing to go back to.
                 when e.name != "photo" and e.name != "menu"
                   header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
                     when e.name == "detail" or e.name == "rows" or e.name == "chat"
@@ -369,7 +374,7 @@ component NativeFixture
                         column width=32 height=32 border-radius="50%" background-color="#dcfce7" align-items="center" justify-content="center"
                           text "CD" font-size=13 color="#166534"
                         column
-                          text "Chat" aria-level=2 testId="title-chat" font-weight=700 font-size=17
+                          text "Chat" role="heading" aria-level=2 testId="title-chat" font-weight=700 font-size=17
                           when subtitle != "" and not muted
                             text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
                           when muted
@@ -379,7 +384,7 @@ component NativeFixture
                               image "symbol:sf/timer" width=12 height=12 object-fit="contain"
                               text "1w" font-size=12 color="#6b7280"
                     when e.name != "chat"
-                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") role="heading" aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                     // The heading the header holds directly: the first text
                     // after it is the bar's subtitle; a second is not shown
                     // on iOS, which the agent says (LLP 1116 D2).
@@ -420,6 +425,7 @@ component NativeFixture
                       button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
                         text "Note"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
+                        head description="Badge"
                     text ("composed " + toString(composed)) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
@@ -718,8 +724,10 @@ component HatchedRows
       column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
         button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
           text "Close"
-      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
+      list virtualized=true hatch="feed" width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
         each r in items key=r.n
           row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
             column hatch="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
             text ("Row " + toString(r.n))
+            button press=toggleReuse testId=`row-button-${r.n}`
+              text "Toggle"

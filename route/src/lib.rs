@@ -24,7 +24,9 @@ mod table;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-pub use location::{canonical, encode_uri_component, location_of, search_param};
+pub use location::{
+    canonical, encode_uri_component, location_of, protocol_location_of, search_param,
+};
 pub use router::{back, depth, go, open, params, push, replace, select, stack, top};
 pub use table::encode_route_segment;
 

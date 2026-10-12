@@ -3,7 +3,8 @@
 //! as the web's same-document link and Apple's `ExactSession.follow` do. A
 //! path naming one of the app's routes is a location for the navigation
 //! root's `navigate`; an `http`, `https`, `mailto` or `tel` target leaves
-//! the app, and with no browser here it is logged instead.
+//! the app: the host's shell opens it (LLP 1115.001 D5), and a host with no
+//! shell, which has no browser, logs it instead.
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
@@ -69,8 +70,8 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Follow `href` from `from`: a path naming a declared route navigates
-    /// the navigation root above `from`; anything the reader keeps leaves the
-    /// app, which this host has no browser to open.
+    /// the navigation root above `from`; anything else the reader keeps
+    /// leaves the app, where the host's shell can open it.
     pub(crate) fn follow(&mut self, from: ViewId, href: &str, now_ms: f64) {
         let Some(target) = crate::text::markup::target(href) else {
             self.host.log(format!(
@@ -106,6 +107,10 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(format!(
                 "link {target}: no navigation root takes `navigate` here"
             ));
+            return;
+        }
+        // The shell's browser, mail app or dialer.
+        if self.leave(target) {
             return;
         }
         // No browser, mail or phone app on the headless/DRM host.

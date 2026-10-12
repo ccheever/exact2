@@ -88,6 +88,77 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertEqual(try item(10)["x"] as? Double, 96, "b starts inside a: the driver finds them overlapping")
     }
 
+    /// LLP 1116.006 D5: a text stands on the nearest fill painted under it —
+    /// its own box's (a rounded bubble, whose corners show the page), a
+    /// bubble column's, the page's — in each scheme; and a row its scroller
+    /// cuts is presented only to the scroller's edge, so it overlaps nothing
+    /// past it (round 8's chat bubbles and contacts' rows).
+    func testATextStandsOnTheFillUnderItAndARowItsScrollerCutsEndsThere() throws {
+        let indigo: [[Double]] = [[88, 86, 214, 255], [142, 140, 240, 255]]
+        let ink: [[Double]] = [[0, 0, 0, 255], [255, 255, 255, 255]]
+        let round: [String: Any] = ["border_radius_top_left": 18, "border_radius_top_right": 18, "border_radius_bottom_right": 18, "border_radius_bottom_left": 18]
+        let white: [Double] = [255, 255, 255, 255]
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Text on the page"], "style": ["text_color": ink, "font_size": 17]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Own box"], "style": round.merging(["background_color": indigo, "text_color": white, "font_size": 17, "padding_left": 12, "padding_top": 8]) { x, _ in x }],
+            ["op": "create", "id": 4, "kind": "view", "style": round.merging(["background_color": indigo]) { x, _ in x }],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "In a bubble"], "style": ["text_color": white, "font_size": 17]],
+            ["op": "create", "id": 6, "kind": "text", "props": ["text": "Label on a light bubble"], "style": round.merging(["background_color": [233, 233, 235, 255], "text_color": ink, "font_size": 17, "padding_left": 12, "padding_top": 8]) { x, _ in x }],
+            ["op": "create", "id": 7, "kind": "view", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["press"]],
+            ["op": "create", "id": 9, "kind": "view", "handlers": ["press"]],
+            ["op": "create", "id": 10, "kind": "view", "handlers": ["press"], "props": ["testId": "row3"]],
+            ["op": "create", "id": 11, "kind": "view", "handlers": ["press"], "props": ["testId": "tab"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 6, 7, 11]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 7, "ids": [8, 9, 10]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 16.0, "y": 60.0, "w": 200.0, "h": 22.0],
+            ["op": "frame", "id": 3, "x": 16.0, "y": 100.0, "w": 120.0, "h": 38.0],
+            ["op": "frame", "id": 4, "x": 16.0, "y": 150.0, "w": 150.0, "h": 38.0],
+            ["op": "frame", "id": 5, "x": 12.0, "y": 8.0, "w": 120.0, "h": 22.0],
+            ["op": "frame", "id": 6, "x": 16.0, "y": 200.0, "w": 240.0, "h": 38.0],
+            ["op": "frame", "id": 7, "x": 0.0, "y": 400.0, "w": 400.0, "h": 100.0],
+            ["op": "content", "id": 7, "w": 400.0, "h": 132.0],
+            ["op": "frame", "id": 8, "x": 0.0, "y": 0.0, "w": 400.0, "h": 44.0],
+            ["op": "frame", "id": 9, "x": 0.0, "y": 44.0, "w": 400.0, "h": 44.0],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 88.0, "w": 400.0, "h": 44.0],
+            ["op": "frame", "id": 11, "x": 0.0, "y": 500.0, "w": 400.0, "h": 44.0],
+        ])
+        func observe() throws -> [Int: [String: Any]] {
+            let reply = agent.check([:])
+            let items = try XCTUnwrap(reply["items"] as? [[String: Any]], "\(reply)")
+            return Dictionary(items.compactMap { i in (i["id"] as? Int).map { ($0, i) } }) { a, _ in a }
+        }
+        func bg(_ item: [String: Any]?) -> [Double]? { item?["bg"] as? [Double] }
+        let light = try observe()
+        XCTAssertEqual(bg(light[2]), [255, 255, 255], "on the page, the platform's background: \(String(describing: light[2]))")
+        XCTAssertEqual(light[2]?["on"] as? String, "page")
+        XCTAssertEqual(bg(light[3]), [88, 86, 214], "its own box's fill, though the corners show the page: \(String(describing: light[3]))")
+        XCTAssertEqual(light[3]?["on"] as? String, "own")
+        XCTAssertEqual(bg(light[5]), [88, 86, 214], "the bubble's fill: \(String(describing: light[5]))")
+        XCTAssertEqual(light[5]?["on"] as? Int, 4)
+        XCTAssertEqual(bg(light[6]), [233, 233, 235])
+        // The row past its scroller's bottom is presented to that edge: it overlaps nothing below.
+        let row = try XCTUnwrap(light[10], "\(light)")
+        let vis = try XCTUnwrap(row["vis"] as? [String: Any], "the scroller cuts it: \(row)")
+        XCTAssertEqual(vis["y"] as? Double, 488)
+        XCTAssertEqual(vis["h"] as? Double, 12)
+        XCTAssertNil(row["cover"], "its scroller brings it in: \(row)")
+        XCTAssertNil(light[11]?["vis"], "the tab is whole")
+
+        window?.overrideUserInterfaceStyle = .dark
+        window?.layoutIfNeeded()
+        let dark = try observe()
+        XCTAssertEqual(bg(dark[2]), [0, 0, 0], "the dark page: \(String(describing: dark[2]))")
+        XCTAssertEqual(bg(dark[3]), [142, 140, 240], "\(String(describing: dark[3]))")
+        XCTAssertEqual(bg(dark[5]), [142, 140, 240])
+        XCTAssertEqual(bg(dark[6]), [233, 233, 235], "the fixed light bubble")
+        XCTAssertEqual((dark[6]?["fg"] as? [Double])?.prefix(3).map { $0 }, [255, 255, 255], "white ink on it, which the driver finds")
+    }
+
     /// A cover and the scroller that clears it (LLP 1116.003): Shelf's
     /// Discover drew two false findings. Left, a scroller at its start whose
     /// row lies past its bottom, under the tab bar the agent paints below it:

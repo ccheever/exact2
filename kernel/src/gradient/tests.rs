@@ -278,6 +278,7 @@ fn generated_patch_codec_round_trips_and_refuses_bad_wire_data() {
     assert!(!StyleId::BackgroundImage.affects_layout());
     let mut bad = Writer::new();
     bad.style_mask(StyleMask::of(StyleId::BackgroundImage));
+    bad.style_mask(StyleMask::EMPTY);
     bad.string("repeating-conic-gradient(#000, #fff)");
     assert_eq!(
         StyleProps::decode_patch(&mut Reader::new(bad.as_slice())),

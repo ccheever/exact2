@@ -3,13 +3,27 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
+ * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, or Cargo's for a build
+ * script's (`warning: <crate>@<version>: …`); its file from `cwd` when it is below it. */
+export function compilerWarnings(text, cwd = process.cwd()) {
+  const lines = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = /^(?:warning: [\w-]+@[^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
+    if (!m) continue;
+    const near = relative(cwd, m[1]);
+    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
+  }
+  return [...lines];
+}
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {
@@ -109,17 +123,27 @@ export async function closeWindowsBrowser(child, cdp, exited, profile, terminate
 /** Where a web drive's named scratch store lives (`--storage <name>`), kept between drives as a native one is (dash,
  * weather, kanban: a second drive opened an empty store): Chrome's profile for it, beside the native stores' cache
  * (agent-test.mjs `storeBase`), and the port its page is served on — an origin's storage is its host and port's, so
- * one name is one port, from its hash, below the ephemeral range. */
+ * one name is one port, from its hash, below the ephemeral range. A store is its app's: its id's and its directory's
+ * (LLP 1116.004 D8: a bake-off's contacts read an earlier round's `contacts.json`, written under the same default
+ * id and store name), so two apps of one id never open each other's. */
 /** The store a drive with `env` uses: the driver's environment under the drive's own, as `runTests` places and removes
- * it and a native host sees it (review b5-c 3). */
-export const driveStore = (appId, storage, env, platform = process.platform) => {
+ * it and a native host sees it (review b5-c 3). `app` is resolveApp's: its `id` and `dir`. */
+export const driveStore = (app, storage, env, platform = process.platform) => {
   const launched = { ...process.env, ...(env ?? {}) };
-  return webStore(appId, storage, launched, launched.HOME || homedir(), platform);
+  return webStore(app, storage, launched, launched.HOME || homedir(), platform);
 };
-export function webStore(appId, storage, env = process.env, home = homedir(), platform = process.platform) {
+/** An app directory's twelve hex digits, which name its development stores: a drive's profiles here, and the
+ * page's own storage in a development web build (host/web-js/build.mjs `DEVELOPMENT_STORE`). `dir` is canonical
+ * (resolveApp's, through symlinks), so one app has one digest however it was reached. */
+export const appDigest = dir => createHash('sha256').update(dir).digest('hex').slice(0, 12);
+/** A host file as a development web build ships it for the app at `dir`: its `DEVELOPMENT_STORE` names the app's
+ * own store (storage-environment.js, rt.js `Kept`). A release ships the file as written, null: the id alone. */
+export const developmentStore = (code, dir) => code.replaceAll('const DEVELOPMENT_STORE = null;', `const DEVELOPMENT_STORE = ${JSON.stringify(appDigest(dir))};`);
+export function webStore({ id, dir }, storage, env = process.env, home = homedir(), platform = process.platform) {
+  if (!id || !dir) throw new Error('webStore: an app\'s id and directory name its store');
   const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
-  const base = resolve(cache, 'exact', appId, 'agent-web');
-  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${appId}/${storage}`).digest().readUInt32BE(0) % 28000 };
+  const digest = appDigest(dir), base = resolve(cache, 'exact', id, `agent-web-${digest}`);
+  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${id}/${digest}/${storage}`).digest().readUInt32BE(0) % 28000 };
 }
 
 /** One browser lookup for the agent and its tests: an explicit override,
@@ -153,6 +177,9 @@ export function parseFlags(argv) {
     else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
     else if (argv[i] === '--url') flags.url = argv[++i];
     else if (argv[i] === '--device') flags.device = true;
+    // Android: the app on the Canvas reader (its APK), not the Linux host headless. Said as the variable
+    // `agent-android.mjs` reads, as `--sim` is said as EXACT_SIM: the driver's own file is at its line cap.
+    else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
@@ -249,7 +276,8 @@ export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}
   if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date, Unix milliseconds at or after 1970, or now');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
-  if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
+  // Below 2^32, as every host draws it (LLP 1116.005 D5): refused, not wrapped.
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
   // Refuse malformed drive input before starting a process on any host.
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
@@ -694,6 +722,22 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
     return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked "Leave site?", answered "Stay"', delivery: 'browser-window', native: 'Page.close' };
   } finally { clearTimeout(timer); cdp.listeners.splice(cdp.listeners.indexOf(listener), 1); }
 }
+
+/** The agent's `back` on the web (LLP 1116.006 D4), the carrier's half: an open modal `dialog` or `role="alertdialog"`
+ * popover takes the Escape a person presses, a real key the browser makes the dialog's close request (`closedby="none"`
+ * keeps it open, as a `cancel` handler that prevents it does). `escape` presses it (CDP's, or Playwright's keyboard).
+ * Null with none open: the page's agent then takes the browser's Back from the selected route (navigation.js `back`). */
+export async function backLayer(req, { evaluate, escape, frame }) {
+  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { error: 'tap back takes no other input fields' };
+  const open = `document.querySelectorAll('dialog:modal, [role="alertdialog"]:popover-open').length`, before = await evaluate(open);
+  if (!before) return null;
+  await escape();
+  await frame();
+  return { back: 'dialog', delivery: 'platform', ...(await evaluate(open) >= before ? { refused: 'the dialog stayed open: its closedby is "none", or a `cancel` handler prevented the close' } : {}) };
+}
+
+/** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
+export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
 
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through

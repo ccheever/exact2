@@ -442,6 +442,16 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
+    /// `tap {back:true}` (LLP 1116.006 D4): the platform's Back as a person
+    /// takes it — an open confirmation's cancel (a keyboard's Escape, a tap
+    /// outside), else a pushed route's Back button, else the top sheet's
+    /// swipe down. The system's button is no node, so no tap reaches it.
+    func back() -> [String: Any] {
+        if let cancelled = presenter.menus.agentCancel() { return backReply(("dialog", cancelled ? "" : "the alert is still moving: `clock settle` first")) }
+        if let refused = presenter.navigation.agentBack() { return backReply(("route", refused)) }
+        return backReply(presenter.modals.agentDismiss().map { ("sheet", $0) })
+    }
+
     func tap(_ req: [String: Any]) -> [String: Any] {
         // A header node the app's navigation bar leaves out is not there to
         // tap, whatever the agent's chrome paints (LLP 1116 D2).
@@ -718,7 +728,13 @@ extension Agent {
             // A native button's control stands for its node (LLP 1069.011 D4);
             // any other enabled control, or a text editor, takes the touch itself.
             if let button = cur as? NativeButtonIOS, let owner = button.owner { node = owner; break }
-            if (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true, let n = Agent.enclosing(cur).first { return .control(n) }
+            // tvOS has no editable text view (`isEditable` is unavailable there).
+            #if os(tvOS)
+            let takes = (cur as? UIControl)?.isEnabled == true
+            #else
+            let takes = (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true
+            #endif
+            if takes, let n = Agent.enclosing(cur).first { return .control(n) }
             at = cur.superview
         }
         guard let node, !node.inert else { return .nothing }

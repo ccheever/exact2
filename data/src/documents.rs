@@ -139,9 +139,9 @@ pub enum Resolved {
 }
 
 /// Resolve a `doc:` path to its retained directory and relative name, refusing a handle
-/// never minted (or forgotten), a name that is not the handle's, and any
+/// not owned by `owner` (or forgotten), a name that is not the handle's, and any
 /// `.`, `..` or empty segment.
-pub fn resolve(path: &str) -> Result<Resolved, String> {
+pub fn resolve(path: &str, owner: u64) -> Result<Resolved, String> {
     let rest = path
         .strip_prefix(PREFIX)
         .ok_or_else(|| format!("{path} is not a document path"))?;
@@ -162,9 +162,13 @@ pub fn resolve(path: &str) -> Result<Resolved, String> {
         ));
     }
     let t = table();
-    let entry = t.get(n - 1).and_then(Option::as_ref).ok_or_else(|| {
-        format!("{path}: no such document (it was never opened, or its window closed)")
-    })?;
+    let entry = t
+        .get(n - 1)
+        .and_then(Option::as_ref)
+        .filter(|entry| entry.owner == owner)
+        .ok_or_else(|| {
+            format!("{path}: no such document (it was never opened, or its window closed)")
+        })?;
     let Some((first, beneath)) = segments.split_first() else {
         return Ok(Resolved::Root(entry.name.clone()));
     };
@@ -187,6 +191,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_document_handle_belongs_to_its_minting_session() {
+        let folder = std::env::temp_dir().join(format!("exact-docs-owner-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let doc = mint(&folder, 7101).unwrap();
+        assert!(matches!(resolve(&doc, 7101), Ok(Resolved::Real { .. })));
+        assert!(resolve(&doc, 7102)
+            .unwrap_err()
+            .contains("no such document"));
+        let root = format!("doc:/{}", doc[PREFIX.len()..].split('/').next().unwrap());
+        assert!(matches!(resolve(&root, 7101), Ok(Resolved::Root(_))));
+        assert!(resolve(&root, 7102).is_err());
+        forget(7102);
+        assert!(resolve(&doc, 7101).is_ok());
+        forget(7101);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
     fn a_minted_path_resolves_beneath_its_handle_and_nowhere_else() {
         let folder =
             std::env::temp_dir().join(format!("exact-docs-test-{}/notes", std::process::id()));
@@ -194,21 +216,25 @@ mod tests {
         let doc = mint(&folder, 7001).unwrap();
         assert!(doc.starts_with("doc:/") && doc.ends_with("/notes"), "{doc}");
         assert_eq!(mint(&folder, 7001).unwrap(), doc, "minting again reuses it");
-        let Resolved::Real { directory, path } = resolve(&format!("{doc}/a/b.md")).unwrap() else {
+        let Resolved::Real { directory, path } = resolve(&format!("{doc}/a/b.md"), 7001).unwrap()
+        else {
             panic!()
         };
         assert!(directory.metadata().unwrap().is_dir());
         assert_eq!(path, "a/b.md");
         let n = doc.trim_start_matches(PREFIX).split('/').next().unwrap();
         assert!(
-            matches!(resolve(&format!("doc:/{n}")).unwrap(), Resolved::Root(name) if name == "notes")
+            matches!(resolve(&format!("doc:/{n}"), 7001).unwrap(), Resolved::Root(name) if name == "notes")
         );
-        assert!(resolve(&format!("{doc}/../x")).is_err());
-        assert!(resolve(&format!("doc:/{n}/other/x")).is_err());
-        assert!(resolve("doc:/0/x").is_err());
-        assert!(resolve("app:/data/x").is_err());
+        assert!(resolve(&format!("{doc}/../x"), 7001).is_err());
+        assert!(resolve(&format!("doc:/{n}/other/x"), 7001).is_err());
+        assert!(resolve("doc:/0/x", 7001).is_err());
+        assert!(resolve("app:/data/x", 7001).is_err());
         forget(7001);
-        assert!(resolve(&doc).is_err(), "a forgotten handle reads nothing");
+        assert!(
+            resolve(&doc, 7001).is_err(),
+            "a forgotten handle reads nothing"
+        );
         assert!(mint(Path::new("/"), 7001).is_none());
         std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
     }
@@ -226,7 +252,7 @@ mod tests {
         symlink(&target, &link).unwrap();
         let doc = open_route(link.to_str().unwrap(), 7002).unwrap();
         assert!(doc.ends_with("/outside/note.md"), "{doc}");
-        let Resolved::Real { directory, path } = resolve(&doc).unwrap() else {
+        let Resolved::Real { directory, path } = resolve(&doc, 7002).unwrap() else {
             panic!()
         };
         assert_eq!(path, "note.md");
@@ -250,13 +276,13 @@ mod tests {
         assert_eq!(mint(&chosen, 7003).unwrap(), new);
         let Resolved::Real {
             directory: old_dir, ..
-        } = resolve(&old).unwrap()
+        } = resolve(&old, 7003).unwrap()
         else {
             panic!()
         };
         let Resolved::Real {
             directory: new_dir, ..
-        } = resolve(&new).unwrap()
+        } = resolve(&new, 7003).unwrap()
         else {
             panic!()
         };

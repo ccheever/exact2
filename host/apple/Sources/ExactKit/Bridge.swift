@@ -453,6 +453,13 @@ package final class Runtime {
             return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    func protocolLocation(of href: String, protocol name: String, template: String) -> String? {
+        return on(busy: nil) {
+            let n = write(href + "\0" + name + "\0" + template)
+            let len = exact_protocol_location_of(rt, n)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
     /// Whether `location` names one of the app's declared routes (LLP 1038 §7).
     func routeMatches(_ location: String) -> Bool {
         return on(busy: false) { exact_route_matches(rt, write(location)) != 0 }

@@ -43,14 +43,14 @@ impl Session {
     /// A storage session under `grants`: the app's directories where the
     /// host configured them, and always the documents the person chose
     /// (`doc:`, LLP 1069.010 D1), which need none, as a Rust source's do.
-    pub fn open(grants: &str, wait: Duration) -> Result<Self, String> {
+    pub fn open(grants: &str, wait: Duration, owner: u64) -> Result<Self, String> {
         let grants = GrantSet::parse(grants).map_err(|e| e.to_string())?;
         let context = Context::new(grants);
         context
             .set_sqlite_provider(Arc::new(ibex2_sqlite::SqliteProvider))
             .map_err(|e| e.to_string())?;
         context
-            .set_documents(Arc::new(documents))
+            .set_documents(Arc::new(move |path| documents(path, owner)))
             .map_err(|e| e.to_string())?;
         // Only where there is a codec: elsewhere ibex2 refuses the call as
         // unsupported before reading the source (LLP 1069.002 A1.3).
@@ -180,9 +180,9 @@ pub(crate) fn refusal(live: bool, reaches: bool, agent: bool) -> Result<Option<S
 
 /// The documents a host minted ([`exact_data::documents`]), as ibex2's
 /// table: the one a Rust source's storage requests resolve through.
-fn documents(path: &str) -> Result<Document, String> {
+fn documents(path: &str, owner: u64) -> Result<Document, String> {
     use exact_data::documents::{resolve, Resolved};
-    Ok(match resolve(path)? {
+    Ok(match resolve(path, owner)? {
         Resolved::Root(name) => Document::Root(name),
         Resolved::Real { directory, path } => Document::Real { directory, path },
     })

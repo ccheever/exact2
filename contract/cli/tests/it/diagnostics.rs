@@ -1376,14 +1376,14 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
 #[test]
 fn deep_views_are_refused_without_aborting_the_compiler() {
     let app = App::new("view-depth");
-    for depth in [256, 400, 800] {
+    for depth in [255, 256, 257, 400, 800] {
         let mut source = String::from("component App\n  view\n");
         for level in 0..depth {
             source.push_str(&format!("{}column\n", " ".repeat(4 + level * 2)));
         }
         let path = app.write("app.contract", &source);
         let output = app.run(&[path.to_str().unwrap(), "--json", "-o", "out.plan"]);
-        if depth == 256 {
+        if depth <= 256 {
             assert!(output.status.success(), "{output:?}");
         } else {
             let errors = diagnostics(&output, 1);

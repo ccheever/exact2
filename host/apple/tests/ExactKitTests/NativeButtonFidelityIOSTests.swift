@@ -90,14 +90,21 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         f.rows.button["control_size"] = .string("large")
         // The kernel resolved 1em against the already scaled large control font.
         f.rows.title["font_size"] = .number(Double(expected.pointSize))
-        f.rows.title["font_size_resolved"] = .number(1)
         let actual = UIButton(configuration: .filled()); surface.addSubview(actual)
         ButtonConfigurationIOS.apply(f, to: actual, traits: surface.traitCollection, accent: nil)
         XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize, expected.pointSize, accuracy: 0.01)
+        // LLP 1115.000 D12.1: an authored absolute size is the author's
+        // number at every Dynamic Type size, as it is on a `text` or a field,
+        // where the button had scaled it through `UIFontMetrics` (13 to 30
+        // at this size). The symbol and the subtitle likewise.
+        XCTAssertGreaterThan(UIFontMetrics(forTextStyle: .body).scaledValue(for: 13, compatibleWith: surface.traitCollection), 20, "this size scales")
         f.rows.title = ["font_size": .number(13)]
+        f.rows.symbol = ["font_size": .number(31), "font_weight": .number(700)]
+        f.symbol = "lock"
         ButtonConfigurationIOS.apply(f, to: actual, traits: surface.traitCollection, accent: nil)
-        XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize,
-            UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 13), compatibleWith: surface.traitCollection).pointSize, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize, 13, accuracy: 0.01, "the author's 13, not Dynamic Type's")
+        XCTAssertEqual(actual.configuration?.preferredSymbolConfigurationForImage,
+                       UIImage.SymbolConfiguration(font: UIFont.systemFont(ofSize: 31, weight: .bold)), "its symbol's 31 likewise")
     }
     func testNonuniformResolvedCornersReportAStandIn() throws {
         var f = ButtonFace(); f.title = "Corners"
@@ -219,7 +226,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         XCTAssertEqual(b.titleLabel?.font.pointSize ?? 0, 23, accuracy: 0.01)
         XCTAssertEqual(b.configuration?.image?.renderingMode, .alwaysOriginal)
         let symbol = try XCTUnwrap(b.configuration?.preferredSymbolConfigurationForImage)
-        XCTAssertEqual(symbol, UIImage.SymbolConfiguration(font: UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont.systemFont(ofSize: 31, weight: .bold))))
+        XCTAssertEqual(symbol, UIImage.SymbolConfiguration(font: UIFont.systemFont(ofSize: 31, weight: .bold)))
         f.rows.title = ["font_weight": .number(700)]
         let reference = UIButton(configuration: .filled()); reference.configuration?.title = "Title"
         ButtonConfigurationIOS.apply(f, to: b, traits: b.traitCollection, accent: nil)
@@ -395,7 +402,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
                 var output = input
                 if let font = input.uiKit.font {
                     output.uiKit.font = small
-                        ? UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont.systemFont(ofSize: 13, weight: .semibold))
+                        ? UIFont.systemFont(ofSize: 13, weight: .semibold)
                         : UIFont.systemFont(ofSize: font.pointSize, weight: .semibold)
                 }
                 return output
@@ -417,7 +424,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         c.imagePadding = standardSpacing()
         c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont)
         if name == "control-tile" {
-            c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 28, weight: .semibold)))
+            c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: .systemFont(ofSize: 28, weight: .semibold))
         }
         if name == "control-tile" || name == "disabled-authored" { c.image = c.image?.withTintColor(UIColor(red: 0, green: 128.0 / 255, blue: 0, alpha: 1), renderingMode: .alwaysOriginal) }
         button.configuration = c

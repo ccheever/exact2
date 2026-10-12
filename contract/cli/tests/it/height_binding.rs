@@ -64,13 +64,13 @@ fn release_requires_two_numeric_trailing_parameters_and_string_idref() {
             "height: string, velocity: number",
             "snap",
             "\"sheet\"",
-            "handler-type",
+            "type-handler-payload",
         ),
         (
             "height: number, velocity: bool",
             "snap",
             "\"sheet\"",
-            "handler-type",
+            "type-handler-payload",
         ),
         ("height: number, velocity: number", "snap", "3", "attr-type"),
         (
@@ -103,7 +103,10 @@ fn child_action_props_are_rechecked_after_inlining() {
         if ty == "number" {
             result.unwrap();
         } else {
-            assert!(result.unwrap_err().to_string().contains("handler-type"));
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("type-handler-payload"));
         }
     }
 }

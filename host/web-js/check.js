@@ -4,7 +4,8 @@
 // ancestor's clip cuts it, a control and who sized it, what lies over its
 // middle at rest, a filled box's fill and edge, and how far a view runs past
 // the viewport's sides. Read from the page, never a second model; the
-// background a text stands on is the driver's, from the pixels.
+// background a text stands on is the nearest fill painted under it (LLP
+// 1116.006 D5), else the driver's, from the pixels.
 const CONTROL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="menuitem"], [data-exact-on~="press"]';
 // A user agent's own control at its own size (WCAG 2.5.8's exception), unless the author sized it.
 const AGENT_SIZED = 'input[type="checkbox"], input[type="radio"], input[type="range"], input[type="color"], input[type="date"], input[type="time"], input[type="datetime-local"], select, progress';
@@ -35,6 +36,69 @@ export function observe(views, inactive = () => false) {
     && (!el.checkVisibility || el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
     && !el.closest('[inert], [data-exiting]') && (!modal || modal.contains(el)) && !inactive(el);
   const opacity = (el) => { let o = 1; for (let e = el; e && e !== document.documentElement; e = e.parentElement) o *= Number(getComputedStyle(e).opacity); return o; };
+  // What paints that a computed colour does not say: a picture, a native widget, a gradient.
+  const opaque = (e, s) => /^(img|svg|canvas|video|iframe|picture|object|embed)$/.test(e.localName) || s.backgroundImage !== 'none'
+    || (/^(button|input|select|textarea|progress|meter)$/.test(e.localName) && (s.appearance ?? s.webkitAppearance ?? 'none') !== 'none');
+  const paints = (e) => { const s = getComputedStyle(e); return opaque(e, s) || (s.backgroundClip !== 'text' && !!rgba(s.backgroundColor)); };
+  // LLP 1116.006 D5: what a text stands on, at its ink's middle: the nearest painted fill — its own box's, a bubble's, a
+  // card's, the page's — composited over what lies below where it is translucent, and whose it is (the page's: null).
+  // Unknown where something the styles do not say paints there (a picture, a native widget, a box laid between that is not
+  // its ancestor): the capture's pixels answer then.
+  let canvasColor;
+  const backing = (el, at) => {
+    const cx = at.left + at.width / 2, cy = at.top + at.height / 2, chain = [];
+    for (let e = el; e; e = e.parentElement) chain.push(e);
+    const alpha = []; // each box's opacity times its ancestors'
+    for (let i = chain.length - 1, o = 1; i >= 0; i--) alpha[i] = o *= Number(getComputedStyle(chain[i]).opacity);
+    const layers = [];
+    let by, top = null;
+    for (let i = 0; i < chain.length; i++) {
+      const e = chain[i], s = getComputedStyle(e), canvas = e === document.documentElement || e === document.body;
+      if (!canvas) { const r = e.getBoundingClientRect(); if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) continue; }
+      if (opaque(e, s)) return null;
+      const c = s.backgroundClip === 'text' ? null : rgba(s.backgroundColor);
+      if (!c) continue;
+      c[3] *= alpha[i];
+      if (!layers.length) by = canvas ? null : viewOf(e);
+      layers.push(c);
+      if (c[3] >= 0.999) { top = e; break; }
+    }
+    // Below every box, the canvas: the root's used `Canvas` colour where neither the root nor the body paints one.
+    if (!top) {
+      if (canvasColor === undefined) {
+        const p = document.createElement('span'); p.style.backgroundColor = 'Canvas'; document.documentElement.append(p);
+        canvasColor = rgba(getComputedStyle(p).backgroundColor); p.remove();
+      }
+      if (!canvasColor || canvasColor[3] < 0.999) return null;
+      if (!layers.length) by = null;
+      layers.push(canvasColor); top = document.documentElement;
+    }
+    // A box painted between the text and that fill, not one of its ancestors: an image under a title, a stacked sibling.
+    const stack = document.elementsFromPoint(Math.min(Math.max(cx, 0), W - 1), Math.min(Math.max(cy, 0), H - 1)), from = stack.indexOf(el);
+    if (from >= 0) for (const e of stack.slice(from + 1)) {
+      if (e === top) break;
+      if (!e.contains(el) && !el.contains(e) && paints(e)) return null;
+    }
+    let bg = layers.pop().slice(0, 3);
+    while (layers.length) bg = mix(layers.pop(), bg);
+    return { bg: bg.map((v) => Math.round(v)), by };
+  };
+  const mix = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3]));
+  // The part of box `b` (el's) that is presented: each ancestor that clips or scrolls its overflow cuts it at its padding
+  // box, up to a fixed box, which escapes them (LLP 1116.006 D5: a row its list cuts overlaps nothing past the list).
+  const visible = (el, b) => {
+    let l = b.left, t = b.top, r = b.right, btm = b.bottom;
+    for (let e = el; e && e !== document.documentElement; e = e.parentElement) {
+      const s = getComputedStyle(e);
+      if (e !== el) {
+        const a = e.getBoundingClientRect(), x0 = a.left + e.clientLeft, y0 = a.top + e.clientTop;
+        if (s.overflowX !== 'visible') { l = Math.max(l, x0); r = Math.min(r, x0 + e.clientWidth); }
+        if (s.overflowY !== 'visible') { t = Math.max(t, y0); btm = Math.min(btm, y0 + e.clientHeight); }
+      }
+      if (s.position === 'fixed') break;
+    }
+    return { x: r2(l), y: r2(t), w: r2(Math.max(0, r - l)), h: r2(Math.max(0, btm - t)) };
+  };
   const fixed = (el, upTo) => { for (let e = el; e && e !== upTo; e = e.parentElement) if (/^(fixed|sticky)$/.test(getComputedStyle(e).position)) return true; return false; };
   const scrolls = (e) => /^(auto|scroll)$/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1;
   const page = document.scrollingElement;
@@ -86,6 +150,8 @@ export function observe(views, inactive = () => false) {
       // one authored on a host-drawn control (a tab bar's item) is the platform's, as UIKit's own labels are.
       for (let e = el.parentElement, k = 0; e && k < 3; e = e.parentElement, k++) if (e.matches(CONTROL)) {
         item.of = viewOf(e);
+        // A disabled control's label is an inactive component's text, which WCAG 1.4.3 does not judge.
+        if (e.matches(':disabled') || e.getAttribute('aria-disabled') === 'true') item.inactive = true;
         if (rgba(getComputedStyle(e).backgroundColor)) item.label = true;
         let inked = false;
         for (let a = el; a && !inked; a = a === e ? null : a.parentElement) inked = !!authored(a, 'color');
@@ -107,6 +173,8 @@ export function observe(views, inactive = () => false) {
           if (dx > 1 || dy > 1) item.over = [r2(Math.max(0, dx)), r2(Math.max(0, dy))];
         }
       }
+      const under = backing(el, ink);
+      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; }
       // An ancestor that clips (never one that scrolls: a person scrolls to it) cutting part of the text away.
       // One that hides it all is a collapsed disclosure, on purpose.
       for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {
@@ -154,12 +222,29 @@ export function observe(views, inactive = () => false) {
         if (border || cs.boxShadow !== 'none' || (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0)) item.edge = true;
       }
     }
+    if (item.text || item.control) {
+      const v = visible(el, b);
+      if (Math.abs(v.x - item.x) > 0.5 || Math.abs(v.y - item.y) > 0.5 || Math.abs(v.w - item.w) > 0.5 || Math.abs(v.h - item.h) > 0.5) item.vis = v;
+    }
     if (item.text || item.control || item.fill || item.outX) items.push(item);
+  }
+  // LLP 1116.004 D1.3: a phone's layout at a desktop width, as advice (never a finding): a root tab bar stretched along
+  // the window's bottom, and a stack the projection did not split whose root route's list pushed the detail shown. A
+  // list at the root may push or not (a settings list's steppers): nothing says, so nothing is advised.
+  const advice = [];
+  if (W >= 900) for (const nav of document.querySelectorAll('#exact-root [navigationBack]')) {
+    const bar = [...nav.querySelectorAll('[role="tablist"]')].find((l) => l.parentElement?.closest('[navigationKey]') === nav && l.querySelector(':scope > [role="tab"][aria-controls]'));
+    const bb = bar?.getBoundingClientRect();
+    if (bb && !nav.hasAttribute('data-exact-sidebar') && bb.width >= W * 0.75 && bb.bottom >= H - 2 && bb.height * 4 < bb.width) advice.push({ kind: 'tabbar', id: viewOf(bar), w: r2(bb.width) });
+    const key = nav.getAttribute('navigationKey'), top = [...nav.querySelectorAll('[navigationKey]')].find((r) => r !== nav && r.getAttribute('navigationKey') === key && r.parentElement.closest('[navigationKey]') === nav);
+    const first = top && [...top.parentElement.children].find((r) => r.hasAttribute('navigationKey'));
+    if (!first || first === top || first.hasAttribute('data-exact-split') || first.getAttribute('navigationSplit') === 'none' || /^(modal|fullscreen)$/.test(top.getAttribute('navigationPresentation') ?? '')) continue;
+    if (first.querySelector('[role="list"] :is(button, a[href])')) advice.push({ kind: 'push', id: viewOf(top) });
   }
   // The scheme the page draws in: a light-dark() probe in the root, whatever the system says.
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
   const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
   const coarse = matchMedia('(pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
-  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items };
+  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }

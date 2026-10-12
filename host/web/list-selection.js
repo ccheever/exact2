@@ -28,6 +28,16 @@ globalThis.exact.installListSelection = function ({ root, lists, index, text }) 
       return true;
     });
   }
+  // A text the reader cannot select (`user-select: none` on it or above) is
+  // no part of the selection: the runner leaves it out of the copy, and it
+  // still counts toward a row's paragraph ordinals.
+  function selectable(el) {
+    for (let p = el; p && p !== root; p = p.parentElement) {
+      const value = getComputedStyle(p).userSelect;
+      if (value !== 'auto') return value !== 'none';
+    }
+    return true;
+  }
   function position(node, offset) {
     const p = element(node)?.closest(paragraphSelector), row = p?.closest(rowSelector), list = owner(row);
     if (!p || !row || !list) return null;
@@ -67,7 +77,7 @@ globalThis.exact.installListSelection = function ({ root, lists, index, text }) 
       for (const [i, p] of paragraphs(row).entries()) {
         const at = { row: ordinal, paragraph: i, offset: 0 };
         const end = { ...at, offset: p.textContent.length };
-        if (!all && (compare(end, lo) < 0 || compare(at, hi) > 0)) continue;
+        if (!all && (compare(end, lo) < 0 || compare(at, hi) > 0) || !selectable(p)) continue;
         const startOffset = !all && ordinal === lo.row && i === lo.paragraph ? lo.offset : 0;
         const endOffset = !all && ordinal === hi.row && i === hi.paragraph ? hi.offset : end.offset;
         if (endOffset <= startOffset) continue;

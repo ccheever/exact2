@@ -37,6 +37,13 @@ The generator fails closed: a row it cannot validate is a build error. A second
 copy of any table anywhere is a defect — the TypeScript encoder, when it exists,
 reads the same file.
 
+Non-inherited effect rows marked `cold` in the schema share their initial
+values until written (`kernel/build/cold.rs`). A cloned style copies the
+shared pointer; a later write owns its copy. Layout and inherited rows stay
+inline. This reduces temporary style-patch memory in terminal animations;
+row values, masks, patch/clear behavior and encoded bytes are unchanged.
+The schema metadata changes its digest, so producers and hosts re-bake together.
+
 > **Amended by LLP 1115 (2026-10-09).** `rules/RULES.md` §Scope now reads "write the
 > web, ship the platform". **Layout defaults and names are still CSS's**, as every
 > example in the paragraph below is. A **presentation default** (a colour, a text
@@ -50,7 +57,11 @@ reads the same file.
 > - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
 >   against that root, and a `role="heading"` is lowered to one by its level;
 > - `hr` is one solid edge in the separator role, not Chrome's two shades;
-> - an `href` run is `LinkText` and is not underlined;
+> - an `href` run is `LinkText` and is not underlined, and so is a block `link` of
+>   text (LLP 1115.000 D3.5);
+> - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled
+>   is its text's colour and follows the scheme; a gradient stop's, a flood's and a
+>   light's initial colours stay SVG's (LLP 1115.000 D3.8);
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
 > - a custom pressable that declares no press feedback dims while held on iOS.
@@ -105,6 +116,10 @@ intrinsic seam. Its height supplies `min-height: auto` in native layout, so
 siblings reserve the control's space; explicit CSS `min-height` still wins.
 This is a declared native presentation deviation: the browser keeps authored
 HTML/ARIA/CSS. No aspect ratio is inferred, and ending projection clears the size.
+Its width is the narrowest the control can be and supplies `min-width: auto`
+in place of the hidden tabs' own minimum (LLP 1116.004 D2): UIKit's segmented
+control and tab bar report none (1 point), AppKit's segmented control its
+natural width; an explicit CSS `min-width` still wins.
 
 `justify-content`, `align-content`, `align-items` and `justify-items` accept
 and default to `normal` (2026-09-23). It lowers to Taffy's unset alignment,
@@ -289,12 +304,13 @@ Reversal follows the offset; release/cancellation restores the authored values
 through their transitions. Its subtree does not take pointer hits, including at
 zero opacity. It has no CSS equivalent and creates no host artwork
 or runner gesture state. Other hosts ignore it.
-`keyboardDismissMode` (`none`, `on-drag`, `interactive`; absent means `none`)
-opts an iOS scroll container into UIKit's keyboard dismissal behavior. Other
-hosts retain their platform behavior. Linux does not yet implement either policy.
-
-> **LLP 1115.000 D9 proposes** that an unsaid `keyboardDismissMode` be `interactive` on iOS.
-> Until that is accepted, absent is still none.
+`keyboardDismissMode` (`none`, `on-drag`, `interactive`) says how a drag on an
+iOS scroll container puts the keyboard away, as UIKit's property of that name
+does. Absent, it is the platform's (LLP 1115.000 D9.1): on iOS a container that
+scrolls vertically is `interactive`, so the keyboard follows a drag that reaches
+it, and one that scrolls only sideways is `none`. A written value wins, `none`
+included. The prop has no default row, so a host tells "unsaid" by its absence.
+Other hosts retain their platform behavior. Linux does not yet implement either policy.
 
 `scrollbar-width` (bit 88; Messages, 2026-09-09) follows
 [CSS Scrollbars](https://www.w3.org/TR/css-scrollbars-1/#scrollbar-width):
@@ -901,7 +917,10 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**), `ClearStyle` (a mask), `SetChildren`, `AttachRoot`. There is no
+patch**: the mask of the rows it sets, the mask of those its author wrote, then
+each set row's value; the second mask since 2026-10-11, LLP 1115.000 D2, and a
+row marked written and not set is a typed rejection), `ClearStyle` (a mask),
+`SetChildren`, `AttachRoot`. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays
@@ -966,6 +985,11 @@ in a vector. Adjacent duplicates collapse before sorting; publication removes
 remaining duplicates, destroyed generations and newly created nodes, in slot
 order. The retained vector releases excess scratch capacity. The same-batch
 reuse case is held by `tests/apply.rs::touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations`.
+The history stores adjacent, consecutive keys with the same generation as ranges
+when that takes less space; short or sparse lists stay raw. It preserves every
+key's order and generation and every receipt field. `Kernel::receipts()` decodes
+owned receipts on demand; live commits still return ordinary receipts directly.
+The ring's 64-batch retention and reset behavior are unchanged (`kernel/history.rs`).
 `compute_layout(root, offer)` runs Taffy over that root, publishes absolute frames,
 and returns a `LayoutReceipt` naming exactly the nodes whose frame bits changed —
 the changed-geometry receipt.

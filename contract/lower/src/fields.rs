@@ -136,12 +136,15 @@ impl Lowerer<'_> {
                 });
             }
         }
-        if !native || (explicit.is_none() && !rows.is_empty()) {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::Appearance as u16,
-                expr: self.fixed(true, "none"),
-            });
+        // A field that is never native whose author wrote `appearance="none"`
+        // already has that row, and it is the author's (LLP 1115.000 D2): an
+        // implied one after it would win and take the bit off.
+        let said = !native
+            && appearance
+                .is_some_and(|a| a.written && matches!(&a.value, Expr::Str(v, _) if v == "none"));
+        if (!native && !said) || (native && explicit.is_none() && !rows.is_empty()) {
+            let none = self.fixed(true, "none");
+            bindings.push(crate::style_row(StyleId::Appearance, none, crate::IMPLIED));
         }
         Ok(())
     }

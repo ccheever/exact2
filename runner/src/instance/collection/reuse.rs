@@ -312,7 +312,7 @@ impl Collection {
                 slots.borrow_mut().insert(i as u32, value);
             }
         }
-        row.slots = slots;
+        row.slots = Some(slots);
         row.key = self.keys[position].clone();
         row.dup = self.dups.get(&position).copied().unwrap_or(0);
         if row.dup > 0 {

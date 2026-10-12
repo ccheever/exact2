@@ -365,7 +365,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "epoch" ( STRING | NUMBER | "now" ) NL (* "2026-09-21T12:00:00Z", Unix ms, or now *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
-              | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
+              | "seed" NUMBER NL                     (* 0 through 2^32 - 1 *)
               | "before" "data" NL                   (* the first step does not wait for data *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
@@ -386,7 +386,10 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "reload" NL
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
               | "pass" "fetch" STRING NL             (* it stops failing *)
+              | "request" METHOD STRING [ json ] [ "as" ( IDENT | STRING ) ] NL
+                                                     (* the driver writes through the app's server *)
               | "close" NL                           (* the window's close button *)
+              | "back" NL                            (* the platform's Back *)
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
@@ -396,6 +399,10 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "expect" "mediasession" ( IDENT "==" ( STRING | "none" )
                   | ( "has" | "missing" ) STRING ) NL ;
 test-value    = [ "-" ] NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
+METHOD        = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" ;
+json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict JSON: quoted keys, no *)
+              | "[" [ json { "," json } ] "]"                         (* trailing comma; brackets may *)
+              | STRING | [ "-" ] NUMBER | "true" | "false" | "null" ; (* span lines *)
 ```
 
 Targets are driver test ids. Each test is a session of its own, opened with its
@@ -423,7 +430,19 @@ replaces it. A file's line applies to every test that does not arm the same
 prefix itself. A counted fault that matched no fetch by the test's end (or
 before it is armed again) fails the test at the line that armed it, and
 `reload` relaunches with the table as it is then. A stream (`exactStream`, a
-WebSocket) is not matched. `tap "id" drag to "other" [at x y]` ends on the other
+WebSocket) is not matched. `request POST "/polls/1/votes" {"option": 2} as bob`
+(LLP 1116.006 D8) is the driver, not the app, writing through the app's server as
+another person: a method, a path in quotes under the server URL app.ts calls (its
+first local one, `http://127.0.0.1:8787`; or a whole `http://` URL), an optional JSON
+body (sent as `content-type: application/json`), and `as <persona>`, sent as
+`Authorization: Bearer <persona>` (the `rest` pattern's tokens are `ada` and `grace`;
+`as "token-grace"` for a token that is not one word). A status outside 200 through
+299, or no answer, fails the step naming the status and the body's start. The app
+shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
+`clock data` before the `expect` (a failed `expect` before the clock moved says so).
+`verify` and `api-test` run the server on an empty database; `test` uses the one
+running. `fail fetch` does not reach a `request`: the driver sends it, not the app.
+`tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
@@ -457,6 +476,16 @@ test goes on to the app's own "Save changes?" (on the web the browser's "Leave
 site?", answered "Stay"). A window that closes, by `close` or by a press the app
 answers with `close()`, takes the session with it, and a step after it fails
 naming the line. macOS and the web; iOS and Linux close no window and refuse it.
+`back` is the platform's Back, as a person takes it, from what is on top: an
+open dialog's cancel (a modal `dialog` or `role="alertdialog"` popover: Escape
+on the web and macOS, the alert's Cancel on iOS), else the top sheet dismissed
+(a `navigationPresentation="modal"` route: iOS's swipe down), else the pushed
+route popped (iOS's Back button, the browser's Back, ⌘[ on macOS, Alt+Left on
+Linux). A route goes back as those do: its Back control pressed, else the root's
+`navigate` with the location beneath, else the router's own `back`. One the app
+refuses (a disabled Back control, `closedby="none"`) is a note, and the test
+goes on; with nothing to go back from the step fails. It names no target: `tap`
+the app's own control to press it.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`, on a radio `true`. A target out of view is scrolled into view first.
@@ -726,7 +755,8 @@ argument is the URL), `heading` (`"1"` to `"6"`), `bullet`, `ordered`, `task`,
 `toggleTask`, `quote`, `codeblock`, `footnote`, `figure` (the argument is the
 media `src`), `indent`, `outdent` and `newline`; another name, or a missing
 argument, changes nothing. A toolbar button takes `retainFocus=true`, so a press
-leaves the editor focused and its selection where it was.
+leaves the editor focused and its selection where it was (on the Mac a click on any
+button does; the attribute is what says it for the web and iOS).
 
 The editor's `select` hands its action a `MarkdownSelection` when the selection
 or the source changes: `formats`, space-separated (the inline command names,
@@ -892,6 +922,9 @@ canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="no
 
 A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
 and in a browser on one it comes on the button's down, after its `pointerdown`.
+A Control-click there is a secondary click too: where a `contextmenu` or
+`contextPopover` answers it, it holds the primary button and Control, and
+nothing presses.
 On macOS, the unmodified `ContextMenu` key opens it at the focused node's
 visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
 A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
@@ -1086,6 +1119,13 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   is in the Tab order), or with a `tabindex`. It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
   first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
+  On the Mac a click on a `button`, or on a box that is only pressable, leaves
+  the focus where it is, as a click on an AppKit button does: a field beside
+  it keeps its caret, and its pending `change` is committed before the `press`
+  runs. A click on empty ground moves no focus either. An element with a
+  `tabindex`, a `button` included, or a box that is no button and has `focus`,
+  `blur` or `key` handlers, still takes a click's focus there, and `focus(id)`
+  moves it to any of them.
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
@@ -1243,6 +1283,22 @@ an `href` (the web's `<a>`, which `disabled` does not touch). Tab and Shift-Tab 
 and wrap on the web, macOS, iPadOS's hardware keyboard and Linux; tvOS's remote skips a
 negative value and keeps UIKit's geometric order.
 
+On the Mac which elements are stops by kind follows the person's Keyboard navigation
+setting (System Settings ▸ Keyboard), as in every Mac app. Off, the default, Tab moves
+between text fields and what takes keys of its own (a box that is no button with
+`focus`, `blur` or `key` handlers, a canvas that takes input): a `button`, a pressable
+box and a radio group are passed over. On, Tab reaches every control. A `tabindex` you
+write wins either way: `0` or more is always a stop, a negative one never. A button that
+`focus(id)` or `autofocus` reached while it is no stop still goes on to the next stop
+with Tab, and back to the one before with Shift-Tab. Under the agent the setting is the
+drive's, off unless it says `prefer keyboard-navigation true` (`state.focus.keyboardNavigation`
+reads it); a `type <id> key Tab` after that walks every control.
+
+A new Mac window puts the caret in its first stop, as AppKit does: with Keyboard
+navigation off the first text field, and with no stop nothing. An `autofocus` you wrote
+elsewhere wins, and a window whose first stop is in a `canvas` that takes input opens
+with nothing focused. The web and iOS focus nothing on load unless `autofocus` says so.
+
 ## Host commands
 
 The current command name inventory is:
@@ -1278,7 +1334,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/reading.rs) |
-| `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer (LLP 1115 D6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
+| `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker) and any other `dialog` as a sheet as tall as its content (LLP 1115.000 D11.5), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer, or a `role="alertdialog"` one in the alert's shape as `NSAlert`, a sheet on the window (LLP 1115 D6, LLP 1115.000 D7.6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
 | `playSound(src, at=, gain=, group=)`: a new voice of a declared sound (a literal `src` must be declared, `type-sound-undeclared`), starting at `at` on the runner's clock (`performanceNow()`'s milliseconds; the past and the default are the commit's time), at a linear `gain` 0–1 (default 1; a literal outside is refused, a computed one clamped), in a `group` that is monophonic by start time. `playSounds(hits)`: one voice per item of a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number`, `group: string`. `stopSounds()`, `stopSounds(group=)`: what sounds stops, what waits is cancelled. The runner keeps the voice table (`state sounds`); the web and Apple play it, Linux and Windows keep the record (LLP 1096) | [sound tests](../contract/cli/tests/it/sound.rs), [sounds conformance](../host/web-js/conformance/sounds/app.contract) |
@@ -1289,6 +1345,10 @@ headless Linux host has no browser, clipboard, editor or dev menu: its
 journaled as unsupported there (it has no media player), `haptic` does nothing, and `showNotification` is refused
 (`showNotification: refused: unavailable`). Its `selectText` focuses the field
 with its whole text selected, which the next typed key or Backspace replaces.
+On Android the same host has the platform behind it (LLP 1115.001 D5): `openURL` and a
+link out open the browser, the mail app or the dialer, `copyText` writes the clipboard,
+`haptic` and `-exact-press-haptic` play, and `share` shows the Sharesheet; notifications
+and the pickers are still refused there.
 iOS closes no window either: its `close` is journaled as unsupported. On the web,
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is

@@ -236,6 +236,21 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 if let Some(hatches) = p.hatch_state() {
                     s.push_str(&format!(",\"hatches\":{hatches}"));
                 }
+                // The top layer's open surface (LLP 1115.001 D10): each row's
+                // authored node and its box in the surface's window, which
+                // `tap` takes by that node. No shell makes windows here.
+                let surface = match p.has_windows() {
+                    true => p.surface_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"surface\":{surface}"));
+                // The shell's bars (LLP 1115.001 D11): each target's authored
+                // node and its box in the window. No shell has bars here.
+                let bars = match p.has_bars() {
+                    true => p.bars_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"bars\":{bars}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -283,6 +298,20 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             // the Linux presenter closes no window, as the guide says.
             if request.get("close").is_some() {
                 return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
+            }
+            // @ref LLP 1116.006 D4 — the platform's Back, as Alt+Left or a Back key takes it.
+            if request.get("back").is_some() {
+                if request
+                    .as_object()
+                    .is_some_and(|o| o.keys().any(|k| k != "op" && k != "back"))
+                {
+                    return error("tap back takes no other input fields");
+                }
+                return match p.agent_back(p.host().now()) {
+                    None => error("back: nothing to go back from: no route is beneath the selected one"),
+                    Some(Ok(())) => serde_json::json!({ "back": "route", "delivery": "platform" }).to_string(),
+                    Some(Err(why)) => serde_json::json!({ "back": "route", "delivery": "platform", "refused": why }).to_string(),
+                };
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();

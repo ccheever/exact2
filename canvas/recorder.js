@@ -532,7 +532,9 @@ class ImageDataShim {
     if (typeof a === "number") {
       w = Math.trunc(a); h = Math.trunc(b);
       if (!w || !h) throwDom("IndexSizeError", "The source width or height is zero.");
-      data = new Uint8ClampedArray(Math.abs(w) * Math.abs(h) * 4); w = Math.abs(w); h = Math.abs(h);
+      const bytes = Math.abs(w) * Math.abs(h) * 4;
+      if (bytes > 0xffffffff) throwDom("IndexSizeError", "The requested image size exceeds the supported range.");
+      data = new Uint8ClampedArray(bytes); w = Math.abs(w); h = Math.abs(h);
     } else {
       data = a; w = b >>> 0;
       if (!data || !data.length || data.length % 4) throwDom("InvalidStateError", "The input data length is not a non-zero multiple of 4.");
@@ -552,7 +554,9 @@ if (!globalThis.ImageData) globalThis.ImageData = ImageDataShim;
 function dimension(v, which) {
   v = Number(v);
   if (!Number.isFinite(v)) throwDom("TypeError", "The provided double value is non-finite.");
-  const n = Math.abs(Math.trunc(v));
+  const whole = Math.trunc(v);
+  if (whole < -2147483648 || whole > 2147483647) throwDom("TypeError", "Value is outside the 'long' value range.");
+  const n = Math.abs(whole);
   if (!n) throwDom("IndexSizeError", `The source ${which} is zero or not a number.`);
   return n;
 }
@@ -1062,7 +1066,12 @@ export class Recorder {
   createImageData(a, b) {
     const settings = { colorSpace: this._.env.p3 ? "display-p3" : "srgb" };
     if (a && typeof a === "object") return new ImageDataClass(a.width, a.height, settings);
-    return new ImageDataClass(dimension(a, "width"), dimension(b, "height"), settings);
+    const width = dimension(a, "width"), height = dimension(b, "height");
+    try { return new ImageDataClass(width, height, settings); }
+    catch (e) {
+      if (e.name === "IndexSizeError") throwDom("RangeError", "Out of memory at ImageData creation.");
+      throw e;
+    }
   }
   putImageData(data, dx, dy, x = 0, y = 0, w = data.width, h = data.height) {
     const all = [dx, dy, x, y, w, h].map(Number);

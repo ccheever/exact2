@@ -197,6 +197,19 @@
         "additionalProperties": false
       }
     },
+    "protocol_handlers": {
+      "type": "array",
+      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",
+      "items": {
+        "type": "object",
+        "required": ["protocol", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
+          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" }
+        }
+      }
+    },
     "file_handlers": {
       "type": "array",
       "description": "The W3C Web App Manifest's file handling declaration: what this app opens. The Apple bake derives `CFBundleDocumentTypes` from it (LLP 1033 D1), and a browser reads the same key.",
@@ -248,7 +261,7 @@
       ],
       "properties": {
         "id": {
-          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>; change it before distributing.",
+          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
         },

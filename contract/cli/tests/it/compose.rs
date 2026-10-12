@@ -43,7 +43,7 @@ fn a_slot_takes_the_nodes_under_a_use_in_the_use_sites_scope() {
     let body = k.find_by_test_id("body")[0];
     let body = k.node_by_key(body).unwrap();
     let text = body.props.iter().find_map(|(id, v)| match v {
-        PropValue::Str(s) if id.name() == "text" => Some(s.clone()),
+        PropValue::Str(s) if id.name() == "text" => Some(s.to_string()),
         _ => None,
     });
     assert_eq!(text.as_deref(), Some("2 trains"));
@@ -77,6 +77,13 @@ fn a_provide_section_fills_an_inject_and_the_nearest_component_wins() {
     ] {
         assert_eq!(color_of(id), Color::parse_hex(hex).unwrap().into(), "{id}");
     }
+}
+
+#[test]
+fn a_forwarded_slot_fill_checks_its_injected_provider_type() {
+    let source = "component App\n  provide\n    accent = 1\n  view\n    Shell()\n      Label()\ncomponent Shell\n  slot\n  view\n    Pass()\n      children\ncomponent Pass\n  slot\n  view\n    children\ncomponent Label\n  inject\n    accent: string\n  view\n    text toString(accent)\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "type-provide", "{error}");
 }
 
 #[test]

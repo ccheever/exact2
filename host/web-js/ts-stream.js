@@ -6,7 +6,7 @@
 // `__exact_message`).
 import { streamed } from './http-body.js';
 import { failureCode } from './shape.js';
-import { bodyFromRefusal, methodOf, readBodyFile } from './ts-fetch.js';
+import { bodyFromRefusal, methodOf, readBodyFile } from './ts-body-from.js';
 
 const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted', , , , , , 'Timeout'], said = new TextDecoder();
 // Hermes's checks and words on `init` (js/src/prelude.js `fetch`): a

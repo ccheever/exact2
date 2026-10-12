@@ -163,31 +163,50 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(aim["hit"] as? Int, TouchLog.landing(hit)["node"] as? Int, "the dispatch log must see it land where the bar is: \(aim)")
     }
 
-    /// A bar item takes a `color` set on its button (a symbol's, its tint):
-    /// a header's Cancel in the app's accent is not UIKit's. A colour the
-    /// button only inherits, or a platform colour, leaves UIKit's.
+    /// A bar item takes the colour its author wrote on its button, or the
+    /// tint written on its symbol (LLP 1115.000 D2): a header's Cancel in the
+    /// app's accent, a Delete in the platform's red. A colour the button
+    /// only inherits, or one the compiler implied, leaves UIKit's.
     func testABarItemTakesItsButtonsAuthoredColour() throws {
         let p = Presenter()
-        let canvasText: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
+        let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        let page = [17, 17, 17, 255], wrote = ["text_color"]
         p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": ["text_color": [181, 86, 43, 255]]],
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": ["text_color": [181, 86, 43, 255], "written": wrote]],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Cancel"]],
-            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["text_color": canvasText]],
-            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Done"], "style": ["text_color": canvasText]],
-            ["op": "create", "id": 5, "kind": "view", "style": ["text_color": [17, 17, 17, 255]]],
-            ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "style": ["text_color": [17, 17, 17, 255]]],
-            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Edit"], "style": ["text_color": [17, 17, 17, 255]]],
+            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["text_color": red, "written": wrote]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Delete"], "style": ["text_color": red]],
+            ["op": "create", "id": 5, "kind": "view", "style": ["text_color": page, "written": wrote]],
+            ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
+            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Edit"], "style": ["text_color": page]],
+            ["op": "create", "id": 8, "kind": "button", "handlers": ["press"], "style": ["text_color": [0, 122, 255, 255]]],
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Implied"]],
+            ["op": "create", "id": 10, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
+            ["op": "create", "id": 11, "kind": "image", "props": ["imageSource": "symbol:delete", "symbolName": "trash"],
+             "style": ["tint_color": red, "written": ["tint_color"]]],
+            ["op": "create", "id": 12, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
+            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:add", "symbolName": "plus"], "style": ["tint_color": [0, 122, 255, 255]]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "children", "id": 3, "ids": [4]],
             ["op": "children", "id": 6, "ids": [7]],
-            ["op": "children", "id": 5, "ids": [1, 3, 6]],
+            ["op": "children", "id": 8, "ids": [9]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 12, "ids": [13]],
+            ["op": "children", "id": 5, "ids": [1, 3, 6, 8, 10, 12]],
             ["op": "roots", "ids": [5]],
         ]))
-        let accent = HeaderShape.Item(try XCTUnwrap(p.views[1])), plain = HeaderShape.Item(try XCTUnwrap(p.views[3]))
-        XCTAssertEqual(accent.title, "Cancel")
-        XCTAssertEqual(accent.tint, [[181, 86, 43, 255], [181, 86, 43, 255]])
-        XCTAssertNil(plain.tint, "a platform colour is UIKit's to draw")
-        XCTAssertNil(HeaderShape.Item(try XCTUnwrap(p.views[6])).tint, "an inherited colour is UIKit's to draw")
+        func item(_ id: UInt32) throws -> HeaderShape.Item { HeaderShape.Item(try XCTUnwrap(p.views[id])) }
+        XCTAssertEqual(try item(1).title, "Cancel")
+        XCTAssertEqual(try item(1).tint, [[181, 86, 43, 255], [181, 86, 43, 255]])
+        let role = try XCTUnwrap(try item(3).tint, "a platform colour its author wrote is kept")
+        XCTAssertEqual(role.count, 2, "light and dark")
+        XCTAssertGreaterThan(role[0][0], 200, "red: \(role)")
+        XCTAssertLessThan(role[0][2], 100, "red: \(role)")
+        XCTAssertNil(try item(6).tint, "an inherited colour is UIKit's to draw")
+        XCTAssertNil(try item(8).tint, "a colour the compiler implied is UIKit's to draw, though it differs from the page's")
+        XCTAssertEqual(try item(10).symbol, "trash")
+        XCTAssertNotNil(try item(10).tint, "a tint its author wrote on the symbol")
+        XCTAssertNil(try item(12).tint, "a tint the symbol was only given (a sheet's) is UIKit's")
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
@@ -223,9 +242,23 @@ final class NavigationBarIOSTests: XCTestCase {
         let top = try XCTUnwrap(nav.topViewController)
         let search = try XCTUnwrap(top.navigationItem.searchController, "the header's search field")
         XCTAssertEqual(search.searchBar.placeholder, "Search the fixture")
+        // LLP 1115.000 D11.2: where the field goes and whether it hides as
+        // the content scrolls are UIKit's own answers, not pinned by Exact.
+        XCTAssertEqual(top.navigationItem.preferredSearchBarPlacement, .automatic, "UIKit's placement")
+        XCTAssertTrue(top.navigationItem.hidesSearchBarWhenScrolling, "it hides on scroll, as UIKit's does")
         search.searchBar.text = "abc"
         search.searchResultsUpdater?.updateSearchResults(for: search)
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
+        XCTAssertFalse(top.navigationItem.hidesSearchBarWhenScrolling, "a search in effect keeps its field in view, as UIKit keeps an active search's")
+        // LLP 1115.000 D9.2: the keyboard's Search key puts the keyboard
+        // away, as a hand-built search bar's delegate does, and the search
+        // stays as typed.
+        let field = search.searchBar.searchTextField
+        XCTAssertTrue(field.becomeFirstResponder())
+        search.searchBar.delegate?.searchBarSearchButtonClicked?(search.searchBar)
+        XCTAssertFalse(field.isFirstResponder, "Search puts the keyboard away")
+        XCTAssertEqual(search.searchBar.text, "abc")
+        XCTAssertEqual(state(session, "query") as? String, "abc")
     }
 
     /// LLP 1075.003 §9.8: a header's text tablist is the item's title view,
@@ -250,6 +283,12 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = press.perform(NSSelectorFromString(action), with: control)
         until("the tab pressed") { state(session, "segment") as? String == "missed" }
         until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+        // LLP 1115.000 D11.6: the title takes its own width, the size UIKit
+        // fits it to. Exact held each segment to 90 points at least, so two
+        // short titles made a control 180 wide.
+        let own = { control.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).width }
+        XCTAssertEqual(control.frame.width, own(), accuracy: 0.5, "its own width")
+        XCTAssertLessThan(control.frame.width, 180, "two short titles: narrower than 90 points a segment")
         // Sized for the text size and weight it shows, when they change and
         // no batch follows (every batch leaves it alone otherwise).
         let segments = try XCTUnwrap((top as? RouteController)?.titleSegments)
@@ -259,7 +298,8 @@ final class NavigationBarIOSTests: XCTestCase {
             control.traitOverrides.legibilityWeight = weight
             control.updateTraitsIfNeeded()
             XCTAssertEqual(segments.sized?.traits, [category, weight.rawValue] as [AnyHashable])
-            XCTAssertGreaterThanOrEqual(control.frame.width, 180, "sized again: two segments, 90 pt each at least")
+            XCTAssertEqual(control.frame.width, own(), accuracy: 0.5, "sized again, to its own width")
+            XCTAssertGreaterThan(control.frame.width, 1)
             XCTAssertGreaterThan(control.frame.height, 1)
         }
     }

@@ -1,11 +1,15 @@
 # Recipe: driving iOS
 
-Edit and check on the web host (`test web`, `agent web`: about a second a build), and
-drive iOS at milestones: one drive in dark mode, one after a write. `test ios` and
-`agent ios` build first when the build is missing or older than its sources, and say so
-in one line; its log is `.exact/ios-build.log`. The first build takes minutes, later
-ones a minute or two, so start the first early with `--prebuild`: it returns at once,
-the build going on apart from the shell, and a drive started meanwhile waits for it.
+Edit and check on the web host (`verify`: seconds), and run `verify ios` at milestones:
+the tests with UIKit's bars, then `check` light and dark on the first screen and where
+each test ends, and a relaunch ([tests](tests.md#before-you-call-it-done)). A clean
+`verify ios` is done; look at its screenshots. For an iPhone app the last `verify` is
+`verify ios`: a clean web `verify` doesn't show a bar covering a control. `verify ios`,
+`test ios` and `agent ios` build first when the build is missing or older than its
+sources, and say so in one line; its log is `.exact/ios-build.log`. The first build
+takes minutes, later ones a minute or two, so start the first early with `--prebuild`:
+it returns at once, the build going on apart from the shell, and a drive started
+meanwhile waits for it.
 
 An edit to only `app.contract` (or another `.contract`) or what `app.ts` imports reaches
 iOS in seconds, with no native rebuild: the drive bakes the new plan and runs it on the
@@ -14,12 +18,11 @@ the new plan on the existing build"). A bake error fails the drive as a build wo
 its log `.exact/ios-plan.log`. Anything else (`app.json`, assets, fonts, Rust, new
 grants in `app.ts`) still rebuilds; a file `app.ts` never imports, such as a backend
 under `server/`, rebuilds nothing. Before calling the app done, run `bun exact.mjs ios`
-once (a real build) and drive it.
+once (a real build), then `verify ios`.
 
 ```sh
 bun exact.mjs ios --prebuild                   # the first build, apart from this shell
-bun exact.mjs test ios
-bun exact.mjs agent ios --storage s1 --chrome platform "clock data" "check both"
+bun exact.mjs verify ios                       # the tests, check light and dark, a relaunch
 bun exact.mjs agent ios --storage s1 --chrome platform "prefer prefers-color-scheme dark" \
   "clock data" "screenshot .exact/ios-dark.png window"
 bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock settle" \
@@ -47,5 +50,3 @@ bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock set
   would, with no fling; any other drag is refused, naming the flag.
 - `tree --ax` prints the accessibility tree as VoiceOver reads it.
 - `bun exact.mjs ios --run` opens the app in Simulator.app, to look by hand.
-- Before calling it done, drive each write once on the real clock:
-  [tests](tests.md#before-you-call-it-done).

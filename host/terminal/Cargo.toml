@@ -26,11 +26,16 @@ exact-runner = { path = "../../runner" }
 exact-textflow = { path = "../../textflow" }
 # Images: PNG decoded once; base64 for the kitty and iTerm2 protocols.
 base64 = "0.22"
+libc = "0.2"
 png = "=0.18.1"
 # Raw mode, the window size and polling stdin (LLP 1101 D9).
 rustix = { version = "1.1", features = ["termios", "event", "stdio"] }
+# Resize signals wake the existing socket, with no signal thread.
+signal-hook = { version = "0.3", default-features = false }
 unicode-segmentation = "1.13"
 unicode-width = "0.2"
+# A cell's usual grapheme fits inline; long combining sequences still fit.
+smol_str = "0.2.2"
 # Input bytes into CSI/OSC/key events (LLP 1101 D9).
 vte = "0.15"
 # The headless screen: what the agent reads is a terminal emulator's

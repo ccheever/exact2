@@ -13,7 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -529,9 +529,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
+        // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
+        // `none` for a full-bleed screen.
+        "navigationBar" => AttrTarget::Prop(p("navigationBar")),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
+        // @ref LLP 1116.004 D1.2 — a wide window's split: "none", or the list column's width.
+        "navigationSplit" => AttrTarget::Prop(p("navigationSplit")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
         "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
@@ -1260,24 +1265,47 @@ pub(crate) fn multicol_on_flex(
 }
 
 impl crate::Lowerer<'_> {
-    /// @ref LLP 1115 §3 — a run with an `href` in its paragraph is a link:
-    /// unsaid, its colour is the platform's link role (the tint on iOS,
-    /// `linkColor` on macOS, the browser's own on the web), as the UA's
-    /// `a:link` is. Pushed before the author's rows, so a `color` on the run
-    /// or its class wins; a block-level `link` keeps inheriting.
-    pub(crate) fn link_run_color(
+    /// @ref LLP 1115 §3, LLP 1115.000 D3.5 — a link's unsaid colour is the
+    /// platform's link role (the tint on iOS, `linkColor` on macOS, the
+    /// accent on the web), as the UA's `a:link` is: a run with an `href` in
+    /// its paragraph, and a block `link` of text (a `tel:` or `mailto:`
+    /// value, a "Learn more"), which a hand-built screen draws in the tint.
+    /// A `link` holding a row or a column, or given a `role`, is its
+    /// author's row or button and keeps inheriting. Pushed before the
+    /// author's rows, so a `color` on the link, the run or a class wins. A
+    /// terminal entry's block link is left as it is: what a terminal shows
+    /// for a link is the terminal's to decide (`QUEUE.md`).
+    pub(crate) fn link_color(
         &mut self,
         tag: &str,
         parent_tag: Option<&str>,
         attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
         bindings: &mut Vec<BindingsRow>,
     ) {
-        if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::TextColor as u16,
-                expr: self.fixed(true, "LinkText"),
-            });
+        use contract_syntax::Node;
+        // Texts and images alone, a `when` or an `each` of them included.
+        fn words(node: &Node) -> bool {
+            match node {
+                Node::Element { tag, .. } => tag == "text" || tag == "image",
+                Node::When {
+                    then, otherwise, ..
+                } => then.iter().chain(otherwise).all(words),
+                Node::Each { body, .. } => body.iter().all(words),
+                Node::Match { some, none, .. } => some.1.iter().chain(none).all(words),
+                Node::Use { .. } | Node::Children { .. } => false,
+            }
+        }
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let run = tag == "text" && parent_tag == Some("text") && has("href");
+        let block = tag == "link"
+            && self.profile != crate::Profile::Terminal
+            && !has("role")
+            && !children.is_empty()
+            && children.iter().all(words);
+        if run || block {
+            let link = self.fixed(true, "LinkText");
+            bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
         }
     }
 
@@ -1341,11 +1369,8 @@ impl crate::Lowerer<'_> {
             // ARIA's default level, said: a host that reads the level (iOS's
             // header-shaped route takes only a heading with one) sees 2.
             let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Prop,
-                id: p("accessibilityHeadingLevel") as u16,
-                expr,
-            });
+            let level = p("accessibilityHeadingLevel");
+            bindings.push(crate::prop_row(level, expr, crate::IMPLIED));
         }
         let span = level.map_or_else(Default::default, |l| l.span());
         let two = Expr::Number(2.0, span);
@@ -1360,11 +1385,7 @@ impl crate::Lowerer<'_> {
             leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
         for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
             let expr = self.expr_code(&value, scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: row as u16,
-                expr,
-            });
+            bindings.push(crate::style_row(row, expr, crate::IMPLIED));
         }
         Ok(())
     }

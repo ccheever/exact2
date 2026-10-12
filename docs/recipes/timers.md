@@ -33,9 +33,9 @@ component Tea
     finished = false
   view
     column align-items="center" gap=20 padding=32 testId="app"
-      row role="tablist" aria-label="Minutes" width="100%"
+      row role="radiogroup" aria-label="Minutes" width="100%"
         each m in [1, 3, 5] key=m
-          button role="tab" aria-selected=(minutes == m) press=choose(m) disabled=running testId=`min-${m}` flex=1
+          button role="radio" aria-checked=(minutes == m) press=choose(m) disabled=running testId=`min-${m}` flex=1
             text `${m} min`
       text mmss(left) font-size="4.5rem" font-variant-numeric="tabular-nums" testId="left"
         aria-label=`${mmss(left)} left`

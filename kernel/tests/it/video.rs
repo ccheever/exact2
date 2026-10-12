@@ -76,7 +76,9 @@ fn high_resolution_video_keeps_ratio_constraints_and_only_used_box_overflow() {
             }
         };
         let n = StyleValue::Number;
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         kernel
             .apply(
                 0,

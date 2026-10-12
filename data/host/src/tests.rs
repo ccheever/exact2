@@ -497,7 +497,8 @@ fn invalid_utf8_is_never_repaired_into_an_effectful_request() {
     assert!(storage::response(super::native::run(
         host.directories.as_ref(),
         GRANTS,
-        payload
+        payload,
+        0,
     ))
     .is_err());
     assert!(
@@ -605,7 +606,7 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     let run = |grants: &str, op: &str, args: serde_json::Value| {
         let payload =
             serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":args})).unwrap();
-        storage::response(super::native::run(None, grants, &payload))
+        storage::response(super::native::run(None, grants, &payload, 9001))
     };
     let read = run(
         "fs.read doc:/",
@@ -669,6 +670,7 @@ fn chosen_folders_refuse_symlinks_for_every_document_operation() {
         grants: "fs.read doc:/\nfs.write doc:/",
         ..Fixture::new()
     });
+    host.set_document_owner(9002);
     host.activate().unwrap();
     let mut call = |op: &str, relative: &str| {
         run(
@@ -769,6 +771,102 @@ fn chosen_folders_refuse_symlinks_for_every_document_operation() {
 }
 
 #[test]
+fn queued_document_work_uses_its_sessions_owner() {
+    let root = Paths::new();
+    let folder = root.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("note"), "private").unwrap();
+    let doc = exact_data::documents::mint(&folder, 9010).unwrap();
+    let request = storage::request("fs.readFile", json!({"path":format!("{doc}/note")}));
+    let mut owner = Storage::new(Fixture {
+        grants: "fs.read doc:/",
+        request: request.clone(),
+    });
+    owner.set_document_owner(9010);
+    owner.activate().unwrap();
+    let queued = take(&mut owner);
+    let mut other = Storage::new(Fixture {
+        grants: "fs.read doc:/",
+        request: request.clone(),
+    });
+    other.set_document_owner(9011);
+    other.activate().unwrap();
+    assert_eq!(
+        storage::response(queued()).unwrap()["base64"],
+        exact_runner::agent::base64(b"private")
+    );
+    assert!(run(&mut other, request)
+        .unwrap_err()
+        .contains("no such document"));
+    let root_path = format!("doc:/{}", doc["doc:/".len()..].split('/').next().unwrap());
+    assert!(run(
+        &mut other,
+        storage::request("fs.readdir", json!({"path":root_path}))
+    )
+    .unwrap_err()
+    .contains("no such document"));
+    exact_data::documents::forget(9011);
+    assert_eq!(
+        run(
+            &mut owner,
+            storage::request("fs.readdir", json!({"path":doc}))
+        )
+        .unwrap(),
+        json!(["note"])
+    );
+    owner.source.request = storage::request("fs.readFile", json!({"path":format!("{doc}/note")}));
+    let queued = take(&mut owner);
+    exact_data::documents::forget(9010);
+    assert!(storage::response(queued())
+        .unwrap_err()
+        .contains("no such document"));
+}
+
+#[test]
+fn filesystem_results_stop_at_the_encoded_response_limit() {
+    let root = Paths::new();
+    let paths = root.directories();
+    std::fs::create_dir_all(&paths.data).unwrap();
+    let boundary = ((storage::MAX_BYTES - 13) / 4) * 3;
+    let file = paths.data.join("large");
+    std::fs::File::create(&file)
+        .unwrap()
+        .set_len(boundary as u64)
+        .unwrap();
+    let mut host = Storage::new(Fixture::new());
+    root.configure(&mut host);
+    host.activate().unwrap();
+    let read = || storage::request("fs.readFile", json!({"path":"app:/data/large"}));
+    let answer = run(&mut host, read()).unwrap();
+    assert_eq!(answer["base64"].as_str().unwrap().len(), (boundary / 3) * 4);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len((boundary + 1) as u64)
+        .unwrap();
+    assert_eq!(
+        run(&mut host, read()).unwrap_err(),
+        "storage result exceeds its byte limit"
+    );
+    let document = exact_data::documents::mint(&file, 9020).unwrap();
+    host.set_document_owner(9020);
+    assert!(matches!(
+        super::native::run(
+            None,
+            "fs.read doc:/",
+            &serde_json::to_vec(&json!({"version":1,"op":"fs.readFile","args":{"path":document}})).unwrap(),
+            9020,
+        ),
+        Outcome::Failed {
+            kind: FailureKind::Unsupported,
+            message,
+        } if message == "storage result exceeds its byte limit"
+    ));
+    exact_data::documents::forget(9020);
+}
+
+#[test]
 #[cfg(unix)]
 fn document_work_stays_on_the_selected_directory_during_path_swaps() {
     use std::os::unix::fs::symlink;
@@ -787,6 +885,7 @@ fn document_work_stays_on_the_selected_directory_during_path_swaps() {
         grants: "fs.read doc:/\nfs.write doc:/",
         ..Fixture::new()
     });
+    host.set_document_owner(9003);
     host.activate().unwrap();
     let mut call = |op: &str, name: &str| {
         run(

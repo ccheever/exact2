@@ -20,6 +20,13 @@ pub const FIELDS: &[&str] = &[
     "seed",
 ];
 
+/// The launch seed is a whole number below this, 2^32, on every host
+/// (LLP 1116.005 D5), so `%` and `>>> 0` take all of it. A source mixes a
+/// round into it in 32-bit steps (`Math.imul`, `>>> 0`), as
+/// docs/recipes/random-and-shuffle.md shows: a multiply by a large constant
+/// still passes 2^53.
+pub const SEED_LIMIT: f64 = 4_294_967_296.0;
+
 /// What the host said about the date. Zero until it says: the bake, and a
 /// host that has not supplied it, answer an unknown date as `0`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -62,10 +69,10 @@ pub struct Place {
     pub locale: String,
     /// IANA, the device's current zone.
     pub time_zone: String,
-    /// A whole number below 2^53 from the platform's secure random source,
-    /// drawn once per launch: the explicit entropy a source mixes with the
-    /// date and a counter for ids (LLP 1027.000's seed, supplied). Zero
-    /// until the host says.
+    /// A whole number below 2^32 ([`SEED_LIMIT`]) from the platform's
+    /// secure random source, drawn once per launch: the explicit entropy a
+    /// source mixes with the date and a counter for ids (LLP 1027.000's
+    /// seed, supplied). Zero until the host says.
     pub seed: f64,
 }
 
@@ -94,7 +101,7 @@ impl Place {
             && self.seed.is_finite()
             && self.seed >= 0.0
             && self.seed.fract() == 0.0
-            && self.seed < 9_007_199_254_740_992.0
+            && self.seed < SEED_LIMIT
         {
             Ok(())
         } else {

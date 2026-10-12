@@ -111,7 +111,7 @@ every commit, and a regression is a P0 with a name on it.
 | Dev restart, edit to present | 100 ms p50 |
 | App JavaScript executed before first pixel | none |
 | Touch one line, rebuild that crate | 30 s |
-| The whole blocking check suite | 60 s |
+| The whole blocking check suite | 65 s |
 
 How the design keeps those numbers:
 
@@ -339,7 +339,8 @@ app: a Contract file, a TypeScript file, and a test. This exact app was built fo
 macOS, and the iOS Simulator, and its test passed on all three.
 
 ```contract
-// app.contract: the view, its state, and what each action changes
+// app.contract: the view, its state, and what each action changes. It names no colour,
+// font or control size: each host draws its own heading, field, button, checkbox and list.
 shape Todo
   id: string
   title: string
@@ -347,10 +348,6 @@ shape Todo
 
 shape Change
   count: number
-
-style Card
-  padding=12 border-radius=10 gap=10 align-items="center"
-  background-color="light-dark(#f2f2f5, #1c1c1e)"
 
 component Todos
   state draft = ""
@@ -364,25 +361,27 @@ component Todos
     if trim(draft) != ""
       send changed = addTodo(trim(draft))
       draft = ""
-  action toggle(id: string)
-    send changed = toggleTodo(id)
+  action toggle(id: string, done: bool)
+    send changed = setDone(id, done)
   action remove(id: string)
     send changed = removeTodo(id)
 
   view
-    column padding=24 gap=12
-      text `${left} left` font-size=28 font-weight=700 testId="count"
-      row gap=8
-        input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 padding=10
-        button press=add padding=10 testId="add"
-          text "Add"
-      each t in todos key=t.id
-        row class=Card testId=`todo-${t.id}`
-          button press=toggle(t.id) aria-label="Toggle" testId=`toggle-${t.id}`
-            text (t.done ? "✓" : "○")
-          text t.title flex=1 text-decoration-line=(t.done ? "line-through" : "none")
-          button press=remove(t.id) aria-label="Delete" testId=`remove-${t.id}`
-            text "✕"
+    list appearance="auto" height="100%"
+      section
+        header
+          text `${left} left` role="heading" testId="count"
+        row
+          input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 min-width=0
+          button press=add testId="add"
+            text "Add"
+      section
+        each t in todos key=t.id
+          row testId=`todo-${t.id}`
+            input type="checkbox" checked=t.done change=toggle(t.id) aria-label=t.title testId=`toggle-${t.id}`
+            text t.title flex=1
+            button press=remove(t.id) destructive=true testId=`remove-${t.id}`
+              text "Delete"
 ```
 
 ```ts
@@ -402,8 +401,8 @@ const sources: Sources = {
     todos = [...todos, { id: String(next++), title, done: false }];
     return { count: todos.length };
   },
-  toggleTodo: ([id]) => {
-    todos = todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+  setDone: ([id, done]) => {
+    todos = todos.map((t) => (t.id === id ? { ...t, done } : t));
     return { count: todos.length };
   },
   removeTodo: ([id]) => {
@@ -707,7 +706,7 @@ Start with [`rules/RULES.md`](rules/RULES.md), one page on how work happens here
 [`rules/DEFERRED.md`](rules/DEFERRED.md), what v1 deliberately leaves out. Agents should
 also read [`AGENTS.md`](AGENTS.md). In short:
 
-- **Five blocking checks, 60 seconds in total.** Anything slower runs asynchronously,
+- **Six blocking checks, 65 seconds in total.** Anything slower runs asynchronously,
   per commit.
 
   ```sh
@@ -716,7 +715,12 @@ also read [`AGENTS.md`](AGENTS.md). In short:
   cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
   bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
   bun scripts/boot.mjs     # counts the module graph before first pixel
+  cargo check --workspace --all-targets --keep-going   # every crate compiles
   ```
+
+  The first three build and test Cargo's `default-members`. The last compiles every
+  other crate too, so a host or an app outside them cannot stop compiling unseen. It
+  needs the pinned Bun (`package.json`) first on `PATH`: app crates' build scripts run it.
 
 - **Verify by running, not by reading.** Build the app a change touches and drive it:
   `bun scripts/smoke.mjs <web|macos|ios|linux>` drives the whole app on that host.

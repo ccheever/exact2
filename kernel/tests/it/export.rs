@@ -300,6 +300,15 @@ fn malformed_envelope_scalars_and_topology_are_refused_exactly() {
     reserved[32] = 1;
     assert_eq!(export::decode(&reserved), Err(DecodeError::ReservedFlags));
 
+    // A version 1 envelope, whose styles had no written mask (LLP 1115.000
+    // D2), is refused by its version and never read as a short style.
+    let mut old = bytes.clone();
+    old[4..6].copy_from_slice(&1u16.to_le_bytes());
+    assert_eq!(
+        export::decode(&old),
+        Err(DecodeError::UnsupportedRevision(1))
+    );
+
     let mut header = bytes.clone();
     header[6..8].copy_from_slice(&48u16.to_le_bytes());
     assert_eq!(

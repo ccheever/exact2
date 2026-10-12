@@ -48,7 +48,7 @@ package final class SwipeActionsHost {
     /// Why `owner`'s native swipe is refused, as the log says it, if it is.
     func refusal(of owner: NodeView) -> String? { refusals[owner.id] }
     func reset() {
-        for row in rows.values { row.remove() }
+        for row in rows.values { row.discard() }
         rows.removeAll(); refusals.removeAll()
     }
     #if os(iOS)
@@ -141,7 +141,7 @@ package final class SwipeActionsHost {
                 continue
             }
             refusals.removeValue(forKey: owner.id)
-            if let old = rows[owner.id], old.body !== body || old.grouped != grouped { old.remove(); rows.removeValue(forKey: owner.id) }
+            if let old = rows[owner.id], old.body !== body || old.grouped != grouped { old.discard(); rows.removeValue(forKey: owner.id) }
             let row = rows[owner.id] ?? Row(owner: owner, body: body, host: self, grouped: grouped)
             rows[owner.id] = row
             row.names = names
@@ -150,7 +150,7 @@ package final class SwipeActionsHost {
             if row.projected || grouped || assistive { row.mount() }
             wanted.insert(owner.id)
         }
-        for id in Array(rows.keys) where !wanted.contains(id) { rows.removeValue(forKey: id)?.remove() }
+        for id in Array(rows.keys) where !wanted.contains(id) { rows.removeValue(forKey: id)?.discard() }
         refusals = refusals.filter { presenter.views[$0.key] != nil }
     }
 
@@ -217,6 +217,69 @@ package final class SwipeActionsHost {
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
     }
 
+    /// A contact in a swipe row that leaves the slop toward a side with
+    /// actions is the swipe's, never a press (LLP 1057.001 rule 3: the drag
+    /// that begins takes the press; LLP 1116.004 D2). Recognizing cancels
+    /// the touch in the row's views — its press, a checkbox's or a button's
+    /// activation — whether or not UIKit's swipe, which keeps its own
+    /// threshold, goes on to reveal the actions: a sideways drag too short
+    /// for UIKit to begin (Maestro's swipe from a row's leading checkbox,
+    /// nine points to the screen's tenth) or a flick that lifts before it
+    /// does presses nothing. It prevents nothing and is prevented by
+    /// nothing, so UIKit's swipe and the list's scroll see every touch. A
+    /// drag toward a side with no actions, or up and down, stays the press's.
+    final class SwipeClaim: UIGestureRecognizer, UIGestureRecognizerDelegate {
+        enum Decision: Equatable { case wait, claim, fail }
+        /// What a touch's travel (dx, dy) from where it began decides, with
+        /// actions to reveal by dragging `left` or `right`: up or down past
+        /// the slop is the list's scroll; sideways past it toward actions, the swipe's.
+        static func decide(dx: CGFloat, dy: CGFloat, slop: CGFloat, left: Bool, right: Bool) -> Decision {
+            if abs(dy) > slop, abs(dy) >= abs(dx) { return .fail }
+            guard abs(dx) > slop, abs(dx) > abs(dy) else { return .wait }
+            return (dx < 0 ? left : right) ? .claim : .fail
+        }
+        /// Whether dragging left and right reveals actions, read as the touch moves.
+        var sides: () -> (left: Bool, right: Bool) = { (false, false) }
+        private var start: CGPoint?
+        init() {
+            super.init(target: nil, action: nil)
+            cancelsTouchesInView = true; delaysTouchesBegan = false; delaysTouchesEnded = false; delegate = self
+        }
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard start == nil, touches.count == 1, let touch = touches.first, !Self.drags(touch.view) else { state = .failed; return }
+            start = touch.location(in: nil)
+        }
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard let start, let touch = touches.first else { return }
+            let p = touch.location(in: nil), sides = sides()
+            switch Self.decide(dx: p.x - start.x, dy: p.y - start.y, slop: CGFloat(Gesture.slop), left: sides.left, right: sides.right) {
+            case .claim: state = .recognized
+            case .fail: state = .failed
+            case .wait: break
+            }
+        }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { state = .failed }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { state = .failed }
+        override func reset() { super.reset(); start = nil }
+        override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
+        override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+        /// A control whose own gesture is a sideways drag keeps its touch:
+        /// a switch, a slider, an editor.
+        static func drags(_ view: UIView?) -> Bool {
+            var at = view
+            while let v = at, !(v is UICollectionViewCell || v is UITableViewCell) {
+                #if os(iOS)
+                if v is UISwitch || v is UISlider { return true }
+                #endif
+                if v is UITextField || v is UITextView { return true }
+                if let node = v as? NodeView, node.field != nil || node.textArea != nil { return true }
+                at = v.superview
+            }
+            return false
+        }
+    }
+
     private final class Row: NSObject, UITableViewDataSource, UITableViewDelegate {
         unowned let host: SwipeActionsHost
         let owner: NodeView
@@ -251,12 +314,26 @@ package final class SwipeActionsHost {
         /// UIKit is presenting this row's actions (between its begin and end editing).
         private var open = false
         private var images: [UInt32: UIImage] = [:]
+        /// A grouped row's claim on its sideways touches, on the owner the
+        /// list carries into its cell; a projected row's is its table's.
+        private var claim: SwipeClaim?
         var projected: Bool { table != nil }
         var projection: UITableViewCell? { cell }
 
         init(owner: NodeView, body: NodeView, host: SwipeActionsHost, grouped: Bool) {
             self.owner = owner; self.body = body; self.host = host; self.grouped = grouped
             super.init()
+        }
+        /// A claim whose sides are this row's actions, as they now stand.
+        private func makeClaim() -> SwipeClaim {
+            let claim = SwipeClaim()
+            claim.sides = { [weak self] in
+                guard let self else { return (false, false) }
+                let leading = leading.contains(where: enabled), trailing = trailing.contains(where: enabled)
+                // A drag toward the left reveals the actions on the right.
+                return owner.effectiveUserInterfaceLayoutDirection == .rightToLeft ? (leading, trailing) : (trailing, leading)
+            }
+            return claim
         }
         private func project() -> (UITableView, Cell) {
             if let table, let cell { return (table, cell) }
@@ -283,6 +360,9 @@ package final class SwipeActionsHost {
                 DispatchQueue.main.async { [weak self] in self?.settle() }
             }
             table.addGestureRecognizer(watch)
+            #if os(iOS)
+            table.addGestureRecognizer(makeClaim())
+            #endif
             self.table = table; self.cell = cell
             return (table, cell)
         }
@@ -292,6 +372,11 @@ package final class SwipeActionsHost {
             hiddenControls.removeAll()
             if stilled { owner.scroll?.isScrollEnabled = true; stilled = false }
             owner.scroll?.isHidden = scrollWasHidden
+        }
+        /// The row is gone: its claim with it.
+        func discard() {
+            if let claim { claim.view?.removeGestureRecognizer(claim); self.claim = nil }
+            remove()
         }
         func remove() {
             if grouped { restore(); return }
@@ -328,6 +413,9 @@ package final class SwipeActionsHost {
                 actionAncestors[control.id] = ancestors
             }
             ownerInert = owner.inert
+            #if os(iOS)
+            if claim == nil { let made = makeClaim(); owner.addGestureRecognizer(made); claim = made }
+            #endif
             scrollWasHidden = owner.scroll?.isHidden ?? false
             for control in leading + trailing { hide(control) }
             if let scroll = owner.scroll {
@@ -462,11 +550,13 @@ package final class SwipeActionsHost {
                 }
                 action.accessibilityLabel = host.label(target)
                 if target.isNativeButton {
-                    // A native action (LLP 1069.011.000 D6): its accent, or
-                    // UIKit's colour for its style (grey; LLP 1115 D4); a
-                    // destructive one sets none, whatever its accent (UIKit's
-                    // red); its symbol, recorded for discovery as a snapshot is.
-                    if !destructive, target.style["accent_color"]?.isSystemColor == false,
+                    // A native action (LLP 1069.011.000 D6): the accent its
+                    // author wrote on it (LLP 1115.000 D2), or UIKit's colour
+                    // for its style (grey; LLP 1115 D4), which an accent it
+                    // only inherits leaves; a destructive one sets none,
+                    // whatever its accent (UIKit's red); its symbol, recorded
+                    // for discovery as a snapshot is.
+                    if !destructive, target.wrote("accent_color"),
                        let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {
                         action.backgroundColor = accent
                     }

@@ -28,7 +28,10 @@
   function fixed(object, name, value) {
     Object.defineProperty(object, name, { value: value, writable: false, configurable: false });
   }
-  var NativeDate = global.Date;
+  // The engine's own Date, through its prototype: a browser realm under a
+  // page's fake clock (Playwright's `clock.install`) has a fake `Date` that
+  // keeps the real prototype.
+  var NativeDate = global.Date.prototype.constructor;
   var construct = Reflect.construct;
   var InputDate = new Proxy(NativeDate, {
     apply: function () { return refuseAmbient("Date()"); },
@@ -110,7 +113,15 @@
   // format getter or formatToParts method; explicit timestamps still use
   // the engine's locale/timezone implementation unchanged.
   if (global.Intl && global.Intl.DateTimeFormat) {
-    var dateFormat = global.Intl.DateTimeFormat.prototype;
+    // The engine's prototype, the one with the `format` accessor: a fake
+    // clock's DateTimeFormat only inherits it, and answers an omitted date
+    // from its clock, so the engine's constructor takes its place.
+    var dateFormat = global.Intl.DateTimeFormat.prototype, engineFormat = dateFormat;
+    while (engineFormat && !(Object.getOwnPropertyDescriptor(engineFormat, "format") || {}).get) engineFormat = Object.getPrototypeOf(engineFormat);
+    if (engineFormat && engineFormat !== dateFormat) {
+      dateFormat = engineFormat;
+      global.Intl.DateTimeFormat = engineFormat.constructor;
+    }
     var getFormat = Object.getOwnPropertyDescriptor(dateFormat, "format").get;
     var formats = new WeakMap();
     var apply = Reflect.apply;

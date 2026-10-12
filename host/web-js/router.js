@@ -1,6 +1,6 @@
 // The router on the JS target (LLP 1038; route/src), re-exported by rt.js: the verbs and reads, the route table, and the
 // router slot's changes to the browser's history.
-import { Refusal, effect, After, journal, clock, commit, W } from "./rt.js";
+import { Refusal, effect, After, journal, clock, commit, W, pressFeedback } from "./rt.js";
 import { projectRoots } from "./document.js";
 const say = line => journal.push(`t=${clock.now} ${line}`);
 // A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
@@ -132,17 +132,26 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
  * the web host's own), and a popstate back as the navigation root's
  * `navigate` (LLP 1038 D7, D11). */
 let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
-/** The plan's navigation roots, with a router or without (document.js `projectRoots`). */
-export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate ? (Navigate(location), true) : false, say, After, hostBack); }
+/** The plan's navigation roots, with a router or without (document.js `projectRoots`). A page with one loads the input
+ * piece after first paint: the focus follows its routes (input-glue.js `arrive`; LLP 1115.000 D4.2). */
+export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate ? (Navigate(location), true) : false, say, After, hostBack, hostGo); pressFeedback(); }
 /** The platform's own Back from the selected visit `id`, with no `navigate` handler (LLP 1115 D5): the router's `back`
  * as a commit of its own, the runner's `host_back`. */
 function hostBack(id) { const r = RouterSlot?.n.v; if (r && validRouter(r) && top_(r)[0] === id && depth_(r) > 1) commit(() => W(RouterSlot, back_(r)), "host back"); }
+/** The platform's own navigation to `location`, with no `navigate` handler (LLP 1115.000 D4.3: the browser's Forward, a
+ * link to a declared route): the router's `go` as a commit of its own, the runner's `host_go`; nothing when `go` leaves
+ * the router as it is. */
+function hostGo(location) {
+  const r = RouterSlot?.n.v; if (!r || !validRouter(r) || top_(r)[2] === canonical(location)) return;
+  const next = go_(r, location); if (next !== r) commit(() => W(RouterSlot, next), "host go");
+}
 export function router(slot, history) {
   RouterSlot = slot; navigationRoots(history);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
-  // root's `navigate` handler, as popstate does. A modified click, a
+  // root's `navigate` handler, as popstate does, and with no handler is the
+  // router's own `go` (`hostGo`). A modified click, a
   // `target` or `download`, another origin, this page's fragment or an
   // undeclared path (a file) is the browser's alone.
   document.addEventListener("click", ev => {
@@ -152,10 +161,9 @@ export function router(slot, history) {
     if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) ev.stopPropagation(); return; }
     const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url, m = matchRoute(canonical(to));
     if (url.origin !== location.origin || (here && url.hash) || !m || Routes[m[0]].notfound) return;
-    if (!press && !Navigate) return;
     ev.preventDefault();
     if (press || here) return;
-    const before = RouterSlot.n?.v; Navigate(to); if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
+    const before = RouterSlot.n?.v; if (Navigate) Navigate(to); else hostGo(to); if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
   }, true);
   effect(() => {
     const r = slot(); if (!r || !r[1].length) return;

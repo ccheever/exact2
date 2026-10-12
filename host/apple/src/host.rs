@@ -136,6 +136,7 @@ pub(crate) struct Mirror {
     content: Option<(f32, f32)>,
     flow: Vec<exact_kernel::FlowShape>,
     field_content: Option<exact_kernel::Frame>,
+    field_cell: bool,
 }
 
 /// One runner, one presenter.
@@ -1436,7 +1437,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (id, value) in node.props.iter() {
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             PropValue::Float(f) => style::num(*f as f32),

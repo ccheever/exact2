@@ -108,6 +108,8 @@ struct GroupedListModel: Equatable {
         var subtitle = false
         var accessory = "none"
         var target: UInt32?
+        /// A `radio` row's radio is checked (LLP 1115.000 D13.2).
+        var checked = false
         var pressable = false
         var destructive = false
         var disabled = false
@@ -145,7 +147,7 @@ struct GroupedListModel: Equatable {
                 return Row(view: view, custom: r["custom"] as? Bool ?? false, symbol: r["symbol"] as? String,
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
-                           target: id(r["target"]), pressable: r["pressable"] as? Bool ?? false,
+                           target: id(r["target"]), checked: r["checked"] as? Bool ?? false, pressable: r["pressable"] as? Bool ?? false,
                            destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false,
                            titleLook: Look(json: r["titleLook"]), secondaryLook: Look(json: r["secondaryLook"]))
             }
@@ -236,6 +238,12 @@ final class GroupedListHost: GroupedLists {
     /// button): the agent finds it in UIKit's cell, not the hidden row.
     func draws(_ id: UInt32) -> Bool { list(drawing: id) != nil }
 
+    /// A route's screen is coming back into view: the rows its lists kept
+    /// selected under the screen they pushed let go (LLP 1115.000 D11.3).
+    func appearing(_ route: NodeView, alongside coordinator: UIViewControllerTransitionCoordinator?) {
+        for list in lists.values where list.owner.isDescendant(of: route) { list.deselect(alongside: coordinator) }
+    }
+
     /// The agent's reveal (r5 password generator): a row a list draws, or a
     /// view in a custom row, scrolled to by its cell in the collection view,
     /// as a finger scrolls the list. A row with no cell yet has its views in
@@ -264,7 +272,8 @@ final class GroupedListHost: GroupedLists {
         guard let cell = list.cell(row.view), list.collection.bounds.intersects(cell.frame) else {
             return .refused("its cell is outside the list's port; scroll it into view first")
         }
-        guard row.view != node.id else { return .view(cell, port: list.collection) }
+        // A radio's row is the radio: a finger on the cell checks it.
+        guard row.view != node.id, row.accessory != "radio" else { return .view(cell, port: list.collection) }
         // Never the row in its place: its press is not the control's.
         guard let control = list.accessory(row.view) else {
             return .refused("its \(row.accessory == "toggle" ? "switch" : "detail button") is not shown")
@@ -319,6 +328,9 @@ final class GroupedListHost: GroupedLists {
             guard list.toggle(row.view) else { return ["error": "tap #\(id): the switch is disabled"] }
             return reply
         }
+        if row.view != node.id, row.accessory == "radio" {
+            return list.select(row.view) ? reply : ["error": "tap #\(id): the radio or its row is disabled"]
+        }
         if row.view != node.id {
             guard list.detail(row.view) else { return ["error": "tap #\(id): the detail button is disabled"] }
             return reply
@@ -345,7 +357,7 @@ final class GroupedListHost: GroupedLists {
     }
 
     // LLP 1080.001 D3: what the inspection walk accounts for.
-    func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view } }
+    func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view || $0.owns(skirt: view) } }
     func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scrollView.map { node.isDescendant(of: $0) } ?? false } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
     var carriesRows: Bool { lists.values.contains { !$0.carried.isEmpty } }
@@ -380,6 +392,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// once the row has one, `remeasure` has UIKit measure it anew.
     private var unsized: Set<UInt32> = []
     private var scrollWasHidden = false
+    #if os(iOS)
+    /// The list's background past the viewport's edges (`hem`), and the
+    /// list's colours it was painted from.
+    private var skirt: UIView?
+    private var skirtKey: [[Double]?] = []
+    #endif
+    /// Whether `view` is this list's background past the viewport's edges.
+    func owns(skirt view: UIView) -> Bool {
+        #if os(iOS)
+        return skirt === view
+        #else
+        return false
+        #endif
+    }
 
     init(owner: NodeView, host: GroupedListHost) {
         self.owner = owner; self.host = host
@@ -570,6 +596,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // default would not.
             assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
             assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
+            // A drag puts the keyboard away as it would on the list's own
+            // scroll, which is hidden and never dragged: the keyboard follows
+            // it unless the author said otherwise (LLP 1115.000 D9.1).
+            assign(collection, \.keyboardDismissMode, scroll.keyboardDismissMode)
+            // Pull-to-refresh is on the list that shows (D11.3): the node
+            // moves its control here from the scroll no finger reaches.
+            owner.updateRefresh()
             // A route's bar follows the scroller its `navigationScroll` names;
             // this list is drawn in that scroller's place, so the bar follows
             // the list (a large title over a hidden scroll never showed).
@@ -591,7 +624,54 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #endif
         remeasure()
         if resized { resized = false; collection.collectionViewLayout.invalidateLayout() }
+        #if os(iOS)
+        hem()
+        #endif
     }
+
+    #if os(iOS)
+    /// LLP 1116.004 D2 (chat-rooms, round 6): where the list's box meets an
+    /// edge of a viewport the safe area keeps short of the screen's — a page
+    /// with no navigation container keeps its content inside the safe area —
+    /// the list's background goes on to the screen's edge, under the home
+    /// indicator or the status bar, as a collection view pinned to its view's
+    /// edges draws its grouped background there. The canvas there was the
+    /// root's white under a grey list. Behind the viewport, so only what lies
+    /// past its edges shows. Not while the keyboard ends the viewport (the
+    /// keys cover that edge), nor on a page that scrolls, where the list does
+    /// not stay at the edge.
+    private func hem() {
+        let presenter = host.presenter, viewport = presenter.viewport
+        guard let container = viewport.superview, owner.window != nil, owner.isDescendant(of: viewport),
+              presenter.keyboardInset == 0, viewport.contentSize.height <= viewport.bounds.height + 0.5,
+              viewport.contentSize.width <= viewport.bounds.width + 0.5 else { skirt?.isHidden = true; return }
+        let port = viewport.frame, whole = container.bounds, box = owner.convert(owner.bounds, to: container)
+        let meets = { (a: CGFloat, b: CGFloat) in abs(a - b) < 0.5 }
+        let top = meets(box.minY, port.minY) && port.minY > whole.minY ? whole.minY : box.minY
+        let bottom = meets(box.maxY, port.maxY) && port.maxY < whole.maxY ? whole.maxY : box.maxY
+        let left = meets(box.minX, port.minX) && port.minX > whole.minX ? whole.minX : box.minX
+        let right = meets(box.maxX, port.maxX) && port.maxX < whole.maxX ? whole.maxX : box.maxX
+        let reach = CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        guard reach != box, !owner.isHidden else { skirt?.isHidden = true; return }
+        let view = skirt ?? {
+            let made = UIView()
+            made.isUserInteractionEnabled = false
+            skirt = made
+            return made
+        }()
+        // The list's own background in each appearance: the sheet's grouped grey, or the author's.
+        let sides = [owner.channels("background_color", dark: false), owner.channels("background_color", dark: true)]
+        if sides != skirtKey || view.backgroundColor == nil {
+            skirtKey = sides
+            view.backgroundColor = UIColor { traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? .systemGroupedBackground }
+        }
+        if view.superview !== container || container.subviews.firstIndex(of: view).map({ $0 > (container.subviews.firstIndex(of: viewport) ?? 0) }) == true {
+            container.insertSubview(view, belowSubview: viewport)
+        }
+        assign(view, \.frame, reach)
+        assign(view, \.isHidden, false)
+    }
+    #endif
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
@@ -678,7 +758,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         c.image = row.symbol.flatMap { UIImage(systemName: $0) }
         // The symbol's tint as the sheet draws it (D7): the author's over the
         // sheet's own, each side of a light-dark() pair for its appearance.
-        if let value = symbolView(of: id)?.style["tint_color"] {
+        // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
+        // tint, which an authored accent-color sets (LLP 1116.004 D2).
+        if let symbol = symbolView(of: id), let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
             c.imageProperties.tintColor = UIColor { traits in
                 value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
             }
@@ -708,6 +790,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         switch row.accessory {
         case "disclosure": return [.disclosureIndicator()]
         case "checkmark": return [.checkmark()]
+        // A radio is the chosen row's checkmark, as a list of choices in
+        // Settings has it (LLP 1115.000 D13.2); UIKit has no radio.
+        case "radio": return row.checked ? [.checkmark()] : []
         case "detail":
             let id = row.view
             return [.detail(displayed: .always) { [weak self] in _ = self?.detail(id) }]
@@ -871,8 +956,17 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func remove() {
         restore()
+        #if os(iOS)
+        skirt?.removeFromSuperview()
+        #endif
         collection.removeFromSuperview()
         owner.scrollView?.isHidden = scrollWasHidden
+        // Its refresh control goes with it; a list that stays, as a plain
+        // scroller now, takes one of its own.
+        #if !os(tvOS)
+        collection.refreshControl = nil
+        #endif
+        if host.lists[owner.id] !== self { owner.updateRefresh() }
     }
 
     /// A tap: UIKit's highlight, then the row's press.
@@ -887,11 +981,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         source.itemIdentifier(for: path).map(pressable) ?? false
     }
 
-    /// Whether a tap presses the row: a button, not disabled, not inert
-    /// (its node or an ancestor, the section included).
+    /// Whether a tap presses the row: a button, or a radio's row, not
+    /// disabled, not inert (its node or an ancestor, the section included).
     private func pressable(_ id: UInt32) -> Bool {
-        guard let row = rows[id], row.pressable, !row.disabled, let node = host.presenter.views[id] else { return false }
+        guard let row = rows[id], row.pressable || radio(row) != nil, !row.disabled, let node = host.presenter.views[id] else { return false }
         return !(carried[id]?.inert ?? node.inert)
+    }
+    /// The radio a row's tap checks, unless it is disabled or inert.
+    private func radio(_ row: GroupedListModel.Row) -> UInt32? {
+        guard row.accessory == "radio", let target = row.target, let node = host.presenter.views[target], !node.disabled, !node.inert else { return nil }
+        return target
     }
 
     /// An inert row's cell takes no touch and is no element, as its node.
@@ -924,11 +1023,45 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     func collectionView(_ view: UICollectionView, shouldSelectItemAt path: IndexPath) -> Bool {
         collectionView(view, shouldHighlightItemAt: path)
     }
+    /// A tapped row stays selected while its press runs and, when the press
+    /// pushed a screen over the list's, under that screen: it fades as the
+    /// reader comes back (`deselect`), as a table view's row does
+    /// (`clearsSelectionOnViewWillAppear`; LLP 1115.000 D11.3). A row that
+    /// pushed nothing, or opened a sheet, lets go once its press has run.
     func collectionView(_ view: UICollectionView, didSelectItemAt path: IndexPath) {
-        view.deselectItem(at: path, animated: !ExactEnv.agentFreezes)
-        guard let id = source.itemIdentifier(for: path), pressable(id) else { return }
+        let letGo = { for selected in view.indexPathsForSelectedItems ?? [] { view.deselectItem(at: selected, animated: !ExactEnv.agentFreezes) } }
+        guard let id = source.itemIdentifier(for: path), pressable(id) else { return letGo() }
         host.presenter.viewportScroll.endEditing(true)
+        // The screen the list is on, read before the press can change it.
+        let screen = sequence(first: owner as UIResponder, next: { $0.next }).lazy.compactMap { $0 as? UIViewController }.first
+        // A radio's row checks its radio, as a click on the radio does:
+        // `input` and `change` carry its value, and the checkmark follows
+        // the bound `checked` (LLP 1115.000 D13.2).
+        if let row = rows[id], let target = radio(row) { host.presenter.checkRadio(target) }
+        guard rows[id]?.pressable == true else { return letGo() }
         host.presenter.press(id)
+        if let screen, let stack = screen.navigationController, stack.viewControllers.contains(screen), stack.topViewController !== screen { return }
+        letGo()
+    }
+
+    /// The list's screen is coming back into view: its selected rows fade
+    /// with the transition, so the fade follows a back swipe's finger, and a
+    /// swipe let go of early leaves the row selected under the screen that
+    /// stayed. With no transition, at once.
+    func deselect(alongside coordinator: UIViewControllerTransitionCoordinator?) {
+        let paths = collection.indexPathsForSelectedItems ?? []
+        guard !paths.isEmpty else { return }
+        guard let coordinator, !ExactEnv.agentFreezes else {
+            for path in paths { collection.deselectItem(at: path, animated: false) }
+            return
+        }
+        let list = collection
+        coordinator.animate(alongsideTransition: { _ in
+            for path in paths { list.deselectItem(at: path, animated: true) }
+        }, completion: { context in
+            guard context.isCancelled else { return }
+            for path in paths { list.selectItem(at: path, animated: false, scrollPosition: []) }
+        })
     }
 }
 
@@ -953,6 +1086,13 @@ extension UICollectionViewListCell {
 final class GroupedCell: UICollectionViewListCell {
     var row: UInt32?
     var height: CGFloat?
+    #if os(iOS)
+    /// A touch its row leaves to no control goes to the row's one field: the
+    /// cell is the field (LLP 1116.005 D2).
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        NodeView.cellField(in: self, hit: super.hitTest(point, with: event))
+    }
+    #endif
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         guard let height else { return super.preferredLayoutAttributesFitting(attributes) }
         let fitted = attributes.copy() as! UICollectionViewLayoutAttributes

@@ -285,7 +285,36 @@ extension NavigationHost {
         guard let root = container, let tabs = NavigationTabs.of(root, presenter),
               let panel = tabNavigations.first(where: { $0.value === controller })?.key,
               let index = tabs.panels.firstIndex(where: { $0.id == panel }) else { return }
-        _ = act(tabs.tabs[index].id, 0)
+        let screen = reselectedRoot(index), id = tabs.tabs[index].id
+        _ = act(id, 0)
+        // After the tab's own press, which is queued: a batch applied under
+        // a running scroll would cut it short.
+        if let screen { presenter.elements.later(id, "scroll to top") { [weak self, weak screen] in if let screen { self?.scrollToTop(screen) } } }
+    }
+
+    /// The screen a tap on the bar's item for tab `index` scrolls to its
+    /// top: the selected tab's, tapped again at its stack's root with
+    /// nothing presented over it, as every tab bar app does (LLP 1115.000
+    /// D11.3). Above the root the tap pops to it, which is the router's
+    /// (LLP 1038 D12), and another tab's tap selects it: nil for both. Read
+    /// before the tab's press, scrolled after it (`scrollToTop`).
+    func reselectedRoot(_ index: Int) -> RouteController? {
+        guard index == routerTab, tabPanels.indices.contains(index), let stack = tabNavigations[tabPanels[index]],
+              stack.viewControllers.count == 1, presentedNavigations.isEmpty else { return nil }
+        return stack.topViewController as? RouteController
+    }
+
+    /// A route's content scroller (`contentScroller`, the status bar's) to
+    /// its top, as the status bar's tap takes it: animated, and to where a
+    /// large title is expanded, which UIKit opens as the offset arrives.
+    /// Unanimated (the agent's frozen clock), it lands at its top with the
+    /// title expanded, as a new screen opens (`rest`).
+    func scrollToTop(_ c: RouteController) {
+        guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
+        guard sv.contentOffset.y > 0.5 - sv.adjustedContentInset.top else { return }
+        guard scrollsToTopAnimated else { return rest(sv, in: c) }
+        let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
+        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
     }
 
     /// What holds the tabs goes: its stacks are retired, the authored

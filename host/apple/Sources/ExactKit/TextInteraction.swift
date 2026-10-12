@@ -8,12 +8,22 @@ import UIKit
 
 extension Presenter {
     func hoverInline(_ id: UInt32?) {
+        inlineHoverTransition &+= 1
+        let generation = inlineHoverTransition
         let next = id.flatMap { inlineEnabled($0) ? $0 : nil }
         guard next != hoveredInline else { return }
-        if let old = hoveredInline, inlineText(old) != nil { onHover?(old, false) }
-        hoveredInline = next
-        if let next {
+        let old = hoveredInline
+        hoveredInline = nil
+        if let old, inlineText(old) != nil { onHover?(old, false) }
+        // Only an admitted enter is hovered. A boundary callback that installs
+        // another hit path supersedes this transition, including an empty one.
+        guard inlineHoverTransition == generation else { return }
+        if let next, inlineEnabled(next) {
+            #if !os(macOS)
             if let old = hovered { hover(old, false) }
+            #endif
+            guard inlineHoverTransition == generation else { return }
+            hoveredInline = next
             onHover?(next, true)
         }
     }
@@ -52,6 +62,10 @@ extension NodeView {
         if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) { return level }
         return props["accessibilityRole"] == "heading" ? 2 : nil
     }
+    /// A heading by its role, which is what the iOS bar takes for a route's
+    /// title: an `aria-level` with no `role="heading"` is not one there (LLP
+    /// 1115.000 D12.5), as it has no heading style on any host.
+    var isHeading: Bool { isParagraph && props["accessibilityRole"] == "heading" }
     func updateTextAccessibility() {
         guard isParagraph else { return }
         let label = props["accessibilityLabel"] ?? visibleParagraphText
@@ -113,7 +127,16 @@ extension NodeView {
         #endif
     }
     private var interactiveRuns: [InlineText] {
-        inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
+        inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil || ownsMenu($0)) }
+    }
+    /// A run with its own `contextPopover` is an element on macOS, whose
+    /// show menu opens it (X77), as one with its own `contextmenu` is.
+    private func ownsMenu(_ run: InlineText) -> Bool {
+        #if os(macOS)
+        return run.props["contextPopover"]?.isEmpty == false
+        #else
+        return false
+        #endif
     }
     private func inlineElements() -> [InlineAccessibility] {
         let interactive = interactiveRuns
@@ -200,6 +223,11 @@ private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
         return rect.isNull ? .zero : window.convertToScreen(owner.convert(rect, to: nil))
     }
     override func accessibilityPerformPress() -> Bool { owner?.activateInline(id) ?? false }
+    // VoiceOver's show menu: the run's own `contextmenu`, offered only when it has one (X84).
+    override func accessibilityPerformShowMenu() -> Bool { owner?.inlineContextMenu(id) ?? false }
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        selector == #selector(accessibilityPerformShowMenu) ? owner?.inlineAnswersContextMenu(id) == true : super.isAccessibilitySelectorAllowed(selector)
+    }
 }
 #else
 private final class InlineAccessibility: UIAccessibilityElement, AgentOwned {

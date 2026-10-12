@@ -109,6 +109,9 @@ component Reader
   state cur = 0
   // The tree's filter, a search over every document's text.
   state filter = ""
+  // Initialize on first use. The virtual list keeps its position while
+  // hidden, and the terminal releases its row views until it is shown.
+  state treeLoaded = false
   // The documents opened before this one, newest first: `b` goes back.
   state history = []
 
@@ -214,6 +217,13 @@ component Reader
   action quit
     close()
   action openTree
+    treeLoaded = true
+    if filter == ""
+      match at(index.entries, here)
+        case some(e)
+          scrollIntoView("tree-list", e.id, block="nearest")
+        case none
+          treeLoaded = true
     showModal("tree")
   action openOutline
     showModal("outline")
@@ -270,11 +280,11 @@ component Reader
         row gap="2ch" flex-shrink=0
           text (index.project != "" ? `Documents — ${index.project}` : "Documents") font-weight=700 color="#87afff"
           text (filter == "" ? `${index.total}` : `${index.shown} of ${index.total} contain “${filter}”`) color="#8a8a8a" margin-left="auto"
-        row gap="1ch" flex-shrink=0
+        row gap="1ch" flex-shrink=0 margin-bottom="1lh"
           text "/" color="#ffd700" flex-shrink=0
           input value=filter input=setFilter submit=firstMatch aria-keyshortcuts="/" placeholder="filter: number, title or any text — ↓ to the list" flex-grow=1 testId="tree-filter"
-        scroll flex=1 min-height=0 margin-top="1lh" testId="tree-list"
-          each e, i in index.entries key=e.id
+        list id="tree-list" virtualized=true estimated-item-height=16 flex=1 min-height=0 testId="tree-list"
+          each e, i in (treeLoaded ? index.entries : []) key=e.id
             button press=pick(e.path) commandfor="tree" command="close" autofocus=(filter == "" and i == here) text-align="start" width="100%" testId=`tree-${label(e)}`
               row width="100%" gap="1ch" padding-right="1ch" box-sizing="border-box"
                 text label(e) width="14ch" box-sizing="border-box" flex-shrink=0 padding-left=`${e.depth * 2}ch` color=(e.current ? "#ffaf5f" : "#8a8a8a") font-weight=(e.current ? 700 : 400)

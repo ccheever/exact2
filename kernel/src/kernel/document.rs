@@ -95,7 +95,7 @@ impl Kernel {
         {
             self.region = None;
         }
-        self.receipts.push_back(receipt.clone());
+        self.receipts.push_back(RetainedReceipt::new(&receipt));
         Ok(receipt)
     }
 }

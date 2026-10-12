@@ -157,6 +157,8 @@ pub struct Deps {
     pub(crate) subjects: Vec<Reads>,
     /// A region's key, relative to the row (bit 0 is the item).
     pub(crate) keys: Vec<Reads>,
+    /// Exactly the innermost row's position; identities survive item changes.
+    pub(crate) index_keys: Vec<bool>,
     /// A region's arms' sites, relative to the row or arm frame.
     pub(crate) bodies: Vec<Reads>,
     /// Subject, key and body, relative to the region.
@@ -196,6 +198,11 @@ impl Deps {
             nodes: vec![Reads::default(); plan.nodes.len()],
             subjects: plan.regions.iter().map(|r| scan(r.subject)).collect(),
             keys: plan.regions.iter().map(|r| scan(r.key)).collect(),
+            index_keys: plan
+                .regions
+                .iter()
+                .map(|r| is_index_key(plan.code(r.key)))
+                .collect(),
             bodies: vec![Reads::default(); plan.regions.len()],
             regions: vec![Reads::default(); plan.regions.len()],
             derives: plan.derives.iter().map(|d| scan(d.body)).collect(),
@@ -359,6 +366,13 @@ fn empty(layout: Layout) -> Reads {
         bits: Bits::new(layout.width()),
         ..Reads::default()
     }
+}
+
+fn is_index_key(code: &[u8]) -> bool {
+    let mut code = vm::instructions(code);
+    matches!(code.next(), Some(Ok(i)) if i.op == Opcode::LoadIndex && i.args[0] == 0)
+        && matches!(code.next(), Some(Ok(i)) if i.op == Opcode::Return)
+        && code.next().is_none()
 }
 
 fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {

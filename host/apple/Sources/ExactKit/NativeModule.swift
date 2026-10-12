@@ -528,10 +528,17 @@ final class NativeViews {
     }
 
     /// Where the module keeps its files: the app's roots, as the runtime
-    /// configures storage; under the agent, a scratch tree of this process.
-    private static func roots(session: ExactSession) -> (data: String, cache: String, temporary: String) {
+    /// configures storage, including a named agent store. An unnamed drive
+    /// gets a process-local tree. Temporary files survive named relaunches,
+    /// except the picker's separately managed `picked` directory.
+    static func roots(session: ExactSession, agent: Bool = ExactEnv.agentMode,
+                      namedStore: String? = ExactEnv.environment["EXACT_AGENT_STORAGE"]) -> (data: String, cache: String, temporary: String) {
+        if (!agent || namedStore != nil), let data = session.appFileRoots["data"], let cache = session.appFileRoots["cache"],
+           let temporary = session.appFileRoots["tmp"] {
+            return (data, cache, temporary)
+        }
         let id = Bundle.main.bundleIdentifier ?? "app"
-        if ExactEnv.agentMode {
+        if agent {
             let base = (NSTemporaryDirectory() as NSString).appendingPathComponent("exact-agent-\(getpid())-\(session.runtime.rt)")
             return (base + "/data", base + "/cache", base + "/temporary")
         }

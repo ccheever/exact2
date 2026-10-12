@@ -1,5 +1,7 @@
 //! The commands a commit issues (LLP 1005 §3), run after it: what this
-//! host has, and the rest named as unsupported.
+//! host has, and the rest named as unsupported. What asks the platform for
+//! something (a haptic, the clipboard, a link out, the share sheet) is asked
+//! of the host's shell where it has one (`requests.rs`, LLP 1115.001 D5).
 
 use super::Presenter;
 use crate::host::HostError;
@@ -25,22 +27,23 @@ impl<D: DataSource> Presenter<D> {
                     Some(v) if v.as_str() == Some("light") => Some(false),
                     _ => None,
                 }),
-                // No haptic engine here (LLP 1077 D14): nothing to feel.
-                "haptic" => {}
+                // The shell's haptic engine (LLP 1077 D14); desktop Linux has
+                // none, and there is nothing to feel there.
+                "haptic" => {
+                    let kind = c.args.first().and_then(exact_plan::Value::as_str);
+                    self.haptic(kind.unwrap_or_default());
+                }
                 // The runner's own (LLP 1096 D9): its table is the record; no output here.
                 "playSound" | "playSounds" | "stopSounds" => {}
                 // The runner's own too: it laid out at the app's root font size (LLP 1069.000 D3).
                 "setRootFontSize" => {}
                 // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
                 "preventDefault" | "stopPropagation" => {}
-                // No share sheet here: refused into the journal, or held for
-                // the agent like every host (LLP 1069.003 D6).
-                "share" => {
-                    let share = exact_runner::share::Share::from_args(&c.args);
-                    let runner = self.host.runner_mut();
-                    exact_runner::share::arm(runner, share, c.source, self.agent, false);
-                }
-                // No notification centre here: refused, or listed for the agent.
+                // The shell's share sheet; with no shell, refused into the
+                // journal. Held for the agent like every host (LLP 1069.003 D6).
+                "share" => self.share(&c.args, c.source),
+                // No request carries a notification yet: refused, or listed
+                // for the agent.
                 "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
                 "blur" => self.blur_command(&c.args),
                 "focus" => {
@@ -81,8 +84,17 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
-                // No clipboard, browser, editor, dev menu or window to close
-                // here, and no media player (LLP 1042 §8): known, and named so.
+                // The top layer, where a shell presents one (LLP 1115 D6;
+                // LLP 1115.001 D10): a confirmation by its `id`, and its
+                // close. With none, both stay as they were below.
+                "showModal" if self.has_windows() => self.show_modal(&c.args, c.source),
+                "close" if self.has_windows() && !c.args.is_empty() => self.close_modal(&c.args),
+                // The shell's clipboard, and its browser, mail app and dialer.
+                "copyText" if self.has_shell() => self.copy_text(&c.args),
+                "openURL" if self.has_shell() => self.open_url(&c.args),
+                // With no shell there is no clipboard or browser; and no
+                // editor, dev menu or window to close on any Linux host, and
+                // no media player (LLP 1042 §8): known, and named so.
                 name @ ("copyText" | "openURL" | "format" | "reload" | "close" | "fastSeek"
                 | "load") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")

@@ -476,8 +476,10 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
   }, { html, files });
 }, 60000);
 
-// LLP 1069.011.001 D5/D6/D16: the shipped shell isolates button layout,
-// truncates only the requested titles, and keeps authored disabled colours.
+// LLP 1069.011.001 D5/D6: the shipped shell isolates button layout and
+// truncates only the requested titles. LLP 1116.005 D8 (superseding D16's
+// kept accent on the web): a disabled button is the disabled look whatever
+// its accent, a glass its own material (form-chrome.test.mjs has the rest).
 for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
   const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
   const button = (id, style = '', extra = '') => `<button id="${id}" data-native data-button-style="${id === 'plain-accent' ? 'plain' : id === 'glass-accent' ? 'glass' : id === 'clear-glass-accent' ? 'clear-glass' : 'filled'}" style="display:grid;width:120px;${style}" ${extra}><span data-exact-text>A native title long enough to wrap onto several lines</span></button>`;
@@ -509,12 +511,15 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
       expect(facts.floor.width).toBeGreaterThan(40);
       expect(facts.floor.scroll).toBeLessThanOrEqual(facts.floor.width);
     }
-    if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
-    if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
-    if (concern === 'disabled plain accent') expect(facts['plain-accent'].color).toBe('rgb(255, 0, 0)');
+    if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('rgba(255, 255, 255, 0.7)');
+    if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('rgba(255, 255, 255, 0.15)');
+    if (concern === 'disabled plain accent') {
+      expect(facts['plain-accent'].color).not.toBe('rgb(255, 0, 0)');
+      expect(facts['plain-accent'].color).toBe(facts['default-off'].color);
+    }
     if (concern === 'disabled accent') {
-      expect(facts.authored.background).toBe('rgb(255, 0, 0)');
-      expect(facts['default-off'].background).not.toBe(facts.authored.background);
+      expect(facts.authored.background).toBe('rgba(118, 118, 128, 0.12)');
+      expect(facts['default-off'].background).toBe(facts.authored.background);
     }
   }, {html});
 });
@@ -578,6 +583,41 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
     expect(tint.dark).toBe('rgb(181, 164, 255)');
     expect(tint.authored).toBe('rgb(255, 0, 0)');
     expect(tint.unsaid).toBe(tint.system);
+  }, {html});
+});
+
+// LLP 1115.000 D3.8: an SVG shape nobody filled is its text's colour, where
+// the browser's own initial `fill` is black. The page's sheet says it on the
+// outermost `svg`, so a `fill` on a shape or on a group wins and reaches a
+// nested `svg` below the group; `currentcolor` is each element's own colour;
+// a gradient's stop and a filter's flood stay SVG's black.
+browserCheck('an unsaid SVG fill is the text colour', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const rect = (id, css = '') => `<rect id="${id}" width="4" height="4"${css ? ` style="${css}"` : ''}/>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color:rgb(10, 20, 30)">
+    <svg id="root" viewBox="0 0 20 20" style="width:20px;height:20px">${rect('unsaid')}${rect('own', 'fill:rgb(255, 0, 0)')}
+      <g style="fill:rgb(0, 128, 0)">${rect('group')}<svg>${rect('nested')}</svg></g>
+      <g style="color:rgb(1, 2, 3)">${rect('recoloured')}<svg>${rect('nested-colour')}</svg></g>
+      <g style="fill:none">${rect('none')}</g>
+      <linearGradient><stop id="stop"/></linearGradient><filter><feFlood id="flood"/></filter>
+    </svg></div><svg id="plain" viewBox="0 0 4 4" style="width:4px;height:4px">${rect('page')}</svg><span id="ink">ink</span></div>`)
+    .replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'svg fixture');
+    const of = (id, property = 'fill') => `[${JSON.stringify(id)}, getComputedStyle(document.getElementById(${JSON.stringify(id)}))[${JSON.stringify(property)}]]`;
+    const got = await page(`Object.fromEntries([${['unsaid', 'own', 'group', 'nested', 'recoloured', 'nested-colour', 'none', 'page'].map((id) => of(id)).join(',')},
+      ${of('stop', 'stopColor')}, ${of('flood', 'floodColor')}, ${of('ink', 'color')}])`);
+    expect(got.unsaid).toBe('rgb(10, 20, 30)');
+    expect(got.own).toBe('rgb(255, 0, 0)');
+    expect(got.group).toBe('rgb(0, 128, 0)');
+    expect(got.nested).toBe('rgb(0, 128, 0)'); // a nested svg does not end the group's fill
+    expect(got.recoloured).toBe('rgb(1, 2, 3)');
+    expect(got['nested-colour']).toBe('rgb(1, 2, 3)');
+    expect(got.none).toBe('none');
+    expect(got.page).toBe(got.ink); // no colour written: the page's own text colour
+    expect(got.stop).toBe('rgb(0, 0, 0)');
+    expect(got.flood).toBe('rgb(0, 0, 0)');
   }, {html});
 });
 

@@ -524,9 +524,10 @@ fn boxed(k: &mut Kernel, id: u32, width: f32, height: f32, fit: exact_kernel::Ob
     let mut style = StyleProps {
         width: Dimension::Points(width),
         height: Dimension::Points(height),
-        object_fit: fit,
         ..Default::default()
     };
+    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+    style.object_fit = fit;
     for row in [StyleId::Width, StyleId::Height, StyleId::ObjectFit] {
         style.mask.set(row);
     }

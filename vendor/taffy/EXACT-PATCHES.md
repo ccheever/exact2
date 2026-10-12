@@ -986,3 +986,33 @@ item, against Chrome, and under a larger `min-height`),
 flex item, against Chrome) and
 `kernel::layout::memo_tests::a_replayed_row_s_columns_are_cut_by_its_recorded_height_bounds`
 (List rows replayed after the first).
+
+## Patch 31: allocate tree-owned layout caches when first used
+
+`NodeData` holds a pointer to a cache, allocated only when `Cache::store`
+keeps a result. A node that has never laid out carries no nine-entry cache:
+Exact's inline text runs are engine nodes, but their paragraph is measured
+as one box. Clearing a populated cache retains its allocation for reuse on
+later edits. Hidden-layout and collapsing-margin answers that the existing
+cache declines to store allocate nothing. Cache keys, eviction, invalidation,
+replay, and the public `Cache` type are unchanged.
+
+**Held by** `tree::cache::tests::lazy_storage_preserves_cache_answers_and_clear_state`
+(the same query/store/clear sequence against the existing cache, including
+axis, parent-height, sizing-mode, margin and hidden-layout differences) and
+`lazy_storage_allocates_only_for_a_cached_result_and_reuses_it` (misses,
+refused entries, invalidation, clone independence and allocation reuse).
+The kernel's layout, replay, reparenting and fresh-tree differential tests
+also run against this storage. The stale `Style` size assertions now include
+the vendored extension rows: 600 bytes with `String`, 568 with `Arc<str>` on
+the tested 64-bit host; this patch changes neither style layout nor its size.
+
+## Patch 32: release node contexts with their primary nodes
+
+`TaffyTree::remove` and `TaffyTree::clear` remove the matching
+`node_context_data` entries as well as the primary node slots. A secondary map
+owns its values independently, so leaving these entries behind retained Exact's
+measurement and flow vectors until physical slot reuse or tree destruction and
+allowed stale node keys to retrieve removed contexts. Focused drop-counter
+tests cover immediate and exactly-once destruction, replacement, physical slot
+reuse, stale-key absence, and preservation of an unrelated survivor context.
