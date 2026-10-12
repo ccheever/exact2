@@ -1,13 +1,11 @@
 // @ref LLP 1038 D6/D7/D11 — host projection and the last committed URL.
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
-let last = null;
-let refused = new WeakMap();
+let last = null, refused = new WeakMap();
 // The tabpanels each root last hid or showed (one it stops naming shows again); the keys of the stack it last showed.
 let managed = new WeakMap(), shown = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
-const queue = [];
-const waiters = new Set();
+const queue = [], waiters = new Set();
 let root, navigate, log, hostBack;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own
@@ -90,6 +88,16 @@ const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("n
 // route beneath's title while it is short, else "Back".
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
+// @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
+// (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
+// puts in the bar), else the app's name. Read again after every projection.
+const titleOf = route => headerOf(route)?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
+let saidTitle = null, appName = null;
+export function pageTitle(said = saidTitle) {
+  saidTitle = said; appName ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
+  const nav = root?.querySelector("[navigationBack]"), title = said ?? ((nav && titleOf(selectedRoute(nav))) || appName);
+  if (document.title !== title) document.title = title;
+}
 function appBarBack(nav, routes, index, split = false) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
@@ -107,7 +115,7 @@ function appBarBack(nav, routes, index, split = false) {
     button = header.shadowRoot.querySelector("button");
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header); });
   }
-  const title = control ? control.textContent.trim() : headerOf(routes[index - 1])?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
+  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]);
   const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
   button.hidden = false; button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
@@ -218,13 +226,7 @@ function popped({ j, state, url }) {
 function drain() {
   if (draining || echo !== null) return;
   draining = true;
-  try {
-    while (queue.length && echo === null) {
-      const item = queue.shift();
-      if (item.op) commit(item.op);
-      else popped(item);
-    }
-  } finally { draining = false; }
+  try { for (let item; queue.length && echo === null;) { item = queue.shift(); if (item.op) commit(item.op); else popped(item); } } finally { draining = false; }
 }
 
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
@@ -340,7 +342,7 @@ export const navigation = {
       }
     }
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
-    globalThis.exact?.onProject?.(root);
+    globalThis.exact?.onProject?.(root); pageTitle();
   },
   observation(root) {
     const nav = root.querySelector("[navigationBack]");

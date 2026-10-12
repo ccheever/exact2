@@ -146,7 +146,7 @@ check('a block link of text is in the accent and points; the author\'s look wins
 // (`navigationKey="items"`), over a stand-in runner: each visit a route, each change the router's op, the runner's own
 // `back` (`host back`) popping the selected top, and a `navigate` handler, when heard, `go` to the location. With
 // `byVisit` the root names the visit at the stack's root too (`${top(nav).id}`), which no route carries.
-const keyed = page.match(/<style>[\s\S]*?<\/style>/)[0] + `
+const keyed = '<title>Starter</title>' + page.match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root"><main id="nav" navigationKey="items" navigationBack="back" style="display:block">
   <div navigationKey="items"><header><h1>Items</h1></header></div>
 </main></div>
@@ -192,6 +192,19 @@ check('the browser\'s Back with no navigate handler is the runner\'s own back, h
   expect(await evaluate(`push(3, '/add', true); back()`)).toEqual([['navigate /', 'pressed 3'], '/', 1]);
   expect(await evaluate(`push(4, '/add', true); document.querySelector('[navigationKey="4"] #back').disabled = true; back(2)`))
     .toEqual([['navigate /', 'log history: Back refused: its id="back" control is disabled, inert or not shown; restoring the entry'], '/add', 2]);
+}, keyed), 30000);
+
+check('the page\'s title follows the route: the head\'s, else the route header\'s heading, else the app\'s name', () => inChrome(async (evaluate) => {
+  // LLP 1115.000 D4.1. The selected route's header's heading, at the root, on a pushed route and on a sheet; back again.
+  expect(await evaluate('document.title')).toBe('Items');
+  expect(await evaluate(`push(1, '/item/1'); document.title`)).toBe('/item/1');
+  expect(await evaluate(`push(2, '/add', true); document.title`)).toBe('New');
+  expect(await evaluate(`pop(); pop(); document.title`)).toBe('Items');
+  // A route whose header has no heading is the app's name: the page's own title, before any route's.
+  expect(await evaluate(`push(3, '/bare'); document.querySelector('[navigationKey="3"] h2').remove(); show([]); document.title`)).toBe('Starter');
+  // An authored head's title wins on every route, as each target's head writer passes it; without it the route's is back.
+  expect(await evaluate(`(async () => { const { pageTitle } = await import('./navigation.js'); pageTitle('From the head'); const said = [document.title]; pop(); said.push(document.title); pageTitle(null); return [...said, document.title]; })()`))
+    .toEqual(['From the head', 'From the head', 'Items']);
 }, keyed), 30000);
 
 check('a closed sheet or a popped screen leaves the route beneath it live when the root names no route there', () => inChrome(async (evaluate) => {
