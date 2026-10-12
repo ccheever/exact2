@@ -657,12 +657,37 @@ extension NavigationHost {
             let shown = shownScroll(target)
             let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
             for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always }
+            let left = c.contentScrollView(for: .top)
             c.setContentScrollView(shown, for: .top)
+            if let left, left !== shown, left.window != nil { retitle(c) }
             if atStart, let sv = shown { rest(sv, in: c) }
         }
         if unmountedList(target) { presenter.afterBatch(attach) } else { attach() }
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    /// UIKit moves a large title into the content scroll view it follows and
+    /// takes it back only when that one leaves the window: handed another, or
+    /// none, while the old one stays (chat-rooms' rooms list, moved below a
+    /// failed load's reason), it left the title in the old one, at that one's
+    /// top, clipped from sight: a blank band under the bar (LLP 1116.005 D4).
+    /// The title made again goes where UIKit now looks, the new scroller or
+    /// the bar itself. One turn, unanimated: no frame shows the inline title
+    /// between, and the covers it moves are reported once, after.
+    private func retitle(_ c: RouteController) {
+        // tvOS has no large titles.
+        #if !os(tvOS)
+        let item = c.navigationItem
+        guard item.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil, let nav = c.navigationController,
+              nav.topViewController === c, nav.transitionCoordinator == nil, !nav.isNavigationBarHidden else { return }
+        UIView.performWithoutAnimation {
+            item.largeTitleDisplayMode = .never
+            nav.navigationBar.layoutIfNeeded()
+            item.largeTitleDisplayMode = .always
+            nav.navigationBar.layoutIfNeeded()
+        }
+        #endif
     }
 
     /// A route's new collapsing scroller at its start (`collapse`): its
