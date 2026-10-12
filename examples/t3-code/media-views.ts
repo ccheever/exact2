@@ -15,7 +15,7 @@ import { assetUrl } from './settings-b-icons';
 import { wakeShell } from './r10-connect-timing';
 import { revisedUrl } from './r10-device-files-html';
 import { mediaFileReference, mediaUrlReference } from './media-reference';
-import { classifyMarkdownImageSource, isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaKindFromPath, normalizeMarkdownLinkDestination } from './media-source';
+import { classifyMarkdownImageSource, isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, markdownImageSourceFragment, mediaKindFromPath, normalizeMarkdownLinkDestination } from './media-source';
 import { encodeMediaSource, externalWebLinkHost, mediaTooltip, openMediaLink, resolveProtocolRelativeMediaUrl, showMediaMenu, type MediaActionSource } from './media-actions';
 import { letGo } from './let-go';
 
@@ -110,13 +110,18 @@ export function markdownImageHref(src: string): string {
   const href = markdownLinkHref(src);
   return href === NO_HREF || href.startsWith('#') ? '' : href;
 }
-/** The image lines of a message, as markdown.rs reads them (src trimmed and cut at a title's quote). */
+/**
+ * The image lines of a message, as markdown.rs reads them (src trimmed and cut at a title's quote): one image spanning
+ * the line (markdown_media.rs sole_image_line). A line of several images (a badge row) or an image and text is inline.
+ */
 export function markdownImages(text: string): { alt: string; src: string; href: string }[] {
   if (!text.includes('![')) return [];
   const out: { alt: string; src: string; href: string }[] = [];
   for (const line of text.split('\n')) {
-    const match = IMAGE_LINE.exec(line.trim());
+    const trimmed = line.trim(), match = IMAGE_LINE.exec(trimmed);
     if (!match) continue;
+    const span = imageSpan(trimmed, 0);
+    if (span && span.end !== trimmed.length - 1) continue;
     let src = match[2]!.trim();
     const cut = src.search(/["']/);
     if (cut >= 0) src = src.slice(0, cut).trim();
@@ -125,53 +130,154 @@ export function markdownImages(text: string): { alt: string; src: string; href: 
   }
   return out;
 }
-export type MarkdownMedia = { href: string; kind: 'image' | 'video'; alt: string; access: 'direct' | 'environment' | 'blocked'; key: string; source: MediaActionSource | null; originalUrl: string };
-/** ChatMarkdown's `img` renderer for one image line: where its bytes load from and its actions. */
-export function markdownMedia(alt: string, src: string, href: string, root: string): MarkdownMedia {
+/** markdown_parse's inline `target`: the destination trimmed, cut at a title's quote, its angle brackets dropped. */
+function inlineTarget(inside: string): string {
+  let target = inside.trim();
+  const cut = target.search(/["']/);
+  if (cut >= 0) target = target.slice(0, cut).trim();
+  return target.replace(/^<+/, '').replace(/>+$/, '');
+}
+/** `![alt](inside)` at `at`: the `]` and the `)` that close it (markdown_media.rs image_span). */
+function imageSpan(line: string, at: number): { close: number; end: number } | null {
+  const close = line.indexOf(']', at + 2);
+  if (close < 0 || line[close + 1] !== '(') return null;
+  let depth = 0;
+  for (let index = close + 1; index < line.length; index++) {
+    if (line[index] === '(') depth++;
+    else if (line[index] === ')' && --depth === 0) return { close, end: index };
+  }
+  return null;
+}
+const leading = (text: string, marker: string) => { let count = 0; while (text[count] === marker) count++; return count; };
+/** r4_timeline_tables.rs table_lines: a pipe table's lines (a piped line over a `| --- |` rule, then its piped lines). */
+function tableLines(lines: string[]): boolean[] {
+  const rule = (line: string) => { const trimmed = line.trim(); return trimmed.includes('|') && trimmed.includes('-') && /^[|\-: \t]*$/.test(trimmed); };
+  const table = lines.map(() => false);
+  for (let index = 0; index < lines.length;) {
+    if (!lines[index]!.includes('|') || index + 1 >= lines.length || !rule(lines[index + 1]!)) { index++; continue; }
+    let end = index + 2;
+    while (end < lines.length && lines[end]!.includes('|') && lines[end]!.trim()) end++;
+    table.fill(true, index, end);
+    index = end;
+  }
+  return table;
+}
+/** The run href of an image inside a line of text (markdown_media.rs IMAGE_MARK). */
+export const INLINE_IMAGE = 't3-image:';
+/**
+ * media-signed-urls-and-attachment-markdown MD-1: the images inside a line of text, which markdown_media.rs makes media
+ * runs (ChatMarkdownImage; standalone when alone in its paragraph, list item or quote): outside fences, code spans and
+ * table lines (their cells draw text), not inside a link's text, not one whose alt text holds a `[`. An image line may be
+ * either (a block, or inline where it continues a paragraph), so it is listed here too.
+ */
+export function markdownInlineImages(text: string): { alt: string; src: string; href: string }[] {
+  if (!text.includes('![')) return [];
+  const out: { alt: string; src: string; href: string }[] = [];
+  let fence: { marker: string; width: number } | null = null;
+  const lines = text.split('\n'), tables = tableLines(lines);
+  for (const [index, line] of lines.entries()) {
+    const trimmed = line.trimStart().replace(/\r$/, '');
+    if (fence) {
+      const count = leading(trimmed, fence.marker);
+      if (count >= fence.width && !trimmed.slice(count).trim()) fence = null;
+      continue;
+    }
+    const first = trimmed[0] ?? '';
+    if ((first === '`' || first === '~') && leading(trimmed, first) >= 3) { fence = { marker: first, width: leading(trimmed, first) }; continue; }
+    if (tables[index] || !line.includes('![')) continue;
+    let at = 0, brackets = 0;
+    while (at < line.length) {
+      const character = line[at];
+      if (character === '\\') at += 2;
+      else if (character === '`') {
+        // A code span: the same number of backticks closes it on this line, else they are text.
+        const run = leading(line.slice(at), '`');
+        let from = at + run, end = at + run;
+        for (;;) {
+          const found = line.indexOf('`'.repeat(run), from);
+          if (found < 0) break;
+          const length = leading(line.slice(found), '`');
+          if (length === run) { end = found + run; break; }
+          from = found + length;
+        }
+        at = end;
+      } else if (character === '[') { brackets++; at++; }
+      else if (character === ']') { brackets = Math.max(0, brackets - 1); at++; }
+      else if (character === '!' && brackets === 0 && line[at + 1] === '[') {
+        const span = imageSpan(line, at);
+        if (!span || line.slice(at + 2, span.close).includes('[')) { at++; continue; }
+        const src = inlineTarget(line.slice(span.close + 2, span.end));
+        if (!src.startsWith('t3-context://')) out.push({ alt: line.slice(at + 2, span.close), src, href: `${INLINE_IMAGE}${markdownImageHref(src)}` });
+        at = span.end + 1;
+      } else at++;
+    }
+  }
+  return out;
+}
+/** A message's image lines and inline images, each with the href its block or run keeps. */
+const allImages = (text: string) => [...markdownImages(text), ...markdownInlineImages(text)];
+
+/**
+ * Where a document's media resolve (ChatMarkdown's props): `root` is `imageBaseDir ?? cwd`, the folder a relative
+ * source joins; `cwd` the workspace a media reference is relative to (its "Copy relative path" and "Open in file
+ * viewer"; FileMarkdownPreview passes the workspace while `imageBaseDir` is the file's folder); `thread` whether there is
+ * a thread to sign a host path through (AttachmentFilePreview's ChatMarkdown has none: such media is unavailable).
+ */
+export type MediaScope = { cwd?: string; thread?: boolean };
+export type MarkdownMedia = { href: string; kind: 'image' | 'video'; alt: string; access: 'direct' | 'environment' | 'blocked'; key: string; fragment: string; source: MediaActionSource | null; originalUrl: string };
+/** ChatMarkdown's `img` renderer for one image: where its bytes load from and its actions. */
+export function markdownMedia(alt: string, src: string, href: string, root: string, scope: MediaScope = {}): MarkdownMedia {
   const classified = classifyMarkdownImageSource(normalizeMarkdownLinkDestination(src), root || undefined);
-  const kind = mediaKindFromPath(src) ?? 'image', name = alt || kind;
+  const kind = mediaKindFromPath(src) ?? 'image', name = alt || kind, cwd = scope.cwd ?? root;
   if (classified._tag === 'Direct') {
     const mediaSrc = resolveProtocolRelativeMediaUrl(classified.uri), reference = mediaUrlReference(classified.uri);
-    return { href, kind, alt, access: 'direct', key: mediaSrc, originalUrl: externalWebLinkHost(classified.uri) !== null ? classified.uri : '',
+    return { href, kind, alt, access: 'direct', key: mediaSrc, fragment: '', originalUrl: externalWebLinkHost(classified.uri) !== null ? classified.uri : '',
       source: { kind, name, src: mediaSrc, ...(reference ? { reference } : {}) } };
   }
-  if (classified._tag === 'WorkspaceFile') {
-    const reference = mediaFileReference(classified.path, root || undefined);
-    return { href, kind, alt, access: 'environment', key: `media:${classified.path}`, originalUrl: '',
+  // ChatMarkdownAssetImage: a `media-file` of the thread, the source's fragment on its signed URL, its reference and
+  // "Open in file viewer" relative to `cwd` (workspaceRoot); with no thread, ChatMarkdownImageFallback.
+  if (classified._tag === 'WorkspaceFile' && scope.thread !== false) {
+    const reference = mediaFileReference(classified.path, cwd || undefined), fragment = markdownImageSourceFragment(src);
+    return { href, kind, alt, access: 'environment', key: `media:${classified.path}${fragment}`, fragment, originalUrl: '',
       source: { kind, name, src: null, reference, asset: { resource: { _tag: 'media-file', path: classified.path } }, ...(reference.relativePath ? { openFile: reference.relativePath } : {}) } };
   }
-  return { href, kind, alt, access: 'blocked', key: '', originalUrl: '', source: null };
+  return { href, kind, alt, access: 'blocked', key: '', fragment: '', originalUrl: '', source: null };
 }
 
-/** The chips that carry a message's media to markdown.contract (matched by the image block's href). */
-export function markdownMediaChips(text: string, root: string): { href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string }[] {
+/** The chips that carry a message's media to markdown.contract (matched by the image block's or media run's href). */
+export function markdownMediaChips(text: string, root: string, scope: MediaScope = {}): { href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string }[] {
   const seen = new Set<string>();
-  return markdownImages(text).flatMap(image => {
+  return allImages(text).flatMap(image => {
     if (seen.has(image.href)) return [];
     seen.add(image.href);
-    const media = markdownMedia(image.alt, image.src, image.href, root);
+    const media = markdownMedia(image.alt, image.src, image.href, root, scope);
     return [{ href: image.href, kind: 'media', label: image.alt, size: media.kind, tip: media.source ? mediaTooltip(media.source) : '', detail: media.source ? encodeMediaSource(media.source) : '',
       icon: media.access, target: media.key }];
   });
 }
 
-/** Signed URLs for the visible messages' host-path media (`media:<path>`; `media-failed:<path>` when refused). */
-export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[]): Promise<{ id: string; url: string }[]> {
+/**
+ * Signed URLs for the visible messages' host-path media (`media:<path>`; `media-failed:<path>` when refused), or a
+ * given document's. `threadId` names the thread they sign through (a draft's own id in Files, as the reference's draft
+ * thread ref; the server signs an absolute `media-file` path without looking the thread up).
+ */
+export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[], scope: MediaScope & { threadId?: string } = {}): Promise<{ id: string; url: string }[]> {
   const out: { id: string; url: string }[] = [];
-  if (!client.threadId) return out;
+  const threadId = scope.threadId ?? client.threadId;
+  if (!threadId) return out;
   const wanted = new Map<string, MarkdownMedia>();
   // markdown-links-and-files-preview: a rendered Markdown file passes its own text (FileMarkdownPreview's images).
   for (const text of texts ?? arr(client.projection.visibleTurnItems).map(row => str(obj(row.item).text))) {
-    for (const image of markdownImages(text)) {
-      const media = markdownMedia(image.alt, image.src, image.href, root);
+    for (const image of allImages(text)) {
+      const media = markdownMedia(image.alt, image.src, image.href, root, scope);
       if (media.access === 'environment' && media.source?.asset) wanted.set(media.key, media);
     }
   }
   for (const [key, media] of [...wanted].slice(-32)) {
-    const resource = { ...media.source!.asset!.resource, threadId: client.threadId };
-    const entry = await mint(client, native, `md:${client.environmentId}|${client.threadId}|${key}`, resource, now);
+    const resource = { ...media.source!.asset!.resource, threadId };
+    const entry = await mint(client, native, `md:${client.environmentId}|${threadId}|${key}`, resource, now);
     if (!entry) continue;
-    out.push(entry.error ? { id: `media-failed:${key.slice('media:'.length)}`, url: '' } : { id: key, url: entry.url });
+    out.push(entry.error ? { id: `media-failed:${key.slice('media:'.length)}`, url: '' } : { id: key, url: entry.url + media.fragment });
   }
   return out;
 }
