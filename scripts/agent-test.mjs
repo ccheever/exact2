@@ -176,9 +176,10 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`, each result `{ name, failures, notes }`: notes are advice, never a failure.
- * `atEnd(s, { name, index, size, store, failures, reload, launch, reached })` (verify's, LLP 1116.005 D7; `launch`: the epoch, zone, locale
+ * `atEnd(s, { name, index, size, store, failures, reload, launch, reached, restart, typed, touched })` (verify's, LLP 1116.005 D7; `launch`: the epoch, zone, locale
  * and seed the test launched with, LLP 1116.007 D3.4; `reached`: the epoch a relaunch starts at, the date it launched at plus the virtual
- * time it reached, as a `reload` relaunches, LLP 1116.009 D1) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
+ * time it reached, as a `reload` relaunches, LLP 1116.009 D1; `restart`: on the web, the `reload` step itself, run on the session so the page loads
+ * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', atEnd } = {}) {
@@ -269,6 +270,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
+    // What the test typed since its last other input: fields it left holding a draft (verify's reload does not compare them); and all it typed.
+    const typed = new Set(), touched = new Set();
     // Whether a clock step has let the app's first loads answer (without `before data`, the wait before the first step).
     let loaded = !beforeData;
     // The line whose `close` closed the window, if one did.
@@ -317,6 +320,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         current = st.line;
         try {
           if (INPUTS.has(st.op)) await settleFired();
+          if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
@@ -441,7 +445,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
-      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached() }).catch((e) => ({ error: e.message }));
+      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
