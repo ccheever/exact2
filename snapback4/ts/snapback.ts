@@ -466,10 +466,19 @@ export class Snapback {
     if (this.closed) throw new Error('Snapback4: this client is closed');
     const auth = this.options.auth;
     if (!auth) throw refusal('E_CLIENT', 'logout needs Snapback.open auth: { store, key, now }');
+    const principal = this.session?.principal ?? this.held?.viewer;
     let reply: Request = {};
     try { if (this.session) reply = await this.exchange({ method: 'POST', path: '/auth/logout' }); }
     finally {
       auth.store.forget(auth.key);
+      // An auth handle may predate a sibling's sign-in and own no device.
+      // Logout still retires that account's shared partitions, including
+      // siblings that supply their credentials through headers instead.
+      if (principal) for (const opening of [...pageOf(this.options).partitions.values()]) {
+        const partition = await opening.catch(() => null);
+        if (partition?.origin === this.options.origin && partition.viewer === principal && !partition.cleaned)
+          await retirePartition(partition);
+      }
       await this.release(true); this.closed = false; this.held = undefined;
       this.options.name = this.baseName;
       this.options.viewer = undefined;

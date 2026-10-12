@@ -133,10 +133,10 @@ not be confirmed. Await logout before signing into another account. Data and ass
 that finish after an account change reject with `E_STALE`; open a new handle. No DOM
 `Storage`, npm auth import, `Date.now()` or timers are needed in `app.ts`.
 
-Native limitation still under review: logout must use a handle opened after
-sign-in, as in the per-source example above. A handle kept from before another
-source signs in does not retire that source's cached native partition. The
-remaining issue is recorded in `QUEUE.md` (EX3 native auth logout).
+Logout also works through a handle opened before another source signs in.
+It retires that origin/principal's shared partitions, including siblings using
+manual credential headers. Signing back into the same account requires new
+sibling handles; retired handles cannot resume cached reads.
 
 `name` is a base for password apps: the driver adds the safely encoded
 principal, so two accounts never reuse a partition. For manually managed
