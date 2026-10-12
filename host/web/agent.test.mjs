@@ -1156,8 +1156,8 @@ test('tree --ax: a targeted read keeps its subtree, the chain above it, and its 
 
 test('tree --ax: parity joins by unique testId, normalizes the fixture controls, and refuses a partial side', () => {
   const web = axReply([el(0, 'checkbox', 'Checked', { testId: 'check', states: { checked: true } }), el(1, 'button', 'Add', { testId: 'add' }), el(2, 'button', 'A', { testId: 'dup' }), el(3, 'button', 'B', { testId: 'dup' })]);
-  const ios = axReply([
-    el(0, 'checkbox', 'Checked', { testId: 'check', value: 'checked', native: { role: ['button'] } }),
+  const ios = axReply([ // UIKit's form of a checkbox: a toggle whose value is "1" (LLP 1115.000 D13.3; agent-ax.test.mjs).
+    el(0, 'checkbox', 'Checked', { testId: 'check', value: '1', native: { role: ['button', 'toggleButton'] } }),
     el(1, 'button', 'Plus', { testId: 'add', native: { role: ['button'] } })], { source: 'uikit' });
   const { findings, unjoined } = axParity(web, ios);
   expect(findings.map(f => f.detail)).toEqual(['name "Add" (web) vs "Plus" (uikit)']);

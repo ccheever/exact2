@@ -6,14 +6,15 @@
 // tvOS, where it stands in for a switch too, it is Safari's rounded square.
 // Contract owns the value: the control flips at once, reports, and shows the
 // committed `checked` after the action (D4). `appearance: none` draws
-// nothing native.
+// nothing native. VoiceOver reads it as UIKit reads a toggle (LLP 1115.000
+// D13.3).
 #if os(iOS) || os(tvOS)
 import UIKit
 
 /// The checklist mark: an SF Symbol circle at the body text's size, filled
 /// and checked when on (tvOS: a 16×16 rounded square). A radio is drawn on
 /// it, with its own symbols (`ExactRadio`, RadioIOS.swift). VoiceOver reads
-/// a checkbox as Safari reads one, a button with a checked state.
+/// a checkbox as it reads UIKit's own toggles (`updateAccessibility`).
 class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
@@ -63,10 +64,14 @@ class ExactCheckbox: UIControl {
         isOn.toggle()
         sendActions(for: .valueChanged)
     }
-    /// VoiceOver reads it as Safari's: a button with a checked state.
+    /// A toggle, as UIKit has one (LLP 1115.000 D13.3): the `toggleButton`
+    /// trait and UIKit's own value, "1" on and "0" off, which is what a
+    /// `UISwitch` reports and what VoiceOver speaks in the reader's language.
+    /// It had been Safari's English words, "checked" and "unchecked", read
+    /// out as written in every language.
     func updateAccessibility() {
-        accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
-        accessibilityValue = isOn ? "checked" : "unchecked"
+        accessibilityTraits = isEnabled ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
+        accessibilityValue = isOn ? "1" : "0"
     }
     override func draw(_ rect: CGRect) {
         let side = min(bounds.width, bounds.height)

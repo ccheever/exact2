@@ -772,8 +772,10 @@ accessibility tree — Chrome's computed tree, UIKit's and AppKit's
 accessibility properties; Linux `unavailable` — and the driver reports four
 fixed findings over it: an unnamed interactive element, an element exposed
 under a declared-inert or hidden view, an element exposed outside an open
-modal, and a role or name disagreeing with the web for a `testId`-joined
-fixture control. Still refused: scoring, a rule catalog, WCAG checks
+modal, and a role, a name or a state that two hosts give differently for a
+`testId`-joined fixture control once each is read through its own platform's
+table (UIKit's toggle value is the platform's, not a disagreement with the
+web; LLP 1115.000 D14.4). Still refused: scoring, a rule catalog, WCAG checks
 (contrast, target size, heading structure), reading-order claims, and
 driving VoiceOver. The guessed `accessibleName` on `tree` is deleted because
 the platform's tree supersedes it, not as the take.
