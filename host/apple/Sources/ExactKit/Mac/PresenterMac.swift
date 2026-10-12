@@ -231,7 +231,7 @@ package final class Presenter {
         // Bounds notifications can arrive while a batch is still changing the
         // hierarchy. Query its final geometry once the outermost batch ends.
         guard !applying else { return false }
-        if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
+        if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.shownParagraphs) }
         var next: [UInt32: NSRect] = [:]
         var waiting: [(CGFloat, NodeView)] = []
         var rasters: [NodeView] = []
@@ -469,7 +469,8 @@ package final class Presenter {
         if refreshVisibleText(limit: 0) { textPending = true; startPump() }
     }
 
-    /// An offscreen worker supplied pixels; publish them with the next text slice.
+    /// An offscreen worker supplied pixels, or a display pass found both
+    /// workers busy: publish them, or ask again, with the next text slice.
     func requestTextPublication() {
         textPending = true
         startPump()

@@ -11,6 +11,7 @@ package final class TextSelection {
     private var anchorIndex = 0
     private var focusIndex = 0
     private var dragged = false
+    private var shown: [NodeView]?
     private var ordered: [NodeView]?
     private var indices: [UInt32: Int] = [:]
     private var painted: [UInt32: NSRange] = [:]
@@ -36,7 +37,7 @@ package final class TextSelection {
     private var deferredEnd: (NodeView, NSEvent)?
 
     func structureChanged() {
-        ordered = nil
+        shown = nil; ordered = nil
         indices.removeAll(keepingCapacity: true)
         positions.removeAll(keepingCapacity: true)
         if let list, var a = logicalAnchor, var b = logicalFocus {
@@ -55,19 +56,30 @@ package final class TextSelection {
     /// asks before the exact one (`range`).
     var isActive: Bool { allListText || logicalAnchor != nil || (anchor != nil && focus != nil) }
 
-    var paragraphs: [NodeView] {
-        if let ordered { return ordered.filter(selectable) }
+    /// Every shown paragraph in document order, whether or not it can be
+    /// selected: the text pump owes each its pixels, a button's label as
+    /// much as a paragraph (`refreshVisibleText`, X82).
+    var shownParagraphs: [NodeView] {
+        if let shown { return shown }
         guard let presenter else { return [] }
         var result: [NodeView] = []
         func walk(_ view: NSView) {
             if view.isHidden { return }
             if let node = view as? NodeView, presenter.session?.regions.owns(node) == true { return }
-            if let node = view as? NodeView, node.isParagraph { if selectable(node) { result.append(node) }; return }
+            if let node = view as? NodeView, node.isParagraph { result.append(node); return }
             for child in view.subviews { walk(child) }
         }
         walk(presenter.root)
         for dialog in presenter.dialogs.presented { walk(dialog) }
         for popover in presenter.menus.presented { walk(popover) }
+        shown = result
+        return result
+    }
+
+    var paragraphs: [NodeView] {
+        if let ordered { return ordered.filter(selectable) }
+        guard presenter != nil else { return [] }
+        let result = shownParagraphs.filter(selectable)
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result
