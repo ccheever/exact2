@@ -258,7 +258,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.equal(found.status, 0, found.stdout + found.stderr);
     assert.equal(found.lines[0], 'compiler: 1 warning', found.stdout);
     assert.match(found.lines[1].trim(), warning);
-    assert.match(found.stdout, /^ {2}\(light only\) contrast Text "Faint"#\d+ \[.*\]: 1\.\d:1 \(#dddddd on #ffffff\), needs 4\.5:1/m);
+    assert.match(found.stdout, /^ {2}\(light only\) contrast Text "Faint"#\d+ \[.*\]: 1\.\d:1 \(#dddddd on #ffffff(?:, [^)]*)?\), needs 4\.5:1/m);
     assert.match(found.lines.at(-1), /^verify: 2 problems \(2 findings; the tests passed\) in /);
 
     const json = verify('--json');

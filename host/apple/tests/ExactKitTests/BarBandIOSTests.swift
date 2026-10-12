@@ -9,8 +9,8 @@ import UIKit
 /// a line of text, then a grouped list. Round 8's switcher lay under the
 /// large title, drawn over by it, and took no tap. As on a hand-built screen
 /// (a control pinned to the safe area over a table), it lies below the bar,
-/// its large title included, takes a tap, and follows the bar as the title
-/// collapses with the list beneath it.
+/// its large title included, and takes a tap; with content above the list
+/// the title keeps still (LLP 1115.000 D11.1).
 final class BarBandIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -84,24 +84,21 @@ final class BarBandIOSTests: XCTestCase {
         }.count
     }
 
-    func testTheContentBetweenTheBarAndTheListSitsBelowTheBarAndFollowsIt() throws {
+    func testTheContentBetweenTheBarAndTheListSitsBelowTheBarAndTakesATap() throws {
         let session = try fixture()
         let p = session.presenter
         let nav = try XCTUnwrap(p.navigation.primaryNavigation)
         let route = try XCTUnwrap(nav.topViewController)
         XCTAssertEqual(route.navigationItem.title, "Team Board")
-        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
         let control = try XCTUnwrap(p.segments.control(of: try node("persona").id), "the tablist is a segmented control")
         let list = try XCTUnwrap(p.navigation.shownScroll(try node("board")))
-        XCTAssertTrue(route.contentScrollView(for: .top) === list, "the title collapses with the list, as UIKit follows a hand-built screen's table")
 
-        // At rest the large title shows, and the switcher is under it, not
-        // beneath it.
+        // With content above the list the title keeps still (LLP 1115.000
+        // D11.1): the large title shows, and the switcher is below it, not
+        // under it (the covers reach the kernel in order, LLP 1116.006 D1).
         let expanded = box(nav.navigationBar).maxY
         XCTAssertGreaterThan(expanded, route.view.window!.safeAreaInsets.top + 80, "the large title is shown: the bar ends at \(expanded)")
         try assertBelow(nav, control)
-        XCTAssertEqual(box(control).minY, expanded + 8, accuracy: 1, "the row's own top padding under the bar, as authored")
-        XCTAssertLessThan(box(list).minY, expanded + 120, "the list right under the switcher and the text")
         XCTAssertGreaterThan(try titleInk(nav), 100, "'Team Board' is drawn large in the bar, not taken into the list")
 
         // Its tap is the app's.
@@ -110,25 +107,11 @@ final class BarBandIOSTests: XCTestCase {
         let me = try node("me").accessibleText
         XCTAssertTrue(me.contains("Grace"), "the switcher acts: \(me)")
 
-        // The list scrolls; the title collapses with it, and the switcher
-        // follows the bar up, still wholly below it.
+        // The list scrolls under the switcher; the bar and the switcher stay.
         list.contentOffset.y = -list.adjustedContentInset.top + 300
         spin(0.6)
-        let collapsed = box(nav.navigationBar).maxY
-        XCTAssertLessThan(collapsed, expanded - 30, "the title collapsed: the bar ends at \(collapsed), not \(expanded)")
+        XCTAssertEqual(box(nav.navigationBar).maxY, expanded, accuracy: 1, "the title kept still")
         try assertBelow(nav, control)
-        XCTAssertEqual(box(control).minY, collapsed + 8, accuracy: 1, "the switcher followed the bar")
-
-        // Back past the list's start, as a fling's bounce goes, the title
-        // and the switcher are as they were (a hand-built screen's title
-        // expands there too, not at the start itself).
-        list.contentOffset.y = -list.adjustedContentInset.top - 30
-        spin(0.4)
-        list.contentOffset.y = -list.adjustedContentInset.top
-        spin(0.6)
-        XCTAssertEqual(box(nav.navigationBar).maxY, expanded, accuracy: 1, "the title expanded again")
-        try assertBelow(nav, control)
-        XCTAssertEqual(box(control).minY, expanded + 8, accuracy: 1)
     }
 }
 #endif

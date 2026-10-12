@@ -1183,7 +1183,7 @@ mod name_tests {
         }
         seen.sort_unstable();
         seen.dedup();
-        assert_eq!(seen, ["fill", "separator", "system-red"]);
+        assert_eq!(seen, ["fill", "secondary-label", "separator", "system-red"]);
     }
 
     #[test]
