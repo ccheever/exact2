@@ -292,10 +292,23 @@ final class ContextMenuMacTests: XCTestCase {
     }
 
     /// X84: show menu on a node with a `contextPopover` runs its action and
-    /// then tracks the popover's native menu, as the ContextMenu key does.
+    /// then tracks the popover's native menu, as the ContextMenu key does. A
+    /// default `button`'s accessibility element is its `NSButton`'s cell
+    /// (LLP 1069.011 D4; AppKit ignores the button), and its show menu is
+    /// its node's: a `contextPopover` is all such a button can have for it.
     func testShowMenuOpensTheContextPopoversMenu() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        func native(_ id: Int, _ props: [String: String], x: Int) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "control", "props": ["type": "button"].merging(props) { $1 }, "handlers": ["press"], "style": ["appearance": "auto"]],
+             ["op": "frame", "id": id, "x": x, "y": 20, "w": 100, "h": 30]]
+        }
+        p.apply(wireBatch(native(10, ["contextPopover": "m"], x: 180) + native(11, [:], x: 300) + [["op": "children", "id": 9, "ids": [1, 2, 10, 11]]]))
+        let button = try XCTUnwrap(p.controls.controls[10]?.cell), plain = try XCTUnwrap(p.controls.controls[11]?.cell)
+        XCTAssertTrue(button.isAccessibilityElement())
+        XCTAssertEqual(try offered(button), ["AXPress", "AXShowMenu"])
+        XCTAssertEqual(try offered(plain), ["AXPress"], "nothing answers it")
+        XCTAssertFalse(plain.accessibilityPerformShowMenu())
         window.orderFrontRegardless()
         var heard: [String] = []
         p.onClipboard = { id, _, _ in heard.append("context \(id)") }
@@ -310,10 +323,13 @@ final class ContextMenuMacTests: XCTestCase {
             }
         }
         defer { center.removeObserver(observer) }
-        XCTAssertTrue(source.accessibilityPerformShowMenu())
-        let deadline = Date(timeIntervalSinceNow: 5)
-        while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
-        XCTAssertEqual(heard, ["context 1", "menu", "pick 4"])
+        for (showMenu, expected) in [(source.accessibilityPerformShowMenu, ["context 1", "menu", "pick 4"]), (button.accessibilityPerformShowMenu, ["menu", "pick 4"])] {
+            heard = []
+            XCTAssertTrue(showMenu())
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertEqual(heard, expected)
+        }
     }
 
     func testContextMenuDoesNotOpenForDisabledInertHiddenOrRemovedSources() throws {

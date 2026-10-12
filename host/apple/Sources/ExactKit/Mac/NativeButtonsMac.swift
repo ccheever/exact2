@@ -11,8 +11,20 @@
 #if os(macOS)
 import AppKit
 
+/// A native button's cell: AppKit ignores the button, so the cell is the
+/// accessibility element VoiceOver lands on. Its show menu (AXShowMenu) is
+/// its node's, offered where the node offers it (X84): a `contextPopover`.
+final class NativeButtonCellMac: NSButtonCell {
+    private var owner: NodeView? { (controlView as? NativeButtonMac)?.owner }
+    override func accessibilityPerformShowMenu() -> Bool { owner?.accessibilityPerformShowMenu() ?? false }
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        selector == #selector(accessibilityPerformShowMenu) ? owner?.isAccessibilitySelectorAllowed(selector) == true : super.isAccessibilitySelectorAllowed(selector)
+    }
+}
+
 /// AppKit's button, as a native button's control.
 final class NativeButtonMac: NSButton {
+    override class var cellClass: AnyClass? { get { NativeButtonCellMac.self } set {} }
     weak var owner: NodeView?
     struct Written: Equatable {
         var face: ButtonFace
