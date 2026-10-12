@@ -96,6 +96,7 @@ extension Presenter {
         if let surface = sub as? RegionSurfaceMac, let regions = session?.regions, surface.owner === regions { return ("region", owner?.id) }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
         if dialogs.inspectionOwns(sub) { return ("dialog", owner?.id) }
+        if navigation.inspectionOwns(sub) { return ("ground", owner?.id) }
         if sub === viewport { return ("viewport", nil) }
         if sub === root { return ("document", nil) }
         if sub.nextResponder is NSViewController { return ("controller", nil) }

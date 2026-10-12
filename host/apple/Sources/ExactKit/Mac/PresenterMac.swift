@@ -1211,7 +1211,7 @@ package final class Presenter {
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
         let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
-        if viewport.backgroundColor != color { viewport.backgroundColor = color }
+        if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
