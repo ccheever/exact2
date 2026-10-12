@@ -976,6 +976,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   seconds` line of the whole run, read the verdict from it, then kill the
   `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
   `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
+- **`build.mjs <app> --test` can break tests that assume Caltrain data.** The
+  Swift suite links the named app's plan and sources; its owner and batch tests
+  call `defaultLocation`. Use `build.mjs --test` for the full AppKit suite, then
+  drive a fixture app separately with `agent macos --app <app> --plan <plan>`.
+- **A web wasm `--plan` override cannot add an unlinked capability.** The wasm
+  artifact links capabilities from the app's baked `app.contract`. A separate
+  plan that first uses geometry can boot with `Unlinked("geometry")` even when
+  that plan works on the JS and native hosts. Bake the test Contract as the
+  app's source when testing a new wasm capability.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
@@ -985,6 +994,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **An `EXACT_WEB_DIST` build compiles, then fails renaming its stage.** The
   destination's parent directory does not exist. Create that parent before
   running `host/web/build.mjs --wasm` with an external dist path.
+- **`conform.mjs --help` starts conformance.** It has no help flag; an unknown
+  flag does not stop the run. Read its usage comment instead. A run against a
+  shared wasm root may spawn app builds, which can outlive an interrupted parent.
 - **A web size or speed number is inflated.** Cause: a development web build
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,

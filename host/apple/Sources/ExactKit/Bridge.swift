@@ -63,6 +63,7 @@ public struct Batch {
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
+    var topLayer: (() -> [(UInt32, CGRect)])?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
     // Release builds have neither the callback nor a copy of the wire bytes.
@@ -91,7 +92,19 @@ package final class Runtime {
     static let busy = Batch(ops: [], timers: false, motion: false, clock: nil,
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
     static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
-    package func on(_ body: () -> Batch) -> Batch { Owner.shared.sync(body, busy: Runtime.busy) }
+    package func on(_ body: () -> Batch) -> Batch {
+        let open = topLayer?() ?? []
+        let ids = open.map(\.0)
+        let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
+        return Owner.shared.sync({
+            ids.withUnsafeBufferPointer { ids in
+                rects.withUnsafeBufferPointer { rects in
+                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count))
+                }
+            }
+            return body()
+        }, busy: Runtime.busy)
+    }
     package func on<T>(busy: @autoclosure () -> T, _ body: () -> T) -> T { Owner.shared.sync(body, busy: busy()) }
     package func on(_ body: () -> Void) { Owner.shared.sync(body, busy: ()) }
 

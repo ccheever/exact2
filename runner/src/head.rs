@@ -13,7 +13,7 @@
 //! is flagged, and resolves only when no active screen carries it.
 
 use crate::{DataSource, Runner};
-use exact_kernel::{NodeType, PropId, PropList, PropValue, ViewId};
+use exact_kernel::{Kernel, NodeType, PropId, PropList, PropValue, ViewId};
 
 /// The active head's fields; `None` where no active head sets one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -79,25 +79,28 @@ impl<D: DataSource> Runner<D> {
     /// that is not the selected one (LLP 1075.003 §3.7; shop F16), which
     /// every host hides and makes inert, so nothing there is pressed or read.
     pub fn inactive(&self, id: ViewId) -> bool {
-        let kernel = self.kernel();
-        let node = |id: ViewId| {
-            kernel
-                .node(id)
-                .map(|n| (n.node_type, n.props, n.children()))
-        };
-        let mut path = vec![id];
-        let mut parent = kernel.node(id).and_then(|node| node.parent);
-        while let Some(at) = parent.and_then(|id| kernel.node(id)) {
-            if let Some(n) = node(at.id) {
-                if unselected(&node, &n).iter().any(|off| path.contains(off)) {
-                    return true;
-                }
-            }
-            path.push(at.id);
-            parent = at.parent;
-        }
-        false
+        inactive(self.kernel(), id)
     }
+}
+
+pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
+    let node = |id: ViewId| {
+        kernel
+            .node(id)
+            .map(|n| (n.node_type, n.props, n.children()))
+    };
+    let mut path = vec![id];
+    let mut parent = kernel.node(id).and_then(|node| node.parent);
+    while let Some(at) = parent.and_then(|id| kernel.node(id)) {
+        if let Some(n) = node(at.id) {
+            if unselected(&node, &n).iter().any(|off| path.contains(off)) {
+                return true;
+            }
+        }
+        path.push(at.id);
+        parent = at.parent;
+    }
+    false
 }
 
 /// The active head of the tree under `roots`, as `node` reads it: the walk

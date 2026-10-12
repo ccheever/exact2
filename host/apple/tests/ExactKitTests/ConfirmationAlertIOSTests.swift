@@ -115,6 +115,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         let (p, controller, scene) = confirmation(label: "Remove book?", texts: ["\u{201C}Piranesi\u{201D} will be removed."], actions: ["Remove"], cancel: true)
         defer { dismiss(p, controller) }
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "its invoker opens it")
+        XCTAssertEqual(p.openTopLayerFrames.map(\.0), [2], "the structural read sees the native confirmation as open")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.preferredStyle, .alert)
         XCTAssertEqual(alert.title, "Remove book?")

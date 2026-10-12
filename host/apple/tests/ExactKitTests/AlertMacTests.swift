@@ -113,6 +113,7 @@ final class AlertMacTests: XCTestCase {
         let alert = owner.alert
         XCTAssertTrue(window.attachedSheet === alert.window, "a sheet on its window")
         XCTAssertNil(p.dialogs.active, "not the painted dialog")
+        XCTAssertEqual(p.openTopLayerFrames.map(\.0), [3], "the runner must see the open alertdialog")
         XCTAssertTrue(dialog.isHidden)
         XCTAssertEqual(alert.messageText, "Remove Book?")
         XCTAssertEqual(alert.informativeText, "“Piranesi” will be removed from your library.")
@@ -132,6 +133,7 @@ final class AlertMacTests: XCTestCase {
         alert.buttons[0].performClick(nil)
         XCTAssertNil(window.attachedSheet, "the sheet has ended")
         XCTAssertNil(p.alerts.presented)
+        XCTAssertTrue(p.openTopLayerFrames.isEmpty)
         XCTAssertEqual(pressed, [], "not inside the alert's own action")
         turn()
         XCTAssertEqual(pressed, [10], "the authored button, once")

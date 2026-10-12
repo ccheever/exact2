@@ -100,6 +100,13 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 > (`kernel/src/style/cells.rs`), where CSS's `ch` is the `0` advance of the element's
 > font and `lh` its line height.
 >
+> A structural-read deviation (Charlie, 2026-10-11; LLP 1094 D10): when an
+> id-less child is hit outside its named ancestor's own box, Exact's
+> `elementsFromPoint` includes that ancestor at the child's place, once. Chrome's
+> raw `elementsFromPoint` filtered to ids omits it, while
+> `elementFromPoint()?.closest("[id]")` names it. This keeps the ruled first-entry
+> equality for the T3 Inspect overlay on every host.
+>
 > Where a later paragraph of this spec still states a presentation default as Chrome's
 > (`hr`'s shading, a bare `button` as `appearance: none`, `-exact-tint-color`
 > "initially opaque black", `-exact-press-scale`, `keyboardDismissMode`, which hosts

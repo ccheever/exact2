@@ -591,6 +591,18 @@ says. Every roster function has a row and an example, and each example written
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
+| `elementsFromPoint(x, y)` | `list<string>`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
+| `querySelectorAll(selector)` | `list<string>`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
+
+For `elementsFromPoint`, an id-less hit outside a named ancestor's own box
+includes that ancestor once before lower layers. This keeps its first entry
+equal to `elementFromPoint`'s nearest-id answer; LLP 1001 §1 declares the
+rare difference from Chrome's raw filtered list.
+An id-less hit inside that box is skipped even when it covers a named sibling.
+Both point reads skip covered navigation routes, inert subtrees, and closed dialogs or popovers. Open painted top-layer content uses its presented frame and escapes clips on its authored ancestors. A macOS alert projected as an `NSAlert` sheet or an iOS UIKit confirmation has no authored hit boxes.
+For `querySelectorAll`, a closed popover or dialog is hidden by its presenter;
+an open one is included when it matches. A wide split list is included only
+where the host presents it (on the web); native hosts hide the unselected route.
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
 exist only in an app with a `routes` declaration.

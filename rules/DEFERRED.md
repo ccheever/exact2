@@ -656,6 +656,15 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   (F4). Unblocks moving cards on a board without a hand-built drag. Take:
   none offered. Still out: reorder on row and nested lists (LLP 1094 §7),
   drags into or out of the app, multi-item drags, grids, a gesture arena.
+  **Expanded (Charlie, 2026-10-11; reads lane):** action-only
+  `elementsFromPoint(x, y)` lists own ids under a point, front to back,
+  including hit ancestors, for the T3 theme editor Inspect overlay. It
+  admits no reactive geometry, pixel readback or devtools inspector.
+  **Expanded (Charlie's ruling 8, 2026-10-11; reads lane):** action-only
+  `querySelectorAll` takes only `[data-<declared word>~="value"]` and lists
+  own ids in tree order, omitting unmounted, `display: none` and inert nodes,
+  for the same editor's role usage count and outlines. General selectors and
+  computed-style reads remain deferred.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on

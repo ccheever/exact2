@@ -60,6 +60,24 @@ package final class Presenter {
     package func carrying(_ key: String) -> [NodeView] {
         chrome.ids(key).sorted().compactMap { views[$0] }
     }
+    package var openTopLayerFrames: [(UInt32, CGRect)] {
+        let open = menus.presented + dialogs.presented
+        func depth(_ view: NodeView) -> Int {
+            var at: NSView = view
+            while let parent = at.superview, parent !== viewport { at = parent }
+            return viewport.subviews.firstIndex(of: at) ?? -1
+        }
+        let clip = viewport.contentView
+        let painted: [(UInt32, CGRect)] = open.sorted { depth($0) < depth($1) }.map {
+            let rect = $0.convert($0.bounds, to: clip)
+            return ($0.id, CGRect(x: rect.minX - clip.bounds.minX,
+                                  y: rect.minY - clip.bounds.minY,
+                                  width: rect.width, height: rect.height))
+        }
+        let alerts = (carrying("popover") + carrying("tag:dialog"))
+            .filter { self.alerts.isOpen($0) }.map { ($0.id, CGRect.zero) }
+        return painted + alerts
+    }
     /// Reparenting into/out of the top layer changes text's paint/selection walk.
     func topLayerChanged() {
         selection.clear()

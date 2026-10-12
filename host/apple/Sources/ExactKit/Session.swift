@@ -677,8 +677,8 @@ public final class ExactSession {
         Owner.shared.sync {}
         landFill()
     }
-
     private func wire() {
+        runtime.topLayer = { [weak self] in self?.presenter.openTopLayerFrames ?? [] }
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
             runtime.canvasDefer(true)

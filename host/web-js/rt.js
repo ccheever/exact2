@@ -851,7 +851,7 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
+export { svgTransform } from "./svg-transform.js"; export { ds, x_querySelectorAll } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
 import { backdropValue as backdropCss } from "./backdrop.js"; export const backdropValue = (v, report = true) => backdropCss(v, report ? why => say(`unset backdrop-filter: ${why}`) : undefined);
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
@@ -1091,7 +1091,8 @@ export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
 /** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most
  * of the same untransformed boxes at the viewport point; `none` until the
  * reader has loaded. */
-export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest("[id]"); return n && n !== root && root.contains(n) && n.id || null; };
+export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
+export const x_elementsFromPoint = (x, y) => Geo?.namedPoints(x, y) ?? [];
 /** A Markdown field (LLP 1045 D5): markup-editor.js over its wasm replaces
  * the textarea on demand. Runtime writes proxy to the editor; its events
  * forward to the detached textarea's handlers. */

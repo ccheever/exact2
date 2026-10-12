@@ -971,6 +971,17 @@ Elsewhere the node is shown and no hatch is called for it. A hatch reads state
 only through the node's `data-*` words (declared in `app.json` `data`), and is
 called again when one changes.
 
+An action can read those same declared words with
+`querySelectorAll("[data-tone~=\"busy\"]")`: it returns the own ids of
+mounted, displayed, non-inert matches in tree order; covered routes and
+unselected tabs are hidden; a split list answers alongside its detail where
+the host presents it (the web at desktop widths). Closed popovers
+and dialogs are hidden, and open ones answer. For an Inspect overlay,
+`elementsFromPoint(x, y)` returns the own ids of the boxes under a viewport
+point, front to back. Both are action snapshots; `frame(id)` gives each
+returned node's box for an outline. Point reads skip inert subtrees and use
+the presenter's placement and order for open top-layer content.
+
 | Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
 |---|---|---|
 | A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)` | `element(e)`, `elementEnded(e)` |

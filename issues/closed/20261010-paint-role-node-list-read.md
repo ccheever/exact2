@@ -1,6 +1,7 @@
 # No read lists the rendered nodes a paint role reaches, so a theme editor cannot count or outline a colour's uses
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Added action-only querySelectorAll for declared data words, including literal and bound web attributes; contract tests cover tree order, host-visible routes and closed/open top-layer content, with web, macOS and Linux role-list drives.
 **Systems:** Contract, runner geometry, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)

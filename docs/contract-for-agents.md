@@ -1821,7 +1821,18 @@ reads an auto-height hypothetical layout at the same origin.
 Neither is a computed style binding to run every render.
 `elementFromPoint(x, y)` names the front-most of the same boxes at a viewport
 point by its nearest `id` (`option<string>`), through the same transforms. For a
-drag still built by hand, test the dragged node's visual centre (the middle of
+point read that sees through an overlay, `elementsFromPoint(x, y)` lists every
+hit node's own id, front to back, including hit ancestors; id-less nodes are
+skipped (except an id-less hit outside its named ancestor's box includes that
+ancestor once). `querySelectorAll("[data-paint~=\"accent\"]")` lists the own ids of
+mounted, displayed, non-inert nodes bearing the declared `data-paint` word in
+tree order. Covered routes and unselected tabs do not answer; a split list
+answers with its detail where the host presents it (the web at desktop widths).
+Closed popovers and dialogs do not answer; open ones do. Point reads skip inert
+subtrees and use the presenter's placement for open top-layer content. Both reads
+run only in actions and give one snapshot. Use `frame(id)`
+for each returned id when drawing outlines.
+For a drag still built by hand, test the dragged node's visual centre (the middle of
 its `frame(id)`, which includes the `translate` the drag gave it), not the
 pointer: the box under a lifted card is the card.
 

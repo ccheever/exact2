@@ -1308,7 +1308,19 @@
       "name": "elementFromPoint",
       "params": ["number", "number"],
       "returns": "option<string>",
-      "_comment": "@ref LLP 1094 D10: DOM's `document.elementFromPoint(x, y)?.closest(\"[id]\")?.id` over `frame`'s boxes: the `id` of the front-most laid-out box at the viewport point (every scroll applied, no transforms; ancestors' overflow clips; `pointer-events: none`, `display: none` and `visibility: hidden` skipped; LLP 1083.000's paint order), or of its nearest ancestor with one; `none` where no box or ancestor has one. Actions only."
+      "_comment": "@ref LLP 1094 D10: DOM's `document.elementFromPoint(x, y)?.closest(\"[id]\")?.id` over `frame`'s boxes: the `id` of the front-most laid-out box at the viewport point (every scroll and transform applied; ancestors' overflow clips; `pointer-events: none`, `display: none` and `visibility: hidden` skipped; LLP 1083.000's paint order), or of its nearest ancestor with one; `none` where no box or ancestor has one. Actions only."
+    },
+    {
+      "name": "elementsFromPoint",
+      "params": ["number", "number"],
+      "returns": "list<string>",
+      "_comment": "@ref LLP 1094 D10 (2026-10-11): action-only point read; own nonempty ids of every hit node, including hit ancestors, front to back, with elementFromPoint's skips and transforms."
+    },
+    {
+      "name": "querySelectorAll",
+      "params": ["string"],
+      "returns": "list<string>",
+      "_comment": "@ref LLP 1075.003 §9.1 (2026-10-11): action-only structural read. Only [data-<declared word>~=\"value\"] is accepted; own ids of mounted, displayed, non-inert matches in tree order."
     },
     {
       "name": "parseNumber",

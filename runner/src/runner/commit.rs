@@ -50,6 +50,17 @@ pub(super) struct Published {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// The open popovers and dialogs last shown by a native presenter.
+    pub fn top_layer(&mut self, views: &[ViewId]) {
+        self.scrolled.top_layer(&self.kernel, views);
+    }
+
+    /// Open top-layer boxes in the presenter's back-to-front order and their
+    /// actual viewport frames.
+    pub fn top_layer_frames(&mut self, frames: &[(ViewId, [f64; 4])]) {
+        self.scrolled.top_layer_frames(&self.kernel, frames);
+    }
+
     /// Before a commit. `resources`: the commit edits the settled caches
     /// before settling (a reply does).
     pub(super) fn checkpoint(&mut self, resources: bool) -> Checkpoint {
