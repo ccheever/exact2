@@ -84,3 +84,204 @@ Not run: painting on any host (each value fails the build first); Linux, Windows
 - C builds, and a hatch on a virtualized list with `background-attachment: local` runs unbroken across rows 20px and
   40px tall and moves with them as the list scrolls, on the web and macOS, as in the image's right half.
 - What stays refused (`url()`, `image-set()`, `cross-fade()`) keeps its message.
+
+## Approved first slice (2026-10-12)
+
+Charlie's issue-program ruling 9 admits `repeating-linear-gradient()` and length
+stops held to Chrome, and defers `background-attachment: local`. Acceptance
+criterion C remains deferred; this change does not make a virtualized list's
+background move with its rows.
+
+The gradients lane implements scenarios A and B with px length stops, including
+mixed px/% lists, omitted positions and double stops. Native stop placement is
+resolved against the painted box again after resizing; AppKit/UIKit share that
+resolver and Linux uses it before painting. The GPU painter uses one period with
+native repetition and compensates for Vello's integer-coordinate sampling to
+sample CSS pixel centres. LLP 1066's dated amendment and LLP 1001 record the
+remaining grammar and microscopic-period limits. The agent contract and
+`contract vocab background-image` describe the admitted spelling.
+
+Tests added:
+
+- Kernel `repeating_hatch_and_length_stops_round_trip`, observed failing with the
+  original repeating-gradient refusal before implementation.
+- Kernel `length_fix_up_uses_the_painted_size_and_repetition_keeps_its_period`:
+  mixed positions, resize, stable period and cycle boundaries; the zero-period
+  expectation is corrected by review round 1 below.
+- Apple Rust `lengths_cross_the_apple_seam_after_the_box_is_known`.
+- Three stock-Chrome pixel cases on the shared Apple/Linux parity page and an
+  Apple length-resize check.
+- Web JS `gradients` conformance fixture: computed period, resize and mask.
+
+The issue stays open. What remains:
+
+- UIKit parity and resize tests need a working simulator. Three boot attempts
+  stalled (iOS 26.4 migration and iOS 27 startup); no UIKit tests ran. Every device
+  booted by this lane was shut down; its temporary device was deleted.
+- `background-attachment: local` needs a later ruling admitting it.
+
+The Chrome agent drive passes both appearance checks. Inspected captures show
+width changing from 120 to 240px and hatch period from 8 to 12px, while the
+mixed-stop background and repeating mask track the box. Its final state is
+`size=240, period=12`.
+
+Linux's third pixel run passes all 15 cases in both painters and both schemes;
+the reported hatch is pixel-exact in CPU and GPU output. The macOS fixture app
+loaded all 17 nodes, tapping `dark` changed state and native scheme, and the
+390×555-point screenshot was inspected. This verifies the runtime bridge, not
+the still-failing AppKit pixel band.
+
+Verification limitations: the first broad Rust run and an isolated rerun failed
+an existing image-layout test (`max-width=300`, observed 0×0 after its three-second
+image wait, expected 300×150); the second broad run passed it. That second run
+hit a 30-second navigation timeout in the existing web paint-order corpus; the
+isolated web rerun passed. The full AppKit suite also failed context-menu,
+reorder-group, text-selection and text-metrics assertions whose source this lane
+does not change. `contract-difftest quick` could not run its oracle because
+`lake` is missing; installing Lean via a remote installer is outside this lane's
+no-remote-commands constraint.
+
+### Verification commands
+
+Commands below ran in this worktree. Logs and captures are under the ignored
+`target/gradients-*` paths; no check of another worktree or workspace-wide Cargo
+check was run.
+
+| Command | Result |
+|---|---|
+| `bun install --frozen-lockfile` | Pass. |
+| `cargo test -p exact-kernel --lib repeating_hatch_and_length_stops_round_trip -- --nocapture` | Expected failure before the implementation: repeating gradients refused. |
+| `cargo test -p exact-kernel --lib gradient::tests -- --nocapture` | Pass, 15 tests. |
+| `cargo test -p exact-apple --lib gradient -- --nocapture` | Pass, 5 tests. |
+| `cargo test -p exact-kernel -p exact-apple -p exact-linux -p contract -p exact-web-js --lib --bins --tests --no-fail-fast` | Two runs failed: first image layout and GPU hatch; second GPU hatch and web paint navigation timeout. Kernel, Apple and Contract tests passed. Both runs preceded the final GPU sampling correction. |
+| `target/debug/deps/it-a61745a9320b45d0 image::sampled_pixels_keep_natural_auto_axes_and_min_max_layout --exact --nocapture` | Failed image wait; subsequently passed in the second broad run. |
+| `target/debug/deps/exact_web_js-c63e69cbeaa60eb9 paint_tests::server_client_and_adopted_paint_agree_on_the_chrome_corpus --exact --nocapture` | Pass on isolated rerun. |
+| `target/debug/deps/pinned-aa9e6c0ed35bc96b gradients::every_gradient_case_matches_chrome_light_then_dark --exact --nocapture` | Pass after the third GPU fix; 15 cases, CPU/GPU, light/dark. |
+| `cargo clippy -p exact-kernel -p exact-apple -p exact-linux -p contract -p exact-web-js --all-targets -- -D warnings` | Pass before the final GPU sampling correction; final Linux-only check follows. |
+| `cargo run -p contract-difftest -- quick` | Blocked: Rust build passed, oracle failed because `lake` is unavailable. |
+| `target/debug/contract build scripts/fixtures/gradients.contract -o target/gradients.plan` | Pass, 17 nodes. |
+| `target/debug/contract vocab background-image` | Pass. |
+| `bun host/apple/build.mjs --test` | Failed AppKit parity (2.7846/255) and the other assertions listed above. |
+| `bun host/apple/build.mjs` and `bun host/apple/build.mjs caltrain-apple` | Pass; the latter refreshed the signed app after a stale-receipt drive refusal. |
+| `bun scripts/agent.mjs macos --plan target/gradients.plan --size 390x555 tree "tap dark" state logs "screenshot target/gradients-macos.png"` | Pass; screenshot inspected. An earlier drive including `check both` stopped because macOS does not implement that operation. |
+| `bun host/web-js/conform.mjs --synthetic --only gradients --build --strict --wasm-root target/gradients-wasm --out target/gradients-conformance` | Failed before comparison: missing WASM dist. |
+| `EXACT_WEB_LINK=all EXACT_WEB_DIST=/Users/ccheever/projects/exact2-iss-gradients/target/gradients-wasm/caltrain bun host/web/build.mjs caltrain-web --wasm` | Canceled during the redundant Caltrain server-renderer build in favor of the direct JS fixture drive. |
+| `cargo test -p exact-linux --lib --tests --no-fail-fast` | Pass after the final GPU correction: 737 unit, 103 integration, 78 pinned pixel and 1 additional test. |
+| `cargo fmt --all -- --check` | Pass on the final source. |
+| `git add -A && bun scripts/caps.mjs` | Pass. |
+| `bun scripts/issue.mjs check` | Pass; issue remains open. |
+| `cargo clippy -p exact-linux --all-targets -- -D warnings` | Pass on the final GPU source. |
+| `bun host/web-js/build.mjs caltrain --plan target/gradients-conformance/synthetic-gradients.plan --out target/gradients-js --render none` | Canceled during the cold Caltrain data-module build; the self-contained fixture uses the existing `hello` host instead. |
+| `bun host/web-js/build.mjs hello --plan target/gradients-conformance/synthetic-gradients.plan --out target/gradients-js --render none` | Pass, zero compiler warnings. Direct output lacks the complete-build receipt, so the first agent invocation refused it. |
+| `EXACT_APP_DIR=/Users/ccheever/projects/exact2-iss-gradients/apps/hello EXACT_WEB_DIST=/Users/ccheever/projects/exact2-iss-gradients/target/gradients-js bun host/web/build.mjs hello-web` | Pass; produces the authenticated base build. |
+| `EXACT_WEB_DIST=/Users/ccheever/projects/exact2-iss-gradients/target/gradients-js bun scripts/agent.mjs web --app hello --plan target/gradients-conformance/synthetic-gradients.plan --size 420x555 tree "check both" "screenshot target/gradients-web-before.png" "tap change" tree state logs "screenshot target/gradients-web.png"` | Pass; both appearances have no findings, state changes to width 240/period 12, both screenshots inspected. |
+
+## c1 continuation (2026-10-12)
+
+The remaining AppKit error is hard-stop position quantization inside Core
+Graphics’ expanded axial ramp. A direct Core Graphics reproduction has exactly
+the captured test’s 2.784571/255 mean error: 886 of 7,000 pixels differ, each
+by 22, and every pixel is either the authored #e6e6e6 or background #fcfcfc.
+The diff follows stripe boundaries throughout the box, with alternating
+narrow and wide stripes. There is no blended edge colour, uniform phase
+shift or pattern-tile seam. Drawing the continuous runs with separate gradient
+endpoints preserves the geometry and colour space and makes that reproduction
+pixel-exact against the Chrome fixture. The shared Swift painter now splits
+axial ramps at internal hard stops.
+
+Diagnostics and verification logs for this continuation are under
+`target/gradients-c1-*`. The full wasm `conform --build` run is intentionally
+skipped per the orchestrator’s instruction: its dist build does not finish
+under the current machine load.
+
+The focused AppKit class now passes all three tests. Its captured hatch is
+pixel-exact in both appearances, within the unchanged 2/255 band; its on-screen
+Retina capture downsampled to 1× is 2.13/255, within that test’s unchanged
+3/255 band. All 15 gradient cases, the length resize and the border cases pass.
+The first continuation run fixed captured pixels but exposed the on-screen
+Core Animation ramp at 3.13295/255; repeating backgrounds and masks now use
+the corrected drawn painter. The temporary class filter and pixel dump were
+restored before committing. No additional permanent test was needed: the
+first slice’s Chrome hatch regression failed before this fix and passes after it.
+
+UIKit remains unverified. `simctl boot` for the previously shut-down iPhone 18
+Pro Max (793D239B-0A6E-48CB-9C12-E87C729207EB) timed out after 60 seconds.
+The first bounded shutdown also timed out; a later shutdown and `simctl list`
+confirmed this device is Shutdown. No other simulator was booted or stopped.
+
+### c1 verification commands
+
+The test bundle below is
+`target/clients/8acfb403880225d04837dabc/com.exact.caltrain/macos/aarch64-apple-darwin/embedded/development/tests/out/Products/Debug/ExactKitTests.xctest`.
+
+| Command | Result |
+|---|---|
+| `xcrun xctest -XCTest ExactKitTests.BorderParityMacTests <bundle>` | Baseline failed: the screen capture helper force-unwrapped a missing window-server image, before reaching the gradient test. |
+| `xcrun xctest -XCTest ExactKitTests.BorderParityMacTests/testEveryGradientCaseMatchesChrome <bundle>` | Baseline expected failure: hatch 2.784571/255 in both appearances. |
+| `ONLY_CLASSES=ExactKitTests.BorderParityMacTests bun host/apple/build.mjs --test` | First fix run: captured gradients passed at 0/255; on-screen hatch failed at 3.13295/255. Second fix run: all 3 tests passed, including on-screen. Temporary filter restored afterward. |
+| `cargo fmt --all -- --check` | Pass. No Rust source changed in c1. |
+| `git add -A && bun scripts/caps.mjs` | Pass, all 7 cap categories. |
+| `bun scripts/issue.mjs check` | Pass; issue remains open. |
+| `xcrun simctl boot 793D239B-0A6E-48CB-9C12-E87C729207EB` | Timed out after 60 seconds; UIKit unverified. |
+| `xcrun simctl shutdown 793D239B-0A6E-48CB-9C12-E87C729207EB` and `xcrun simctl list devices available -j` | First shutdown timed out; final shutdown reported already Shutdown and final list confirmed Shutdown. |
+| `bun host/apple/build.mjs caltrain-apple` | Pass, signed development app rebuilt. |
+| `bun scripts/agent.mjs macos --plan target/gradients.plan --size 390x555 tree "screenshot target/gradients-c1-macos-light.png" "tap dark" state logs "screenshot target/gradients-c1-macos.png"` | Pass: 17 nodes, native scheme changes to dark, both 390×555-point captures inspected. |
+
+No new Rust, web or Linux source changed in c1; their earlier lane results are
+recorded above. UIKit and the wasm conformance build were not run in c1 for
+the reasons stated above. The issue stays open for UIKit qualification and the
+deferred `background-attachment: local` scope.
+
+
+## Review fix round 1 (2026-10-12)
+
+Reviewer A found a real zero-period parity defect, but the proposed equal-weight
+average is not what Chrome paints. Stock Chrome 155.0.8059.39 paints the last
+stop in each requested case, in both appearances:
+
+| Stops in `repeating-linear-gradient(to right, …)` | Chrome |
+|---|---|
+| `red 0px, blue 0px` | `#0000ff` |
+| `red 0px, lime 0px, blue 0px` | `#0000ff` |
+| `red 0px, lime 0px, blue 0px, white 0px` | `#ffffff` |
+
+Every pixel of each 100×70 box has that colour. Thus neither the former
+`#408040` nor the suggested `#555555` matches Chrome for the three-stop case.
+The kernel now resolves a zero period to its last stop. Positive microscopic
+periods keep their existing average and cutoff. The agent guide, LLP 1066 and
+LLP 1001 describe the distinction.
+
+The shared Chrome fixture adds `zero-two`, `zero-three` and `zero-four`, with
+light/dark reference images and cases in both native parity tests. The kernel
+adds `zero_period_repetition_matches_chromes_last_stop`. Before the fix, that
+unit test failed and all three cases failed on Linux CPU/GPU and AppKit in both
+appearances (mean errors 85, 127.67 and 141.67/255 respectively). After the fix, the new cases match Chrome pixel-for-pixel on Linux CPU/GPU
+and in AppKit’s captured-gradient test, in both appearances; all 18 gradient
+cases pass those tests. No parity band was changed. Logs are `target/gradients-r1-*`.
+
+UIKit is not rerun in this targeted review round; its qualification remains
+pending as recorded above. The issue stays open for that and the deferred
+`background-attachment: local` scope.
+
+### Round 1 verification commands
+
+`bundle` below is
+`target/clients/8acfb403880225d04837dabc/com.exact.caltrain/macos/aarch64-apple-darwin/embedded/development/tests/out/Products/Debug/ExactKitTests.xctest`.
+The Apple build uses a temporary `macTests` class filter selecting only
+`ExactKitTests.BorderParityMacTests`; that filter is restored and is not part
+of the commit. No workspace-wide or full-host test suite ran in this round.
+
+| Command | Result |
+|---|---|
+| `bun target/gradients-oracle.mjs` | Pass; stock Chrome 155.0.8059.39 captures all 18 cases in both schemes. Pixel inspection confirms blue, blue, white throughout the three new boxes. |
+| `cargo test -p exact-kernel --lib zero_period_repetition_matches_chromes_last_stop -- --nocapture` | Expected failure before the fix. |
+| `cargo test -p exact-kernel --lib gradient::tests -- --nocapture` | Pass after the fix: 16 tests. |
+| `cargo test -p exact-linux --test pinned gradients::every_gradient_case_matches_chrome_light_then_dark -- --exact --nocapture` | Expected failure before the fix; pass after: all 18 cases, CPU/GPU, light/dark. New cases are pixel-exact. |
+| `xcrun xctest -XCTest ExactKitTests.BorderParityMacTests/testEveryGradientCaseMatchesChrome "$bundle"` | Expected failure against the pre-fix archive; pass after rebuilding, all 18 cases in both appearances and length resize. New cases are pixel-exact. |
+| `bun host/apple/build.mjs --test` (temporary class filter above) | Build passed; border test passed, then the on-screen test crashed at `BorderParityMacTests.swift:92` when the window-server capture returned nil, as in the c1 baseline. The captured-gradient test was run directly afterward. |
+| `cargo clippy -p exact-kernel -p exact-linux --all-targets -- -D warnings` | Pass. |
+| `cargo fmt --all -- --check` | Pass. |
+| `target/debug/contract build scripts/fixtures/gradients.contract -o target/gradients-r1.plan` | Pass; existing fixture warnings about authored colours and pre-action reads. |
+| `xcrun xctest -XCTest ExactKitTests.BorderParityMacTests/testEveryCaseMatchesChromeOnScreen "$bundle"` | Focused retry also crashed at the same nil-capture unwrap; on-screen parity remains unverified in this round. |
+| `bun host/apple/build.mjs caltrain-apple` | Pass; signed development app rebuilt. |
+| `bun scripts/agent.mjs macos --plan target/gradients-r1.plan --size 390x650 tree "screenshot target/gradients-r1-macos-light.png" "tap dark" state logs "screenshot target/gradients-r1-macos-dark.png"` | Pass; 20 nodes, scheme changes to dark, both captures inspected with blue/blue/white zero-period boxes. |

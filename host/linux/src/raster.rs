@@ -765,7 +765,11 @@ impl Backend for Raster {
                 Point::from_xy(start.0, start.1),
                 Point::from_xy(end.0, end.1),
                 stops,
-                SpreadMode::Pad,
+                if gradient.repeat {
+                    SpreadMode::Repeat
+                } else {
+                    SpreadMode::Pad
+                },
                 Transform::identity(),
             ),
             // The unit circle, scaled to the ellipse.

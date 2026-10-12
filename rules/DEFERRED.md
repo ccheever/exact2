@@ -545,6 +545,7 @@ reading. Nothing that isn't HTML is added by it.
   floating control without a canvas. **Ratified (Charlie, 2026-09-27; take
   waived):** CSS's own row, run natively by the browser and held to Chrome's
   pixels elsewhere; kept as built.
+- **Expanded (Charlie, 2026-10-12, issue-program ruling 9):** “repeating gradients: (a) admit repeating-linear-gradient + length stops held to Chrome; defer background-attachment: local”. The T3 Code clone’s split-diff hatch is the consumer. LLP 1066’s amendment implements the admitted grammar; no new row or apparatus. `local` remains deferred.
 - **CSS visual properties native hosts draw cheaply (Charlie, 2026-10-02: "Waive
   the take"; LLP 1077):** `corner-shape`, `mask-image`, `text-shadow`,
   `box-shadow` lists/`inset`/spread, `conic-gradient()` and stacked

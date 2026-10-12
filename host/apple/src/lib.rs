@@ -48,6 +48,7 @@ pub mod corner;
 mod defaults;
 pub mod delivery;
 pub mod executor;
+pub mod gradient;
 pub mod host;
 pub mod link;
 pub mod markup;

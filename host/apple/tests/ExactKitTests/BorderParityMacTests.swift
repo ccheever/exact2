@@ -212,6 +212,7 @@ final class BorderParityMacTests: XCTestCase {
 
     /// LLP 1066: the gradient page's cases (`GradientParity`), light then dark.
     func testEveryGradientCaseMatchesChrome() {
+        GradientParity.checkLengthResize()
         var failures = GradientParity.check(dark: false) { render($0, dark: $1, page: $2) }
         failures += GradientParity.check(dark: true) { render($0, dark: $1, page: $2) }
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))

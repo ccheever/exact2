@@ -544,6 +544,7 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   are at most four. Apple draws a conic gradient, and more than one layer,
   through the box's `draw(_:)` (Core Animation's conic gradient bends CSS's
   angles in a box that is not square), and a conic `mask-image` as pixels.
+- **Repeating linear gradients and px stops** ([LLP 1066, 2026-10-12](1066-gradients.rfc.md)): native hosts resolve stop positions against the painted box. A zero period paints the last stop, as Chrome 155 does. Positive periods below 0.01 CSS px or more than 8,192 periods across that box become their average colour; Chrome uses its own device-dependent resolution cutoff. Negative radial lengths, non-px lengths, and `background-attachment: local` remain refused. Apple draws repeating backgrounds and rasterizes repeating masks to avoid quantized hard stops in a single ramp; UIKit’s drawn-gradient `background-attachment: fixed` limitation (LLP 1066 D7) applies. AppKit’s captured hatch is pixel-exact after splitting the hard stops; UIKit qualification is pending and the issue remains open.
 - **Gradient paint under borders** ([LLP 1066 D5](1066-gradients.rfc.md)):
   native hosts extend end colours outside the padding box instead of repeating
   the gradient image as CSS's initial `background-repeat` does. Their gradient
