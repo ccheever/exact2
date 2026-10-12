@@ -65,11 +65,9 @@ export const HELP = {
       ['--wasm', 'the resident wasm loop (a game\'s always): a plan restarts in place, state carried'],
     ],
     internal: ['--app <name>', '--serve-as <port>'],
-    body: `Runs     in the foreground until ^C, printing its URL. test web and agent web build and
-         serve their own copy, so they do not need it. To keep it while you work:
-           bun exact.mjs web > .exact/web.log 2>&1 &      # $! is its PID; kill <PID> stops it
-         If your tool's shell ends background jobs when the command returns, use the
-         tool's own background mode.`,
+    body: `Runs     in the foreground until ^C, printing its URL. The dev loop is for a person watching
+         the app change: verify, test and agent build and serve their own copy, so checking
+         the app needs no dev server.`,
     bodyAll: `Ports    one HTTP port on 127.0.0.1 (--lan: every interface), printed with the URL. A native
          client opening <url>__dev/open starts the producers on a second, loopback-only port.
          The server stops with its process however it ends.`,

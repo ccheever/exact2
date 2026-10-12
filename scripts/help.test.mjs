@@ -122,6 +122,9 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
     assert.match(all, /^Ports {4}/m, `${verb} --help all says its ports`);
     assert.doesNotMatch(all, /^More /m);
   }
+  // LLP 1116.008 D2: web's help does not teach a background dev server (builders followed it into five steps).
+  assert.match(helpText('web', { all: true }), /The dev loop is for a person watching\n\s+the app change: verify, test and agent build and serve their own copy, so checking\n\s+the app needs no dev server\./);
+  assert.doesNotMatch(helpText('web', { all: true }), /web\.log| &\s|background|\$!/);
   // LLP 1116.007 D2: a builder parses `agent` output, so the short text says --json is one object per line.
   assert.match(helpText('agent'), /^ {2}--json +one compact JSON object per op reply, one per line/m);
   // LLP 1116.007 D3.9: `state <name>` is a view's, else a state or resource read down a dotted path.
