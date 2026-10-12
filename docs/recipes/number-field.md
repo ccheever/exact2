@@ -107,3 +107,49 @@ test "below zero converts"
   `blur()` does from the action that uses the value, and `keyboardDismissMode` lets a
   drag do it.
 - Show money with [money](money.md), and a big result with [numeric-readout](numeric-readout.md).
+
+## A number in a form that saves
+
+```contract
+fn minutes(s: string): number = match parseNumber(s) { case some(n) => n, case none => -1 }
+fn valid(n: number): bool = n >= 1 and n <= 60 and floor(n) == n
+
+component Settings
+  state focus = 25
+  state draft = "25"
+  derive bad = not valid(minutes(draft))
+  action edit(v: string)
+    draft = v
+  action save
+    if not bad
+      focus = minutes(draft)
+  view
+    column gap=8 padding=16
+      input value=draft input=edit submit=save inputmode="numeric" aria-label="Focus minutes"
+        aria-invalid=bad aria-describedby="focus-error" testId="focus"
+      when bad
+        text "Enter a whole number from 1 to 60." id="focus-error" font="-exact-footnote"
+          color="-exact-system-red" testId="focus-error"
+      button press=save disabled=bad buttonStyle="bordered-prominent" testId="save"
+        text "Save"
+      text `Focus: ${focus} min` testId="saved"
+```
+
+```contract-test
+test "Enter saves a whole number; a bad one is marked and not saved"
+  type "focus" "0"
+  expect tree has "focus-error"
+  type "focus" key "Enter"
+  expect text "saved" == "Focus: 25 min"
+  type "focus" "40"
+  type "focus" key "Enter"
+  expect text "saved" == "Focus: 40 min"
+```
+
+- `submit=save` on the field: Enter saves, as on a web form, and so does Return on iOS
+  (the number pad gets a Done key for it). There is no `form`, so a field without
+  `submit` saves nothing on Enter.
+- `aria-invalid` while the text is bad, and `aria-describedby` naming the error: the web
+  outlines the field in the system red, and a screen reader reads the error with it.
+- `disabled` on Save while the text is bad: it draws disabled, grey whatever the accent,
+  as a platform button does. Leave its colours unsaid.
