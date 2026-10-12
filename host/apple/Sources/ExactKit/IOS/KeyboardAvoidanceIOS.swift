@@ -28,7 +28,7 @@ extension Presenter {
         var v: UIView? = node.superview, nearest = true
         while let cur = v {
             var target: UIScrollView? = cur is ScrollView || cur is GroupedScroller ? cur as? UIScrollView : nil
-            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scrollView }
             if let sv = target {
                 // A grouped list's collection view puts back the offset it
                 // had in the layout that follows a change of its size or
@@ -74,7 +74,8 @@ extension Presenter {
     /// its Author field). A box the field sits in is not a cover for it.
     func pinnedCover(over sv: UIScrollView, field node: NodeView) -> CGFloat {
         guard let window = sv.window else { return 0 }
-        let port = sv.convert(sv.bounds.inset(by: sv.adjustedContentInset), to: window)
+        let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+        let port = sv.convert(sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset), to: window)
         guard port.height > 1, port.width > 1 else { return 0 }
         var top = port.maxY
         func consider(_ box: NodeView) {
@@ -113,7 +114,8 @@ extension Presenter {
     /// with `keep` the rest of its section when all of it fits; whether it moved.
     private func show(_ node: NodeView, in sv: UIScrollView, keep: Bool, covered: CGFloat = 0) -> Bool {
         let field = node.convert(node.bounds, to: sv)
-        var visible = sv.bounds.inset(by: sv.adjustedContentInset)
+        let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+        var visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
         visible.size.height = max(0, visible.height - covered)
         var r = field.insetBy(dx: 0, dy: -8)
         if keep, let span = Self.kept(node, field: field, in: sv), span.height + 16 <= visible.height {
@@ -179,27 +181,21 @@ extension Presenter {
 /// The room below a scroller's content that lets a field at its end be shown
 /// above content pinned over its bottom edge (LLP 1116.008 D8): what a hand-
 /// built screen's bottom inset does for its toolbar. Taken as the field is
-/// revealed and given back when the keyboard goes, never at rest. A grouped
-/// list's collection view takes its insets from the authored scroll beneath
-/// it each time it lays out, so that scroll's carry the room too.
+/// revealed and given back when the keyboard goes, never at rest. The active
+/// scroll backend keeps this room alongside native content padding.
 final class PinnedRoom {
     private struct Grown {
         weak var scroll: UIScrollView?
-        weak var authored: UIScrollView?
-        var base: CGFloat, authoredBase: CGFloat, added: CGFloat
+        var base: CGFloat, added: CGFloat
     }
     private var grown: [ObjectIdentifier: Grown] = [:]
 
     /// `extra` more points below the content, on top of what it already took.
     func grow(_ sv: UIScrollView, by extra: CGFloat) {
         let id = ObjectIdentifier(sv)
-        var room = grown[id] ?? {
-            let authored = sv is GroupedScroller ? (sv.superview as? NodeView)?.scroll : nil
-            return Grown(scroll: sv, authored: authored, base: sv.contentInset.bottom, authoredBase: authored?.contentInset.bottom ?? 0, added: 0)
-        }()
+        var room = grown[id] ?? Grown(scroll: sv, base: sv.contentInset.bottom, added: 0)
         room.added += extra
         sv.contentInset.bottom = room.base + room.added
-        room.authored?.contentInset.bottom = room.authoredBase + room.added
         grown[id] = room
     }
 
@@ -208,7 +204,6 @@ final class PinnedRoom {
     func release() {
         for room in grown.values {
             guard let sv = room.scroll else { continue }
-            room.authored?.contentInset.bottom = room.authoredBase
             sv.contentInset.bottom = room.base
             let high = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
             if sv.contentOffset.y > high { sv.contentOffset.y = high }
@@ -232,13 +227,13 @@ extension NodeView {
         case "interactive": return .interactive
         case "on-drag": return .onDrag
         case "none": return .none
-        default: return scroll?.scrollsY == true ? .interactive : .none
+        default: return scrollsVertically ? .interactive : .none
         }
     }
     /// Written again when the prop or the axes the node scrolls change; a
     /// grouped list's collection view takes it from here (`mount`).
     func updateKeyboardDismissal() {
-        guard let scroll, scroll.keyboardDismissMode != keyboardDismissal else { return }
+        guard let scroll = scrollView, scroll.keyboardDismissMode != keyboardDismissal else { return }
         scroll.keyboardDismissMode = keyboardDismissal
     }
 }
