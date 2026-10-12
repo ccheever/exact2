@@ -1,6 +1,7 @@
 # macOS: VoiceOver's show menu (AXShowMenu) runs no node's `contextmenu`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #486
 **Systems:** host/apple macOS, accessibility
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
