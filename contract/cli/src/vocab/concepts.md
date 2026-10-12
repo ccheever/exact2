@@ -680,3 +680,6 @@ component App
 
 - The value is text, as any field's: a step is an `input` and a `change` with the new text, which a
   derive parses with `parseNumber` (docs/recipes/number-field.md). `step` defaults to 1.
+- On iOS the stepper needs the field about 130 pt wide (`flex=1` in a row), else the field shows alone.
+- A test types the value (`type "qty" "5"`); `agent … layout qty` gives `native.stepper`'s
+  `increment` point, and `tap qty at <x> <y>` presses it.
