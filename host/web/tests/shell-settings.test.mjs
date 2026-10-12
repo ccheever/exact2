@@ -124,3 +124,16 @@ check('a material the host paints honours the person\'s settings: opaque with Re
   expect(parseFloat(await css(evaluate, 'spinner', 'borderLeftWidth', '::before'))).toBeGreaterThan(0);
 }));
 
+check('the shell carries the resets a careful web app ships', () => inChrome(async (evaluate) => {
+  // A phone does not inflate the text in landscape.
+  expect(await evaluate('getComputedStyle(document.documentElement).textSizeAdjust')).toBe('100%');
+  // A control answers a tap at once; content does not change, and a node that said its own keeps it.
+  for (const id of ['button', 'bare', 'link', 'pressable', 'field', 'area', 'select', 'switch']) expect([id, await css(evaluate, id, 'touchAction')]).toEqual([id, 'manipulation']);
+  expect(await css(evaluate, 'plain', 'touchAction')).toBe('auto');
+  expect(await css(evaluate, 'panned', 'touchAction')).toBe('none');
+  // A shell that scrolls inside itself keeps a scroller's end from the page; a `scroll document` page is the browser's.
+  const ends = 'JSON.stringify([getComputedStyle(document.documentElement).overscrollBehaviorY, getComputedStyle(document.body).overscrollBehaviorY])';
+  expect(await evaluate(ends)).toBe('["contain","contain"]');
+  expect(await evaluate(`document.documentElement.setAttribute('data-scrolldocument', ''); ${ends}`)).toBe('["auto","auto"]');
+}));
+
