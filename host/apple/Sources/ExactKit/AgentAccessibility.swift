@@ -48,7 +48,7 @@ extension Agent {
         var limits: [[String: Any]] = []
         var modalRoot: AnyObject?
         #if os(macOS)
-        switch presenter.axSheet(view.window?.attachedSheet) {
+        switch presenter.axSheet(presenter.sheets(on: view.window).last) {
         case .owned(let content): modalRoot = content
         case .foreign: limits.append(["root": "sheet", "reason": "a sheet this session cannot be shown to own blocks its window; it is not walked"])
         case .none: break
@@ -74,7 +74,9 @@ extension Agent {
         // A `dialog` in its sheet is outside both (DialogSheetIOS.swift).
         roots += presenter.menus.sheets.roots
         #else
-        if case .owned(let content) = presenter.axSheet(view.window?.attachedSheet) { roots.append(content) }
+        // A dialog's sheet, the sheets on it, and the popovers AppKit shows (LLP 1115.002 D7).
+        for sheet in presenter.sheets(on: view.window) { if case .owned(let content) = presenter.axSheet(sheet) { roots.append(content) } }
+        roots += presenter.menus.windowed.map(\.content)
         #endif
         return roots
     }

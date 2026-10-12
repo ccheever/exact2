@@ -69,6 +69,8 @@ final class KeyboardNavigationMacTests: XCTestCase {
         return order
     }
     private func tab(_ p: Presenter, shift: Bool = false) throws {
+        // To the window the keyboard is in: an open dialog's sheet, else the page's.
+        let window: NSWindow = p.dialogs.active?.window ?? self.window
         let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? .shift : [], timestamp: 0, windowNumber: window.windowNumber,
                                                    context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48))
         if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
@@ -218,7 +220,9 @@ final class KeyboardNavigationMacTests: XCTestCase {
         p.dialogs.close(dialog)
         KeyboardNavigation.agent = true
         p.dialogs.show(dialog)
-        XCTAssertTrue(window.firstResponder === p.views[21], "on, the button comes first")
+        // In its sheet (LLP 1115.002 D7.2): the sheet's window holds its focus.
+        XCTAssertTrue(window.attachedSheet === dialog.window)
+        XCTAssertTrue(dialog.window?.firstResponder === p.views[21], "on, the button comes first")
         p.dialogs.close(dialog)
     }
 }

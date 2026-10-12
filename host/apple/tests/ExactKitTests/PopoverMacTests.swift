@@ -39,6 +39,10 @@ final class PopoverMacTests: XCTestCase {
     private func fixture() -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
+        // The popover painted in the page's top layer, as the driver's own
+        // chrome shows it; AppKit's popover is `PopoverNativeMacTests`.
+        p.menus.painted = true
+        p.dialogs.painted = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

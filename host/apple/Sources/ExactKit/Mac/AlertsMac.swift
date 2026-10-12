@@ -118,7 +118,9 @@ final class AlertHost {
     /// presentations.
     @discardableResult
     func present(_ pop: NodeView, from source: NodeView?) -> Bool {
-        guard let presenter, presented == nil, presenter.menus.live(pop), let window = presenter.viewport.window,
+        // On the sheet of the dialog that is open, when one is: AppKit keeps
+        // a second sheet on the page's window waiting behind the first.
+        guard let presenter, presented == nil, presenter.menus.live(pop), let window = presenter.frontWindow,
               window.attachedSheet == nil, let plan = plan(of: pop) else { return false }
         let menus = presenter.menus, rows = plan.rows
         let owner = Presented(node: pop, source: source, window: window, rows: rows, defaultRow: plan.defaultRow)
@@ -170,7 +172,7 @@ final class AlertHost {
     /// still opening it, and each button live, in it, closing it, its title
     /// and enablement as presented.
     func valid(_ owner: Presented) -> Bool {
-        guard let presenter, let pop = owner.node, presenter.menus.live(pop), presenter.viewport.window === owner.window,
+        guard let presenter, let pop = owner.node, presenter.menus.live(pop), presenter.hosts(owner.window),
               plan(of: pop) != nil else { return false }
         if owner.sourced {
             guard let source = owner.source, presenter.menus.invokes(source, pop) else { return false }

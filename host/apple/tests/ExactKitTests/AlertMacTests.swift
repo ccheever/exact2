@@ -200,16 +200,19 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(safe.rows.map(\.cancel), [false, true])
     }
 
-    /// Any other shape is presented as before: more than three buttons or
-    /// no cancel is the chooser's menu (ChooserMacTests), and a `dialog`
-    /// holding anything but text and buttons, or with no text, is painted.
+    /// Any other shape is no alert: more than three buttons or no cancel is
+    /// the chooser's menu (ChooserMacTests), and a `dialog` holding anything
+    /// but text and buttons, or with no text, is a sheet that holds the
+    /// dialog's own subtree (LLP 1115.002 D7.2, `DialogSheetMacTests`).
     func testOtherShapesAreNotAlerts() throws {
         let form = fixture(extra: true)
         form.press(2)
         XCTAssertNil(form.alerts.presented)
-        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a field is the painted dialog")
-        XCTAssertNil(window.attachedSheet)
+        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a field is the dialog itself")
+        XCTAssertTrue(window.attachedSheet === form.views[3]?.window, "in a sheet of its own, not the alert's")
+        XCTAssertFalse(window.attachedSheet is NSPanel, "AppKit's alert is a panel; this is the dialog's window")
         form.dialogs.reset()
+        XCTAssertNil(window.attachedSheet)
         window.close()
         let wordless = fixture(lines: [])
         wordless.press(2)
@@ -237,7 +240,7 @@ final class AlertMacTests: XCTestCase {
     /// its cancel. So that is the alert shape under the `closedby` lowering
     /// implies for it, `closerequest`. A `dialog` of the same rows whose
     /// author wrote `closedby="any"` asks for the dismissible form, which on
-    /// the Mac is the painted dialog over its dimmed page: a click outside
+    /// the Mac is the dialog's own sheet (LLP 1115.002 D7.2): a click outside
     /// closes it. Under `closedby="none"` the alert's cancel has no Escape.
     func testAnAlertHasNoOutsideAndClosedbyAnyIsThePaintedDialog() throws {
         let alert = fixture()
@@ -255,11 +258,19 @@ final class AlertMacTests: XCTestCase {
         XCTAssertNil(light.alerts.plan(of: dialog), "not an alert: an alert has no outside")
         light.press(2)
         XCTAssertNil(light.alerts.presented)
-        XCTAssertNil(window.attachedSheet)
-        XCTAssertTrue(light.dialogs.active === dialog, "the painted dialog")
+        XCTAssertTrue(light.dialogs.active === dialog, "the dialog itself")
+        XCTAssertTrue(window.attachedSheet === dialog.window, "in a sheet that holds its subtree")
         XCTAssertEqual(light.dialogs.observation?["closedby"] as? String, "any")
-        light.dialogs.outside()
+        XCTAssertEqual(light.dialogs.observation?["presentation"] as? String, "sheet")
+        // A click on the window behind it, both halves: the sheet's under `any`.
+        let behind = NSPoint(x: 20, y: 20)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let click = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: behind, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                         context: nil, eventNumber: 7, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            XCTAssertTrue(light.dialogs.pointer(click), "the click is the dialog's, not the page's")
+        }
         XCTAssertNil(light.dialogs.active, "a click outside closes it")
+        XCTAssertNil(window.attachedSheet)
         window.close()
 
         let held = fixture(closedby: "none")

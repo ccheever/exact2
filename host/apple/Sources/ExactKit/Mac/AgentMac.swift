@@ -185,7 +185,8 @@ extension Agent {
             let r = n.drawnRect(bounds, in: clip)
             return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
         }
-        let r = v.convert(bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
+        // A node in a sheet's window or a popover's: where a person sees it over the page.
+        let r = clip.convertAcross(bounds.applying(v.layer?.affineTransform() ?? .identity), from: v)
         return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
     }
 
@@ -586,7 +587,13 @@ extension Agent {
         let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
         var p = inlineAt.map { clip.convert(NSPoint(x: $0.x + clip.bounds.origin.x, y: $0.y + clip.bounds.origin.y), to: nil) } ?? localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
         var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
-        if req["wheel"] == nil,
+        // A node in a window of its own (a dialog's sheet, AppKit's popover;
+        // LLP 1115.002 D7): the point is that window's, and it may stand
+        // outside the viewport, as a popover does.
+        let page = clip.window, apart = page != nil && win !== page
+        let inWindow = { (q: NSPoint) -> NSPoint in apart ? win.convertPoint(fromScreen: page!.convertPoint(toScreen: q)) : q }
+        if apart, inlineAt != nil || localAt == nil { p = inWindow(p) }
+        if req["wheel"] == nil, !apart,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
         }
@@ -679,8 +686,8 @@ extension Agent {
         var avoided: PressReach?
         if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
            (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
-            let window = { (q: CGPoint) in clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil) }
-            switch Agent.addressedAim(v, middle: center, area: b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
+            let window = { (q: CGPoint) in inWindow(clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil)) }
+            switch Agent.addressedAim(v, middle: center, area: apart ? b : b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
             case .refused(let refusal): return refusal.reply
             case .at(let q, let middle):
                 if let middle { avoided = middle; p = window(q); at = [Agent.r2(q.x), Agent.r2(q.y)] }
@@ -1003,18 +1010,31 @@ extension Agent {
         return image
     }
 
-    /// `image`, the window server's picture of `window`, with the window's
-    /// sheet drawn where it sits: a sheet (an alert's) is a window of its
-    /// own, which the picture of one window leaves out.
+    /// `image`, the window server's picture of `window`, with what is
+    /// attached to it drawn where it sits: a sheet (an alert's, a dialog's),
+    /// a sheet on that sheet, a popover (LLP 1115.002 D7). Each is a window
+    /// of its own, which the picture of one window leaves out; what stands
+    /// outside the window's frame (a popover may) is outside the picture.
     private static func withSheet(_ image: CGImage, of window: NSWindow) -> CGImage {
-        guard let sheet = window.attachedSheet, let picture = ownWindowImage(sheet.windowNumber), window.frame.width > 0,
+        var attached: [NSWindow] = []
+        func collect(_ parent: NSWindow) {
+            for child in ([parent.attachedSheet].compactMap { $0 } + (parent.childWindows ?? [])) where child.isVisible && !attached.contains(where: { $0 === child }) {
+                attached.append(child)
+                collect(child)
+            }
+        }
+        collect(window)
+        guard !attached.isEmpty, window.frame.width > 0,
               let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
         let scale = CGFloat(image.width) / window.frame.width
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        context.draw(picture, in: CGRect(x: (sheet.frame.minX - window.frame.minX) * scale, y: (sheet.frame.minY - window.frame.minY) * scale,
-                                         width: CGFloat(picture.width), height: CGFloat(picture.height)))
+        for child in attached {
+            guard let picture = ownWindowImage(child.windowNumber) else { continue }
+            context.draw(picture, in: CGRect(x: (child.frame.minX - window.frame.minX) * scale, y: (child.frame.minY - window.frame.minY) * scale,
+                                             width: CGFloat(picture.width), height: CGFloat(picture.height)))
+        }
         return context.makeImage() ?? image
     }
 
