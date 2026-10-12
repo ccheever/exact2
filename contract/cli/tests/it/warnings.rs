@@ -630,3 +630,89 @@ fn a_chosen_noun_a_string_a_unit_or_a_total_is_not_named() {
         assert_eq!(warned(&src), [], "{src}");
     }
 }
+
+const TITLE_TWICE: &str = "lower-title-twice";
+
+/// A route whose header holds `title` and whose scroller holds `content`,
+/// its lines at 14 on after a header of one line.
+fn titled(title: &str, content: &str) -> String {
+    let content: String = content
+        .lines()
+        .map(|l| format!("            {l}\n"))
+        .collect();
+    route(title).replace("            text \"body\"\n", &content)
+}
+
+#[test]
+fn a_content_heading_that_says_the_bars_title_is_named_with_its_repair() {
+    // Trivia's home, rounds 6 and 7: "Trivia Quiz" large in the bar and
+    // again at the top of the page, under the phase it shows in.
+    let trivia = titled(
+        "  text \"Trivia Quiz\" role=\"heading\" aria-level=1\n  when q != \"\"\n    text `Best ${q}`",
+        "column\n  when q == \"\"\n    column align-items=\"center\"\n      text \"Trivia Quiz\" role=\"heading\" aria-level=2\n      text \"10 questions, 15 seconds each.\"\n  when q != \"\"\n    text \"Results\" role=\"heading\" aria-level=2",
+    );
+    assert_eq!(warned(&trivia), [(TITLE_TWICE.to_string(), 19)], "{trivia}");
+    let (_, warnings) = contract::compile_warned(&trivia);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with("this heading says \"Trivia Quiz\", as the route's `header` heading does")
+            && m.contains("on iOS once large in the navigation bar and once in the page")
+            && m.contains("on the web just under the header")
+            && m.contains("Drop this heading, or make it say something else"),
+        "{m}"
+    );
+    // The same bound value in both, and the same words spaced apart.
+    let bound = titled(
+        "  text q role=\"heading\"",
+        "text q role=\"heading\" aria-level=2",
+    );
+    assert_eq!(warned(&bound), [(TITLE_TWICE.to_string(), 14)], "{bound}");
+    let (_, warnings) = contract::compile_warned(&bound);
+    assert!(
+        warnings[0].message.contains("says the same value")
+            && warnings[0]
+                .message
+                .contains("on iOS once in the navigation bar"),
+        "{warnings:?}"
+    );
+    let spaced = titled(
+        "  text \"Trivia Quiz\" role=\"heading\" aria-level=1",
+        "text \" Trivia  Quiz\" aria-level=2",
+    );
+    assert_eq!(warned(&spaced), [(TITLE_TWICE.to_string(), 14)]);
+}
+
+#[test]
+fn another_name_no_bar_or_a_sections_own_name_is_not_named() {
+    let title = "  text \"Notes\" role=\"heading\" aria-level=1";
+    for content in [
+        // A heading that says something else.
+        "text \"Recent\" role=\"heading\" aria-level=2\ntext \"Notes, newest first\"",
+        // A section's own name: inside a `section`, or after a heading
+        // always shown before it (expense-tracker's "Expenses" list under
+        // "By category").
+        "list\n  section\n    header\n      text \"Notes\" role=\"heading\" aria-level=3\n    text \"a\"",
+        "column\n  text \"By folder\" role=\"heading\" aria-level=2\ncolumn\n  text \"Notes\" role=\"heading\" aria-level=2",
+        // Not shown with the bar: hidden, in a popover or another route.
+        "text \"Notes\" role=\"heading\" display=\"none\"\ncolumn id=\"m\" popover=\"auto\"\n  text \"Notes\" role=\"heading\"",
+        // A plain text that says it is no heading.
+        "text \"Notes\"",
+    ] {
+        let src = titled(title, content);
+        assert_eq!(warned(&src), [], "{src}");
+    }
+    // A bound value under an `each` may name another value.
+    let each = titled(
+        "  text q role=\"heading\"",
+        "each q in [\"a\"] key=q\n  text q role=\"heading\"",
+    );
+    assert_eq!(warned(&each), [], "{each}");
+    // A header that is no bar: the title is drawn once, in the page.
+    let no_bar = titled("  text \"Notes\"", "text \"Notes\" role=\"heading\"");
+    assert_eq!(warned(&no_bar), [(NO_BAR.to_string(), 11)], "{no_bar}");
+    let late = titled(title, "text \"Notes\" role=\"heading\"").replace(
+        "          header display=\"flex\"\n",
+        "          text \"first\"\n          header display=\"flex\"\n",
+    );
+    assert_eq!(warned(&late), [], "{late}");
+}

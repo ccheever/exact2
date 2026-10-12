@@ -11,7 +11,8 @@ before it lead and after it trail, the first text after it is the subtitle, and 
 of the header is hidden. With no heading or two the route has no bar, no title and no
 Back button, and the header draws in the page; a stack has bars only when its first
 route's header is one. `contract vocab header` states it whole, and the compiler warns
-(`lower-header-no-bar`, `lower-header-unplaced`).
+(`lower-header-no-bar`, `lower-header-unplaced`). The bar's title names the screen: a
+heading at the top of the content that says it again shows it twice (`lower-title-twice`).
 
 <!-- check: app -->
 ```contract
