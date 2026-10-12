@@ -1,6 +1,7 @@
 # macOS: after a live colour-scheme switch, a rastered text that is not selectable keeps its old colour
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #494
 **Systems:** host/apple macOS, text raster, colour scheme
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
