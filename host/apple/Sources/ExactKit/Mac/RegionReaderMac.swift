@@ -222,7 +222,7 @@ final class RegionReaderParagraph {
         // `ink`), here too. Nothing selected fills nothing, so its colour is fixed
         // and a change of focus repaints only a band that shows a selection.
         let focused = PageFacts.hasFocus(node.window)
-        let selected = selection.length > 0 ? [TextSelection.fill(focused: focused), TextSelection.ink(focused: focused)].compactMap { $0.usingColorSpace(.sRGB) } : []
+        let selected = selection.length > 0 ? TextSelection.rasterColors(focused: focused, in: node.effectiveAppearance, space: .sRGB) : nil
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
             rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
             scroll: CGPoint(x: -32, y: band.y), size: CGSize(width: width, height: band.height), scale: scale,
@@ -230,7 +230,7 @@ final class RegionReaderParagraph {
             // The existing view owns CSS backgrounds, including rounded corners
             // and opacity. Overflow ink must not repaint its ancestor's box.
             background: [0, 0, 0, 0],
-            selectionColor: selected.count == 2 ? selected.flatMap { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] } : [0, 0, 0, 0],
+            selectionColor: selected ?? [0, 0, 0, 0],
             interaction: pointRequest, pixelLimit: RegionRasterRequest.maximumPixelLimit)
         if let old = wantedRaster, old.sameOutput(as: next) { return }
         // A useful in-flight band must be allowed to arrive while the viewport

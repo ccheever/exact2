@@ -126,11 +126,38 @@ final class TextIdentity: Hashable {
     var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride + runEnds.count * MemoryLayout<Int>.stride }
 }
 
+extension Spec {
+    /// Paint does not affect wrapping. Retain run boundaries and metric styles.
+    var geometry: Spec {
+        var value = self
+        value.color = [0, 0, 0, 255]
+        value.ellipsis = false
+        value.source = SourceMap()
+        for i in value.runs.indices {
+            value.runs[i].hidden = false
+            value.runs[i].fixedInk = false
+            value.runs[i].color = nil
+            value.runs[i].decoration = ""
+            value.runs[i].href = ""
+            value.runs[i].background = nil
+            value.runs[i].shadow = nil
+            value.runs[i].stroke = nil
+        }
+        if var strut = value.strut {
+            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""; strut.background = nil
+            strut.shadow = nil; strut.stroke = nil
+            value.strut = strut
+        }
+        return value
+    }
+}
+
 /// Text/font metrics are interned by exact Run equality, not a digest or ABI
 /// pointer. Width and paint keys then share that owned identity and its Strings.
 struct TextPaint: Hashable {
     struct Inline: Hashable {
         let hidden: Bool
+        let fixedInk: Bool
         let color: [Double]?
         let decoration: String
         let href: String
@@ -144,7 +171,7 @@ struct TextPaint: Hashable {
     init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(hidden: $0.hidden, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+        runs = spec.runs.map { Inline(hidden: $0.hidden, fixedInk: $0.fixedInk, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
     func applying(to identity: TextIdentity) -> Spec {
@@ -153,6 +180,7 @@ struct TextPaint: Hashable {
         spec.ellipsis = ellipsis
         for i in spec.runs.indices {
             spec.runs[i].hidden = runs[i].hidden
+            spec.runs[i].fixedInk = runs[i].fixedInk
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration
             spec.runs[i].href = runs[i].href

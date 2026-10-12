@@ -521,26 +521,7 @@ pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
             return;
         }
     }
-    let native = match c {
-        // An id past the table names no role: its transparent fallback.
-        ColorValue::Role(id) => exact_kernel::style::roles::role_of(id).map(|r| {
-            std::borrow::Cow::Borrowed(if cfg!(target_os = "macos") {
-                r.macos
-            } else {
-                r.ios
-            })
-        }),
-        ColorValue::Platform(id) => exact_kernel::style::roles::platform(id).and_then(|p| {
-            let name = if cfg!(target_os = "macos") {
-                p.macos.clone()
-            } else {
-                p.ios.clone()
-            };
-            name.map(|n| std::borrow::Cow::Owned(n.into_string()))
-        }),
-        _ => None,
-    };
-    if let Some(name) = native {
+    if let Some(name) = native_name(c) {
         out.push_str("{\"sys\":\"");
         out.push_str(&name);
         out.push_str("\",\"c\":");
@@ -563,6 +544,39 @@ pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
         | ColorValue::Moving(..)
         | ColorValue::Profiled(_) => push_rgba(out, [0; 4]),
     }
+}
+
+/// The platform colour `c` names here (`{"sys": …}` on the wire): a role's, or
+/// a `-exact-platform-color()`'s where it has a name for this platform.
+fn native_name(c: ColorValue) -> Option<std::borrow::Cow<'static, str>> {
+    match c {
+        // An id past the table names no role: its transparent fallback.
+        ColorValue::Role(id) => exact_kernel::style::roles::role_of(id).map(|r| {
+            std::borrow::Cow::Borrowed(if cfg!(target_os = "macos") {
+                r.macos
+            } else {
+                r.ios
+            })
+        }),
+        ColorValue::Platform(id) => exact_kernel::style::roles::platform(id).and_then(|p| {
+            let name = if cfg!(target_os = "macos") {
+                p.macos.clone()
+            } else {
+                p.ios.clone()
+            };
+            name.map(|n| std::borrow::Cow::Owned(n.into_string()))
+        }),
+        _ => None,
+    }
+}
+
+/// Whether `c` is a colour its author fixed: any that names no system
+/// colour (the app's own asset, `named:`, is the author's), as the presenter
+/// tells one from its wire form (`fixesInk`). A surface that crosses its
+/// colours already resolved says so beside them.
+/// @ref LLP 1115.000 D7.9
+pub(crate) fn fixes_ink(c: ColorValue) -> bool {
+    native_name(c).is_none_or(|name| name.starts_with("named:"))
 }
 
 /// A profile's colour as `{"cs": [{"s": "cg:<name>" | "icc:<asset>", "i":

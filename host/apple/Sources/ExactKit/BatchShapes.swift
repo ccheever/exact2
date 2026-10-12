@@ -232,6 +232,7 @@ struct BatchFields {
 extension InlineStyle {
     mutating func set(_ key: String, _ value: BatchValue) throws {
         if value == .null { return }
+        if key == "text_color" { fixedInk = value.fixesInk }
         switch key {
         case "font_size": run.size = CGFloat(Float(try BatchFields.number(value)))
         case "font_weight", "font_family":

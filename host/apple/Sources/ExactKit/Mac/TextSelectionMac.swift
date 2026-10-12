@@ -62,14 +62,36 @@ package final class TextSelection {
     static func fill(focused: Bool) -> NSColor {
         focused ? .selectedTextBackgroundColor : .unemphasizedSelectedTextBackgroundColor
     }
-    /// The selected glyphs' colour: AppKit's own for text on that fill,
-    /// whatever ink the text had, since the fill alone hides light text that
-    /// stood on a dark ground. An `NSTextView` on macOS 27.0 does the same in
-    /// the dark appearance and, in the light one, for a system colour; there
-    /// it leaves a fixed colour as it was (white stays white on the pale
-    /// fill), which is the one case this departs from it.
+    /// The selected glyphs' colour: AppKit's own for text on that fill. Which
+    /// glyphs take it is as an `NSTextView` has it, measured on macOS 27.0
+    /// (LLP 1115.000 D7.9), with or without the window's focus:
+    /// - dark appearance: every selected glyph, whatever its ink;
+    /// - light appearance: text whose colour nobody wrote, and text in a
+    ///   system colour (a role: a label tier, `AccentColor`, an inline
+    ///   link's own blue). A colour its author fixed keeps its ink at its
+    ///   own alpha: a literal (red stays red, and white stays white on the
+    ///   pale fill), a `light-dark()` pair, as a dynamic `NSColor` does,
+    ///   and a colour from the app's asset catalogue.
+    /// A run says which it is (`Run.fixedInk`, from its colour's kind on the
+    /// wire, `BatchValue.fixesInk`), and the painter is told the appearance
+    /// (`keepsFixed`).
     static func ink(focused: Bool) -> NSColor {
         focused ? .selectedTextColor : .unemphasizedSelectedTextColor
+    }
+    /// Whether selected text in a colour its author fixed keeps it: in the
+    /// light appearance, where AppKit's does (`ink`).
+    static func keepsFixedInk(dark: Bool) -> Bool { !dark }
+    /// `fill`, `ink` and `keepsFixedInk` as a raster request carries them
+    /// (`RegionRasterRequest.selectionColor`): the three as `appearance` has
+    /// them, the colours in `space`.
+    static func rasterColors(focused: Bool, in appearance: NSAppearance, space: NSColorSpace) -> [CGFloat]? {
+        var colors: [NSColor] = []
+        appearance.performAsCurrentDrawingAppearance {
+            colors = [fill(focused: focused), ink(focused: focused)].compactMap { $0.usingColorSpace(space) }
+        }
+        guard colors.count == 2 else { return nil }
+        let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return colors.flatMap { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] } + [keepsFixedInk(dark: dark) ? 1 : 0]
     }
     /// The window's focus may have changed (`PageFacts.hasFocus`): what is
     /// selected is painted again, in the colour that goes with it.
@@ -660,13 +682,14 @@ package final class TextSelection {
 
     /// Over the paragraph's own paint: the selection's fill, which covers
     /// the ink and any inline background inside it, then the selected glyphs
-    /// in the selection's colour (`ink`), clipped to the fill.
+    /// in the selection's colour, or in their own where they keep it (`ink`),
+    /// clipped to the fill.
     func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, in ctx: CGContext, dirty: NSRect) {
         guard let selection = range(node), selection.length > 0 else { return }
         let box = node.paragraphBox(), focused = PageFacts.hasFocus(node.window)
         let lines = paragraph.selectedLines(selection, align: spec.align, in: box, dirty: dirty)
         guard !lines.isEmpty else { return }
-        let ink = Self.ink(focused: focused).cgColor
+        let ink = Self.ink(focused: focused).cgColor, keepsFixed = Self.keepsFixedInk(dark: node.drawsDark)
         ctx.saveGState()
         ctx.clip(to: lines.map(\.rect))
         ctx.setFillColor(Self.fill(focused: focused).cgColor)
@@ -675,7 +698,7 @@ package final class TextSelection {
             let line = spec.ellipsis ? paragraph.ellipsized(index, spec: spec, width: box.width) : paragraph.lines[index]
             let origin = CGPoint(x: box.minX + paragraph.origin(index, align: spec.align, width: box.width),
                                  y: box.minY + paragraph.baselines[index].rounded())
-            TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, transparentInk: node.backgroundClip == "text")
+            TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, keepsFixed: keepsFixed, transparentInk: node.backgroundClip == "text")
         }
         ctx.restoreGState()
     }
