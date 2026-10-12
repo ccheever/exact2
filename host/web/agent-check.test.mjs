@@ -258,5 +258,9 @@ test('a screenshot shows a transition where it ends, the clock unmoved; a film\'
     expect(frame(0)[0]).toBeGreaterThan(240); // still red at the clock it starts on
     expect(frame(1)[0]).toBeLessThan(200); // half way
     expect(frame(2)[2]).toBeGreaterThan(240); // blue where it ends
+    // LLP 1116.007 D3.6: after `resize` a screenshot is the new viewport, in its reply as in its pixels.
+    await session.resize(390, 844);
+    const small = await session.screenshot(join(dir, 'small.png')), png = decodePng(readFileSync(join(dir, 'small.png')));
+    expect([small.w, small.h, png.width, png.height]).toEqual([390, 844, 390, 844]);
   } finally { await session.close(); }
 }, 900000);
