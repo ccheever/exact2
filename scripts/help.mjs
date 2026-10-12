@@ -144,7 +144,7 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
-      ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/'],
+      ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/ (a test\'s own `screenshot` steps too)'],
       ['--json', 'the report as one JSON object'],
     ],
     internal: ['--app <name>'],

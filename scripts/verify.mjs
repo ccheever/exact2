@@ -327,7 +327,7 @@ async function tests(host, app, shots) {
   const { runTests } = await import('./agent-test.mjs');
   try {
     const r = await runTests({ host, file, app: app.name, atEnd: testEnd(host, shots), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
-    return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures, end, store }) => ({ name, failures, ...(end ? { end } : {}), ...(store ? { store } : {}) })) };
+    return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures, end, store, shots }) => ({ name, failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })) };
   } catch (e) { return { error: e.message }; }
 }
 
@@ -475,7 +475,7 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, shots, copied, ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, shots, copied, own = [], ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
@@ -527,7 +527,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const place = (p) => { const r = relative(cwd, p); return r.startsWith('..') ? p : r || '.'; }, name = (p) => relative(resolve(p, '..'), p);
     const first = shots.filter((p) => /^\w+-\d+x\d+-(light|dark)\.png$/.test(name(p))), ends = shots.filter((p) => /^\w+-t\d+[-.]/.test(name(p))), again = shots.filter((p) => /^\w+-relaunch\.png$/.test(name(p)));
     out.push(`screenshots (${place(resolve(shots[0], '..'))}${copied ? `, copied to ${place(copied)}` : ''}): ${first.map(name).join(' ')}`);
-    const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`].filter(Boolean);
+    const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`, own.length && `its own: ${own.join(' ')}`].filter(Boolean);
     if (more.length) out.push(`  ${more.join('; ')}`);
   }
   // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
@@ -623,8 +623,14 @@ async function main(argv) {
   const compiler = await compiling;
   const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot])].filter((p) => p && existsSync(p));
   // `--shots <dir>`: every capture of this run copied out, under its own name (LLP 1116.008 D2).
-  if (copyTo) { mkdirSync(resolve(copyTo), { recursive: true }); for (const p of kept) copyFileSync(p, resolve(copyTo, basename(p))); }
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, shots: kept, copied: copyTo && resolve(copyTo), ms: Date.now() - started });
+  // The screenshots a test took itself (its `screenshot` steps) come too, named by the test as the ends are.
+  const own = [];
+  if (copyTo) {
+    mkdirSync(resolve(copyTo), { recursive: true });
+    for (const p of kept) copyFileSync(p, resolve(copyTo, basename(p)));
+    results.forEach((t, i) => { for (const p of (t.shots ?? []).filter((p) => existsSync(p))) { own.push(`${host}-t${i + 1}-${basename(p)}`); copyFileSync(p, resolve(copyTo, own.at(-1))); } });
+  }
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, shots: kept, copied: copyTo && resolve(copyTo), own, ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);

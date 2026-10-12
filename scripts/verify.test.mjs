@@ -465,6 +465,14 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.match(found.stdout, /^ {2}\(light only\) contrast Text "Faint"#\d+ \[.*\]: 1\.\d:1 \(#dddddd on #ffffff(?:, [^)]*)?\), needs 4\.5:1/m);
     assert.match(found.lines.at(-1), /^verify: 2 problems \(2 findings; the tests passed\) in /);
 
+    // A test's own `screenshot` step joins --shots, named by the test (LLP 1116.008 D2).
+    writeFileSync(tests, authored.replace('  expect state liked == true', '  expect state liked == true\n  screenshot "own/after-like.png"'));
+    const own = verify('--shots', 'out/shots');
+    assert.equal(own.status, 0, own.stdout + own.stderr);
+    assert.ok(existsSync(resolve(dir, 'out/shots/web-t2-after-like.png')) && existsSync(resolve(dir, 'own/after-like.png')));
+    assert.match(own.stdout, /; its own: web-t2-after-like\.png$/m);
+    writeFileSync(tests, authored);
+
     const json = verify('--json');
     assert.equal(json.status, 0, json.stderr);
     const r = JSON.parse(json.stdout);
