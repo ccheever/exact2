@@ -182,3 +182,58 @@ fn the_launch_s_store_decides_not_a_write_before_readiness() {
     r.data_ready().unwrap();
     shows(&r, "signed out");
 }
+
+/// `consume(use ? account : "")`: `consume` reads the store only once `use`
+/// is set; its build-time answer and its placeholder are both `""`.
+fn plan_switching() -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    let boolean = b.primitive(TypeKind::Bool);
+    let mut a = exact_plan::asm::Asm::new();
+    a.number(0.);
+    let a = b.code(a);
+    let account = b.resource("account", "account", &[a], string, Some(&Value::str("x")));
+    b.set_resource_reader(account, true);
+    b.set_resource_initial_args(account, &[Value::Number(0.)]);
+    let no = b.constant(&Value::Bool(false));
+    let flag = b.slot("use", boolean, no);
+    let empty = b.str("");
+    let mut k = exact_plan::asm::Asm::new();
+    let (otherwise, end) = (k.label(), k.label());
+    k.load_slot(flag).jump_if_false(otherwise);
+    k.load_resource(account).jump(end);
+    k.place(otherwise).str(empty).place(end);
+    let k = b.code(k);
+    let consume = b.resource("consume", "consume", &[k], string, Some(&Value::str("")));
+    b.set_resource_initial_args(consume, &[Value::str("")]);
+    b.set_resource_placeholder_value(consume, &Value::str(""));
+    let mut body = exact_plan::asm::Asm::new();
+    body.load_param(0).store_slot(flag);
+    let body = b.code(body);
+    b.action("use", &[("value", boolean)], &[flag], body);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    b.finish().unwrap()
+}
+
+#[test]
+fn a_resource_that_comes_to_read_the_store_shows_a_placeholder_not_the_compiled_object() {
+    let mut r = Runner::boot_stored(
+        plan_switching(),
+        Source::default(),
+        Kernel::with_monospace(),
+        vec![token()],
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let consume = r
+        .plan
+        .resources
+        .iter()
+        .position(|row| r.plan.str(row.name) == "consume")
+        .unwrap();
+    assert!(r.resources[consume].as_ref().unwrap().value.is_compiled());
+    r.act("use", vec![Value::Bool(true)]).unwrap();
+    let state = r.resources[consume].as_ref().unwrap();
+    assert!(state.placeholder && !state.value.is_compiled());
+}
