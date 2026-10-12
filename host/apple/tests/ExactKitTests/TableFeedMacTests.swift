@@ -225,5 +225,81 @@ final class TableFeedMacTests: XCTestCase {
         try check(f, "back at the top")
         XCTAssertNotNil(f.cells[0]?.row)
     }
+
+    /// The first row the port shows whole or in part, its item, and where
+    /// its top is from the port's top: what a person's eye is on.
+    private func top(_ f: TableFixture) throws -> (row: Int, item: Int, y: CGFloat) {
+        let port = f.clip.bounds
+        let row = f.table.rows(in: f.table.convert(port, from: f.document)).location
+        let node = try XCTUnwrap(f.cells[row]?.row, "the port's first row is mounted")
+        return (row, f.item(node), f.inDocument(node).minY - port.minY)
+    }
+
+    func testARowIsAsTallAsLayoutMakesItAndStaysSoWhenItChanges() throws {
+        let f = try TableFixture(count: 10_000)
+        fixture = f
+        try check(f, "at the top")
+        // Mixed heights, from layout: a row of one line, a row whose second
+        // paragraph wraps, a row with controls.
+        func height(_ row: Int) -> CGFloat { f.table.rect(ofRow: row).height }
+        let plain = height(1), wrapped = height(5), controls = height(3)
+        XCTAssertEqual(plain, try f.node("row-1").frame.height)
+        XCTAssertGreaterThan(wrapped, plain, "a row with a second paragraph is taller")
+        XCTAssertGreaterThan(controls, plain, "and so is a row holding a field")
+        XCTAssertFalse(f.table.usesAutomaticRowHeights, "AppKit measures nothing")
+
+        // A row's content changes: it grows by the box it gained, the rows
+        // after it move down, the list is that much longer.
+        let extent = f.document.frame.height, below = f.table.rect(ofRow: 8).minY
+        f.presenter.press(try f.node("grow").id)
+        f.settle()
+        XCTAssertEqual(height(7), plain + 60)
+        XCTAssertEqual(f.table.rect(ofRow: 8).minY, below + 60)
+        XCTAssertEqual(f.document.frame.height, extent + 60)
+        try check(f, "row 7 grown")
+        f.presenter.press(try f.node("shrink").id)
+        f.settle()
+        XCTAssertEqual(height(7), plain)
+        XCTAssertEqual(f.document.frame.height, extent)
+
+        // A row above the port changes: what shows stays where it was on
+        // the screen, and the offset moved with the rows (the runner's
+        // anchor, as without a table).
+        f.scroll(to: 400)
+        XCTAssertNotNil(f.mounted[7], "row 7 is above the port and still mounted")
+        XCTAssertLessThan(try f.inDocument(f.node("row-7")).maxY, f.clip.bounds.minY)
+        let before = try top(f), length = f.document.frame.height
+        f.presenter.press(try f.node("grow").id)
+        f.settle()
+        let after = try top(f)
+        XCTAssertEqual(after.item, before.item, "the same row is at the port's top")
+        XCTAssertEqual(after.y, before.y, accuracy: 0.01, "at the same place")
+        XCTAssertEqual(f.clip.bounds.minY, 460, accuracy: 0.01, "the offset moved by what the row above grew")
+        XCTAssertEqual(f.document.frame.height, length + 60)
+        try check(f, "a row above grown")
+        f.presenter.press(try f.node("shrink").id)
+        f.settle()
+        XCTAssertEqual(f.clip.bounds.minY, 400, accuracy: 0.01)
+        XCTAssertEqual(try top(f).y, before.y, accuracy: 0.01)
+
+        // The window narrows: the paragraphs wrap again, every such row is
+        // taller, in the table as in layout, deep in the list too.
+        f.scroll(to: 3_000)
+        try check(f, "at 3000")
+        let held = try top(f)
+        let wide = f.table.rect(ofRow: held.row + 5 - held.item % 5).height
+        f.window.setContentSize(NSSize(width: 300, height: 600))
+        f.settle()
+        try check(f, "narrow")
+        let narrow = try top(f)
+        XCTAssertEqual(narrow.item, held.item, "the row a person was reading is still at the port's top")
+        XCTAssertEqual(narrow.y, held.y, accuracy: 0.51)
+        XCTAssertGreaterThan(f.table.rect(ofRow: narrow.row + 5 - narrow.item % 5).height, wide, "a wrapped paragraph's row grew with its lines")
+        XCTAssertEqual(f.table.frame.width, f.clip.bounds.width)
+        f.window.setContentSize(NSSize(width: 480, height: 600))
+        f.settle()
+        try check(f, "wide again")
+        XCTAssertEqual(f.table.rect(ofRow: narrow.row + 5 - narrow.item % 5).height, wide)
+    }
 }
 #endif
