@@ -37,12 +37,16 @@ final class NavigationBasicsIOSTests: XCTestCase {
 
     /// A session over the native fixture's plan, or over the one `plan`
     /// names: `EXACT_NAVIGATION_BARS_PLAN` is `scripts/fixtures/navigation-bars.contract`.
-    private func fixture(_ label: String, plan: String = "EXACT_FIXTURE_PLAN") throws -> ExactSession {
+    private func fixture(_ label: String, plan: String = "EXACT_FIXTURE_PLAN", launch: String? = nil) throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[plan], "build.mjs --test --ios compiles the fixtures' plans")))
         ExactGroupedLists.install() // navigation-bars.contract's `rows` route is a grouped list
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
+        if let launch {
+            session.protocolHandlers = [["protocol": "exacttest", "url": "/detail?u=%s"]]
+            XCTAssertTrue(session.openURL(try XCTUnwrap(URL(string: launch))))
+        }
         let view = ExactView(session: session)
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
@@ -71,6 +75,28 @@ final class NavigationBasicsIOSTests: XCTestCase {
 
     private func text(_ session: ExactSession, _ testId: String) -> String? {
         (try? node(session, testId))?.accessibleText
+    }
+
+    func testDeclaredProtocolCarriesColdAndWarmURLsThroughTheRouter() throws {
+        let session = try fixture("protocol", plan: "EXACT_NAVIGATION_BARS_PLAN", launch: "exacttest://auth/start#cold")
+        func state() -> String { session.agent(#"{"op":"state"}"#) }
+        XCTAssertTrue(state().contains("/detail?u=exacttest%3A%2F%2Fauth%2Fstart%23cold"))
+        for (path, fragment) in [("first", "one"), ("second", "two")] {
+            XCTAssertTrue(session.openURL(try XCTUnwrap(URL(string: "exacttest://auth/\(path)#\(fragment)"))))
+            XCTAssertTrue(state().contains("/detail?u=exacttest%3A%2F%2Fauth%2F\(path)%23\(fragment)"))
+        }
+        let batch = ["exacttest://auth/batch-first#one", "exacttest://auth/batch-second#two"].compactMap(URL.init(string:))
+        var states: [String] = []
+        IncomingURLBatch.deliver(batch, development: { _ in false }, document: { _ in }, location: { url in
+            XCTAssertTrue(session.openURL(url))
+            states.append(state())
+        })
+        XCTAssertEqual(states.count, 2)
+        XCTAssertTrue(states[0].contains("batch-first%23one"))
+        XCTAssertTrue(states[1].contains("batch-second%23two"))
+        let long = "exacttest://auth/x?request=\(String(repeating: "x", count: 16_384))#frag"
+        XCTAssertTrue(session.openURL(try XCTUnwrap(URL(string: long))))
+        XCTAssertTrue(state().contains("request%3D\(String(repeating: "x", count: 16_384))%23frag"))
     }
 
     /// Home's stack with Chat pushed on it.

@@ -297,10 +297,11 @@ export function developmentLinks(app, page) {
     return [{ destination, href: `${admitted.scheme}://open?url=${encodeURIComponent(page)}&token=${admitted.token}` }];
   });
 }
-
 function openingLinks(app, platform, development) {
-  const schemes = [...new Set([...(app.manifest.host?.[platform]?.urlSchemes ?? []), ...(development ? [development.scheme] : [])])];
+  const handlers = app.manifest.protocol_handlers ?? [];
+  const schemes = [...new Map([...(app.manifest.host?.[platform]?.urlSchemes ?? []), ...handlers.map((h) => h.protocol), ...(development ? [development.scheme] : [])].map((s) => [s.toLowerCase(), s])).values()];
   return { ...(schemes.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: schemes }] } : {}),
+    ...(handlers.length ? { ExactProtocolHandlers: handlers } : {}),
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
 }
 

@@ -124,6 +124,12 @@ schema.json` has for the kernel: edit the declaration, never the
 generated file. Bake generates every platform file from it and
 `build.mjs` consumes the generated files.
 
+**Amended 2026-10-11 for the protocol lane (Charlie’s 2026-10-08
+option A).** The top-level Web App Manifest `protocol_handlers` declarations
+are copied to the web manifest and baked into Apple `Info.plist` as both URL
+schemes and handler templates. They are host metadata, not deploy policy;
+the native session applies LLP 1038 D8's template before delivery.
+
 The panel's correction: the manifest is not one blob whose digest is
 the binary's identity. It has typed sections, and only some are
 identity:

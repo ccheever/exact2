@@ -159,9 +159,22 @@ impl<D: DataSource> Bridge<D> {
         self.emit(exact_route::location_of(&href))
     }
 
+    /// A matching declared protocol template, or no location for another scheme.
+    pub fn protocol_location_of(&mut self, len: usize) -> u32 {
+        let input = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let mut fields = input.splitn(3, '\0');
+        let (Some(href), Some(protocol), Some(template)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            return 0;
+        };
+        exact_route::protocol_location_of(href, protocol, template)
+            .map_or(0, |location| self.emit(location))
+    }
+
     /// A pre-boot location; a live session receives dispatch kind 14 instead.
     pub fn set_launch_location(&mut self, len: usize) {
-        if self.host.is_none() {
+        if self.host.is_none() && self.launch.is_none() {
             self.launch = Some(
                 String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned(),
             );

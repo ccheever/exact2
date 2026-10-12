@@ -1,6 +1,7 @@
 # Deliver a custom-scheme URL, whole, to an app with no navigation root (rest of #104)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Declared protocol_handlers route complete URLs through the navigation root; native identities change with handlers, and Apple tests cover cold queues and URL batches.
 **Systems:** app manifest, host/apple, router
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

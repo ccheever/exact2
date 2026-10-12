@@ -22,6 +22,16 @@ fn plan(resource: Option<&str>) -> Vec<u8> {
     builder.finish().unwrap().encode()
 }
 
+#[test]
+fn the_first_preboot_launch_location_is_the_boot_fact() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.input_write(b"/first");
+    bridge.set_launch_location(6);
+    bridge.input_write(b"/second");
+    bridge.set_launch_location(7);
+    assert_eq!(bridge.launch.as_deref(), Some("/first"));
+}
+
 #[derive(Clone, Default)]
 struct DocumentOwnerSource {
     owner: u64,

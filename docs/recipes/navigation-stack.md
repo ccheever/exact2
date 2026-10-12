@@ -1,5 +1,11 @@
 # Recipe: a navigation stack
 
+To receive a complete custom-scheme URL, add `protocol_handlers` to `app.json`:
+`[{"protocol":"web+notes","url":"/open?u=%s"}]`. Add an `/open` route;
+the navigation root's `navigate=` handler receives `/open?u=…` while running.
+At launch that location is the router's first visit. Read the original URL,
+including its scheme and fragment, with `searchParam(top(nav), "u")`.
+
 A list that pushes a detail screen, a sheet with Cancel and Save, and a confirmation.
 On iOS each route's `header` is its navigation bar, a pushed route gets the system Back
 button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. On the

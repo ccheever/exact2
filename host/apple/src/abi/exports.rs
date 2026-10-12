@@ -188,6 +188,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.location_of(len), |n| n)
         }
 
+        /// Derive a declared protocol handler location from href, scheme and template.
+        #[no_mangle]
+        pub extern "C" fn exact_protocol_location_of(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.protocol_location_of(len), |n| n)
+        }
+
         /// Whether the input location names a declared route. @ref LLP 1038 §7
         #[no_mangle]
         pub extern "C" fn exact_route_matches(rt: u32, len: usize) -> u32 {

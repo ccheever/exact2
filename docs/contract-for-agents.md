@@ -1454,6 +1454,17 @@ Bind the host's navigation root and per-entry `navigationKey`s as the
 [router fixture](../contract/corpus/routes.contract) demonstrates. Test back,
 tab switching, the same-URL push, external navigation, and route parameters.
 
+For a custom scheme, declare `protocol_handlers` in `app.json`, for example
+`[{"protocol":"web+notes","url":"/open?u=%s"}]`. The Apple hosts register
+that scheme. An incoming `web+notes://auth/callback#done` reaches `/open` with
+the complete original URL percent-encoded in `u`; read it with
+`searchParam(top(nav), "u")`. The handler needs an `/open` route and a
+navigation root with `navigate=`. At cold launch it is the initial location;
+when already running, each link fires one `navigate` event in arrival order.
+An app without `protocol_handlers` keeps ordinary URL-to-location behavior.
+Web builds copy this key into the web app manifest; the browser decides which
+schemes it supports and whether the installed app is registered.
+
 Every route (a node with a `navigationKey` under the root) is a direct child of the
 root or of a `role="tabpanel"` in it — through `each` and `when`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each

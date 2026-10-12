@@ -356,7 +356,6 @@ public final class ExactSession {
     var dataActivated: Bool { dataGeneration == generation }
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
-
     package let runtime: Runtime
     /// This session's file roots, captured outside a native module callback.
     var appFileRoots: [String: String] = [:]
@@ -369,6 +368,8 @@ public final class ExactSession {
     let buttonMeasurements = ButtonMeasureCache()
     package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
+    var pendingLaunchLocations: [String] = []
+    var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
     let webviews: WebViews
@@ -806,7 +807,6 @@ public final class ExactSession {
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
     }
-
     private func finishBoot(_ batch: Batch, started: Double) -> Batch {
         rustMs = (CACurrentMediaTime() - started) * 1000
         ExactEnv.stamp("runner + layout")
@@ -1395,12 +1395,12 @@ public final class ExactSession {
               let batch = runtime.selection(node, json: json, now: now()) else { return }
         apply(batch)
     }
-    /// A host URL before boot is a launch fact; afterwards it is one event.
-    /// @ref LLP 1038 D8/D11 — development links are consumed by the adapter first.
+    /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
     @discardableResult public func openURL(_ url: URL) -> Bool {
         guard state != .destroyed else { return false }
-        let location = runtime.location(of: url.absoluteString)
-        if !booted { runtime.launch(location); launchLocation = location; return true }
+        let location = incomingLocation(url)
+        if !booted { if launchLocation == nil { runtime.launch(location); launchLocation = location }
+                     else { pendingLaunchLocations.append(location) }; return true }
         return navigate(location)
     }
     /// A link the reader followed — a `link href`, a text run's `href`, a

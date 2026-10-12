@@ -475,20 +475,19 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// why the app comes forward; one that opens nothing leaves the window
     /// where it was.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first, ExactDevelopmentLink.claims(url) {
-            if !session.booted { launchDevelopmentURL = url; return }
-            ExactDevelopmentLink.open(url)
-            frontWindow()?.front()
-            return
-        }
-        // @ref LLP 1038 D8 — Launch Services delivers cold URLs before didFinishLaunching.
-        if let url = urls.first(where: { !$0.isFileURL }) {
+        var files: [URL] = []
+        // @ref LLP 1038 D8 — Launch Services may batch cold or warm links.
+        IncomingURLBatch.deliver(urls, development: { url in
+            guard ExactDevelopmentLink.claims(url) else { return false }
+            if !session.booted { launchDevelopmentURL = url }
+            else { ExactDevelopmentLink.open(url); frontWindow()?.front() }
+            return true
+        }, document: { files.append($0) }, location: { url in
             // The first window's session may have closed with its window.
             let target = frontWindow() ?? openWindow()
             if target.session.openURL(url) { target.front() }
-            return
-        }
-        let documents = ExactDocuments.paths(of: urls)
+        })
+        let documents = ExactDocuments.paths(of: files)
         if !session.booted { launchDocuments += documents; return }
         route(documents)
     }

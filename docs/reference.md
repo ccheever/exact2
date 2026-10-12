@@ -255,6 +255,18 @@ JSON for `+json`, XML for `+xml`, else data) with the app as its `Editor` and
 manifest, the web's included. An extension another app already owns on a Mac
 (Freeform has `.board`) can still resolve to that app's type there; the open
 panels and drops take a declared extension whichever type the Mac gives it.
+
+For URL schemes, `protocol_handlers` in `app.json` uses the Web App Manifest's
+`{ "protocol": "web+notes", "url": "/open?u=%s" }` entries. A native Apple
+bundle registers each declared scheme. `%s` is the complete incoming URL
+encoded as a URI component, so the scheme, query, and fragment survive;
+`searchParam(top(nav), "u")` recovers it in the `/open` route. A cold link is
+the launch location; warm links arrive one at a time at the navigation root's
+`navigate` handler. The app must declare that root and an accepting route.
+The web manifest carries the same entries; browser registration is subject to
+the browser's supported schemes and installation behavior. Linux's CLI URL
+argument retains the ordinary location conversion because it does not
+register OS protocol handlers.
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside

@@ -24,6 +24,14 @@ is the storage consumer: notes in SQLite, backups in app-scoped files, and a
 multiline editor on web and Apple. Take: further general-purpose API expansion
 waits behind proving these shipped bindings in the app; Snapback2 stays deferred.
 
+**Expanded (Charlie, 2026-10-08, option A for protocol-handler URL templates):**
+`app.json` `protocol_handlers` carries a complete custom-scheme URL through
+the existing navigation root as an encoded handler location (LLP 1038 D8).
+The OAuth/sign-in callback and return-link consumer of issue #268 can read its
+scheme and fragment. A no-router URL event remains deferred; Charlie's ruling
+keeps the navigation root requirement. Take: no second delivery mechanism is
+added.
+
 **Taken off (Charlie, 2026-09-23: "Take off Messages as the Snapback4
 consumer. We don't need that on the list"):** the trade for web rendering
 (LLP 1048, below). Messages is no longer the Snapback4 consumer admitted

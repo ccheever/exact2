@@ -492,6 +492,29 @@ keeps its `open?url=` form and never reaches `navigate`; `DocumentsMac`'s
 test-id seam is for files, not locations. The location is derived by
 `location_of` (§3) in the crate, so the hosts agree.
 
+**Amended 2026-10-11 (Charlie’s 2026-10-08 option A, implemented by the
+protocol lane).** An app may declare the Web App Manifest's
+`protocol_handlers: [{protocol, url}]` in `app.json`, with an absolute-path
+handler template containing one `%s` (for example `/open?u=%s`). For an
+incoming URL whose scheme matches a declared `protocol`, the host replaces
+`%s` with `encodeURIComponent` of the complete incoming URL, including its
+scheme and fragment, then canonicalizes that handler path as the location.
+Selection is case-insensitive, while the encoded URL keeps its original
+spelling. The first matching declaration wins. Cold delivery remains the
+launch location; further pre-boot URLs queue as `navigate` events after the
+first frame, in order. Warm delivery remains one `navigate` event per URL, in
+arrival order. A macOS URL array keeps its order; UIKit supplies URL contexts
+as a set, so the iOS adapter sorts a batch by URL string for a stable order.
+The app still needs a navigation root to hear the event and a
+route that accepts the handler location. An unmatched URL uses D8's existing
+`location_of`. The Apple bake registers these schemes beside
+`host.<platform>.urlSchemes`; the web build copies the declarations into
+`manifest.json`, where browser support and scheme policy decide whether a
+link opens the installed app. Linux's first non-flag argument retains D8's
+`location_of`: it is a CLI location, not an OS protocol-handler registration.
+The Apple binary fingerprint and compatibility identity include the declared
+handlers, since registration and templates are baked into Info.plist.
+
 ### D9 — One implementation; the value crosses the seam; the corpus runs in three places
 
 - **`exact-route`** is a leaf crate: the table, `canonical`, `location_of`,
