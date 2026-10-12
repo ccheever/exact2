@@ -184,6 +184,11 @@ nonmodal browser declaration and native confirmation projection.
 > **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
 > with its title and Cancel kept; `closedby="any"` is implied, not required; macOS and the web
 > show the `dialog`. The Linux host still presents none.
+>
+> **And by LLP 1115.000 D13.4 (2026-10-11).** An alert has no outside: a `dialog` of the
+> alert's shape implies `closedby="closerequest"` (Escape and Back cancel it, a tap outside
+> does nothing), and `any` is implied only for a chooser's shape. `closedby="any"` written on
+> an alert's shape asks for the platform's dismissible form.
 
 Messages removes `confirmDelete` and its authored cancellation overlay. Four
 physical cases on the rebuilt iPhone app cover one/two selections in light/dark:

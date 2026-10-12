@@ -20,10 +20,13 @@ final class AlertMacTests: XCTestCase {
     /// `lines` (texts from 40), its `actions` by title (buttons from 10,
     /// their labels from 20) and a cancel (30, label 31). `popover` makes it
     /// a popover its opener invokes instead of a `dialog`; `extra` adds a
-    /// row that is none of those (an input, id 50).
+    /// row that is none of those (an input, id 50). A dialog's `closedby` is
+    /// what lowering implies for the alert's shape, `closerequest` (LLP
+    /// 1115.000 D13.4), unless the test says another.
     private func fixture(label: String? = "Remove Book?", lines: [String] = ["“Piranesi” will be removed from your library."],
                          actions: [String] = ["Remove"], props: [Int: [String: String]] = [10: ["destructive": "true"]],
-                         filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false) -> Presenter {
+                         filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false,
+                         closedby: String = "closerequest") -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
         p.buttonFace = { id in var face = ButtonFace(); if filled.contains(id) { face.style = "filled" }; return face }
@@ -32,7 +35,7 @@ final class AlertMacTests: XCTestCase {
         window.contentView = p.viewport
         let closing: [String: String] = popover ? ["popovertarget": "ask", "popovertargetaction": "hide"] : ["commandfor": "ask", "command": "close"]
         var dialog: [String: String] = ["id": "ask", "accessibilityRole": "alertdialog"]
-        if popover { dialog["popover"] = "auto" } else { dialog["semanticTag"] = "dialog"; dialog["closedby"] = "any" }
+        if popover { dialog["popover"] = "auto" } else { dialog["semanticTag"] = "dialog"; dialog["closedby"] = closedby }
         if let label { dialog["accessibilityLabel"] = label }
         var ops: [[String: Any]] = [
             ["op": "create", "id": 1, "kind": "view"],
@@ -72,8 +75,12 @@ final class AlertMacTests: XCTestCase {
                          characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
     }
 
+    /// The rule itself is the kernel's, asked through the C ABI
+    /// (`exact_confirmation_is_alert`): one rule for lowering, Linux and here.
     func testTheShapeAndItsWordsAreTheRuleIOSFollows() {
         XCTAssertTrue(ConfirmationShape.isAlert(texts: 1, actions: 1, cancels: 1))
+        XCTAssertTrue(ConfirmationShape.isAlert(texts: 1, actions: 0, cancels: 1), "text and a cancel alone")
+        XCTAssertFalse(ConfirmationShape.isAlert(texts: 1, actions: 1, cancels: 2), "two cancels")
         XCTAssertTrue(ConfirmationShape.isAlert(texts: 2, actions: 2, cancels: 1))
         XCTAssertFalse(ConfirmationShape.isAlert(texts: 1, actions: 3, cancels: 1), "more than three buttons")
         XCTAssertFalse(ConfirmationShape.isAlert(texts: 0, actions: 1, cancels: 1), "a chooser has no text")
@@ -221,6 +228,45 @@ final class AlertMacTests: XCTestCase {
         // An action that does not also close it is no alert's button.
         let open = fixture(props: [10: ["command": "request-close"]])
         XCTAssertNil(open.alerts.plan(of: try XCTUnwrap(open.views[3])))
+    }
+
+    /// LLP 1115.000 D13.4: an alert has no outside, and `NSAlert` has none:
+    /// its sheet takes a click on the window behind it and gives Escape to
+    /// its cancel. So that is the alert shape under the `closedby` lowering
+    /// implies for it, `closerequest`. A `dialog` of the same rows whose
+    /// author wrote `closedby="any"` asks for the dismissible form, which on
+    /// the Mac is the painted dialog over its dimmed page: a click outside
+    /// closes it. Under `closedby="none"` the alert's cancel has no Escape.
+    func testAnAlertHasNoOutsideAndClosedbyAnyIsThePaintedDialog() throws {
+        let alert = fixture()
+        alert.press(2)
+        let sheet = try XCTUnwrap(alert.alerts.presented)
+        XCTAssertNil(alert.dialogs.active, "an `NSAlert`: nothing painted, so nothing outside to click")
+        alert.dialogs.outside()
+        XCTAssertTrue(alert.alerts.presented === sheet, "a click outside does nothing")
+        XCTAssertTrue(alert.alerts.key("Escape"), "Escape presses the cancel")
+        XCTAssertNil(alert.alerts.presented)
+        window.close()
+
+        let light = fixture(closedby: "any")
+        let dialog = try XCTUnwrap(light.views[3])
+        XCTAssertNil(light.alerts.plan(of: dialog), "not an alert: an alert has no outside")
+        light.press(2)
+        XCTAssertNil(light.alerts.presented)
+        XCTAssertNil(window.attachedSheet)
+        XCTAssertTrue(light.dialogs.active === dialog, "the painted dialog")
+        XCTAssertEqual(light.dialogs.observation?["closedby"] as? String, "any")
+        light.dialogs.outside()
+        XCTAssertNil(light.dialogs.active, "a click outside closes it")
+        window.close()
+
+        let held = fixture(closedby: "none")
+        held.press(2)
+        let owner = try XCTUnwrap(held.alerts.presented)
+        XCTAssertEqual(owner.alert.buttons.map(\.keyEquivalent), ["", ""], "no Escape for the cancel")
+        XCTAssertFalse(held.alerts.key("Escape"))
+        XCTAssertTrue(held.alerts.presented === owner, "only its buttons end it")
+        held.alerts.reset()
     }
 
     /// The alert ends, with nothing pressed, when a batch changes what it

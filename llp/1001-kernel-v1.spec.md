@@ -431,6 +431,12 @@ confirmation grammar and `closedby="any"`; AppKit/Linux do not present dialogs
 > **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
 > and `closedby="any"` is implied, not required; macOS and the web show the `dialog`. The
 > Linux host still presents none.
+>
+> **And by LLP 1115.000 D13.4 (2026-10-11).** An alert has no outside: what is implied for a
+> `dialog` of the alert's shape is `closedby="closerequest"`, and `any` only for a chooser's.
+> The shape rule is the kernel's (`kernel/src/confirmation.rs`), read by lowering and by
+> every host. On the Mac the alert shape is `NSAlert` (LLP 1115.000 D7.6), and on Android a
+> `Dialog` window (LLP 1115.001 D10).
 
 `emojiPicker` (prop 63, boolean, absent/false by default) is an explicit
 selection-input policy on `input`, not an HTML `inputmode` value. A single emoji

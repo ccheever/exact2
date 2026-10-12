@@ -12,7 +12,13 @@
 // A chosen button presses its authored button by view id once, on the turn
 // after the sheet has ended, and only while the alert still showed what is
 // there (as the chooser's menu does, ChooserMac.swift). Any other shape is
-// presented as before: a chooser is the `NSMenu`, the rest is painted. The
+// presented as before: a chooser is the `NSMenu`, the rest is painted. An
+// alert has no outside (LLP 1115.000 D13.4): a click on the window behind the
+// sheet does nothing and Escape presses the cancel, which is the `closedby`
+// lowering implies for the shape, `closerequest`. So a `dialog` whose author
+// wrote `closedby="any"` is not presented as one: it is the painted dialog
+// over its dimmed page, which a click outside dismisses (DialogsMac.swift);
+// and under `closedby="none"` the cancel is given no Escape. The
 // agent sees the same alert: a tap on an authored button presses the alert's
 // button, and Return and Escape go to the sheet (AgentMac.swift).
 #if os(macOS)
@@ -78,6 +84,7 @@ final class AlertHost {
     func plan(of pop: NodeView) -> Plan? {
         guard let menus = presenter?.menus, pop.props["accessibilityRole"] == "alertdialog",
               pop.props["popover"] != nil || pop.props["semanticTag"] == "dialog" else { return nil }
+        if pop.props["semanticTag"] == "dialog", pop.props["closedby"] == "any" { return nil }
         let children = pop.container.subviews.compactMap { $0 as? NodeView }
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) }
@@ -126,7 +133,7 @@ final class AlertHost {
             // the default, and the authored cancel is the cancel, whatever
             // its title. (The Return button is the window's default button
             // cell; AppKit holds its key equivalent while the sheet is key.)
-            button.keyEquivalent = row.cancel ? "\u{1b}" : index == owner.defaultRow ? "\r" : ""
+            button.keyEquivalent = row.cancel ? (pop.props["closedby"] == "none" ? "" : "\u{1b}") : index == owner.defaultRow ? "\r" : ""
             button.setAccessibilityIdentifier(row.node?.props["testId"])
         }
         // Other popovers end as they do under a dialog.
@@ -221,7 +228,8 @@ final class AlertHost {
     /// keys come here. False when the key is no button's.
     func key(_ name: String) -> Bool {
         guard let owner = presented, valid(owner) else { return false }
-        let index = name == "Enter" ? owner.defaultRow : name == "Escape" ? owner.rows.firstIndex(where: \.cancel) : nil
+        let escapes = owner.node?.props["closedby"] != "none"
+        let index = name == "Enter" ? owner.defaultRow : name == "Escape" && escapes ? owner.rows.firstIndex(where: \.cancel) : nil
         guard let index, owner.alert.buttons.indices.contains(index), owner.alert.buttons[index].isEnabled else { return false }
         owner.alert.buttons[index].performClick(nil)
         return true

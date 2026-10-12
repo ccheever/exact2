@@ -1772,6 +1772,12 @@ one (LLP 1115.000 D7.6). Text, a cancel and at most three buttons make an
 alert; several actions with no text (an "Open in…" chooser) make an action
 sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
+An alert has no outside, on every host (LLP 1115.000 D13.4): Escape and Back
+cancel it and a tap or click beside it does nothing, which is `closedby="closerequest"`,
+implied for the alert's shape, so leave `closedby` unwritten. Write
+`closedby="any"` only to ask for the platform's dismissible form in its place:
+an action sheet on an iPhone (a popover on an iPad), a dialog a click outside
+closes on the web and the Mac, a Material dialog a tap outside cancels on Android.
 `close("<id>")` from an action closes it as its Cancel does.
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸

@@ -30,6 +30,7 @@
 pub mod arena;
 pub mod bars;
 pub mod clip;
+pub mod confirmation;
 pub mod control;
 pub mod control_measurement;
 pub mod corner;

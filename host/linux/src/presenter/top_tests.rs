@@ -17,7 +17,8 @@ impl DataSource for Nothing {
 }
 
 /// A page with a field and the buttons that open each surface; an alert, a
-/// three-action alert, a chooser (no text: not an alert) and a menu of
+/// three-action alert, an alert whose author wrote `closedby="any"`, a
+/// chooser (no text: not an alert) and a menu of
 /// four rows, one disabled, with a separator; a row that names the menu as
 /// its context menu; and a second route.
 const APP: &str = r#"routes nav
@@ -33,6 +34,8 @@ component App
     showModal("three")
   action askChooser
     showModal("chooser")
+  action askLight
+    showModal("light")
   action shut
     close("confirm")
   action remove
@@ -67,6 +70,8 @@ component App
               text "Three"
             button press=askChooser testId="ask-chooser" height=30
               text "Chooser"
+            button press=askLight testId="ask-light" height=30
+              text "Light"
             button press=shut testId="shut" height=30
               text "Shut"
             button press=poke testId="poke" height=30
@@ -98,6 +103,12 @@ component App
         button press=later commandfor="three" command="close" testId="three-later"
           text "Not now"
         button commandfor="three" command="close" testId="three-cancel"
+          text "Cancel"
+      dialog id="light" role="alertdialog" closedby="any" aria-label="Archive this?"
+        text "You can bring it back."
+        button press=keep commandfor="light" command="close" testId="light-archive"
+          text "Archive"
+        button commandfor="light" command="close" testId="light-cancel"
           text "Cancel"
       dialog id="chooser" role="alertdialog"
         button press=keep commandfor="chooser" command="close"
@@ -268,6 +279,7 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
         message,
         rows,
         cancellable,
+        outside,
     }) = plan("confirm")
     else {
         panic!("confirm is an alert");
@@ -279,7 +291,20 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
         .map(|r| (r.title.as_str(), r.cancel, r.destructive))
         .collect();
     assert_eq!(titles, [("Cancel", true, false), ("Delete", false, true)]);
-    assert!(cancellable);
+    // LLP 1115.000 D13.4: lowering implies `closerequest` for the shape, so
+    // Back and Escape cancel it and it has no outside.
+    assert!(cancellable && !outside);
+    assert!(
+        matches!(
+            plan("light"),
+            Some(Plan::Alert {
+                cancellable: true,
+                outside: true,
+                ..
+            })
+        ),
+        "an authored `closedby=\"any\"` is read as it stands"
+    );
     let Some(Plan::Alert {
         title,
         message,
@@ -571,6 +596,58 @@ fn the_page_is_inert_under_an_alert_and_the_focus_moves_in_and_back() {
     assert_eq!(text(&p, "said"), "removed", "a cancel runs nothing");
 }
 
+/// LLP 1115.000 D13.4: an alert has no outside, and its `closedby` is read
+/// as it stands, written or implied. The shape's implied `closerequest`
+/// tells the shell that Back dismisses it and a tap outside does not (flags
+/// 1). An author's `closedby="any"` is Material's dialog left to itself,
+/// which a tap outside dismisses: the shell is told so (flags 3), and a
+/// touch that reaches the page, or the driver's tap on a node under it,
+/// closes it and runs nothing.
+#[test]
+fn an_alerts_outside_is_its_closedby_written_or_implied() {
+    let (mut p, _) = windowed();
+    let flags = |p: &mut Presenter<Nothing>| {
+        p.tell_shell();
+        let words = p.take_requests().unwrap_or_default();
+        let (mut found, mut at) = (None, 0);
+        while at < words.len() {
+            let n = words[at + 2] as usize;
+            if words[at] == 7 && words[at + 4] != 0 {
+                found = Some(words[at + 5]);
+            }
+            at += 3 + n;
+        }
+        found.expect("a surface was told")
+    };
+    let poke = id(&p, "poke");
+    let at = p.rect_of(poke).map(|r| (r.0 + 5.0, r.1 + 5.0)).unwrap();
+    // The alert: no outside.
+    tap(&mut p, "ask").unwrap();
+    assert_eq!(
+        flags(&mut p),
+        1,
+        "Back dismisses it; a tap outside does not"
+    );
+    assert_eq!(p.pointer_down(at.0, at.1, 1.0), Ok(false));
+    assert_eq!(p.pointer_up(at.0, at.1, 2.0), Ok(false));
+    assert!(p.surface().is_some(), "still open");
+    assert!(tap(&mut p, "poke")
+        .unwrap_err()
+        .contains("under the open alert"));
+    p.key_down("Escape", 3.0);
+    assert!(p.surface().is_none(), "Escape cancels it");
+    // The same shape with `closedby="any"`: the dismissible form.
+    tap(&mut p, "ask-light").unwrap();
+    assert_eq!(flags(&mut p), 3, "and a tap outside dismisses it");
+    assert_eq!(p.pointer_down(at.0, at.1, 4.0), Ok(false));
+    assert!(p.surface().is_none(), "a touch on the page closes it");
+    tap(&mut p, "ask-light").unwrap();
+    let dismissed = tap(&mut p, "poke").unwrap();
+    assert!(dismissed.contains("\"dismissed\""), "{dismissed}");
+    assert!(p.surface().is_none());
+    assert_eq!(text(&p, "said"), "nothing", "a dismissal runs nothing");
+}
+
 #[test]
 fn a_menu_hangs_at_its_invoker_and_closes_on_a_tap_outside() {
     let (mut p, pictures) = windowed();
@@ -772,6 +849,7 @@ fn the_dialog_and_the_menu_keep_materials_metrics() {
         message: Some("Message".into()),
         rows,
         cancellable: true,
+        outside: false,
     };
     let two = alert(vec![row("Cancel", true), row("Delete", false)]);
     // 280 to 560 wide, 24 from the window's sides.

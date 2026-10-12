@@ -71,3 +71,50 @@ fn range_values_are_the_aria_attributes() {
         assert!(batch.contains(attr), "{attr} in {batch}");
     }
 }
+
+/// LLP 1115.000 D13.4: an alert has no outside. The page's `<dialog>` is
+/// given HTML's own `closedby`, which the browser enforces: for a dialog of
+/// the alert's shape `closerequest` (Escape and the browser's Back close it,
+/// a click on its backdrop does nothing), where every `alertdialog` was
+/// given `any`; `any`, a light-dismiss dialog, where its author writes it or
+/// its shape is a chooser's.
+#[test]
+fn an_alert_shaped_dialog_is_closedby_closerequest_on_the_page() {
+    let rows = "        text \"This cannot be undone.\"\n        button press=go commandfor=\"ID\" command=\"close\"\n          text \"Delete\"\n        button commandfor=\"ID\" command=\"close\"\n          text \"Cancel\"\n";
+    let dialog = |id: &str, more: &str, rows: &str| {
+        format!(
+            "      dialog id=\"{id}\" role=\"alertdialog\"{more} testId=\"{id}\"\n{}",
+            rows.replace("ID", id)
+        )
+    };
+    let chooser = rows.split_once('\n').unwrap().1;
+    let src = format!(
+        "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n{}{}{}",
+        dialog("alert", "", rows),
+        dialog("light", " closedby=\"any\"", rows),
+        dialog("chooser", "", chooser),
+    );
+    let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{e}"));
+    let (host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let closedby = |test_id: &str| {
+        let k = host.runner().kernel();
+        let view = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id;
+        let at = batch
+            .find(&format!(
+                "{{\"op\":\"create\",\"id\":{view},\"tag\":\"dialog\""
+            ))
+            .unwrap_or_else(|| panic!("no dialog `{test_id}` in {batch}"));
+        let op = &batch[at..];
+        let value = &op[op.find("\"closedby\":\"").expect("its closedby") + 12..];
+        value[..value.find('"').unwrap()].to_owned()
+    };
+    assert_eq!(closedby("alert"), "closerequest", "no outside");
+    assert_eq!(closedby("light"), "any", "its author's");
+    assert_eq!(closedby("chooser"), "any", "a chooser's");
+}

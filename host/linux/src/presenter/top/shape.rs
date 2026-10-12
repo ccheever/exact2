@@ -14,30 +14,18 @@
 //! that menu's opener, and any other row is a separator (`hr`), as
 //! `MenusIOS.swift`'s `items(of:)` reads it.
 //!
-//! The rule is written twice, here and in Swift, because the Swift reads
-//! its own view mirror. It belongs in shared Rust beside
-//! `kernel::grouped_list`, read by both hosts.
+//! The rule itself, what counts as an alert and what its words are, is the
+//! kernel's (`exact_kernel::confirmation`), which lowering and the Apple
+//! hosts read too. What is here is the reading of the kernel's tree: which
+//! rows are text, actions and the cancel.
+//!
+//! **An alert's outside** (LLP 1115.000 D13.4) is its `closedby`, read as it
+//! stands, written or implied: `any` lets a tap outside dismiss it, which is
+//! what a Material dialog does unless told otherwise; `closerequest`, what
+//! lowering implies for the shape, leaves Back and Escape alone to cancel
+//! it; `none` refuses those too.
+pub use exact_kernel::confirmation::{alert_text, is_alert};
 use exact_kernel::{ControlKind, Kernel, NodeRef, NodeType, PropId, ViewId};
-
-/// The alert shape: explanatory text, one cancel, and at most three buttons
-/// with it (`ConfirmationShape.isAlert`).
-pub fn is_alert(texts: usize, actions: usize, cancels: usize) -> bool {
-    texts > 0 && cancels == 1 && actions + cancels <= 3
-}
-
-/// An alert's words: its title is the label, else its first line; its
-/// message is the rest, a line each (`ConfirmationShape.alertText`).
-pub fn alert_text(label: Option<&str>, lines: &[String]) -> (Option<String>, Option<String>) {
-    let mut rest = lines;
-    let title = match label.filter(|l| !l.is_empty()) {
-        Some(label) => Some(label.to_string()),
-        None => rest.split_first().map(|(first, others)| {
-            rest = others;
-            first.clone()
-        }),
-    };
-    (title, (!rest.is_empty()).then(|| rest.join("\n")))
-}
 
 /// One row a person can choose: an alert's button or a menu's item.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +62,8 @@ pub enum Plan {
         rows: Vec<Row>,
         /// Back and Escape cancel it (`closedby` is not `none`).
         cancellable: bool,
+        /// A tap outside dismisses it (`closedby` is `any`).
+        outside: bool,
     },
     /// Material's menu: its items, `None` where the author wrote a separator.
     Menu(Vec<Option<Row>>),
@@ -206,6 +196,7 @@ pub fn alert(kernel: &Kernel, pop: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> 
         message,
         rows,
         cancellable: pop.props.str(PropId::Closedby) != Some("none"),
+        outside: pop.props.str(PropId::Closedby) == Some("any"),
     })
 }
 

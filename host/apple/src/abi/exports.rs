@@ -539,6 +539,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_size(px), |n| n)
         }
 
+        /// Whether a confirmation's rows are an alert's (LLP 1115 D6): 1 for
+        /// explanatory text, one cancel and at most three buttons. The rule
+        /// is the kernel's; needs no runtime.
+        #[no_mangle]
+        pub extern "C" fn exact_confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> u32 {
+            u32::from($crate::abi::confirmation_is_alert(texts, actions, cancels))
+        }
+
         /// The display's scale, device pixels a point (UIKit's
         /// `displayScale`, AppKit's `backingScaleFactor`): what a hairline is
         /// one device pixel of (LLP 1115.000 D10.3).

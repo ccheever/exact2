@@ -223,7 +223,7 @@ fn a_confirmation_or_chooser_shape_compiles() {
         "column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  button press=go popovertarget=\"c\" popovertargetaction=(busy ? \"hide\" : \"show\")\n    text \"Go\"".into(),
         // A modal `dialog` confirmation closes by `command`.
         "dialog id=\"c\" role=\"alertdialog\" closedby=\"any\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\"".into(),
-        // Its `closedby="any"` is implied (LLP 1115 D6).
+        // Its `closedby` is implied, by its shape (LLP 1115.000 D13.4).
         "dialog id=\"c\" role=\"alertdialog\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\"".into(),
         // A modal laid out as written is a `dialog` role: any content.
         "dialog id=\"c\" role=\"dialog\" aria-modal=true closedby=\"any\"\n  column gap=12\n    text \"Delete account?\"\n    row\n      button commandfor=\"c\" command=\"close\"\n        text \"Cancel\"\n      button press=go commandfor=\"c\" command=\"close\"\n        text \"Delete\"".into(),
@@ -277,6 +277,123 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
         assert_eq!(id, "lower-alertdialog", "{body}: {message}");
         assert!(message.contains(why), "{body}: {message}");
     }
+}
+
+/// LLP 1115.000 D13.4: an alert has no outside. A `dialog` whose rows are an
+/// alert's (explanatory text, one cancel, at most three buttons: the rule
+/// every host presents by, `exact_kernel::confirmation::is_alert`) implies
+/// `closedby="closerequest"`: Escape and Back cancel it, a tap outside does
+/// nothing. Any other confirmation is the platform's chooser, which a tap
+/// outside dismisses: `any`, as every `alertdialog` implied until
+/// 2026-10-11. The row is the compiler's unless the author writes one.
+#[test]
+fn an_alert_shaped_dialog_implies_closerequest_and_a_chooser_any() {
+    let text = "  text \"This cannot be undone.\"";
+    let action = |title: &str| {
+        format!("  button press=go commandfor=\"c\" command=\"close\"\n    text \"{title}\"")
+    };
+    let cancel = "  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\"";
+    let open = "dialog id=\"c\" role=\"alertdialog\" aria-label=\"Delete it?\" testId=\"c\"";
+    let implied = |rows: &[&str]| {
+        let r = boot(&app(&format!("{open}\n{}", rows.join("\n"))));
+        node(&r, "c").props.str(PropId::Closedby).map(str::to_owned)
+    };
+    let (delete, keep, later) = (action("Delete"), action("Keep"), action("Later"));
+    for (rows, expected, why) in [
+        (vec![text, &delete, cancel], "closerequest", "an alert"),
+        (
+            vec![text, &delete, &keep, cancel],
+            "closerequest",
+            "three buttons are still an alert's",
+        ),
+        (vec![&delete, cancel], "any", "no text: a chooser"),
+        (vec![text, &delete], "any", "no cancel"),
+        (
+            vec![text, &delete, &keep, &later, cancel],
+            "any",
+            "four buttons: a chooser",
+        ),
+    ] {
+        assert_eq!(implied(&rows).as_deref(), Some(expected), "{why}");
+    }
+    // The most that can show at once: an action on each arm of a `when` is
+    // one button, and a text on one arm is its text.
+    let arms = format!(
+        "  when busy\n  {}\n  else\n  {}",
+        delete.replace('\n', "\n  "),
+        keep.replace('\n', "\n  ")
+    );
+    assert_eq!(
+        implied(&[text, &arms, &arms, cancel]).as_deref(),
+        Some("closerequest"),
+        "two choices of one action each, and the cancel: three buttons"
+    );
+    let sometimes = "  when busy\n    text \"Working.\"";
+    assert_eq!(
+        implied(&[sometimes, &delete, cancel]).as_deref(),
+        Some("closerequest"),
+        "a text on one arm"
+    );
+    // The author's `closedby` is the author's, and written.
+    for (written, shape) in [
+        ("any", vec![text, &delete, cancel]),
+        ("closerequest", vec![text, &delete, cancel]),
+        ("any", vec![&delete, cancel]),
+    ] {
+        let body = format!("{open} closedby=\"{written}\"\n{}", shape.join("\n"));
+        let r = boot(&app(&body));
+        assert_eq!(node(&r, "c").props.str(PropId::Closedby), Some(written));
+    }
+    // A popover is dismissed as popovers are: nothing is implied.
+    let popover = format!(
+        "column id=\"c\" popover=\"auto\" role=\"alertdialog\" testId=\"c\"\n  text \"Block?\"\n  button press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Block\"\n{CANCEL}"
+    );
+    let r = boot(&app(&popover));
+    assert_eq!(node(&r, "c").props.str(PropId::Closedby), None);
+    // What a shape cannot do is refused, and no longer by saying a native
+    // confirmation "is dismissed by a tap outside it": an alert is not.
+    let each = "  each s in items key=s\n    button press=pick(s) commandfor=\"c\" command=\"close\"\n      text s";
+    for (closedby, rows, why) in [
+        (
+            "none",
+            vec![text, &delete, cancel],
+            "an alert always has its cancel, which Escape and Back press",
+        ),
+        (
+            "sometimes",
+            vec![text, &delete, cancel],
+            "an alert's is `closerequest`",
+        ),
+        (
+            "closerequest",
+            vec![&delete, cancel],
+            "it is the platform's chooser",
+        ),
+        (
+            "closerequest",
+            vec![text, each, cancel],
+            "a button under `each`",
+        ),
+    ] {
+        let (id, message) = refused(&format!(
+            "{open} closedby=\"{closedby}\"\n{}",
+            rows.join("\n")
+        ));
+        assert_eq!(id, "lower-alertdialog", "{closedby}: {message}");
+        assert!(message.contains(why), "{closedby}: {message}");
+        assert!(
+            message.contains(&format!("cannot take `closedby=\"{closedby}\"`")),
+            "{message}"
+        );
+    }
+    let (_, alert) = refused(&format!(
+        "{open} closedby=\"none\"\n{}",
+        [text, &delete, cancel].join("\n")
+    ));
+    assert!(
+        !alert.contains("dismissed by a tap outside"),
+        "an alert has no outside: {alert}"
+    );
 }
 
 #[test]

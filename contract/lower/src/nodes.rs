@@ -122,8 +122,8 @@ impl Lowerer<'_> {
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
         controls::check_progress(tag, expanded, children)?;
-        self.check_menu_shapes(tag, expanded, children, *span)?;
-        let closedby = menus::implied_closedby(tag, expanded, *span);
+        let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
+        let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
         let numeric = controls::range_attrs(tag, control, expanded);
         let expanded = numeric.as_deref().unwrap_or(expanded);

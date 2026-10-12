@@ -53,8 +53,11 @@ final class DialogSheetIOSTests: XCTestCase {
     /// A page (1) with a field (8) and a button (7) that opens `form` (2): a
     /// dialog 300 by 180 holding a field (3), Save (4, a press that also
     /// closes it) and Cancel (5). Beside it `confirm` (20), a dialog in the
-    /// alert's shape. A presentation completes only in a scene's window.
-    private func page(dialog: [String: String] = [:], handlers: [String] = [], field: [String: String] = [:]) -> (Presenter, UIViewController, Bool) {
+    /// alert's shape, its `closedby` what lowering implies for that shape
+    /// (`closerequest`, LLP 1115.000 D13.4) unless `confirmClosedby` says
+    /// another. A presentation completes only in a scene's window.
+    private func page(dialog: [String: String] = [:], handlers: [String] = [], field: [String: String] = [:],
+                      confirmClosedby: String = "closerequest") -> (Presenter, UIViewController, Bool) {
         let p = Presenter()
         kept = p
         p.buttonFace = { id in var f = ButtonFace(); f.title = [4: "Save", 5: "Cancel", 22: "Remove", 23: "Cancel"][id]; return f }
@@ -80,7 +83,7 @@ final class DialogSheetIOSTests: XCTestCase {
             ["op": "create", "id": 3, "kind": "input", "props": ["id": "name"].merging(field) { $1 }, "handlers": ["input"]],
             ["op": "frame", "id": 3, "x": 20.0, "y": 20.0, "w": 260.0, "h": 40.0],
             ["op": "create", "id": 20, "kind": "view", "handlers": [],
-             "props": ["id": "confirm", "semanticTag": "dialog", "accessibilityRole": "alertdialog", "closedby": "any", "accessibilityLabel": "Remove book?"]],
+             "props": ["id": "confirm", "semanticTag": "dialog", "accessibilityRole": "alertdialog", "closedby": confirmClosedby, "accessibilityLabel": "Remove book?"]],
             ["op": "frame", "id": 20, "x": 0.0, "y": 500.0, "w": 300.0, "h": 120.0],
             ["op": "create", "id": 21, "kind": "text", "props": ["text": "It will be removed."], "handlers": []],
         ]
@@ -192,6 +195,36 @@ final class DialogSheetIOSTests: XCTestCase {
         if scene { settle { controller.presentedViewController == nil && !p.menus.inTransition } }
         XCTAssertFalse(p.menus.isOpen(dialog))
         XCTAssertTrue(dialog.isHidden)
+    }
+
+    /// LLP 1115.000 D13.4: an alert has no outside. The same rows whose
+    /// author wrote `closedby="any"` are the platform's dismissible form:
+    /// an action sheet on a compact screen (a tap outside it is its Cancel),
+    /// a popover on a regular one; and never the alert, which a tap outside
+    /// cannot dismiss. Under `closedby="none"` it is no native confirmation
+    /// at all (an alert always has its Cancel): the dialog's own sheet,
+    /// which refuses its swipe.
+    func testAnAlertShapedDialogWrittenClosedbyAnyIsTheDismissibleForm() throws {
+        let (p, controller, _) = page(confirmClosedby: "any")
+        defer { dismiss(p, controller) }
+        p.dialogCommand("showModal", "confirm")
+        let sheet = try XCTUnwrap(controller.presentedViewController as? UIAlertController, "still the platform's confirmation")
+        let compact = controller.traitCollection.horizontalSizeClass != .regular
+        XCTAssertEqual(sheet.preferredStyle, .actionSheet, "not the alert: an alert has no outside")
+        XCTAssertEqual(sheet.title, "Remove book?")
+        XCTAssertEqual(sheet.message, "It will be removed.")
+        XCTAssertEqual(sheet.actions.map(\.title), ["Remove", "Cancel"])
+        XCTAssertEqual(sheet.actions.map(\.style), [.destructive, .cancel])
+        XCTAssertEqual(p.menus.observation()?["presentation"] as? String, compact ? "sheet" : "popover")
+    }
+    func testAnAlertShapedDialogWrittenClosedbyNoneIsTheDialogsSheet() throws {
+        let (p, controller, _) = page(confirmClosedby: "none")
+        defer { dismiss(p, controller) }
+        p.dialogCommand("showModal", "confirm")
+        XCTAssertNil(controller.presentedViewController as? UIAlertController, "no alert refuses its Cancel")
+        let own = try sheet(controller)
+        XCTAssertTrue(try XCTUnwrap(p.views[20]).isDescendant(of: own.view))
+        XCTAssertTrue(own.isModalInPresentation, "and its swipe is refused")
     }
 
     /// The alert's shape is the alert and never a sheet: the same page, its
