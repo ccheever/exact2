@@ -80,6 +80,12 @@ own on the web). This LLP extends it rather than inventing a second mechanism:
   > bar are and as `LinkText` is the tint on iOS, and every link shows the pointing hand. One
   > holding a row or column, or given a `role` or a `buttonStyle`, is the author's row or
   > button and still inherits; an inline run keeps `LinkText`; the native hosts are unchanged.
+  >
+  > **And by LLP 1115.000 D3.5 (2026-10-11).** The compiler gives such a block `link` the
+  > link role on every host (`contract/lower/src/tags.rs` `link_color`), so it is the tint on
+  > iOS and `linkColor` on the Mac as well, and `LinkText` on the web is the accent
+  > (`var(--exact-accent, AccentColor)`): one blue for links there. A terminal entry's block
+  > link is left as it was.
 - **Type.** The root font size is the platform's body size (iOS: Dynamic Type body, 17 at the
   default size; macOS: `NSFont.systemFontSize`, 13; the web: 16). Headings resolve to the
   platform's text styles by level (§5 D3).

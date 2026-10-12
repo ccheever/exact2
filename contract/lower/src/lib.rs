@@ -145,6 +145,8 @@ pub(crate) struct Lowerer<'a> {
     locale: Option<exact_plan::SlotsId>,
     /// Every key a `t` call names, the only ones baked.
     texts_used: std::collections::BTreeSet<String>,
+    /// The surface the plan is for: a terminal entry's block link is not tinted.
+    profile: Profile,
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
@@ -219,7 +221,7 @@ fn lower_with_sites(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
     capture_sites: bool,
-    _profile: Profile,
+    profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
@@ -270,6 +272,7 @@ fn lower_with_sites(
         errors: Vec::new(),
         locale: None,
         texts_used: Default::default(),
+        profile,
     };
     l.declare_fonts(file, asset_root)?;
     l.declare_sounds(file, asset_root)?;

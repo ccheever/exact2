@@ -24,16 +24,22 @@ pub fn role(text: &str) -> Option<u8> {
         .strip_prefix("var(--exact-accent,")
         .and_then(|rest| rest.strip_suffix(')'))
     {
-        return role(name).filter(|&id| follows_accent(id));
+        return role(name).filter(|&id| role_of(id).is_some_and(web_accent));
     }
-    let exact = match lower.strip_prefix("var(--exact-") {
+    let var = lower.strip_prefix("var(--exact-");
+    let exact = match var {
         Some(rest) => Some(&rest[..rest.find([',', ')'])?]),
         None => lower.strip_prefix("-exact-"),
     };
     COLOR_ROLES
         .iter()
         .position(|r| match exact {
-            Some(name) => !is_css_system(r) && r.name.eq_ignore_ascii_case(name),
+            // A CSS colour the browser draws in the accent is written under
+            // its own name, `var(--exact-linktext, …)`, and only so.
+            Some(name) if is_css_system(r) => {
+                var.is_some() && web_accent(r) && r.name.eq_ignore_ascii_case(name)
+            }
+            Some(name) => r.name.eq_ignore_ascii_case(name),
             None => {
                 (is_css_system(r) && r.name.eq_ignore_ascii_case(text))
                     || (!r.alias.is_empty() && r.alias.eq_ignore_ascii_case(text))
@@ -169,9 +175,18 @@ pub fn reported_generation() -> u64 {
 /// `AccentColor`, `LinkText`), which resolves to the nearest `accent-color`
 /// a node or an ancestor sets, else the platform's (LLP 1116.001 D2), as
 /// UIKit's inherited `tintColor` does: iOS sets an authored accent as the
-/// view's tint, the web reads `--exact-accent`.
+/// view's tint. The web's own two are [`web_accent`].
 pub fn follows_accent(id: u8) -> bool {
     role_of(id).is_some_and(|r| r.ios == "@tint")
+}
+
+/// Whether the browser draws a role in the accent: CSS's `AccentColor`,
+/// and `LinkText` (LLP 1115.000 D3.5), so a link is one blue on the web,
+/// the plain button's and the tab bar's, where the browser's own
+/// `LinkText` is a second. Both read the nearest `accent-color`
+/// (`--exact-accent`, LLP 1116.001 D2), else the browser's accent.
+fn web_accent(r: &ColorRole) -> bool {
+    matches!(r.name, "AccentColor" | "LinkText")
 }
 
 /// Whether a role is the app's tint (`@tint` on a platform: `AccentColor`,
@@ -365,10 +380,14 @@ pub fn parse_platform(text: &str) -> Option<ColorValue> {
 /// colour as is; an Exact role as `var(--exact-<role>, <fallback>)`, which a
 /// page's sheet may define (WebKit's own dynamic colour) and which reads
 /// back as the role; a `-exact-platform-color()` as its web colour, else its
-/// fallback, and on the wire as itself. A role that is the tint
-/// ([`follows_accent`]) is the nearest `accent-color` for the browser,
-/// `var(--exact-accent, <name>)` (the custom property the web host writes
-/// beside `accent-color`), and its name on the wire.
+/// fallback, and on the wire as itself. A role the browser draws in the
+/// accent ([`web_accent`]) is the nearest `accent-color` for it,
+/// `var(--exact-accent, AccentColor)` (the custom property the web host
+/// writes beside `accent-color`), and its name on the wire; `LinkText` is
+/// that under its own name, `var(--exact-linktext, var(--exact-accent,
+/// AccentColor))`, a property no sheet defines, so it reads back as itself
+/// and not as `AccentColor`, which another platform resolves differently
+/// (the Mac's `linkColor` is not its accent).
 pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
     match c {
         ColorValue::Role(id) => {
@@ -376,10 +395,17 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                 out.push_str("transparent");
                 return;
             };
-            if is_css_system(r) && mode == ColorText::Css && follows_accent(id) {
-                out.push_str("var(--exact-accent, ");
-                out.push_str(r.name);
-                out.push(')');
+            if mode == ColorText::Css && web_accent(r) {
+                let named = r.name != "AccentColor";
+                if named {
+                    out.push_str("var(--exact-");
+                    out.push_str(&r.name.to_ascii_lowercase());
+                    out.push_str(", ");
+                }
+                out.push_str("var(--exact-accent, AccentColor)");
+                if named {
+                    out.push(')');
+                }
             } else if is_css_system(r) {
                 out.push_str(r.name);
             } else {
@@ -544,17 +570,32 @@ mod tests {
             Some(ColorValue::Role(id))
         );
         // The tint is the nearest accent for the browser, its name on the
-        // wire, and reads back as itself (LLP 1116.001 D2).
-        for name in ["LinkText", "AccentColor"] {
+        // wire, and reads back as itself (LLP 1116.001 D2). A link is the
+        // accent there too, one blue (LLP 1115.000 D3.5), under its own
+        // name, so it is still `LinkText` when read back.
+        for (name, web) in [
+            ("AccentColor", "var(--exact-accent, AccentColor)"),
+            (
+                "LinkText",
+                "var(--exact-linktext, var(--exact-accent, AccentColor))",
+            ),
+        ] {
             let tint = ColorValue::Role(role(name).unwrap());
             css.clear();
             reference_css(&mut css, tint, ColorText::Css);
-            assert_eq!(css, format!("var(--exact-accent, {name})"));
+            assert_eq!(css, web);
             assert_eq!(ColorValue::parse_light_dark(&css), Some(tint));
             css.clear();
             reference_css(&mut css, tint, ColorText::Wire);
             assert_eq!(css, name);
         }
+        assert_eq!(
+            role("var(--exact-accent, LinkText)"),
+            role("LinkText"),
+            "as it was written before"
+        );
+        assert_eq!(role("-exact-linktext"), None, "no author's spelling");
+        assert_eq!(role("var(--exact-canvastext, CanvasText)"), None);
         for name in ["Highlight", "CanvasText", "ButtonText"] {
             css.clear();
             reference_css(
