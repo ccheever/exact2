@@ -47,6 +47,10 @@ A screenshot is written on the device and pulled to the path asked for.
 
 The trade-off: this proves the app's logic, layout and paint on Android's ABI, libc and fonts, but not the Canvas reader's drawing, not touch through Android's input system, and not the soft keyboard. When the Android lane brings the reader into the repository, a `--reader` carrier can drive the APK instead; the operations stay the same.
 
+> **Since (2026-10-11, LLP 1115.001 D2).** The reader is in the repository as `host/android/`,
+> and `bun scripts/agent-android.mjs build <app> --apk` builds an app's APK on it. The
+> `--reader` carrier is still to be written.
+
 ### D2 — The CPU painter by default
 
 The GPU painter (vello on wgpu Vulkan) crashes under the emulator's SwiftShader Vulkan (a segfault before the first frame). The carrier sets `EXACT_PAINTER=cpu` unless the environment names a painter; a phone can take `EXACT_PAINTER=gpu`.

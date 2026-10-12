@@ -13,6 +13,10 @@ import { draftThreadId, ensureDraftThreadId } from './r7-handoff-thread';
 //   threads' terminals keep their streams without a view (`terminalRetain`).
 // - Draft terminals reserve the same thread identity the first message launches; split groups and
 //   right-panel surfaces share that identity and session allocation.
+// - Every environment's drawers stay mounted, as the reference's `existingOpenTerminalThreadKeys` covers every
+//   environment's threads and every draft (task terminal-drawer-unthreaded): the clone opens a background
+//   environment's thread by focusing it (settings-b-fleet.ts), so the drawers the focus leaves behind keep their
+//   sessions natively, each on its own environment's transport (T3TerminalSessions.swift).
 // - Command failures are kept as the view's `failure` (the agent's `state` shows it), as the reference's
 //   atom commands only report them to the console; the attach stream's error shows in the terminal as
 //   `[terminal] <message>`.
@@ -47,6 +51,7 @@ import { applyTerminalMetadataStreamEvent, type TerminalMetadataStreamEvent, typ
 import { selectKnownTerminalSessions } from './terminal-sessions';
 import { parseScopedThreadKey, scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
 import { letGo } from './let-go';
+import { fleet, type EnvironmentFleet } from './settings-b-fleet';
 
 export const TERMINAL_METADATA_KEY = 'terminal-metadata';
 const METADATA_RETRY_MS = 3000;
@@ -226,6 +231,37 @@ export function terminalMetadataEvent(client: T3Client, entry: Obj): void {
 
 // ── The drawer's resource ─────────────────────────────────────────────────────────────────────
 
+/**
+ * ChatView's `existingThreadKeys` (serverThreadKeys of every environment, and draftThreadKeys): the thread keys an
+ * open drawer may stay mounted for. The clone holds one environment's shell as the focus and the others in the fleet,
+ * and a focus change empties a shell until it loads again; an environment whose threads are not known at the moment
+ * (the focus before its shell loads, a switched-on environment still connecting) keeps the drawers it has mounted, as
+ * the reference keeps a reconnecting environment's threads. An environment that is switched off or removed has none.
+ */
+export function existingThreadKeys(client: T3Client, mounted: readonly string[], source: EnvironmentFleet = fleet): Set<string> {
+  const keys = new Set<string>(), known = new Set<string>();
+  const add = (environmentId: string, threadId: string) => { if (environmentId && threadId) keys.add(scopedThreadKey({ environmentId, threadId })); };
+  for (const thread of client.shell.threads) add(client.environmentId, str(thread.id));
+  if (client.environmentId && client.shellLoaded) known.add(client.environmentId);
+  for (const entry of source.entries.values()) {
+    if (entry.phase !== 'connected' || entry.synchronized !== entry.generation) continue;
+    known.add(entry.environmentId);
+    for (const thread of entry.shell.threads) add(entry.environmentId, str(thread.id));
+  }
+  // A draft's reserved id (r7-handoff-thread.ts), under the environment its draft key names.
+  for (const [draftKey, threadId] of Object.entries(client.local.composerControls?.draftThreads ?? {})) {
+    const at = draftKey.indexOf(':');
+    if (at > 0) add(draftKey.slice(0, at), threadId);
+  }
+  const listed = new Set([client.environmentId, ...[...source.entries.values()].map(entry => entry.environmentId),
+    ...source.wanted(client).map(entry => str(entry.environmentId))].filter(Boolean));
+  for (const key of mounted) {
+    const ref = parseScopedThreadKey(key);
+    if (ref && listed.has(ref.environmentId) && !known.has(ref.environmentId)) keys.add(key);
+  }
+  return keys;
+}
+
 /** The `terminalDrawer` resource: the active thread's drawer, after the reconcile and mount effects. */
 export async function terminalDrawerView(client: T3Client, native: Native | null | undefined, viewportHeight: number, now: number): Promise<TerminalDrawerView> {
   const drawer = drawerState(client);
@@ -246,7 +282,7 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
   }
   // ChatView's mounted-thread effect: the active open thread plus the ten most recent hidden open ones.
   const states = store.getState().terminalUiStateByThreadKey;
-  const existing = new Set(client.shell.threads.map(thread => scopedThreadKey({ environmentId: client.environmentId, threadId: str(thread.id) })));
+  const existing = existingThreadKeys(client, drawer.mounted);
   if (ref) existing.add(scopedThreadKey(ref));
   const openKeys = Object.entries(states).filter(([key, state]) => state.terminalOpen && existing.has(key)).map(([key]) => key);
   drawer.mounted = reconcileMountedTerminalThreadIds({ currentThreadIds: drawer.mounted, openThreadIds: openKeys, activeThreadId: ref ? scopedThreadKey(ref) : null,

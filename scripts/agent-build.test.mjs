@@ -2,11 +2,13 @@
 // `test ios|macos` and `agent ios|macos`, on the driver's own record, with no simulator and no build run.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
-import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
+import { moduleGraph } from './agent-launch.mjs';
+import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { resolveApp } from './app.mjs';
 
 /** An outside app, as `exact new` lays one out, with only what the decision reads. */
@@ -60,7 +62,8 @@ test('a missing or stale build is built first, said in one line; a fresh one run
     assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [resolve(dir, 'app.contract')]);
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /^Error: ios build is stale: .*app\.contract changed since .*; run \(cd .* && bun exact\.mjs ios\)$/);
     assert.equal(await drive('ios'), 0);
-    assert.deepEqual([said, builds.map(b => b.args)], [['building for iOS: the build is older than its sources (app.contract changed); its log: ' + said[0].split('its log: ')[1]], [['--ios', 'field-log-apple']]]);
+    // (A contract edit alone is a plan-only edit, which a build with no module receipt to check its bake against still rebuilds.)
+    assert.deepEqual([said, builds.map(b => b.args)], [['building for iOS: the build is older than its sources (app.contract changed), and the build has no module receipt to check a new plan against; its log: ' + said[0].split('its log: ')[1]], [['--ios', 'field-log-apple']]]);
 
     // A scratch file in .exact/ (the build's log among them) is not a source.
     utimesSync(resolve(dir, 'app.contract'), before, before);
@@ -120,6 +123,139 @@ test('a build already running ends before the check: the drive neither races it 
     assert.deepEqual(said.map(l => l.split(':')[0]), ['waiting for the Apple build of busy-log already running', 'building for iOS']);
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a plan-only edit runs its bake on the existing build; any other edit, or a newer real build, retires it', async () => {
+  const previous = process.env.EXACT_APP_DIR, trust = process.env.EXACT_UPDATE_TRUST;
+  const { dir, write } = scratchApp('plan-log');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    delete process.env.EXACT_UPDATE_TRUST;
+    const app = resolveApp('plan-log');
+    const at = offset => new Date(Date.now() + offset * 1000), stamp = (file, offset) => utimesSync(resolve(dir, file), at(offset), at(offset));
+    // app.ts and what it imports, type-only imports included; a backend beside it that the app reaches over HTTP.
+    write('app.ts', "import type { Book } from './types';\nimport { shelf } from './lib/model.js';\nimport seed from './lib/seed.json';\nexport const grants = '';\n");
+    write('types.ts', 'export type Book = { title: string };\n');
+    write('lib/model.ts', "export const shelf = [] as const;\n");
+    write('lib/seed.json', '[]\n');
+    write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\n");
+    write('server/routes.ts', 'export const routes = {};\n');
+    write('server/fixtures.json', '{}\n');
+    for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    // The build: its receipt names the plan its build script baked, beside which is the module receipt it paired.
+    const target = 'aarch64-apple-ios-sim', out = resolve(app.target, target, 'host-dev/build/plan-log-apple-0123/out');
+    const module = { version: 1, appId: 'com.exact.plan-log', grants: '', abi: 1, surfaces: {}, bytecodeVersion: 96 };
+    mkdirSync(out, { recursive: true });
+    writeFileSync(resolve(out, 'app.plan'), 'plan one');
+    writeFileSync(resolve(out, 'app.module.json'), JSON.stringify(module));
+    // The archive's dep-info also names every source the bake captured (its rerun-if-changed), the backend's among them.
+    writeFileSync(resolve(app.target, target, `host-dev/lib${app.crate('ios').replace(/-/g, '_')}.d`), `${resolve(app.target, target, 'host-dev/libplan_log_apple.a')}: ${out}/app.plan ${out}/app.hbc ${['app.contract', 'app.ts', 'server/index.ts', 'server/fixtures.json'].map(f => resolve(dir, f)).join(' ')}\n`);
+    const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
+    const build = (inputs = {}, offset = 10, built = 'one') => {
+      mkdirSync(bundle, { recursive: true });
+      writeFileSync(receipt, JSON.stringify({ built, target, build: { compat: { inputs: { linked: ['markdown', 'router', 'io'], rustMode: 'off', dataCrate: null, ...inputs },
+        embedded: { plan: { sha256: createHash('sha256').update('plan one').digest('hex') } } }, graph: { uses: ['router'] } } }));
+      utimesSync(receipt, at(offset), at(offset));
+    };
+    build();
+    const said = [], builds = [], bakes = [];
+    let baked = { ...module }, bakeFails = null;
+    const bake = async (a, into) => {
+      bakes.push(into);
+      if (bakeFails) return { code: 1, output: bakeFails };
+      mkdirSync(into);
+      for (const [file, text] of [['app.plan', 'plan two'], ['app.hbc', 'bytecode'], ['app.module.json', JSON.stringify(baked)]]) writeFileSync(resolve(into, file), text);
+      return { code: 0, output: '' };
+    };
+    const drive = (code = 0) => buildFirst('ios', app, { say: line => said.push(line), wait: () => {}, bake,
+      build: async args => (builds.push(args), { code, output: '' }) });
+    const reset = () => { said.length = builds.length = bakes.length = 0; };
+    const kept = () => planOverride('ios', app, nativeBuild('ios', app));
+
+    // What app.ts imports is the plan's; what it does not import is no input at all (LLP 1116.003 D1.1).
+    assert.deepEqual([...moduleGraph(dir, app.manifest)].map(p => p.slice(dir.length + 1)).sort(), ['app.ts', 'lib/model.ts', 'lib/seed.json', 'types.ts']);
+    // Only the Contract and what app.ts imports, and nothing a native build reads, is a plan-only edit.
+    for (const [path, only] of [['app.contract', true], ['app.ts', true], ['types.ts', true], ['lib/model.ts', true], ['lib/seed.json', true], ['screens/list.contract', true],
+      ['server/index.ts', false], ['server/fixtures.json', false], ['app.json', false], ['app.contract.d.ts', false],
+      ['assets/data.ts', false], ['apple/src/lib.rs', false], ['web/x.ts', false], ['fonts/a.ttf', false], ['../outside.ts', false]]) assert.equal(planSource(resolve(dir, path), app), only, path);
+    write('data/Cargo.toml', '[package]\nname = "plan-log-data"\n');
+    assert.equal(planSource(resolve(dir, 'data/answers.ts'), app), false, "a Rust crate's own files are its build's");
+    rmSync(resolve(dir, 'data'), { recursive: true });
+
+    // A fresh build: nothing runs, nothing is kept, the driver runs the build's own plan. An edit to the backend,
+    // or to the declarations a web build writes beside app.ts, leaves it fresh (round 5's book-club rebuilt for server/index.ts).
+    write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\nexport const port = 9610;\n");
+    write('app.contract.d.ts', 'export type Answer = unknown;\n');
+    stamp('server/index.ts', 15); stamp('app.contract.d.ts', 15);
+    assert.deepEqual(nativeBuild('ios', app).changed, []);
+    assert.equal(await drive(), 0);
+    assert.deepEqual([said, builds, bakes, kept()], [[], [], [], null]);
+
+    // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it.
+    write('app.contract', 'component App\n  view\n    text "hello again"\n');
+    stamp('app.contract', 20);
+    assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
+    assert.equal(await drive(), 0);
+    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)'], [], 1]);
+    assert.deepEqual(kept(), { plan: resolve(overrideDir('ios', app), 'app.plan'), dir: overrideDir('ios', app) });
+    assert.equal(readFileSync(kept().plan, 'utf8'), 'plan two');
+    assert.ok(!existsSync(bakes[0]), 'the bake is staged, then moved beside the build');
+
+    // Driven again with nothing edited: it runs as it is, saying nothing.
+    reset();
+    assert.equal(await drive(), 0);
+    assert.deepEqual([said, builds, bakes], [[], [], []]);
+
+    // The TypeScript edited since: what is kept is no longer the bake of these sources; the driver refuses it, test and agent bake again.
+    write('app.ts', "export const grants = '';\nexport const more = 1;\n");
+    stamp('app.ts', 30);
+    assert.equal(kept(), null);
+    assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/);
+    reset();
+    assert.equal(await drive(), 0);
+    assert.deepEqual([said.length, builds.length, bakes.length], [1, 0, 1]);
+    assert.match(said[0], /^iOS: (app\.contract, app\.ts|app\.ts, app\.contract) changed; running the new plan on the existing build \(no native rebuild\)$/);
+    assert.ok(kept());
+
+    // A newer real build retires it: fresh, the build's own plan runs; a later touch of the same sources does not bring it back.
+    build({}, 40, 'two');
+    assert.equal(kept(), null);
+    stamp('app.contract', 50);
+    assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [resolve(dir, 'app.contract')]);
+    assert.equal(kept(), null, 'kept for another build: never run as fresh');
+
+    // Anything else edited is built, and what was kept goes with it.
+    reset();
+    stamp('app.json', 60);
+    assert.equal(await drive(), 0);
+    assert.deepEqual([bakes.length, builds.length], [0, 1]);
+    assert.match(said[0], /^building for iOS: the build is older than its sources \((app\.contract, app\.json|app\.json, app\.contract) changed\); its log: /);
+    assert.ok(!existsSync(overrideDir('ios', app)));
+
+    // What a build must still make: new grants, a Rust data crate, a build that links only what its plan used.
+    for (const [setup, why] of [
+      [() => { baked = { ...module, grants: 'net.fetch https://api.example' }; }, 'app.ts changed its grants, which only a build admits'],
+      [() => build({ dataCrate: 'plan-log-data' }, 70), 'the app has a Rust data crate, whose plan only a build bakes'],
+      [() => build({ linked: ['router', 'io'] }, 70), 'the build links only what its plan used (--link plan)'],
+    ]) {
+      build({}, 70); baked = { ...module }; setup(); reset();
+      stamp('app.json', -60); stamp('app.contract', 80);
+      assert.equal(await drive(), 0);
+      assert.deepEqual([builds.length, kept()], [1, null], why);
+      assert.match(said[0], new RegExp(`^building for iOS: the build is older than its sources \\(app\\.contract changed\\), and ${why.replace(/[().]/g, '\\$&')}; its log: `));
+    }
+
+    // A bake the compiler refuses fails the command with what it said, as the build would have; nothing is built or driven.
+    build({}, 70); baked = { ...module }; reset();
+    bakeFails = 'TypeScript bake: app.contract:3:5: unknown tag `txet`';
+    assert.equal(await drive(), 1);
+    assert.deepEqual([builds.length, kept()], [0, null]);
+    assert.match(said[0], /^TypeScript bake: app\.contract:3:5: unknown tag `txet`\nthe iOS plan did not bake \(app\.contract changed\), so nothing was driven; its whole log: \S*\.exact\/ios-plan\.log$/);
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    if (trust === undefined) delete process.env.EXACT_UPDATE_TRUST; else process.env.EXACT_UPDATE_TRUST = trust;
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -462,7 +462,7 @@ exact_web::host!(
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
   ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)
-  ${run} help         every verb; ${run} <verb> --help gives its flags, ports and an example${deferred ? `
+  ${run} help         every verb; ${run} <verb> --help gives its flags and an example${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
 }
@@ -494,8 +494,9 @@ things up, never reading front to back:
   \`tabs\`, \`dashboard\`, \`rest\`); \`pattern <name>\` writes one, tested.
 - A recipe per question, in ${doc('recipes')} (start-here's last section is the index).
 - \`bun exact.mjs contract vocab <name> <name> …\`: any tag, property or function.
-- \`bun exact.mjs help\`, \`bun exact.mjs <verb> --help\`: the verbs; a verb's flags, ports,
-  whether it stays in the foreground, and an example. Read these, not exact2's scripts.
+- \`bun exact.mjs help\`, \`bun exact.mjs <verb> --help\`: the verbs; a verb's flags, whether
+  it stays in the foreground, and an example (\`--help all\`: every flag, its ports). Read
+  these, not exact2's scripts.
 
 ${DIARY_LINE}
 
@@ -552,7 +553,7 @@ Commands, from this directory:
 
 | | |
 |---|---|
-| \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, the ports it opens, whether it stays in the foreground, and an example; the verbs |
+| \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, whether it stays in the foreground, and an example (\`--help all\`: every flag, its ports); the verbs |
 | \`bun exact.mjs test-rust\` | the hostless Rust tests (\`logic/tests\`) and the determinism lints |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (a game builds the wasm target) |

@@ -58,6 +58,10 @@ block in `style` (a selector system for one property); a `transition` on the
 existing `scale` row driven by a runner state (a round trip per touch-down,
 and it would fight any authored `scale`).
 
+> **Amended by LLP 1115 (2026-10-10).** The row's default is still no scale, but a custom
+> pressable that declares no press feedback dims while held on iOS, as a hand-built UIKit
+> control does. LLP 1115.000 D6 proposes the platform's response on the Mac and the web too.
+
 **D2 — On Apple the host owns the press, folded into the engine's transform.**
 `NodeView.pressed` (already the tap's own state) drives a `PressFeedback`: a
 factor eased from where it is to the target over 120 ms on

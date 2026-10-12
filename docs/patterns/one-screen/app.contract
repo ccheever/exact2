@@ -1,10 +1,11 @@
 // Starter: one screen: a summary card, the buttons that change it, a count kept by `persist`.
-// The one colour written is the accent, on the root: a role, as here, or one pair,
-// `accent-color="light-dark(#0a7d61, #3dd6a8)"`. Surfaces and text are roles or unsaid, so
-// dark mode is the platform's: a hex on a page, card or text stays light as the bars turn dark.
+// The one colour written is the accent, on the root: any system colour, as here (teal, mint or
+// yellow as well), or one pair, `accent-color="light-dark(#0a7d61, #3dd6a8)"`. Surfaces and
+// text are roles or unsaid, so dark mode is the platform's: a hex on a page, card or text stays
+// light as the bars turn dark.
 // One route: a second screen is a route under `home`, a `when e.name == …` beside this one and
 // `nav = push(nav, path(…))`, and `follow` keeps the browser's Back and deep links working.
-use SummaryCard from "exact:content"
+use SummaryCard, RoundButton from "exact:content"
 
 routes nav
   home "/"
@@ -33,15 +34,15 @@ component App
               button press=reset disabled=(count == 0) testId="reset"
                 text "Reset"
             scroll id="content" flex=1 min-height=0
-              // A phone's whole width; on a wide window, one centred column of readable width.
-              column gap=16 padding=16 max-width=560 margin-left="auto" margin-right="auto"
-                SummaryCard(label="Today", value=`${count}`, detail=`of ${goal.target} ${goal.unit}`, progress=some(min(1, count / goal.target)), symbol=some("symbol:activity"))
-                row gap=12
-                  button press=add(1) buttonStyle="bordered-prominent" flex=1 testId="add"
-                    text "Add One"
-                  button press=add(-1) disabled=(count == 0) buttonStyle="bordered" flex=1 testId="remove"
-                    text "Remove One"
-                // A card of your own: a role for its surface and its text, never a hex.
-                column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background"
+              // Columns of at least 320 points: side by side on a wide window, stacked on a phone.
+              row flex-wrap="wrap" align-items="flex-start" gap=16 padding=16 max-width=1040 margin-left="auto" margin-right="auto"
+                column flex="1 1 320px" min-width=0 gap=24
+                  SummaryCard(label="Today", value=`${count}`, detail=`of ${goal.target} ${goal.unit}`, progress=some(min(1, count / goal.target)), symbol=some("symbol:activity"))
+                  // Emphasis is a part, not paint on a button: round buttons, the accent for the main one.
+                  row justify-content="space-between"
+                    RoundButton(label="Remove", tint=none, press=add(-1), disabled=(count == 0), testId="remove")
+                    RoundButton(label="Add", tint=some("AccentColor"), press=add(1), disabled=false, testId="add")
+                // A card of your own on this plain page: `-exact-secondary-background`, a role for its text.
+                column flex="1 1 320px" min-width=0 gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background"
                   text (count >= goal.target ? "Goal reached" : `${goal.target - count} to go`) font="-exact-headline" testId="to-go"
                   text `Add one for each of your ${goal.target} ${goal.unit} today.` color="-exact-secondary-label"

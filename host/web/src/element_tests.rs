@@ -107,7 +107,10 @@ fn a_progress_with_a_value_is_htmls_progress_element() {
     }
     let css = super::host_css_of(&facts, None, String::new(), "progress");
     assert!(!css.contains("contain"), "the browser's box: {css}");
-    assert!(include_str!("../index.html").contains("progress { display: block; }"));
+    // The page draws its bar (LLP 1116.003; tests/document.test.mjs).
+    assert!(include_str!("../index.html").contains(
+        "progress { display: block; appearance: none; border: none; background: none; }"
+    ));
 }
 
 /// LLP 1069.001, amended 2026-10-07: an indeterminate progress is a box

@@ -125,6 +125,31 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertTrue((0..<400).contains(middle), "its middle is in view: \(middle), \(reply)")
     }
 
+    /// LLP 1116.003: in view is clear of a bar over the scroller, whether
+    /// UIKit insets it or not: iOS 26's bars float over the content, and a
+    /// scroller UIKit does not inset runs under them, its first rows hidden.
+    func testThePortEndsAtABarOverTheScroller() throws {
+        let session = ExactApp.shared.makeSession(label: "reveal-bar")
+        defer { session.destroy() }
+        let content = UIViewController()
+        let nav = UINavigationController(rootViewController: content)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = nav
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let sv = UIScrollView(frame: content.view.bounds)
+        sv.contentInsetAdjustmentBehavior = .never
+        sv.contentSize = CGSize(width: 402, height: 3000)
+        content.view.addSubview(sv)
+        nav.view.layoutIfNeeded()
+        let bar = nav.navigationBar.convert(nav.navigationBar.bounds, to: sv)
+        XCTAssertGreaterThan(bar.maxY, 0, "the bar is over the scroller")
+        XCTAssertEqual(sv.adjustedContentInset.top, 0, "and UIKit does not inset it")
+        let port = Agent(session: session).visiblePort(sv)
+        XCTAssertGreaterThanOrEqual(port.minY, bar.maxY - 0.5, "the port starts under the bar: \(port), \(bar)")
+        XCTAssertEqual(port.maxY, sv.bounds.maxY, accuracy: 0.5, "and ends at the scroller's end")
+    }
+
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
     /// LLP 1116 D2: keyboard avoidance is the default, as in a hand-built

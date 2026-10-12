@@ -9,7 +9,8 @@
 // answer) subscribes, hands each queued request's plan (browser-automation-plan.ts) to the module once
 // (`browserAutomation`), adopts the tabs the module opened and reports the window's focus and live tabs
 // (`previewAutomation.focusHost`). The module answers `previewAutomation.respond` itself, so a request outlives
-// the data-source answer that planned it (a let-go answer's replies are dropped).
+// the data-source answer that planned it (a let-go answer's replies are dropped). The recording operations come back
+// to the data module once the module has the tab, in a send of their own (browser-automation-recording.ts).
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
@@ -260,7 +261,7 @@ export async function serveAutomation(client: T3Client, native: Native, link: Li
     pending.sending = true;
     try {
       const ref = { environmentId: link.environmentId, threadId: pending.request.threadId }, store = browserHost(client).store;
-      if (!pending.listed && pending.request.operation !== 'recordingStop' && needsPreviewAutomationSessionSync(store.read(ref), pending.request.tabId)) {
+      if (!pending.listed && needsPreviewAutomationSessionSync(store.read(ref), pending.request.tabId)) {
         // registry.refresh(previewEnvironment.list): an authoritative list (the transport bounds the read).
         await listOn(client, native, link, ref);
         pending.listed = true;
