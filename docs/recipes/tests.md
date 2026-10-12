@@ -26,6 +26,7 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `expect text "id" == "…"` | Its text, else its value, else its descendants' text. |
 | `expect tree has "id"` (`missing`) · `expect state groceries.0 .title == "Eggs"` | In the tree or not · a state, derive or resource field. |
 | `clock data` · `clock settle` · `clock +5000` · `reload` | Lands replies · ends transitions · moves the virtual clock · relaunches on the same storage. |
+| `back` | The platform's Back: cancels a dialog, else dismisses a sheet, else pops the pushed route; fails with nothing to go back from. |
 | `fail fetch "<prefix>"`, `pass fetch …` | A lost connection there, then none. |
 | `size 390x844`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines: before a test's steps, or atop the file. |
 

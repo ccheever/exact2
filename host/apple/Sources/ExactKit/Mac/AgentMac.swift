@@ -85,6 +85,20 @@ extension Agent {
             .merging(closed ? [:] : ["kept": "the window's delegate kept it open (a `beforeunload` called `preventDefault()`)"]) { a, _ in a }
     }
 
+    /// `tap {back:true}` (LLP 1116.006 D4): the platform's Back as a person
+    /// takes it — an open alert's or dialog's Escape, else a pushed route's
+    /// ⌘[ (`goBack`), else the sheet route's dismissal, as iOS's swipe down.
+    func back() -> [String: Any] {
+        guard contact == nil else { return ["error": "release the held contact before going back"] }
+        if presenter.alerts.observation != nil { return backReply(("dialog", presenter.alerts.key("Escape") ? "" : "the alert has no cancel for Escape")) }
+        if let dialog = presenter.dialogs.active {
+            guard dialog.props["closedby"] != "none" else { return backReply(("dialog", "its closedby is \"none\"")) }
+            presenter.dialogs.close(dialog)
+            return backReply(("dialog", ""))
+        }
+        return backReply(presenter.navigation.agentBack())
+    }
+
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
     /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
     /// Never assign the viewport frame or subtract titlebar/toolbar heights:

@@ -102,7 +102,7 @@ older than its sources, saying so on stderr. Each test launches the app fresh wi
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, fail|pass fetch:
+Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, back, fail|pass fetch:
          docs/recipes/tests.md; all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
@@ -125,7 +125,7 @@ Ops      a target is a testId, else a view's exact text or label
   type <target> <text> · type <target> key <Name>   (a select, date or checkbox: its value)
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
-  prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · fail|pass fetch <prefix>
+  prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>
 Runs     to completion; each drive launches the app anew (--storage keeps its data).`,
     bodyAll: `Trace    trace <file> reads a saved development trace. Every op's forms: docs/contract-for-agents.md
          "Inspection and testing", or agent web with no op.

@@ -680,6 +680,17 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether the platform's Back goes from the selected route (LLP 1115 D5).
     var canInvokeBack: Bool { back != nil }
 
+    /// The agent's `back` from a pushed route (LLP 1116.006 D4): UIKit's
+    /// Back button, ending where its pop ends (`goBack`), as tvOS's Menu
+    /// does. nil when the stack in front has nothing beneath its top (a
+    /// sheet's own root is the sheet's); "" when it went, else why not.
+    func agentBack() -> String? {
+        guard (navigation?.viewControllers.count ?? 0) > 1 else { return nil }
+        guard back != nil else { return backRefusal }
+        goBack()
+        return ""
+    }
+
     /// The platform's Back, completed: the authored control pressed, else
     /// the root's `navigate` with the location beneath (LLP 1115 D5).
     private func goBack() {

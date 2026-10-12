@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchFacts, refuseStale, staleError, warnStale, webChanges, withFaults } from './agent-launch.mjs';
+import { backLayer, launchFacts, refuseStale, staleError, warnStale, webChanges, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -261,6 +261,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         await dialog.dismiss(); await frame();
         return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked to leave, answered "Stay"', delivery: 'browser-window', native: 'page.close' };
       }
+      if (req.op === 'tap' && req.back !== undefined) { const r = await backLayer(req, { evaluate, escape: () => page.keyboard.press('Escape'), frame }); if (r) return r; } // an open dialog's Escape, else the page's Back (LLP 1116.006 D4)
       if (req.op === 'clock' && await page.evaluate(() => typeof ImageDecoder === 'undefined' && [...document.images].some(i => /\.(gif|webp)(?:[?#]|$)/i.test(i.currentSrc || i.src)))) throw new Error(`${name} clock refuses: this engine has no ImageDecoder, so an animated GIF/WebP would run on wall time`);
       return JSON.parse(await page.evaluate(req => globalThis.exact.agentSettled(req).then(JSON.stringify), req));
     };

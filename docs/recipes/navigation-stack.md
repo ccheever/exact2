@@ -196,11 +196,15 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   tap "add-save"
   clock data
   expect text "error-title" == "There’s already a note called Milk. Choose another title."
-  tap "add-cancel"
+  back
   clock settle
   tap "Milk"
   clock settle
   expect text "detail-title" == "Milk"
+  back
+  clock settle
+  tap "Milk"
+  clock settle
   tap "delete-note"
   clock settle
   tap "remove-confirm"
@@ -224,7 +228,9 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   the save's reply is ok: a refusal keeps the sheet, its text and the reason
   ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before
-  reading what a save wrote. Swipe to delete and long-press menus: [list-rows](list-rows.md).
+  reading what a save wrote. `back` is the platform's Back: it cancels the alert,
+  dismisses the sheet (pressing its Cancel) and pops the detail, on every host.
+  Swipe to delete and long-press menus: [list-rows](list-rows.md).
 - A wide window (900 px and up on the web) shows the list beside its detail with nothing
   to write, as a split view does: its rows push, because they draw the disclosure (the
   `forward-chevron`). A sheet stays a sheet; a phone pushes. A row pressed while a detail

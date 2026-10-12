@@ -378,6 +378,14 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `back`: the platform's Back, as a person takes it (LLP 1116.006 D4):
+    /// an open dialog's cancel (Escape), else the top sheet dismissed (its
+    /// swipe down), else the pushed route popped (iOS's Back button, the
+    /// browser's Back, ⌘[). With nothing to go back from, the step fails.
+    Back {
+        /// Where.
+        span: Span,
+    },
     /// `expect state name == literal`: a slot, derive, or resource from the
     /// `state` reply, or a field of one (`name.field.field`, feed F10), or a
     /// list index (`rows.0`, drums R7), compared to a number (negative
@@ -1370,6 +1378,7 @@ impl Step {
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
             | Step::Close { span }
+            | Step::Back { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }

@@ -353,6 +353,18 @@ fn a_test_closes_the_window_as_its_close_button_does() {
 }
 
 #[test]
+fn a_test_goes_back_as_a_person_does() {
+    // LLP 1116.006 D4 (chat-rooms, round 8): a test that opened a detail
+    // returns to the list by the platform's Back, not the app's own control.
+    let tests = contract::tests("test \"t\"\n  tap \"row\"\n  back\n  clock settle\n").unwrap();
+    assert!(matches!(&tests[0].steps[1], Step::Back { .. }));
+    let json = contract::tests_json(&tests);
+    assert!(json.contains("{\"op\":\"back\",\"line\":3}"), "{json}");
+    let e = contract::tests("test \"t\"\n  back \"list\"\n").unwrap_err();
+    assert!(e.message.starts_with("`back` takes nothing"), "{e}");
+}
+
+#[test]
 fn a_test_answers_a_held_picker_by_its_node() {
     // files F11: a picker's hold is answered by the node its answer
     // arrives at, never by a ticket a test cannot predict.

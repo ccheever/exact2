@@ -919,6 +919,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 }
                 Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
                 Step::Close { .. } => s.push_str("{\"op\":\"close\""),
+                Step::Back { .. } => s.push_str("{\"op\":\"back\""),
                 Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
                 Step::FailFetch { prefix, times, .. } => {
                     s.push_str("{\"op\":\"fail-fetch\",\"prefix\":");
