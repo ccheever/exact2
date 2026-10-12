@@ -138,10 +138,22 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertEqual(f.cells[13]?.row.map(f.item), 12)
     }
 
+    /// The window server's picture of the fixture's window, saved where `EXACT_PROOF_SHOTS` says.
+    private func shot(_ f: TableFixture, _ name: String) {
+        typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let dir = ProcessInfo.processInfo.environment["EXACT_PROOF_SHOTS"], let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return }
+        f.window.displayIfNeeded()
+        CATransaction.flush()
+        pump(0.3) { false }
+        guard let image = unsafeBitCast(symbol, to: Create.self)(.null, 1 << 3, UInt32(f.window.windowNumber), 1 << 0 | 1 << 3)?.takeRetainedValue() else { return }
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
+    }
+
     func testTheSelectionIsDrawnByTheWindowsKeyState() throws {
         let f = try keyed()
         click(try f.node("title-4"), in: f)
         XCTAssertEqual(f.table.selectedRow, 4)
+        shot(f, "table-gate-key.png")
         let view = try XCTUnwrap(f.table.rowView(atRow: 4, makeIfNecessary: false))
         XCTAssertTrue(view.isSelected && view.isEmphasized, "key, and the table first responder")
         let emphasized = try fill(4, in: f)
@@ -157,6 +169,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         let unemphasized = try fill(4, in: f)
         XCTAssertLessThan(chroma(unemphasized), 0.02, "the unemphasized selection is grey: \(unemphasized)")
         XCTAssertLessThan(unemphasized.whiteComponentOrLuma, 0.95, "and it is drawn")
+        shot(f, "table-gate-not-key.png")
         f.window.makeKeyAndOrderFront(nil)
         pump { f.window.isKeyWindow }
         XCTAssertTrue(view.isEmphasized, "key again")

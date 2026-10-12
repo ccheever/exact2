@@ -83,12 +83,24 @@ struct TableRowHeights: Equatable {
 
 /// The table's own view for one row: around the runner's row while that row
 /// is mounted, empty otherwise.
-final class TableRowCell: NSView {
+final class TableRowCell: NSTableCellView {
     private weak var feed: TableFeed?
     private(set) weak var row: NodeView?
     /// Where layout has the row, in the list's document.
     private(set) var kernel = NSRect.zero
-    init(feed: TableFeed) { self.feed = feed; super.init(frame: .zero) }
+    /// Where the row's text begins, said as a table's cell says it: AppKit
+    /// starts a row's separator at the text of its cell's text field, and
+    /// failing one at whatever text field it finds in the cell (measured on
+    /// macOS 27.0: an author's field at the row's end took the separator
+    /// with it). So the separator is inset to the row's text, by AppKit.
+    private let lead = NSTextField(labelWithString: "")
+    init(feed: TableFeed) {
+        self.feed = feed
+        super.init(frame: .zero)
+        lead.isHidden = true
+        addSubview(lead)
+        textField = lead
+    }
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
 
@@ -118,6 +130,10 @@ final class TableRowCell: NSView {
         let origin = feed.documentOrigin(ofCell: frame ?? self.frame, in: superview)
         let wanted = kernel.offsetBy(dx: -origin.x, dy: -origin.y)
         if row.frame != wanted { row.frame = wanted }
+        // A label's text starts 2 points inside its frame, and the separator starts at the text.
+        let text = feed.textStart(of: row).map { convert(NSPoint(x: $0.bounds.minX, y: 0), from: $0).x } ?? wanted.minX
+        let said = NSRect(x: text - 2, y: 0, width: 1, height: 1)
+        if lead.frame != said { lead.frame = said; superview?.needsLayout = true }
     }
     /// Give the row back to the list's document, where the presenter has
     /// its siblings; a row that was destroyed in the cell simply goes.
@@ -195,6 +211,9 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         table.headerView = nil
         table.style = style
         table.backgroundColor = .clear
+        // The table's own separators: a point thick, inset as the style's
+        // cells are, none above the selected row (what SwiftUI's list shows).
+        table.gridStyleMask = .solidHorizontalGridLineMask
         table.intercellSpacing = .zero
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.allowsMultipleSelection = false
@@ -219,6 +238,15 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     fileprivate func documentOrigin(ofCell frame: NSRect, in parent: NSView?) -> NSPoint {
         guard let home else { return frame.origin }
         return home.convert(frame.origin, from: parent ?? table)
+    }
+
+    /// The row's first paragraph, in the order it is written.
+    fileprivate func textStart(of node: NodeView) -> NodeView? {
+        if node.kind == "text" { return node }
+        for case let child as NodeView in node.container.subviews where !child.isHidden {
+            if let found = textStart(of: child) { return found }
+        }
+        return nil
     }
 
     /// Whether a click that hit `hit` in a row's cell is that view's own: an

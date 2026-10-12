@@ -302,5 +302,60 @@ final class TableFeedMacTests: XCTestCase {
         try check(f, "wide again")
         XCTAssertEqual(f.table.rect(ofRow: narrow.row + 5 - narrow.item % 5).height, wide)
     }
+
+    /// The list's scroller drawn into a bitmap of `scale` pixels a point,
+    /// and whether anything was drawn at a pixel of it (x from the left, y
+    /// from the top). This Mac's display is 1x: the 2x picture is AppKit's
+    /// drawing for a context scaled by two, not a window on a 2x display.
+    private func picture(_ f: TableFixture, scale: CGFloat) throws -> (rep: NSBitmapImageRep, inked: (CGFloat, CGFloat) -> Bool) {
+        let view = try XCTUnwrap(f.list.scroll), size = view.bounds.size
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8,
+                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = size
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return (rep, { x, y in (rep.colorAt(x: Int(x), y: Int(y))?.alphaComponent ?? 0) > 0.02 })
+    }
+
+    func testTheSeparatorsAndTheSelectionAreTheTablesOwnInPixels() throws {
+        let f = try TableFixture(count: 10_000)
+        fixture = f
+        f.table.selectRowIndexes([1], byExtendingSelection: false)
+        f.table.enumerateAvailableRowViews { view, _ in view.isEmphasized = true }
+        f.window.displayIfNeeded()
+        let width = f.clip.bounds.width
+        for scale in [CGFloat(1), 2] {
+            let (rep, inked) = try picture(f, scale: scale)
+            if let dir = ProcessInfo.processInfo.environment["EXACT_PROOF_SHOTS"] {
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("table-gate-\(Int(scale))x.png"))
+            }
+            // The separator under row 3 (no row beside it is selected): its
+            // pixel rows down the middle, and how far along it runs.
+            let boundary = f.table.convert(f.table.rect(ofRow: 3), to: f.list.scroll).maxY * scale
+            let middle = width / 2 * scale
+            let rows = (Int(boundary) - Int(4 * scale)..<Int(boundary) + Int(4 * scale)).filter { inked(middle, CGFloat($0)) }
+            XCTAssertEqual(rows.count, Int(scale), "the table's separator is a point thick: \(Int(scale)) px at \(Int(scale))x (pixel rows \(rows))")
+            XCTAssertEqual(rows.last.map { CGFloat($0 + 1) }, boundary, "and it is the last of its row's pixels")
+            let y = CGFloat(try XCTUnwrap(rows.first))
+            let across = (0..<Int(width * scale)).filter { inked(CGFloat($0), y) }
+            XCTAssertEqual(across.first.map { CGFloat($0) / scale }, 16, "it starts where the row's text does")
+            XCTAssertEqual(across.last.map { CGFloat($0 + 1) / scale }, width - 16, "and ends with the cell")
+            // A row with a field at its end has the same one: the separator is the row's text's, not that field's.
+            let under = f.table.convert(f.table.rect(ofRow: 13), to: f.list.scroll).maxY * scale - 1
+            let controls = (0..<Int(width * scale)).filter { inked(CGFloat($0), under) }
+            XCTAssertEqual(controls.first.map { CGFloat($0) / scale }, 16)
+            XCTAssertEqual(controls.last.map { CGFloat($0 + 1) / scale }, width - 16)
+            // The selection: the whole height of its row, 10 points in from
+            // each side, rounded, with no separator above it.
+            let selected = f.table.convert(f.table.rect(ofRow: 1), to: f.list.scroll)
+            let line = (selected.midY * scale).rounded(.down)
+            let fill = (0..<Int(width * scale)).filter { inked(CGFloat($0), line) }
+            XCTAssertEqual(fill.first.map { CGFloat($0) / scale }, 10)
+            XCTAssertEqual(fill.last.map { CGFloat($0 + 1) / scale }, width - 10)
+            let column = (Int(selected.minY * scale) - Int(3 * scale)..<Int(selected.maxY * scale) + Int(3 * scale)).filter { inked(middle, CGFloat($0)) }
+            XCTAssertEqual(column.first.map { CGFloat($0) / scale }, selected.minY, "the fill starts with its row, and nothing is drawn above it")
+            XCTAssertEqual(column.last.map { CGFloat($0 + 1) / scale }, selected.maxY, "and ends with it")
+            XCTAssertFalse(inked((width - 10) * scale - 1, selected.minY * scale), "its corners are rounded")
+        }
+    }
 }
 #endif
