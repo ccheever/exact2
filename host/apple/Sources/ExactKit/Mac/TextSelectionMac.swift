@@ -164,9 +164,21 @@ package final class TextSelection {
             if self.gesture == current, !(responder is NSWindow || responder === self.presenter?.viewport) { self.clear() }
         }
     }
+    /// A mouse-down on text a drag selects: the paragraph takes the focus
+    /// and the selection begins there or, with Shift, grows to there. The
+    /// focus moving between two paragraphs clears a selection; not one this
+    /// click is about to extend.
+    func press(_ node: NodeView, event: NSEvent) {
+        holding = event.modifierFlags.contains(.shift) && anchor != nil
+        node.window?.makeFirstResponder(node)
+        holding = false
+        begin(node, event: event)
+    }
+    private var holding = false
     func focusEntered(_ node: NodeView) {
         guard leaving != nil else { return }
         leaving = nil
+        if holding { return }
         var at: NSView? = node
         while let view = at {
             if let node = view as? NodeView, node.isButton, node.props["href"] == nil { return }
@@ -179,22 +191,28 @@ package final class TextSelection {
     func begin(_ node: NodeView, event: NSEvent) {
         guard selectable(node) else { clear(); return }
         let clicks = event.clickCount
+        // A Shift-click extends what is selected, as in an `NSTextView`
+        // (LLP 1115.000 D7.9), where there is a selection it can reach.
+        let extends = event.modifierFlags.contains(.shift) && anchor != nil && place(node, 0) != nil
         gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         let point = node.local(event.locationInWindow)
+        let land = { [self] (index: Int) in
+            if extends { shiftClick(node, clicks: clicks, point: point, index: index) } else { begin(node, clicks: clicks, point: point, index: index) }
+        }
         if let reader = node.readerParagraph, reader.offset(at: point, node: node) == nil {
             pendingBegin = true
             let current = gesture
             reader.resolveOffset(at: point, node: node) { [weak self, weak node] index, _ in
-                guard let self, let node, self.gesture == current else { return }
+                guard let self, node != nil, self.gesture == current else { return }
                 self.pendingBegin = false
                 guard let index else { self.clear(); return }
-                self.begin(node, clicks: clicks, point: point, index: index)
+                land(index)
                 let drag = self.deferredDrag, end = self.deferredEnd
                 self.deferredDrag = nil; self.deferredEnd = nil
                 if let drag { self.drag(drag) }
                 if let end { self.end(end.0, event: end.1) }
             }
-        } else { begin(node, clicks: clicks, point: point, index: index(node, at: point)) }
+        } else { land(index(node, at: point)) }
     }
 
     /// A secondary click that no authored `contextmenu` takes (X76): on
@@ -242,6 +260,8 @@ package final class TextSelection {
         anchorIndex = index
         focusIndex = anchorIndex
         dragged = false
+        unit = clicks >= 3 ? .paragraph : clicks == 2 ? .word : .character
+        defer { anchorUnit = NSRange(location: min(anchorIndex, focusIndex), length: abs(focusIndex - anchorIndex)) }
         if clicks >= 3 {
             anchorIndex = 0; focusIndex = length(node); dragged = true
         } else if clicks == 2 {
@@ -276,15 +296,170 @@ package final class TextSelection {
                 guard let self, let node, self.gesture == current, self.motion == sequence, let index else { return }
                 self.extend(node, event: event, index: index)
             }
-        } else { extend(node, event: event, index: index(node, at: local)) }
+        } else { extend(node, event: event, index: index(node, at: local), point: local) }
     }
 
-    private func extend(_ node: NodeView, event: NSEvent, index: Int) {
+    /// The focus moves to `index` of `node`. After a double or a triple
+    /// click the selection grows by that click's unit: the focus takes the
+    /// whole word or paragraph it is in, and the anchor's own stays whole
+    /// whichever way the focus goes, as an `NSTextView`'s does (LLP 1115.000
+    /// D7.9). A giant paragraph's text is its worker's, and grows by character.
+    private func extend(_ node: NodeView, event: NSEvent?, index: Int, point: NSPoint? = nil) {
+        var index = index
+        if unit != .character, node.readerParagraph == nil, let anchor, let at = place(node, index),
+           let low = place(anchor, anchorUnit.location) {
+            let span = unitRange(node, index: index, point: point)
+            let forward = at >= low
+            anchorIndex = forward ? anchorUnit.location : NSMaxRange(anchorUnit)
+            index = forward ? NSMaxRange(span) : span.location
+            if node === anchor, forward { index = max(index, NSMaxRange(anchorUnit)) }
+            if let (_, value) = position(anchor, offset: anchorIndex), list != nil { logicalAnchor = value }
+        }
         focus = node
         focusIndex = index
         if let (_, value) = position(node, offset: focusIndex), list != nil { logicalFocus = value }
-        node.autoscroll(with: event)
+        if let event { node.autoscroll(with: event) }
         invalidate()
+    }
+
+    /// What a drag, a Shift-click or a key grows the selection by: a
+    /// character, or the unit of the click that began it (a double click's
+    /// word, a triple click's paragraph).
+    private enum Unit { case character, word, paragraph }
+    private var unit = Unit.character
+    /// The anchor's own unit, in its paragraph's shaped offsets: what a drag
+    /// after a double click keeps whole. A point after a Shift-click or a key.
+    private var anchorUnit = NSRange(location: 0, length: 0)
+
+    /// Where an offset of a paragraph stands in the selection's order: by row
+    /// and paragraph in a list, whose rows come and go, and by the page's
+    /// paragraphs elsewhere. Nil for text this selection cannot reach.
+    private func place(_ node: NodeView, _ offset: Int) -> (Int, Int, Int)? {
+        if let list {
+            guard let (owner, p) = position(node, offset: offset), owner === list else { return nil }
+            return p.order
+        }
+        _ = paragraphs
+        return indices[node.id].map { (0, $0, offset) }
+    }
+
+    /// The word or the paragraph of `node` that a point, or else a caret, is
+    /// in, by the text system's boundaries (`doubleClick(at:)`).
+    private func unitRange(_ node: NodeView, index: Int, point: NSPoint?) -> NSRange {
+        if unit == .paragraph { return NSRange(location: 0, length: length(node)) }
+        let text = node.paragraphSpec().runs.map(\.text).joined() as NSString
+        guard text.length > 0 else { return NSRange(location: 0, length: 0) }
+        let at = point.map { character(node, at: $0, caret: index, in: text) } ?? min(max(0, index), text.length - 1)
+        return NSAttributedString(string: text as String).doubleClick(at: at)
+    }
+
+    /// A Shift-click (LLP 1115.000 D7.9). As an `NSTextView` on macOS 27
+    /// does it: the end of the selection nearer the click moves to it and
+    /// the other stays, whichever way the selection was made (a click inside
+    /// it shrinks it from the nearer end); after a double click it still
+    /// grows by word, and a Shift double click makes it do so.
+    private func shiftClick(_ node: NodeView, clicks: Int, point: NSPoint, index: Int) {
+        let ends = list != nil ? (logicalAnchor?.order, logicalFocus?.order)
+            : (anchor.flatMap { place($0, anchorIndex) }, focus.flatMap { place($0, focusIndex) })
+        guard let at = place(node, index), let a = ends.0, let f = ends.1 else { begin(node, clicks: clicks, point: point, index: index); return }
+        // Before the selection its start moves, after it its end; inside,
+        // whichever is nearer. The end that stays is the anchor from here.
+        func gap(_ x: (Int, Int, Int), _ y: (Int, Int, Int)) -> (Int, Int, Int) { (abs(x.0 - y.0), abs(x.1 - y.1), abs(x.2 - y.2)) }
+        let (low, high) = a <= f ? (a, f) : (f, a)
+        let startMoves = at <= low || (at < high && gap(at, low) <= gap(at, high))
+        if (a == low) == startMoves {
+            swap(&anchorIndex, &focusIndex); swap(&logicalAnchor, &logicalFocus)
+            let other = anchor; anchor = focus; focus = other
+        }
+        if clicks >= 2 { unit = clicks >= 3 ? .paragraph : .word }
+        anchorUnit = NSRange(location: anchorIndex, length: 0)
+        allListText = false; dragged = true
+        extend(node, event: nil, index: index, point: point)
+    }
+
+    /// Where a key command moves the selection's focus.
+    private enum Move { case character(Int), word(Int), lineEdge(Int), line(Int), paragraphEdge(Int), documentEdge(Int) }
+    private static let moves: [String: Move] = [
+        "moveLeftAndModifySelection:": .character(-1), "moveBackwardAndModifySelection:": .character(-1),
+        "moveRightAndModifySelection:": .character(1), "moveForwardAndModifySelection:": .character(1),
+        "moveWordLeftAndModifySelection:": .word(-1), "moveWordBackwardAndModifySelection:": .word(-1),
+        "moveWordRightAndModifySelection:": .word(1), "moveWordForwardAndModifySelection:": .word(1),
+        "moveToLeftEndOfLineAndModifySelection:": .lineEdge(-1), "moveToBeginningOfLineAndModifySelection:": .lineEdge(-1),
+        "moveToRightEndOfLineAndModifySelection:": .lineEdge(1), "moveToEndOfLineAndModifySelection:": .lineEdge(1),
+        "moveUpAndModifySelection:": .line(-1), "moveDownAndModifySelection:": .line(1),
+        "moveToBeginningOfParagraphAndModifySelection:": .paragraphEdge(-1), "moveParagraphBackwardAndModifySelection:": .paragraphEdge(-1),
+        "moveToEndOfParagraphAndModifySelection:": .paragraphEdge(1), "moveParagraphForwardAndModifySelection:": .paragraphEdge(1),
+        "moveToBeginningOfDocumentAndModifySelection:": .documentEdge(-1), "moveToEndOfDocumentAndModifySelection:": .documentEdge(1),
+    ]
+
+    /// A key command that moves an end of a selection (Shift with an arrow,
+    /// by the system's key bindings: `NodeView.keyCommand`): the focus end
+    /// moves and the anchor stays, as in an `NSTextView` (LLP 1115.000
+    /// D7.9), from the click that placed it when nothing is selected yet,
+    /// into the next paragraph past this one's end, and into view. True
+    /// when the command is one of these, whether or not anything could move.
+    func modify(_ command: Selector) -> Bool {
+        guard let move = Self.moves[NSStringFromSelector(command)] else { return false }
+        guard let from = focus, anchor != nil, from.window != nil, from.readerParagraph == nil, place(from, focusIndex) != nil else { return true }
+        let (node, index) = target(move, from: from, focusIndex)
+        gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
+        unit = .character; allListText = false; dragged = true
+        extend(node, event: nil, index: index)
+        if let paragraph = node.paragraphLayout() {
+            let count = length(node), all = CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7)
+            let caret = NSRange(location: min(index, max(0, count - 1)), length: min(1, count))
+            if let rect = paragraph.selectionRects(caret, align: node.paragraphSpec().align, in: node.paragraphBox(), dirty: all).first {
+                node.scrollToVisible(rect.insetBy(dx: -8, dy: -8))
+            }
+        }
+        return true
+    }
+
+    private func target(_ move: Move, from node: NodeView, _ index: Int) -> (NodeView, Int) {
+        let text = node.paragraphSpec().runs.map(\.text).joined() as NSString, count = text.length
+        let index = min(max(0, index), count)
+        let reach = paragraphs.filter { $0.readerParagraph == nil && (list == nil || $0.isDescendant(of: list!)) }
+        let here = reach.firstIndex { $0 === node }
+        func beside(_ step: Int) -> NodeView? { here.flatMap { reach.indices.contains($0 + step) ? reach[$0 + step] : nil } }
+        /// Past this paragraph's end: the near end of the one beside it.
+        func across(_ step: Int) -> (NodeView, Int) { beside(step).map { ($0, step < 0 ? length($0) : 0) } ?? (node, step < 0 ? 0 : count) }
+        switch move {
+        case .character(let step):
+            if step < 0 { return index > 0 ? (node, text.rangeOfComposedCharacterSequence(at: index - 1).location) : across(step) }
+            return index < count ? (node, NSMaxRange(text.rangeOfComposedCharacterSequence(at: index))) : across(step)
+        case .word(let step):
+            var found: Int?
+            text.enumerateSubstrings(in: NSRange(location: 0, length: count), options: step < 0 ? [.byWords, .reverse] : .byWords) { _, word, _, stop in
+                if step > 0, NSMaxRange(word) > index { found = NSMaxRange(word); stop.pointee = true }
+                if step < 0, word.location < index { found = word.location; stop.pointee = true }
+            }
+            return found.map { (node, $0) } ?? across(step)
+        case .paragraphEdge(let step): return (node, step < 0 ? 0 : count)
+        case .documentEdge(let step): return step < 0 ? (reach.first ?? node, 0) : (reach.last.map { ($0, length($0)) } ?? (node, count))
+        case .lineEdge(let step), .line(let step):
+            guard let paragraph = node.paragraphLayout(), !paragraph.lines.isEmpty else { return (node, step < 0 ? 0 : count) }
+            // The line the focus is on: the last that starts at or before it.
+            var line = 0
+            for i in paragraph.lines.indices where CTLineGetStringRange(paragraph.lines[i]).location <= index { line = i }
+            let range = CTLineGetStringRange(paragraph.lines[line]), box = node.paragraphBox(), align = node.paragraphSpec().align
+            if case .lineEdge = move {
+                var end = range.location + range.length
+                if end > range.location, end <= count, text.character(at: end - 1) == 0x0A { end -= 1 }
+                return (node, step < 0 ? range.location : end)
+            }
+            let x = paragraph.origin(line, align: align, width: box.width) + CTLineGetOffsetForStringIndex(paragraph.lines[line], index, nil)
+            if paragraph.lines.indices.contains(line + step) {
+                let found = paragraph.stringIndex(in: line + step, at: x - paragraph.origin(line + step, align: align, width: box.width))
+                return (node, found == kCFNotFound ? index : min(max(0, found), count))
+            }
+            // The first or last line: the same place across in the paragraph
+            // beside it, or this one's own end where there is none.
+            guard let other = beside(step), let next = other.paragraphLayout(), !next.lines.isEmpty else { return (node, step < 0 ? 0 : count) }
+            let to = step < 0 ? next.lines.count - 1 : 0, room = other.paragraphBox()
+            let across = node.convert(NSPoint(x: box.minX + x, y: 0), to: other).x - room.minX
+            let found = next.stringIndex(in: to, at: across - next.origin(to, align: other.paragraphSpec().align, width: room.width))
+            return (other, found == kCFNotFound ? (step < 0 ? length(other) : 0) : min(max(0, found), length(other)))
+        }
     }
 
     func end(_ node: NodeView, event: NSEvent) {

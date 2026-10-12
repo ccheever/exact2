@@ -815,6 +815,9 @@ package final class Presenter {
     /// Whether the pointer was last over text that shows the I-beam, and
     /// whether this presenter set that cursor (`pointerCursor`).
     var pointerOverText = false, textCursorSet = false
+    /// The node whose key down the system's key bindings are naming, and
+    /// whether the command they named was taken (`NodeView.keyCommand`).
+    var keyCommand: (source: NodeView, taken: Bool)?
     private var hoverTransition: UInt64 = 0
     var hoveredInline: UInt32?
     var inlineHoverTransition: UInt64 = 0

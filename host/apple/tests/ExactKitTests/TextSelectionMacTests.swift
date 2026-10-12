@@ -52,9 +52,37 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
-    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1) -> NSEvent {
-        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: type == .leftMouseUp ? 0 : 1)!
+    }
+    /// A point of a character of a one-line paragraph, in the window: a
+    /// tenth into the glyph, where its own leading caret is the nearest.
+    private func at(_ node: NodeView, _ index: Int) throws -> NSPoint {
+        let g = try glyph(node, index)
+        return node.convert(NSPoint(x: g.x + g.width * 0.1, y: 10), to: nil)
+    }
+    /// A press on a character of `node`, dragged to another when asked, and released.
+    private func press(_ node: NodeView, _ index: Int, to: Int? = nil, in other: NodeView? = nil, clicks: Int = 1, flags: NSEvent.ModifierFlags = []) throws {
+        let down = try at(node, index), up = try to.map { try at(other ?? node, $0) } ?? down
+        node.mouseDown(with: mouse(.leftMouseDown, down, clicks: clicks, flags: flags))
+        if to != nil { node.mouseDragged(with: mouse(.leftMouseDragged, up, clicks: clicks, flags: flags)) }
+        node.mouseUp(with: mouse(.leftMouseUp, up, clicks: clicks, flags: flags))
+    }
+    /// An arrow key down, as AppKit sends it: 123 to 126 are left, right, down and up.
+    private func arrow(_ code: UInt16, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+        let character = String(UnicodeScalar([123: 0xF702, 124: 0xF703, 125: 0xF701, 126: 0xF700][Int(code)]!)!)
+        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags.union([.numericPad, .function]), timestamp: ProcessInfo.processInfo.systemUptime,
+                                windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
+    }
+    /// A second paragraph under the first of `laidOut`'s session.
+    private func paragraph(_ p: Presenter, _ text: String) -> NodeView {
+        let other = NodeView(id: 2, kind: "text", presenter: p)
+        other.frame = NSRect(x: 0, y: 30, width: 380, height: 20)
+        other.props = ["text": text]
+        other.style = ["font_size": 16.0, "line_height": "20px"]
+        p.root.addSubview(other); p.views[2] = other
+        return other
     }
     /// One line of text a session lays out (a bare presenter has no text
     /// engine), in the window; the session is the caller's to destroy.
@@ -249,6 +277,112 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertFalse(word.isEmpty)
             XCTAssertEqual(p.selection.selectedText(), word, "character \(index) at \(fraction) of its width")
         }
+    }
+
+    /// LLP 1115.000 D7.9: a Shift-click extends the selection as an
+    /// `NSTextView`'s does (measured on macOS 27.0): the end nearer the click
+    /// moves to it and the other stays, whichever way the selection was
+    /// dragged, so a click inside it shrinks it; after a double click it
+    /// grows by word; and it reaches into another paragraph.
+    func testAShiftClickMovesTheNearerEndOfTheSelection() throws {
+        // Alpha 0, beta 6, gamma 11, delta 17, epsilon 23.
+        let (session, node) = laidOut("Alpha beta gamma delta epsilon zeta eta theta")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = paragraph(p, "Second paragraph here")
+        for (from, to) in [(11, 16), (16, 11)] {
+            for (click, expected) in [(7, "eta gamma"), (13, "mma"), (25, "gamma delta ep")] {
+                try press(node, from, to: to)
+                XCTAssertEqual(p.selection.selectedText(), "gamma")
+                try press(node, click, flags: .shift)
+                XCTAssertEqual(p.selection.selectedText(), expected, "gamma dragged from \(from), a Shift-click at \(click)")
+            }
+        }
+        try press(node, 12, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "gamma")
+        try press(node, 25, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta epsilon", "after a double click a Shift-click takes the word it lands in")
+        try press(node, 7, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "beta gamma delta epsilon", "the nearer end, by word")
+        // Into the next paragraph: the focus moves there and the selection is not cleared on the way.
+        try press(node, 11, to: 16)
+        try press(other, 6, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta epsilon zeta eta theta\n\nSecond")
+        XCTAssertTrue(window.firstResponder === other)
+        // With nothing selected a Shift-click is a click.
+        p.selection.clear()
+        try press(node, 3, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "")
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 3, length: 0))
+    }
+
+    /// LLP 1115.000 D7.9: a drag after a double click grows the selection by
+    /// word, the first word staying whole whichever way the drag goes, and
+    /// after a triple click by paragraph (it grew by character).
+    func testADragAfterADoubleClickGrowsByWordAndAfterATripleByParagraph() throws {
+        let (session, node) = laidOut("Alpha beta gamma delta epsilon zeta eta theta")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = paragraph(p, "Second paragraph here")
+        try press(node, 12, to: 19, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta", "to the end of the word the drag is in")
+        try press(node, 19, to: 7, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "beta gamma delta", "back from \"delta\", which stays whole")
+        try press(node, 12, to: 8, in: other, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta epsilon zeta eta theta\n\nSecond paragraph", "into the next paragraph, by word")
+        try press(node, 12, to: 8, in: other, clicks: 3)
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma delta epsilon zeta eta theta\n\nSecond paragraph here", "by paragraph")
+        try press(node, 12, to: 19)
+        XCTAssertEqual(p.selection.selectedText(), "amma de", "a single click's drag is still by character")
+    }
+
+    /// LLP 1115.000 D7.9: Shift with an arrow moves the focus end of the
+    /// selection and leaves its anchor, by the system's key bindings (a
+    /// character; with Option a word; with Command the line's end), from the
+    /// click that placed it, and into the paragraph beside this one. An
+    /// arrow alone is not the selection's.
+    func testShiftWithAnArrowExtendsTheSelection() throws {
+        let (session, node) = laidOut("Alpha beta gamma delta epsilon zeta eta theta")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = paragraph(p, "Second paragraph here")
+        let left: UInt16 = 123, right: UInt16 = 124, down: UInt16 = 125, up: UInt16 = 126
+        try press(node, 12)
+        XCTAssertTrue(window.firstResponder === node)
+        node.keyDown(with: arrow(right, .shift))
+        XCTAssertEqual(p.selection.selectedText(), "a")
+        node.keyDown(with: arrow(right, .shift))
+        XCTAssertEqual(p.selection.selectedText(), "am")
+        for _ in 0..<3 { node.keyDown(with: arrow(left, .shift)) }
+        XCTAssertEqual(p.selection.selectedText(), "g", "back past the anchor, which stays at 12")
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 11, length: 1))
+        try press(node, 12)
+        node.keyDown(with: arrow(right, [.shift, .option]))
+        XCTAssertEqual(p.selection.selectedText(), "amma", "to the word's end")
+        node.keyDown(with: arrow(right, [.shift, .option]))
+        XCTAssertEqual(p.selection.selectedText(), "amma delta")
+        node.keyDown(with: arrow(left, [.shift, .option]))
+        XCTAssertEqual(p.selection.selectedText(), "amma ", "back to the start of the word")
+        node.keyDown(with: arrow(right, [.shift, .command]))
+        XCTAssertEqual(p.selection.selectedText(), "amma delta epsilon zeta eta theta", "to the line's end")
+        node.keyDown(with: arrow(left, [.shift, .command]))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta g", "to its start")
+        // Down from a paragraph's last line: the same place across in the next.
+        try press(node, 12)
+        node.keyDown(with: arrow(down, .shift))
+        let across = p.selection.selectedText()
+        XCTAssertTrue(across.hasPrefix("amma delta epsilon zeta eta theta\n\nS"), "into the paragraph below: \(across)")
+        XCTAssertGreaterThan(try XCTUnwrap(p.selection.range(other)).length, 0)
+        try press(node, 12)
+        node.keyDown(with: arrow(up, .shift))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta g", "up from a page's first line is its start")
+        // A selection made by a drag keeps its anchor: its focus end moves.
+        try press(node, 16, to: 11)
+        node.keyDown(with: arrow(left, .shift))
+        XCTAssertEqual(p.selection.selectedText(), " gamma")
+        // An arrow alone moves no selection.
+        node.keyDown(with: arrow(right, []))
+        XCTAssertEqual(p.selection.selectedText(), " gamma")
     }
 
     /// LLP 1115.000 D7.9: the selected glyphs are AppKit's colour for text

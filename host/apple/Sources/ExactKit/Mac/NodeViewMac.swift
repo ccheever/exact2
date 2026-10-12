@@ -250,6 +250,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
             return
         }
+        if keyCommand(event) { return }
         super.keyDown(with: event)
     }
     package override func keyUp(with event: NSEvent) {
@@ -1359,11 +1360,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        if selectsText {
-            window?.makeFirstResponder(self)
-            presenter?.selection.begin(self, event: event)
-            return
-        }
+        if selectsText { presenter?.selection.press(self, event: event); return }
         // NSView forwards a click up the chain: a node under it that took the focus (not a paragraph selecting) keeps it (LLP 1088 D7.3).
         let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
         if takesClickFocus, !inner { window?.makeFirstResponder(self) }
