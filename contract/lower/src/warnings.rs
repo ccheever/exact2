@@ -23,6 +23,7 @@ mod counts;
 mod roles;
 mod screens;
 mod title;
+mod width;
 
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a
@@ -97,6 +98,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     out.extend(screens::screen_by_state(checked));
     out.extend(counts::count_plural(checked));
     performance_now(root, &checked.file.fns, &mut out);
+    width::width_padding(&root.view, &checked.file.styles, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
             .into_iter()

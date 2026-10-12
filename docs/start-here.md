@@ -43,10 +43,10 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; without `--storage`, no data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
-`verify`, `test web` (the tests alone) and `agent` build and serve their own copy: no dev
+`verify`, `test web` and `agent` build and serve their own copy: no dev
 server is needed. Run `verify` after each edit, `verify ios` at milestones. A screen you
 want checked or captured is a test's end; `verify --shots <dir>` copies its screenshots;
-one drive takes any others (`resize`, `prefer prefers-color-scheme dark`, `screenshot`).
+a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 ## One screen: the view, its data, its test
@@ -183,6 +183,8 @@ and `pass fetch`, `request POST "/p" {…} as grace`. Launch lines, the rest: `t
    search field, a `tablist`); anything else isn't in the iOS bar. A control fixed under
    the bar goes with an inline title (`aria-level=2`); one that may scroll away, in the
    list's first section.
+3. **`width="100%"` with padding overflows**, as in CSS: drop the width;
+   give a `flex=1` field `min-width=0`.
 
 ## Look it up
 
@@ -203,13 +205,10 @@ Open a recipe (`recipes/<name>.md`) when you write that part..
 |a saved setting|`persisted-setting`|
 |randomness|`random-and-shuffle`|
 |keyboard and focus|`keyboard-and-focus`|
-|symbols|`symbols`|
 |a chat thread|`chat-thread`|
 |files or SQLite|`files-and-grants`|
 |loading and errors|`fetch-loading-error`|
 |a wide window|`web-look`, `responsive-columns`|
-|driving iOS|`ios-driving`|
-|functions|`functions`|
 
 **Otherwise:** `bun exact.mjs contract vocab <name> …` answers any tag, property or
 how-to (`screen`, `modal`); `docs/contract-for-agents.md`,

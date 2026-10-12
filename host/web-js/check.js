@@ -101,6 +101,24 @@ export function observe(views, inactive = () => false) {
   };
   const fixed = (el, upTo) => { for (let e = el; e && e !== upTo; e = e.parentElement) if (/^(fixed|sticky)$/.test(getComputedStyle(e).position)) return true; return false; };
   const scrolls = (e) => /^(auto|scroll)$/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1;
+  // A box whose written percentage width fits its parent, and whose own padding and border (content-box sizing) push it past
+  // the parent's content edge (LLP 1116.009 D5; focus-timer and recipe-finder, round 11: `width="100%"` with padding clipped
+  // the phone's right side while `check` said nothing, the scroller around it holding the overflow). The cause is judged, not
+  // where it lands: only a written percentage, only content-box, only a parent that takes the percentage of its own content
+  // (a block, or a column: a row's items shrink to fit, a grid's resolve against a cell) and does not scroll sideways on purpose
+  // (an authored `overflow-x`). A wider percentage, a fixed width, a bar's or sheet's own chrome (border-box) are none of it.
+  const widerThanParent = (el, cs) => {
+    const parent = el.parentElement;
+    if (!parent || parent.id === 'exact-root' || cs.boxSizing !== 'content-box' || /^(absolute|fixed)$/.test(cs.position) || cs.transform !== 'none') return null;
+    const written = authored(el, 'width').trim();
+    if (!/^\d+(\.\d+)?%$/.test(written)) return null;
+    const ps = getComputedStyle(parent);
+    if (!(/^(block|flow-root|list-item)$/.test(ps.display) || (/^(inline-)?flex$/.test(ps.display) && ps.flexDirection.startsWith('column')))) return null;
+    if (/^(auto|scroll)$/.test(authored(parent, 'overflow-x').trim()) || /^(auto|scroll)(\s|$)/.test(authored(parent, 'overflow').trim())) return null;
+    const content = parseFloat(cs.width), pad = ['Left', 'Right'].reduce((n, side) => n + parseFloat(cs[`padding${side}`]) + parseFloat(cs[`border${side}Width`]), 0);
+    const room = parent.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight), past = content + pad - room;
+    return pad > 0.5 && past > 1.5 && content <= room + 1.5 ? { by: viewOf(parent), dx: r2(past), pad: r2(pad), width: written } : null;
+  };
   const page = document.scrollingElement;
   // Whether a scroller holding `el` could move it out from under `hit` (or, with none, into view): one `hit` does not
   // move with, with room toward the side the cover is not on (`above`: the cover is above, so scrolling back reveals).
@@ -121,11 +139,14 @@ export function observe(views, inactive = () => false) {
     const b = el.getBoundingClientRect();
     if (!shown(el, b)) continue;
     const cs = getComputedStyle(el), item = { id: ids.get(el), x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) };
+    // A padded percentage width wider than its parent is a finding wherever the box lies, below the fold too.
+    const padded = widerThanParent(el, cs);
+    if (padded) item.padded = padded;
     // Off the screen: only a control out of reach (past its top or bottom, and nothing scrolls to it) is anything.
     if (!(b.right > 0 && b.bottom > 0 && b.left < W && b.top < H)) {
       if (b.right > 0 && b.left < W && el.matches(CONTROL) && !el.parentElement?.closest('button, a[href]') && !reach(el, null, b.bottom <= 0)) {
         items.push({ ...item, control: el.localName, sized: 'platform', cover: { kind: 'offscreen', name: b.bottom <= 0 ? 'the top of the screen' : 'the bottom of the screen' } });
-      }
+      } else if (padded) items.push(item);
       continue;
     }
     const o = opacity(el);
@@ -239,7 +260,7 @@ export function observe(views, inactive = () => false) {
       const v = visible(el, b);
       if (Math.abs(v.x - item.x) > 0.5 || Math.abs(v.y - item.y) > 0.5 || Math.abs(v.w - item.w) > 0.5 || Math.abs(v.h - item.h) > 0.5) item.vis = v;
     }
-    if (item.text || item.control || item.fill || item.outX || item.spill) items.push(item);
+    if (item.text || item.control || item.fill || item.outX || item.spill || item.padded) items.push(item);
   }
   // LLP 1116.004 D1.3: a phone's layout at a desktop width, as advice (never a finding): a root tab bar stretched along
   // the window's bottom, and a stack the projection did not split whose root route's list pushed the detail shown. A

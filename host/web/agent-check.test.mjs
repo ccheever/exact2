@@ -63,6 +63,41 @@ const CLEAN = `component CleanFixture
         button testId="two" press=bump
           text "Two"
 `;
+// LLP 1116.009 D5 (focus-timer, recipe-finder, round 11): a written percentage width and the padding it does not include,
+// past what the parent gives it, inside the `scroll` that holds the overflow so nothing else sees it. `card` is the finding;
+// each other box is what must not be one: border-box, a width that leaves room, a row's shrinking item, a pager that scrolls on
+// purpose, a nowrap readout, a bar and a sheet the platform draws.
+const PADDED = `routes nav
+  home "/"
+
+component PaddedFixture
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    main testId="app" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
+          header display="flex" align-items="center" justify-content="space-between" padding="12px 16px"
+            text "Padded" role="heading" aria-level=1
+            button press=bump testId="bar-button"
+              text "Add"
+          scroll id="content" flex=1 min-height=0 testId="scroller"
+            column testId="root" padding=16 gap=12
+              column testId="card" width="100%" padding=24 background-color="-exact-secondary-background" border-radius=12
+                text "Wider than its parent by its padding"
+              column testId="boxed" width="100%" padding=24 box-sizing="border-box" background-color="-exact-secondary-background" border-radius=12
+                text "Border-box: fits"
+              column testId="narrow" width="50%" padding=8 background-color="-exact-secondary-background" border-radius=12
+                text "Room to spare"
+              row testId="chips" gap=8
+                column testId="chip" width="100%" padding=12 background-color="-exact-secondary-background" border-radius=12
+                  text "In a row"
+              column testId="pager" overflow-x="auto"
+                column testId="page" width="100%" padding=12
+                  text "Scrolls on purpose"
+              text testId="readout" white-space="nowrap" font-size="-exact-title2" "00:25:00"
+`;
 // A column held to the screen's height, its end past the screen's bottom: a line cut by it, a button out of reach.
 const TALL = `component TallFixture
   state n = 0
@@ -195,6 +230,17 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(spill.map((f) => [f.kind, f.id, f.detail.past, f.detail.of])).toEqual([['overflow', 9, 6, 8]]);
 });
 
+// LLP 1116.009 D5: the judge names the cause: the written width, the padding, and the parent it runs past.
+test('a padded percentage width past its parent is an overflow that names its cause and its repair', () => {
+  const png = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).fill(255) };
+  const padded = { id: 4, x: 0, y: 2, w: 54, h: 16, padded: { by: 3, dx: 14, pad: 14, width: '100%' } };
+  const f = judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [padded] }, png);
+  expect(f.map((x) => [x.kind, x.id, x.detail.past, x.detail.of, x.detail.pad, x.detail.written])).toEqual([['overflow', 4, 14, 3, 14, '100%']]);
+  expect(f[0].hint).toContain('border-box');
+  // The viewport's own overflow is still there beside it, not instead: the cause is named first, once.
+  expect(judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [{ ...padded, outX: 14 }] }, png)).toHaveLength(1);
+});
+
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {
   const session = await open({ host: 'web', url: await built('broken', BROKEN) });
   try {
@@ -224,6 +270,19 @@ test('a page with every finding class has each found, by testId, in the scheme i
     // The scheme is put back: the page draws light again.
     expect((await session.op({ op: 'check' })).scheme).toBe('light');
   } finally { await session.close(); }
+  const wide = await open({ host: 'web', url: await built('padded', PADDED), size: [390, 844] });
+  try {
+    const run = (await checkOp(wide, ['light'])).check[0];
+    expect(kinds(run)).toEqual({ card: ['overflow'] });
+    expect(run.findings[0].detail).toMatchObject({ past: 48, pad: 48, written: '100%' });
+    // At every width the parent gives it (the box has no `max-width` to keep it inside a wide window's), and nothing else is found.
+    for (const width of [320, 360, 1280]) {
+      await wide.resize(width, 844); await wide.clock('settle');
+      const at = (await checkOp(wide, ['both'])).check;
+      expect(at.map((r) => kinds(r))).toEqual([{ card: ['overflow'] }, { card: ['overflow'] }]);
+      expect(at[0].findings[0].detail.past).toBe(48);
+    }
+  } finally { await wide.close(); }
   const tall = await open({ host: 'web', url: await built('tall', TALL) });
   try {
     const t = kinds((await checkOp(tall, [])).check[0]);
