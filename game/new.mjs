@@ -496,7 +496,8 @@ overrides it).
 
 Read ${doc('start-here.md')} before writing code: the only
 required reading (LLP 1115 D7); it names the one recipe to open for each feature when you
-write that part.
+write that part. A screen to capture is a test's end (\`verify --shots <dir>\`); one
+\`agent\` drive takes any others (\`resize\`, \`prefer\`, \`screenshot\`).
 
 ${DIARY_LINE}
 

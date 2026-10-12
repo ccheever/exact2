@@ -40,14 +40,15 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 |`bun exact.mjs …`|What it does|
 |---|---|
 |`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
-|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done; a screen no test ends on goes unchecked.|
-|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; without `--storage` it looks empty.|
+|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
+|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; without `--storage`, no data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
 `verify`, `test web` (the tests alone) and `agent` build and serve their own copy: no dev
-server is needed to check the app. Run `verify` after each edit, `verify ios` at
-milestones; look at its screenshots (`.exact/verify/`). Keep scratch files in `.exact/`
-(any other new file makes the build stale).
+server is needed. Run `verify` after each edit, `verify ios` at milestones. A screen you
+want checked or captured is a test's end; `verify --shots <dir>` copies its screenshots;
+one drive takes any others (`resize`, `prefer prefers-color-scheme dark`, `screenshot`).
+Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 ## One screen: the view, its data, its test
 
@@ -170,10 +171,9 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 Steps: `tap "id"`, `type "id" "text"` or `type "id" key "Enter"`, `expect text "id" == "…"`,
-`expect tree has|missing "id"`, `expect state a.0 .b == v`, `clock data` (lands replies)
-`|settle` (ends transitions) `|+ms`, `reload` (same storage), `back`, `fail fetch "/p"`
-and `pass fetch`, `request POST "/p" {…} as grace`; launch lines `size epoch time-zone
-locale seed`. The rest: `tests`.
+`expect tree has|missing "id"`, `expect state a.0 .b == v`, `clock data`
+`|settle` `|+ms`, `reload`, `back`, `fail fetch "/p"`
+and `pass fetch`, `request POST "/p" {…} as grace`. Launch lines, the rest: `tests`.
 
 ## Pitfalls that cost the most
 
