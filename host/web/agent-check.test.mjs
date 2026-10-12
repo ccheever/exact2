@@ -183,6 +183,16 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...text, fg: [197, 197, 198, 1], inactive: true }])).toEqual([]); // a disabled control's label (WCAG's inactive component)
   expect(found([{ ...text, fg: [60, 60, 67, 0.6] }])).toEqual([]); // the secondary label's value, unnamed (a section footer's), is its
   expect(found([{ ...text, fg: [255, 56, 60, 1] }])).toEqual([]); // the grouped sheet's red (a destructive row's title), UIKit's at 3:1
+  // LLP 1115.000 D4: a role known only by its drawn value is read in the column its host draws. A page in the neutral look
+  // says so (`look`): there the table's neutral red (#c90f1a, 3.5:1 on this grey) is the platform's, at 3:1, and Apple's
+  // red is some author's colour, at 4.5:1. A host that names no look (iOS, a page built in LLP 1116 D1's) draws Apple's.
+  const onGrey = { ...text, fg: [201, 15, 26, 1], bg: [200, 200, 200], on: 'own' };
+  expect(found([onGrey], { look: 'neutral' })).toEqual([]);
+  expect(found([onGrey])).toEqual(['contrast:1']);
+  expect(found([{ ...text, fg: [255, 56, 60, 1] }], { look: 'neutral' })).toEqual(['contrast:1']);
+  // The neutral column's ink on the accent in dark is black: by value alone it is no role, so an author's black text
+  // on a dark grey (3.5:1) is held to 4.5:1 there too.
+  expect(found([{ ...text, fg: [0, 0, 0, 1], bg: [100, 100, 100], on: 'own' }], { look: 'neutral', scheme: 'dark' })).toEqual(['contrast:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true }])).toEqual(['clipped:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true, clamp: true }])).toEqual([]);
   // A card on white whose fill is white shows nothing; on grey it shows; with an edge it shows.
@@ -190,6 +200,11 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const invisible = judge(obs([card]), png);
   expect(invisible.map((f) => f.kind)).toEqual(['card']);
   expect(invisible[0].hint).toContain('-exact-secondary-background');
+  // The hint knows a plain page by the column's own ground: #121212 is the neutral look's in dark, and nobody's in Apple's.
+  const night = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).map((_, i) => i % 4 === 3 ? 255 : 18) };
+  const hint = (look) => judge(obs([{ ...card, fill: [18, 18, 18, 1] }], { scheme: 'dark', ...(look ? { look } : {}) }), night)[0].hint;
+  expect(hint('neutral')).toContain('on a plain page a card is -exact-secondary-background');
+  expect(hint()).not.toContain('on a plain page a card is');
   expect(found([{ ...card, x: 24 }])).toEqual([]);
   expect(found([{ ...card, edge: true }])).toEqual([]);
   // Two 16 px targets: under 24 px and closer than 24 px apart, both; far apart, neither (WCAG 2.5.8's spacing); the platform's own, never.
