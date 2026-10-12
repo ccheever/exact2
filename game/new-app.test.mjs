@@ -2,11 +2,15 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
+import { appVerbs } from '../scripts/app-cli.mjs';
 import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
+
+/** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7). */
+const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); copyFileSync(resolve(import.meta.dir, '../scripts/app-cli.mjs'), resolve(sdk, 'scripts/app-cli.mjs')); };
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -24,6 +28,10 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.ok(Buffer.byteLength(agents()) <= 3 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`); // 3 KB, and long temp-dir paths (LLP 1116.001 D4)
     assert.match(agents(), /one-time installer[^]*exact\.mjs[^]*setup[^]*forced offline for Hermes/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
+    // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
+    const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
+    assert.ok(launcher.trimEnd().split('\n').length <= 25, `exact.mjs is ${launcher.split('\n').length} lines`);
+    assert.match(launcher.split('\n')[1], /`bun exact\.mjs --help` lists the verbs/);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
@@ -31,6 +39,9 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,offline:process.env.HERMES_LEAN_SYS_OFFLINE}));');
     }
+    withCli(sdk);
+    const missing = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'web'], { cwd: parent, env: { ...process.env, EXACT2: resolve(parent, 'nowhere') }, encoding: 'utf8' });
+    assert.deepEqual([missing.status, /^no exact2 at .*nowhere \(no scripts\/app-cli\.mjs\): EXACT2 names the checkout$/m.test(missing.stderr)], [1, true], missing.stderr);
     const testArgs = host => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), 'app.test.contract')];
     // A drive builds first (LLP 1116.002 D4): web-build, or agent-build for ios and macos, its output on
     // stderr so stdout stays the drive's; a phone's build stays explicit.
@@ -113,6 +124,7 @@ test('the generated exact.mjs ends its child with it: a signal is passed on, and
   try {
     const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk'), pidFile = resolve(parent, 'dev.pid');
     createApp(dir);
+    withCli(sdk);
     mkdirSync(resolve(sdk, 'host/web'), { recursive: true });
     writeFileSync(resolve(sdk, 'host/web/dev.mjs'), `import { watchLauncher } from ${JSON.stringify(resolve(import.meta.dir, '../host/web/serve.mjs'))};
 import { writeFileSync } from 'node:fs';
@@ -137,7 +149,7 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
   try {
     const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk');
     createApp(dir);
-    mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
+    withCli(sdk);
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), '');
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: ['bun', 'seed.mjs', '--quick'] } }, null, 2));
@@ -198,7 +210,9 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
     }
+    withCli(sdk);
     const real = realpathSync(dir);
+    const drive = (command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
     for (const [command, args] of [
       [['test-rust'], [real, '--test']],
       [['prove', '--repin'], [real, '--repin']],
@@ -206,14 +220,16 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
       [['agent', 'web', 'tree'], ['web', '--app', 'block-hop', 'tree']],
       [['feedback', 'status'], ['status']],
     ]) {
-      const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+      const result = drive(command);
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout.trim().split('\n').at(-1)), { args, app: real }, command.join(' '));
     }
     writeFileSync(resolve(dir, 'exact.mjs'), '');
     writeFileSync(resolve(dir, 'AGENTS.md'), `# Mine\n\n${readFileSync(resolve(dir, 'AGENTS.md'), 'utf8').replace('an Exact game', 'stale')}`);
     assert.match(createApp(dir, { update: true }), /^Updated .*: exact\.mjs, AGENTS\.md$/);
-    assert.match(readFileSync(resolve(dir, 'exact.mjs'), 'utf8'), /'test-rust': \['game\/app\/shells\.mjs'/);
+    assert.match(readFileSync(resolve(dir, 'exact.mjs'), 'utf8'), /name: "block-hop", game: true,/);
+    const rewritten = drive(['test-rust']);
+    assert.deepEqual([rewritten.status, JSON.parse(rewritten.stdout.trim().split('\n').at(-1))], [0, { args: [real, '--test'], app: real }], rewritten.stderr);
     assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /^# Mine\n\n<!-- exact:begin[^]*an Exact game/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
@@ -325,9 +341,9 @@ test('a new app has a Linux host crate, and update adds one to an older app', ()
     assert.match(linux, /^exact-linux = \{ path = "[^"]*host\/linux" \}$/m);
     assert.match(readFileSync(resolve(dir, 'linux/src/main.rs'), 'utf8'), /exact_linux::run::<AppData>\(PLAN, COMPAT\)/);
     assert.match(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
-    const commands = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
-    assert.match(commands, /linux: \['scripts\/build-linux\.mjs', 'field-log'\]/);
-    assert.match(commands, /android: \['scripts\/agent-android\.mjs', 'build', 'field-log'\]/);
+    assert.match(readFileSync(resolve(dir, 'exact.mjs'), 'utf8'), /name: "field-log", exact2/);
+    const verbs = appVerbs('field-log', dir);
+    assert.deepEqual([verbs.linux, verbs.android], [['scripts/build-linux.mjs', 'field-log'], ['scripts/agent-android.mjs', 'build', 'field-log']]);
     // An older app: no linux/, and a workspace that does not list it.
     rmSync(resolve(dir, 'linux'), { recursive: true });
     const manifest = resolve(dir, 'Cargo.toml');
@@ -352,8 +368,8 @@ test('update names the app by its crates, not its folder', () => {
     writeFileSync(web, readFileSync(web, 'utf8').replace(/^name = "todo-list-web"$/m, 'name = "todo-list-web" # formerly "old-web"'));
     createApp(moved, { update: true });
     const commands = readFileSync(resolve(moved, 'exact.mjs'), 'utf8');
-    assert.match(commands, /'todo-list-apple'/);
-    assert.doesNotMatch(commands, /'todo-apple'/);
+    assert.match(commands, /name: "todo-list",/);
+    assert.doesNotMatch(commands, /name: "todo",/);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

@@ -93,8 +93,9 @@ test('generated commands run from an external author directory with quoted paths
     // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
     const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
     assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
-    const runner=readFileSync(resolve(app,'exact.mjs'),'utf8');
-    for (const verb of verbs) assert.ok(new RegExp(`^  '?${verb}'?: \\[`,'m').test(runner),verb);
+    const usage=spawnSync(process.execPath,['exact.mjs','nope'],{cwd:app,encoding:'utf8'}).stderr;
+    const runnerVerbs=new Set(/Usage: bun exact\.mjs <([^>]*)>/.exec(usage)[1].split('|'));
+    for (const verb of verbs) assert.ok(runnerVerbs.has(verb),verb);
     assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*feedback status[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
@@ -110,6 +111,8 @@ test('generated commands run from an external author directory with quoted paths
     // building or opening a host. Argument and app-path forwarding are real.
     const sdk=resolve(directory,'recording SDK');
     mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
+    mkdirSync(resolve(sdk,'scripts'),{recursive:true});
+    cpSync(resolve(import.meta.dir,'../scripts/app-cli.mjs'),resolve(sdk,'scripts/app-cli.mjs'));
     writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
     const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});
     assert.equal(windows.status,0,windows.stderr);
@@ -580,12 +583,13 @@ test('a captured lock exact2 moved past is named at a build, at generation and a
     const generated=spawnSync(process.execPath,[resolve(import.meta.dir,'app/shells.mjs'),dir],{encoding:'utf8'});
     assert.equal(generated.status,0,generated.stderr);
     assert.ok(named(generated.stderr.replace(/^warning: /,'')),generated.stderr);
-    // A runner generated before the verb existed is told to update first.
+    // A runner generated before the verb existed is told to update first; the launcher update writes has it.
     const runner=resolve(dir,'exact.mjs');
-    writeFileSync(runner,readFileSync(runner,'utf8').replace(/^\s*lock: \[.*\n/m,''));
+    writeFileSync(runner,"#!/usr/bin/env bun\nconst verbs = {\n  web: ['host/web/dev.mjs'],\n};\n");
     assert.ok(capturedLockDrift(dir).includes(`\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`));
     assert.match(createApp(dir,{update:true}),/exact2 moved since this game's Cargo.lock was captured/);
-    assert.match(readFileSync(resolve(dir,'exact.mjs'),'utf8'),/lock: \['game\/app\/shells\.mjs', import\.meta\.dir, '--lock'\]/);
+    assert.match(readFileSync(resolve(dir,'exact.mjs'),'utf8'),/scripts\/app-cli\.mjs[^]*game: true,/);
+    assert.ok(capturedLockDrift(dir).includes(`\`bun exact.mjs lock\` in ${dir}`));
     assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),text);
   } finally {rmSync(root,{recursive:true,force:true});}
 }, 180000);
