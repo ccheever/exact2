@@ -1,15 +1,20 @@
 #!/usr/bin/env bun
-// `bun exact.mjs verify [web|ios]` (LLP 1116.004 D7): one command a builder can stop on, where test, a
-// drive, check and a screenshot were three to five turns. It builds when the build is stale (web: the dist's
+// `bun exact.mjs verify [web|ios]` (LLP 1116.004 D7, 1116.005 D7): one command a builder can stop on, where test,
+// drives, check and screenshots were three to five turns. It builds when the build is stale (web: the dist's
 // record against its sources, as the driver checks it; iOS: agent-build.mjs `buildFirst`, the plan fast path
-// included), runs app.test.contract (agent-test.mjs `runTests`), then launches the app on a fresh scratch
-// store at a phone width and a desktop width (iOS: the simulator's own size, with UIKit's bars) and runs
-// `check` light and dark at each, keeping one capture per width and scheme in .exact/verify/ for milestones.
-// It prints one short report ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1
-// when the build, a test or a launch fails; check's findings and the compiler's warnings (`contract build`'s,
+// included), runs app.test.contract (agent-test.mjs `runTests`), launches the app on a fresh scratch store at a
+// phone width and a desktop width (iOS: the simulator's own size, with UIKit's bars), and runs `check` light and
+// dark there. Each test's end screen is checked the same way inside the test's own session (the web at both
+// widths, resized to each), so its secondary screens and populated states are in the report. Then the app
+// relaunches once on the store a passing test left, on real time (at most REAL_MS), and its first screen is
+// compared with the fresh one's: what the test stored should come back. One capture of each screen is kept in
+// .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
+// ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
+// or the relaunch fails; check's findings, the relaunch's and the compiler's warnings (`contract build`'s,
 // whether or not this run built) are counted in the last line but never fail it, since check reads the screen
 // by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
-// takes one drive at a time.
+// takes one drive at a time, and runs the tests with UIKit's bars (`--chrome platform`) so their end screens
+// are what a person sees.
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
@@ -22,6 +27,8 @@ const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 /** The web's two widths: a phone's, and a desktop window's. */
 export const WEB_SIZES = [[390, 844], [1280, 900]];
 const SHOWN = 6, WARNINGS = 4; // the findings and build warnings shown; the count says the rest
+const REAL_MS = 4000, REAL_STEP = 250; // the relaunch's bound on real time for its first loads, in steps
+const FIRST = 'first screen', RELAUNCH = 'relaunch';
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
 const firstLine = (text) => String(text ?? '').split('\n').find((l) => l.trim())?.trim() ?? '';
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -62,37 +69,139 @@ async function compilerWarningsOf(app) {
   return compilerWarnings(said);
 }
 
-/** The authored tests: `{ passed, failed, results }`, `{ none }` without a file, or `{ error }` when they do not compile. */
-async function tests(host, app) {
+/** A test's capture, by its number and the start of its name: `web-t2-the-items-survive-a-relaunch.png`. */
+export function shotName(host, index, name) {
+  let slug = '';
+  for (const word of String(name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)) { if (slug && slug.length + 1 + word.length > 28) break; slug = slug ? `${slug}-${word}` : word; }
+  return `${host}-t${index + 1}${slug ? `-${slug.slice(0, 28)}` : ''}.png`;
+}
+
+/** What a launch shows and holds, for the relaunch's comparison: the active screen's texts and field values, the
+ * resources, and how many storage operations the data module has run. */
+async function seen(s, state) {
+  const texts = new Set();
+  for (const n of (await s.tree().catch(() => ({ nodes: [] }))).nodes ?? []) for (const v of [n.props?.text, n.props?.value]) if (!n.inactive && typeof v === 'string' && v.trim()) texts.add(v.trim());
+  const b = state.background;
+  return { texts, resources: state.resources ?? {}, slots: state.slots ?? {}, ops: b ? b.done + b.failed : 0 };
+}
+
+/** `check both` on the session at each of `sizes` (null: as it is; else resized to it first), a run per size and scheme
+ * tagged with its `screen`; a resource that failed is a line of each. `shot(viewport, scheme)` names a capture to keep. */
+async function checkHere(s, { screen, sizes = [null], shot, state }) {
+  const { checkOp } = await import('./agent-check.mjs');
+  const failed = Object.entries(state?.failed ?? {}).map(([name, why]) => `  failed   resource ${name}: ${why}; the screen shows its placeholder or last value`);
+  const runs = [];
+  for (const size of sizes) {
+    if (size) { await s.resize(...size); await s.clock('settle'); }
+    const r = await checkOp(s, ['both'], { shots: shot });
+    runs.push(...groups(r.text).map((g, i) => {
+      const run = r.check[i] ?? {}, vp = run.viewport ?? { w: size?.[0], h: size?.[1] }, kept = shot?.(vp, run.asked ?? run.scheme);
+      return { screen, size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, ...(kept ? { shot: kept } : {}), findings: run.findings ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
+    }));
+  }
+  return runs;
+}
+
+/** runTests' `atEnd`: a test's last screen once its transitions end, checked in both schemes (the web: at both widths,
+ * one capture kept at the width nearer the test's own; iOS: the simulator's), and what the relaunch chooses by. */
+const testEnd = (host, shots) => async (s, t) => {
+  await s.clock('settle');
+  const state = await s.state().catch(() => ({}));
+  const own = (t.size ?? [420, 900])[0], near = // the test's own width, else the driver's window (agent.mjs VIEWPORT)
+    WEB_SIZES.reduce((a, b) => (Math.abs(b[0] - own) < Math.abs(a[0] - own) ? b : a));
+  const path = resolve(shots, shotName(host, t.index, t.name));
+  const shot = (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === near[0]) ? path : undefined);
+  const facts = await seen(s, state);
+  const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload };
+};
+
+/** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
+ * without a file, or `{ error }` when they do not compile. */
+async function tests(host, app, shots) {
   const file = resolve(app.dir, 'app.test.contract');
   if (!existsSync(file)) return { none: true };
   const { runTests } = await import('./agent-test.mjs');
   try {
-    const r = await runTests({ host, file, app: app.name });
-    return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures }) => ({ name, failures })) };
+    const r = await runTests({ host, file, app: app.name, atEnd: testEnd(host, shots), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
+    return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures, end, store }) => ({ name, failures, ...(end ? { end } : {}), ...(store ? { store } : {}) })) };
   } catch (e) { return { error: e.message }; }
 }
 
 /** One launch at `size` (null: the device's own) on a fresh scratch store: the app's data landed and its
- * transitions ended, then `check both`, its captures kept in `shots`. A run per scheme, `{ size, scheme, asked,
- * shot, findings, lines, hidden }`: `lines` are check's own text for it, with a line for a resource that failed. */
+ * transitions ended, then `check both`, its captures kept in `shots`. A run per scheme, `{ screen, size, scheme,
+ * asked, shot, findings, lines, hidden }` (`lines`: check's own text for it, with a line for a resource that
+ * failed), and at the phone's width what it shows (`seen`), for the relaunch. */
 async function checkAt(host, app, size, store, shots) {
-  const [{ open }, { checkOp }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-check.mjs'), import('./agent-launch.mjs')]);
+  const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
   const fresh = { EXACT_AGENT_STORAGE_FRESH: '1' };
   const s = await open({ host, app: app.name, storage: store, env: fresh, ...(size ? { size } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
   try {
     await s.clock('data');
     await s.clock('settle');
-    const failed = Object.entries((await s.state().catch(() => ({}))).failed ?? {}).map(([name, why]) => `  failed   resource ${name}: ${why}; the screen shows its placeholder or last value`);
-    const shot = (vp, scheme) => resolve(shots, `${host}-${vp.w}x${vp.h}-${scheme}.png`);
-    const r = await checkOp(s, ['both'], { shots: shot });
-    return groups(r.text).map((g, i) => {
-      const run = r.check[i] ?? {}, vp = run.viewport ?? { w: size?.[0], h: size?.[1] };
-      return { size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, shot: shot(vp, run.asked ?? run.scheme), findings: run.findings ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
-    });
+    const state = await s.state().catch(() => ({}));
+    const facts = !size || size === WEB_SIZES[0] ? await seen(s, state) : null;
+    const runs = await checkHere(s, { screen: FIRST, shot: (vp, scheme) => resolve(shots, `${host}-${vp.w}x${vp.h}-${scheme}.png`), state });
+    if (facts) Object.defineProperty(runs, 'seen', { value: facts });
+    return runs;
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, store).profile).catch(() => {});
+  }
+}
+
+const quoted = (text, n = 40) => JSON.stringify(text.length > n ? `${text.slice(0, n - 1)}…` : text);
+const same = (a, b) => JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
+
+/** The store the relaunch opens: a passing test's that wrote storage (more operations than a fresh launch's, or a
+ * `reload` step), and of those the one whose resources held the most at its end; null when no test passed. */
+export function relaunchStore(results, fresh) {
+  const passed = (results ?? []).filter((r) => !r.failures.length && r.store && r.end && !r.end.error);
+  const wrote = (r) => r.end.reload || r.end.ops > (fresh?.ops ?? 0);
+  const score = (r) => [wrote(r) ? 1 : 0, JSON.stringify(r.end.resources ?? {}).length, results.indexOf(r)];
+  const above = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
+  return passed.reduce((best, r) => (!best || above(score(r), score(best)) ? r : best), null);
+}
+
+/** What the relaunch found, from the test whose store it opened (its `end`), a fresh launch's `seen` and its own: the
+ * texts its first screen shows that a fresh one does not, what it says of them, and its problems (a line each, counted
+ * as findings). What the test stored is lost when the test wrote storage (more operations than a fresh launch, or a
+ * `reload` step) and ended holding resources a fresh launch does not, and the relaunch holds a fresh launch's. */
+export function judgeRelaunch(test, fresh, after, { busy = [], failed = {} } = {}) {
+  const problems = [];
+  if (busy.length) problems.push(`  loading  still in flight after ${secs(REAL_MS)} of real time: ${busy.join(', ')}; a store or the network that slow leaves the first screen empty`);
+  for (const [name, why] of Object.entries(failed ?? {})) problems.push(`  failed   resource ${name}: ${why}; the screen shows its placeholder or last value`);
+  if (!fresh) return { shows: [], problems, said: 'it relaunched' };
+  const shows = [...after.texts].filter((t) => !fresh.texts.has(t)), wrote = test.end.reload || test.end.ops > fresh.ops;
+  const held = !same(after.resources, fresh.resources), kept = held || !same(after.slots, fresh.slots);
+  if (!shows.length && !busy.length && wrote && !same(test.end.resources, fresh.resources) && !held)
+    problems.push('  lost     its first screen and resources are a fresh launch\'s, though the test wrote storage and ended holding data: what it stored did not come back');
+  const said = shows.length ? `the first screen shows what it stored: ${shows.slice(0, 3).map((t) => quoted(t, 24)).join(', ')}`
+    : kept ? 'its state holds what the test left, though the first screen\'s text is a fresh launch\'s'
+    : wrote ? 'the first screen is a fresh launch\'s, as the test left it' : 'the first screen is a fresh launch\'s; that test wrote no storage';
+  return { shows, problems, said };
+}
+
+/** One launch on the store `test` left, at the phone's width (iOS: the simulator's, with UIKit's bars), not emptied:
+ * its first loads on real time, in REAL_STEP steps until nothing is in flight or REAL_MS pass, then its transitions
+ * end; then `check both` (the web: at both widths, one capture kept). */
+async function relaunch(host, app, test, fresh, shots) {
+  const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
+  const s = await open({ host, app: app.name, storage: test.store, ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  try {
+    const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
+    const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
+    let state, busy;
+    do { await s.clock(`+${REAL_STEP} real`); state = await s.state().catch(() => ({})); busy = waiting(state); } while (busy.length && performance.now() - started < REAL_MS);
+    const ms = performance.now() - started;
+    if (!busy.length) { await s.clock('settle'); state = await s.state().catch(() => state); }
+    const after = await seen(s, state);
+    const path = resolve(shots, `${host}-relaunch.png`);
+    const runs = await checkHere(s, { screen: RELAUNCH, sizes: host === 'web' ? [null, WEB_SIZES[1]] : [null], shot: (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === WEB_SIZES[0][0]) ? path : undefined) });
+    return { test: test.name, ms, shot: path, runs, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
+  } finally {
+    await s.close();
+    if (host === 'web') await removeBrowserProfile(driveStore(app, test.store).profile).catch(() => {});
   }
 }
 
@@ -112,24 +221,30 @@ export function groups(text) {
 }
 
 const BOX = /\s*\[-?\d+,-?\d+ \d+×\d+\]/g;
-/** The findings of every launch and scheme, each once: a line found at several (its box aside, which a width
- * moves) is shown once, tagged with where it was unless it was everywhere. */
+const sizeOf = (r) => r.size.join('x'), schemeOf = (r) => r.asked ?? r.scheme, screenOf = (r) => r.screen ?? FIRST;
+const screenName = (screen) => (screen === FIRST || screen === RELAUNCH ? screen : quoted(screen, 28));
+/** The findings of every screen, launch and scheme, each once: a line found at several (its box aside, which a width
+ * moves) is shown once, tagged with the screens it was on unless it was on all, and with the widths and schemes of
+ * those screens it was at unless it was at all. */
 export function distinctFindings(runs) {
-  const sizes = new Set(runs.map((r) => r.size.join('x'))), schemes = new Set(runs.map((r) => r.asked ?? r.scheme)), seen = new Map();
+  const seen = new Map(), screens = [...new Set(runs.map(screenOf))];
   for (const r of runs) for (const line of r.lines) {
     const key = line.replace(BOX, '').replace(/\d+-wide/g, '');
-    if (!seen.has(key)) seen.set(key, { line, where: [] });
-    seen.get(key).where.push([r.size.join('x'), r.asked ?? r.scheme]);
+    if (!seen.has(key)) seen.set(key, { line, where: new Set() });
+    seen.get(key).where.add(r);
   }
   return [...seen.values()].map(({ line, where }) => {
-    const ws = [...new Set(where.map((w) => w[0]))], ss = [...new Set(where.map((w) => w[1]))];
-    const tag = where.length === runs.length ? '' : ws.length === sizes.size ? ss.join(', ') : ss.length === schemes.size ? ws.join(', ') : where.map((w) => w.join(' ')).join(', ');
+    const at = [...where], on = screens.filter((sc) => at.some((r) => screenOf(r) === sc)), mine = runs.filter((r) => on.includes(screenOf(r)));
+    const sizes = new Set(mine.map(sizeOf)), schemes = new Set(mine.map(schemeOf)), ws = [...new Set(at.map(sizeOf))], ss = [...new Set(at.map(schemeOf))];
+    const how = at.length === mine.length ? '' : ws.length === sizes.size ? ss.join(', ') : ss.length === schemes.size ? ws.join(', ') : [...new Set(at.map((r) => `${sizeOf(r)} ${schemeOf(r)}`))].join(', ');
+    const names = on.length === screens.length ? [] : on.length > 3 ? [...on.slice(0, 2).map(screenName), `${on.length - 2} more`] : on.map(screenName);
+    const tag = [...names, how].filter(Boolean).join(', ');
     return tag ? line.replace(/^(\s*)/, `$1(${tag} only) `) : line;
   });
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], tested, checks, shots, ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], tested, checks, relaunched, shots, ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   if (built) {
@@ -154,21 +269,32 @@ export function report({ host, built, compiler = [], tested, checks, shots, ms, 
     out.push(`tests: ${tested.passed} passed, ${tested.failed} failed`);
     for (const t of tested.results) for (const f of t.failures) out.push(`  FAIL "${t.name}": ${firstLine(f).replace(`${t.name}: `, '')}`);
   }
-  // Every launch and scheme in one group: each finding once, said where unless it was everywhere.
+  // Every screen, launch and scheme in one group: each finding once, said where unless it was everywhere.
   for (const e of checks.filter((c) => c.error)) { broken++; out.push(`check ${e.label}: could not drive: ${firstLine(e.error)}`); }
   const runs = checks.filter((c) => !c.error);
   if (runs.length) {
     const shown = distinctFindings(runs), count = shown.length + Math.max(0, ...runs.map((r) => r.hidden));
     const kept = runs.some((r) => r.asked && r.asked !== r.scheme) ? '; the app keeps its own scheme' : '';
-    out.push(`check ${[...new Set(runs.map((r) => r.size.join('x')))].join(', ')} · ${[...new Set(runs.map((r) => r.asked ?? r.scheme))].join(', ')}${kept}: ${count ? plural(count, 'finding') : 'no findings'}`);
+    const screens = [...new Set(runs.map(screenOf))], ends = screens.filter((sc) => sc !== FIRST && sc !== RELAUNCH).length;
+    const where = [screens.includes(FIRST) && FIRST, ends && plural(ends, 'test end'), screens.includes(RELAUNCH) && RELAUNCH].filter(Boolean).join(', ');
+    out.push(`check ${where} · ${[...new Set(runs.map(sizeOf))].join(', ')} · ${[...new Set(runs.map(schemeOf))].join(', ')}${kept}: ${count ? plural(count, 'finding') : 'no findings'}`);
     out.push(...shown.slice(0, SHOWN));
     if (count > SHOWN) out.push(`  … and ${count - Math.min(SHOWN, shown.length)} more (verify --json lists them all)`);
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
   }
+  // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
+  if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
+  else if (relaunched) {
+    out.push(`relaunch on ${quoted(relaunched.test)}'s store (${secs(relaunched.ms)} of real time): ${relaunched.problems.length ? plural(relaunched.problems.length, 'problem') : relaunched.said}`, ...relaunched.problems);
+    findings += relaunched.problems.length;
+  }
   if (shots.length) {
-    const dir = relative(cwd, resolve(shots[0], '..')) || '.';
-    out.push(`screenshots (${dir.startsWith('..') ? resolve(shots[0], '..') : dir}): ${shots.map((p) => relative(resolve(p, '..'), p)).join(' ')}`);
+    const dir = relative(cwd, resolve(shots[0], '..')) || '.', name = (p) => relative(resolve(p, '..'), p);
+    const first = shots.filter((p) => /^\w+-\d+x\d+-(light|dark)\.png$/.test(name(p))), ends = shots.filter((p) => /^\w+-t\d+[-.]/.test(name(p))), again = shots.filter((p) => /^\w+-relaunch\.png$/.test(name(p)));
+    out.push(`screenshots (${dir.startsWith('..') ? resolve(shots[0], '..') : dir}): ${first.map(name).join(' ')}`);
+    const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`].filter(Boolean);
+    if (more.length) out.push(`  ${more.join('; ')}`);
   }
   const problems = failedTests + findings + broken;
   const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding')].filter(Boolean);
@@ -210,16 +336,31 @@ async function main(argv) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, checks;
+  let tested, firsts, relaunched = null;
   const compiling = compilerWarningsOf(app);
-  if (host === 'web') [tested, ...checks] = await Promise.all([tests(host, app), ...WEB_SIZES.map(launch)]);
-  else { tested = await tests(host, app); checks = [await launch(null, 0)]; }
-  checks = checks.flat();
+  if (host === 'web') [tested, ...firsts] = await Promise.all([tests(host, app, shots), ...WEB_SIZES.map(launch)]);
+  else { tested = await tests(host, app, shots); firsts = [await launch(null, 0)]; }
+  const results = tested?.results ?? [], fresh = firsts.find((runs) => runs.seen)?.seen ?? null;
+  // The relaunch, on the store the chosen test left; the others' (the web's: Chrome profiles of this run) go after it.
+  const chosen = relaunchStore(results, fresh);
+  try { if (chosen) relaunched = await relaunch(host, app, chosen, fresh, shots).catch((e) => ({ test: chosen.name, error: e.message })); }
+  finally {
+    if (host === 'web') {
+      const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
+      for (const r of results) if (r.store) await removeBrowserProfile(driveStore(app, r.store).profile).catch(() => {});
+    }
+  }
+  // A test's end screen that could not be checked fails the run, unless the test failed already (its FAIL line says why).
+  const ends = results.flatMap((t) => (t.end?.error ? (t.failures.length ? [] : [{ size: null, label: `${quoted(t.name)} end`, error: t.end.error }]) : t.end?.runs ?? []));
+  const checks = [...firsts.flat(), ...ends, ...(relaunched?.runs ?? [])];
   const compiler = await compiling;
-  const kept = checks.filter((c) => c.shot && existsSync(c.shot)).map((c) => c.shot);
-  const r = report({ host, built, compiler, tested, checks, shots: kept, ms: Date.now() - started });
-  if (json) console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, tests: tested, checks, screenshots: kept, problems: r.problems, exit: r.exit }));
-  else say(r.lines);
+  const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot])].filter((p) => p && existsSync(p));
+  const r = report({ host, built, compiler, tested, checks, relaunched, shots: kept, ms: Date.now() - started });
+  if (json) {
+    const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
+    const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, tests: testsOut, checks, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+  } else say(r.lines);
   return r.exit;
 }
 

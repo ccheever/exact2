@@ -37,21 +37,16 @@ test (pin `epoch` and `time-zone`); give every screen its own ids.
 
 ## Before you call it done
 
-Tests pass while a real write hangs or a layout spills off the screen. Drive each write
-once on the real clock:
-
-```sh
-bun exact.mjs agent web --storage real1 --epoch now "type draft Milk" "tap add" "clock +1500 real" state
-bun exact.mjs agent web --storage real1 --epoch now "clock +1500 real" state "screenshot .exact/real-web.png"
-```
-
-The second drive on the same `--storage` is the relaunch: `reload` is a test line, not a
-drive's op; `state` lists what is `pending` or `failed`, and each `clock +N real` waits N ms
-of real time. `"check both"` names in text what a look would find (clipped text, covered
-controls, small targets, overflow, low contrast, a card that does not show) in each
-scheme; `verify` runs it on the first screen at a phone and a desktop width, after the
-tests. A clean `verify` is done: take a screenshot only at milestones. iOS: `agent ios
---chrome platform`, `"screenshot … window"` ([ios-driving](ios-driving.md)).
+`verify` (`verify ios`) runs these tests, then `check`s the first screen and the screen
+each test ends on, light and dark at a phone and a desktop width: clipped text, covered
+controls, small targets, overflow, low contrast, a card that does not show. Then it
+relaunches once, on real time, on the store a passing test left, and says whether the
+first screen shows what that test stored. One screenshot of each screen is in
+`.exact/verify/`, named by test. A clean `verify` is done: look at the screenshots at
+milestones. A screen no test ends on is not checked, so end a test there rather than
+driving it by hand. Drive by hand (`agent web --storage s1 …`; `"clock +1500 real"` waits
+real time, and a second drive on the same `--storage` relaunches) to find out why
+something fails.
 
 A second user's write, seen through the app's own polling: the drive in the background,
 the write through the server with the other persona's token once its first `state` is out:
