@@ -138,6 +138,19 @@ export function observe(views, inactive = () => false) {
     }
     const past = Math.max(b.right - W, -b.left);
     if (!held && past > 1 && !fixed(el)) { item.outX = r2(past); out.add(el); }
+    // A flex or grid item past its container's sides, within the viewport (LLP 1116.007 D3: tip-splitter's fifth radio at 320 px,
+    // an option wider than its row, poking out of its card): the container neither scrolling nor clipping it, nor any ancestor
+    // it lies beyond, nor transformed or placed out of flow. Past the viewport it is the finding above.
+    const parent = el.parentElement, ps = parent && parent.id !== 'exact-root' ? getComputedStyle(parent) : null;
+    if (!item.outX && ps && /^(inline-)?(flex|grid)$/.test(ps.display) && ps.overflowX === 'visible' && !/^(absolute|fixed)$/.test(cs.position) && cs.transform === 'none') {
+      const pb = parent.getBoundingClientRect(), left = pb.left + parent.clientLeft, spill = Math.max(b.right - (left + parent.clientWidth), left - b.left);
+      let beyond = false;
+      for (let e = parent.parentElement; e && e.id !== 'exact-root' && !beyond; e = e.parentElement) {
+        if (out.has(e)) beyond = true;
+        else if (getComputedStyle(e).overflowX !== 'visible') { const a = e.getBoundingClientRect(), l = a.left + e.clientLeft; beyond = b.right > l + e.clientWidth + 0.5 || b.left < l - 0.5; }
+      }
+      if (spill > 1.5 && !beyond && !fixed(el)) { item.spill = { by: viewOf(parent), dx: r2(spill) }; out.add(el); }
+    }
     const text = el.hasAttribute('data-exact-text') ? (el.textContent ?? '').replace(/\s+/g, ' ').trim() : '';
     if (text) {
       item.text = text.length > 40 ? text.slice(0, 39) + '…' : text;
@@ -226,7 +239,7 @@ export function observe(views, inactive = () => false) {
       const v = visible(el, b);
       if (Math.abs(v.x - item.x) > 0.5 || Math.abs(v.y - item.y) > 0.5 || Math.abs(v.w - item.w) > 0.5 || Math.abs(v.h - item.h) > 0.5) item.vis = v;
     }
-    if (item.text || item.control || item.fill || item.outX) items.push(item);
+    if (item.text || item.control || item.fill || item.outX || item.spill) items.push(item);
   }
   // LLP 1116.004 D1.3: a phone's layout at a desktop width, as advice (never a finding): a root tab bar stretched along
   // the window's bottom, and a stack the projection did not split whose root route's list pushed the detail shown. A
