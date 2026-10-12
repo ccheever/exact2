@@ -716,3 +716,116 @@ fn another_name_no_bar_or_a_sections_own_name_is_not_named() {
     );
     assert_eq!(warned(&late), [], "{late}");
 }
+
+const SCREEN: &str = "lower-screen-by-state";
+
+/// The line `needle` is on, from 1.
+fn line_of(src: &str, needle: &str) -> u32 {
+    let at = src
+        .find(needle)
+        .unwrap_or_else(|| panic!("{needle}\n{src}"));
+    src[..at].matches('\n').count() as u32 + 1
+}
+
+/// recipe-finder's round-7 page: its screens chosen in `choice`, inside one
+/// `scroll` under a bar laid out by hand, with no `header` (LLP 1116.005).
+fn finder(choice: &str) -> String {
+    let choice: String = choice.lines().map(|l| format!("        {l}\n")).collect();
+    format!(
+        "shape Meal\n  id: string\n  name: string\ncomponent App\n  state query = \"\"\n  state chosen = []\n  state shared = \"\"\n  state tab = \"all\"\n  state open2 = false\n  resource meals = searchMeals(query) as shape list<Meal> else empty()\n  resource viewport = exactViewport() as shape Meal else empty()\n  derive showingDetail = length(chosen) > 0\n  action edit(v: string)\n    query = v\n  action open(m: Meal)\n    chosen = [m]\n  action back\n    chosen = []\n  action share(m: Meal)\n    shared = m.name\n  action pick(t: string)\n    tab = t\n    chosen = []\n  action toggle\n    open2 = not open2\n  view\n    column height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"Recipe Finder\" font-weight=700\n      scroll flex=1 min-height=0\n{choice}"
+    )
+}
+
+/// The detail: Back, its heading deep in its layout, one more control.
+const DETAIL: &str = "  column gap=16\n    button press=back testId=\"back\"\n      text \"Back to recipes\"\n    row gap=16\n      column\n        text m.name role=\"heading\" aria-level=1\n    button press=share(m) testId=\"share\"\n      text \"Share\"\n";
+/// The list: its heading, a search field and rows that open the detail.
+const LIST: &str = "  column gap=16\n    text \"What sounds good today?\" role=\"heading\" aria-level=1\n    input value=query input=edit type=\"search\" aria-label=\"Search\"\n    each m in meals key=m.id\n      button press=open(m) testId=`meal-${m.id}`\n        text m.name\n";
+
+#[test]
+fn screens_swapped_by_state_without_routes_are_named_with_the_repair() {
+    // recipe-finder: Back left the app, a reload lost the recipe.
+    let when = format!(
+        "when showingDetail\n  each m in chosen key=m.id\n{}else\n{LIST}",
+        DETAIL
+            .replace("\n  ", "\n    ")
+            .replacen("  column", "    column", 1)
+    );
+    let src = finder(&when);
+    assert_eq!(
+        warned(&src),
+        [(SCREEN.to_string(), line_of(&src, "when showingDetail"))]
+    );
+    let (_, warnings) = contract::compile_warned(&src);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with("this `when` swaps the page between screens by state")
+            && m.contains("the browser's Back leaves the app, a reload loses the place and no screen can be linked")
+            && m.contains("`routes` with a path for each, `push` to open one")
+            && m.contains("`contract vocab screen`"),
+        "{m}"
+    );
+    // The same screens through a `match` on the chosen option, and as a
+    // chain with no last `else`, after a loading arm (flashcards).
+    let matched = finder(&format!(
+        "match first(chosen)\n  case some(m)\n{}  case none\n{}",
+        DETAIL
+            .replace("\n  ", "\n    ")
+            .replacen("  column", "    column", 1),
+        LIST.replace("\n  ", "\n    ")
+            .replacen("  column", "    column", 1)
+    ));
+    assert_eq!(
+        warned(&matched),
+        [(SCREEN.to_string(), line_of(&matched, "match first"))]
+    );
+    let chain = finder(&format!("when pending(meals)\n  progress aria-label=\"Loading\"\nelse when length(chosen) == 0\n{LIST}else when length(chosen) > 0\n  each m in chosen key=m.id\n{}", DETAIL.replace("\n  ", "\n    ").replacen("  column", "    column", 1)));
+    assert_eq!(
+        warned(&chain),
+        [(SCREEN.to_string(), line_of(&chain, "when pending"))]
+    );
+    // event-rsvp's: a create form and an event's detail in one pane, the
+    // form's Cancel the press that leaves it.
+    let rsvp = "shape Event\n  id: string\n  title: string\ncomponent App\n  state selected = \"1\"\n  state creating = false\n  state title = \"\"\n  state answer = \"\"\n  resource events = loadEvents() as shape list<Event> else empty()\n  action newEvent\n    creating = true\n  action back\n    selected = \"\"\n    creating = false\n  action editTitle(v: string)\n    title = v\n  action create\n    creating = false\n  action rsvp(r: string)\n    answer = r\n  view\n    main height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"gather\"\n        button press=newEvent testId=\"new-event\"\n          text \"Create event\"\n      scroll flex=1 min-height=0\n        column flex=1 min-width=0 gap=18 testId=\"detail-pane\"\n          when creating\n            column gap=22\n              column gap=8\n                text \"A new reason to get together.\" role=\"heading\" aria-level=2\n              input value=title input=editTitle aria-label=\"Event title\"\n              row gap=10\n                button press=create testId=\"create-save\"\n                  text \"Create event\"\n                button press=back testId=\"create-cancel\"\n                  text \"Cancel\"\n          else\n            each e in filter(events, x => x.id == selected) key=e.id\n              column gap=24\n                column gap=10\n                  text e.title role=\"heading\" aria-level=2\n                row role=\"radiogroup\" aria-label=\"Your RSVP\"\n                  button role=\"radio\" aria-checked=(answer == \"going\") press=rsvp(\"going\")\n                    text \"Going\"\n                  button role=\"radio\" aria-checked=(answer == \"maybe\") press=rsvp(\"maybe\")\n                    text \"Maybe\"\n";
+    assert_eq!(
+        warned(rsvp),
+        [(SCREEN.to_string(), line_of(rsvp, "when creating"))]
+    );
+}
+
+#[test]
+fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
+    let detail = DETAIL
+        .replace("\n  ", "\n    ")
+        .replacen("  column", "    column", 1);
+    let swap = format!("when showingDetail\n  each m in chosen key=m.id\n{detail}else\n{LIST}");
+    // A router's screens are its routes.
+    let routed = finder(&swap).replacen("shape Meal", "routes nav\n  home \"/\"\nshape Meal", 1);
+    assert_eq!(warned(&routed), []);
+    for (case, choice) in [
+        // Tabs: a state a `tab` reads its selection from.
+        ("tabs", format!("row role=\"tablist\"\n  button role=\"tab\" aria-selected=(tab == \"all\") press=pick(\"all\")\n    text \"All\"\n  button role=\"tab\" aria-selected=(tab != \"all\") press=pick(\"saved\")\n    text \"Saved\"\nwhen tab == \"all\"\n{LIST}else\n{}", LIST.replace("What sounds good today?", "Saved"))),
+        // A loading or error view: keyed on a resource.
+        ("loading", format!("when pending(meals)\n  each m in meals key=m.id\n{detail}else\n{LIST}")),
+        ("responsive", format!("when viewport.name == \"wide\"\n{LIST}else\n{LIST}")),
+        // An empty state: one control.
+        ("empty", format!("when length(chosen) == 0\n  column\n    text \"Nothing chosen yet\" role=\"heading\"\n    button press=edit(\"\")\n      text \"Search\"\nelse\n{LIST}")),
+        // Disclosure: an arm with no heading.
+        ("disclosure", format!("when open2\n{LIST}else\n  button press=toggle\n    text \"Show the recipes\"\n  button press=edit(\"\")\n    text \"Clear\"")),
+        // A swap no press inside it moves (the bar outside does).
+        ("unmoved", format!("when showingDetail\n  each m in chosen key=m.id\n{}else\n{}", detail.replace("press=back", "press=share(m)"), LIST.replace("press=open(m)", "press=share(m)"))),
+        // Inside a row, a dialog or a popover: theirs.
+        ("row", format!("each n in meals key=n.id\n  {}", swap.replace('\n', "\n  "))),
+        ("dialog", format!("dialog id=\"d\" closedby=\"any\"\n  {}", swap.replace('\n', "\n  "))),
+        ("popover", format!("column id=\"p\" popover=\"auto\"\n  {}", swap.replace('\n', "\n  "))),
+    ] {
+        let src = finder(&choice);
+        assert_eq!(warned(&src), [], "{case}\n{src}");
+    }
+    // A kept setting: a `persist` state.
+    let kept = finder(
+        &format!("when tab == \"all\"\n  each m in chosen key=m.id\n{detail}else\n{LIST}")
+            .replace("press=back", "press=pick(\"x\")"),
+    )
+    .replace("state tab = \"all\"", "state tab = \"all\" persist");
+    assert_eq!(warned(&kept), []);
+}

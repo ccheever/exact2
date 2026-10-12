@@ -164,3 +164,34 @@ check('the split and sidebar leave check nothing to advise', () => inChrome(page
   </script>`, async (evaluate) => {
   expect(await evaluate(`select('2'); advice()`)).toEqual([]);
 }), 30000);
+
+// LLP 1116.005 D3: each route keeps its own scroll (LLP 1038 §7: mounted rows keep theirs), on a phone and through a
+// split. A route of `n` tall rows over its own scroller; `rows` draws the disclosure, so a stack it roots splits.
+const tall = (id, key, n, rows = false) => `<div navigationKey="${key}" id="${id}" style="${abs}"><header><h2>${id}</h2></header><div id="${id}-scroll" style="flex:1 1 0%;min-height:0;overflow:auto">${
+  Array.from({ length: n }, (_, i) => rows ? `<button data-exact-on="press" style="display:flex;height:50px"><span data-exact-text>${i}</span>${chevron}</button>` : `<div style="height:50px">${i}</div>`).join('')}</div></div>`;
+
+check('a pushed route opens at its top, Back finds the list where it was, and a detail another row replaces starts at its top', () => inChrome(page(`<main id="nav" navigationKey="1" navigationBack="back" style="width:100%;height:100%;position:relative">${tall('r1', 1, 60, true)}</main>`), async (evaluate, size) => {
+  // The renderer's rows: a push adds the route's row, a pop removes it, a `replace` keeps it (its key is the visit's id).
+  const enter = (key, url) => `document.getElementById('nav').insertAdjacentHTML('beforeend', ${JSON.stringify(tall(`r${key}`, key, 40))}); push('${key}', '${url}')`;
+  const pop = `document.getElementById('r2').remove(); push('1', '/')`;
+  const tops = `[...document.querySelectorAll('[id$="-scroll"]')].map(e => Math.round(e.scrollTop))`;
+  await size(390);
+  // A phone: the list scrolled, a detail pushed over it opens at its top; Back shows the list at its offset.
+  await evaluate(`document.getElementById('r1-scroll').scrollTop = 1500`);
+  await evaluate(enter(2, '/item/30'));
+  expect(await evaluate(`[shown('r1'), shown('r2'), ${tops}]`)).toEqual([false, true, [1500, 0]]);
+  await evaluate(`document.getElementById('r2-scroll').scrollTop = 600; ${pop}`);
+  expect(await evaluate(`[shown('r1'), ${tops}]`)).toEqual([true, [1500]]);
+  // Wide: the list column keeps its offset beside a detail that opens at its top.
+  await size(1280);
+  await evaluate(enter(2, '/item/30'));
+  expect(await evaluate(`[shown('r1'), shown('r2'), document.getElementById('r1').getAttribute('data-exact-split'), ${tops}]`)).toEqual([true, true, 'list', [1500, 0]]);
+  // Another row's detail `replace`d in (the recipe's swap: the same visit, so the same node) starts at its top...
+  await evaluate(`document.getElementById('r2-scroll').scrollTop = 600; push('2', '/item/31')`);
+  expect(await evaluate(tops)).toEqual([1500, 0]);
+  // ...and a new query on the same path (a search mirrored into the URL) keeps its place.
+  await evaluate(`document.getElementById('r2-scroll').scrollTop = 300; push('2', '/item/31?q=salt')`);
+  expect(await evaluate(tops)).toEqual([1500, 300]);
+  await evaluate(pop);
+  expect(await evaluate(`[shown('r1'), ${tops}]`)).toEqual([true, [1500]]);
+}), 30000);

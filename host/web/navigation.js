@@ -38,6 +38,8 @@ const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).
 const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
 const DISCLOSURE = ':is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"])';
 let pressedRow = null; // [the row a press reached in a list column, when, the location then]
+// @ref LLP 1116.005 D3 — a route `replace` gives another path (a split's detail, another row's) keeps its id, so its node: it opens at its top, as a pushed one does; a new query keeps its place.
+const paths = new WeakMap(), freshPath = route => { const path = last?.url?.split(/[?#]/)[0], was = paths.get(route); paths.set(route, path); if (was !== undefined && was !== path) for (const el of [route, ...route.querySelectorAll("*")]) if (el.scrollTop || el.scrollLeft) el.scrollTo(0, 0); };
 /** The width of the column a stack's root route is beside its top on this window; 0 where the stack does not split. A
  * list that loses its last row keeps its column. */
 function splitOf([r]) {
@@ -225,9 +227,7 @@ function drain() {
   } finally { draining = false; }
 }
 
-function settled() {
-  if (echo === null && !queue.length) for (const finish of [...waiters]) finish();
-}
+const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 
 export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
@@ -331,7 +331,7 @@ export const navigation = {
           const column = !split ? null : index === 0 ? "list" : sheet(route) ? null : "detail";
           if (route.getAttribute("data-exact-split") !== column) column ? route.setAttribute("data-exact-split", column) : route.removeAttribute("data-exact-split");
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
-          appBarBack(nav, routes, index, split > 0);
+          appBarBack(nav, routes, index, split > 0); if (stack === at && index === selected) freshPath(route);
         }
         let row = null;
         for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;

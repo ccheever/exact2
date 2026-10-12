@@ -15,8 +15,7 @@ The only required reading; the rest is lookup.
    bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
    is the accent, on the root: any system colour (`accent-color="-exact-system-teal"`) or
    one `light-dark(light, dark)` pair, which controls, tabs, progress, links and
-   `exact:content` follow. Others are unsaid or roles, since a hex stays put in dark
-   mode. A card on a plain page is `-exact-secondary-background`, on a
+   `exact:content` follow. A card on a plain page is `-exact-secondary-background`, on a
    `-exact-grouped-background` page `-exact-secondary-grouped-background`; a surface
    inside a card is the tertiary role.
 4. **Design your content:** the screen's purpose gets a focal point (big type, a fill,
@@ -32,7 +31,7 @@ bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writ
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
-Start from the nearest pattern: it compiles and passes its tests.
+Start from the nearest pattern; it passes its tests.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
@@ -41,15 +40,17 @@ Start from the nearest pattern: it compiles and passes its tests.
 | `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app by hand, to see why something fails. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
-Run `verify` after each edit, `verify ios` at milestones, and look at its screenshots
+Run `verify` after each edit, `verify ios` at milestones; look at its screenshots
 (`.exact/verify/`). Drive by `testId`; keep scratch files in `.exact/` (any other new
-file is a source, and makes the build stale).
+file makes the build stale).
 
 ## One screen: the view, its data, its test
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests.
-`one-screen` holds the screen: a route whose `header` is the iOS navigation bar, over
-the `scroll` its `navigationScroll` names. This list takes the scroll's place:
+`one-screen` holds the screen: a route, its `header` the iOS navigation bar, over the
+`scroll` its `navigationScroll` names. A second screen is a route too (`contract vocab
+screen`), which gives the web Back and links and a wide window its split. This list
+takes the scroll's place:
 
 ```contract
 shape Item
@@ -178,7 +179,7 @@ test "an item is added, a repeat refused, checked off and kept"
    `height`) on a `button`, field or bar makes it your box. Emphasis is a part
    (`RoundButton`, `AnswerTile`, `SummaryCard`: `content-design`) or
    `buttonStyle="bordered-prominent"`.
-2. **`width="100%"` with padding overflows** (`content-box`, as in CSS). Drop the width;
+2. **`width="100%"` with padding overflows**, as in CSS. Drop the width;
    give a `flex=1` field `min-width=0`.
 3. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
    (or a search field, a `tablist`); anything else isn't in the iOS bar.
@@ -201,7 +202,7 @@ have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a rin
 `web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
 **Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property,
-function, part or how-to (`scroll`, `plural`, `choice`, `modal`);
+function, part or how-to (`screen`, `scroll`, `plural`, `modal`);
 [contract-for-agents](contract-for-agents.md) and
 [agent-pitfalls](agent-pitfalls.md) by section; [reference](reference.md) for the data
 module's globals and native hatches; `<exact2>/apps/shelf`, a whole app with tests.

@@ -2,8 +2,11 @@
 
 A list that pushes a detail screen, a sheet with Cancel and Save, and a confirmation.
 On iOS each route's `header` is its navigation bar, a pushed route gets the system Back
-button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. The
-contract blocks below are one app; each route block fills its `when` in the first.
+button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. On the
+web the browser's Back pops the stack, a reload keeps the place and each screen has a
+link. A second screen is always a route: screens swapped by a `when` over a state get
+none of that, and warn (`lower-screen-by-state`). The contract blocks below are one app;
+each route block fills its `when` in the first.
 
 A `header` is the bar when it is the route's first child and holds exactly one heading
 (`text role="heading"`): the heading is the title (large at `aria-level=1`), buttons

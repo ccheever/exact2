@@ -135,6 +135,60 @@ component App
 
 More: docs/recipes/persisted-setting.md
 
+## screen: a second screen, a list and its detail, and Back
+names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router
+
+A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
+row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
+pops the stack; Forward comes through `navigate`), a reload that keeps the place and a link to
+every screen (`/recipe/Ramen` opens on that recipe, the list under it), and iOS its navigation
+bar, Back button and edge swipe. Screens swapped by `when showingDetail` get none of these
+(`lower-screen-by-state`).
+
+```contract
+routes nav
+  recipes "/"
+    recipe "/recipe/:name"
+
+component App
+  action open(name: string)
+    nav = push(nav, path("recipe", name))
+  action back
+    nav = back(nav)
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        when e.name == "recipes"
+          column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
+            header padding="8px 16px"
+              text "Recipes" role="heading" aria-level=1
+            list id="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section
+                each n in ["Pancakes", "Ramen", "Tacos"] key=n
+                  button press=open(n) testId=`recipe-${n}`
+                    text n
+                    image "symbol:forward-chevron"
+        when e.name == "recipe"
+          column navigationKey=`${e.id}` position="absolute" inset=0
+            header padding="8px 16px"
+              text e.params.name role="heading" aria-level=2
+            text "Two eggs, a cup of flour, a cup of milk." padding=16 testId="recipe-body"
+```
+
+- A window 900 px wide or more on the web shows the list beside its detail, as a split view
+  does, with nothing to write: the first route's rows push and draw the `forward-chevron`. A
+  phone pushes. A row pressed while a detail shows pushes another; to swap the detail instead,
+  `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
+  path("recipe", name)) : push(nav, path("recipe", name))`.
+- Each route keeps its own scroll: a pushed screen opens at its top, and Back returns to the
+  list where it was left. Build locations with `path("recipe", name)`; a route's parameters
+  are strings (`e.params.name`). In tests, `clock settle` after each push and back. A form
+  over the screen is a sheet (`contract vocab modal`).
+
+More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
+
 ## modal: a form over the screen, with Save and Cancel
 names: dialog, sheet, closedby, popup
 

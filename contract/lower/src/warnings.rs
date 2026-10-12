@@ -22,6 +22,7 @@ use std::collections::BTreeSet;
 mod counts;
 mod roles;
 mod title;
+mod screens;
 
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a
@@ -73,6 +74,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
         };
         stack.extend(children.into_iter().rev().map(|n| (n, in_root)));
     }
+    out.extend(screens::screen_by_state(checked));
     out.extend(counts::count_plural(checked));
     performance_now(root, &checked.file.fns, &mut out);
     out.extend(
