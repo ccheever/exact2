@@ -11,7 +11,8 @@ import XCTest
 final class PlatformDefaultsMacTests: XCTestCase {
     /// A page that says nothing about its look: a text, a paragraph with a
     /// link run in it, a symbol, and a box one `rem` square (the root font
-    /// size as the kernel was told it, read back as a length).
+    /// size as the kernel was told it, read back as a length). One more
+    /// symbol names the accent, the one thing here its author wrote.
     private static let plan: Result<Data, Error> = Result {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -25,6 +26,7 @@ final class PlatformDefaultsMacTests: XCTestCase {
                 text "Read "
                 text "the guide" href="https://example.com/"
               image "symbol:star-fill" testId="symbol"
+              image "symbol:star-fill" -exact-tint-color="AccentColor" testId="accent"
               column width="1rem" height="1rem" testId="rem"
 
         """
@@ -58,13 +60,21 @@ final class PlatformDefaultsMacTests: XCTestCase {
     /// With nothing written, in a light window and in a dark one: body text
     /// is the system font size, 13, in AppKit's text colour (`textColor`,
     /// what `CanvasText` names on the Mac); a link run is `linkColor`; a
-    /// symbol is the accent (`controlAccentColor`); the page's ground is the
-    /// window background.
+    /// symbol is `secondaryLabelColor`, as AppKit draws a template image
+    /// nobody tinted, and not the accent (LLP 1115.000 D3.9; it was
+    /// `controlAccentColor`), which a symbol that names it still is; the
+    /// page's ground is the window background.
     func testAPageThatSaysNothingShowsTheMacsOwn() throws {
         _ = NSApplication.shared
         XCTAssertFalse(PageFacts.substituted, "the machine's own readings: no agent's stand in")
         XCTAssertEqual(NSFont.systemFontSize, 13, "the Mac's body size")
         XCTAssertEqual(PageFacts.rootFontSize, Double(NSFont.systemFontSize), "the root font size is the system font size")
+        // The host's own default for a symbol is the role table's: its
+        // `symbol` row, the tint on iOS and this colour on the Mac.
+        let schema = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../kernel/tables/schema.json").standardized
+        let table = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: schema)) as? [String: Any])
+        let symbolRole = try XCTUnwrap((table["colors"] as? [[String]])?.first { $0[0] == "symbol" })
+        XCTAssertEqual(Array(symbolRole[2...3]), ["@tint", "secondaryLabelColor"])
         for dark in [false, true] {
             let name = dark ? "dark" : "light"
             let session = ExactApp.shared.makeSession(label: "platform-defaults-\(name)")
@@ -90,7 +100,9 @@ final class PlatformDefaultsMacTests: XCTestCase {
             assertChannels(link.run(dark: dark).color, try channels(.linkColor, dark: dark), "\(name): an unsaid link is linkColor")
 
             let symbol = try XCTUnwrap(try node("symbol").symbolView, "\(name): the symbol's image view")
-            assertChannels(try channels(try XCTUnwrap(symbol.contentTintColor), dark: dark), try channels(.controlAccentColor, dark: dark), "\(name): an unsaid symbol is the accent")
+            assertChannels(try channels(try XCTUnwrap(symbol.contentTintColor), dark: dark), try channels(.secondaryLabelColor, dark: dark), "\(name): an unsaid symbol is the secondary label colour")
+            let accent = try XCTUnwrap(try node("accent").symbolView, "\(name): the symbol that names the accent")
+            assertChannels(try channels(try XCTUnwrap(accent.contentTintColor), dark: dark), try channels(.controlAccentColor, dark: dark), "\(name): a symbol that names the accent is it")
 
             assertChannels(try channels(p.pageBackground, dark: dark), try channels(.windowBackgroundColor, dark: dark), "\(name): an unset page background is the window's")
         }

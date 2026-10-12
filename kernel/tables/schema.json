@@ -2984,8 +2984,8 @@
       "bit": 86,
       "field": "tint_color",
       "codec": "current-color",
-      "default": "AccentColor",
-      "_comment": "@ref LLP 1095 stage 2: a symbol's (and a tinted raster's) colour, initially the platform's tint, `AccentColor`, kept dynamic by the platform (iOS inherits the view hierarchy's `tintColor`; macOS `controlAccentColor`; the web CSS's `AccentColor`), not a snapshot; `currentcolor` paints the node's presented `color`. Without the row a raster paints its own pixels (LLP 1011).",
+      "default": "symbol",
+      "_comment": "@ref LLP 1095 stage 2, LLP 1115.000 D3.9: a symbol's (and a tinted raster's) colour, initially the platform's own for a symbol nobody tinted, the `symbol` role, kept dynamic by the platform and not a snapshot: iOS inherits the view hierarchy's `tintColor`, as UIKit draws a template image; the Mac draws `secondaryLabelColor`, as AppKit draws one, and not the accent; the web draws its accent. `AccentColor` names the accent on every host; `currentcolor` paints the node's presented `color`. Without the row a raster paints its own pixels (LLP 1011).",
       "cold": true
     },
     {
@@ -4674,7 +4674,7 @@
       "#282828b3"
     ]
   ],
-  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
+  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). The last row, `symbol`, is what a symbol nobody tinted draws in, the initial `-exact-tint-color` (LLP 1115.000 D3.9): the tint on iOS, the secondary label colour on the Mac. In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
   "colors": [
     [
       "Canvas",
@@ -5105,6 +5105,16 @@
       "#8e8e93",
       "#6b6b6b",
       "#9a9a9a"
+    ],
+    [
+      "symbol",
+      "",
+      "@tint",
+      "secondaryLabelColor",
+      "#0088ff",
+      "#0091ff",
+      "#0b66d6",
+      "#68a5fe"
     ]
   ],
   "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",

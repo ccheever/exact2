@@ -280,6 +280,11 @@ differ visibly (`controlBackgroundColor`), the table says so. Open question
 > the nearest authored `accent-color` up the view chain, else
 > `controlAccentColor`, so an authored accent reaches a row, a symbol or an
 > `svg` paint that names it, as on iOS and the web, and not only a control.
+>
+> **And by its D3.9.** `tint-color`'s initial value (D8, below) is a role of its
+> own, `symbol`, with a column a platform: the inherited `tintColor` on iOS, as
+> before, and `secondaryLabelColor` on the Mac, as AppKit draws a template image
+> nobody tinted (it was `controlAccentColor`, a tell). The web draws its accent.
 
 **There is no `accent` role.** `AccentColor` is the accent: on iOS it is
 the view's inherited `tintColor`, which is what an app's `accent-color` row

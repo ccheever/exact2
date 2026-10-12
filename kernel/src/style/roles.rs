@@ -185,10 +185,13 @@ pub fn follows_accent(id: u8, macos: bool) -> bool {
 /// Whether the browser draws a role in the accent: CSS's `AccentColor`,
 /// and `LinkText` (LLP 1115.000 D3.5), so a link is one blue on the web,
 /// the plain button's and the tab bar's, where the browser's own
-/// `LinkText` is a second. Both read the nearest `accent-color`
-/// (`--exact-accent`, LLP 1116.001 D2), else the browser's accent.
+/// `LinkText` is a second; and an Exact role that is the tint on iOS
+/// (`-exact-link`, and `-exact-symbol`, D3.9: the web draws a symbol nobody
+/// tinted in its accent). Each reads the nearest `accent-color`
+/// (`--exact-accent`, LLP 1116.001 D2), else the browser's accent. CSS's
+/// `ButtonText` is the tint on iOS and the browser's own keyword here.
 fn web_accent(r: &ColorRole) -> bool {
-    matches!(r.name, "AccentColor" | "LinkText")
+    matches!(r.name, "AccentColor" | "LinkText") || (!is_css_system(r) && r.ios == "@tint")
 }
 
 /// Whether a role is the app's tint (`@tint` on a platform: `AccentColor`,
@@ -385,11 +388,12 @@ pub fn parse_platform(text: &str) -> Option<ColorValue> {
 /// fallback, and on the wire as itself. A role the browser draws in the
 /// accent ([`web_accent`]) is the nearest `accent-color` for it,
 /// `var(--exact-accent, AccentColor)` (the custom property the web host
-/// writes beside `accent-color`), and its name on the wire; `LinkText` is
-/// that under its own name, `var(--exact-linktext, var(--exact-accent,
-/// AccentColor))`, a property no sheet defines, so it reads back as itself
-/// and not as `AccentColor`, which another platform resolves differently
-/// (the Mac's `linkColor` is not its accent).
+/// writes beside `accent-color`), and its name on the wire; any other of
+/// them is that under its own name, `var(--exact-linktext,
+/// var(--exact-accent, AccentColor))`, a property no sheet defines, so it
+/// reads back as itself and not as `AccentColor`, which another platform
+/// resolves differently (the Mac's `linkColor` is not its accent, nor its
+/// symbols' colour).
 pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
     match c {
         ColorValue::Role(id) => {
@@ -400,6 +404,7 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
             if mode == ColorText::Css && web_accent(r) {
                 let named = r.name != "AccentColor";
                 if named {
+                    // An Exact role's name is lower case already.
                     out.push_str("var(--exact-");
                     out.push_str(&r.name.to_ascii_lowercase());
                     out.push_str(", ");
@@ -598,6 +603,30 @@ mod tests {
         );
         assert_eq!(role("-exact-linktext"), None, "no author's spelling");
         assert_eq!(role("var(--exact-canvastext, CanvasText)"), None);
+        // An Exact role that is the tint on iOS is the accent for the browser
+        // too, under its own name: a link named by its role, and a symbol
+        // nobody tinted (LLP 1115.000 D3.9).
+        for name in ["-exact-link", "-exact-symbol"] {
+            let tint = ColorValue::Role(role(name).unwrap());
+            css.clear();
+            reference_css(&mut css, tint, ColorText::Css);
+            assert_eq!(
+                css,
+                format!(
+                    "var(--exact-{}, var(--exact-accent, AccentColor))",
+                    &name["-exact-".len()..]
+                )
+            );
+            assert_eq!(ColorValue::parse_light_dark(&css), Some(tint));
+            // On the wire an Exact role is its own pair, as before.
+            css.clear();
+            reference_css(&mut css, tint, ColorText::Wire);
+            assert!(
+                css.ends_with(", light-dark(#0088ffff, #0091ffff))"),
+                "{css}"
+            );
+            assert_eq!(ColorValue::parse_light_dark(&css), Some(tint));
+        }
         for name in ["Highlight", "CanvasText", "ButtonText"] {
             css.clear();
             reference_css(
@@ -667,7 +696,14 @@ mod tests {
             .collect();
         assert_eq!(
             tints,
-            ["LinkText", "Highlight", "AccentColor", "ButtonText", "link"]
+            [
+                "LinkText",
+                "Highlight",
+                "AccentColor",
+                "ButtonText",
+                "link",
+                "symbol"
+            ]
         );
         for r in COLOR_ROLES.iter().filter(|r| r.ios.starts_with("@tint")) {
             let alpha = if r.ios == "@tint" { 0xff } else { 0x33 };
@@ -699,7 +735,7 @@ mod tests {
         assert_eq!(named("ButtonText").macos, "controlTextColor");
         // In the neutral column a link is the accent too; a button's text is
         // the page's ink, as a browser's own `ButtonText` is.
-        for name in ["LinkText", "link", "Highlight"] {
+        for name in ["LinkText", "link", "Highlight", "symbol"] {
             let r = named(name);
             for (got, want) in [
                 (r.neutral_light, accent.neutral_light),

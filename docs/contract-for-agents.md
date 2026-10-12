@@ -1392,8 +1392,7 @@ component Editor
 Choose a colour by what it means, not by how it looks. **The accent is for
 what the user can act on**: a link, a plain button's title or symbol, a filled
 button's fill, a toggle's on state, the icon of a tappable row. Write it as
-`AccentColor` (or leave `-exact-tint-color` unset, whose initial value is
-`AccentColor`), never as the colour the accent happens to be today
+`AccentColor`, never as the colour the accent happens to be today
 (`-exact-system-blue`): the platform keeps the accent dynamic and dims it to
 grey behind an alert or a sheet to say the screen under it is inert. **A
 colour of its own is for what means something by itself**: status
@@ -2411,6 +2410,8 @@ tint: the nearest `accent-color` a node or an ancestor sets, else the platform's
 UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
 `-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
 `-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
+`-exact-symbol` (what a symbol nobody tinted is, the initial `-exact-tint-color`:
+the tint on iOS and the web, the secondary label colour on the Mac),
 `-exact-background`, `-exact-secondary-background`, `-exact-tertiary-background`,
 `-exact-grouped-background`, `-exact-secondary-grouped-background`,
 `-exact-tertiary-grouped-background`, `-exact-fill` (and `secondary-`, `tertiary-`,
