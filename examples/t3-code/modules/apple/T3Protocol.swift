@@ -2,18 +2,6 @@
 import Foundation
 import Network
 
-enum T3Storage {
-    // Foundation may ignore an inherited TMPDIR. Honor the launcher's explicit
-    // scratch directory for this app's agent preferences; live roots stay owned
-    // by Exact. Retain the host's process/runtime suffix to isolate sessions.
-    static func dataRoot(agent: Bool, contextData: URL, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        guard agent, let temporary = environment["TMPDIR"], temporary.hasPrefix("/") else { return contextData }
-        return URL(fileURLWithPath: temporary, isDirectory: true)
-            .appendingPathComponent(contextData.deletingLastPathComponent().lastPathComponent, isDirectory: true)
-            .appendingPathComponent("data", isDirectory: true)
-    }
-}
-
 struct T3Failure: Error {
     let kind: String
     let message: String

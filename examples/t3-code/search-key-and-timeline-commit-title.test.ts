@@ -98,40 +98,31 @@ describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch
   });
 });
 
-// TC-1: CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presents a wide
-// text's raster made off screen only for a selectable text (X82's pump), and no text under a button is one, so the
-// title stayed blank until the hover colour redrew it. The row's texts sit beside the button, which lies over them;
-// followups-1012 FU-2: the sha, age and counts are `user-select: none`, as a button's content is; the title, not.
-describe('TC-1: the Timeline commit row keeps its title out of the button', () => {
-  test('the button lies over the row and holds no text; the title keeps the reference tones', async () => {
+// TC-1: CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presented a wide
+// text's raster made off screen only for a selectable text (X82's pump), and no text under a button is one, so the title
+// stayed blank until the hover colour redrew it; TC-1 laid the button over texts beside it, and followups-1012 FU-2 kept
+// the title selectable. Main #494 (X82, adopted in round 11) has the pump paint every shown text, so the row is the
+// reference's one button holding its marker and texts again (adopt-main-fixes-r11 RT-2): nothing over the row, no text
+// selectable or `aria-hidden`, the button's label the row's name.
+describe('TC-1: the Timeline commit row is one button holding its texts, as the reference\'s CommitEvent', () => {
+  test('the button holds the marker, the title, the sha and age and the counts; the title keeps the reference tones', async () => {
     const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
     const start = lines.findIndex(line => line.trim() === 'when row.kind == "commit"');
     const end = lines.findIndex((line, index) => index > start && line.startsWith('    when '));
     const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));
     const indent = (line: string) => line.length - line.trimStart().length;
-    const button = row.findIndex(line => line.trim().startsWith('button press=openCommit(row.id)'));
-    expect(button).toBeGreaterThan(-1);
-    // Last in the row, so nothing nests under it, and the row's own child as its first child (the rail's marker) is,
-    // not nested in the additions row; over the whole row.
-    expect(button).toBe(row.length - 1);
-    expect(indent(row[button]!)).toBe(indent(row[1]!));
-    for (const attr of ['position="absolute"', 'left=0', 'top=0', 'width="100%"', 'height="100%"', 'aria-label=`View commit ${row.id}`', 'title=""', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[button]).toContain(attr);
+    // The row's first line is the button, and every other line nests under it.
+    expect(row[0]!.trim()).toStartWith('button press=openCommit(row.id) hover=hover aria-label=`View commit ${row.id}` position="relative"');
+    for (const attr of ['width="100%"', 'padding-left="3rem"', 'text-align="left"', 'display="flex"', 'flex-direction="column"', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[0]).toContain(attr);
+    expect(row[0]).not.toContain('position="absolute"');
+    for (const line of row.slice(1)) expect(indent(line)).toBeGreaterThan(indent(row[0]!));
+    expect(row.filter(line => line.trim().startsWith('button '))).toHaveLength(1);
+    expect(row[1]!.trim()).toStartWith('PrdMarker(row=row, pinned=false, muted=false, icon="git-commit-horizontal")');
     const title = row.find(line => line.trim().startsWith('text row.headline'))!;
-    expect(indent(title)).toBeGreaterThan(indent(row[0]));
     expect(title).toContain('color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk())');
-    // The texts are the button's label's, not their own names.
-    expect(row.find(line => line.includes('padding-top="0.375rem"'))).toContain('aria-hidden=true');
-    // followups-1012 FU-2: ⌘A / ⌘C took every commit's title, sha, age and counts. The sha and age and the counts are
-    // not selectable, as a button's content is; the headline stays selectable, so X82's pump paints it (an
-    // unselectable one stayed blank once the hidden tab showed and in the rows a scroll brought in).
-    const unselectable = row.filter(line => line.includes('user-select='));
-    expect(unselectable.map(line => line.trim().split(' ').slice(0, 2).join(' '))).toEqual(['row margin-top="0.25rem"', 'row margin-left="auto"']);
-    for (const line of unselectable) expect(line).toContain('user-select="none"');
-    for (const text of ['text row.sha', 'text row.age', 'text row.additions', 'text row.deletions']) {
-      const at = row.findIndex(line => line.trim().startsWith(text));
-      // Its parent: the nearest line above, one level out.
-      expect(row.slice(0, at).reverse().find(line => indent(line) === indent(row[at]!) - 2)).toContain('user-select="none"');
-    }
-    expect(row.slice(0, row.indexOf(title)).filter(line => indent(line) < indent(title)).some(line => line.includes('user-select='))).toBe(false);
+    expect(title).toContain('testId=`pull-request-timeline-commit-title-${row.sha}`');
+    for (const text of ['text row.sha', 'text row.age', 'text row.additions', 'text row.deletions']) expect(row.some(line => line.trim().startsWith(text))).toBe(true);
+    // No stand-in is left: nothing hidden from accessibility, nothing made unselectable by hand, no help-tag opt-out.
+    for (const attr of ['aria-hidden', 'user-select', 'title=""', 'z-index']) expect(row.filter(line => line.includes(attr))).toEqual([]);
   });
 });

@@ -51,12 +51,12 @@ final class T3Module: ExactModule {
         let changed: (String) -> Void = context.changed
         notifications = T3Notifications(agent: context.agent, changed: changed)
         sidebar = T3Sidebar(agent: context.agent, changed: changed)
-        snapShot = T3SnapShot(directory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), agent: context.agent, changed: changed)
+        snapShot = T3SnapShot(directory: context.data, agent: context.agent, changed: changed)
         timeline = T3Timeline(changed: changed)
         turns = T3TimelineTurns(changed: changed)
         mermaid = T3TimelineMermaid(changed: changed)
         composer = T3Composer(changed: changed)
-        composer.editor.styler.imageDirectory = T3Storage.dataRoot(agent: context.agent, contextData: context.data).appendingPathComponent("snapshots/drafts", isDirectory: true) // image chips (T3ComposerImageChip.swift)
+        composer.editor.styler.imageDirectory = context.data.appendingPathComponent("snapshots/drafts", isDirectory: true) // image chips (T3ComposerImageChip.swift)
         promptPreview.styler.richText = false // PromptFontPreview leaves ComposerPromptEditor's richTextEnabled off: markers stay text
         // A skill chip's press in either editor opens its details popover (T3ComposerChipPress.swift, composer-chip-popover.ts).
         composer.editor.styler.press.onChange = { changed("t3.chip") }
@@ -64,13 +64,13 @@ final class T3Module: ExactModule {
         intent = T3ComposerIntent(changed: changed)
         frames = T3ComposerFrames(changed: changed)
         scrollEnds = R5ComposerScroll(changed: changed)
-        attach = T3ComposerAttach(dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), agent: context.agent)
+        attach = T3ComposerAttach(dataRoot: context.data, agent: context.agent)
         rowDrop = T3RowDrop(attach: attach, changed: changed)
-        video = T3ComposerVideo(dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), muted: context.agent)
+        video = T3ComposerVideo(dataRoot: context.data, muted: context.agent)
         media = R6MediaPreview(agent: context.agent)
         let credentials = T3Credentials(persistent: !context.agent), saved = T3SavedEnvironments(persistent: !context.agent)
-        activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), pageFacts: true)
-        transport = T3Transport(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), credentials: credentials, savedEnvironments: saved, activity: activity, changed: changed)
+        activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: context.data, pageFacts: true)
+        transport = T3Transport(persistent: !context.agent, dataDirectory: context.data, credentials: credentials, savedEnvironments: saved, activity: activity, changed: changed)
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: changed)
         fleet.transportCreated = T3TerminalSessions.fleetObserver(focused: transport) // terminal-drawer-unthreaded: a background environment's terminals
         devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: changed)
@@ -79,10 +79,10 @@ final class T3Module: ExactModule {
         r10 = R10Connect(agent: context.agent)
         textMenu = T3TextContextMenu(agent: context.agent)
         let browser = T3BrowserSessions(agent: context.agent, changed: changed)
-        browser.dataRoot = T3Storage.dataRoot(agent: context.agent, contextData: context.data) // part 3: artifacts, Annotate's crops
+        browser.dataRoot = context.data // part 3: artifacts, Annotate's crops
         browserSessions = browser
         browserAutomation = T3BrowserAutomation(sessions: browser) // wired in attachBrowserAutomation (T3Module+Browser.swift)
-        exportsRoot = context.agent ? T3Storage.dataRoot(agent: true, contextData: context.data).appendingPathComponent("exports", isDirectory: true) : nil
+        exportsRoot = context.agent ? context.data.appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
         composer.launcher = launcher
         chrome.changed = changed // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)

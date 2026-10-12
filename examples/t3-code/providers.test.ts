@@ -300,9 +300,10 @@ test('a ChatGPT account becomes one managed Codex instance with a uuid id (AddCo
 });
 
 // fix-provider-auth-state, bug 19 (#298): after Reconnect the list row kept painting "Not authenticated" while the
-// page said "Authenticated · ChatGPT" (X64: macOS keeps a wrapped paragraph's raster once it shrinks below the
-// raster size). The page answer was right; the row's status and the editor's status line are now new nodes per status.
-test('the list row and the editor read the same status, and each status is a node of its own (X64)', async () => {
+// page said "Authenticated · ChatGPT" (X64: macOS kept a wrapped paragraph's raster once it shrank below the raster size).
+// The page answer was right; round 10 made the row's status and the editor's status line new nodes per status. Main #327
+// retires the old ink (X64 fixed), so since adopt-main-fixes-r11 they are plain texts again, as the reference's.
+test('the list row and the editor read the same status, each one text the host repaints (X64, fixed on main by #327)', async () => {
   const instances = { codex: { driver: 'codex', enabled: true, config: { setupMode: 'managed' } } };
   const live = (auth: Obj) => [{ instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, status: auth.status === 'authenticated' ? 'ready' : 'warning',
     message: auth.status === 'authenticated' ? '' : 'Sign in with ChatGPT to use Codex.', auth }];
@@ -314,6 +315,7 @@ test('the list row and the editor read the same status, and each status is a nod
   const page = providerPage(host, 'codex', 0);
   expect([row().status, page.editors[0]!.statusLead, page.editors[0]!.statusLabel]).toEqual(['Authenticated · ChatGPT', 'Authenticated · ChatGPT', '']);
   const source = await Bun.file(new URL('./providers.contract', import.meta.url)).text();
-  expect(source).toContain('each status in [row.status] key=status\n                              text status ');
-  expect(source).toContain('each status in [`${editor.dot}|${editor.statusLead}|${editor.statusEmail}|${editor.statusLabel}|${editor.statusDetail}`] key=status\n              row width="100%" min-width=0 padding-top="0.125rem"');
+  expect(source).not.toContain('key=status');
+  expect(source).toContain('                            text row.status font-size="0.75rem" line-height="1.125rem"');
+  expect(source).toContain('            row width="100%" min-width=0 padding-top="0.125rem" gap="0.375rem" flex-wrap="wrap" align-items="baseline" testId="provider-editor-status"');
 });

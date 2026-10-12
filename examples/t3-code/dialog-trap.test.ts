@@ -184,12 +184,21 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
     expect(guard).toContain('action hold(k: string, e: KeyboardEvent)\n    if k == "Tab" and e.shiftKey == start\n      preventDefault()\n      stopPropagation()\n      if target != ""\n        focus(target)');
   });
 
+  // A popup that takes the focus itself (the import wizard's, Base UI's `restoreFocus: "popup"`) has its guards beside it,
+  // before and after, as Base UI renders them around the popup, so Tab from the popup reaches its first stop and Shift+Tab
+  // the guard before it (adopt-main-fixes-r11 RT-5: main #490 carries Tab on from a focused box that is no stop, X79).
+  const BESIDE = new Set(['browser-profiles.contract `browser-import-step-${wizard.step}`']);
   for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED)) {
-    test(`${dialog.key}: the start guard is the popup's first child, the end guard its last`, () => {
+    test(`${dialog.key}: the start guard is the popup's first child, the end guard its last${BESIDE.has(dialog.key) ? ' (beside it: before and after)' : ''}`, () => {
       const base = GUARDED[dialog.key] === 'palette' && dialog.line.includes('position="absolute" left=floor((viewport.width - width) / 2) top=max(16') ? 'link-pr' : GUARDED[dialog.key]!;
-      const children = block(source(dialog.file).split('\n'), dialog.index).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
+      const lines = source(dialog.file).split('\n');
+      const beside = BESIDE.has(dialog.key);
+      // Beside the popup: its parent's children (the popup among them), less comments and blanks.
+      const parent = beside ? lines.slice(0, dialog.index).findLastIndex(line => line.trim() !== '' && !line.trimStart().startsWith('//') && indent(line) < indent(dialog.line)) : dialog.index;
+      const children = block(lines, parent).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
       const depth = indent(children[0]!);
       const direct = children.filter(line => indent(line) === depth);
+      if (beside) expect(direct.map(line => line.trim().split(/[ (]/)[0])).toEqual(['FocusGuard', 'column', 'FocusGuard']);
       expect(direct[0]!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-start", target=`);
       expect(direct.at(-1)!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-end", target=`);
       expect(children.filter(line => line.includes('FocusGuard(')).length).toBe(2);

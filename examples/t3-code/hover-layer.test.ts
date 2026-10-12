@@ -112,7 +112,7 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
     expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(4);
     expect(page).toContain('  action toggle(id: string)\n    if held == id\n      hoverTipAt(noHoverTip(), "", true)');
     // A press elsewhere in the window (the sidebar, a toast) closes a hover-opened popover too, until the next enter:
-    // macOS can hand the segment an enter while the pointer is elsewhere (X62, #322), and Base UI's outside press
+    // macOS could hand the segment an enter while the pointer was elsewhere (X62, #322, before main #327), and Base UI's outside press
     // closes the popover however it opened.
     expect(page).toContain('state hoverAt = 0');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');

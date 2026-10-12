@@ -189,7 +189,7 @@ component BrowserMiniPlayer
       // the handle: a real pointer that came to rest on the 12 pt box often brought no enter there, so the pill waited for
       // another move (realinput-1010d RD-1), while the player's box has heard the pointer since it crossed the page. The
       // pill's buttons hear no hover of their own either: on macOS a hover node over another trades the hover with it on
-      // every move, and a child outside its parent's box gets none (X62, #322). Their tooltips follow the pointer's place.
+      // every move, and a child outside its parent's box got none before main #327 (X62, #322). Their tooltips follow the pointer's place.
       // The drag is a box behind the pill, not the handle that holds its buttons: the reference's buttons stop the
       // pointer-down, so a press on one never drags, while the dot and the pill's padding still do (the pill lets the
       // pointer through; only its buttons take it).

@@ -22,9 +22,10 @@ rows.forEach(({ id }, i) => { frames[`row-${id}`] = { y: 30 * i, height: 28 }; f
 function section() {
   const state = threadSection.state();
   const data = { sidebar: { sweepEpoch: 0 } };
-  // The window's hover (pr-list-scroll-and-sidebar-sweep): its id and count, and each call of the root's half.
+  // The window's hover (pr-list-scroll-and-sidebar-sweep): its id and count, and each call of the window's sidebarHover
+  // (`hoverCard`; adopt-main-fixes-r11: since main #478 the sweep calls it, #468's called the root's half).
   const unhovered: [string, boolean][] = [];
-  const hover = { hoverId: '|a|', hoverSeq: 0, unhover: (id: string, over: boolean) => { unhovered.push([id, over]); } };
+  const hover = { hoverId: '|a|', hoverSeq: 0, hoverCard: (id: string, over: boolean) => { unhovered.push([id, over]); } };
   const scope = {
     min: Math.min, max: Math.max,
     join: (list: string[], sep: string) => list.join(sep),

@@ -169,28 +169,24 @@ component PrdTimelineRow
     when row.kind == "verdict"
       PrdVerdictRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, local=local, act=act)
     when row.kind == "commit"
-      // CommitEvent: one button holding the row's marker and texts opens the commit's diff; its headline takes the
-      // primary tone on hover. Here the button lies over the texts instead of holding them (TC-1; X82, EXACT2-GAPS.md).
-      // Under the button the texts take no pointer: every press, hover and drag is the button's, and its label is the
-      // row's one name, as the reference's (`title=""`: no help tag). FU-2 (followups-1012): the sha, the age and the
-      // counts are `user-select: none`, as a button's content is (no ⌘A / ⌘C, no selection drawn over them). The
-      // headline stays selectable while X82 stands: the macOS host paints a wide text it may not select only as it
-      // mounts, so an unselectable headline was blank once the hidden Timeline tab was shown and, mounted afresh then,
-      // still blank in the rows a scroll brings in (followups-1012's drives). Back to the reference's one button
-      // holding its texts when X82 is fixed.
-      column position="relative" width="100%" margin-bottom="1.25rem" padding-left="3rem" box-sizing="border-box"
+      // CommitEvent: the whole row is one button holding the rail's marker and the row's texts; it opens the commit's diff
+      // and its headline takes the primary tone on hover. Its texts are the button's content, so none is selected by a drag
+      // or by ⌘A on the Mac (LLP 1115 D8). adopt-main-fixes-r11: since main #494 (X82) the macOS host's raster pump paints a
+      // text it may not select too, so the title draws at rest, after a scroll and when the tab is shown again with no
+      // stand-in (search-key-and-timeline-commit-title TC-1 had laid the button over texts beside it, and followups-1012
+      // FU-2 kept the title selectable, for that pump).
+      button press=openCommit(row.id) hover=hover aria-label=`View commit ${row.id}` position="relative" width="100%" margin-bottom="1.25rem" padding=0 padding-left="3rem" box-sizing="border-box" border-width=0 border-radius="0.125rem" background-color="#00000000" text-align="left" display="flex" flex-direction="column" testId=`pull-request-timeline-commit-${row.sha}`
         PrdMarker(row=row, pinned=false, muted=false, icon="git-commit-horizontal")
-        row width="100%" min-width=0 align-items="center" gap="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" aria-hidden=true
+        row width="100%" min-width=0 align-items="center" gap="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem"
           column flex=1 min-width=0
             text row.headline font-size="0.75rem" line-height="1rem" font-weight=600 color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId=`pull-request-timeline-commit-title-${row.sha}`
-            row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.5rem" user-select="none"
+            row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.5rem"
               text row.sha font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color=prtMuted()
               text row.age font-size="0.625rem" line-height="0.875rem" color=prtMuted()
           when row.additions != ""
-            row margin-left="auto" flex-shrink=0 align-items="baseline" gap="0.25rem" user-select="none"
+            row margin-left="auto" flex-shrink=0 align-items="baseline" gap="0.25rem"
               text row.additions font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color="light-dark(#009966, #00d492)"
               text row.deletions font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color="light-dark(#fb2c36, #fb414a)"
-        button press=openCommit(row.id) hover=hover aria-label=`View commit ${row.id}` position="absolute" left=0 top=0 width="100%" height="100%" z-index=2 padding=0 border-width=0 border-radius="0.125rem" background-color="#00000000" title="" testId=`pull-request-timeline-commit-${row.sha}`
     when row.kind == "opened" or row.kind == "merged" or row.kind == "closed"
       // LifecycleEvent: the pull request's own glyph on the rail (IconMarker), whoever opened, merged or closed it; the
       // actor is named beside the label.

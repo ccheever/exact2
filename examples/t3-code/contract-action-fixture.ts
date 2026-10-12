@@ -3,7 +3,7 @@
 // last write to a slot wins), for tests of a drag's state (not a test file). Main's `analyze-read-after-assign`
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
 // queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`, and a
-// call (an action prop such as ThreadSection's `unhover`, an injected action, a host command such as `preventDefault()`),
+// call (an action prop such as ThreadSection's `hoverCard`, an injected action, a host command such as `preventDefault()`),
 // made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `when` / `else when` /
 // `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
 // delivers them).
@@ -68,7 +68,7 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       if (!slots.has(m[1]!)) throw new Error(`${m[1]} is not ${owner} state`);
       writes[m[1]!] = value(m[2]!, env);
     } else if (/^\w+\(.*\)$/.test(line)) {
-      // A call: an action prop (pr-list-scroll-and-sidebar-sweep: `unhover`, the root's half of the window's hover), an
+      // A call: an action prop (pr-list-scroll-and-sidebar-sweep: `hoverCard`, the window's hover), an
       // injected action or a host command (legacy-sidebar-full).
       value(line, env);
     } else {
