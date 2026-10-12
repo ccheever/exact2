@@ -52,7 +52,7 @@ Keep scratch files in `.exact/` (any other new file makes the build stale).
 ## One screen: the view, its data, its test
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests. A
-screen is a route: its `header` the iOS navigation bar over the `scroll` its
+screen is a route: its `header` the iOS navigation bar (the Mac window's title and toolbar) over the `scroll` its
 `navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). This list
 takes the scroll's place:
 

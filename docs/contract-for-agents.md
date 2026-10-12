@@ -1567,6 +1567,18 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   toolbar and View ▸ Show Sidebar. Under the agent the authored tablist paints, as on
   iOS; `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
   presses its row (`native: "sidebar-row"`).
+- On the Mac a route's `header` is the window's title bar and toolbar: its heading the
+  window's title (under a `head title`, over the app's name; there is no large title),
+  its buttons toolbar items, a button whose `popovertarget` is a menu a menu item, a
+  tablist of text tabs the centred segments, its `input type="search"` the toolbar's
+  search field, and the `id="back"` control the bar's own Back. A header holding
+  anything else (a picture, a second text, a pressable title, a button drawn as a box)
+  stays in the page as written, whole, and `logs` says what it was. Under the agent
+  the authored header paints; `--chrome platform` on `macos` shows the bar, `tap` and
+  `type` naming a header's button, tab or search input go through it
+  (`native: "NSToolbarItem"`), and `state window.toolbar.header` names its title, its
+  items by test id and which are in the overflow menu. Its search field arrives with
+  AppKit's own animation (`clock +1200 real` before a screenshot).
 - Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
   tablist with `when`: without it the root has no tabs and the panels' routes are
   found by no host.
