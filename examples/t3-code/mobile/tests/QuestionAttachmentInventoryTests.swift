@@ -5,11 +5,13 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
     let files: T3QuestionAttachmentFiles
     private let lock = NSLock()
     private var failure: Failure = .none
+    private(set) var replaceCalls = 0
     init(_ root: URL) { files = .init(dataRoot: root) }
     func arm(_ failure: Failure) { lock.lock(); self.failure = failure; lock.unlock() }
     private func take() -> Failure { lock.lock(); defer { lock.unlock() }; let value = failure; failure = .none; return value }
     func load() throws -> Data? { try files.load() }
     func replace(_ data: Data) throws {
+        replaceCalls += 1
         let failure = take()
         if failure == .beforeReplace { throw CocoaError(.fileWriteOutOfSpace) }
         try files.replace(data)
@@ -307,7 +309,11 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
 
     private static func restart() throws {
         let unadoptedRoot = try root("restart-open"), childOpen = try launchChild("child-unadopted", root: unadoptedRoot)
-        let reopened = T3QuestionAttachments.shared(dataRoot: unadoptedRoot)
+        let recoveryDisk = QuestionFaultDisk(unadoptedRoot), reopened = T3QuestionAttachments(disk: recoveryDisk)
+        let cancelled = try reopened.replay(request: childOpen["request"]!, operation: childOpen["operation"]!,
+                                             fingerprint: childOpen["fingerprint"]!)
+        check(cancelled == [] && recoveryDisk.replaceCalls == 2,
+              "Actual restart commits cancellation once before collecting discarded bytes")
         let (request, admitted) = try admission(reopened), remaining = try reopened.remaining(admitted)
         check(request == childOpen["request"] && remaining == 99,
               "Actual restart cancels unadopted work but preserves separately adopted item")
@@ -368,6 +374,57 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
               "Cancellation reconciles ambiguous successful replacement")
     }
 
+    private static func uncachedLoadAcknowledgement() throws {
+        let dataRoot = try root("load-acknowledgement"), disk = QuestionFaultDisk(dataRoot)
+        let owner = T3QuestionAttachments(disk: disk), (request, admitted) = try admission(owner)
+        check(disk.replaceCalls == 2, "Initial empty inventory needs no duplicate confirmation")
+        let operation = try owner.open(admitted, kind: "files")
+        let bytes = Data("load-acknowledgement".utf8)
+        let ticket = try stage(owner, operation, ordinal: 0, bytes: bytes)
+        disk.arm(.afterReplace)
+        refuses("Adoption with a lost durability reply is surfaced") { _ = try owner.adopt(operation) }
+        disk.arm(.beforeReplace)
+        refuses("Same-owner replay refuses descriptors when load confirmation fails") {
+            _ = try owner.replay(request: request, operation: operation.id, fingerprint: operation.fingerprint)
+        }
+        disk.arm(.afterReplace)
+        refuses("Repeated adoption refuses descriptors when load confirmation loses its reply") { _ = try owner.adopt(operation) }
+        disk.arm(.beforeReplace)
+        refuses("Failed load confirmation does not cache readable adopted inventory") {
+            _ = try owner.items(request: request, question: "one")
+        }
+        let beforeConfirmation = disk.replaceCalls
+        let adopted = try owner.adopt(operation)
+        check(adopted.count == 1 && adopted[0].id == ticket.id && disk.replaceCalls == beforeConfirmation + 1,
+              "Successful load confirmation returns the original adopted descriptor once")
+        let beforeCachedReplay = disk.replaceCalls
+        let replayed = try owner.replay(request: request, operation: operation.id, fingerprint: operation.fingerprint)
+        let repeated = try owner.adopt(operation)
+        check(replayed == adopted && repeated == adopted && disk.replaceCalls == beforeCachedReplay,
+              "Confirmed cached replay and adoption preserve their write-free fast path")
+
+        for failure in [QuestionFaultDisk.Failure.beforeReplace, .afterReplace] {
+            let reopened = T3QuestionAttachments(disk: disk)
+            disk.arm(failure)
+            refuses("Fresh-owner replay refuses descriptors after \(failure) confirmation failure") {
+                _ = try reopened.replay(request: request, operation: operation.id, fingerprint: operation.fingerprint)
+            }
+            disk.arm(.beforeReplace)
+            refuses("Fresh-owner \(failure) confirmation failure leaves the cache unset") {
+                _ = try reopened.items(request: request, question: "one")
+            }
+            let beforeRecovery = disk.replaceCalls
+            let recovered = try reopened.replay(request: request, operation: operation.id, fingerprint: operation.fingerprint)
+            check(recovered == adopted && disk.replaceCalls == beforeRecovery + 1,
+                  "Fresh-owner recovery after \(failure) confirms the immutable adopted result")
+            let beforeCachedRead = disk.replaceCalls
+            let current = try reopened.items(request: request, question: "one")
+            let retained = try disk.files.read(ticket.id, limit: bytes.count)
+            check(current == adopted && retained == bytes && disk.replaceCalls == beforeCachedRead,
+                  "Confirmed fresh-owner \(failure) load preserves inventory and original bytes without extra writes")
+        }
+    }
+
     private static func corruptAndPaths() throws {
         let missingRoot = try root("missing")
         let missingDirectory = missingRoot.appendingPathComponent("question-attachments", isDirectory: true)
@@ -420,6 +477,7 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
             ("leases/isolation", leasesAndIsolation),
             ("actual restart", restart),
             ("persistence failures", persistenceFailures),
+            ("uncached load acknowledgement", uncachedLoadAcknowledgement),
             ("corrupt/path integrity", corruptAndPaths),
         ] { run(name, body) }
     }

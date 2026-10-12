@@ -278,9 +278,10 @@ final class T3QuestionAttachments {
     }
     private func load() throws -> State {
         if let state { return state }
-        var next: State
-        if let bytes = try disk.load() { next = try JSONDecoder().decode(State.self, from: bytes); try validate(next) }
-        else { next = State(); try commit(next) }
+        guard let bytes = try disk.load() else {
+            let next = State(); try commit(next); return next
+        }
+        var next = try JSONDecoder().decode(State.self, from: bytes); try validate(next)
         var changed = false
         for index in next.operations.indices where next.operations[index].process != Self.process && next.operations[index].phase == .opened {
             next.operations[index].phase = .cancelled
@@ -291,13 +292,13 @@ final class T3QuestionAttachments {
             }
             changed = true
         }
+        // A readable replacement may still lack its durability acknowledgement.
+        try commit(next)
         if changed {
-            try commit(next)
             try collectLocked()
             guard let state else { throw fail("Question attachment restart recovery failed.") }
             return state
         }
-        state = next
         return next
     }
     private func check(_ admission: T3QuestionAdmission, in value: State) throws {
