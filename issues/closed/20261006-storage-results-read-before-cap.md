@@ -1,6 +1,7 @@
 # Bound native storage reads before allocating and encoding their results
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Native reads and listings stop at the encoded result cap; recursive removal drains in bounded batches; on Unix it preserves raw names and fails only when entries persist without progress, covered by boundary, streaming-read, and removal tests. The Windows loop has no progress guard and its batch test is under the cap (QUEUE.md), unverified off Windows.
 **Systems:** Native storage, Data host, ibex2 filesystem
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

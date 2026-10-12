@@ -1,6 +1,7 @@
 # Enforce JS evaluation limits before allocating or scanning
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Preflight fractional slice steps and translation expansion; Bun regressions also prove concat and route encoding reject before building.
 **Systems:** web JS runtime, runner parity
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

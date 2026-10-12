@@ -1,6 +1,7 @@
 # Enforce the session owner when resolving document handles
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Rust and Hermes enforce session ownership; Apple's picker now mints with its runtime handle, preserved across plan and module reloads, as Swift and ABI tests verify.
 **Systems:** Data documents, Native storage, Apple sessions, Hermes storage
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

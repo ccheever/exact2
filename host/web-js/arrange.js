@@ -63,7 +63,7 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
     }
     if (op === 'reorder-step') return L().step(active.token, f.flags) ? groupReply(true, false) : groupReply(false, false);
     if (op === 'reorder-terminal') {
-      const dropped = L().dropGroup(active.token, tg);
+      const dropped = L().dropGroup(active.token, tg, f.now);
       if (!dropped) L().cancelGroup(active.token);
       return groupReply(dropped, dropped);
     }

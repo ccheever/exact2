@@ -246,7 +246,7 @@ impl<D: DataSource> Presenter<D> {
                 .reorder_frame(token)
                 .and_then(|f| f.target);
             if let Some(g) = target.and_then(|t| self.host.runner().reorder_geometry(t)) {
-                match self.host.group_drop(token, g) {
+                match self.host.group_drop(token, g, now) {
                     Ok(v) => accepted = v,
                     Err(e) => error = Some(e),
                 }
