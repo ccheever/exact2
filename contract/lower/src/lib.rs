@@ -956,6 +956,14 @@ impl<'a> Lowerer<'a> {
                         origins.resize(bindings.len(), origin);
                     }
                 }
+                // @ref LLP 1116.006 D2 — no box where no split shows it (the web shell shows it).
+                if routes::split_placeholder(expanded).is_some() {
+                    let none = self.fixed(true, "none");
+                    bindings.push(style_row(StyleId::Display, none, IMPLIED));
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Tag);
+                    }
+                }
                 if button.as_ref().is_some_and(|b| !b.native)
                     && !bindings
                         .iter()

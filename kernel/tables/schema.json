@@ -593,7 +593,7 @@
       "id": 262,
       "name": "navigationSplit",
       "kind": "str",
-      "_comment": "@ref LLP 1116.004 D1.2: on a stack's root route, \"none\" keeps a wide window's stack pushed, and a positive width (CSS px, points) is the list column's when the stack splits, splitting a list the host's rule does not find; unsaid, a list whose rows push splits at 320."
+      "_comment": "@ref LLP 1116.004 D1.2: on a stack's root route, \"none\" keeps a wide window's stack pushed, and a positive width (CSS px, points) is the list column's when the stack splits, splitting a list the host's rule does not find; unsaid, a list whose rows push splits at 320. @ref LLP 1116.006 D2: \"placeholder\" on a box in the root route is the detail pane's while nothing is selected, in place of the platform's; the lowerer makes it `display: none`, which the web shell overrides there."
     },
     {
       "id": 221,

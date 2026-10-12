@@ -233,9 +233,9 @@ export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
   connect(hostRoot, dispatch, journal, back = null) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back;
-    // A row a press reaches in a list column (`project` marks it once its detail shows), and a resize across WIDE.
+    // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width).
     root.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row) pressedRow = [row, performance.now(), last?.url]; }, true);
-    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));
+    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();
@@ -333,10 +333,13 @@ export const navigation = {
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
           appBarBack(nav, routes, index, split > 0); if (stack === at && index === selected) freshPath(route);
         }
-        let row = null;
-        for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
+        let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
         for (const el of split ? routes[0].querySelectorAll("[data-exact-split-row]") : []) if (el !== row) el.removeAttribute("data-exact-split-row");
         row?.setAttribute("data-exact-split-row", "");
+        // @ref LLP 1116.006 D2 — a split showing no detail fills the detail pane, as an iPad's split view does: the platform's placeholder (the shell draws `data-exact-split-empty`), or the author's, a box of the root route marked `navigationSplit="placeholder"` (which the lowerer hides everywhere else), at the pane's width.
+        const empty = split > 0 && detail < 0, own = routes[0]?.querySelector('[navigationSplit="placeholder"]'), box = routes[0]?.parentElement;
+        own?.toggleAttribute("data-exact-split-placeholder", empty); box?.toggleAttribute("data-exact-split-empty", empty && !own);
+        if (empty) { box.style.setProperty("--exact-split", `${split}px`); own && routes[0].style.setProperty("--exact-split-pane", `${(routes[0].offsetParent ?? box).clientWidth - split}px`); }
       }
     }
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).

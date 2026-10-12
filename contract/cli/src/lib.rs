@@ -1393,7 +1393,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }
-                if !answered && !styled_out(kernel, node) {
+                if (!answered && !styled_out(kernel, node)) || in_placeholder(kernel, node) {
                     continue;
                 }
                 let mut stack = node.children();
@@ -1422,6 +1422,19 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
         }
     }
     Ok(())
+}
+
+/// Whether a node is in the split's own placeholder (LLP 1116.006 D2): no box
+/// but where a wide window's split shows it, which this layout is not.
+fn in_placeholder(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
+    let mut at = Some(node);
+    while let Some(n) = at {
+        if n.props.str(exact_kernel::PropId::NavigationSplit) == Some("placeholder") {
+            return true;
+        }
+        at = n.parent.and_then(|p| kernel.node(p));
+    }
+    false
 }
 
 /// Whether a node's zero area is its style's: `display: none` on it or an

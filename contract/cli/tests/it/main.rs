@@ -69,6 +69,7 @@ mod names;
 mod native_buttons;
 mod navigation_bar;
 mod navigation_detent;
+mod navigation_split;
 mod negative_margin;
 mod notify;
 mod overlay;
