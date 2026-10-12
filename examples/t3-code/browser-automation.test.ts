@@ -423,6 +423,13 @@ describe('the host on the client', () => {
     expect(surfaceStore(client).panels.get('env-1:thread-1')).toMatchObject({ active: 'browser:tab-1', visible: true });
     expect(client.diffOpen).toBe(false);
   });
+  it('lists the thread’s sessions before a recording stop too, which names the thread’s current tab (browser-recording-and-downloads BR-1)', async () => {
+    const { client, sent, rpcs } = await subscribed({ list: () => ({ sessions: [loaded()], serverEpoch: 'epoch-1', revision: 4 }) });
+    previewStreamEvent(client, requestEntry('r-stop', { operation: 'recordingStop', input: { transferToEnvironment: true }, timeoutMs: 120_000 }));
+    await automationPrepare(client, module);
+    expect(rpcs.map(call => call.method)).toContain('preview.list');
+    expect(plans(sent)[0]).toMatchObject({ operation: 'recordingStop', tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), input: { transferToEnvironment: true }, budgetMs: 118_500 });
+  });
   it('leaves the panel alone for an agent’s use when Auto-show floating preview is off (part 3’s setting, part 4’s row)', async () => {
     const { client, sent } = await subscribed({ list: () => ({ sessions: [loaded()], serverEpoch: 'epoch-1', revision: 4 }), clientSettings: { browserAutoShowFloatingPreview: false } });
     previewStreamEvent(client, requestEntry('r1', { operation: 'snapshot' }));
