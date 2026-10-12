@@ -383,9 +383,12 @@ and what the keyboard asks of the field's input connection (`setComposingText`, 
 
 Not built of D8:
 
-- **A field's views are all made as its page appears**, on the main thread: about 0.7 to 1 ms a field on a Pixel
-  10 Pro XL (the `EditText`'s constructor is a third of it). A form of a hundred fields would stall its first
-  frame; making a view only once its field is near its port would bound it.
+- **A field's views are all made as its page appears**, on the main thread: about 0.6 to 1 ms a field on a Pixel
+  10 Pro XL (the `EditText`'s constructor is a third of it, then its input type, its first layout and its first
+  drawing). The frame that showed `apps/unsaid`'s form of twenty-one fields took 26 ms, where the same page with
+  painted fields took 5 to 8: one slow frame as the page opens. Cold start with a field on the first screen did
+  not move (92 ms, as before). Making a view only once its field is near its port, or ahead of need while the
+  thread is idle, would bound it.
 - **A swipe row, a reorder grip or a `pan` under a field's touch does not get that touch**: exact2 never heard its
   down. A drag there scrolls or stays the field's.
 - **A field inside a layer the reader animates** (a transition) is drawn moving, and its view is where the last
