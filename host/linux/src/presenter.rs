@@ -93,25 +93,20 @@ mod typing;
 mod window;
 
 #[cfg(test)]
-#[path = "presenter/collection_tests.rs"]
 mod collection_tests;
 #[cfg(test)]
 mod kept_rows_tests;
 
 #[cfg(test)]
-#[path = "presenter/swipe_tests.rs"]
 mod swipe_tests;
 
 #[cfg(test)]
-#[path = "presenter/events_tests.rs"]
 mod events_tests;
 
 #[cfg(test)]
-#[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
 #[cfg(test)]
-#[path = "presenter/spacing_tests.rs"]
 mod spacing_tests;
 
 pub use device::Device;
