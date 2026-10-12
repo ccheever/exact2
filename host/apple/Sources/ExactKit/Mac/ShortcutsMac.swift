@@ -176,7 +176,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private func nodes() -> [NodeView] {
         guard let presenter else { return [] }
         // Buttons that declare a chord, and the window toolbar's own.
-        let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.toolbar.items.keys)
+        let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.toolbar.commands)
         // A tab a segment shows is shown, though its view is hidden (astra's code review).
         return ids.sorted().compactMap { presenter.views[$0] }.filter {
             $0.isButton && $0.pressable && (presenter.segments.shown($0) ?? presenter.sidebar.shows($0) ?? presenter.toolbar.visible($0))

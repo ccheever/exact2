@@ -156,6 +156,8 @@ final class MenuHost: NSObject {
     /// alignment insets, rather than the node's layout box (D13); a run of
     /// a paragraph, to its lines' bounds, as an inline element's box is.
     func anchor(_ source: NodeView, in view: NSView, run: UInt32? = nil) -> NSRect {
+        // A button the window's bar shows has no box in the page (LLP 1115.002 D2).
+        if let bar = presenter?.toolbar.anchor(of: source, in: view) { return bar }
         if let run, let text = presenter?.inlineText(run) {
             let lines = source.inlineRects(text).reduce(CGRect.null) { $0.union($1) }
             if !lines.isNull { return source.convert(lines, to: view) }
@@ -485,6 +487,52 @@ final class MenuHost: NSObject {
         if let heading = pop.props["accessibilityLabel"], !heading.isEmpty { menu.insertItem(.sectionHeader(title: heading), at: 0) }
         return menu
     }
+    // MARK: A window toolbar's menu item (LLP 1115.002 D2)
+
+    /// The popover a toolbar's menu item shows for `source`: the one its
+    /// `popovertarget` names to show or toggle, when it is a button menu's
+    /// shape (D3) and no confirmation.
+    func toolbarPopover(of source: NodeView) -> NodeView? {
+        guard let presenter, source.isButton, let invocation = invocation(source), invocation.action != "hide",
+              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == invocation.name }),
+              pop.props["popover"] != nil, !isConfirmation(pop), isMenuShaped(pop) else { return nil }
+        return pop
+    }
+    /// The menu of a toolbar's menu item for `source`. AppKit pops it up
+    /// from its own item, so nothing here tracks it: it is empty until it
+    /// opens, and filled then from the popover's rows as they are
+    /// (`menuNeedsUpdate`).
+    func toolbarMenu(for source: NodeView) -> NSMenu {
+        let menu = InvokerMenu()
+        menu.source = source
+        menu.autoenablesItems = false
+        menu.delegate = self
+        return menu
+    }
+    /// A toolbar item's menu, filled as it opens: the button's own `press`
+    /// first, as a click on it in the page runs before its menu shows (it
+    /// may make the rows), then the popover's rows now. A chosen row presses
+    /// on the next turn, once, as a button menu's does (`pick`).
+    func fill(_ menu: InvokerMenu) {
+        menu.removeAllItems()
+        guard let presenter, let source = menu.source, live(source), !source.inert, !source.disabled,
+              presenter.toolbar.contains(source) else { return }
+        if source.handlers.contains("press") {
+            presenter.commitPendingEdit()
+            presenter.onPress?(source.id)
+        }
+        guard live(source), let pop = toolbarPopover(of: source), connected(pop), !pop.inert,
+              pop.style["display"]?.string != "none" else { return }
+        // An open auto popover closes for it, as for any other shown.
+        for entry in entries.reversed() where entry.value != "manual" { close(entry.popover, restoreFocus: false) }
+        presentations[pop.id, default: 0] += 1
+        revalidate()
+        let built = self.menu(of: pop, from: source)
+        for item in built.items {
+            built.removeItem(item)
+            menu.addItem(item)
+        }
+    }
     private func menuItem(of row: NodeView, action: Selector?) -> NSMenuItem {
         let item = AccessibleMenuItem(title: title(of: row), action: action, keyEquivalent: "")
         item.owner = row
@@ -616,6 +664,22 @@ final class MenuHost: NSObject {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }
+}
+
+/// The menu of a window toolbar's menu item: the authored button whose
+/// popover it shows (LLP 1115.002 D2).
+final class InvokerMenu: NSMenu {
+    weak var source: NodeView?
+}
+
+extension MenuHost: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if let menu = menu as? InvokerMenu { fill(menu) }
+    }
+    /// A key's search for its menu item fills no toolbar menu: a row's
+    /// shortcut is the page's (ShortcutsMac.swift), and filling presses the
+    /// button.
+    func menuHasKeyEquivalent(_ menu: NSMenu, for event: NSEvent, target: AutoreleasingUnsafeMutablePointer<AnyObject?>, action: UnsafeMutablePointer<Selector?>) -> Bool { false }
 }
 
 /// Transparent space passes through, so light dismiss never swallows the

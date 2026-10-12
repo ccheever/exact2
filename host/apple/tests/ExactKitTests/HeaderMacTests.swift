@@ -270,6 +270,84 @@ final class HeaderMacTests: XCTestCase {
         p.toolbar.detach()
     }
 
+    /// A header's button that opens a menu is AppKit's menu item: the menu
+    /// is the item's own to pop up, filled from the popover's rows as it
+    /// opens, after the button's own press; a chosen row presses its
+    /// authored row. A popover that is no menu needs the button's box, so
+    /// its header stays painted.
+    func testAButtonThatOpensAMenuIsAMenuItem() throws {
+        // More (16) opens a menu (40) of two rows; it also hears `press`.
+        let menu = symbolButton(16, "More", "ellipsis.circle", ["popovertarget": "more", "testId": "more"])
+            + view(40, "view", ["popover": "auto", "id": "more", "accessibilityRole": "menu"])
+            + view(41, "button", ["popovertarget": "more", "popovertargetaction": "hide"], press: true) + view(411, "text", ["text": "Rename"]) + [children(41, [411])]
+            + view(42, "button", ["popovertarget": "more", "popovertargetaction": "hide", "disabled": "true"], press: true) + view(421, "text", ["text": "Delete"]) + [children(42, [421])]
+            + [children(40, [41, 42]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40])]
+        let p = fixture(extra: menu)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertEqual(identifiers(), [back, "exact.command.11", "exact.command.13", "exact.command.14", "exact.menu.16"])
+        let item = try XCTUnwrap(p.toolbar.items[16] as? NSMenuToolbarItem)
+        XCTAssertEqual(item.label, "More")
+        XCTAssertNotNil(item.image)
+        XCTAssertTrue(item.showsIndicator, "AppKit's own mark of a menu, as SwiftUI's Menu has in a toolbar")
+        XCTAssertNil(item.action, "AppKit shows the menu: nothing of Exact's is its click")
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertFalse(p.toolbar.commands.contains(16), "a menu item is no command for the menu bar")
+        XCTAssertTrue(p.toolbar.commands.contains(13))
+        XCTAssertEqual(item.menu.numberOfItems, 0, "nothing is read until it opens")
+        // As AppKit opens it.
+        item.menu.delegate?.menuNeedsUpdate?(item.menu)
+        XCTAssertEqual(pressed, [16], "the button's own press runs first")
+        XCTAssertEqual(item.menu.items.map(\.title), ["Rename", "Delete"])
+        XCTAssertEqual(item.menu.items.map(\.isEnabled), [true, false])
+        let rename = item.menu.items[0]
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(rename.action), to: rename.target, from: rename))
+        // Pressed on the next turn, once the menu's tracking has unwound.
+        let limit = Date().addingTimeInterval(5)
+        while pressed.count < 2, Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+        XCTAssertEqual(pressed, [16, 41])
+        // Opened again it is read again.
+        p.apply(wireBatch([["op": "props", "id": 411, "set": ["text": "Rename…"]]]))
+        item.menu.delegate?.menuNeedsUpdate?(item.menu)
+        XCTAssertEqual(item.menu.items.map(\.title), ["Rename…", "Delete"])
+        // A key's search for an equivalent opens nothing and presses nothing.
+        pressed = []
+        var target: AnyObject?, action: Selector?
+        let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "r", charactersIgnoringModifiers: "r", isARepeat: false, keyCode: 15))
+        XCTAssertEqual(item.menu.delegate?.menuHasKeyEquivalent?(item.menu, for: key, target: &target, action: &action), false)
+        XCTAssertEqual(pressed, [])
+        p.toolbar.detach()
+        window.close()
+
+        // A popover that is no menu (it holds a field) is placed against its button's box: the header keeps it.
+        let form = symbolButton(16, "Rename", "pencil", ["popovertarget": "rename"])
+            + view(40, "view", ["popover": "auto", "id": "rename"]) + view(41, "input", ["type": "text"])
+            + [children(40, [41]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40])]
+        let q = fixture(extra: form)
+        XCTAssertTrue(q.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Shelf")
+        XCTAssertFalse(try node(q, 10).isHidden)
+        XCTAssertTrue((q.toolbar.summary["headerKept"] as? String)?.contains("neither a menu nor an alert") == true)
+        q.toolbar.detach()
+        window.close()
+
+        // A confirmation in the alert's shape is a sheet on the window, which needs no box: a plain item asks.
+        let ask = symbolButton(16, "Delete", "trash", ["popovertarget": "sure"])
+            + view(40, "view", ["popover": "auto", "id": "sure", "accessibilityRole": "alertdialog", "accessibilityLabel": "Delete Book?"])
+            + view(41, "button", ["popovertarget": "sure", "popovertargetaction": "hide"], press: true) + view(411, "text", ["text": "Delete"]) + [children(41, [411])]
+            + view(42, "button", ["popovertarget": "sure", "popovertargetaction": "hide"]) + view(421, "text", ["text": "Cancel"]) + [children(42, [421])]
+            + view(43, "text", ["text": "This can't be undone."])
+            + [children(40, [43, 41, 42]), children(10, [11, 12, 13, 14, 16]), children(2, [10, 15, 40])]
+        let r = fixture(extra: ask)
+        XCTAssertTrue(r.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertEqual(identifiers().last, "exact.command.16")
+        XCTAssertFalse(r.toolbar.items[16] is NSMenuToolbarItem)
+        r.toolbar.detach()
+    }
+
     // MARK: A session, booted
 
     private let app = """

@@ -9,6 +9,10 @@
 // (ToolbarMac.swift). The Mac's branch of the rule: there is no large title,
 // so a level-1 heading is a title like any other.
 //
+// A button that opens a menu (`popovertarget` naming a popover of a button
+// menu's shape) is an `NSMenuToolbarItem`: AppKit pops the menu up from its
+// own item, with its indicator, and the rows are read as it opens.
+//
 // **Whole, or not at all.** The toolbar shows a heading, buttons whose face
 // is a symbol and a title, and nothing else. A header holding anything the
 // bar has no place for (a picture, a second line of text, a pressable
@@ -75,7 +79,13 @@ struct WindowHeader {
                 if items.contains(ObjectIdentifier(child)) {
                     // The stack's Back control: the bar's own Back is its face.
                     if backs.contains(where: { $0 === child }) { continue }
-                    if child.props["popovertarget"] != nil, child.props["popovertargetaction"] != "hide" { return "button #\(child.id) opens a popover" }
+                    // A button that opens a menu is the bar's menu item, and one
+                    // that asks first opens the window's alert. Any other
+                    // popover is placed against its button's box in the page,
+                    // which a bar item does not have.
+                    if child.props["popovertarget"] != nil, child.props["popovertargetaction"] != "hide", !opensFromTheBar(child) {
+                        return "button #\(child.id) opens a popover that is neither a menu nor an alert, which is placed against the button's own box"
+                    }
                     if !showable(child) { return "button #\(child.id) shows more than one symbol and its title, which is all a toolbar item shows" }
                     continue
                 }
@@ -90,6 +100,18 @@ struct WindowHeader {
         if let why = refusal(in: rule.header) { return .kept(why) }
         return .shown(WindowHeader(route: route, header: rule.header, heading: rule.heading, title: rule.heading.accessibleText,
                                    leading: rule.leading.filter(shown), trailing: rule.trailing.filter(shown), backs: backs))
+    }
+
+    /// Whether what a button's `popovertarget` opens needs no place in the
+    /// page: a button menu, which is the bar's menu item
+    /// (`MenuHost.toolbarPopover`), or a confirmation in the alert's shape,
+    /// which is a sheet on the window (AlertsMac.swift).
+    static func opensFromTheBar(_ button: NodeView) -> Bool {
+        guard let presenter = button.presenter else { return false }
+        if presenter.menus.toolbarPopover(of: button) != nil { return true }
+        guard let name = button.props["popovertarget"],
+              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return false }
+        return presenter.alerts.plan(of: pop) != nil
     }
 
     /// Whether a toolbar item can show all of a button's face: a native

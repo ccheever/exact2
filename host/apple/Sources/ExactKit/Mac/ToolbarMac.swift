@@ -253,7 +253,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
                     let item = items[node.id]
                     var prominent = false
                     if #available(macOS 26.0, *) { prominent = item?.style == .prominent }
-                    return ["id": Int(node.id), "testId": node.props["testId"] ?? NSNull(), "label": item?.label ?? "",
+                    return ["id": Int(node.id), "testId": node.props["testId"] ?? NSNull(), "label": item?.label ?? "", "menu": item is NSMenuToolbarItem,
                             "place": header.leading.contains { $0 === node } ? "leading" : "trailing", "enabled": available(node),
                             "prominent": prominent, "overflow": item.map { !shown.contains($0.itemIdentifier) } ?? false]
                 }]
@@ -313,8 +313,26 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func available(_ node: NodeView) -> Bool {
         guard let window, let toolbar, window.toolbar === toolbar,
               node.window === window, visible(node), !node.inert, !node.disabled,
-              window.attachedSheet == nil, node.handlers.contains("press") else { return false }
-        return items[node.id] != nil
+              window.attachedSheet == nil, items[node.id] != nil else { return false }
+        // A button that only opens its menu or its dialog hears no press.
+        return node.pressable
+    }
+
+    /// The buttons the bar shows as commands, each pressed by its item: a
+    /// menu has one of these too (ShortcutsMac.swift). A button the bar
+    /// shows as a menu item is not one: its menu is the item's to show.
+    var commands: Set<UInt32> { Set(items.filter { !($0.value is NSMenuToolbarItem) }.keys) }
+
+    /// Where a popover opened from one of the bar's buttons is placed. Such
+    /// a button has no box in the page and AppKit gives an item no frame,
+    /// so it is the top of the viewport, at the end the item is on. The
+    /// driver's painted menu uses it (LLP 1021 D4); a person's menu is the
+    /// item's own.
+    func anchor(of node: NodeView, in view: NSView) -> NSRect? {
+        // Asked inside a batch too, between `prepare` and the pass that hides the header again.
+        guard toolbar != nil, let header, header.buttons.contains(where: { $0 === node }) else { return nil }
+        let bounds = view.convert(presenter.viewport.bounds, from: presenter.viewport)
+        return NSRect(x: header.leading.contains { $0 === node } ? bounds.minX : bounds.maxX, y: bounds.minY, width: 0, height: 0)
     }
 
     private typealias Declaration = (owner: NodeView, shown: [NodeView], buttons: [NodeView], heading: NodeView?)
@@ -428,11 +446,22 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let live = Set(buttons.map(\.id))
         for id in Array(items.keys) where !live.contains(id) { items.removeValue(forKey: id); symbols.removeValue(forKey: id) }
         for node in buttons {
-            let item = items[node.id] ?? NSToolbarItem(itemIdentifier: .init("exact.command.\(node.id)"))
+            // A header's button that opens a menu is AppKit's menu item
+            // (LLP 1115.002 D2): it pops the menu up itself, so it has no
+            // action.
+            let menu = header != nil && presenter.menus.toolbarPopover(of: node) != nil
+            if let old = items[node.id], (old is NSMenuToolbarItem) != menu { items.removeValue(forKey: node.id); symbols.removeValue(forKey: node.id) }
+            let item = items[node.id] ?? (menu ? NSMenuToolbarItem(itemIdentifier: .init("exact.menu.\(node.id)")) : NSToolbarItem(itemIdentifier: .init("exact.command.\(node.id)")))
             items[node.id] = item
             item.tag = Int(node.id)
-            item.target = self; item.action = #selector(performItem(_:))
-            item.autovalidates = true
+            if let item = item as? NSMenuToolbarItem {
+                if (item.menu as? InvokerMenu)?.source !== node { item.menu = presenter.menus.toolbarMenu(for: node) }
+                item.showsIndicator = true
+                item.autovalidates = false
+            } else {
+                item.target = self; item.action = #selector(performItem(_:))
+                item.autovalidates = true
+            }
             // A native button's children are its face, not views (LLP 1069.011.000 D1, D2).
             let face = node.isNativeButton ? node.face : nil
             let label = node.props["accessibilityLabel"] ?? face?.title ?? text(node)
@@ -528,6 +557,14 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             return NSApp.sendAction(action, to: backItem.target, from: backItem)
         }
         guard let item = items[node.id] else { return nil }
+        // A menu item's menu is AppKit's to pop up, which no driver can do
+        // for it: the button is pressed, and under the agent its menu opens
+        // as the painted popover every menu is there (LLP 1021 D4).
+        if item is NSMenuToolbarItem {
+            guard available(node) else { return false }
+            presenter.press(node.id)
+            return true
+        }
         guard available(node), let action = item.action else { return false }
         return NSApp.sendAction(action, to: item.target, from: item)
     }
