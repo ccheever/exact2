@@ -375,8 +375,8 @@ final class MenuHost: NSObject {
     }
     func frame(_ node: NodeView, _ frame: NSRect) -> Bool {
         guard let entry = entries.first(where: { $0.popover === node && $0.menu == nil }) else { return false }
-        // In AppKit's popover the frame is in the popover's own space (its block's).
-        if entry.native != nil { if node.frame != frame { node.frame = frame }; return true }
+        // In AppKit's popover its box is the popover's content, whatever margins the block put before it.
+        if entry.native != nil { let box = NSRect(origin: .zero, size: frame.size); if node.frame != box { node.frame = box }; return true }
         entry.frame = frame
         layout()
         return true

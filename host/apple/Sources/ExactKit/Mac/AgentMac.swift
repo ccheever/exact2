@@ -318,7 +318,10 @@ extension Agent {
             if let v = s { visible["hiddenBy"] = (v as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: v)) }
         } else if cssHidden { visible["hiddenBy"] = "visibility" }
         node["visible"] = visible
-        var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
+        // In a dialog's sheet, or in AppKit's popover: a window of its own (LLP 1115.002 D7).
+        let apart = host.window.flatMap { $0 !== presenter.viewport.window ? $0 : nil }
+        var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": apart?.isSheet == true]
+        if let apart, !apart.isSheet { native["popover"] = true }
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let stepper = host.stepperObservation { native["stepper"] = stepper }
@@ -1010,12 +1013,31 @@ extension Agent {
         return image
     }
 
+    /// The window server's own composite of `window` and `attached`, all
+    /// this process's, in `window`'s frame: one over another as a person
+    /// sees them, a popover's material against what is under it. Looked up
+    /// at run time as `ownWindowImage`'s call is, and for the same reason.
+    private static func ownWindowsImage(_ window: NSWindow, with attached: [NSWindow]) -> CGImage? {
+        typealias Create = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray"),
+              let top = NSScreen.screens.first?.frame.maxY else { return nil }
+        // An array of window numbers themselves, not objects, the front one first.
+        var numbers: [UnsafeRawPointer?] = (attached.reversed() + [window]).map { UnsafeRawPointer(bitPattern: $0.windowNumber) }
+        guard let array = CFArrayCreate(nil, &numbers, numbers.count, nil) else { return nil }
+        let frame = window.frame, bounds = CGRect(x: frame.minX, y: top - frame.maxY, width: frame.width, height: frame.height)
+        let create = unsafeBitCast(symbol, to: Create.self)
+        guard let image = create(bounds, array, 1 << 3)?.takeRetainedValue(), !emptyPicture(image) else { return nil } // kCGWindowImageBestResolution
+        return image
+    }
+
     /// `image`, the window server's picture of `window`, with what is
-    /// attached to it drawn where it sits: a sheet (an alert's, a dialog's),
-    /// a sheet on that sheet, a popover (LLP 1115.002 D7). Each is a window
+    /// attached to it where it sits: a sheet (an alert's, a dialog's), a
+    /// sheet on that sheet, a popover (LLP 1115.002 D7). Each is a window
     /// of its own, which the picture of one window leaves out; what stands
     /// outside the window's frame (a popover may) is outside the picture.
-    private static func withSheet(_ image: CGImage, of window: NSWindow) -> CGImage {
+    /// The window server composes them; where it gives no such picture each
+    /// window's own is drawn over the last.
+    private static func withSheet(_ image: CGImage, of window: NSWindow, shown: inout [String]) -> CGImage {
         var attached: [NSWindow] = []
         func collect(_ parent: NSWindow) {
             for child in ([parent.attachedSheet].compactMap { $0 } + (parent.childWindows ?? [])) where child.isVisible && !attached.contains(where: { $0 === child }) {
@@ -1024,6 +1046,11 @@ extension Agent {
             }
         }
         collect(window)
+        if attached.isEmpty, let sheet = window.attachedSheet { shown.append("\(Swift.type(of: sheet)): not visible") }
+        if !attached.isEmpty, let composed = ownWindowsImage(window, with: attached), composed.width == image.width, composed.height == image.height {
+            shown += attached.map { String(describing: Swift.type(of: $0)) }
+            return composed
+        }
         guard !attached.isEmpty, window.frame.width > 0,
               let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
@@ -1031,7 +1058,8 @@ extension Agent {
         let scale = CGFloat(image.width) / window.frame.width
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         for child in attached {
-            guard let picture = ownWindowImage(child.windowNumber) else { continue }
+            guard let picture = ownWindowImage(child.windowNumber) else { shown.append("\(Swift.type(of: child)): no picture"); continue }
+            shown.append(String(describing: Swift.type(of: child)))
             context.draw(picture, in: CGRect(x: (child.frame.minX - window.frame.minX) * scale, y: (child.frame.minY - window.frame.minY) * scale,
                                              width: CGFloat(picture.width), height: CGFloat(picture.height)))
         }
@@ -1040,17 +1068,20 @@ extension Agent {
 
     /// Whether the window server's picture holds nothing. A display that is
     /// asleep, or a locked screen, still answers, with a transparent picture
-    /// a pixel or two short of the window: no picture, not a wrong one. An
-    /// opaque window's has no transparent pixel, so its average says.
+    /// a pixel or two short of the window: no picture, not a wrong one. It
+    /// is read at sixteen places across it, not one: a sheet's corners are
+    /// transparent, and scaled to a single pixel a 460 by 226 sheet read as
+    /// empty and was left out of its window's picture (LLP 1115.002 D7.2).
     static func emptyPicture(_ image: CGImage) -> Bool {
-        var pixel = [UInt8](repeating: 0, count: 4)
-        let drawn = pixel.withUnsafeMutableBytes { bytes -> Bool in
-            guard let one = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+        let side = 4
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let few = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            one.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            few.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
             return true
         }
-        return !drawn || pixel[3] == 0
+        return !drawn || stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 0 }
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
@@ -1076,10 +1107,13 @@ extension Agent {
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
             guard let alone = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
-            let image = Self.withSheet(alone, of: window)
+            var attached: [String] = []
+            let image = Self.withSheet(alone, of: window, shown: &attached)
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
+            // The windows drawn over it where they sit: a sheet, a sheet on it, a popover.
+            if !attached.isEmpty { r["attached"] = attached }
             if loading > 0 { r["imagesPending"] = loading }
             return r
         }
@@ -1095,6 +1129,9 @@ extension Agent {
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
         if loading > 0 { r["imagesPending"] = loading }
+        // This is the viewport's own drawing: a dialog's sheet and AppKit's popover are other windows (LLP 1115.002 D7).
+        let apart = presenter.sheets(on: v.window).map { String(describing: Swift.type(of: $0)) } + presenter.menus.windowed.map { _ in "NSPopover" }
+        if !apart.isEmpty { r["notShown"] = ["windows": apart, "see": "screenshot <png> window"] as [String: Any] }
         return r
     }
 

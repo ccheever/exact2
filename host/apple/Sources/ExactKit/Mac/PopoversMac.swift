@@ -28,8 +28,10 @@
 // toggle, a batch that takes the popover or its invoker away) still closes
 // it, through the same door as before; what AppKit closes itself closes the
 // page's popover with it. The edge is the popover's `position-area`: above
-// for `top`, beside for `right`, below otherwise; its margins move the
-// anchor's edge out, since AppKit's popover has none of its own.
+// for `top`, beside for `right`, below otherwise. Its margin on the side
+// that faces its invoker stands between the two (AppKit's popover has none
+// of its own, so the rectangle it is anchored to is moved out by it); the
+// popover itself is the size of its border box.
 //
 // The driver's own chrome (`--chrome agent`) paints it in the top layer as
 // before, and a menu's shape is painted there under either chrome.
@@ -91,33 +93,48 @@ extension MenuHost {
         guard let presenter else { return false }
         let pop = entry.popover
         // A button in the window's bar has no box in the page: its item's.
+        // AppKit shows a popover only against a view of a window that is on screen.
         let view: NSView, anchor: NSRect
         if let content = window.contentView, let bar = presenter.toolbar.anchor(of: source, in: content) { (view, anchor) = (content, bar) }
         else if source.window != nil { (view, anchor) = (source, self.anchor(source, in: source, run: entry.run)) }
         else { return false }
+        guard view.window?.isVisible == true else { return false }
         let native = NativePopover(host: self, node: pop, home: entry.frame)
         entry.native = native
         native.popover.behavior = entry.value == "manual" ? .applicationDefined : .transient
         native.popover.animates = !ExactEnv.agentFreezes
         // As large as its content, at most what the screen can show beside AppKit's own margin.
+        // A block's used size holds the box's margins, which are no part of the popover.
         let screen = (window.screen ?? NSScreen.main)?.visibleFrame.size ?? window.frame.size
         let maximum = CGSize(width: max(1, screen.width - 2 * Self.popoverMargin), height: max(1, screen.height - 2 * Self.popoverMargin))
-        presenter.blocks.show(pop, in: native.content, block: .atMost(maximum)) { [weak native] size in native?.fit(size) }
+        let margins = PositionArea.margins(of: pop), edge = Self.edge(PositionArea.of(pop))
+        presenter.blocks.show(pop, in: native.content, block: .atMost(maximum)) { [weak native] size in
+            native?.fit(CGSize(width: size.width - margins.left - margins.right, height: size.height - margins.top - margins.bottom))
+        }
         // A presenter with no session lays nothing out again: the popover keeps the page's box.
         if presenter.blocks.used[pop.id] == nil { pop.setFrameOrigin(.zero) }
         pop.isHidden = false
-        // The author's margin stands between the popover and its invoker.
-        let margins = PositionArea.margins(of: pop), edge = Self.edge(PositionArea.of(pop))
-        var rect = anchor
-        if view.isFlipped {
+        // The author's margin stands between the popover and its invoker: the
+        // anchor's rectangle moved out by it, in the window's content view,
+        // since AppKit keeps a rectangle to the view it is given in.
+        let gap = edge == .minY ? margins.bottom : edge == .maxY ? margins.top : edge == .maxX ? margins.left : margins.right
+        var (at, rect) = (view, anchor)
+        if gap > 0, view.isFlipped, let content = window.contentView {
             switch edge {
-            case .minY: rect.origin.y -= margins.bottom; rect.size.height += margins.bottom
-            case .maxY: rect.size.height += margins.top
-            case .maxX: rect.size.width += margins.left
-            default: rect.origin.x -= margins.right; rect.size.width += margins.right
+            case .minY: rect.origin.y -= gap; rect.size.height += gap
+            case .maxY: rect.size.height += gap
+            case .maxX: rect.size.width += gap
+            default: rect.origin.x -= gap; rect.size.width += gap
             }
+            (at, rect) = (content, content.convert(rect, from: view))
         }
-        native.popover.show(relativeTo: rect, of: view, preferredEdge: view.isFlipped ? edge : Self.unflipped(edge))
+        native.popover.show(relativeTo: rect, of: at, preferredEdge: at.isFlipped ? edge : Self.unflipped(edge))
+        guard native.popover.isShown else {
+            // AppKit refused it: the page paints it, as it would have.
+            entry.native = nil
+            native.finish()
+            return false
+        }
         // The Tab loop in it is this session's, never AppKit's geometric one.
         native.window?.autorecalculatesKeyViewLoop = false
         presenter.syncKeyViewLoop()
