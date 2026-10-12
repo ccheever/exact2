@@ -6,7 +6,7 @@
 // host's bake type-checks. Runs under Node or Bun, and from an app's build.rs. Size first (profile `wasm`), then `wasm-opt -Oz` when
 // binaryen is on PATH or in Exact's cache and it transfers smaller. Files are rewritten only when their bytes change.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -67,7 +67,9 @@ const cargo = await new Promise(done => {
 if (cargo.error) console.error(`snapback4 web: ${cargo.error.code === 'ENOENT' ? 'cargo not on PATH (install Rust: https://rustup.rs)' : cargo.error.message}`);
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 const compiled = resolve(target, 'wasm32-unknown-unknown/wasm/exact_snapback4_web.wasm');
-const glue = resolve(target, 'snapback4-web-bindgen');
+// Cargo serializes compilation; bindgen and wasm-opt need private output too.
+const glue = mkdtempSync(resolve(target, 'snapback4-web-bindgen-'));
+process.on('exit', () => rmSync(glue, {recursive: true, force: true}));
 const bindgen = spawnSync('wasm-bindgen', ['--target', 'web', '--out-dir', glue, '--out-name', 'device', compiled], { stdio: ['ignore', 2, 'inherit'], env });
 if (bindgen.status !== 0) {
   console.error(`snapback4 web: ${bindgen.error?.code === 'ENOENT' ? 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli --version 0.2.127)' : 'wasm-bindgen failed'}`);
@@ -98,8 +100,8 @@ const bytes = readFileSync(opt.status === 0 && gzipped(optimized) < gzipped(buil
 function write(path, bytes) {
   if (existsSync(path) && readFileSync(path).equals(bytes)) return;
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path + '.tmp', bytes);
-  renameSync(path + '.tmp', path);
+  writeFileSync(path + `.tmp.${process.pid}`, bytes);
+  renameSync(path + `.tmp.${process.pid}`, path);
 }
 if (out) {
   const path = resolve(process.cwd(), out);

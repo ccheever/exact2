@@ -498,7 +498,7 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     const ts = readFileSync(resolve(dir, 'app.ts'), 'utf8'), tests = readFileSync(resolve(dir, 'app.test.contract'), 'utf8');
     assert.match(ts, /const origin = 'http:\/\/127\.0\.0\.1:4410';[^]*net\.fetch \$\{origin\}\\nsqlite\.open app:\/data/);
     assert.ok(ts.includes(`export const appId = '${manifest().app.id}'`));
-    assert.match(tests, /^epoch now$[^]*fail fetch "http:\/\/127\.0\.0\.1:4410"/m);
+    assert.match(tests, /^fresh\nepoch now$[^]*fail fetch "http:\/\/127\.0\.0\.1:4410"/m);
     assert.match(readFileSync(resolve(dir, 'app.contract'), 'utf8'), /failure\(board\)[^]*f\.reason/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/assets\/snapback4\.wasm$/m);
     assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /this app's data is Snapback 4's[^]*bun exact\.mjs snapback/);

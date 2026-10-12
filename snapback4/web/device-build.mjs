@@ -36,7 +36,7 @@ export async function serverDeviceVersion(origin, ms = 1500) {
       const response = await fetch(origin + path, { signal: AbortSignal.timeout(ms) });
       if (!response.ok) continue;
       const body = await response.json();
-      const version = body.device?.engineVersion ?? body.engineVersion ?? body.snapback4 ?? body.version;
+      const version = body.device?.engineVersion ?? body.engineVersion ?? body.snapback4;
       if (typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version)) return { ...body.device, engineVersion: version };
     } catch { /* Older servers expose their version at GET / instead. */ }
   }

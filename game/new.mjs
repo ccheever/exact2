@@ -281,7 +281,8 @@ const sources: Sources = {
 export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);
 `,
-    'app.test.contract': `// Run \`snapback4 dev --port ${port}\` in the directory above first. \`epoch now\` dates the tests as the server does.
+    'app.test.contract': `// Run \`snapback4 dev --port ${port}\` above; fresh isolates its rows, epoch now dates the tests as the server does.
+fresh
 epoch now
 
 test "a note posts, and another persona sees it"
