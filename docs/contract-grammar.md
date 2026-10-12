@@ -392,12 +392,13 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "reload" NL
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
               | "pass" "fetch" STRING NL             (* it stops failing *)
-              | "request" METHOD STRING [ json ] [ "as" ( IDENT | STRING ) ] NL
+              | "request" METHOD STRING [ json ] [ "as" ( IDENT | STRING ) ] [ "expect" NUMBER ] NL
                                                      (* the driver writes through the app's server *)
               | "close" NL                           (* the window's close button *)
               | "back" NL                            (* the platform's Back *)
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
+              | "expect" ( "disabled" | "enabled" ) STRING NL  (* a control's `disabled` (LLP 1116.010 D3) *)
               | "expect" "text" STRING "==" STRING NL
               | "expect" "state" IDENT { "." ( IDENT | NUMBER ) } "==" test-value NL
               | "expect" "sound" ( "has" | "missing" ) STRING
@@ -411,7 +412,10 @@ json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict 
               | STRING | [ "-" ] NUMBER | "true" | "false" | "null" ; (* span lines *)
 ```
 
-Targets are driver test ids. Each test is a session of its own, opened with its
+Targets are driver test ids. `expect disabled "send"` (`enabled`) reads the control's
+`disabled`, which every host's tree carries (LLP 1116.010 D3). A `tap` on a disabled control
+does nothing, and fails its step on every host, `send is disabled`: say what the app refuses
+with `expect disabled`, then `expect enabled` once what enables it has happened. Each test is a session of its own, opened with its
 launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 "America/New_York"`, `locale "fr-FR"` and `seed 7` are the driver's `--size`,
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
@@ -443,7 +447,9 @@ first local one, `http://127.0.0.1:8787`; or a whole `http://` URL), an optional
 body (sent as `content-type: application/json`), and `as <persona>`, sent as
 `Authorization: Bearer <persona>` (the `rest` pattern's tokens are `ada` and `grace`;
 `as "token-grace"` for a token that is not one word). A status outside 200 through
-299, or no answer, fails the step naming the status and the body's start. The app
+299, or no answer, fails the step naming the status and the body's start; `expect 409`
+after the persona (a status from 100 through 599, LLP 1116.010 D3) is the test of a
+refusal: that status passes it, any other (a success too) fails it. The app
 shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
 `clock data` before the `expect` (a failed `expect` before the clock moved says so).
 `test` and `verify` run the server on an empty database (one already answering there,

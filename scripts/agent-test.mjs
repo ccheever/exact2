@@ -45,6 +45,26 @@ export function treeExpectation(nodes, target, present) {
   return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
 }
 
+/** Whether a tree node is a disabled control: every host's tree reports the prop as `true` (the runner's, and the web page's from its
+ * `disabled` or `aria-disabled`). */
+const isDisabled = (n) => n?.props?.disabled === true || n?.props?.disabled === 'true';
+
+/** `expect disabled|enabled <target>` (LLP 1116.010 D3): null when the control the target names is as asked, else `{ message }`. */
+export function disabledExpectation(nodes, target, disabled) {
+  const n = targetNode(nodes, target), word = disabled ? 'disabled' : 'enabled';
+  if (!n) return { message: `expected "${target}" ${word}, no view carries that testId` };
+  return isDisabled(n) === disabled ? null : { message: `expected "${target}" ${word}, it was ${disabled ? 'enabled' : 'disabled'}` };
+}
+
+/** A press on a disabled control does nothing, and each host said so its own way (the web's silently, a native one in the words of the view
+ * that took the touch), so a step that presses one fails the same on every host (LLP 1116.010 D3): the test of a refusal is `expect disabled`.
+ * Not a hover, a wheel, a pinch, a drag, a drop or a scroll to a row: those a disabled control does not take as a press. */
+export async function refuseDisabled(s, node, target, opts = {}) {
+  if (node.entity !== undefined || ['hover', 'wheel', 'pinch', 'drag', 'drop', 'into', 'history', 'mediaSession', 'gesture'].some((k) => opts[k] !== undefined && opts[k] !== false)) return;
+  const read = await s.op({ op: 'tree', target: node.id, shallow: true }).catch(() => null);
+  if (isDisabled(read?.nodes?.find((n) => n.id === node.id))) throw new Error(`${target} is disabled: a press does nothing (\`expect disabled ${JSON.stringify(String(target))}\` asserts it)`);
+}
+
 // What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
 // or focus (1); none (0) — a `scroll` or `pointermove` handler only watches.
 const PRESSES = new Set(['press', 'change', 'input', 'submit', 'select', 'dblclick']);
@@ -148,8 +168,9 @@ export function driveNotes(s, { host, storage }) {
   };
 }
 /** A test's `request` line (LLP 1116.006 D8): `st.path` under `base`, the server URL the app calls (or a whole URL),
- * its body as JSON, `as` the bearer token, as the rest pattern names a persona. A refusal or no answer throws, saying
- * what came back. */
+ * its body as JSON, `as` the bearer token, as the rest pattern names a persona. A status outside 200 through 299 or no
+ * answer throws, saying what came back; with `expect <status>` (LLP 1116.010 D3) that status is what passes, and any other
+ * throws: the test of a refusal. */
 export async function serverRequest(base, st) {
   const whole = /^https?:\/\//.test(st.path);
   if (!whole && !base) throw new Error(`request: app.ts calls no local server (http://127.0.0.1:<port>), so ${JSON.stringify(st.path)} is under nothing; write the whole URL`);
@@ -159,7 +180,8 @@ export async function serverRequest(base, st) {
   try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
   catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
   const text = (await res.text().catch(() => '')).trim();
-  if (!res.ok) throw new Error(`${said}: the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`);
+  const answered = `the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`;
+  if (st.expect != null ? res.status !== st.expect : !res.ok) throw new Error(`${said}: ${answered}${st.expect != null ? `, expected ${st.expect}` : ''}`);
 }
 
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
@@ -381,6 +403,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
               if (f?.unshown) failures.push(`${at}: ${f.message}`);
               else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+              break;
+            }
+            case 'expect-disabled': {
+              const f = disabledExpectation((await s.tree()).nodes, st.target, st.disabled);
+              if (f) await fail(`${at}: ${f.message}`);
               break;
             }
             case 'expect-text': {

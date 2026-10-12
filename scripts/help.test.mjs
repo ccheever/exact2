@@ -48,7 +48,24 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
       for (const verb of [...APP_VERBS, 'seed']) assert.match(r.stdout, new RegExp(`^  ${verb} +\\S`, 'm'), `the index names ${verb}`);
       assert.match(r.stdout, /seed +app\.json commands: bun seed\.mjs/);
     }
+    // LLP 1116.010 D2 (weather, round 12: `help --help all` and `--help all` reported "no verb all"): every help form the index and
+    // the helps name runs as written, and `all` with no verb is the index, never a verb.
+    const own = { seed: ['bun', 'seed.mjs'] }, index = indexText({ verbs: APP_VERBS, own }), forms = new Set();
+    for (const text of [index, ...APP_VERBS.map((v) => helpText(v))]) for (const [, form] of text.matchAll(/bun exact\.mjs ((?:[\w<>-]+ )?(?:--help|-h)(?: all)?|help(?: all)?)(?=[:\s]|$)/g)) forms.add(form);
+    assert.ok(forms.has('<verb> --help') && forms.has('<verb> --help all'), `the forms named: ${[...forms]}`);
+    const expected = (args) => { const verb = args.find((a) => HELP[a]); return verb ? helpText(verb, { all: args.includes('all') }) : index; };
+    for (const form of forms) for (const verb of form.includes('<verb>') ? APP_VERBS : ['']) {
+      const args = form.replace('<verb>', verb).split(' ').filter(Boolean), r = exact(...args);
+      assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+      assert.equal(r.stdout.trim(), expected(args), `bun exact.mjs ${args.join(' ')}`);
+    }
+    for (const args of [['--help', 'all'], ['-h', 'all'], ['help', 'all'], ['help', '--help', 'all'], ['help', 'web', 'all'], ['help', 'all', 'web'], ['help', 'seed']]) {
+      const r = exact(...args);
+      assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+      if (args[1] !== 'seed') assert.equal(r.stdout.trim(), expected(args), `bun exact.mjs ${args.join(' ')}`);
+    }
     assert.equal(exact('help', 'nope').status, 2);
+    assert.equal(exact('help', 'all', 'nope').status, 2);
     assert.ok(!existsSync(started), `help ran ${existsSync(started) && readFileSync(started, 'utf8')}`);
     assert.ok(!existsSync(resolve(dir, '.exact/commands.jsonl')), 'help is not a logged command');
   } finally { rmSync(parent, { recursive: true, force: true }); }

@@ -41,8 +41,7 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` after each edit, `verify ios` at milestones. A screen you
-want checked or captured is a test's end; `verify --shots <dir>` copies its screenshots;
-a drive takes any others (`resize`, `prefer …`, `screenshot`).
+want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 ## One screen: the view, its data, its test

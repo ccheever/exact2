@@ -256,7 +256,7 @@ export function observe(views, inactive = () => false) {
         if (border || cs.boxShadow !== 'none' || (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0)) item.edge = true;
       }
     }
-    if (item.text || item.control) {
+    if (item.text || item.control || item.fill) {
       const v = visible(el, b);
       if (Math.abs(v.x - item.x) > 0.5 || Math.abs(v.y - item.y) > 0.5 || Math.abs(v.w - item.w) > 0.5 || Math.abs(v.h - item.h) > 0.5) item.vis = v;
     }

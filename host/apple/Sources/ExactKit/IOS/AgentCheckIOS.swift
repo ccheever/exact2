@@ -238,7 +238,10 @@ extension Agent {
                     if n.isParagraph { paragraph(n, b, alpha: a, into: &item) }
                     control(n, into: &item)
                     if item["control"] != nil || item["text"] != nil, let c = cover(n, b), item["control"] != nil || c["kind"] as? String != "offscreen" { item["cover"] = c }
-                    if item["text"] == nil, item["control"] == nil { fill(n, b, alpha: a, into: &item) } else { presented(n, b, into: &item) }
+                    if item["text"] == nil, item["control"] == nil { fill(n, b, alpha: a, into: &item) }
+                    // A fill's presented part too: a card below the viewport, or past its scroller's edge, is not drawn, and the
+                    // pixels there are the page's (LLP 1116.010 D2: trivia's Badge below the viewport was "a card that does not show").
+                    if item["text"] != nil || item["control"] != nil || item["fill"] != nil { presented(n, b, into: &item) }
                     if item.keys.contains(where: { ["text", "control", "fill", "outX", "padded"].contains($0) }) { items.append(item) }
                 } else if b.width > 0, b.height > 0, b.maxX > port.minX, b.minX < port.maxX {
                     // Off the screen: only a control out of reach (past its top or bottom, and nothing scrolls to it) is anything.

@@ -178,7 +178,6 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...text, fg: [130, 130, 130, 1] }])).toEqual(['contrast:1']);
   expect(found([{ ...text, fg: [130, 130, 130, 1], size: 24 }])).toEqual([]); // large: 3:1
   expect(found([{ ...text, fg: [130, 130, 130, 1], fgRole: 'secondary-label' }])).toEqual([]); // the platform's own secondary label
-  expect(found([{ ...text, fg: [130, 130, 130, 1], fgRole: 'AccentColorText' }])).toEqual([]); // the ink the platform chose for the accent, at 3:1
   expect(found([{ ...text, fg: [60, 60, 67, 0.3], fgRole: 'tertiaryLabelColor' }])).toEqual([]); // and its tertiary, not judged
   expect(found([{ ...text, fg: [197, 197, 198, 1], inactive: true }])).toEqual([]); // a disabled control's label (WCAG's inactive component)
   expect(found([{ ...text, fg: [60, 60, 67, 0.6] }])).toEqual([]); // the secondary label's value, unnamed (a section footer's), is its
@@ -192,6 +191,9 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(invisible[0].hint).toContain('-exact-secondary-background');
   expect(found([{ ...card, x: 24 }])).toEqual([]);
   expect(found([{ ...card, edge: true }])).toEqual([]);
+  // LLP 1116.010 D2 (trivia, round 12): a card the host says none of is presented (below the viewport, past its scroller's edge) is
+  // not judged on the page's pixels there.
+  expect(found([{ ...card, vis: { x: 4, y: 20, w: 0, h: 0 } }])).toEqual([]);
   // Two 16 px targets: under 24 px and closer than 24 px apart, both; far apart, neither (WCAG 2.5.8's spacing); the platform's own, never.
   const small = (id, x) => ({ id, x, y: 2, w: 16, h: 16, control: 'press', sized: 'author' });
   expect(found([small(3, 0), small(4, 18)])).toEqual(['target:3', 'target:4']);

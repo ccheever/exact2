@@ -304,6 +304,36 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertEqual((dark[6]?["fg"] as? [Double])?.prefix(3).map { $0 }, [255, 255, 255], "white ink on it, which the driver finds")
     }
 
+    /// LLP 1116.010 D2 (trivia, round 12): a card's fill is observed with the part of it that is presented. One past its
+    /// scroller's edge (a Badge below the page's viewport) is not drawn, and the pixels there are the page's: the driver
+    /// must not judge them as "a card that does not show".
+    func testACardPastItsScrollersEdgeIsObservedWithNothingPresented() throws {
+        let round: [String: Any] = ["border_radius_top_left": 12, "border_radius_top_right": 12, "border_radius_bottom_right": 12, "border_radius_bottom_left": 12]
+        let card: [String: Any] = round.merging(["background_color": [255, 255, 255, 255]]) { x, _ in x }
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "inside"], "style": card],
+            ["op": "create", "id": 4, "kind": "view", "props": ["testId": "past"], "style": card],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 400.0, "w": 400.0, "h": 100.0],
+            ["op": "content", "id": 2, "w": 400.0, "h": 200.0],
+            ["op": "frame", "id": 3, "x": 16.0, "y": 20.0, "w": 100.0, "h": 40.0],
+            ["op": "frame", "id": 4, "x": 16.0, "y": 140.0, "w": 100.0, "h": 40.0],
+        ])
+        let reply = agent.check([:])
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]], "\(reply)")
+        func item(_ id: Int) throws -> [String: Any] { try XCTUnwrap(items.first { $0["id"] as? Int == id }, "#\(id) in \(items)") }
+        XCTAssertNil(try item(3)["vis"], "the card inside its scroller is whole")
+        let past = try item(4)
+        XCTAssertNotNil(past["fill"], "it is a card: \(past)")
+        let vis = try XCTUnwrap(past["vis"] as? [String: Any], "the scroller cuts it away: \(past)")
+        XCTAssertEqual(vis["h"] as? Double, 0, "none of it is presented: \(past)")
+    }
+
     /// A cover and the scroller that clears it (LLP 1116.003): Shelf's
     /// Discover drew two false findings. Left, a scroller at its start whose
     /// row lies past its bottom, under the tab bar the agent paints below it:
