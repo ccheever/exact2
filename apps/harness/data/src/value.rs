@@ -3,7 +3,7 @@
 //! [`clean`] on the way out, so app text never carries a terminal control
 //! sequence.
 
-use crate::shapes::{Ack, ContractValue, Frame, Session};
+use crate::shapes::{Ack, ContractValue, Frame, FrameLine, FrameRun, Session};
 use crate::state::{Approval, Block, Entry, Line, ModelChoice, Run, State};
 use exact_plan::Value;
 use std::borrow::Cow;
@@ -135,18 +135,37 @@ pub fn session(st: &State, entries: usize) -> Value {
     .to_value()
 }
 
-/// `shape Frame`. The generated lines are already owned: clean them in
-/// place so serializing a frame does not first copy every run and colour.
+/// `shape Frame`. Consume the owned animation lines into their compact
+/// effective terminal style without copying run text or colours.
 pub fn frame(title: &str, mut lines: Vec<Line>) -> Value {
     for run in lines.iter_mut().flat_map(|line| &mut line.runs) {
         if let Cow::Owned(text) = clean(&run.text) {
             run.text = text;
         }
-        run.href = link(&run.href);
     }
     Frame {
         title: c(title),
-        lines,
+        lines: lines
+            .into_iter()
+            .map(|line| FrameLine {
+                runs: line
+                    .runs
+                    .into_iter()
+                    .map(|run| FrameRun {
+                        text: run.text,
+                        fg: run.fg,
+                        bg: run.bg,
+                        weight: if run.bold {
+                            700.0
+                        } else if run.dim {
+                            300.0
+                        } else {
+                            400.0
+                        },
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
     .to_value()
 }
