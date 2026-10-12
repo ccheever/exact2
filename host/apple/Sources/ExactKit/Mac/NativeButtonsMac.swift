@@ -99,6 +99,9 @@ final class NativeButtonMac: NSButton {
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.
     override func mouseDown(with event: NSEvent) {
+        // A Control-click that a `contextPopover` or `contextmenu` from its
+        // node up answers is no click (X85).
+        if contextClicked(event) { return }
         owner?.pointerPressed(event)
         // A click leaves the first responder where it is (LLP 1115.000
         // D7.1): AppKit's tracking must not take the editor beside it. The

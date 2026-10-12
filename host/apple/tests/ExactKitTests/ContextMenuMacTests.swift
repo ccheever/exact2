@@ -332,6 +332,165 @@ final class ContextMenuMacTests: XCTestCase {
         }
     }
 
+    /// A click at window point `point` as a hand's comes, through the
+    /// application: with Control held, AppKit asks the view under it for
+    /// `menu(for:)` before any `mouseDown`. The up is queued first for a
+    /// control's tracking loop.
+    private func click(_ window: NSWindow, at point: NSPoint, flags: NSEvent.ModifierFlags = []) {
+        func event(_ type: NSEvent.EventType) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+        }
+        let up = event(.leftMouseUp)
+        NSApp.postEvent(up, atStart: true)
+        NSApp.sendEvent(event(.leftMouseDown))
+        if NSApp.nextEvent(matching: [.leftMouseUp], until: nil, inMode: .default, dequeue: true) != nil { NSApp.sendEvent(up) }
+    }
+
+    /// X85: a Control-click is the Mac's secondary click, as Chrome sends it:
+    /// `contextmenu` at its point, with the primary button and Control held,
+    /// and no `click`. On a link (on its title), a drawn button, a box and a
+    /// native button whose `contextmenu` or `contextPopover` answers, it runs
+    /// that as a right-click does and presses nothing. On selectable text
+    /// with no authored handler it selects the word and opens the text menu
+    /// (#454), and a plain click still presses.
+    func testAControlClickIsTheContextClickWhereOneAnswers() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
+        func node(_ id: Int, _ kind: String, _ props: [String: String], _ handlers: [String], y: Int, w: Int = 100, style: [String: Any] = [:]) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": kind, "props": props, "handlers": handlers, "style": style], ["op": "frame", "id": id, "x": 20, "y": y, "w": w, "h": 30]]
+        }
+        func title(_ id: Int, _ text: String) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "text", "props": ["text": text], "style": ["font_size": 18.0]], ["op": "frame", "id": id, "x": 0, "y": 0, "w": 100, "h": 30]]
+        }
+        p.apply(wireBatch(node(20, "button", ["href": "#team", "accessibilityRole": "link"], ["press", "contextmenu"], y: 60) + title(21, "the team")
+            + node(22, "button", [:], ["press", "contextmenu"], y: 100) + title(23, "Options")
+            + node(24, "view", ["contextPopover": "m"], ["press"], y: 140)
+            + node(25, "control", ["type": "button", "contextPopover": "m"], ["press"], y: 180, style: ["appearance": "auto"])
+            + node(26, "text", ["text": "Alpha beta gamma"], [], y: 230, w: 300, style: ["font_size": 18.0])
+            + [["op": "children", "id": 20, "ids": [21]], ["op": "children", "id": 22, "ids": [23]], ["op": "children", "id": 9, "ids": [1, 2, 20, 22, 24, 25, 26]]]))
+        p.viewport.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        var heard: [String] = [], sample: [String] = []
+        p.onClipboard = { id, kind, line in
+            guard kind == 10 else { return }
+            heard.append("contextmenu \(id)")
+            sample = line.components(separatedBy: ",")
+        }
+        p.onPress = { heard.append("press \($0)") }
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            heard.append("menu " + (menu.items.first?.title ?? ""))
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { center.removeObserver(observer) }
+        func controlClick(_ id: UInt32, at local: NSPoint? = nil) throws -> [String] {
+            let view = try XCTUnwrap(p.views[id])
+            heard = []
+            click(window, at: view.convert(local ?? NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil), flags: .control)
+            // A `contextPopover`'s menu opens on the next turn; the rest is heard at once.
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while heard.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            turn()
+            return heard
+        }
+        XCTAssertEqual(try controlClick(21), ["contextmenu 20"], "the link's, from its title; no press")
+        XCTAssertEqual(sample.prefix(3).compactMap(Double.init), [50, 15, 1], "at the click's point in the link, the primary button held")
+        XCTAssertEqual(sample.last, "Control+")
+        XCTAssertEqual(try controlClick(23), ["contextmenu 22"], "a drawn button's")
+        XCTAssertEqual(try controlClick(24), ["menu Pin"], "a box's contextPopover")
+        XCTAssertEqual(try controlClick(25), ["menu Pin"], "a native button's contextPopover")
+        XCTAssertEqual(try controlClick(26, at: NSPoint(x: 6, y: 15)), ["menu Look Up “Alpha”"], "plain text: the word's text menu (#454)")
+        XCTAssertEqual(p.selection.selectedText(), "Alpha")
+        heard = []
+        click(window, at: try XCTUnwrap(p.views[21]).convert(NSPoint(x: 50, y: 15), to: nil))
+        XCTAssertEqual(heard, ["press 20"], "a plain click still presses")
+    }
+
+    /// X85 on AppKit's own controls: a Control-click on a checkbox, a
+    /// switch, a radio, a range, a select, a date field or a tablist's
+    /// segmented control inside a node whose `contextmenu` answers runs that
+    /// `contextmenu`, as Chrome's does, and the control keeps its value; so
+    /// does one on a checkbox with its own. A plain click still checks it.
+    func testAControlClickOnANativeControlIsItsNodesContextClick() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
+        p.controls.radioGroup = { RadioGroup(json: try! JSONSerialization.data(withJSONObject: ["group": [$0], "next": NSNull(), "previous": NSNull()])) }
+        p.selectOptions = { _ in SelectMenu(options: [.init(value: "a", label: "Alpha", disabled: false), .init(value: "b", label: "Beta", disabled: false)], chosen: 0) }
+        func node(_ id: Int, _ kind: String, _ props: [String: String], _ handlers: [String], x: Int, y: Int = 10, w: Int = 40, h: Int = 24) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": kind, "props": props, "handlers": handlers, "style": [:]], ["op": "frame", "id": id, "x": x, "y": y, "w": w, "h": h]]
+        }
+        p.apply(wireBatch(node(30, "view", [:], ["contextmenu"], x: 0, y: 60, w: 500, h: 80)
+            + node(31, "control", ["type": "checkbox", "checked": "false"], ["change"], x: 10)
+            + node(32, "control", ["type": "checkbox", "accessibilityRole": "switch", "checked": "false"], ["change"], x: 60)
+            + node(33, "control", ["type": "radio", "name": "c", "value": "a", "checked": "false"], ["input", "change"], x: 110)
+            + node(34, "control", ["type": "range", "value": "0"], ["input", "change"], x: 160, w: 100)
+            + node(35, "control", ["type": "select"], ["input", "change"], x: 270, w: 90)
+            + node(36, "control", ["type": "date"], ["input", "change"], x: 370, w: 120)
+            + node(40, "view", ["accessibilityRole": "tablist"], [], x: 10, y: 44, w: 200, h: 28)
+            + node(41, "button", ["accessibilityRole": "tab", "accessibilitySelected": "true"], ["press"], x: 0, y: 0, w: 100, h: 28)
+            + node(42, "button", ["accessibilityRole": "tab"], ["press"], x: 100, y: 0, w: 100, h: 28)
+            + node(43, "text", ["text": "One"], [], x: 0, y: 0) + node(44, "text", ["text": "Two"], [], x: 0, y: 0)
+            + node(37, "control", ["type": "checkbox", "checked": "false"], ["change", "contextmenu"], x: 20, y: 160)
+            + [["op": "children", "id": 41, "ids": [43]], ["op": "children", "id": 42, "ids": [44]], ["op": "children", "id": 40, "ids": [41, 42]],
+               ["op": "children", "id": 30, "ids": [31, 32, 33, 34, 35, 36, 40]], ["op": "children", "id": 9, "ids": [1, 2, 30, 37]]]))
+        p.viewport.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        var heard: [String] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { heard.append("contextmenu \(id)") } }
+        p.onPress = { heard.append("press \($0)") }
+        p.onChecked = { heard.append("checked \($0) \($1)") }
+        p.onControlValue = { id, value, input, change in heard.append("\(change ? "change" : input ? "input" : "value") \(id) \(value)") }
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            heard.append("menu " + (menu.items.first?.title ?? ""))
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { center.removeObserver(observer) }
+        let segments = try XCTUnwrap(p.segments.control(of: 40))
+        func controlClick(_ control: NSView) -> [String] {
+            heard = []
+            click(window, at: control.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil), flags: .control)
+            let deadline = Date(timeIntervalSinceNow: 2)
+            while heard.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            turn()
+            return heard
+        }
+        for id: UInt32 in [31, 32, 33, 34, 35] {
+            let control = try XCTUnwrap(p.controls.controls[id])
+            XCTAssertEqual(controlClick(control), ["contextmenu 30"], "\(type(of: control)) #\(id): the row's contextmenu, and the control's value stays")
+            XCTAssertEqual(p.views[id]?.contextClicked, false, "#\(id): its release reached the node")
+        }
+        // A date field takes no first mouse, and this window is never key,
+        // so here AppKit gives it no click at all. In a key window AppKit
+        // asks it for `menu(for:)`, has none, and sends it the down, as here.
+        let date = try XCTUnwrap(p.controls.controls[36])
+        let middle = date.convert(NSPoint(x: date.bounds.midX, y: date.bounds.midY), to: nil)
+        func event(_ type: NSEvent.EventType) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: middle, modifierFlags: .control, timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+        }
+        heard = []
+        XCTAssertNil(date.menu(for: event(.leftMouseDown)))
+        NSApp.postEvent(event(.leftMouseUp), atStart: true)
+        date.mouseDown(with: event(.leftMouseDown))
+        if let up = NSApp.nextEvent(matching: [.leftMouseUp], until: nil, inMode: .default, dequeue: true) { date.mouseUp(with: up) }
+        turn()
+        XCTAssertEqual(heard, ["contextmenu 30"], "a date field's")
+        XCTAssertEqual(p.views[36]?.contextClicked, false, "its release reached the node")
+        // AppKit's segmented control takes a Control-click as a right-click itself.
+        XCTAssertEqual(controlClick(segments), ["contextmenu 30"], "a tablist's segmented control")
+        XCTAssertEqual(segments.selectedSegment, 0, "no segment chosen")
+        XCTAssertEqual(controlClick(try XCTUnwrap(p.controls.controls[37])), ["contextmenu 37"], "a checkbox's own contextmenu")
+        XCTAssertEqual([31, 32, 33, 37].map { p.controls.isOn(p.controls.controls[$0]!) }, [false, false, false, false], "nothing checked")
+        XCTAssertEqual((p.controls.controls[34] as? NSSlider)?.doubleValue, 0, "the range did not move")
+        heard = []
+        click(window, at: try XCTUnwrap(p.controls.controls[31]).convert(NSPoint(x: 6, y: 6), to: nil))
+        XCTAssertEqual(heard, ["checked 31 true"], "a plain click still checks it")
+    }
+
     func testContextMenuDoesNotOpenForDisabledInertHiddenOrRemovedSources() throws {
         let changes: [(String, [String: Any])] = [
             ("disabled", ["op": "props", "id": 1, "set": ["disabled": "true"]]),

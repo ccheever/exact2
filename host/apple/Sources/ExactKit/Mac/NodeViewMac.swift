@@ -52,6 +52,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var inlinePressed: UInt32?
     /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).
     var svgPressed: UInt32?
+    /// Its button went down as a Control-click's context click (X85).
+    var contextClicked = false
     var cachedTextSpec: Spec?
     var textLayoutValid = false
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
@@ -1336,6 +1338,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     package override func mouseDown(with event: NSEvent) {
         guard !inert else { return }
+        if contextClick(event) { return rightMouseDown(with: event) }
         pointerPressed(event)
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
@@ -1373,6 +1376,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     package override func mouseDragged(with event: NSEvent) {
+        if contextClicked { return rightMouseDragged(with: event) }
         pointerDragged(event)
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
@@ -1389,6 +1393,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if canvasInput?.pointer(event, phase: "up") != true { super.rightMouseUp(with: event) }
     }
     package override func mouseUp(with event: NSEvent) {
+        if contextClicked { contextClicked = false; return rightMouseUp(with: event) }
         pointerReleased(event)
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }

@@ -1,6 +1,7 @@
 # macOS: a Control-click runs a node's `press`, not its `contextmenu`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #487
 **Systems:** host/apple macOS, pointer events
 **Severity:** P2
 **Author:** Daehyeon Mun (via the T3 Code clone)

@@ -106,6 +106,19 @@ extension NodeView {
         return action || menu
     }
 
+    /// A Control-click is the Mac's secondary click (X85): Chrome sends it as
+    /// `contextmenu` and no `click`. AppKit asks the view under it for
+    /// `menu(for:)` and, given none, sends `mouseDown`. Where a node from
+    /// here up answers it (`contextMenuAuthored`), its down, drags and
+    /// release take a right-click's path (`rightMouseDown`) with the primary
+    /// button and Control the event holds, and nothing presses. Selectable
+    /// text with none above had its menu from `menu(for:)` (#454); anywhere
+    /// else it stays a click with Control held.
+    func contextClick(_ event: NSEvent) -> Bool {
+        contextClicked = event.type == .leftMouseDown && event.modifierFlags.contains(.control) && contextMenuAuthored
+        return contextClicked
+    }
+
     /// Whether run `id`'s own `contextmenu` answers a context request.
     func inlineAnswersContextMenu(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id) else { return false }
@@ -242,6 +255,24 @@ extension NodeView {
         let point = local(windowPoint), box = contentBox()
         let held = KeyCodes.held(NSEvent.modifierFlags)
         presenter.mouseEvent(id, 38, "\(Double(point.x - box.minX)),\(Double(point.y - box.minY)),\(held)\n" + docs.joined(separator: "\n"))
+        return true
+    }
+}
+
+extension NSControl {
+    /// X85 on AppKit's own controls (a native button, checkbox, switch,
+    /// radio, range, select or date field): a Control-click that a
+    /// `contextmenu` or `contextPopover` from the control's node up answers
+    /// takes the right-click's path from that node (`contextClick`), and the
+    /// control's tracking never starts, so it checks, moves or opens
+    /// nothing; AppKit sends the release on to the node. Chrome sends
+    /// `contextmenu` from each, and changes none but a range, whose down
+    /// moves its value first.
+    func contextClicked(_ event: NSEvent) -> Bool {
+        var view = superview
+        while let at = view, !(at is NodeView) { view = at.superview }
+        guard let node = view as? NodeView, node.contextClick(event) else { return false }
+        node.rightMouseDown(with: event)
         return true
     }
 }

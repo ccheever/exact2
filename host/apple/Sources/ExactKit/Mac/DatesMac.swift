@@ -122,5 +122,6 @@ final class DateField: NSDatePicker {
         placeholder.draw(at: NSPoint(x: 4, y: (bounds.height - height) / 2), withAttributes: attributes)
     }
     override func accessibilityValue() -> Any? { empty ? "" : super.accessibilityValue() }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif
