@@ -5,9 +5,10 @@ import { grammarId, grammarWork, loadedGrammarChunks, tokenizeLine, tokenizeLine
 import { GRAMMAR_CHUNKS, GRAMMAR_INDEX, GRAMMAR_LANGUAGES } from './r12-render-grammar';
 import { FILE_TYPES } from './r12-render-filetypes';
 
-/** tools/grammar/gen-grammar.mjs LICENCE_HELD: the grammars left out until the licence decision (the generator is a
- *  developer tool with its own packages; gen-grammar.test.ts checks the committed data is what it makes). */
-const LICENCE_HELD = ['ada', 'bird2', 'dax', 'dream-maker', 'gnuplot', 'hcl', 'nginx', 'racket', 'tcl', 'terraform'];
+/** tools/grammar/gen-grammar.mjs LICENCE_HELD: the grammars left out for their licences (GPL-3.0, or none granted
+ *  upstream; the coordinator's decision of 2026-10-12. The generator is a developer tool with its own packages;
+ *  gen-grammar.test.ts checks the committed data is what it makes). */
+const LICENCE_HELD = ['ada', 'dax', 'dream-maker', 'glsl', 'gnuplot', 'nginx', 'racket', 'tcl'];
 import { lineTokens } from './timeline-diff-syntax';
 
 // code-highlighting-languages: every language of the reference's Shiki 4.2 bundle has its grammar.
@@ -25,24 +26,30 @@ const SHIKI: [string, string, string, string][] = [
   ["php embedding html as Shiki paints it", "php", "<p class=\"a\"><?php echo strlen($name); ?></p>", "<#08c0ef/#08c0ef p#d5a910/#ffd452 c#d5901c/#ffab16 l#d5901c/#ffab16 a#d5901c/#ffab16 s#d5901c/#ffab16 s#d5901c/#ffab16 =#08c0ef/#08c0ef \"#199f43/#5ecc71 a#199f43/#5ecc71 \"#199f43/#5ecc71 >#08c0ef/#08c0ef <#08c0ef/#08c0ef ?#d32a61/#ff678d p#d5a910/#ffd452 h#d5a910/#ffd452 p#d5a910/#ffd452 e#693acf/#9d6afb c#693acf/#9d6afb h#693acf/#9d6afb o#693acf/#9d6afb s#693acf/#9d6afb t#693acf/#9d6afb r#693acf/#9d6afb l#693acf/#9d6afb e#693acf/#9d6afb n#693acf/#9d6afb (#636363/#636363 $#636363/#636363 n#d47628/#ffa359 a#d47628/#ffa359 m#d47628/#ffa359 e#d47628/#ffa359 )#636363/#636363 ;#636363/#636363 ?#d32a61/#ff678d >#08c0ef/#08c0ef <#08c0ef/#08c0ef /#08c0ef/#08c0ef p#d5a910/#ffd452 >#08c0ef/#08c0ef"],
   ["sql as Shiki paints it", "sql", "SELECT id, name FROM users WHERE id > 10 ORDER BY name; -- all", "S#d32a61/#ff678d E#d32a61/#ff678d L#d32a61/#ff678d E#d32a61/#ff678d C#d32a61/#ff678d T#d32a61/#ff678d i#0a0a0a/#fafafa d#0a0a0a/#fafafa ,#0a0a0a/#fafafa n#d32a61/#ff678d a#d32a61/#ff678d m#d32a61/#ff678d e#d32a61/#ff678d F#d32a61/#ff678d R#d32a61/#ff678d O#d32a61/#ff678d M#d32a61/#ff678d u#0a0a0a/#fafafa s#0a0a0a/#fafafa e#0a0a0a/#fafafa r#0a0a0a/#fafafa s#0a0a0a/#fafafa W#d32a61/#ff678d H#d32a61/#ff678d E#d32a61/#ff678d R#d32a61/#ff678d E#d32a61/#ff678d i#0a0a0a/#fafafa d#0a0a0a/#fafafa >#08c0ef/#08c0ef 1#1ca1c7/#68cdf2 0#1ca1c7/#68cdf2 O#d32a61/#ff678d R#d32a61/#ff678d D#d32a61/#ff678d E#d32a61/#ff678d R#d32a61/#ff678d B#d32a61/#ff678d Y#d32a61/#ff678d n#d32a61/#ff678d a#d32a61/#ff678d m#d32a61/#ff678d e#d32a61/#ff678d ;#0a0a0a/#fafafa -#737373/#737373 -#737373/#737373 a#737373/#737373 l#737373/#737373 l#737373/#737373"],
   ["lua as Shiki paints it", "lua", "local function add(a, b)\n  return a + b -- sum\nend", "l#d32a61/#ff678d o#d32a61/#ff678d c#d32a61/#ff678d a#d32a61/#ff678d l#d32a61/#ff678d f#d32a61/#ff678d u#d32a61/#ff678d n#d32a61/#ff678d c#d32a61/#ff678d t#d32a61/#ff678d i#d32a61/#ff678d o#d32a61/#ff678d n#d32a61/#ff678d a#693acf/#9d6afb d#693acf/#9d6afb d#693acf/#9d6afb (#636363/#636363 a#636363/#a3a3a3 ,#636363/#636363 b#636363/#a3a3a3 )#636363/#636363 r#d32a61/#ff678d e#d32a61/#ff678d t#d32a61/#ff678d u#d32a61/#ff678d r#d32a61/#ff678d n#d32a61/#ff678d a#d47628/#ffa359 +#636363/#636363 b#d47628/#ffa359 -#737373/#737373 -#737373/#737373 s#737373/#737373 u#737373/#737373 m#737373/#737373 e#d32a61/#ff678d n#d32a61/#ff678d d#d32a61/#ff678d"],
-  ["vue with its own injections as Shiki paints it", "vue", "<template>\n  <p :title=\"msg\">{{ msg }}</p>\n</template>", "<#636363/#636363 t#d5512f/#ff855e e#d5512f/#ff855e m#d5512f/#ff855e p#d5512f/#ff855e l#d5512f/#ff855e a#d5512f/#ff855e t#d5512f/#ff855e e#d5512f/#ff855e >#636363/#636363 <#636363/#636363 p#d5512f/#ff855e :#18a46c/#60d199 t#18a46c/#60d199 i#18a46c/#60d199 t#18a46c/#60d199 l#18a46c/#60d199 e#18a46c/#60d199 =#636363/#636363 \"#199f43/#5ecc71 m#199f43/#5ecc71 s#199f43/#5ecc71 g#199f43/#5ecc71 \"#199f43/#5ecc71 >#636363/#636363 {#0a0a0a/#fafafa {#0a0a0a/#fafafa m#0a0a0a/#fafafa s#0a0a0a/#fafafa g#0a0a0a/#fafafa }#0a0a0a/#fafafa }#0a0a0a/#fafafa <#636363/#636363 /#636363/#636363 p#d5512f/#ff855e >#636363/#636363 <#636363/#636363 /#636363/#636363 t#d5512f/#ff855e e#d5512f/#ff855e m#d5512f/#ff855e p#d5512f/#ff855e l#d5512f/#ff855e a#d5512f/#ff855e t#d5512f/#ff855e e#d5512f/#ff855e >#636363/#636363"]];
+  ["vue with its own injections as Shiki paints it", "vue", "<template>\n  <p :title=\"msg\">{{ msg }}</p>\n</template>", "<#636363/#636363 t#d5512f/#ff855e e#d5512f/#ff855e m#d5512f/#ff855e p#d5512f/#ff855e l#d5512f/#ff855e a#d5512f/#ff855e t#d5512f/#ff855e e#d5512f/#ff855e >#636363/#636363 <#636363/#636363 p#d5512f/#ff855e :#18a46c/#60d199 t#18a46c/#60d199 i#18a46c/#60d199 t#18a46c/#60d199 l#18a46c/#60d199 e#18a46c/#60d199 =#636363/#636363 \"#199f43/#5ecc71 m#199f43/#5ecc71 s#199f43/#5ecc71 g#199f43/#5ecc71 \"#199f43/#5ecc71 >#636363/#636363 {#0a0a0a/#fafafa {#0a0a0a/#fafafa m#0a0a0a/#fafafa s#0a0a0a/#fafafa g#0a0a0a/#fafafa }#0a0a0a/#fafafa }#0a0a0a/#fafafa <#636363/#636363 /#636363/#636363 p#d5512f/#ff855e >#636363/#636363 <#636363/#636363 /#636363/#636363 t#d5512f/#ff855e e#d5512f/#ff855e m#d5512f/#ff855e p#d5512f/#ff855e l#d5512f/#ff855e a#d5512f/#ff855e t#d5512f/#ff855e e#d5512f/#ff855e >#636363/#636363"],
+  ["terraform as Shiki paints it (MPL-2.0, back)", "terraform", "resource \"aws_s3_bucket\" \"b\" {\n  bucket = \"my-bucket\" # name\n}", "r#a631be/#d568ea e#a631be/#d568ea s#a631be/#d568ea o#a631be/#d568ea u#a631be/#d568ea r#a631be/#d568ea c#a631be/#d568ea e#a631be/#d568ea \"#d47628/#ffa359 a#d47628/#ffa359 w#d47628/#ffa359 s#d47628/#ffa359 _#d47628/#ffa359 s#d47628/#ffa359 3#d47628/#ffa359 _#d47628/#ffa359 b#d47628/#ffa359 u#d47628/#ffa359 c#d47628/#ffa359 k#d47628/#ffa359 e#d47628/#ffa359 t#d47628/#ffa359 \"#d47628/#ffa359 \"#d47628/#ffa359 b#d47628/#ffa359 \"#d47628/#ffa359 {#636363/#636363 b#d47628/#ffa359 u#d47628/#ffa359 c#d47628/#ffa359 k#d47628/#ffa359 e#d47628/#ffa359 t#d47628/#ffa359 =#08c0ef/#08c0ef \"#199f43/#5ecc71 m#199f43/#5ecc71 y#199f43/#5ecc71 -#199f43/#5ecc71 b#199f43/#5ecc71 u#199f43/#5ecc71 c#199f43/#5ecc71 k#199f43/#5ecc71 e#199f43/#5ecc71 t#199f43/#5ecc71 \"#199f43/#5ecc71 ##737373/#737373 n#737373/#737373 a#737373/#737373 m#737373/#737373 e#737373/#737373 }#636363/#636363"],
+  ["hcl as Shiki paints it (MPL-2.0, back)", "hcl", "block \"x\" {\n  enabled = true\n}", "b#a631be/#d568ea l#a631be/#d568ea o#a631be/#d568ea c#a631be/#d568ea k#a631be/#d568ea \"#d47628/#ffa359 x#d47628/#ffa359 \"#d47628/#ffa359 {#636363/#636363 e#d47628/#ffa359 n#d47628/#ffa359 a#d47628/#ffa359 b#d47628/#ffa359 l#d47628/#ffa359 e#d47628/#ffa359 d#d47628/#ffa359 =#08c0ef/#08c0ef t#1ca1c7/#68cdf2 r#1ca1c7/#68cdf2 u#1ca1c7/#68cdf2 e#1ca1c7/#68cdf2 }#636363/#636363"],
+  ["bird2 as Shiki paints it (MPL-2.0, back)", "bird2", "protocol bgp {\n  local as 65000;\n}", "p#d32a61/#ff678d r#d32a61/#ff678d o#d32a61/#ff678d t#d32a61/#ff678d o#d32a61/#ff678d c#d32a61/#ff678d o#d32a61/#ff678d l#d32a61/#ff678d b#a631be/#d568ea g#a631be/#d568ea p#a631be/#d568ea {#0a0a0a/#fafafa l#d32a61/#ff678d o#d32a61/#ff678d c#d32a61/#ff678d a#d32a61/#ff678d l#d32a61/#ff678d a#d32a61/#ff678d s#d32a61/#ff678d 6#1ca1c7/#68cdf2 5#1ca1c7/#68cdf2 0#1ca1c7/#68cdf2 0#1ca1c7/#68cdf2 0#1ca1c7/#68cdf2 ;#636363/#636363 }#636363/#636363"],
+];
 
 // code-highlighting-languages: an app test may leave slicing on, and a language's first use then defers its tokens.
 beforeEach(() => resetHighlightSlicing());
 afterEach(() => resetHighlightSlicing());
 
 describe('the reference\'s whole language list (code-highlighting-languages)', () => {
-  test('Shiki 4.2\'s 235 languages and 97 aliases but the 10 held for the licence decision (tools/shiki-compare --list checks the names)', () => {
+  test('Shiki 4.2\'s 235 languages and 97 aliases but the 8 held for their licences (tools/shiki-compare --list checks the names)', () => {
     const index = JSON.parse(GRAMMAR_INDEX) as { roots: Record<string, number>; aliases: Record<string, string>; chunks: unknown[] };
-    // Review: LICENCE_HELD (tools/grammar/gen-grammar.mjs) leaves out ten languages and their aliases bird, tf and tfvars.
-    expect(LICENCE_HELD.length).toBe(10);
-    expect(Object.keys(index.roots).length).toBe(235 - 10);
-    expect(Object.keys(index.aliases).length).toBe(97 - 3);
-    expect(GRAMMAR_LANGUAGES.split(' ').length).toBe(332 - 13);
-    expect([...LICENCE_HELD, 'bird', 'tf', 'tfvars'].map(grammarId).filter(Boolean)).toEqual([]);
+    // LICENCE_HELD (tools/grammar/gen-grammar.mjs) leaves out eight languages, none with an alias.
+    expect(LICENCE_HELD.length).toBe(8);
+    expect(Object.keys(index.roots).length).toBe(235 - 8);
+    expect(Object.keys(index.aliases).length).toBe(97);
+    expect(GRAMMAR_LANGUAGES.split(' ').length).toBe(332 - 8);
+    expect(LICENCE_HELD.map(grammarId).filter(Boolean)).toEqual([]);
+    // The MPL-2.0 grammars are back (LICENSE-T3 carries their notice), with their aliases.
+    expect(['bird2', 'bird', 'hcl', 'terraform', 'tf', 'tfvars'].map(grammarId)).toEqual(['bird2', 'bird2', 'hcl', 'terraform', 'terraform', 'terraform']);
     // One chunk per @shikijs/langs grammar generated (18 of them only embedded in or injected into others).
-    expect(index.chunks.length).toBe(253 - 10);
-    expect(GRAMMAR_CHUNKS.length).toBe(253 - 10);
+    expect(index.chunks.length).toBe(253 - 8);
+    expect(GRAMMAR_CHUNKS.length).toBe(253 - 8);
     expect(['cpp', 'c++', 'haskell', 'hs', 'julia', 'jl', 'php', 'sql', 'lua', 'scss', 'dart', 'scala', 'elixir', 'zig', 'vue', 'svelte', 'objective-c', 'objc', 'wolfram', 'emacs-lisp', 'elisp']
       .map(grammarId)).toEqual(['cpp', 'cpp', 'haskell', 'haskell', 'julia', 'julia', 'php', 'sql', 'lua', 'scss', 'dart', 'scala', 'elixir', 'zig', 'vue', 'svelte', 'objective-c', 'objective-c', 'wolfram', 'emacs-lisp', 'emacs-lisp']);
     // An embedded-only grammar is no fence word, and a name on Object.prototype is no language.
@@ -58,9 +65,10 @@ describe('the reference\'s whole language list (code-highlighting-languages)', (
     expect(['src/a.hpp', 'x.cc', 'Main.hs', 'base/bool.jl', 'index.php', 'q.sql', 'init.lua', 'a.scss', 'App.vue', 'CMakeLists.txt', 'app.component.ts', 'x.blade.php', 'notes.1c', 'x.h', 'run.unknown'].map(shikiLanguage))
       .toEqual(['cpp', 'cpp', 'haskell', 'julia', 'php', 'sql', 'lua', 'scss', 'vue', 'cmake', 'angular-ts', 'blade', 'bsl', 'objective-cpp', '']);
     // Every value of the table is a language (or alias) with its grammar here, but the held ones, which paint plain.
-    const held = new Set([...LICENCE_HELD, 'bird', 'tf', 'tfvars']);
+    const held = new Set(LICENCE_HELD);
     expect(Object.values(FILE_TYPES).filter(lang => !grammarId(lang) && !held.has(lang))).toEqual([]);
-    expect(['main.tf', 'nginx.conf', 'x.adb'].map(shikiLanguage)).toEqual(['', '', '']);
+    expect(['shader.frag', 'a.vert', 'x.glsl', 'nginx.conf', 'x.adb', 'x.tcl', 'x.rkt'].map(shikiLanguage)).toEqual(['', '', '', '', '', '', '']);
+    expect(['main.tf', 'vars.tfvars', 'x.hcl'].map(shikiLanguage)).toEqual(['terraform', 'terraform', 'hcl']);
     expect(lineTokens(['int main() { return 0; }'], 'src/main.cpp')[0]!.some(token => token.cls === 'kw')).toBe(true);
   });
   test('a fence word Shiki does not know paints plain, gitignore reads as ini, and h is no fence word', () => {
@@ -102,6 +110,23 @@ describe('the reference\'s whole language list (code-highlighting-languages)', (
     expect(highlight('x = 2π', 'julia').filter(token => token.cls === 'num').map(token => token.text)).toEqual(['2π']);
     // An ASCII line keeps the ASCII forms, which read \b the same there.
     expect(highlight('x = 2pi', 'julia').filter(token => token.cls === 'num').map(token => token.text)).toEqual(['2pi']);
+  });
+});
+
+describe('a grammar held for its licence is an empty grammar (code-highlighting-languages, 2026-10-12)', () => {
+  // Shiki 4.2 (Oniguruma) with each held grammar replaced by an empty grammar of its scope name (tools/shiki-compare does
+  // the same): the rule that embeds glsl stays, and the GLSL inside paints plain.
+  const EMBEDS: [string, string, string, string][] = [
+    ["cpp embedding glsl", "cpp", "auto s = R\"glsl(void main() { gl_FragColor = vec4(1.0); })glsl\"; // shader", "a#a631be/#d568ea u#a631be/#d568ea t#a631be/#d568ea o#a631be/#d568ea s#0a0a0a/#fafafa =#d32a61/#ff678d R#199f43/#5ecc71 \"#199f43/#5ecc71 g#199f43/#5ecc71 l#199f43/#5ecc71 s#199f43/#5ecc71 l#199f43/#5ecc71 (#199f43/#5ecc71 v#0a0a0a/#fafafa o#0a0a0a/#fafafa i#0a0a0a/#fafafa d#0a0a0a/#fafafa m#0a0a0a/#fafafa a#0a0a0a/#fafafa i#0a0a0a/#fafafa n#0a0a0a/#fafafa (#0a0a0a/#fafafa )#0a0a0a/#fafafa {#0a0a0a/#fafafa g#0a0a0a/#fafafa l#0a0a0a/#fafafa _#0a0a0a/#fafafa F#0a0a0a/#fafafa r#0a0a0a/#fafafa a#0a0a0a/#fafafa g#0a0a0a/#fafafa C#0a0a0a/#fafafa o#0a0a0a/#fafafa l#0a0a0a/#fafafa o#0a0a0a/#fafafa r#0a0a0a/#fafafa =#0a0a0a/#fafafa v#0a0a0a/#fafafa e#0a0a0a/#fafafa c#0a0a0a/#fafafa 4#0a0a0a/#fafafa (#0a0a0a/#fafafa 1#0a0a0a/#fafafa .#0a0a0a/#fafafa 0#0a0a0a/#fafafa )#0a0a0a/#fafafa ;#0a0a0a/#fafafa }#0a0a0a/#fafafa )#199f43/#5ecc71 g#199f43/#5ecc71 l#199f43/#5ecc71 s#199f43/#5ecc71 l#199f43/#5ecc71 \"#199f43/#5ecc71 ;#636363/#636363 /#737373/#737373 /#737373/#737373 s#737373/#737373 h#737373/#737373 a#737373/#737373 d#737373/#737373 e#737373/#737373 r#737373/#737373"],
+    ["elm embedding glsl", "elm", "shader = [glsl| void main() { float x = 1.0; } |]", "s#693acf/#9d6afb h#693acf/#9d6afb a#693acf/#9d6afb d#693acf/#9d6afb e#693acf/#9d6afb r#693acf/#9d6afb =#d32a61/#ff678d [#0a0a0a/#fafafa g#0a0a0a/#fafafa l#0a0a0a/#fafafa s#0a0a0a/#fafafa l#0a0a0a/#fafafa |#0a0a0a/#fafafa v#0a0a0a/#fafafa o#0a0a0a/#fafafa i#0a0a0a/#fafafa d#0a0a0a/#fafafa m#0a0a0a/#fafafa a#0a0a0a/#fafafa i#0a0a0a/#fafafa n#0a0a0a/#fafafa (#0a0a0a/#fafafa )#0a0a0a/#fafafa {#0a0a0a/#fafafa f#0a0a0a/#fafafa l#0a0a0a/#fafafa o#0a0a0a/#fafafa a#0a0a0a/#fafafa t#0a0a0a/#fafafa x#0a0a0a/#fafafa =#0a0a0a/#fafafa 1#0a0a0a/#fafafa .#0a0a0a/#fafafa 0#0a0a0a/#fafafa ;#0a0a0a/#fafafa }#0a0a0a/#fafafa |#0a0a0a/#fafafa ]#0a0a0a/#fafafa"],
+  ];
+  for (const [name, lang, code, expected] of EMBEDS) test(name, () => {
+    const tokens = highlight(code, lang);
+    expect(tokens.map(token => token.text).join('')).toBe(code);
+    expect(paint(tokens)).toBe(expected);
+  });
+  test('a held language\'s fence word paints plain', () => {
+    for (const word of LICENCE_HELD) expect(messageCodeBlocks(`\`\`\`${word}\nvoid main() { x = 1; }\n\`\`\``)[0]!.tokens).toEqual([{ id: '0', text: 'void main() { x = 1; }', cls: '' }]);
   });
 });
 

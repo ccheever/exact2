@@ -48,11 +48,34 @@ llvm under Apache-2.0 with LLVM exceptions; BSD-2-Clause for apache and matlab; 
 and haskell; ISC for apl and emacs-lisp; the TextMate bundles' notice ("Permission to copy, use, modify,
 sell and distribute this software is granted. This software is provided "as is" without express or
 implied warranty, and with no claim as to its suitability for any purpose.") for abap, applescript,
-erb, logo, mipsasm, po, ssh-config, toml and yaml; no licence stated upstream for dax, dream-maker,
-glsl and tcl; MPL-2.0 for bird2, hcl and terraform; GPL-3.0 for ada, gnuplot, nginx and racket; and
-the 18 grammars Shiki packages only for embedding (the angular-*, es-tag-*, vue-* and markdown-*
-injections, cpp-macro, jinja-html) are not listed there. Until a decision on their licences, the
-generator leaves out (LICENCE_HELD) the GPL-3.0 and MPL-2.0 grammars and dax, dream-maker and tcl, so
-the data holds 243; glsl, with no licence stated, stays because cpp, ruby, julia and seven other
-languages load it.
+erb, logo, mipsasm, po, ssh-config, toml and yaml; MPL-2.0 for bird2, hcl and terraform (below);
+GPL-3.0 for ada, gnuplot, nginx and racket; no licence stated upstream for dax, dream-maker, glsl and
+tcl; and the 18 grammars Shiki packages only for embedding (the angular-*, es-tag-*, vue-* and
+markdown-* injections, cpp-macro, jinja-html) are not listed there. The generator leaves out
+(LICENCE_HELD) the four GPL-3.0 grammars and the four with no licence, so the data holds 245; in the
+clone each of the eight paints as plain text, and a grammar that embeds one (cpp, elm and nim embed
+glsl, latex gnuplot) paints that part plain.
+
+bird2, hcl and terraform: Mozilla Public License 2.0
+
+The data for these three grammars (the chunks "bird2", "hcl" and "terraform" of r12-render-grammar-<n>.ts)
+is generated from Covered Software under the Mozilla Public License, v. 2.0, and is distributed under
+its terms:
+
+  This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of
+  the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+- bird2: BIRD-tm-language-grammar, grammars/bird2.tmLanguage.json at commit 1aa378ed0add766bee2271acece94d5068cf3de9,
+  https://github.com/bird-chinese-community/BIRD-tm-language-grammar (MPL-2.0).
+- hcl: hashicorp/syntax, syntaxes/hcl.tmGrammar.json at commit 2ec7cd10c9d6134e836bf85eb0f5aa010512bff4, and
+- terraform: hashicorp/syntax, syntaxes/terraform.tmGrammar.json at commit cc2b4d4fe389f14b8a13937f4e0d7b2811b57588,
+  https://github.com/hashicorp/syntax, Copyright (c) 2020 HashiCorp, Inc. (MPL-2.0).
+
+Their Source Code Form is available at those repositories and, as the clone takes it, in @shikijs/langs 4.2.0
+(https://www.npmjs.com/package/@shikijs/langs, files bird2.mjs, hcl.mjs and terraform.mjs). The clone
+compiles them into its rule tables and converts their regular expressions to JavaScript
+(tools/grammar/gen-grammar.mjs, which is the recipe to regenerate that form); the generated data of the three is
+distributed under the MPL-2.0 as well. The rest of this client is not Covered Software and stays under its
+own terms.
+
 r12-render-filetypes.ts follows the file-name table of @pierre/diffs 1.3.0-beta.10 (Apache-2.0).

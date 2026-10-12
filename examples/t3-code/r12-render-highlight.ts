@@ -1,6 +1,6 @@
 // Lane r12-render: the shared highlighter's Shiki path. For every language the reference's Shiki 4.2
-// bundle has (code-highlighting-languages: all 235, with their aliases, but the ten held for a licence
-// decision, LICENSE-T3; r12-render-grammar.ts and its chunks) the tokens are what the reference paints: r12-render-textmate.ts runs the grammar, and each
+// bundle has (code-highlighting-languages: all 235, with their aliases, but the eight left out for their
+// licences, which paint plain, LICENSE-T3; r12-render-grammar.ts and its chunks) the tokens are what the reference paints: r12-render-textmate.ts runs the grammar, and each
 // run's pierre-light / pierre-dark colour pair names the synColor class that paints it
 // (markdown.contract), with "+i" when the theme sets italic (synSlant). Chat code blocks, the diff
 // panel, the Files panel, the attachment code preview and content-search lines all reach this

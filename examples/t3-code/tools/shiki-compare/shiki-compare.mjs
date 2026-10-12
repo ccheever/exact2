@@ -21,8 +21,10 @@
 // module brings no injector, which is the clone's state: all grammars loaded, so a markdown fence
 // or an html script finds its language, and only the root language's own injectors apply.
 //
-// code-highlighting-languages, review: the grammars the generator holds back for the licence decision (LICENCE_HELD)
-// are left out on both sides: no Shiki highlighter here loads them either.
+// code-highlighting-languages: the grammars the generator leaves out for their licences (LICENCE_HELD) are left out on
+// both sides: no Shiki highlighter here loads them as languages, and each is the same empty grammar of its scope name the
+// generator makes it, so a language that embeds one (cpp, elm and nim glsl, latex gnuplot) keeps the embedding rule and
+// paints its content plain on both sides.
 //
 // Prints each file's size and sha256, the differing characters per file, and the first differences.
 // Exit status 1 when any character differs. Corpus files stay where they are (keep them in target/).
@@ -64,7 +66,7 @@ if (rest[0] === '--list') {
   const embedded = languageNames.filter(name => !ids.has(name));
   const embeddedDiff = embedded.join(' ') !== [...EMBEDDED_ONLY].sort().join(' ');
   console.log(`shiki 4.2 bundledLanguages: ${shiki.size} keys (${ids.size} languages); clone: ${clone.size}`);
-  console.log(`missing in the clone: ${missing.join(' ') || 'none'} (held for the licence decision: ${[...heldNames].join(' ') || 'none'}); only in the clone: ${extra.join(' ') || 'none'}`);
+  console.log(`missing in the clone: ${missing.join(' ') || 'none'} (held for their licences: ${[...heldNames].join(' ') || 'none'}); only in the clone: ${extra.join(' ') || 'none'}`);
   console.log(`embedded-only grammars: ${embedded.length}${embeddedDiff ? ` (generator lists ${EMBEDDED_ONLY.join(' ')})` : ', as the generator lists'}`);
   process.exit(unheld.length || present.length || extra.length || embeddedDiff ? 1 : 0);
 }
@@ -81,10 +83,11 @@ else if (rest[0] === '--samples') {
 
 // Every bundled language whose module brings no injector (Shiki refuses a language without the
 // grammars it embeds, and an injector would reach other roots), and per language its own module.
-const moduleOf = async lang => (await bundledLanguages[lang]()).default;
+/** A held grammar as the generator makes it: an empty grammar of its scope name. */
+const stub = grammar => LICENCE_HELD.includes(grammar.name) ? { name: grammar.name, scopeName: grammar.scopeName, patterns: [] } : grammar;
+const moduleOf = async lang => (await bundledLanguages[lang]()).default.map(stub);
 const shared = [];
 for (const info of bundledLanguagesInfo) {
-  if (LICENCE_HELD.includes(info.id)) continue;
   const modules = await moduleOf(info.id);
   if (modules.some(grammar => grammar.injectTo)) continue;
   for (const grammar of modules) if (!shared.some(one => one.name === grammar.name)) shared.push(grammar);

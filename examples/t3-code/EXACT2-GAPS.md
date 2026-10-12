@@ -971,25 +971,33 @@ reference's are 2 pt every 8. Framework gap filed on main by [#430](https://gith
 unbroken across rows of any height). Goes when Contract paints that (or a row can place its background in its list's
 content coordinates): then the list carries the reference's gradient and the empty side shows it.
 
-## Code colours: every grammar loaded from the start (declared difference)
+## Code colours: every grammar loaded from the start, eight left out for their licences (declared differences)
 
-Task `20261011-code-highlighting-languages`. The reference colours code through one shared Shiki highlighter
+Task `20261011-code-highlighting-languages`; both kept by the coordinator's decision of 2026-10-12.
+
+**Load order.** The reference colours code through one shared Shiki highlighter
 (`apps/web/src/lib/syntaxHighlighting.ts`, @pierre/diffs `getSharedHighlighter`) that loads a language, with the
 grammars its module embeds, the first time something asks for it, and keeps it for the rest of the session. A grammar
 that embeds another lazily (markdown's fences, `embeddedLangsLazy`) therefore colours that part only once the other
 language has been loaded in this window, and a grammar that injects into others (`injectTo`: vue's `markdown-vue`,
-ts-tags' `es-tag-*`, angular's templates) reaches them only after its own language has been opened. The clone holds
-every grammar of Shiki's bundle (235 languages; `r12-render-grammar.ts`, parsed on first use; until the licence decision
-the PR asks for, ten of them are left out, see below) as one registry with everything loaded: a markdown file's ` ```sh ` fence is coloured from the start, where a fresh reference window paints it
-plain until a shell text has been highlighted (lane images `markdown-*.png` of the task's PR), and only a root
-language's own module injects into it. Not a framework limit: the reference's result depends on the window's history.
-Modelling it would mean keeping the set of languages asked for in the session and resolving an include to another
-grammar only when that grammar is in it (with vscode-textmate's skip of a rule whose patterns all went missing,
-evaluated then instead of when generated); the task's PR asks whether to.
+ts-tags' `es-tag-*`, angular's templates) reaches them only after its own language has been opened. The clone loads
+every grammar from the start (227 languages, all of Shiki's bundle but the eight below; `r12-render-grammar.ts`, each
+grammar parsed on its first use) as one registry with everything loaded: the clone colours a lazily embedded language
+(a markdown file's ` ```sh ` fence) before a fresh reference window does, which paints it plain until a shell text has
+been highlighted in that window (lane images `markdown-*.png` of the task's PR), and only a root language's own module
+injects into it. Not a framework limit: the reference's result depends on the window's history. Modelling it would
+mean keeping the set of languages asked for in the session and resolving an include to another grammar only when that
+grammar is in it (with vscode-textmate's skip of a rule whose patterns all went missing, evaluated then instead of
+when generated).
 
-Until the user decides on their licences (the task's PR, "Decision needed"; `LICENSE-T3` lists every grammar's), the
-generator leaves out ten grammars (`tools/grammar/gen-grammar.mjs` `LICENCE_HELD`): ada, gnuplot, nginx and racket
-(GPL-3.0), bird2, hcl and terraform (MPL-2.0), and dax, dream-maker and tcl (no licence stated upstream). Their fence
-words (with the aliases bird, tf, tfvars) and file names (`.tf`, `.hcl`, `.adb`, `nginx.conf`, `.rkt`, `.tcl`, …) paint
-plain in the clone, coloured in the reference; latex's lazy gnuplot include finds nothing, as in a window that has not
-loaded gnuplot. Not a framework limit; emptying the list and running the generator brings them back.
+**Grammars left out for their licences** (`LICENSE-T3` lists every grammar's): the generator leaves out eight
+(`tools/grammar/gen-grammar.mjs` `LICENCE_HELD`): ada, gnuplot, nginx and racket (GPL-3.0), and dax, dream-maker, glsl
+and tcl (no licence stated upstream; glsl's `polym0rph/GLSL.tmbundle` has no LICENSE, licence field, README statement
+or file header). Their fence words and file names (every one @pierre/diffs maps to them: `.ada`, `.adb`, `.ads`, `.conf` (nginx),
+`.dax`, `.dm`, `.glsl`, `.vert`, `.frag`, `.gp`, `.plt`, `.gnuplot`, `.rkt`, `.rktl`, `.tcl`) paint as plain text in the
+clone, coloured in the reference. A held grammar is an empty grammar of its scope
+name, so a rule that embeds one stays and paints its content plain where the reference colours it: cpp's
+`R"glsl(…)glsl"` strings (the delimiters keep their string colour), elm's `[glsl| … |]`, nim's `glsl"""…"""`, the
+`/* glsl */` template tags of ts-tags, and latex's gnuplot code. bird2, hcl and terraform (MPL-2.0) are in, with the
+licence's notice in `LICENSE-T3` and in their chunks. Not a framework limit; taking a name off the list and running the
+generator brings it back.

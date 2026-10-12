@@ -6,8 +6,8 @@
 // the line's "\n", the earliest match wins (ties to the first pattern), begin/end and begin/while
 // rules stack, \A / \G variants, end back-references, nested captures, the loop guards that stop
 // a line when a rule does not advance, and the theme trie's specificity for colours and font styles.
-// code-highlighting-languages: every grammar of Shiki's bundle is here (but the ten its generator holds back for
-// a licence decision, LICENSE-T3), in one rule space; each
+// code-highlighting-languages: every grammar of Shiki's bundle is here (but the eight its generator leaves out for
+// their licences, LICENSE-T3: each is an empty grammar, so what embeds one paints that part plain), in one rule space; each
 // grammar's rules, scope names and regexes are a chunk (r12-render-grammar-<n>.ts) parsed the first
 // time a rule of it is needed, so a language costs nothing until it is highlighted.
 

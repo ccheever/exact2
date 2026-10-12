@@ -36,15 +36,17 @@ export const EMBEDDED_ONLY = ['angular-expression', 'angular-inline-style', 'ang
   'angular-template', 'angular-template-blocks', 'cpp-macro', 'es-tag-css', 'es-tag-glsl', 'es-tag-html', 'es-tag-sql', 'es-tag-xml',
   'jinja-html', 'markdown-nix', 'markdown-vue', 'vue-directives', 'vue-interpolations', 'vue-sfc-style-variable-injection'];
 
-/** code-highlighting-languages, review: grammars left out until the user decides on their licences (task record,
- *  "Decision needed"; LICENSE-T3 lists each grammar's licence as its upstream states it). GPL-3.0: ada, gnuplot, nginx,
- *  racket; MPL-2.0: bird2, hcl, terraform; no licence granted upstream: dax, dream-maker, tcl. No kept language's module
- *  loads one (latex includes gnuplot lazily; that include then finds nothing, as in a registry without gnuplot). glsl,
- *  also without a licence upstream, stays: cpp, ruby, julia, elm, nim and five others load it. Emptying the list brings
- *  them back. */
-export const LICENCE_HELD = ['ada', 'bird2', 'dax', 'dream-maker', 'gnuplot', 'hcl', 'nginx', 'racket', 'tcl', 'terraform'];
+/** code-highlighting-languages: grammars left out for their licences (the coordinator's decision of 2026-10-12; LICENSE-T3
+ *  lists each grammar's licence as its upstream states it): GPL-3.0 ada, gnuplot, nginx and racket, and dax, dream-maker,
+ *  glsl and tcl, whose upstream grants no licence. A held language is no fence word or file language (it paints plain),
+ *  and a held grammar is an empty grammar of its scope name: an include of it matches nothing, so the rule that embeds it
+ *  stays and its content paints plain (cpp's R"glsl(…)glsl" strings, elm's [glsl| … |], nim's glsl"""…""", latex's gnuplot
+ *  code, JavaScript's glsl`…` tags). Reversible: taking a name off the list and running the generator brings it back. */
+export const LICENCE_HELD = ['ada', 'dax', 'dream-maker', 'glsl', 'gnuplot', 'nginx', 'racket', 'tcl'];
 /** The grammars generated: every one of @shikijs/langs but those held. */
 const NAMES = languageNames.filter(name => !LICENCE_HELD.includes(name));
+/** Grammars under the MPL-2.0 (bird2, hcl, terraform): their chunk carries the licence's notice (LICENSE-T3). */
+const MPL = { bird2: 'https://github.com/bird-chinese-community/BIRD-tm-language-grammar', hcl: 'https://github.com/hashicorp/syntax', terraform: 'https://github.com/hashicorp/syntax' };
 
 // Shiki 4.2's createJavaScriptRegexEngine options (@shikijs/engine-javascript), target ES2018
 // so the patterns compile in Hermes (no `v` flag, no ES2025 modifiers).
@@ -221,7 +223,7 @@ function regexEntry(raw, closing) {
 
 // ── Compiling every grammar into one rule space ──────────────────────────────────────────────
 /** A compiled rule before numbering: names and regexes as their raw strings, rule references as ids. */
-function createSpace(grammars) {
+function createSpace(grammars, heldScopes) {
   const rules = [], owner = [], contexts = new Map(), byScope = new Map();
   for (const [name, { grammar }] of grammars) byScope.set(grammar.scopeName, name);
   const space = { rules, owner, context, byScope };
@@ -275,7 +277,16 @@ function createSpace(grammars) {
       }
       // Another grammar (or this one by its scope name), as a registry with every grammar loaded resolves it.
       const hash = include.indexOf('#');
-      const other = byScope.get(hash < 0 ? include : include.slice(0, hash));
+      const scopeName = hash < 0 ? include : include.slice(0, hash);
+      if (heldScopes.has(scopeName)) {
+        // A held grammar is an empty one (LICENCE_HELD): its root is a rule with no patterns, so the including list
+        // misses nothing and keeps its rule; a key of its repository is missing, as the empty grammar has none.
+        if (hash >= 0) return -2;
+        const id = allocate();
+        rules[id] = { p: [] };
+        return id;
+      }
+      const other = byScope.get(scopeName);
       if (!other) return -2;
       const target = context(other);
       return hash < 0 ? target.rootId : target.entryByKey(include.slice(hash + 1));
@@ -388,24 +399,25 @@ function themeData(file) {
   return { fg: theme.colors['editor.foreground'], rules };
 }
 
-/** Every grammar of @shikijs/langs, with the grammars its own module loads (Shiki's embeddedLangs closure). */
+/** Every grammar of @shikijs/langs but the held ones, with the grammars its own module loads (Shiki's embeddedLangs
+ *  closure, the held ones left out), and the held grammars' scope names. */
 async function loadGrammars() {
-  const grammars = new Map();
-  for (const name of NAMES) {
+  const grammars = new Map(), heldScopes = new Set();
+  for (const name of languageNames) {
     const modules = (await import(`@shikijs/langs/${name}`)).default;
     const grammar = modules.find(one => one.name === name);
     if (!grammar) throw new Error(`@shikijs/langs has no grammar named ${name}`);
-    const loads = [...new Set(modules.map(one => one.name))];
-    if (loads.some(one => LICENCE_HELD.includes(one))) throw new Error(`${name}'s module loads a grammar LICENCE_HELD leaves out`);
+    if (LICENCE_HELD.includes(name)) { heldScopes.add(grammar.scopeName); continue; }
+    const loads = [...new Set(modules.map(one => one.name))].filter(one => !LICENCE_HELD.includes(one));
     grammars.set(name, { grammar, loads });
   }
-  return grammars;
+  return { grammars, heldScopes };
 }
 
 /** The data: the index (what every highlight needs) and one chunk per grammar (parsed on first use). */
 export async function buildData() {
-  const grammars = await loadGrammars();
-  const space = createSpace(grammars);
+  const { grammars, heldScopes } = await loadGrammars();
+  const space = createSpace(grammars, heldScopes);
   for (const name of NAMES) space.context(name).finish();
   dropMissingPatterns(space, NAMES.map(name => space.context(name).rootId));
 
@@ -520,7 +532,11 @@ export async function generate() {
   };
   for (const chunk of chunks) {
     const parts = literalLines(JSON.stringify(chunk.data));
-    const body = [`  // ${chunk.name}`, `  () => [`, ...parts.map(part => `    ${part},`), `  ].join(''),`];
+    // An MPL-2.0 grammar's chunk is its Executable Form: the licence's Exhibit A notice and where its Source Code Form is.
+    const notice = MPL[chunk.name] ? [`  // This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL`,
+      `  // was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/. Source Code Form: ${MPL[chunk.name]}`,
+      `  // (as @shikijs/langs 4.2.0 packages it). See LICENSE-T3.`] : [];
+    const body = [`  // ${chunk.name}`, ...notice, `  () => [`, ...parts.map(part => `    ${part},`), `  ].join(''),`];
     if (lines.length && lines.length + body.length > FILE_LINES) flush();
     lines.push(...body); names.push(chunk.name);
   }
