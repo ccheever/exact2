@@ -542,6 +542,27 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertTrue(node.field?.superview === node)
     }
 
+    /// A `destructive` button is an item like any other. In the page a
+    /// native destructive button refuses the click that would bring its
+    /// window forward, which the driver's window always needs
+    /// (`NativeButtonMac.acceptsFirstMouse`); an item's press is no click,
+    /// so a tap naming the button presses it.
+    func testADestructiveButtonsItemIsPressedByName() throws {
+        let delete = view(19, "control", ["type": "button", "accessibilityRole": "button", "destructive": "true", "accessibilityLabel": "Delete", "testId": "delete"], press: true)
+        let p = fixture(extra: delete + [children(10, [11, 12, 13, 14, 19])])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(identifiers().last, "exact.command.19")
+        let item = try XCTUnwrap(p.toolbar.items[19])
+        XCTAssertEqual(item.label, "Delete")
+        XCTAssertTrue(p.toolbar.validateToolbarItem(item))
+        XCTAssertEqual(p.toolbar.activate(try node(p, 19)), true)
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
+        XCTAssertEqual(pressed, [19, 19])
+        p.toolbar.detach()
+    }
+
     // MARK: A session, booted
 
     private let app = """
