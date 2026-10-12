@@ -166,23 +166,36 @@ after, after op 29 had set it from the row), so the case is left to real-input s
 | --- | --- | --- |
 | PS-1 | pass, no clone change: reproduced on the feature tip and traced to the agent's first `prefer` (the system appearance re-told, the per-scheme page mounted again); after it, a refocus with the list's read due (a 72 KB `pullRequests.list` reply in the trace) keeps `sy 1200` on the same scroll node, before and after alike; one-file repro for the coordinator (EXACT2-GAPS X58) | [record](https://raw.githubusercontent.com/ccheever/exact2/d9bf0946469c048d1cb0077224c9f6c7fe84c103/pr-list-scroll-and-sidebar-sweep/ps-record.txt), [one-file repro](https://raw.githubusercontent.com/ccheever/exact2/596c32887cd45e0e40fadd36d7c7175d25323a52/pr-list-scroll-and-sidebar-sweep/x58-one-file-repro.png) |
 | PS-1 under a real refocus | open: real-input step 1 | — |
-| PS-2a | pass: with the sweep armed the window's hover is cleared (`sidebarHoverId` `""`; before, it stayed on the pressed row's Settle, `sweep-4~active#settle`), no card or tooltip during the sweep, as the reference; the press already moved them off through the buttons' `focus` (before and after) | [image](https://raw.githubusercontent.com/ccheever/exact2/17d1b73dee10743b6426ff73717c3d2a4b8f5376/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape.png) (row 2), [record](https://raw.githubusercontent.com/ccheever/exact2/d9bf0946469c048d1cb0077224c9f6c7fe84c103/pr-list-scroll-and-sidebar-sweep/ps-record.txt) |
-| PS-2b | pass (unchanged from r12, before and after): Escape cancels, no row stays armed, the release settles nothing (`settled 0`, `sweepEpoch` +1) | [image](https://raw.githubusercontent.com/ccheever/exact2/17d1b73dee10743b6426ff73717c3d2a4b8f5376/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape.png) (rows 3, 4) |
-| PS-2c | pass: after the cancelled release Sweep three (under the pointer) is the hovered row and no card opens until the pointer moves, as the reference; before, Sweep four (the pressed row) was | [image](https://raw.githubusercontent.com/ccheever/exact2/17d1b73dee10743b6426ff73717c3d2a4b8f5376/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape.png) (rows 4, 5) |
-| PS-2: a released sweep still applies | pass (before and after): Settled, "Settled 3 threads, ⌘Z to undo" | [image](https://raw.githubusercontent.com/ccheever/exact2/251ba010078ef802fc339a00dc3283b58f353c17/pr-list-scroll-and-sidebar-sweep/ps2-sweep-release.png) |
+| PS-2a | pass in state; the images are the same before and after: with the sweep armed the window's hover is cleared (`sidebarHoverId` `""` at every `state`; before, it stayed on the pressed row's Settle, `sweep-4~active#settle`), and no card or tooltip shows during the sweep, as the reference. In these drives the press itself already moved the card off through the buttons' `focus`, before and after, so nothing visible differs. The case the arming's close is for, a press on a button that already holds the focus (no `focus` runs), was read from source, not shown (the second gesture's press still ran `focus`: `sidebarHoverY` -10000 at op 40, before and after): real-input step 5 | [image](https://raw.githubusercontent.com/ccheever/exact2/5afb0daf34797027922a51d4918141a11c4f071f/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape-r2.png) (row 2), [record](https://raw.githubusercontent.com/ccheever/exact2/35b8cf242c10be640f617741e0914d2ff147e9b9/pr-list-scroll-and-sidebar-sweep/ps-record-r2.txt) |
+| PS-2b | pass (unchanged from r12, before and after): Escape cancels, no row stays armed, the release settles nothing (`settled 0`, `sweepEpoch` +1) | [image](https://raw.githubusercontent.com/ccheever/exact2/5afb0daf34797027922a51d4918141a11c4f071f/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape-r2.png) (rows 3, 4) |
+| PS-2c | pass: after the cancelled release Sweep three (under the pointer) is the hovered row and no card opens until the pointer moves, as the reference, on the first gesture and on a second one from the same Settle; before, Sweep four (the pressed row) was | [image](https://raw.githubusercontent.com/ccheever/exact2/5afb0daf34797027922a51d4918141a11c4f071f/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape-r2.png) (rows 4, 5), [second gesture](https://raw.githubusercontent.com/ccheever/exact2/2dbe54b0e72c4b8e6dd7bb367e08be510f06a0e4/pr-list-scroll-and-sidebar-sweep/ps2-second-sweep-r2.png) (rows 3, 4) |
+| PS-2: a released sweep still applies | pass: Settled, "Settled 2 threads, ⌘Z to undo" (Sweep two and one), as the reference; before, 3 (Timeline verification armed too: the feature tip `6db5cadea` predates SW-1, merged here) | [image](https://raw.githubusercontent.com/ccheever/exact2/108acc526dfcda3b6ce26e3b9069985abc549170/pr-list-scroll-and-sidebar-sweep/ps2-sweep-release-r2.png) |
 | PS-2 under a real trackpad drag and real Escape | open: real-input steps 2-5 | — |
+
+Review round 1 (2026-10-12): the PS-2 part of the after drive again on `d33c70ac1` (the section's hover removed, merged
+with the feature tip `8fa9446cc`) in a fresh lane seeded the same way ([script](https://raw.githubusercontent.com/ccheever/exact2/bbbbfa7bab0ce9603940412dfc0eb939c342f432/pr-list-scroll-and-sidebar-sweep/drive-final-r2.sh.txt), [record](https://raw.githubusercontent.com/ccheever/exact2/35b8cf242c10be640f617741e0914d2ff147e9b9/pr-list-scroll-and-sidebar-sweep/ps-record-r2.txt)): the window's
+hover is the same at every `state` as the first round's after drive, the first gesture's images differ only in the
+relative times, and the second and third gestures now arm two rows, as the reference, where the first round armed three
+(SW-1). The before and reference columns are the first round's.
 
 Drives (agent mode, 1280×840, `final.sh`: [script](https://raw.githubusercontent.com/ccheever/exact2/8f690e40c018396b5a5292b14ffa379e0a48b50a/pr-list-scroll-and-sidebar-sweep/drive-final.sh.txt)): before on the evidence worktree at `6db5cadea`, after on this branch's bundle (merged with the feature tip `fe0e39c91`); the lanes' T3 homes hold five threads "Sweep one" … "Sweep five" ([seed](https://raw.githubusercontent.com/ccheever/exact2/349d06600a8863549f5adeee1005c55e911d4273/pr-list-scroll-and-sidebar-sweep/sweep-threads.py.txt), projection rows only, as the audit's `extras.py`); the GitHub lane's primary server (16523) paired through Settings › Connections. The reference: `ref-app.sh` on 16520 with the same five threads, driven by trusted CDP mouse and key events ([script](https://raw.githubusercontent.com/ccheever/exact2/9ce6af018582552524d5e96b071a75596e6c77e9/pr-list-scroll-and-sidebar-sweep/ref-final.mjs.txt); screenshots through `Page.captureScreenshot`: Playwright's own resizes the page, and a `resize` cancels the reference's sweep).
 
 ## Seen while building, not a finding row
 
-- In the agent drives the clone's sweep armed one row more than the reference on the second and third gestures of a
-  session (Sweep two dragged 90 pt armed Sweep two, Sweep one and Timeline verification; the reference armed two); the
-  first gesture matched (Sweep four and three). Before and after alike; the arming geometry is r11's, unchanged here.
+- In the first round's agent drives the clone's sweep armed one row more than the reference on the second and third
+  gestures of a session (Sweep two dragged 90 pt armed Sweep two, Sweep one and Timeline verification; the reference
+  armed two). That was the read-after-assign bug adopt-main-fixes-r10's SW-1 fixed on the feature branch (`ade46167f`,
+  #472): merged here in review round 1, the after drive arms two rows and settles 2 threads, as the reference. Nothing
+  left to track.
 - The agent's `tap settle-… hover` lights Settle but draws no "Settle thread" tooltip in these drives (the window's hover
   moves to `…#settle`, `sidebarHoverH` 0); the reference shows it. Not driven further (one live drive).
-- The clone mounts its Pull Requests page (and most surfaces) once per scheme, so a real appearance change while
-  reading the list also puts it back at the top, where the reference keeps its place.
+
+## For the coordinator's known-differences list
+
+- **The Pull Requests list (and most surfaces) goes back to its top on a real appearance change.** The clone mounts the
+  page once per scheme (`PagesCover`: `when scheme == "dark"`, as its surfaces whose SVG glyphs use `light-dark()`), so
+  a real Light/Dark switch while reading the list mounts it again at its top; the reference keeps its place. The clone's
+  own structure, the same remount PS-1 traced; not a framework gap and not this task's rows (EXACT2-GAPS X58 notes it).
 
 ## Real-input batch steps
 
@@ -208,36 +221,52 @@ the GitHub lane paired. Never send a message.
 ## Tests
 
 - `pr-list-scroll-and-sidebar-sweep.test.ts` (5): `sweepRowHover` evaluated (none while live; the cancelled sweep's
-  resting row while the window's hover count holds; the window's hover after it moves on); the rows take it and the
-  cancel records the row under the pointer and the count; the first arming calls the root's `sidebarHover(hoverId,
-  false)` handed down as `unhover` to all five sections, and the window's half counts hover events; Escape's shortcut
-  only while live and the `|cancel|` release; PS-1's guard: the Pull Requests list mounts on the page and the scheme
-  only, never on the window's focus or visibility, its rows keyed. The three PS-2 tests fail on the base (`6db5cadea`'s
-  contracts), the two others pass there.
+  resting row while the window's hover count holds; the window's hover after it moves on); the rows take it, the cancel
+  records the row under the pointer and the count, a new sweep forgets it, and the section's column takes no `hover` of
+  its own (review round 1); the first arming (`armed == ""`) calls the root's `sidebarHover(hoverId, false)` handed down
+  as `unhover` to all five sections, and the window's half counts hover events; Escape's shortcut only while live and the
+  `|cancel|` release; PS-1's guard: the Pull Requests list mounts on the page and the scheme only, never on the window's
+  focus or visibility, its rows keyed. The three PS-2 tests fail on the base (`6db5cadea`'s contracts), the two others
+  pass there.
+- `sidebar-sweep.test.ts` (SW-1's, merged in review round 1): its interpreter of ThreadSection's actions now runs a call
+  to an action prop, and a fourth test checks each sweep's first arming closes the window's hover once, a fresh sweep
+  after a release included, and a cancelled sweep arms nothing more (it fails if the gate reads the slot `sweepKeys`,
+  which an action sees from before it, instead of the move's `armed`).
+
+## Review round 1 (2026-10-12)
+
+| Finding | Severity | Result |
+| --- | --- | --- |
+| ThreadSection's `hover=sectionHover` is the first hover on an ancestor of the rows; the macOS host hovers one node at a time (X62, #322, fix #327 not adopted), so under a real pointer the section and the row would trade the hover each move, and it is redundant | blocking | fixed (`accfa868d`): the handler and `sectionHover` removed; the first move after a cancelled pan sends the leave of the control the host kept hovered (its `SidebarTip`) through the window's `sidebarHover`, which bumps `sidebarHoverSeq` and ends the resting row; the test pins that the section's column takes no `hover`; real-input step 4 now moves the pointer straight out of the sidebar and around inside a row |
+| PS-2a's before-bug ("a press on a button that already held the focus kept the card") was never driven: the second gesture's press still ran `focus` | should-fix | fixed in the record, EXACT2-GAPS X13 and the PR: read from source, not shown; left to real-input step 5; PS-2a's measured difference is state only |
+| The comment above `sectionHover` described the arming's `unhover` | should-fix | fixed: removed with the handler; the resting-hover comment says what ends it and why the section takes no hover |
+| Two differences found here had no follow-up: the per-scheme remount on a real appearance change; one row more armed on later gestures | should-fix | the remount: "For the coordinator's known-differences list" above, EXACT2-GAPS X58 and the PR; the extra row: SW-1's fix (#472) merged here, the after drive now arms two rows and settles 2, as the reference |
 
 ## Checks
 
-On `2207574b3` (this branch merged with the feature tip `fe0e39c91`), each run once:
+Review round 1, on `2acdadc0f` (`d33c70ac1`'s code: this branch merged with the feature tip `8fa9446cc`), each run once:
 
 | Check | Exit | Note |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 0 | 4666 pass, 1 skip, 0 fail (312 files) |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4711 pass, 1 skip, 0 fail (318 files) |
 | strict `tsc` (README command) | 0 | |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 28,884,506 bytes; `app.contract` 1,398 lines; the `lower-colour-one-scheme` warnings come with round 9 and are none of this change's lines |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 29,225,277 bytes; `app.contract` 1,418 lines; no warning on this change's lines (the `lower-colour-one-scheme` and other `analyze-read-after-assign` warnings are the feature branch's) |
 | `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust or Swift changed |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
-| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed, 36 ignored: `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269` (main #440), inherited with round 9 as its record and #462's say; nothing under `examples/t3-code` |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored |
 | `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
 | `cargo fmt --all -- --check` | 0 | |
 | `bun scripts/boot.mjs` | 0 | |
-| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once on `f803f4c61`'s app code, again after the merge (framework changed), before the one live drive |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | on `d33c70ac1` (the merge; framework changed), before the one after drive |
 
-During development: the touched Bun tests (`pr-list-scroll-and-sidebar-sweep.test.ts`, `r12-sidebar.test.ts`, `r11-upstream.test.ts`), `contract build` after each contract edit (three builds refused while finding how ThreadSection may call the hover: "Framework problem met").
+During review round 1: the touched Bun tests (`pr-list-scroll-and-sidebar-sweep.test.ts`, `sidebar-sweep.test.ts`, `r12-sidebar.test.ts`, `r11-upstream.test.ts`: 36 pass) and `contract build` after the edit and after the merge.
+
+First round, on `2207574b3` (merged with `fe0e39c91`): the same checks, all 0 except `cargo test` 101 (3,744 passed, 1 failed: `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269`, main #440, inherited with round 9; gone with this round's merge). During development: the touched Bun tests and `contract build` after each contract edit (three builds refused while finding how ThreadSection may call the hover: "Framework problem met").
 
 ## Delivery
 
-Draft PR [#468](https://github.com/ccheever/exact2/pull/468) into `feat(example)/t3-code`. Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the final checks; no conflicts.
+Draft PR [#468](https://github.com/ccheever/exact2/pull/468) into `feat(example)/t3-code`. Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the first round's checks, no conflicts; in review round 1 from `8fa9446cc` (main adoption round 10 and SW-1, #472, and later task PRs): `sidebar.contract`'s sweep conflicted with SW-1 and was resolved keeping both (SW-1's `let` bindings; this task's resting hover, and the first arming's `unhover` gated on the move's `armed`).
 
 ## Next action
 
