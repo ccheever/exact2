@@ -14,12 +14,13 @@
 // whether or not this run built) are counted in the last line but never fail it, since check reads the screen
 // by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
 // takes one drive at a time, and runs the tests with UIKit's bars (`--chrome platform`) so their end screens
-// are what a person sees.
+// are what a person sees. An app with a server of its own (the `rest` pattern's) has it run by verify, where the
+// app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardFlags } from './help.mjs';
 
@@ -32,6 +33,95 @@ const FIRST = 'first screen', RELAUNCH = 'relaunch';
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
 const firstLine = (text) => String(text ?? '').split('\n').find((l) => l.trim())?.trim() ?? '';
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+// The app's own server (LLP 1116.006 D3). A local origin the data module calls, with any path under it.
+const LOCAL = /\bhttps?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{2,5}(?:\/[\w\-./]*)?/;
+const readIn = (dir, path) => { try { return readFileSync(resolve(dir, path), 'utf8'); } catch { return null; } };
+
+/** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, or localhost) in app.ts, else in
+ * a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
+export function serverUrl(dir) {
+  const main = readIn(dir, 'app.ts') ?? '', at = (text) => text?.match(LOCAL)?.[0].replace(/\/$/, '') ?? null;
+  if (at(main)) return at(main);
+  for (const [, path] of main.matchAll(/\bfrom\s+['"](\.{1,2}\/[^'"]+)['"]/g))
+    for (const p of [path, `${path}.ts`, `${path}/index.ts`]) if (at(readIn(dir, p))) return at(readIn(dir, p));
+  return null;
+}
+
+/** The app's own server, the `rest` pattern's shape: an entry Bun runs (app.json's `commands.server`, as
+ * `["bun", "server/index.ts"]`, else server.ts, server/index.ts or server/server.ts) at the URL the data module calls,
+ * its database's path read from `DB`. null without one; else `{ entry, url, port, why }`, `why` saying what keeps it
+ * from being run on an empty database (null when nothing does). */
+export function appServer(dir) {
+  let named = null;
+  try { const argv = JSON.parse(readIn(dir, 'app.json') ?? '{}').commands?.server; if (Array.isArray(argv) && /(^|\/)bun$/.test(argv[0])) named = argv.slice(1).find((a) => !a.startsWith('-')) ?? null; } catch {}
+  const entry = [named, 'server.ts', 'server/index.ts', 'server/server.ts'].find((p) => p && readIn(dir, p) != null);
+  if (!entry) return null;
+  const url = serverUrl(dir);
+  const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown`
+    : !/\b(?:process\.env|Bun\.env)\.DB\b|\benv\[['"]DB['"]\]/.test(readIn(dir, entry)) ? `${entry} is left alone: it does not read its database's path from DB (new Database(process.env.DB ?? 'data.db')), so it cannot be given an empty one`
+    : null;
+  return { entry, url, port: url ? Number(new URL(url).port) : null, why };
+}
+
+/** Whether anything answers HTTP at `url` (any status). */
+export const answering = (url) => fetch(url, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false);
+
+/** The one line a server's URL already answering gets: who holds the port, when the system says, and what to do. A
+ * server this did not start is never stopped, nor written to. */
+export function heldLine(server) {
+  const pid = spawnSync('lsof', ['-nP', `-iTCP:${server.port}`, '-sTCP:LISTEN', '-Fp'], { encoding: 'utf8' }).stdout?.match(/^p(\d+)/m)?.[1];
+  const command = pid ? spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout?.trim().slice(0, 60) : '';
+  return `${server.url} already answers${pid ? ` (pid ${pid}${command ? `: ${command}` : ''})` : ''}, and the tests would write into that server's database: stop it (${pid ? `kill ${pid}` : 'Ctrl-C where it runs'}) and run this again, which starts ${server.entry} itself on an empty one`;
+}
+
+/** Runs the app's server (`appServer`) on an empty scratch database, `.exact/<name>/db.sqlite`, and answers once it
+ * answers; refused (`heldLine`) when its URL already does. `{ stop(), exited(), tail() }`: `stop` ends it and removes
+ * the database; `exited` is its exit code once it has ended on its own, else null. `forward` passes its stderr on. */
+export async function startServer(dir, server, name, { forward = false } = {}) {
+  if (await answering(server.url)) throw new Error(heldLine(server));
+  const db = resolve(dir, '.exact', name, 'db.sqlite'), clear = () => { for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true }); };
+  mkdirSync(dirname(db), { recursive: true });
+  clear();
+  const child = Bun.spawn([process.execPath, server.entry], { cwd: dir, env: { ...process.env, DB: db, PORT: String(server.port) }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' });
+  let said = '';
+  (async () => { for await (const chunk of child.stderr) { said = (said + new TextDecoder().decode(chunk)).slice(-4000); if (forward) process.stderr.write(chunk); } })().catch(() => {});
+  const tail = () => { const lines = said.split('\n').map((l) => l.trim()).filter(Boolean); return lines.findLast((l) => /error/i.test(l)) ?? lines.at(-1) ?? ''; };
+  // The server goes with this process however it ends; a signal still ends it.
+  const kill = () => { try { child.kill('SIGKILL'); } catch {} clear(); };
+  const signals = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 }, onSignal = (signal) => { kill(); process.exit(signals[signal]); };
+  process.on('exit', kill);
+  for (const s of Object.keys(signals)) process.on(s, onSignal);
+  const stop = async () => {
+    process.off('exit', kill);
+    for (const s of Object.keys(signals)) process.off(s, onSignal);
+    if (child.exitCode == null) { child.kill('SIGTERM'); await Promise.race([child.exited, Bun.sleep(3000)]); }
+    if (child.exitCode == null) { child.kill('SIGKILL'); await child.exited; }
+    clear();
+    try { rmdirSync(dirname(db)); } catch {} // when nothing else is in it (verify's keeps its screenshots)
+  };
+  for (let i = 0; !(await answering(server.url)); i++) {
+    if (child.exitCode != null || i >= 100) {
+      await stop();
+      throw new Error(`${server.entry} ${child.exitCode != null ? `exited (code ${child.exitCode})` : 'did not answer in 10 s'} before it answered at ${server.url}${tail() ? `: ${tail()}` : ''}`);
+    }
+    await Bun.sleep(100);
+  }
+  return { stop, exited: () => child.exitCode, tail };
+}
+
+/** `fn` with the app's server running on an empty database, as verify runs it (`bun exact.mjs api-test`, the rest
+ * pattern's test.mjs): its exit code, or 1 when the server cannot run, said in one line. */
+export async function withAppServer(dir, fn) {
+  const server = appServer(dir);
+  let running;
+  try {
+    if (!server) throw new Error('no server: server.ts, server/index.ts, server/server.ts, or app.json\'s commands.server');
+    if (server.why) throw new Error(server.why);
+    running = await startServer(dir, server, 'api-test', { forward: true });
+  } catch (e) { console.error(`api-test: ${e.message}`); return 1; }
+  try { return await fn(running); } finally { await running.stop(); }
+}
 
 /** Builds the web app when its dist is missing or older than its sources, as the driver would refuse it:
  * null when fresh, else `{ ms, code, warnings, output }`. */
@@ -244,9 +334,12 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], tested, checks, relaunched, shots, ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, shots, ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
+  // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
+  if (server?.died) { broken++; out.push(`server: ${server.died}`); }
+  else if (server) out.push(`server: ${server.said}`);
   if (built) {
     const said = built.said?.length ? built.said.join('\n') : `built ${host}`;
     out.push(`${said} (${secs(built.ms)}${built.warnings.length ? `, ${plural(built.warnings.length, 'warning')}` : ''})`);
@@ -314,6 +407,11 @@ async function main(argv) {
   const { resolveApp } = await import('./app.mjs');
   const app = resolveApp(value('--app'));
   const say = (lines) => console.log(lines.join('\n'));
+  // An app with a server of its own: verify runs it where the app calls it, on an empty database. One already
+  // answering there (the builder's dev server) is refused before the build: never stopped, never written to.
+  const server = appServer(app.dir), owned = server && !server.why;
+  const refuse = (line) => { if (json) console.log(JSON.stringify({ host, server: { error: line }, problems: 1, exit: 1 })); else say([`verify: ${line}`]); return 1; };
+  if (owned && await answering(server.url)) return refuse(heldLine(server));
 
   const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);
   // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
@@ -336,18 +434,32 @@ async function main(argv) {
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
-  let tested, firsts, relaunched = null;
+  let tested, firsts, relaunched = null, results = [], running = null, serverSaid = server?.why ? { said: `${server.why}; the tests use whatever answers there` } : null;
   const compiling = compilerWarningsOf(app);
-  if (host === 'web') [tested, ...firsts] = await Promise.all([tests(host, app, shots), ...WEB_SIZES.map(launch)]);
-  else { tested = await tests(host, app, shots); firsts = [await launch(null, 0)]; }
-  const results = tested?.results ?? [], fresh = firsts.find((runs) => runs.seen)?.seen ?? null;
-  // The relaunch, on the store the chosen test left; the others' (the web's: Chrome profiles of this run) go after it.
-  const chosen = relaunchStore(results, fresh);
-  try { if (chosen) relaunched = await relaunch(host, app, chosen, fresh, shots).catch((e) => ({ test: chosen.name, error: e.message })); }
-  finally {
+  if (owned) {
+    try { running = await startServer(app.dir, server, 'verify'); }
+    catch (e) { return refuse(e.message); }
+    serverSaid = { said: `bun ${server.entry} at ${server.url}, on an empty database (.exact/verify/db.sqlite, removed after)` };
+  }
+  try {
+    // An app with a server opens its first screen before the tests write to it: an empty database's.
+    if (running) { firsts = host === 'web' ? await Promise.all(WEB_SIZES.map(launch)) : [await launch(null, 0)]; tested = await tests(host, app, shots); }
+    else if (host === 'web') [tested, ...firsts] = await Promise.all([tests(host, app, shots), ...WEB_SIZES.map(launch)]);
+    else { tested = await tests(host, app, shots); firsts = [await launch(null, 0)]; }
+    results = tested?.results ?? [];
+    const fresh = firsts.find((runs) => runs.seen)?.seen ?? null;
+    // The relaunch, on the store the chosen test left; the others' (the web's: Chrome profiles of this run) go after it.
+    const chosen = relaunchStore(results, fresh);
+    if (chosen) relaunched = await relaunch(host, app, chosen, fresh, shots).catch((e) => ({ test: chosen.name, error: e.message }));
+  } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
       for (const r of results) if (r.store) await removeBrowserProfile(driveStore(app, r.store).profile).catch(() => {});
+    }
+    if (running) {
+      const died = running.exited();
+      if (died != null) serverSaid = { died: `${server.entry} exited (code ${died}) during the run${running.tail() ? `: ${running.tail()}` : ''}` };
+      await running.stop();
     }
   }
   // A test's end screen that could not be checked fails the run, unless the test failed already (its FAIL line says why).
@@ -355,11 +467,11 @@ async function main(argv) {
   const checks = [...firsts.flat(), ...ends, ...(relaunched?.runs ?? [])];
   const compiler = await compiling;
   const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot])].filter((p) => p && existsSync(p));
-  const r = report({ host, built, compiler, tested, checks, relaunched, shots: kept, ms: Date.now() - started });
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, shots: kept, ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, tests: testsOut, checks, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), tests: testsOut, checks, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
   return r.exit;
 }

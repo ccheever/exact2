@@ -933,6 +933,26 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"pass-fetch\",\"prefix\":");
                     q(prefix, &mut s);
                 }
+                // @ref LLP 1116.006 D8 — the body as JSON text, the persona as `as`.
+                Step::Request {
+                    method,
+                    path,
+                    body,
+                    persona,
+                    ..
+                } => {
+                    s.push_str("{\"op\":\"request\",\"method\":");
+                    q(method, &mut s);
+                    s.push_str(",\"path\":");
+                    q(path, &mut s);
+                    for (key, value) in [("body", body), ("as", persona)] {
+                        s.push_str(&format!(",\"{key}\":"));
+                        match value {
+                            Some(v) => q(v, &mut s),
+                            None => s.push_str("null"),
+                        }
+                    }
+                }
                 Step::Resize { width, height, .. } => {
                     s.push_str(&format!(
                         "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"

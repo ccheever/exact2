@@ -568,3 +568,46 @@ fn only_a_tests_leading_fail_fetch_overrides_the_files() {
         "{json}"
     );
 }
+
+#[test]
+fn a_test_writes_through_the_apps_server_as_another_person() {
+    // LLP 1116.006 D8: method, a path under the server the app calls (or a
+    // whole URL), a JSON body that may span lines, and the persona.
+    let src = "test \"t\"\n  request POST \"/polls/1/votes\" {\"option\": 2, \"note\": \"a \\\"b\\\"\", \"tags\": [true, null, -1.5], \"by\": {}} as bob\n  request DELETE \"/items/3\" as \"token-grace\"\n  request GET \"http://127.0.0.1:8787/health\"\n  request PATCH \"/items/1\" {\n    \"locked\": false\n  }\n  clock +5000\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(matches!(
+        &steps[0],
+        Step::Request { method, path, body: Some(body), persona: Some(who), .. }
+            if method == "POST" && path == "/polls/1/votes" && who == "bob"
+                && body == "{\"option\":2,\"note\":\"a \\\"b\\\"\",\"tags\":[true,null,-1.5],\"by\":{}}"
+    ));
+    assert!(
+        matches!(&steps[1], Step::Request { body: None, persona: Some(who), .. } if who == "token-grace")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"POST\",\"path\":\"/polls/1/votes\",\"body\":\"{\\\"option\\\":2,"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"GET\",\"path\":\"http://127.0.0.1:8787/health\",\"body\":null,\"as\":null,\"line\":4}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"PATCH\",\"path\":\"/items/1\",\"body\":\"{\\\"locked\\\":false}\",\"as\":null,\"line\":5},{\"op\":\"clock\""),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  request post \"/items\"\n", 2),
+        ("test \"t\"\n  request POST \"items\"\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": 1,}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {a: 1}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": x}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" as\n", 2),
+        ("test \"t\"\n  request POST \"/items\" \"body\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
