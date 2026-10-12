@@ -243,7 +243,7 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
   test('every tooltip trigger inside a thread row or a project header tells the row the pointer is on it', () => {
     const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('component LegacyTitleTip'));
     const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
-    for (const [row, triggers] of [[thread, 5], [project, 2]] as const) {
+    for (const [row, triggers] of [[thread, 6], [project, 2]] as const) { // thread: title, pull request, port, worktree, terminal, Archive
       expect(row).toContain('action innerHover(value: bool)\n    inner = value');
       expect(row).toContain('derive pointed = over or inner');
       expect(row.match(/\bTip\(/g) ?? []).toHaveLength(0); // a plain Tip's hover would not reach the row
@@ -457,6 +457,7 @@ describe('review: a thread change focuses the composer (ChatView\'s effect on ac
     expect(await select(client, native, 'thread-2')).toBe(''); // no thread change: the focus stays on the row
     const held = rig({ modifiers: { command: true } });
     expect(await select(held.client, held.native, 'thread-2')).toBe(''); // a selection toggle opens nothing
+    expect(await select(client, native, 'gone')).toBe(''); // a thread the shell does not hold: the empty state, no composer
   });
   test('not while the opened thread\'s terminal drawer is open, which owns the keys', async () => {
     const { client, native } = rig();

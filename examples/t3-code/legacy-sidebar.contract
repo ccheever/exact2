@@ -23,7 +23,7 @@ use CnMachineIcon from "./settings-b-kit.contract"
 use Tip from "./shell-tip.contract"
 use TipBubble from "./shell-tip.contract"
 use SidebarTip from "./sidebar-row.contract"
-use TerminalProcessIndicator from "./sidebar-row.contract"
+use TerminalGlyph from "./sidebar-row.contract"
 use ProviderPill from "./r4-polish-tip.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
 use KmItem from "./menu-keys.contract"
@@ -343,7 +343,7 @@ component LegacyThread
     run: action
   state over = false
   state confirming = false
-  // The pointer on one of the row's own tooltip triggers (title, pull request, port, worktree, Archive): the host
+  // The pointer on one of the row's own tooltip triggers (title, pull request, port, worktree, terminal, Archive): the host
   // hovers only the nearest node with a hover handler, so a pointer entering the row on its title would leave the
   // row itself unhovered; the triggers report it here (group-hover holds for the whole row in the reference). A
   // trigger that goes away under the pointer reports no leave; the host hovers the row itself again then (its
@@ -445,7 +445,8 @@ component LegacyThread
                 box flex-shrink=0 display="flex" role="img" aria-label=t.worktreeLabel testId=`thread-worktree-${t.id}`
                   SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
             when t.terminalCount > 0
-              TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
+              LegacyRowTip(label="Terminal process running", side="top", align="center", offset=4, relay=innerHover)
+                TerminalGlyph(label="Terminal process running", size=12, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
             row min-width="3rem" justify-content="flex-end" align-items="center" gap="0.25rem" opacity=(revealed or confirmShown ? 0 : 1)
               when t.remoteMachine != ""
                 box flex-shrink=0 display="flex" role="img" aria-label=t.remoteLabel testId=`thread-remote-${t.id}`

@@ -49,8 +49,10 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
         if (parseFleetThreadId(id)) { const focused = await focusFleetThread(this, native, id); this.adoptStatus(focused.value, focused.generation); } // settings-b: another environment
         else if (!(await sidebarSelecting(this, native, id, value))) await this.openSelected(native, id);
       } catch (error) { await clearRowDrops(this, native, [pressed, id]); throw error; } // handleThreadFileDrop: a drop whose thread did not open is let go
-      // ChatView focuses the composer on every thread change (activeThread.id, a frame later), unless the terminal drawer is open.
-      const target = parseFleetThreadId(id) ?? (this.threadId && `${this.environmentId}\n${this.threadId}` !== before ? { environmentId: this.environmentId, threadId: this.threadId } : null);
+      // ChatView focuses the composer on every thread change (activeThread.id, a frame later), unless the terminal drawer is
+      // open; a thread the shell does not hold shows the empty state, with no thread and no composer.
+      const opened = this.threadId && `${this.environmentId}\n${this.threadId}` !== before && this.shell.threads.some(thread => thread.id === this.threadId);
+      const target = parseFleetThreadId(id) ?? (opened ? { environmentId: this.environmentId, threadId: this.threadId } : null);
       if (target && composerTakesFocus(this, target)) resultMessage = 'focus:composer';
     } else if (op === 'history') await this.history(native);
     else return false;
