@@ -17,7 +17,9 @@ Precedence, for every value a host presents: **author > platform > CSS default.*
 settles a dispute: *would someone who knows the platform notice?* If so it is a **tell**, and
 the platform's answer wins. On iPhone the reference is a screen built by hand with UIKit or
 SwiftUI following Apple's Human Interface Guidelines, on the same iOS version (James's "no
-tells"); on the Mac, AppKit; each platform likewise. Not Chrome.
+tells"); on the Mac, a hand-built app on the same macOS, in AppKit or SwiftUI, chosen for each
+presentation (amended 2026-10-12, Charlie, LLP 1115.002 D1: it read "on the Mac, AppKit");
+each platform likewise. Not Chrome.
 
 > **Amended (Charlie, 2026-10-11; LLP 1115.000 D12.3).** A person's accessibility settings
 > come before the author where a hand-built app would apply them: Bold Text weights the
