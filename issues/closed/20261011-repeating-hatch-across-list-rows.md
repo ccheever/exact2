@@ -1,6 +1,7 @@
 # A hatch cannot run at a fixed period across a list's rows: `repeating-linear-gradient()`, length stops and `background-attachment: local` are refused
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** repeating-linear-gradient and px stops land on every host, held to Chrome (UIKit included); background-attachment: local stays deferred by ruling 9
 **Systems:** kernel gradient, Contract background-image and background-attachment, every host
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)
@@ -285,3 +286,10 @@ of the commit. No workspace-wide or full-host test suite ran in this round.
 | `xcrun xctest -XCTest ExactKitTests.BorderParityMacTests/testEveryCaseMatchesChromeOnScreen "$bundle"` | Focused retry also crashed at the same nil-capture unwrap; on-screen parity remains unverified in this round. |
 | `bun host/apple/build.mjs caltrain-apple` | Pass; signed development app rebuilt. |
 | `bun scripts/agent.mjs macos --plan target/gradients-r1.plan --size 390x650 tree "screenshot target/gradients-r1-macos-light.png" "tap dark" state logs "screenshot target/gradients-r1-macos-dark.png"` | Pass; 20 nodes, scheme changes to dark, both captures inspected with blue/blue/white zero-period boxes. |
+
+## 2026-10-12 UIKit verification (orchestrator)
+
+`BorderParityIOSTests` ran on an iOS 27 simulator (iPhone Air) through
+`build.mjs --test --ios` filtered to that class: 2 tests, 0 failures. With
+AppKit, Linux and the web already held to Chrome, every host is qualified.
+`background-attachment: local` stays deferred by ruling 9 (rules/DEFERRED.md).
