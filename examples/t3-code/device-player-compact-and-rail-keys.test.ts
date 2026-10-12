@@ -161,7 +161,7 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     // backdrop, so the window's rule stands aside.
     expect(root).toContain('    canvasGestureValue = value\n    detailsOpen = detailsOpen and value == ""');
     const press = under(window, 'action outsidePressDown(e: PointerEvent)').join('\n');
-    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)\n      detailsAct("dismiss", "", "")');
+    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)\n      detailsEditors = false\n      titleMenuOpen = false\n      detailsActRoot("dismiss", "", "")');
     // The right panel's details button is drawn only on a sheet, under the window's backdrop: no exception names it.
     expect(press).not.toContain('panel-toggle-details');
     for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).not.toContain('id="panel-toggle-details"');
@@ -169,8 +169,9 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     expect(column).toContain('BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)');
     expect(window).toContain('canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerPointer, ');
     // It closes as the press ends (armed at the primary button's down), so a pill button's own press still lands.
-    // A skill chip's details close on it too: the player takes the press from the window's `main`.
-    expect(under(window, 'action detailsPlayerPointer(e: PointerEvent)').join('\n')).toBe('    if e.buttons == 1\n      detailsPlayerArmed = true\n    else\n      if detailsPlayerArmed and detailsOpen\n        detailsAct("dismiss", "", "")\n      if detailsPlayerArmed and chipShown\n        chipClose(false)\n      detailsPlayerArmed = false');
+    // A skill chip's details close on it too (a citation's comment settles, as the window's outside press): the player
+    // takes the press from the window's `main`.
+    expect(under(window, 'action detailsPlayerPointer(e: PointerEvent)').join('\n')).toBe('    if e.buttons == 1\n      detailsPlayerArmed = true\n    else\n      if detailsPlayerArmed and detailsOpen\n        detailsAct("dismiss", "", "")\n      if detailsPlayerArmed and chipShown\n        if chip.kind == "citation"\n          citeSettle()\n        else\n          chipClose(false)\n      detailsPlayerArmed = false');
     expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 pointerdown=outside pointerup=outside role="region" aria-label="Floating device preview"');
     expect(await component('browser-capture.contract', 'BrowserMiniPlayer')).toContain('z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside pointerup=outside role="region" aria-label="Floating browser preview"');
     expect(root).toContain('op != "ui:changes" and op != "dismiss")');
