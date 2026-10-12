@@ -780,7 +780,14 @@ boot path executes nothing), for what CSS does on its own.
 5. **D10, relative colour and `color-mix()`,** and the `Mix` table. Tests:
    iOS dynamic providers compared with UIKit's `withAlphaComponent` in four
    trait sets; the web's native output.
-6. **D4, `theme`,** when an app needs one.
+6. **D4, `theme`,** when an app needs one. **The gate is being tested (Charlie,
+   2026-10-12, "ok that plan sounds reasonable").** The bake-off never needed one, but five
+   of the repository's apps hand-roll a `Theme` record and Expose writes one colour pair 26
+   times, and exact1's own review found that tokens added late are not adopted. So D4 is
+   built on a branch and Expose and `packages/reading` are ported to it, and three or four
+   branded specs go into one bake-off round. Whether it lands is decided from the port
+   (what it removed, what an override reaches on each host, what an author must read) and
+   from that round, not before.
 7. **§10's fidelity fixes,** in their own order (§10.6).
 
 ## 6. Open questions for the maintainer
