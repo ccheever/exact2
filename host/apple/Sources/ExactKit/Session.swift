@@ -358,6 +358,8 @@ public final class ExactSession {
     private var updateToken: UInt64 = 0
 
     package let runtime: Runtime
+    /// This session's file roots, captured outside a native module callback.
+    var appFileRoots: [String: String] = [:]
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
@@ -817,7 +819,7 @@ public final class ExactSession {
             if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
-            AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
+            appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
         treeIsIn()
@@ -907,7 +909,7 @@ public final class ExactSession {
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
-        AppFiles.learn(runtime)
+        appFileRoots = AppFiles.learn(runtime)
         apply(batch)
         treeIsIn()
         tellTime()
@@ -1034,8 +1036,6 @@ public final class ExactSession {
                 apply(runtime.viewScheme(id, dark: dark))
             }
             presenter.collections.flush()
-            // Route projection and all structural/style changes are now final.
-            // Ineligible recognizers may never receive another mouse/touch event.
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
             transformInputHold?.cancelIfInputIneligible()
@@ -1086,7 +1086,6 @@ public final class ExactSession {
                     continue
                 }
                 if name == "postMessage" {
-                    // The inverse of `message=`: text into the named surface, in order.
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
                     app.deliver { [weak self] in self?.canvases.post(surface, text) }
                     continue
@@ -1167,15 +1166,14 @@ public final class ExactSession {
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
-            // The app module is ready before any source can call it: its load
-            // never lands inside a `native.call`'s budget (LLP 1067.000 D8).
+            // Prepare before any source calls the module (LLP 1067.000 D8).
             natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
                 return
             }
-            AppFiles.learn(runtime) // the roots storage configured
+            appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
             if batch.error == nil {
@@ -1197,9 +1195,7 @@ public final class ExactSession {
         let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent)
         // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
         frames.timerSoon = wake == .frame || (frames.tasks && !agent)
-        // A timer armed for this same deadline stays: most batches leave the
-        // runner's next deadline where it was, and a new timer each batch
-        // cost more than the batch's other bookkeeping.
+        // Keep a timer already armed for this deadline; most batches leave it unchanged.
         if case .timeout = wake, let armed = clockTimer, armed.isValid, clockDue == due {
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
             return

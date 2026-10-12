@@ -1,6 +1,7 @@
-# Contract compiler: unoptimized, 103 nested view sites overflow a 2 MiB thread (the parser admits 255), so the examples sweep aborts the whole test binary
+# Contract compiler: unoptimized, 103 nested view sites overflow a 2 MiB thread (the language admits 256), so the examples sweep aborts the whole test binary
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Every pass fits 256 nested sites on a 2 MiB unoptimized thread (lowerer ~19.7 to 5.3 KiB/site, parser 16.1 to 5.8) and 257 is refused by name; nested match/when/buttons, component chains, discarded and slotless fills are bounded before copying (contract/cli/tests/stack_depth.rs); the source sweep compiles the T3 Code clone (examples/t3-code from feat(example)/t3-code) without overflow
 **Systems:** Contract compiler
 **Severity:** P1
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -9,7 +10,7 @@
 
 ## Current scope
 
-Make admitted view/component depth fit a 2 MiB thread unoptimized; refuse excessive nesting by name before recursion aborts. Cover 255/256 sites, the 120-site component case and excessive chain in the example sweep. Do not merely enlarge test stacks.
+Make admitted view/component depth fit a 2 MiB thread unoptimized; refuse excessive nesting by name before recursion aborts. Cover 256 accepted/257 refused sites, the 120-site component case and excessive chain in the example sweep. Do not merely enlarge test stacks.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
@@ -84,3 +85,78 @@ The full file is [x67-deep.contract.txt](https://raw.githubusercontent.com/cchee
   - lower iteratively;
   - make the inliner count total site depth (not only component depth) and refuse before recursing.
 - Not tested: compiles that run in-process outside the tests (the web build, the dev loop), and the other passes (types, analyze) at their own limits. The expression passes are already guarded by `deep_expressions_are_refused_by_name_on_a_small_stack`.
+
+## Fix lane, 2026-10-11
+
+The branch `issues/20261011-stack` adds a 2 MiB unoptimized integration test and
+an ignored per-pass depth probe. Lowering prepares an element in a separate
+nonrecursive frame; parsing splits view arms into separate frames; inlining
+isolates component-use expansion. The first commits refused a 256th site;
+review found this tightened the language, whose plan admits 256. The review
+fix restores 256 accepted/257 refused in the parser, inliner, and provider
+check. The parser counts a positional button's implicit text child, nested
+match arm headers finish before recursive arm bodies, and the inliner checks
+the remaining site budget iteratively before renaming a component view. The
+provider path check borrows slot fill nodes instead of cloning their deep tree
+with the caller's recursive frames live.
+
+The probe binary-searches the largest successful depth for each pass, with
+setup on an 8 MiB thread and the measured pass on the stated small stack.
+Per-site costs are estimates from threshold differences (1 and 2 MiB before,
+0.5 and 1 MiB after), not Rust frame-layout claims. The column rows' new
+`≥256` entries are capped by the admitted language depth. The match row's
+1 MiB threshold was remeasured after review; its before cost is Reviewer A's
+binary measurement.
+
+| Pass | Before: 2 MiB max | Before KiB/site | After: 2 MiB max | After KiB/site |
+|---|---:|---:|---:|---:|
+| Parse (columns) | 128 | 16.1 | ≥256 | 5.8 |
+| Parse (nested match) | not probed | 9.6 (binary frame measurement) | 255 matches plus leaf (256 sites) | ~7.5 (136 matches fit 1 MiB; 137 overflow) |
+| Inline | 125 | 16.3 | ≥256 | 5.3 |
+| Types | 125 | 16.3 | ≥256 | 6.5 |
+| Analyze | ≥255 | 4.1 | ≥256 | 4.1 |
+| Lower | 102 | 19.7 | ≥256 | 5.3 |
+| Plan validation | ≥255 | no measured growth | ≥256 | no measured growth |
+
+The 2 MiB test now passes for 256 authored sites (columns, nested match and
+when with their leaf, and positional buttons with their implicit text), a
+named refusal at 257 sites, an 8×15 and 17×15 component chain, and a named
+refusal for a 40×60 chain, App(254 columns)→Child(255 columns plus leaf), and
+the same caller depth with a 255-site slot fill under Child's nested use.
+The source sweep also passed with the 8×15 fixture temporarily under `examples/`
+(91 roots, zero failures). The requested Contract, lower, and syntax suites,
+Clippy, formatting, and caps passed. The semantics quick check could not run:
+`lake` is not installed. The T3 Code clone is absent from this worktree, so
+the merged-clone acceptance item remains unverified and this issue stays open.
+
+## Review fix round 2, 2026-10-11
+
+The pre-expansion site guard counted a 255-column slot fill even when its
+component never rendered `children`, refusing an emitted view only three sites
+deep. A 2 MiB regression test failed with `syntax-inline-depth` before the fix;
+the guard now follows only fills that a callee renders, including forwarded
+fills. A second regression showed a numeric provider accepted for a string
+inject when `children` was forwarded through another slot component. The
+provider walk now retains the enclosing fill and refuses that use with
+`type-provide`. The same lost-fill handoff exists on `origin/main`.
+
+The focused regressions, the Contract/lower/syntax suites with the T3 source
+sweep skipped, Clippy, and formatting passed. The full source sweep was
+started but did not finish with the untracked `examples/t3-code/` clone present;
+it remains outside the branch and out of this commit. The semantics quick
+check still cannot run because `lake` is unavailable. The issue remains open
+until the clone acceptance item is verified on a merged tree.
+
+## Review fix round 3, 2026-10-11
+
+Both review findings reproduced. A discarded 255-column fill beneath 255
+caller columns and 31 component uses aborted an unoptimized 2 MiB test thread;
+the regression now compiles. A slot component with 128 nested columns and two
+empty recursive uses did not finish within six seconds; it now returns
+`syntax-inline-depth` promptly on the same small stack. The inliner computes
+which slot components can render a fill with a bounded fixed point, including
+recursive component graphs, then omits discarded fills before copying or
+renaming them. The 2 MiB depth suite and Contract/lower/syntax suites passed,
+including the app/example source sweep; Clippy and formatting passed. The
+semantics quick check still cannot start because `lake` is unavailable. The
+issue remains open for the merged T3 Code clone acceptance item.

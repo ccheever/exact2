@@ -153,6 +153,14 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertEqual(p.selection.selectedText(), "", "a click on \(what) clears the selection, as on the web")
             XCTAssertEqual(heard.last, "0-0:")
         }
+        // A contact delivered to the scroll view itself clears page selection
+        // while the first responder stays put, as AppKit leaves it on a
+        // window's empty ground (LLP 1115.000 D7.1).
+        try select(p)
+        let ground = p.viewport.convert(NSPoint(x: 350, y: 280), to: nil)
+        p.viewport.mouseDown(with: mouse(.leftMouseDown, ground))
+        XCTAssertEqual(p.selection.selectedText(), "")
+        XCTAssertTrue(window.firstResponder === p.views[2])
     }
 
     /// LLP 1115 D8: on the Mac `user-select: auto` is AppKit's. A control's

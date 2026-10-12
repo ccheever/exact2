@@ -1,6 +1,7 @@
 # macOS: a click inside an open popover also presses the page control under it
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** PR #327 and review follow-ups: top-layer contacts stay in the popover; manual popovers and nested auto ancestors survive appropriate dismissal
 **Systems:** host/apple macOS, menus, pointer events
 **Severity:** P1
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

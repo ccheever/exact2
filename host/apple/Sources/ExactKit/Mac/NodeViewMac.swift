@@ -329,19 +329,14 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             tracking = nil
         }
     }
-    package override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    package override func mouseEntered(with event: NSEvent) { presenter?.trackPointer(event) }
     package override func mouseMoved(with event: NSEvent) {
-        guard !inert else { return }
-        pointerHovered(event)
-        if canvasInput?.pointer(event, phase: "move") == true { return }
-        let run = inlineTarget(at: local(event.locationInWindow), handler: "hover")
-        presenter?.hoverInline(run?.id)
-        if run == nil, handlers.contains("hover") { presenter?.hover(self, true) }
+        presenter?.trackPointer(event)
+        // A canvas a sibling covers still takes the move (its host emits
+        // nothing for a covered point), so its next motion is one step.
+        if let input = canvasInput, presenter?.trackedCanvas !== input { _ = input.pointer(event, phase: "move") }
     }
-    package override func mouseExited(with event: NSEvent) {
-        presenter?.hoverInline(nil)
-        if handlers.contains("hover") { presenter?.hover(self, false) }
-    }
+    package override func mouseExited(with event: NSEvent) { presenter?.trackPointer(event) }
     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
     /// The exception is a descendant with a role of its own, which stays its
     /// child as on the web (`controlAccessibilityChildren`). An image or a

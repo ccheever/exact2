@@ -80,6 +80,13 @@ fn a_provide_section_fills_an_inject_and_the_nearest_component_wins() {
 }
 
 #[test]
+fn a_forwarded_slot_fill_checks_its_injected_provider_type() {
+    let source = "component App\n  provide\n    accent = 1\n  view\n    Shell()\n      Label()\ncomponent Shell\n  slot\n  view\n    Pass()\n      children\ncomponent Pass\n  slot\n  view\n    children\ncomponent Label\n  inject\n    accent: string\n  view\n    text toString(accent)\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "type-provide", "{error}");
+}
+
+#[test]
 fn the_nested_provide_form_and_a_twice_provided_name_are_refused() {
     let nested = "component App\n  view\n    column\n      provide accent = \"#fff\"\n        Label()\ncomponent Label\n  inject\n    accent: string\n  view\n    text accent\n";
     let error = contract::compile(nested).unwrap_err();

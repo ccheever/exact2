@@ -16,6 +16,21 @@ package final class PageScrollView: NSScrollView {
         let horizontal: Bool
         let autohides: Bool
     }
+    // One viewport tracking area sees overflowing descendants and exits even
+    // when no node's bounds contain the pointer. Nodes use the same hit test.
+    var pointerTracking: ((NSEvent) -> Void)?
+    private var pointerArea: NSTrackingArea?
+    package override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if pointerArea == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+            addTrackingArea(area); pointerArea = area
+        }
+    }
+    package override func mouseEntered(with event: NSEvent) { pointerTracking?(event) }
+    package override func mouseMoved(with event: NSEvent) { pointerTracking?(event) }
+    package override func mouseExited(with event: NSEvent) { pointerTracking?(event) }
+
     private var documentFit: DocumentFit?
     private var prefittingDocument = false
     var permitsDocumentPrefit: (() -> Bool)?

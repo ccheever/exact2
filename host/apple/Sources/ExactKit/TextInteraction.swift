@@ -8,12 +8,22 @@ import UIKit
 
 extension Presenter {
     func hoverInline(_ id: UInt32?) {
+        inlineHoverTransition &+= 1
+        let generation = inlineHoverTransition
         let next = id.flatMap { inlineEnabled($0) ? $0 : nil }
         guard next != hoveredInline else { return }
-        if let old = hoveredInline, inlineText(old) != nil { onHover?(old, false) }
-        hoveredInline = next
-        if let next {
+        let old = hoveredInline
+        hoveredInline = nil
+        if let old, inlineText(old) != nil { onHover?(old, false) }
+        // Only an admitted enter is hovered. A boundary callback that installs
+        // another hit path supersedes this transition, including an empty one.
+        guard inlineHoverTransition == generation else { return }
+        if let next, inlineEnabled(next) {
+            #if !os(macOS)
             if let old = hovered { hover(old, false) }
+            #endif
+            guard inlineHoverTransition == generation else { return }
+            hoveredInline = next
             onHover?(next, true)
         }
     }
