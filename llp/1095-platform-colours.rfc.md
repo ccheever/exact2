@@ -269,6 +269,12 @@ differ visibly (`controlBackgroundColor`), the table says so. Open question
 > the web's under the neutral look and a painted host's (LLP 1115.000 D4,
 > D17). A host says which column it falls back to (`roles::set_column`), and
 > none says neutral yet, so every host still shows Apple's.
+>
+> **And by its D3.6.** On iOS `ButtonText` is the inherited `tintColor` (it was
+> `linkColor`, which no authored accent reaches), and so is `link`, which
+> therefore resolves as `LinkText` does. An unset page background is
+> `background` (`windowBackgroundColor` on the Mac); `Canvas` stays
+> `textBackgroundColor` there, the document's white.
 
 **There is no `accent` role.** `AccentColor` is the accent: on iOS it is
 the view's inherited `tintColor`, which is what an app's `accent-color` row

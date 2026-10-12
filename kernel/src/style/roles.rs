@@ -650,22 +650,69 @@ mod tests {
             role_pair(u8::MAX, Column::Neutral),
             ColorValue::Fixed(Color::TRANSPARENT)
         );
-        // The tint is one colour in each column: a role that is the tint
-        // (`LinkText`), or the tint at an alpha (`Highlight`), falls back to
-        // `AccentColor`'s pair, so a host without a tint shows one blue.
-        let accent = COLOR_ROLES[usize::from(role("AccentColor").unwrap())];
+        // The tint is one colour: a role that is the tint on iOS, or the
+        // tint at an alpha (`Highlight`), falls back to `AccentColor`'s pair
+        // in Apple's column, so a host without a tint shows one blue. LLP
+        // 1115.000 D3.6: a button's text and a link are the tint there, as
+        // UIKit draws them, so an authored accent reaches both, and
+        // `-exact-link` and `LinkText` resolve alike.
+        let named = |name: &str| COLOR_ROLES[usize::from(role_id(name))];
+        let accent = named("AccentColor");
+        let tints: Vec<&str> = COLOR_ROLES
+            .iter()
+            .filter(|r| r.ios.starts_with("@tint"))
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(
+            tints,
+            ["LinkText", "Highlight", "AccentColor", "ButtonText", "link"]
+        );
         for r in COLOR_ROLES.iter().filter(|r| r.ios.starts_with("@tint")) {
             let alpha = if r.ios == "@tint" { 0xff } else { 0x33 };
             for (got, want) in [(r.light, accent.light), (r.dark, accent.dark)] {
                 assert_eq!(got, want & 0xffff_ff00 | alpha, "{}: Apple's", r.name);
             }
+            assert_eq!(
+                follows_accent(role_id(r.name)),
+                r.ios == "@tint",
+                "{}",
+                r.name
+            );
+        }
+        assert_eq!(named("link").ios, named("LinkText").ios);
+        assert_eq!(
+            named("link").macos,
+            "linkColor",
+            "the Mac's own link colour"
+        );
+        assert_eq!(named("ButtonText").macos, "controlTextColor");
+        // In the neutral column a link is the accent too; a button's text is
+        // the page's ink, as a browser's own `ButtonText` is.
+        for name in ["LinkText", "link", "Highlight"] {
+            let r = named(name);
             for (got, want) in [
                 (r.neutral_light, accent.neutral_light),
                 (r.neutral_dark, accent.neutral_dark),
             ] {
-                assert_eq!(got >> 8, want >> 8, "{}: neutral", r.name);
+                assert_eq!(got >> 8, want >> 8, "{name}: neutral");
             }
         }
+        let (button, ink) = (named("ButtonText"), named("CanvasText"));
+        assert_eq!(
+            (button.neutral_light, button.neutral_dark),
+            (ink.neutral_light, ink.neutral_dark)
+        );
+        // An unset page background is `-exact-background`, the window's on
+        // the Mac; `Canvas` stays the document's white there.
+        assert_eq!(named("background").macos, "windowBackgroundColor");
+        assert_eq!(named("background").ios, "systemBackgroundColor");
+        assert_eq!(named("Canvas").macos, "textBackgroundColor");
+    }
+
+    /// A role's id by the name the table gives it.
+    fn role_id(name: &str) -> u8 {
+        let at = COLOR_ROLES.iter().position(|r| r.name == name);
+        u8::try_from(at.unwrap()).unwrap()
     }
 
     /// The neutral column's own rule (the schema's `_colors`): a text role

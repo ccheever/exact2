@@ -71,8 +71,10 @@ resolves (`text_color` is `CanvasText`: `labelColor` on iOS, `textColor` on macO
 own on the web). This LLP extends it rather than inventing a second mechanism:
 
 - **Colours.** Every presentation colour default is a role, never a literal: page background
-  (`Canvas` → `systemBackground`/`windowBackgroundColor`), separators (`-exact-separator`),
-  links (`LinkText` → the tint on iOS), tint (`AccentColor`).
+  (`-exact-background` → `systemBackground`/`windowBackgroundColor`; `Canvas` is the
+  document's white, `textBackgroundColor` on the Mac, and is not what an unset page shows:
+  LLP 1115.000 D3.6), separators (`-exact-separator`), links (`LinkText` → the tint on iOS),
+  tint (`AccentColor`).
   > **Amended by LLP 1116.000 D4 (2026-10-10).** The link role reached only a run with an
   > `href` in its paragraph; a block `link` inherited, so a `tel:` or `mailto:` value was body
   > text on the web. On the web a block `link` of text whose colour is unsaid is in the accent

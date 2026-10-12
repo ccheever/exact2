@@ -4789,10 +4789,10 @@
     [
       "ButtonText",
       "",
-      "linkColor",
+      "@tint",
       "controlTextColor",
-      "#007aff",
-      "#0a84ff",
+      "#0088ff",
+      "#0091ff",
       "#000000",
       "#ffffff"
     ],
@@ -4869,10 +4869,10 @@
     [
       "link",
       "",
+      "@tint",
       "linkColor",
-      "linkColor",
-      "#007aff",
-      "#0984ff",
+      "#0088ff",
+      "#0091ff",
       "#0b66d6",
       "#68a5fe"
     ],
