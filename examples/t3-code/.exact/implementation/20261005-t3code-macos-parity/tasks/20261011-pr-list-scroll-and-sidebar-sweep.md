@@ -85,16 +85,23 @@ card for the "Settle thread" tooltip; the press closes it; past 6 px the list ta
 is hovered and nothing pops up while the rows arm; Escape cancels (no row armed, the row under the pointer `:hover`);
 the release applies nothing; the next pointer move opens that row's card. The clone before: the press's `focus`
 (`focus=hoverCard("", false)`) only moved the overlays off (`sidebarHoverY = -10000`), leaving the window's hover on the
-pressed row, so a press on a button that already held the focus (any second sweep from the same button) kept the card
-up through the sweep, and after a cancelled release the pressed row, not the one under the pointer, was hovered (the
-host keeps the pressed row hovered through a pan and hovers nothing new until the pointer moves). Now:
+pressed row (`sidebarHoverId` stayed `sweep-4~active#settle`), and after a cancelled release the pressed row, not the one
+under the pointer, was hovered (the host keeps the pressed row hovered through a pan and hovers nothing new until the
+pointer moves). A press on a button that already held the focus runs no `focus`, so from the source it would keep the
+card up through the sweep; that was read from the source, not shown: the drive's second gesture meant to press with the
+focus already on Settle, but its press still ran the button's `focus` (`sidebarHoverY` -10000 at op 40, before and
+after, after op 29 had set it from the row), so the case is left to real-input step 5. Now:
 
 - ThreadSection's first arming calls the root's `sidebarHover(hoverId, false)` (handed down as `unhover`), so the card
   or a control's tooltip closes as the sweep takes over, whatever the focus did.
 - A cancel keeps the row under the pointer as its rows' hover (`sweepRest`), through the release, until the window's
-  hover count (`sidebarHoverSeq`, bumped by every sidebar hover event) moves on or the pointer leaves the section
-  (`hover=sectionHover`); `fn sweepRowHover` chooses (none while live, the resting row, else the window's). No card
-  opens until the pointer moves, as the reference's.
+  hover count (`sidebarHoverSeq`, bumped by every sidebar hover event) moves on; `fn sweepRowHover` chooses (none while
+  live, the resting row, else the window's). No card opens until the pointer moves, as the reference's. The pointer's
+  first move, out of the section too, sends the leave of the control the host kept hovered through the pan (its
+  `SidebarTip`, `hover=hoverCard(tip)`) through the window's `sidebarHover`, which ends the resting row. The section
+  takes no `hover` of its own: the macOS host hovers one node at a time (X62, #322), so under a real pointer a section
+  hover and the row under the pointer would trade the hover on every move (review round 1 removed the
+  `hover=sectionHover` the first version had).
 - Escape stays r12's window shortcut (`sweep-cancel-<section>`, only while live): the reference hears it from anywhere
   in the document, which a `key` handler on the section would not; the cancelled release sends `|cancel|` and the client
   applies nothing (r12-sidebar.test.ts).
@@ -192,7 +199,8 @@ the GitHub lane paired. Never send a message.
 3. **PS-2b.** Still holding, press Escape: the badges go and Sweep three shows its hover actions; release: nothing is
    settled (no toast, Settled count unchanged).
 4. **PS-2c.** Without moving: Sweep three stays the hovered row, no card. Move the pointer a little: Sweep three's card
-   opens.
+   opens. Repeat 2-3, release, and move the pointer straight out of the sidebar (onto the chat): Sweep three's hover
+   actions go. Move back over Sweep three and around inside it: its card stays open, no flicker.
 5. Repeat 2-4 at once from the same Settle (a press on a button that already holds the focus moves no focus, the
    case the arming's own close covers): the same.
 6. A sweep from Sweep two over Sweep one, released: "Settled 2 threads, ⌘Z to undo"; ⌘Z brings them back.
