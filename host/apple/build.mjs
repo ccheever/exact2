@@ -618,7 +618,7 @@ export function receipt(app, fields) {
   const version = (cmd, args) => (read(cmd, args).stdout ?? '').trim().split('\n')[0];
   return JSON.stringify({
     app: { id: app.id, name: app.displayName, origin: app.origin, declared: app.declared },
-    built: new Date().toISOString(),
+    built: new Date().toISOString(), started: new Date(Date.now() - process.uptime() * 1000).toISOString(), // started: before this build read a source
     toolchain: { rustc: version('rustc', ['--version']), swift: version('swift', ['--version']), xcode: version('xcodebuild', ['-version']) },
     ...fields,
   }, null, 2) + '\n';
