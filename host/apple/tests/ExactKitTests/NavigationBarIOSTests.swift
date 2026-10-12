@@ -242,9 +242,14 @@ final class NavigationBarIOSTests: XCTestCase {
         let top = try XCTUnwrap(nav.topViewController)
         let search = try XCTUnwrap(top.navigationItem.searchController, "the header's search field")
         XCTAssertEqual(search.searchBar.placeholder, "Search the fixture")
+        // LLP 1115.000 D11.2: where the field goes and whether it hides as
+        // the content scrolls are UIKit's own answers, not pinned by Exact.
+        XCTAssertEqual(top.navigationItem.preferredSearchBarPlacement, .automatic, "UIKit's placement")
+        XCTAssertTrue(top.navigationItem.hidesSearchBarWhenScrolling, "it hides on scroll, as UIKit's does")
         search.searchBar.text = "abc"
         search.searchResultsUpdater?.updateSearchResults(for: search)
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
+        XCTAssertFalse(top.navigationItem.hidesSearchBarWhenScrolling, "a search in effect keeps its field in view, as UIKit keeps an active search's")
         // LLP 1115.000 D9.2: the keyboard's Search key puts the keyboard
         // away, as a hand-built search bar's delegate does, and the search
         // stays as typed.

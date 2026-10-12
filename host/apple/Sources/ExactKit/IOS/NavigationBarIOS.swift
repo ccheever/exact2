@@ -607,6 +607,9 @@ extension NavigationHost {
     /// A header's search field is the item's `UISearchController` (§9.6):
     /// its placeholder and value are the field's; what the reader types is
     /// the field's `input` (and `focus`, `blur`), as typing in it would be.
+    /// Where it sits and whether it hides as the content scrolls are
+    /// UIKit's own answers for the device and the bar (LLP 1115.000 D11.2):
+    /// Exact once pinned it under the title (`.stacked`, never hiding).
     private func searchField(_ field: NodeView?, in c: RouteController) {
         // tvOS navigation items carry no search controller.
         #if !os(tvOS)
@@ -618,8 +621,6 @@ extension NavigationHost {
         if c.search !== search {
             c.search = search
             c.navigationItem.searchController = search.controller
-            c.navigationItem.hidesSearchBarWhenScrolling = false
-            if #available(iOS 16.0, *) { c.navigationItem.preferredSearchBarPlacement = .stacked }
             c.definesPresentationContext = true
         }
         search.field = field
@@ -629,6 +630,10 @@ extension NavigationHost {
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
+        // UIKit hides the field as the content scrolls and keeps an active
+        // search's in view. A search in effect that UIKit did not start (a
+        // value the app or the agent wrote) keeps its field in view too.
+        if c.navigationItem.hidesSearchBarWhenScrolling != value.isEmpty { c.navigationItem.hidesSearchBarWhenScrolling = value.isEmpty }
         // The field itself, which XCUITest finds as a search field and a
         // person types in, carries the test id (LLP 1116 D2).
         if bar.searchTextField.accessibilityIdentifier != field.props["testId"] { bar.searchTextField.accessibilityIdentifier = field.props["testId"] }
