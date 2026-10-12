@@ -4,7 +4,9 @@
 // the field's text steps, in decimal as the web's does (0.1 and 0.2 make
 // 0.3), by `step` (1 when unsaid, `any` or unreadable), from the step base
 // (`min`, else 0), bounded by `min` and `max`. A whole step gives a whole
-// number: the text is the shortest decimal, `3`, never `3.0`.
+// number: the text is the shortest decimal, `3`, never `3.0`. A value typed
+// past `min` or `max` is brought to the bound it passed when the edit
+// commits (LLP 1116.008 D5).
 import Foundation
 
 struct NumberStepping {
@@ -75,6 +77,18 @@ struct NumberStepping {
         if let lo = min, v < lo { v = lo }
         if let hi = max, v > hi { v = hi }
         return v
+    }
+
+    /// A typed value as the edit commits it (LLP 1116.008 D5): the bound it
+    /// passed, as the stepper holds its own to `min` and `max`, the bounds
+    /// the web leaves to the browser's validation. Nil when there is nothing
+    /// to change: a number within the bounds, or text that reads as no
+    /// number (left alone, as the web's field keeps what it was given).
+    func clamped(_ text: String) -> String? {
+        guard let typed = Self.decimal(text) else { return nil }
+        if let lo = min, typed < lo { return Self.text(lo) }
+        if let hi = max, typed > hi { return Self.text(hi) }
+        return nil
     }
 
     private static func round(_ d: Decimal, _ mode: NSDecimalNumber.RoundingMode) -> Decimal {
