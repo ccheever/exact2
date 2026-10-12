@@ -365,6 +365,8 @@ component ProjectDialogs
     rest: action
     restRaw: action
     restClose: action
+    // The scheduled task editor's Runs on reopens it on another environment (settings-scheduled.contract ScheduledEditor).
+    restOpen: action
     sbPicker: SbPicker
     sbQuery: string
     sbLettersEdited: bool
@@ -378,8 +380,8 @@ component ProjectDialogs
     cardScripts: bool
   view
     // Each editor gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
-    DialogFinalFocus(open=(restEditor == "task" or restEditor == "project-remove" or restEditor == "project-remove-member" or restEditor == "project-action" or restEditor == "card-action" or restEditor == "project-icon" or restEditor == "project-favicon"), target=(restEditor == "task" ? (restSubject == "" ? "new-scheduled-task" : `task-actions-${restSubject}`) : (restEditor == "project-remove" ? "remove-project" : (restEditor == "project-remove-member" ? `remove-checkout-${restSubject}` : (restEditor == "project-action" ? (restSubject == "" ? "add-project-action" : `edit-project-action-${restSubject}`) : (restEditor == "card-action" ? (cardScripts ? "details-script-actions" : "details-add-script") : (restEditor == "project-icon" ? "project-choose-icon" : "project-choose-file")))))))
-    SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, taskBase=taskBase)
+    DialogFinalFocus(open=(restEditor == "task" or restEditor == "project-remove" or restEditor == "project-remove-member" or restEditor == "project-action" or restEditor == "card-action" or restEditor == "project-icon" or restEditor == "project-favicon"), target=(restEditor == "task" ? (restSubject == "" or startsWith(restSubject, "new|") ? "new-scheduled-task" : `task-actions-${restSubject}`) : (restEditor == "project-remove" ? "remove-project" : (restEditor == "project-remove-member" ? `remove-checkout-${restSubject}` : (restEditor == "project-action" ? (restSubject == "" ? "add-project-action" : `edit-project-action-${restSubject}`) : (restEditor == "card-action" ? (cardScripts ? "details-script-actions" : "details-add-script") : (restEditor == "project-icon" ? "project-choose-icon" : "project-choose-file")))))))
+    SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, open=restOpen, taskBase=taskBase)
     when restEditor == "project-action"
       ProjectActionDialog(data=projectsSettings, subject=restSubject, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
     // The thread details card's Add project script (ProjectScriptsControl openAddDialog): a new action for `restSubject`, the thread's project.
