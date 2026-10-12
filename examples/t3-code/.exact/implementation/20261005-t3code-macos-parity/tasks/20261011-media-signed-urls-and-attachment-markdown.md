@@ -237,10 +237,11 @@ failure slot) where it held the 13-node `MarkdownInlineMedia`. `caps.mjs` sets n
 Earlier, the first head `7ac9bdd40` (on `6db5cadea`): every check above exited 0 (4661 Bun tests, 24 Rust tests in
 `t3-code-macos`, 3,679 workspace tests), 29,534,552 bytes.
 
-## Decision needed
+## Decision needed: decided
 
-None. Review round 1 settled the one question this record had (an inline video's failure slot) by the reference: it
-is built (R1-1).
+The inline video's failure slot (R1-1) is built as the reference draws it, at +4.9% plan size (30,266,551 bytes, +1,400,885
+over the feature tip `e91bdc8af`). Decided by the coordinator on 2026-10-12: the size is accepted, as the user accepted
+size costs for parity before (U15, RL-5).
 
 ## Not done / not verified
 
@@ -270,4 +271,4 @@ is built (R1-1).
 
 ## Next action
 
-The coordinator reviews the draft PR; real-input step 1 in the next session.
+The coordinator reviews the draft PR (its plan size is accepted, above); real-input step 1 in the next session.
