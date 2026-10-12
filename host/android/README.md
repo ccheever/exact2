@@ -11,7 +11,7 @@ the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
-| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
+| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Surfaces` (the top layer's windows: a `Dialog`, a `PopupWindow`), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
@@ -232,10 +232,11 @@ capability has a call of its own.
 | 4 | `share` | one word saying which of the three the app gave (bit 0 the title, 1 the text, 2 the URL), then three strings: title, text, URL | the Sharesheet (`ACTION_SEND` in a chooser) | `shared`, `dismissed`, or why it could not be shown; exact2 journals `share: shared`, `share: dismissed` or `share: refused: …` |
 | 5 | whether Back has somewhere to go in the app (D6) | one word: 1 or 0 | registers its `OnBackInvokedCallback` while it has, and unregisters it while it has not, so Back at the first screen is the system's own and leaves with its animation | none |
 | 6 | the software keyboard | two words: 0 hidden, 1 shown for an `input`, 3 for a `textarea`; then the hosted field it is for (D8), or 0 for a field exact2 paints | for a hosted field, that `EditText` takes the focus and shows its own keyboard (`Fields.focus`); else `Keys.show` | none |
+| 7 | the top layer's surface (D10, below) | its serial; what it is (0 it closed, 1 an alert, 2 a menu); flags (bit 0 Back and Escape dismiss it, bit 1 a tap outside does); where its window goes in the activity's window and its size (x, y, width, height, pixels; an alert's place is the platform's); its container's corner radius and elevation in pixels, as float bits; a count, then that many words: its picture, an op stream of its own | makes, repaints, moves or dismisses that surface's window (`Surfaces.told`) | none by id: what happens in the window is told by `Native.surface` |
 
-Kinds 5 and 6 are statements of the app's state, told when it changes and anew to a reader made again; exact2 reads
-them as the queue is taken (`Presenter::tell_shell`), Back only after a commit, and neither during a scroll's own
-frames.
+Kinds 5, 6 and 7 are statements of the app's state, told when it changes and anew to a reader made again; exact2
+reads them as the queue is taken (`Presenter::tell_shell`), Back only after a commit or when a surface opens or
+closes, and none of them during a scroll's own frames.
 
 **Haptics.** Android names occasions, not strengths. Under its constants are a texture tick, a tick, a click, a
 heavy click and a double click, and Exact's names choose by those: `selection` is `SEGMENT_TICK` (Android 14;
@@ -256,8 +257,8 @@ row above. What layout needs while it runs (a field's metrics, D8) is not a requ
 too late for it.
 
 **Not on it yet:** notifications and the pickers (`showNotification`, `showPicker`, `saveFile`, the document
-pickers) are still refused, and the journal then says the channel does not carry them yet. Accessibility events and
-the top layer's windows (D10, D13) will take it too.
+pickers) are still refused, and the journal then says the channel does not carry them yet. Accessibility events
+(D13) will take it too.
 
 `x_log_requests=1` at launch (exact2's `EXACT_LOG_REQUESTS`) logs each request as exact2 queues it and as the reader
 acts on it, with what `performHapticFeedback` returned: a haptic and a clipboard write show nowhere else.
@@ -400,6 +401,118 @@ Not built of D8:
   mouse's I-beam, and autofill's save UI.
 - **`inputmode="none"`** keeps the keyboard down on focus; nothing else of an app's own keys is built.
 
+## The top layer (LLP 1115.001 D10)
+
+A confirmation and a menu are **windows of the platform's own**, not a layer painted in the page: an alert-shaped
+`alertdialog` is a `Dialog` and a menu popover a `PopupWindow` (`Surfaces.kt`), the framework's classes and no
+library. What is in each window is exact2's picture of Material 3's component. exact2's side is
+`host/linux/src/presenter/top.rs` (what is open, what closes it), `top/shape.rs` (what an authored subtree is) and
+`top/look.rs` (Material's metrics, measured and painted), with `canvas/surface.rs` for this host.
+
+**Which host has one.** A shell that makes windows says so (`Presenter::serve_windows`, which the Canvas host does as
+it boots). With no such shell (desktop Linux, a headless run, the agent) nothing changes: a popover's invoker and a
+dialog's button are refused by the words they always were, and `showModal` is an unknown command.
+
+**What is presented.** The shape rule is the Apple hosts' (`ConfirmationShape.swift`), read here from the kernel's
+tree, so it is written twice; it belongs in shared Rust.
+
+- *An alert*: an `alertdialog` (a `dialog`, or a popover) whose rows are text, actions (a `button` with a `press`
+  that closes it) and one cancel (a closing `button` with no `press`), at most three buttons. Opened by
+  `showModal(id)` or a button's `commandfor` with `command="show-modal"`. Material's basic dialog: `surfaceContainerHigh`,
+  28 dp corners, 24 dp padding, 280 to 560 dp wide and 24 dp from the window's sides; the `aria-label` (else the first
+  line) as its headline, the rest as supporting text; text buttons at the trailing edge, the cancel first and then
+  the actions as written, on a second line where they do not fit one; a `destructive` action in the error role.
+- *A menu*: a popover that is no confirmation, each `button` row with a `press` an item. Opened by a button's
+  `popovertarget`, or by holding a node that names it with `contextPopover` (its `contextmenu` runs first). Material's
+  menu: `surfaceContainer`, 4 dp corners, 3 dp of elevation (the window's own shadow), 112 to 280 dp wide, 48 dp
+  rows, a leading symbol where the row's button has one (a check where it is `aria-checked`), a `destructive` row in
+  the error role, a line where the author wrote `hr`. It hangs under its invoker from the invoker's start, ends at
+  the invoker's end where that does not fit, and opens upward where there is no room below (Compose's
+  `DropdownMenuPositionProvider`); a context menu opens where the finger is.
+- Anything else (a chooser with no text, a sheet, a `dialog` its author lays out, a popover that is no menu) is
+  refused in the journal, and nothing opens.
+
+**How a window is painted: a second stream, in a second view.** A surface is no part of the page's stream. exact2
+measures and paints it through a recorder of its own, and the words go to the reader inside the statement of the
+surface (request kind 7, above), where the window's view (`Pane`) replays them with a `Player` of its own. The
+stream is whole each time: it defines every face it draws with, shares no row, group, layer or picture with the
+page, and a reader made again needs nothing the last one was sent. The kernel does not lay a surface out: its size
+is Material's, computed from the window exact2 was told (`Native.window`) and the person's font scale, and exact2
+tells the reader the size the window is to be.
+
+**What crosses.** One request kind out, one call in, and one more action on a call there was.
+
+| Call | Direction | What it says |
+|---|---|---|
+| request kind 7 (`Presenter::tell_surface`, `Surfaces.told`) | exact2 tells | The surface that is open, by its serial: opened, painted again (a row lit, another scheme or font scale), moved or sized again, or closed. One surface is open at a time |
+| `Native.surface(serial, what, x, y)` (`CanvasHost::surface`, `Presenter::surface_event`) | reader tells, on exact2's thread | What happened in that surface's window: a touch (`what` 0 down, 1 up, 2 move, 3 cancel) at the window's own pixels; the system dismissed the window (8: Back, Escape, a tap outside a menu); the reader could not make it (9); a key (16 Enter, 17 Tab, 18 Shift+Tab, 19 to 22 the arrows, 23 Space). What is said of a serial that is no longer open is dropped |
+| `Native.touch` with action 4 | reader tells | The touch that is down has been held still for the system's long-press time (`ViewConfiguration.getLongPressTimeout`), which the reader measures. What names a context menu there opens it, the long-press haptic is asked for, and the touch presses nothing when it lifts |
+
+exact2 does the hit testing: it knows each row's box in the surface, lights the row a finger holds (Material's
+state layer, not its ripple), and chooses the row the finger lifts in. A driver reads the open surface from the
+agent's `state.surface` (each row's authored node and its box in the window) and `tap`s a row by that node; `tree`
+rows are not marked.
+
+**What a window gives, and what closes it.** Seen on a Pixel 10 Pro XL (Android 16):
+
+- The alert is its own window above the activity's (`dumpsys window`: `ty=APPLICATION fmt=TRANSPARENT`,
+  `fl=DIM_BEHIND`), with the window manager's dim behind it at Material's 32%, which also darkens the page under the
+  system bars. The menu is `ty=APPLICATION_PANEL`, `fl=WATCH_OUTSIDE_TOUCH`. Each takes the window focus.
+- Back and Escape go to the window by the system's own routing, and the reader says it was dismissed. A tap outside
+  dismisses a menu and does nothing to an alert; a tap on a page button under either presses nothing. An alert's
+  cancel, Back and Escape close it and run nothing (unless its `closedby` is `none`); a row's tap closes the
+  surface and then runs the row's `press`.
+- While a surface is open the page is inert in exact2 as well: nothing of it is hit, keys go to the surface, and
+  `Presenter::system_back` closes the surface before any route is asked, with the reader's back callback enabled
+  (kind 5). The focus moves in: the page's node loses it (a hosted field's keyboard goes) and gets it back when the
+  surface closes.
+- **A hosted field cannot take the focus under a surface.** A hardware key ends touch mode, and the platform then
+  focuses the activity window's first focusable view, a hosted `EditText`: before this was guarded, Tab in an alert
+  put a caret in the field under the scrim and the keyboard rose when the alert closed. The fields' container blocks
+  focus while a window is up (`Fields.covered`), and exact2 refuses such a focus (`Presenter::reader_field_focused`).
+- Night mode changed with an alert or a menu open paints the same window again; a font scale changed with an alert
+  open does too, larger where the text is. The app sent to the background and brought back keeps the same window,
+  an alert's or a menu's, and the page is live once it closes. An activity made again is told the open surface anew
+  and makes a new window for it.
+
+A surface the reader cannot make (no window to attach to, a kind it does not know) is answered with 9: exact2
+closes it, says so in the journal, and the page is live again. exact2's half of that is held by a test; no phone
+has refused one.
+
+**Motion** is what the platform gives these windows, with nothing set here. Filmed: the dialog fades and settles into
+place over about 180 ms as its scrim fades in, complete in every frame, and leaves in about 140 ms with its scrim
+gone in about 50. **The menu has no motion**: it is whole in one frame and gone in one, since a popup placed by
+`showAtLocation` gets none of the grow a dropdown shown from an anchor view gets. Material's menu scales and fades
+from its anchor's corner in about 120 ms.
+
+**What it costs** (one Pixel, one run of each). Nothing is made until a surface opens: one window root before any,
+and cold start within its spread (median 90 ms before, 93 after, twenty launches each). A surface's first frame is
+committed about 35 ms after the touch lifts (alert 30 to 41, menu 29 to 37, five each). A closed window is garbage
+until the next collection and is then gone (one root again); resident memory after the first use stays about 8 MB
+above what it was before any, which has not been attributed.
+
+Not built of D10:
+
+- **The menu's motion**, above. Dropping it from an anchor view would give the platform's grow and the platform's
+  placement, which is not Material's; painting the motion is the other way.
+- **Accessibility.** `uiautomator dump` shows an open alert as a window of its own holding one focused
+  `android.view.View` with no text, description or children: TalkBack lands on it and has nothing to read (D13).
+- **A text field inside a dialog.** The shape rule admits text and buttons only, so a dialog with an `input` is no
+  alert and is refused; nothing hosts a field in a surface's window.
+- A bottom sheet (a chooser, a `modal` route), a `select`'s menu, submenus as cascades (a row that opens another
+  menu replaces the first), a menu or a dialog taller than the window (it is not scrolled), a raster image in a
+  menu row, right-to-left placement.
+- The ripple, Material's own type scaling above 100% (sizes are sp taken linearly), and the device's own face.
+- An outside tap that dismisses an alert whose author wrote `closedby="any"`: lowering implies `any` for every
+  `alertdialog` today, so the two cannot be told apart (LLP 1115.000 D13.4).
+- The arrow keys reach a surface; nothing else of D7.6's hardware keys is built for the page.
+
+Not seen on a phone: Shelf itself (it has no `android/` crate; the fixture uses its shapes); an `alertdialog`
+written as a popover, and an `aria-checked` row (neither is in a test either); a font scale changed with a menu
+open; rotation with a surface open; a second display; TalkBack. The dialog's width between
+its limits is the window less 24 dp a side, which was not compared with a Compose dialog on the same phone, and no
+screenshot here was compared with a reference app's.
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -414,8 +527,9 @@ The cut was the smallest one. Left in the reader:
 
 ## Not done
 
-- **Most of LLP 1115.001.** The controls have the desktop painter's shapes, a dialog or a menu is refused, and
+- **Most of LLP 1115.001.** The controls have the desktop painter's shapes, a sheet or a chooser is refused, and
   there is no accessibility tree. What is built of it:
+  - *An alert and a menu are windows* (D10): the section above, with what is not built of it.
   - *A text field is a real `EditText`* (D8): the section above, with what is not built of it.
   - *The device's colours* (D4, colours only) and *the channel out* (D5): the two sections above. The type ramp
     is not reported yet.
@@ -437,8 +551,8 @@ The cut was the smallest one. Left in the reader:
   - *Back, in order* (D6, `Native.back`): from the navigation root's selected route, the Back control the root names,
     else the root's `navigate`, else the runner's own `back`. The reader takes Back only while exact2 says it has
     somewhere to go (a request, above), so at the first screen Back is the system's own and leaves the app with
-    its animation. A pop has no predictive preview (routes have no transition yet), and no top layer closes first
-    (there is none yet).
+    its animation. An open alert or menu closes first (D10): its window takes Back by the system's own routing. A
+    pop has no predictive preview (routes have no transition yet).
   - *A finger is a finger* (D7.4, D7.6). Each touch says what touched (`Native.touch`'s tool type), so a finger is a
     `touch` pointer to the app, hovers nothing, and leaves no focus ring on the button it presses (a text field keeps
     its own focus ring). The system's touch slop, told with the settings, is how far a touch moves before it is a
