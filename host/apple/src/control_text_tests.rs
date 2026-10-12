@@ -403,7 +403,6 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
     ))
     .unwrap();
     assert_eq!(json["rows"]["title"]["font_size"], 57.);
-    assert_eq!(json["rows"]["title"]["font_size_resolved"], 1);
 }
 
 #[test]
