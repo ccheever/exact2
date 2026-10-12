@@ -1451,8 +1451,10 @@ column navigationKey=`${e.id}` navigationScroll="feed" position="absolute" inset
 ```
 
 `navigationScroll` names an element of the route by its `id`; on iOS that scroller
-goes under the bar and collapses a large title, which happens only when it is the
-route's child right after its `header`. The compiler refuses a literal name that no
+collapses a large title. Right after the `header` it goes under the bar; with content
+between them (a switcher, a filter, an error line) that content stays put below the bar,
+large title included, and follows it as the title collapses, the scroller beneath it, as
+on a hand-built screen. The compiler refuses a literal name that no
 element of the route carries, or one whose element is a box that never scrolls on y
 (`lower-route-scroll`).
 

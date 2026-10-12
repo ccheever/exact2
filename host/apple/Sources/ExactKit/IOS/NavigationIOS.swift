@@ -23,6 +23,12 @@ final class RouteController: UIViewController {
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).
     weak var collapseScroll: NodeView?
+    /// The route's scroller with content between it and the header (a
+    /// switcher, a filter, a banner): the title collapses with it too, and
+    /// both stay below the bar, which that content follows (LLP 1116.006 D1).
+    weak var bandScroll: NodeView?
+    /// Whether UIKit was handed the band's scroller (`collapse`).
+    var bandHanded = false
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
@@ -175,6 +181,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var stacks: [ObjectIdentifier: NavigationStack] = [:]
     var stackCount = 0
     var covers: [UInt32: HostCover] = [:]
+    /// The covers the kernel was last told (`deliverCovers`).
+    var delivered: [UInt32: HostCover] = [:]
     var ownedReported: Set<String> = []
     var replayingHatches = false
     private var coversPending = false
@@ -994,9 +1002,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         for c in controllers.values { end(c) }
         retireTabs()
         if let primaryNavigation { retireStack(primaryNavigation) }
-        if !covers.isEmpty {
-            let cleared = covers.keys.filter { presenter.views[$0] != nil }
+        if !covers.isEmpty || !delivered.isEmpty {
+            let cleared = Set(covers.keys).union(delivered.keys).filter { presenter.views[$0] != nil }
             covers = [:]
+            delivered = [:]
             if !cleared.isEmpty { presenter.onCovers?(cleared.map { ($0, nil) }) }
         }
         primaryNavigation?.delegate = nil

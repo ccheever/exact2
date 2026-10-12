@@ -15,6 +15,9 @@ import UIKit
 public final class ExactView: UIView {
     public let session: ExactSession
     private var fitPending = false
+    /// The canvas's colour, which this view shows wherever the viewport does
+    /// not reach (`paintUnderKeys`).
+    private var canvas: UIColor?
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
     private var lastFold = ViewportFold.flat
@@ -57,6 +60,7 @@ public final class ExactView: UIView {
         // The launch screen's colour (the manifest's `launch`) until the first
         // frame names the canvas; unset, the platform's (LLP 1115 D2).
         backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground
+        canvas = backgroundColor
         addSubview(session.presenter.viewport)
         #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
@@ -66,7 +70,7 @@ public final class ExactView: UIView {
         #endif
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
-        session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
+        session.presenter.onCanvasColor = { [weak self] color in self?.canvas = color; self?.paintUnderKeys(); self?.onCanvasColor?(color) }
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
         #if os(iOS)
         session.presenter.onStatusBar = { [weak self] choice in self?.onStatusBarStyle?(choice.style) }
@@ -371,6 +375,19 @@ public final class ExactView: UIView {
             lastFold = fold.fold
             session.segments(fold.fold)
         }
+        paintUnderKeys()
+    }
+
+    /// What shows below the viewport while the keyboard ends it above the
+    /// screen's bottom (`resizes-content`): behind the keyboard's accessory
+    /// bar (the pads' ± and Done, LLP 1116.003 D7), which UIKit draws with no
+    /// fill of its own, the colour the content at the viewport's bottom edge
+    /// goes on with, a grouped list's background as a hand-built screen's
+    /// list shows there, never the canvas's band across the width (LLP
+    /// 1116.006 D6).
+    private func paintUnderKeys() {
+        let color = (session.presenter.keyboardInset > 0 ? session.presenter.bottomEdgeColor() : nil) ?? canvas
+        if let color, backgroundColor != color { backgroundColor = color }
     }
 
     /// The segments the container's division regions make of the viewport

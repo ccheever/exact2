@@ -7,10 +7,11 @@ import UIKit
 /// LLP 1116.005 D4: a large title survives a content swap under the bar
 /// (`scripts/fixtures/still-title.contract`, chat-rooms' rooms screen). UIKit
 /// moves the large title into the content scroll view it follows; once a
-/// failed load's reason came between the header and the list, nothing
-/// collapsed the title, UIKit was handed no scroller, and the title stayed in
-/// the list at its top, clipped from sight below the reason: a blank band
-/// under the bar.
+/// failed load's reason came between the header and the list, the list moved
+/// below it, and the title stayed in the list at its top, clipped from sight
+/// below the reason: a blank band under the bar. Since LLP 1116.006 D1 the
+/// list below the reason still collapses the title, and UIKit draws it in the
+/// bar.
 final class StillTitleIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -92,11 +93,13 @@ final class StillTitleIOSTests: XCTestCase {
         XCTAssertTrue(route.contentScrollView(for: .top) is GroupedScroller, "the title collapses with the list")
         XCTAssertGreaterThan(try titleInk(nav), 100, "'Rooms' is drawn large under the bar")
 
-        // A failed load's reason between the header and the list: nothing
-        // collapses the title, and it stays where it was, drawn.
+        // A failed load's reason between the header and the list: it sits
+        // below the bar, the list below it still collapses the title (LLP
+        // 1116.006 D1), and the title stays where it was, drawn.
         try tap("fail")
-        XCTAssertNotNil(find("rooms-error"), "the reason shows")
-        XCTAssertNil(route.contentScrollView(for: .top), "the list no longer follows the header, so nothing collapses the title")
+        let reason = try node("rooms-error")
+        XCTAssertGreaterThanOrEqual(reason.convert(reason.bounds, to: nil).minY, nav.navigationBar.convert(nav.navigationBar.bounds, to: nil).maxY - 0.5, "the reason below the bar")
+        XCTAssertTrue(route.contentScrollView(for: .top) is GroupedScroller, "the list collapses the title from below the reason")
         XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
         XCTAssertGreaterThan(try titleInk(nav), 100, "'Rooms' is still drawn with the reason above the list")
 

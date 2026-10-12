@@ -272,12 +272,14 @@ final class NavigationTabsIOSTests: XCTestCase {
     }
 
     /// Stage 2's check of `tabBarMinimizeBehavior` (iOS 26), as far as a
-    /// unit test reaches: a route whose title stays still (Detail's, inline)
-    /// names no content scroll view to UIKit, so a minimize behavior a hatch
-    /// sets has nothing to follow and the content area holds under scrolling.
-    /// A finger's scroll (UIKit's own heuristics) is owed to a device check
-    /// (LLP 1075.003 §6).
-    func testAMinimizeBehaviorFollowsNoScrollWhileExactNamesNone() throws {
+    /// unit test reaches: the scroller a minimize behavior a hatch sets
+    /// follows is the one Exact names to UIKit. Detail's inline title stays
+    /// still, and its scroller, below a row of controls, is the one UIKit
+    /// follows (LLP 1116.006 D1), as a hand-built screen's table under a
+    /// control is. An offset set in code minimizes nothing, so the content
+    /// area holds; a finger's scroll is owed to a device check (LLP
+    /// 1075.003 §6).
+    func testAMinimizeBehaviorFollowsTheScrollerExactNames() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("tabBarMinimizeBehavior is iOS 26") }
         let session = try fixture("tabs-minimize")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
@@ -285,16 +287,16 @@ final class NavigationTabsIOSTests: XCTestCase {
         try tapNode(session, "detail")
         until("detail pushed") { session.presenter.navigation.primaryNavigation?.viewControllers.count == 2 }
         let route = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController)
-        XCTAssertNil(route.contentScrollView(for: .top), "a still title names no scroller")
         let scroll = try XCTUnwrap(try node(session, "list-detail").scroll)
         spin(0.3)
+        XCTAssertTrue(route.contentScrollView(for: .top) === scroll, "the scroller below the controls is the one UIKit follows")
         let before = route.view.safeAreaInsets.bottom, frame = tabs.tabBar.frame
         for y in stride(from: 0, through: 600, by: 20) {
             scroll.setContentOffset(CGPoint(x: 0, y: y), animated: false)
             spin(0.016)
         }
         spin(0.6)
-        XCTAssertEqual(tabs.tabBar.frame, frame, "the bar did not minimize")
+        XCTAssertEqual(tabs.tabBar.frame, frame, "an offset set in code minimizes nothing")
         XCTAssertEqual(route.view.safeAreaInsets.bottom, before, "the content area held")
     }
 

@@ -659,36 +659,86 @@ extension NavigationHost {
     /// where the browser's does while the bar's height changes. An inline
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
     /// scroll edge appearance follows it; its inset does not change.
+    ///
+    /// Content between the header and the scroller (team-kanban's persona
+    /// switcher, a filter, a failed load's reason) does not scroll: it sits
+    /// below the bar, its large title included, and the scroller below it
+    /// (`bandScroll`, LLP 1116.006 D1). UIKit follows that scroller too, as
+    /// a hand-built screen's control pinned to the safe area over a table: the
+    /// title collapses as it scrolls, the safe area shrinks, and the content
+    /// above it follows the bar (`reportCovers`). Nothing goes under the bar
+    /// and UIKit insets nothing.
     private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?) {
-        let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
-        let node = kids.firstIndex { $0 === shape?.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil }
-        let target = node?.scroll != nil && node?.scroll === scroll ? node : nil
-        guard c.collapseScroll !== target else { return }
-        if let old = c.collapseScroll, let sv = old.scroll {
-            let top = sv.contentOffset.y + old.scrollTopInset(sv)
-            // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
-            if old !== c.edgeScroll { sv.contentInsetAdjustmentBehavior = .never }
-            old.scrollOrigin = 0
-            old.scrollCollapsed = 0
-            sv.contentOffset.y = top
+        let kids = c.node.container.subviews.compactMap { $0 as? NodeView }.filter(Self.flowing)
+        let after = kids.firstIndex { $0 === shape?.header }.map { Array(kids[($0 + 1)...]) } ?? []
+        let found = scroll == nil ? nil : after.first { $0.scroll === scroll }
+        let target = found != nil && found === after.first ? found : nil
+        let band = target == nil ? found : nil
+        let changed = c.collapseScroll !== target || c.bandScroll !== band
+        // A band's scroller not yet handed to UIKit is handed once it lies below the bar.
+        guard changed || (band != nil && !c.bandHanded) else { return }
+        if changed {
+            if c.collapseScroll !== target, let old = c.collapseScroll, let sv = old.scroll {
+                let top = sv.contentOffset.y + old.scrollTopInset(sv)
+                // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
+                if old !== c.edgeScroll { sv.contentInsetAdjustmentBehavior = .never }
+                old.scrollOrigin = 0
+                old.scrollCollapsed = 0
+                sv.contentOffset.y = top
+            }
+            c.collapseScroll = target
+            c.bandScroll = band
+            c.bandHanded = false
+            let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
+            let below = shape?.level == 1 ? "collapses its title with its scroller below the content above it" : "keeps its content below the bar"
+            presenter.session?.log("navigation: route \(c.key) \(target != nil ? under : band != nil ? below : "keeps its title still")")
         }
-        c.collapseScroll = target
+        if unmountedList(target ?? band) {
+            presenter.afterBatch { [weak self, weak c, weak target, weak band] in
+                guard let self, let c, c.collapseScroll === target, c.bandScroll === band else { return }
+                follow(c)
+            }
+        } else { follow(c) }
+    }
+
+    /// UIKit follows the route's collapsing scroller, or none (`collapse`).
+    private func follow(_ c: RouteController) {
+        let target = c.collapseScroll, band = c.bandScroll
+        let shown = shownScroll(target ?? band)
+        // UIKit takes a large title into a scroller that lies under the bar
+        // and keeps it there when the scroller moves down (a band laid out
+        // over it, or the covers that put it below the bar, a batch later):
+        // drawn nowhere. A band's scroller is handed once it lies below the
+        // bar (`handBands`).
+        if band != nil, let sv = shown, sv.convert(sv.bounds, to: c.view).minY < c.view.safeAreaInsets.top - 0.5 { return }
+        c.bandHanded = band != nil
         // A scroller at its start (CSS scrollTop 0) stays there as UIKit
         // begins to inset it: UIKit keeps the offset it had, a new
         // scroller's 0, which left its content's top under the bar.
-        let attach = { [weak self, weak c, weak target] in
-            guard let self, let c, c.collapseScroll === target else { return }
-            let shown = shownScroll(target)
-            let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-            for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always }
-            let left = c.contentScrollView(for: .top)
-            c.setContentScrollView(shown, for: .top)
-            if let left, left !== shown, left.window != nil { retitle(c) }
-            if atStart, let sv = shown { rest(sv, in: c) }
+        let atStart = target != nil && shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
+        if target != nil { for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always } }
+        let left = c.contentScrollView(for: .top)
+        // The title made again goes where UIKit now looks (`retitle`): for a
+        // band's scroller, the bar, made there before UIKit follows it, out
+        // of the scroller it followed under the bar (the same one included).
+        if band != nil, let left, left.window != nil { c.setContentScrollView(nil, for: .top); retitle(c) }
+        c.setContentScrollView(shown, for: .top)
+        if band == nil, let left, left !== shown, left.window != nil { retitle(c) }
+        if atStart, let sv = shown { rest(sv, in: c) }
+    }
+
+    /// The band scrollers not yet handed to UIKit, handed if they now lie
+    /// below the bar: the covers that move them there land after the batch
+    /// that made them, with no projection of their own.
+    private func handBands() {
+        for c in controllers.values where c.bandScroll != nil && !c.bandHanded && presenter.views[c.node.id] === c.node && c.viewIfLoaded?.window != nil {
+            follow(c)
         }
-        if unmountedList(target) { presenter.afterBatch(attach) } else { attach() }
-        let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
-        presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    /// A route's child in its flow: shown, and not positioned out of it.
+    static func flowing(_ v: NodeView) -> Bool {
+        v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
     }
 
     /// UIKit moves a large title into the content scroll view it follows and
@@ -740,10 +790,7 @@ extension NavigationHost {
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
     /// whose own `env()` insets would be added to UIKit's.
     private func reachBottom(_ c: RouteController) {
-        let flowing = { (v: NodeView) in
-            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
-        }
-        let last = c.node.container.subviews.last { ($0 as? NodeView).map(flowing) == true } as? NodeView
+        let last = c.node.container.subviews.last { ($0 as? NodeView).map(Self.flowing) == true } as? NodeView
         // One that scrolls vertically: UIKit's bottom inset would let a
         // sideways carousel scroll up and down.
         let vertical = ["scroll", "auto"].contains(last?.style["overflow_y"]?.string ?? "")
@@ -916,6 +963,7 @@ extension NavigationHost {
     /// page that did not ask to cover it — and the header a bar replaces,
     /// reported when they change, after the batch being applied.
     func reportCovers() {
+        handBands()
         var changes: [(UInt32, HostCover?)] = []
         var wanted: [UInt32: HostCover] = [:]
         let whole = wantsWholeView && presenter.viewportFit != "cover"
@@ -989,7 +1037,23 @@ extension NavigationHost {
         }
         // Never inside a batch: the stack is installed partway through the
         // first one, whose remaining frames would overwrite the covered ones.
-        presenter.afterBatch { [weak presenter = self.presenter] in presenter?.onCovers?(changes) }
+        presenter.afterBatch { [weak self] in self?.deliverCovers() }
+    }
+
+    /// What the kernel is told is what is wanted when it is told. A report
+    /// queued behind a batch ran after later ones that did not wait, and its
+    /// covers, measured under the bar's first frame before the status bar's
+    /// inset (116 points with a large title of 168), won: team-kanban's
+    /// persona switcher lay under the large title, drawn over by it and
+    /// untappable (LLP 1116.006 D1).
+    private func deliverCovers() {
+        var changes: [(UInt32, HostCover?)] = []
+        for (id, cover) in covers where delivered[id] != cover { changes.append((id, cover)) }
+        for id in delivered.keys where covers[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
+        delivered = covers
+        guard !changes.isEmpty else { return }
+        presenter.onCovers?(changes)
+        handBands()
     }
 
     // MARK: The development check (LLP 1075.003 §3.5)
