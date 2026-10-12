@@ -59,18 +59,23 @@ package final class TextSelection {
         if let ordered { return ordered.filter(selectable) }
         guard let presenter else { return [] }
         var result: [NodeView] = []
-        func walk(_ view: NSView) {
-            if view.isHidden { return }
-            if let node = view as? NodeView, presenter.session?.regions.owns(node) == true { return }
-            if let node = view as? NodeView, node.isParagraph { if selectable(node) { result.append(node) }; return }
-            for child in view.subviews { walk(child) }
-        }
-        walk(presenter.root)
-        for dialog in presenter.dialogs.presented { walk(dialog) }
-        for popover in presenter.menus.presented { walk(popover) }
+        let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
+        for top in tops { texts(in: top) { if selectable($0) { result.append($0) } } }
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result
+    }
+
+    /// The paragraphs under `view` in order, selectable or not, as the
+    /// runner's text projection walks a row: a hidden view and a region's
+    /// own are left out, and an inline run is its paragraph's.
+    private func texts(in view: NSView, _ found: (NodeView) -> Void) {
+        if view.isHidden { return }
+        if let node = view as? NodeView {
+            if presenter?.session?.regions.owns(node) == true { return }
+            if node.isParagraph { found(node); return }
+        }
+        for child in view.subviews { texts(in: child, found) }
     }
 
     private func invalidate() {
@@ -348,8 +353,9 @@ package final class TextSelection {
         return NSRange(location: min(lo, count), length: max(0, min(hi, count) - min(lo, count)))
     }
 
-    /// The wrapper's key survives retirement. Paragraph ordinals follow the
-    /// same outer-text traversal as the runner's read-only text projection.
+    /// The wrapper's key survives retirement. Paragraph ordinals count every
+    /// text of the row, selectable or not, as the runner's read-only text
+    /// projection does; it leaves the unselectable ones out of a copy (X81).
     private func position(_ node: NodeView, offset: Int) -> (NodeView, Position)? {
         var ancestor: NSView? = node
         var wrapper: NodeView?
@@ -362,9 +368,10 @@ package final class TextSelection {
         while let view = ancestor {
             if let owner = view as? NodeView, owner.kind == "list" {
                 if positions[node.id] == nil {
-                    let nodes = paragraphs.filter { $0.isDescendant(of: wrapper) }
-                    for (ordinal, text) in nodes.enumerated() {
-                        positions[text.id] = Position(key: key, row: index - 1, paragraph: ordinal, offset: 0)
+                    var ordinal = 0
+                    texts(in: wrapper) {
+                        positions[$0.id] = Position(key: key, row: index - 1, paragraph: ordinal, offset: 0)
+                        ordinal += 1
                     }
                 }
                 guard var result = positions[node.id] else { return nil }
