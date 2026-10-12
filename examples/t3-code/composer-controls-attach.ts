@@ -29,7 +29,17 @@ export async function attachFiles(client: T3Client, native: Native): Promise<str
   const key = client.draftKey, imageChips = imagesGetChips(client);
   const reply = await client.restAccess(native).call({ op: 'composerAttachPick', fileLimit: attachStagingLimit(client) });
   if (key !== client.draftKey) throw new ClientError('The draft changed while files were being chosen.');
-  const files = arr(reply.files);
+  await addAttachedFiles(client, native, arr(reply.files), imageChips);
+  return '';
+}
+
+/**
+ * addComposerFiles over staged files (the picker's, or the sidebar row drop's, legacy-sidebar-drop.ts): images join the
+ * shelf; other files become chips; what cannot be attached is named in one error. `owner`: the composer the chips go into
+ * at its caret (`editorInsert` refuses another thread's editor; then they join the end of the stored draft).
+ */
+export async function addAttachedFiles(client: T3Client, native: Native, files: Obj[], imageChips = imagesGetChips(client), owner = ''): Promise<void> {
+  const key = client.draftKey;
   let error = '';
   const accepted: Obj[] = [], chips: DraftFile[] = [];
   let reserved = reservedAttachments(client);
@@ -49,7 +59,6 @@ export async function attachFiles(client: T3Client, native: Native): Promise<str
     reserved += 1;
   }
   if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];
-  await insertFileChips(client, native, chips, imageChips ? accepted : []);
+  await insertFileChips(client, native, chips, imageChips ? accepted : [], owner);
   client.error = error;
-  return '';
 }

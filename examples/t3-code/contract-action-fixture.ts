@@ -3,7 +3,10 @@
 // last write to a slot wins), for tests of a drag's state (not a test file). Main's `analyze-read-after-assign`
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
 // queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`, and a
-// call of a function in scope (an action prop such as ThreadSection's `unhover`), which runs when its line does.
+// call (an action prop such as ThreadSection's `unhover`, an injected action, a host command such as `preventDefault()`),
+// made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `when` / `else when` /
+// `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
+// delivers them).
 import { readFileSync } from 'node:fs';
 
 export type Env = Record<string, unknown>;
@@ -64,9 +67,10 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
     } else if ((m = /^(\w+) = (.+)$/.exec(line))) {
       if (!slots.has(m[1]!)) throw new Error(`${m[1]} is not ${owner} state`);
       writes[m[1]!] = value(m[2]!, env);
-    } else if ((m = /^(\w+)\((.*)\)$/.exec(line)) && typeof env[m[1]!] === 'function') {
-      // A call to an action prop (pr-list-scroll-and-sidebar-sweep: `unhover`, the root's half of the window's hover).
-      (env[m[1]!] as (...args: unknown[]) => void)(...(value(`[${m[2]!}]`, env) as unknown[]));
+    } else if (/^\w+\(.*\)$/.test(line)) {
+      // A call: an action prop (pr-list-scroll-and-sidebar-sweep: `unhover`, the root's half of the window's hover), an
+      // injected action or a host command (legacy-sidebar-full).
+      value(line, env);
     } else {
       throw new Error(`unsupported statement: ${line}`);
     }
@@ -106,6 +110,15 @@ export function contractComponent(file: string, name: string) {
     return { params, body: tree(0, 4)[0] };
   };
 
+  const derives = (state: Env, scope: Env): Env => {
+    const env: Env = { ...scope, ...state }, out: Env = {};
+    for (const line of lines) {
+      const m = /^  derive (\w+) = (.+)$/.exec(line);
+      if (m) env[m[1]!] = out[m[1]!] = value(m[2]!, env);
+    }
+    return out;
+  };
+
   return {
     /** The slots at mount: each `state x = …` evaluated alone. */
     state(): Env {
@@ -123,14 +136,34 @@ export function contractComponent(file: string, name: string) {
       run(body, { ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, args[i]])) }, new Set(Object.keys(state)), writes, name);
       Object.assign(state, writes);
     },
-    /** Every `derive x = …` in declaration order, each seeing the state, `scope` and the derives before it. */
-    derives(state: Env, scope: Env): Env {
-      const env: Env = { ...scope, ...state }, out: Env = {};
-      for (const line of lines) {
-        const m = /^  derive (\w+) = (.+)$/.exec(line);
-        if (m) env[m[1]!] = out[m[1]!] = value(m[2]!, env);
+    /**
+     * Whether the first view line containing `marker` is drawn: each `when`, `else when` and `else` arm around it holds,
+     * read over `state`, `scope` and the derives (an `each` around it counts as drawn).
+     */
+    drawn(marker: string, state: Env, scope: Env): boolean {
+      const env: Env = { ...scope, ...state, ...derives(state, scope) };
+      const from = lines.findIndex(line => line === '  view');
+      if (from < 0) throw new Error(`${file}: ${name} has no view`);
+      const open: { indent: number; cond: string | null }[] = [], arms = new Map<number, string[]>();
+      for (const line of lines.slice(from + 1)) {
+        const text = line.trim();
+        if (!text || text.startsWith('//')) continue;
+        const indent = line.length - line.trimStart().length;
+        while (open.length && open[open.length - 1]!.indent >= indent) open.pop();
+        const prior = () => (arms.get(indent) ?? []).map(arm => `!(${js(arm)[0]})`);
+        let cond: string | null = null, m: RegExpExecArray | null;
+        if ((m = /^when (.+)$/.exec(text))) { arms.set(indent, [m[1]!]); cond = js(m[1]!)[0]; }
+        else if ((m = /^else when (.+)$/.exec(text))) { cond = [...prior(), `(${js(m[1]!)[0]})`].join(' && '); arms.get(indent)!.push(m[1]!); }
+        else if (text === 'else') cond = prior().join(' && ');
+        open.push({ indent, cond });
+        if (text.includes(marker)) {
+          const names = Object.keys(env);
+          return open.every(({ cond: arm }) => arm === null || Boolean(new Function(...names, `return (${arm});`)(...names.map(n => env[n]))));
+        }
       }
-      return out;
+      throw new Error(`${file}: no view line of ${name} has ${marker}`);
     },
+    /** Every `derive x = …` in declaration order, each seeing the state, `scope` and the derives before it. */
+    derives,
   };
 }

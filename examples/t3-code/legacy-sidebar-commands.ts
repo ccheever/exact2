@@ -13,9 +13,13 @@ import { canArchive, nativeTemplate, type MenuItem } from './sidebar-menu';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { menuAnchor, isMenuKey, withMenuAnchor } from './r12-sidebar-keys';
 import { applyDeviceSetting } from './settings-core';
-import { archive, deleteThreads, markUnread } from './sidebar-commands';
+import { archive, deleteThreads, markUnread, remember, rename } from './sidebar-commands';
 import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
+import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links'; // legacy-sidebar-full LS-1, LS-5
+import { openRowPort } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2
+import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, focusBackground, forgetBackgroundDrafts, isBackground, markUnreadBackground,
+  openBackgroundDraft, renameBackground, writeBackgroundProject } from './legacy-sidebar-fleet'; // legacy-sidebar-full LS-6
 import { letGo } from './let-go';
 
 type Local = Parameters<typeof applyDeviceSetting>[0];
@@ -23,7 +27,8 @@ interface Navigator { openSelected?(native: Native, id: string): Promise<void>; 
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
 /** The failure toast; a let-go request is rethrown instead (let-go.ts), so nothing after it runs. */
 const toast = (client: T3Client, title: string, error: unknown) => { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title, description: failure(error), stacked: true }); };
-const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
+/** A row's thread: the focused environment's, or a background environment's (`fleet:<environment>:<id>`). */
+const threadOf = (client: T3Client, id: string): Obj | undefined => rowThread(client, id)?.thread;
 const groupOf = (client: T3Client, key: string): LegacyGroup | undefined => legacyGroups(client).find(group => group.key === key);
 function memberOf(client: T3Client, memberId: string) {
   for (const group of legacyGroups(client)) { const member = group.members.find(candidate => candidate.id === memberId); if (member) return { group, member }; }
@@ -52,6 +57,11 @@ export function legacyLocal(client: T3Client, op: string, id: string, value: str
   else if (op === 'dialog-close') session.dialog = emptyDialog();
   else if (op === 'dialog-grouping') { if (['inherit', 'repository', 'repository_path', 'separate'].includes(value)) session.dialog = { ...session.dialog, grouping: value }; }
   else if (op === 'dialog-title') session.dialog = { ...session.dialog, title: value };
+  else if (op === 'rename-start') {
+    // startThreadRename on any row, a background environment's included (sidebar-commands' own reads the focused shell).
+    const thread = threadOf(client, id), rename = sidebarSession(client);
+    if (thread && rename.renameId !== id) { rename.renameId = id; rename.renameTitle = str(thread.title); }
+  }
   else throw new ClientError(`Unknown sidebar action: legacy-${op}`);
   return '';
 }
@@ -82,6 +92,7 @@ async function attempt(client: T3Client, title: string, run: () => Promise<void>
   try { await run(); return true; } catch (error) { toast(client, title, error); return false; }
 }
 async function projectWrite(client: T3Client, native: Native, storage: Files, payload: Obj, description: string): Promise<void> {
+  if (isBackground(client, str(payload.projectId))) return writeBackgroundProject(client, native, str(payload.projectId), payload); // LS-6: the member's own environment
   if (!client.writable) throw new ClientError(client.connection !== 'connected' ? 'Reconnect before making changes.' : 'Wait for synchronization and check your connection permissions.');
   const access = client.restAccess(native), [commandId] = await access.ids(1);
   await access.write(storage, { method: 'projects.mutate', description, threadId: '', text: '', uncertain: false, payload: { ...payload, commandId } });
@@ -94,7 +105,20 @@ export async function legacyCommand(client: T3Client, native: Native, storage: F
   if (op === 'thread-menu') return threadMenu(client, native, storage, id);
   if (op === 'project-menu') return projectMenu(client, native, id);
   if (op === 'new-thread') return newThread(client, native, id);
-  if (op === 'archive') { await attempt(client, 'Failed to archive thread', () => archive(client, native, id)); return ''; }
+  if (op === 'pr') return openRowPullRequest(client, native, id, value); // LS-1
+  if (op === 'port') return openRowPort(client, native, id); // LS-2
+  if (op === 'archive') { await attempt(client, 'Failed to archive thread', () => archiveRow(client, native, id)); return ''; }
+  if (op === 'rename') {
+    // commitRename on any row: a background environment's goes to its own server (rename() reads the focused shell).
+    if (!isBackground(client, id)) { await rename(client, native, id, value); return ''; }
+    if (selection.renameId !== id) return '';
+    selection.renameId = ''; selection.renameTitle = '';
+    const thread = threadOf(client, id), trimmed = value.trim();
+    if (!trimmed) { pushToast(client, { kind: 'warning', title: 'Thread title cannot be empty' }); return ''; }
+    if (!thread || trimmed === str(thread.title)) return '';
+    await attempt(client, 'Failed to rename thread', () => renameBackground(client, native, id, trimmed));
+    return '';
+  }
   if (op === 'rename-project') {
     const found = memberOf(client, id), trimmed = value.trim();
     if (!found) { session.dialog = emptyDialog(); return ''; }
@@ -122,7 +146,7 @@ export async function legacyCommand(client: T3Client, native: Native, storage: F
   if (op === 'archive-many') {
     const ids = value.split(',').filter(Boolean);
     let failed: unknown = null;
-    for (const threadId of ids) { try { await archive(client, native, threadId); } catch (error) { failed = error; break; } }
+    for (const threadId of ids) { try { await archiveRow(client, native, threadId); } catch (error) { failed = error; break; } }
     if (failed) toast(client, 'Failed to archive threads', failed);
     // removeFromSelection: the archived threads leave the selection (all of them when every archive landed).
     selection.selection = failed ? selection.selection.filter(key => threadOf(client, key)?.archivedAt == null) : selection.selection.filter(key => !ids.includes(key));
@@ -135,11 +159,11 @@ export async function legacyCommand(client: T3Client, native: Native, storage: F
 async function threadMenu(client: T3Client, native: Native, storage: Files, id: string): Promise<string> {
   const selection = sidebarSession(client), settings = client.local.clientSettings;
   if (selection.selection.length > 0 && selection.selection.includes(id)) {
-    const threads = selection.selection.map(key => threadOf(client, key)).filter((thread): thread is Obj => !!thread);
-    const ids = threads.map(thread => str(thread.id));
+    // readThreadShell per selected key: a background environment's rows keep their `fleet:` keys.
+    const ids = selection.selection.filter(key => !!threadOf(client, key)), threads = ids.map(key => threadOf(client, key)!);
     const choice = await showMenu(client, native, buildMultiSelectThreadContextMenuItems({ count: selection.selection.length, hasRunningThread: threads.some(thread => !canArchive(thread)) }));
     if (choice === 'mark-unread') {
-      for (const threadId of ids) await attempt(client, 'Failed to mark thread unread', () => markUnread(client, native, threadId));
+      for (const threadId of ids) await attempt(client, 'Failed to mark thread unread', () => markUnreadRow(client, native, threadId));
       selection.selection = [];
     } else if (choice === 'archive') {
       if (settings?.confirmThreadArchive) { legacySession(client).dialog = { ...emptyDialog(), kind: 'archive-many', ids }; return ''; }
@@ -154,19 +178,25 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
   const thread = threadOf(client, id);
   if (!thread) return '';
   const choice = await showMenu(client, native, legacyThreadMenuItems(str(thread.branch)));
+  const background = backgroundRef(client, id);
   switch (choice) {
-    case 'new-thread-on-branch':
-      try { await (client as unknown as Navigator).openDraft?.(native, str(thread.projectId)); } catch (error) { toast(client, 'Could not create thread', error); return ''; }
+    case 'new-thread-on-branch': {
+      // LS-5: the explicit branch carry-over (its worktree, or its branch on the local checkout); LS-6 on its own environment.
+      if (!background) return openBranchDraft(client, native, thread, str(thread.projectId));
+      const worktreePath = str(thread.worktreePath);
+      try { await openBackgroundDraft(client, native, `fleet:${background.environmentId}:${str(thread.projectId)}`, { branch: str(thread.branch), worktreePath, envMode: worktreePath ? 'worktree' : 'local' }); }
+      catch (error) { toast(client, 'Could not create thread', error); return ''; }
       return 'sidebar:new-thread';
+    }
     case 'rename': selection.renameId = id; selection.renameTitle = str(thread.title); return '';
-    case 'mark-unread': await attempt(client, 'Failed to mark thread unread', () => markUnread(client, native, id)); return '';
+    case 'mark-unread': await attempt(client, 'Failed to mark thread unread', () => markUnreadRow(client, native, id)); return '';
     case 'copy-path': {
-      const path = str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
+      const path = background ? backgroundThreadPath(client, id) : str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
       if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.', stacked: true }); return ''; }
       await copy(client, native, path, 'Path copied'); return '';
     }
-    case 'copy-thread-id': await copy(client, native, id, 'Thread ID copied'); return '';
-    case 'project-settings': selection.navigate = { kind: 'project-settings', projectId: str(thread.projectId) }; return 'sidebar:navigate';
+    case 'copy-thread-id': await copy(client, native, background?.id ?? id, 'Thread ID copied'); return '';
+    case 'project-settings': return projectSettings(client, native, background ? `fleet:${background.environmentId}:${str(thread.projectId)}` : str(thread.projectId));
     case 'delete':
       if (settings?.confirmThreadDelete !== false) { selection.dialog = { kind: 'delete', threadIds: [id], title: str(thread.title) }; return ''; }
       await deleteThreads(client, native, storage, [id], false); return '';
@@ -180,37 +210,38 @@ async function projectMenu(client: T3Client, native: Native, key: string): Promi
   if (!group) return '';
   const choice = await showMenu(client, native, legacyProjectMenuItems(group.members));
   if (!choice) return '';
-  if (choice === 'project-settings') {
-    const member = group.members.find(candidate => !candidate.remote);
-    if (!member) return '';
-    sidebarSession(client).navigate = { kind: 'project-settings', projectId: member.id };
-    return 'sidebar:navigate';
-  }
+  if (choice === 'project-settings') return projectSettings(client, native, (group.members.find(candidate => !candidate.remote) ?? group.members[0]!).id);
   const split = choice.indexOf(':'), action = choice.slice(0, split), physical = choice.slice(split + 1);
   const member = group.members.find(candidate => candidate.physicalKey === physical);
   if (!member) return '';
   const session = legacySession(client);
-  if (action === 'rename' && !member.remote) session.dialog = { ...emptyDialog(), kind: 'rename-project', memberId: member.id, title: member.title, root: member.workspaceRoot, environment: member.environmentLabel };
-  else if (action === 'grouping' && !member.remote) session.dialog = { ...emptyDialog(), kind: 'grouping', memberId: member.id, title: member.title, root: member.workspaceRoot, grouping: client.local.groupingOverrides[member.physicalKey] ?? 'inherit' };
+  // LS-6: every action targets the member's own environment, a background one's included.
+  if (action === 'rename') session.dialog = { ...emptyDialog(), kind: 'rename-project', memberId: member.id, title: member.title, root: member.workspaceRoot, environment: member.environmentLabel };
+  else if (action === 'grouping') session.dialog = { ...emptyDialog(), kind: 'grouping', memberId: member.id, title: member.title, root: member.workspaceRoot, grouping: client.local.groupingOverrides[member.physicalKey] ?? 'inherit' };
   else if (action === 'copy-path') await copy(client, native, member.workspaceRoot, 'Path copied');
-  else if (action === 'delete' && !member.remote) {
+  else if (action === 'delete') {
     // handleRemoveProject: a project with threads asks for "Delete anyway" first.
-    const count = client.shell.threads.filter(thread => thread.projectId === member.id).length;
-    if (count > 0) pushToast(client, { kind: 'warning', title: 'Project is not empty', description: 'Delete all threads in this project before removing it.', stacked: true,
+    const count = memberThreads(client, member.id).length;
+    if (count > 0) pushToast(client, { kind: 'warning', title: 'Project is not empty', description: 'Delete all threads in this project before removing it.', stacked: true, actionVariant: 'destructive',
       action: { label: 'Delete anyway', op: 'sidebar:legacy-remove-anyway', id: member.id }, closeOnAction: true });
     else openRemoval(client, member.id);
   }
   return '';
 }
+/** A member's threads on its own environment (memberThreadCountByPhysicalKey). */
+const memberThreads = (client: T3Client, memberId: string): Obj[] =>
+  isBackground(client, memberId) ? backgroundProjectThreads(client, memberId) : client.shell.threads.filter(thread => thread.projectId === memberId);
 function openRemoval(client: T3Client, memberId: string): void {
   const found = memberOf(client, memberId);
-  if (!found || found.member.remote) return;
-  const threads = client.shell.threads.filter(thread => thread.projectId === memberId).length;
+  if (!found) return;
+  const threads = memberThreads(client, memberId).length;
   legacySession(client).dialog = { ...emptyDialog(), kind: 'remove-project', memberId, title: found.member.title, root: found.member.workspaceRoot, environment: found.member.environmentLabel, threads };
 }
 async function removeProject(client: T3Client, native: Native, storage: Files, memberId: string, title: string): Promise<void> {
+  const threads = memberThreads(client, memberId);
   const ok = await attempt(client, `Failed to remove "${title}"`, () => projectWrite(client, native, storage, { type: 'project.delete', projectId: memberId, force: true }, 'Remove project'));
   if (!ok) return;
+  if (isBackground(client, memberId)) { forgetBackgroundDrafts(client, memberId, threads); return; }
   for (const thread of client.shell.threads) if (thread.projectId === memberId) delete client.local.drafts[`${client.environmentId}:${str(thread.id)}`];
   delete client.local.drafts[`${client.environmentId}:new:${memberId}`];
 }
@@ -221,12 +252,30 @@ async function newThread(client: T3Client, native: Native, key: string): Promise
   if (!group) return '';
   let member = group.members.length === 1 ? group.members[0] : undefined;
   if (!member) {
-    const choice = await showMenu(client, native, group.members.map(candidate => ({ id: candidate.physicalKey, label: memberActionLabel(candidate, group.members.length), ...(candidate.remote ? { disabled: true } : {}) })));
+    const choice = await showMenu(client, native, group.members.map(candidate => ({ id: candidate.physicalKey, label: memberActionLabel(candidate, group.members.length) })));
     member = group.members.find(candidate => candidate.physicalKey === choice);
   }
   if (!member) return '';
-  if (member.remote) { toast(client, 'Could not create thread', new Error('Open a thread on that environment first.')); return ''; }
-  try { await (client as unknown as Navigator).openDraft?.(native, member.id); }
+  // createThreadForProjectMember: a background member's draft on its own environment (LS-6).
+  try { if (member.remote) await openBackgroundDraft(client, native, member.id); else await (client as unknown as Navigator).openDraft?.(native, member.id); }
   catch (error) { toast(client, 'Could not create thread', error); return ''; }
   return 'sidebar:new-thread';
+}
+
+/** Archive, mark unread and settings on any row: the focused environment's through sidebar-commands, a background one's through its own transport. */
+const archiveRow = (client: T3Client, native: Native, id: string): Promise<void> => isBackground(client, id) ? archiveBackground(client, native, id, remember) : archive(client, native, id);
+const markUnreadRow = (client: T3Client, native: Native, id: string): Promise<void> => isBackground(client, id) ? markUnreadBackground(client, native, id) : markUnread(client, native, id);
+/**
+ * "Project settings" (/projects/$projectKey → Settings › Projects scoped to the project): a background member's
+ * environment becomes the focus first, as Settings › Projects lists the focused environment's projects (a declared
+ * difference: EXACT2-GAPS.md "Legacy sidebar: Project settings on a background environment's project").
+ */
+async function projectSettings(client: T3Client, native: Native, memberId: string): Promise<string> {
+  const background = backgroundRef(client, memberId);
+  if (background) {
+    try { await focusBackground(client, native, background.environmentId); }
+    catch (error) { toast(client, 'Could not open project settings', error); return ''; }
+  }
+  sidebarSession(client).navigate = { kind: 'project-settings', projectId: background?.id ?? memberId };
+  return 'sidebar:navigate';
 }

@@ -156,20 +156,25 @@ export function previewableServers(environmentId: string, servers: ReadonlyArray
 
 // ── The stream (subscribeDiscoveredLocalServers on the focused connection) ─────────────────────
 export const DISCOVERED_SERVERS_KEY = 'browser-discovered-servers';
+/** The legacy sidebar's own stream (useThreadDiscoveredPorts: the environment's servers, no configured URLs; legacy-sidebar-links.ts). */
+export const SIDEBAR_DISCOVERED_SERVERS_KEY = 'sidebar-discovered-servers';
+export const isDiscoveredServersKey = (key: string): boolean => key === DISCOVERED_SERVERS_KEY || key === SIDEBAR_DISCOVERED_SERVERS_KEY;
 type Discovery = { generation: number; id: string; floor: number; maxSeen: number; tried: boolean; signature: string; servers: DiscoveredLocalServer[]; configuredUrlProbing: boolean; subscribes: number };
-const discoveries = new WeakMap<T3Client, Discovery>();
-function discovery(client: T3Client): Discovery {
-  let value = discoveries.get(client);
+const discoveries = new WeakMap<T3Client, Map<string, Discovery>>();
+function discovery(client: T3Client, key = DISCOVERED_SERVERS_KEY): Discovery {
+  let byKey = discoveries.get(client);
+  if (!byKey) { byKey = new Map(); discoveries.set(client, byKey); }
+  let value = byKey.get(key);
   if (!value || value.generation !== client.generation) {
     value = { generation: client.generation, id: '', floor: value?.maxSeen ?? 0, maxSeen: value?.maxSeen ?? 0, tried: false, signature: '', servers: [], configuredUrlProbing: false, subscribes: value?.subscribes ?? 0 };
-    discoveries.set(client, value);
+    byKey.set(key, value);
   }
   return value;
 }
 
 /** client.ts drain: the newest subscription's list wins; a failure keeps the last list until the next pass subscribes again. */
 export function discoveredServersEvent(client: T3Client, entry: Obj): void {
-  const value = discovery(client), id = str(entry.subscriptionId), serial = subscriptionSerial(id);
+  const value = discovery(client, str(entry.key) || DISCOVERED_SERVERS_KEY), id = str(entry.subscriptionId), serial = subscriptionSerial(id);
   value.maxSeen = Math.max(value.maxSeen, serial);
   if (serial <= value.floor || (value.id && serial < subscriptionSerial(value.id))) return;
   value.id = id;
@@ -182,18 +187,18 @@ export function discoveredServersEvent(client: T3Client, entry: Obj): void {
   value.servers = read.servers; value.configuredUrlProbing = read.configuredUrlProbing;
 }
 
-/** Follows the empty state: subscribed (with the project's configured URLs) while it shows, released when it does not. */
-export async function watchDiscoveredServers(client: T3Client, native: Native, wanted: boolean, configuredUrls: ReadonlyArray<string>): Promise<void> {
-  const value = discovery(client), bounded = boundConfiguredLocalServerUrls(configuredUrls), signature = JSON.stringify(bounded);
+/** Follows its reader (the empty state; the legacy sidebar): subscribed (with the project's configured URLs) while it shows, released when it does not. */
+export async function watchDiscoveredServers(client: T3Client, native: Native, wanted: boolean, configuredUrls: ReadonlyArray<string>, key = DISCOVERED_SERVERS_KEY): Promise<void> {
+  const value = discovery(client, key), bounded = boundConfiguredLocalServerUrls(configuredUrls), signature = JSON.stringify(bounded);
   if (value.id && (!wanted || signature !== value.signature)) {
     value.id = ''; value.tried = false; value.floor = value.maxSeen;
-    try { await client.restAccess(native).call({ op: 'unsubscribe', key: DISCOVERED_SERVERS_KEY }); } catch (error) { if (letGo(error)) throw error; }
+    try { await client.restAccess(native).call({ op: 'unsubscribe', key }); } catch (error) { if (letGo(error)) throw error; }
     if (!wanted) { value.servers = []; value.configuredUrlProbing = false; }
   }
   if (!wanted || value.id || value.tried || client.connection !== 'connected') return;
   value.tried = true; value.floor = value.maxSeen; value.signature = signature;
   try {
-    const reply = await client.restAccess(native).call({ op: 'subscribe', key: DISCOVERED_SERVERS_KEY, method: 'subscribeDiscoveredLocalServers', payload: bounded.length ? { configuredUrls: [...bounded] } : {} });
+    const reply = await client.restAccess(native).call({ op: 'subscribe', key, method: 'subscribeDiscoveredLocalServers', payload: bounded.length ? { configuredUrls: [...bounded] } : {} });
     value.subscribes++;
     const serial = subscriptionSerial(str(reply.id));
     value.maxSeen = Math.max(value.maxSeen, serial);
@@ -202,7 +207,7 @@ export async function watchDiscoveredServers(client: T3Client, native: Native, w
 }
 
 /** The focused connection's latest list (empty until the stream's first value). */
-export const discoveredServers = (client: T3Client): { servers: ReadonlyArray<DiscoveredLocalServer>; configuredUrlProbing: boolean; subscribes: number; live: boolean } => {
-  const value = discovery(client);
+export const discoveredServers = (client: T3Client, key = DISCOVERED_SERVERS_KEY): { servers: ReadonlyArray<DiscoveredLocalServer>; configuredUrlProbing: boolean; subscribes: number; live: boolean } => {
+  const value = discovery(client, key);
   return { servers: value.servers, configuredUrlProbing: value.configuredUrlProbing, subscribes: value.subscribes, live: !!value.id };
 };
