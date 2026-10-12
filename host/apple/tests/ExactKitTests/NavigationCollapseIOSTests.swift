@@ -68,10 +68,23 @@ final class NavigationCollapseIOSTests: XCTestCase {
     /// `scripts/fixtures/navigation-bars.contract` booted in a window, with
     /// the route `name` pushed over its first one.
     private func pushed(_ name: String) throws -> (ExactSession, UINavigationController, RouteController) {
+        let session = try booted("EXACT_NAVIGATION_BARS_PLAN", label: "scroller-\(name)")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        _ = Agent(session: session).tap(["id": Int(try node(session, "start-open-\(name)").id)])
+        until("\(name) pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        return (session, nav, try XCTUnwrap(nav.topViewController as? RouteController))
+    }
+
+    /// A fixture's plan (`scripts/fixtures`, by the name build.mjs gives its
+    /// path) booted in a window.
+    /// `beforeItsWindow`: the plan boots before its view is in a window, as
+    /// an app's does at launch.
+    private func booted(_ plan: String, label: String, beforeItsWindow: Bool = false) throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_NAVIGATION_BARS_PLAN"], "build.mjs --test --ios compiles the fixtures' plans")))
-        ExactGroupedLists.install() // the fixture's `rows` route is a grouped list
-        let session = ExactApp.shared.makeSession(label: "scroller-\(name)")
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[plan], "build.mjs --test --ios compiles the fixtures' plans")))
+        ExactGroupedLists.install() // navigation-bars' `rows` route is a grouped list
+        let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
         let view = ExactView(session: session)
         let host = UIViewController()
@@ -79,18 +92,42 @@ final class NavigationCollapseIOSTests: XCTestCase {
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = host
+        self.window = window
+        if beforeItsWindow {
+            XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+            view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            view.layoutIfNeeded()
+        }
         window.makeKeyAndVisible()
         host.view.addSubview(view)
-        self.window = window
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        if !beforeItsWindow { XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error) }
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         spin(0.3)
+        return session
+    }
+
+    /// LLP 1115.000 D11.1 over `scripts/fixtures/large-title.contract`: one
+    /// stack with no tabs, the shape `exact new` makes, whose first screen
+    /// names no scroller. Its large title opens expanded, its content below
+    /// it, and collapses as the content scrolls. Its scroller is attached
+    /// before its view has a window, and UIKit then showed the title inline.
+    func testASingleStacksFirstScreenOpensWithItsLargeTitleExpanded() throws {
+        let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title", beforeItsWindow: true)
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
-        _ = Agent(session: session).tap(["id": Int(try node(session, "start-open-\(name)").id)])
-        until("\(name) pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let home = try node(session, "home-scroll"), sv = try XCTUnwrap(home.scroll)
+        XCTAssertTrue(route.collapseScroll === home, "the scroller it does not name is the bar's")
+        let top = try node(session, "home-top"), bar = nav.navigationBar
+        let expanded = bar.frame.height
+        XCTAssertGreaterThan(expanded, 90, "the large title is expanded as the screen opens")
+        XCTAssertEqual(sv.contentOffset.y + sv.adjustedContentInset.top, 0, accuracy: 0.5, "its content at its top")
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, bar.convert(bar.bounds, to: nil).maxY, accuracy: 0.5, "just below the expanded title")
+        XCTAssertGreaterThan(home.scrollOrigin, 0, "the expanded inset is CSS 0")
+        home.pendingScrollTop = 300
+        home.applyPendingScroll()
         spin(0.3)
-        return (session, nav, try XCTUnwrap(nav.topViewController as? RouteController))
+        XCTAssertLessThan(bar.frame.height, expanded, "and the title collapses as the content scrolls")
     }
 
     /// LLP 1115.000 D11.1: a route that names no scroller has one all the

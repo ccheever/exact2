@@ -757,6 +757,17 @@ extension NavigationHost {
         #endif
     }
 
+    /// A shown route whose collapsing scroller is still at its start gets
+    /// the title a new screen has, expanded (`rest`). A stack's first route
+    /// at launch needs it: its scroller was attached before its view had a
+    /// window, where `rest` cannot fit the bar, and UIKit then showed a
+    /// level-1 title inline over content that had not moved. Seen in a
+    /// single stack; under a tab bar UIKit fits it itself.
+    func restAtStart(_ c: RouteController) {
+        guard let node = c.collapseScroll, let sv = shownScroll(node), sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top else { return }
+        rest(sv, in: c)
+    }
+
     /// The bottom edge, as `collapse` is the top's (LLP 1116 D2): a route
     /// whose last in-flow child is a scroller — a `navigationScroll` or not —
     /// lets it run to the screen's bottom edge, under the home indicator and
