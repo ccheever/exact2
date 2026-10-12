@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r11'
-pr_url:
+pr_url: https://github.com/ccheever/exact2/pull/497
 verified_commit:
 ---
 
@@ -101,12 +101,12 @@ matching the reference T3 Code (no further decision needed unless the reference 
 - Main: `issues/closed/` files of X50, X51, X52, X62, X64 (#327), X58 (#477), the `pan=` captures (#478), X77 (#491),
   X79 (#490), X80 (`2a3d3fb82`), X81 (#493), X82 (#494), X84 (#486), X85 (#487); open:
   `issues/20261009-macos-textarea-native-undo.md` (X63, its iOS part), `issues/20261009-gui-dialog-action-commands.md`
-  (#282), `issues/20261009-macos-menu-stalls-native-work.md` (#292), `issues/20261012-macos-inline-link-run-tab-stop.md`,
-  `issues/20261012-column-height-ignores-leaf-max-height.md` (X86).
+  (#282), `issues/20261009-macos-menu-stalls-native-work.md` (#292), `issues/20261012-macos-inline-link-run-tab-stop.md`;
+  X86's `issues/closed/20261012-column-height-ignores-leaf-max-height.md` (filed by #488, fixed by #496 during this task).
 
 ## Adopted main
 
-**`b610c88ba`** (main's tip at the merge, 270 commits past round 10's `f084cc1c9`):
+**`b610c88ba`**, then **`c4cd2bcba`** (main's tip at the last merge, 280 commits past round 10's `f084cc1c9`):
 
 - `cae99e9d7`: this record's first version.
 - `6b6446e97`: `git merge --no-ff origin/main` at `b610c88ba` (#327, #477, #478, #486, #487, #488, #490, #491, #493, #494,
@@ -301,6 +301,31 @@ login), window 1280×840. Never send a message, never change System Settings.
 - AppKit: `macos/tests/r8-keys` (the Undo test over #327's textarea), `macos/tests/contextmenu` (`secondary-clicks.swift`,
   new, 6; the shell tests pin `assistive` off; `text-menu.swift`'s stand-in is main's menu), `macos/tests/transport` (the
   re-rooting's test removed).
+
+## Checks
+
+Once, on `476dae166` (the final code head; later commits change this record only), `target/r11/checks.sh`:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,846 pass, 1 skip, 0 fail (327 files; `adopt-main-fixes-r11.test.ts` added) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6,470 slots, 120,810 nodes, 48 resources, 33,303,262 bytes; 233 `lower-colour-one-scheme`, 20 `lower-dialog-role` shown (the list's cap); run on these sources before the record commit. `app.contract` 1,453 lines |
+| `cargo test -p t3-code-macos --lib` | 0 | 25 passed |
+| AppKit binaries the retirements touch (README recipe) | 0 | `r8-keys` 6/0, `contextmenu` 70/0, `transport` 64/0, `menus` 46/0, `real-key-chords` 4/0 (screen locked) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,945 passed, 0 failed, 36 ignored (99 suites) |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `cargo check --workspace --all-targets --keep-going` (main's sixth check, `a59700afe`) | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | twice: the before (`20ce9dfdb`) and the live drive's (`6297a1728`'s sources) |
+
+After a fresh fetch on the final head: `git merge-base --is-ancestor c4cd2bcba HEAD` yes, `git rev-list --count
+HEAD..origin/feat(example)/t3-code` 0, `git diff c4cd2bcba HEAD -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'`
+empty. Main moved one commit after the checks (`b0e4a6c22`, the terminal's animation payloads); not adopted here, the next
+round takes it.
 
 ## Attempts and evidence
 
