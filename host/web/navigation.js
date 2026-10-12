@@ -28,7 +28,7 @@ const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? p
 // writes it (a horizontal bar, a direct child of the root's flex column, in flow) is a sidebar (`data-exact-sidebar`; the
 // shell's rules draw it); one the app arranged (vertical, positioned, in a route) stays its own. A stack whose root route
 // is a list whose rows push (a pressable row drawing the disclosure, `symbol:forward-chevron`, as the iOS grouped list
-// reads it) shows that route as a column beside its top (`data-exact-split`), as UISplitViewController does, marking the
+// reads it; the compiler writes `navigationSplit="none"` on a route whose chevron rows push nowhere, LLP 1116.007 D3.7) shows that route as a column beside its top (`data-exact-split`), as UISplitViewController does, marking the
 // row whose press pushed the detail shown; a sheet stays a sheet. `navigationSplit` on the root route opts out ("none")
 // or names the column's width (320 unsaid), and splits a list the rule does not find.
 const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches, splitRoots = new WeakSet(), rowOf = new WeakMap();

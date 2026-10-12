@@ -240,8 +240,9 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   dismisses the sheet (pressing its Cancel) and pops the detail, on every host.
   Swipe to delete and long-press menus: [list-rows](list-rows.md).
 - A wide window (900 px and up on the web) shows the list beside its detail with nothing
-  to write, as a split view does: its rows push, because they draw the disclosure (the
-  `forward-chevron`). A sheet stays a sheet; a phone pushes. A row pressed while a detail
+  to write, as a split view does: its rows push (a `link`, or a `press` that writes the router) and draw
+  the disclosure (the `forward-chevron`); a chevron on a row that only selects is decoration, and
+  that route stays one column. A sheet stays a sheet; a phone pushes. A row pressed while a detail
   shows pushes another, so to swap the detail instead, `follow` replaces when one is shown:
   `nav = top(nav).name == "note" and startsWith(url, "/note/") ? replace(nav, url) : go(nav, url)`.
   `navigationSplit="none"` on the list's route keeps it pushed; `contract vocab navigationSplit`.
