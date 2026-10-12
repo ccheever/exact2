@@ -1443,7 +1443,6 @@ async function test(args) {
     run('cargo', ['rustc', '--crate-type', 'staticlib', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
     const libDir = ios ? resolve(app.target, iosTarget, HOST_DEV) : resolve(app.target, HOST_DEV);
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
-    // The filter kernels the Metal chain's tests run (no bundle to find them in).
     mkdirSync(paths.namespace, { recursive: true });
     env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
     if (ios) env.TEST_RUNNER_EXACT_SVG_METALLIB = env.EXACT_SVG_METALLIB;
@@ -1475,6 +1474,7 @@ async function test(args) {
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     for (const [name, key] of [['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE']]) { const plan = env[`TEST_RUNNER_EXACT_${key}_PLAN`] = resolve(fixtureDir, `${name}.plan`); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]); }
+    env.TEST_RUNNER_EXACT_NATIVE_SCROLL_PLAN = resolve(fixtureDir, 'native-navigation-scroll.plan'); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, 'scripts/fixtures/native-navigation-scroll.contract'), '-o', env.TEST_RUNNER_EXACT_NATIVE_SCROLL_PLAN]);
     const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift')).map(f => f.slice(0, -'.swift'.length));
     if (!classes.length) { console.log('host/apple: no *IOSTests to run'); return; }
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;

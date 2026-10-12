@@ -225,7 +225,7 @@ extension NodeView {
         // unless none can reach it: they are clipped, scrolled, or painted
         // through a surface. Then it is the layer's own, which Core Animation
         // paints over the sublayers.
-        let own = clipsToBounds || clipBox != nil || scroll != nil || overlay != nil
+        let own = clipsToBounds || clipBox != nil || scrollView != nil || groupedOwner || overlay != nil
         // Sides in one colour that differ only in width, square-cornered and
         // under the children (a row's `border-bottom` separator): each side
         // a rectangle of one shape layer. Where two sides meet, the web's

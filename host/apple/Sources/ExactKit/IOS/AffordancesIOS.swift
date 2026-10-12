@@ -13,7 +13,7 @@ extension NodeView {
         let invert = style["smart_invert"]?.string ?? "auto"
         let ignores = invert == "ignore" || ["image", "video", "canvas"].contains(kind)
         if accessibilityIgnoresInvertColors != ignores { accessibilityIgnoresInvertColors = ignores }
-        if let sv = scroll { applyScrollEdge(sv) }
+        if let sv = scrollView { applyScrollEdge(sv) }
         applyHoverEffect()
     }
 
