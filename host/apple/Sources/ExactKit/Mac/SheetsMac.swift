@@ -96,11 +96,12 @@ extension Presenter {
     /// dialog's sheet, else the page's.
     var frontWindow: NSWindow? { dialogs.entries.last?.sheet?.window ?? viewport.window }
     /// What holds the keyboard for this session: the first responder of the
-    /// front-most of its windows that has a node focused (a popover's, the
-    /// open dialog's sheet's), else the page's window's.
+    /// front-most of its windows in which something is focused (a popover's,
+    /// the open dialog's sheet's), else the page's window's. A native
+    /// module's editor is no node, and is what holds it all the same.
     var focusResponder: NSResponder? {
         let windows = menus.windowed.reversed().compactMap(\.window) + [frontWindow].compactMap { $0 }
-        return windows.lazy.compactMap(\.firstResponder).first { self.keyTarget($0) != nil } ?? viewport.window?.firstResponder
+        return windows.lazy.compactMap(\.firstResponder).first { !($0 is NSWindow) } ?? viewport.window?.firstResponder
     }
     /// The sheets on `window`, bottom to top: its own, the one on that, and so on.
     func sheets(on window: NSWindow?) -> [NSWindow] {
