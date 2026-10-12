@@ -69,7 +69,8 @@ internal class Requests(private val activity: ExactActivity) {
                     COPY -> copy(string(words, body).first)
                     SHARE -> share(id, words, body)
                     BACK -> back(words[body] != 0)
-                    KEYBOARD -> view?.keys?.show(words[body])
+                    // The second word, from D8 on: the hosted field the keyboard is for (0: one exact2 paints).
+                    KEYBOARD -> view?.keyboard(words[body], if (i - body > 1) words[body + 1] else 0)
                 }
             } catch (e: RuntimeException) {
                 // The platform refused (no activity to start from, a full clipboard transaction): the app goes on.

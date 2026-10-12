@@ -23,11 +23,20 @@
 // share sheet, a link). One screen shows a host's whole palette. Its last
 // button authors an `accent-color` over the page, the one colour written
 // here, which must win over the platform's.
+//
+// The fourth button opens a form (LLP 1115.001 D8): a field of each kind a
+// keyboard has a shape for (text, email, password, number, search), a
+// textarea, a field that takes five characters, one the app rewrites in
+// lower case as it is typed, three chained by their enter keys (Next, Next,
+// then Done, which submits) and ten more with nothing bound to them, so the
+// form is longer than the screen. Nothing says how a field looks or types:
+// on Android each is the platform's own field.
 routes nav
   home "/"
     next "/next"
     rows "/rows"
     colours "/colours"
+    form "/form"
 
 component Unsaid
   state name = ""
@@ -36,6 +45,18 @@ component Unsaid
   state top = 0
   state authored = false
   state said = "Nothing asked yet"
+  state plain = ""
+  state email = ""
+  state secret = ""
+  state amount = ""
+  state query = ""
+  state notes = ""
+  state short = ""
+  state quiet = ""
+  state first = ""
+  state second = ""
+  state last = ""
+  state sent = ""
   derive ten = split("0 1 2 3 4 5 6 7 8 9", " ")
   derive forty = concat(concat(ten, ten), concat(ten, ten))
   derive cards = map(concat(ten, ten), (x, i) => i)
@@ -65,6 +86,33 @@ component Unsaid
     authored = not authored
   action rename(value)
     name = value
+  action openForm
+    nav = push(nav, "/form")
+  action setPlain(value)
+    plain = value
+  action setEmail(value)
+    email = value
+  action setSecret(value)
+    secret = value
+  action setAmount(value)
+    amount = value
+  action setQuery(value)
+    query = value
+  action setNotes(value)
+    notes = value
+  action setShort(value)
+    short = value
+  // The app writes another value than the one typed: the field takes it.
+  action hush(value)
+    quiet = toLowerCase(value)
+  action setFirst(value)
+    first = value
+  action setSecond(value)
+    second = value
+  action setLast(value)
+    last = value
+  action sendForm
+    sent = `${first} / ${second} / ${last}`
   action pick(i: number)
     picked = i
   // The strip is 120 tall, the nested scroller 200, and each row after them 56.
@@ -86,6 +134,8 @@ component Unsaid
               text "Open a list to scroll"
             button press=openColours testId="open-colours"
               text "Open the device's colours"
+            button press=openForm testId="open-form"
+              text "Open a form"
           when e.name == "colours"
             column gap=10 accent-color=(authored ? "light-dark(#ad1457, #f48fb1)" : "auto") testId="colours"
               text "The device's colours" role="heading" aria-level=1 testId="colours-heading"
@@ -142,6 +192,26 @@ component Unsaid
                 button press=author testId="author"
                   text (authored ? "The platform's accent" : "Author an accent")
               text said testId="said"
+          when e.name == "form"
+            column display="flex" flex-direction="column" height="100%" gap=8
+              text "A form" role="heading" aria-level=1 testId="form-heading"
+              text (sent == "" ? "Nothing submitted yet" : `Submitted: ${sent}`) testId="sent"
+              scroll flex=1 min-height=0 width="100%" testId="form"
+                column gap=10 padding-bottom=24
+                  input value=plain input=setPlain placeholder="Plain text" aria-label="Plain text" testId="f-plain"
+                  input type="email" value=email input=setEmail placeholder="Email" autocomplete="email" aria-label="Email" testId="f-email"
+                  input type="password" value=secret input=setSecret placeholder="Password" autocomplete="current-password" aria-label="Password" testId="f-password"
+                  input type="number" value=amount input=setAmount placeholder="Number" aria-label="Number" testId="f-number"
+                  input type="search" value=query input=setQuery placeholder="Search" aria-label="Search" testId="f-search"
+                  textarea value=notes input=setNotes rows=3 placeholder="Notes, on several lines" aria-label="Notes" testId="f-notes"
+                  input value=short input=setShort maxlength=5 placeholder="At most five" aria-label="At most five" testId="f-max"
+                  input value=quiet input=hush placeholder="Rewritten in lower case" aria-label="Lower case" testId="f-lower"
+                  text `plain "${plain}", lower "${quiet}", five "${short}"` testId="echo"
+                  input value=first input=setFirst enterkeyhint="next" placeholder="First, then Next" aria-label="First" testId="f-first"
+                  input value=second input=setSecond enterkeyhint="next" placeholder="Second, then Next" aria-label="Second" testId="f-second"
+                  input value=last input=setLast submit=sendForm enterkeyhint="done" placeholder="Last, then Done" aria-label="Last" testId="f-last"
+                  each n in ten key=n
+                    input placeholder=`Extra field ${n}` aria-label=`Extra field ${n}` testId=`f-extra-${n}`
           when e.name == "next"
             text "The next page" role="heading" aria-level=1 testId="next-heading"
             text "It has no Back control. The system's Back returns to the first page, and from there it leaves the app." testId="next-paragraph"

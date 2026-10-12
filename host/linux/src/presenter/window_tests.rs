@@ -178,6 +178,50 @@ fn the_field_being_edited_stays_above_the_keyboard() {
     );
 }
 
+/// On a phone a picture is shown (frames are submitted and acknowledged),
+/// and the boxes a reveal goes by are the last picture's, painted before
+/// the keyboard rose: the field is kept in view once the page has been
+/// painted in the viewport the keyboard left (seen on a Pixel, where the
+/// field had stayed under the keyboard).
+#[test]
+fn under_a_shown_picture_the_field_rises_with_the_paint_after_the_keyboard() {
+    let rows: String = (0..20)
+        .map(|i| format!("        box height=60 width=200 testId=\"r{i}\"\n"))
+        .collect();
+    let mut p = boot(&format!(
+        "component App\n  view\n    main testId=\"root\" width=\"100%\" height=\"100%\" viewport-fit=\"cover\" display=\"flex\" flex-direction=\"column\"\n      scroll testId=\"port\" flex=1 width=\"100%\"\n        column\n{rows}        input testId=\"note\" width=200 height=40\n"
+    ));
+    assert!(p.set_window(phone()).is_none());
+    let shown = |p: &mut Presenter<Nothing>| {
+        let frame = p.display_frame().expect("a frame");
+        assert!(p.display_complete(&frame));
+    };
+    let note = {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id("note")[0]).unwrap().id
+    };
+    shown(&mut p);
+    p.wheel_at(100., 400., 0., 10_000.);
+    assert!(p.set_focus(Some(note), 0.).is_none());
+    shown(&mut p);
+    let typing = Window {
+        keyboard: [0., 0., 300., 0.],
+        ..phone()
+    };
+    assert!(p.set_window(typing).is_none());
+    assert_eq!(p.viewport, (400., 500.));
+    // The picture in the new viewport, whose boxes show the field under
+    // the keyboard; then the one the reveal asked for.
+    shown(&mut p);
+    assert!(p.dirty(), "the reveal scrolled the list");
+    shown(&mut p);
+    let after = p.box_of(note).unwrap().rect;
+    assert!(
+        after.1 >= 0.0 && after.1 + after.3 <= 500.0,
+        "the field is in what the keyboard leaves: {after:?}"
+    );
+}
+
 #[test]
 fn the_colour_behind_the_page_is_the_roots_or_the_platforms_surface() {
     // The author's opaque root background reaches the edges, in any scheme.

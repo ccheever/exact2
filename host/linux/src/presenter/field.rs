@@ -181,6 +181,22 @@ impl<D: DataSource> Presenter<D> {
             },
         );
         self.dirty = true;
+        // A field the shell hosts shows a command's selection itself.
+        if by_command {
+            self.hosted_commanded(id, selection);
+        }
+    }
+
+    /// [`Presenter::mark_field`] for a selection the shell's own field
+    /// already shows (LLP 1115.001 D8): kept for the next `input`, and
+    /// nothing here is painted again for it.
+    pub(super) fn note_field(&mut self, id: ViewId, value: &str, selection: FieldSelection) {
+        let mark = FieldMark {
+            selection,
+            value: value.to_owned(),
+            by_command: false,
+        };
+        self.fields.insert(id, mark);
     }
 
     /// A press puts the caret at a text field's end: this host finds no
@@ -198,7 +214,13 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// HTML's `select` at a text field, where it has a handler.
-    fn field_select(&mut self, id: ViewId, value: &str, selection: FieldSelection, now_ms: f64) {
+    pub(super) fn field_select(
+        &mut self,
+        id: ViewId,
+        value: &str,
+        selection: FieldSelection,
+        now_ms: f64,
+    ) {
         if !self
             .host
             .runner()
@@ -312,7 +334,7 @@ impl<D: DataSource> Presenter<D> {
     /// which carries the selection. The watch is the bound value from before
     /// the dispatch, so a write during the edit replaces the typed text and
     /// one that writes nothing leaves it (LLP 1069.001 D4).
-    fn field_edit(
+    pub(super) fn field_edit(
         &mut self,
         id: ViewId,
         next: String,

@@ -1155,10 +1155,7 @@ impl LayoutTree {
                                 width,
                                 height,
                             };
-                            match &stamp {
-                                Some(stamp) => measurer.measure_identified(stamp, &request),
-                                None => measurer.measure(&request),
-                            }
+                            fields::text(arena, slot, measurer, stamp.as_ref(), &request)
                         };
                         if !metrics.is_valid() {
                             invalid_metrics.get_or_insert_with(|| arena.local_id(slot));

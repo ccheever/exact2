@@ -150,6 +150,29 @@ impl LayoutTree {
     }
 }
 
+/// A leaf's text, measured. A text control's is its host's control's own
+/// where the host says so ([`TextMeasurer::field_text`], LLP 1115.001 D8);
+/// every other paragraph, and a control's on a host that paints it, is the
+/// paragraph engine's.
+pub(super) fn text(
+    arena: &NodeArena,
+    slot: u32,
+    measurer: &mut dyn TextMeasurer,
+    stamp: Option<&crate::text::ParagraphStamp>,
+    request: &TextMeasureRequest<'_>,
+) -> TextMetrics {
+    if arena.node_type(slot) == NodeType::TextInput {
+        let kind = FieldKind::from_props(arena.props(slot));
+        if let Some(metrics) = measurer.field_text(kind, request) {
+            return metrics;
+        }
+    }
+    match stamp {
+        Some(stamp) => measurer.measure_identified(stamp, request),
+        None => measurer.measure(request),
+    }
+}
+
 fn add_chrome(style: &mut taffy::Style, chrome: FieldChrome) {
     // Authored borders are absolute lengths. Chrome is kept in a separate
     // record, but is represented as additional border inset inside Taffy so

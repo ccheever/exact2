@@ -111,6 +111,8 @@ macro_rules! canvas_jni {
                 if adopt_running((width as u32, height as u32), scale) {
                     return JNI_TRUE;
                 }
+                // The reader hosts the app's text fields (LLP 1115.001 D8).
+                $crate::canvas::field::attach(env, scale);
                 let dir = string(env, dir);
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
@@ -168,6 +170,7 @@ macro_rules! canvas_jni {
                         Some((width as u32, height as u32, scale));
                     return;
                 }
+                $crate::canvas::field::attach(env, scale);
                 // The environment is set here, before any other thread reads it.
                 let dir = string(env, dir);
                 std::env::set_var("HOME", &dir);
@@ -256,6 +259,8 @@ macro_rules! canvas_jni {
                     touch_slop,
                 };
                 $crate::canvas::configure(&device);
+                // What a hosted field measured was under the old settings.
+                $crate::canvas::field::forget();
                 with(|h| h.configure(&device));
             }
 
@@ -489,9 +494,11 @@ macro_rules! canvas_jni {
             }
 
             /// What is under a point of the view (pixels), for the reader
-            /// deciding what a drag from there is (LLP 1115.001 D7.3):
-            /// the presenter's own claims, a count, and eleven words a
-            /// scroller, innermost first (`Presenter::reader_under`).
+            /// deciding what a drag from there is (LLP 1115.001 D7.3) and
+            /// whose a touch there is (D8): the presenter's own claims, a
+            /// count, the hosted text field the touch is for, and eleven
+            /// words a scroller, innermost first
+            /// (`Presenter::reader_under`).
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_under(
                 env: *mut JNIEnv,
@@ -499,8 +506,85 @@ macro_rules! canvas_jni {
                 x: jfloat,
                 y: jfloat,
             ) -> jintArray {
-                let words = with(|h| h.under(x, y)).unwrap_or_else(|| vec![0, 0]);
+                let words = with(|h| h.under(x, y)).unwrap_or_else(|| vec![0, 0, 0]);
                 ints(env, &words)
+            }
+
+            /// What the reader is told of the text fields it hosts (LLP
+            /// 1115.001 D8), when that is not what this last returned
+            /// (else null): `Presenter::reader_fields` has the words.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fields(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                match with(|h| h.fields()).flatten() {
+                    Some(words) => ints(env, &words),
+                    None => std::ptr::null_mut(),
+                }
+            }
+
+            /// The reader's field `id`, known at `generation`, took the
+            /// focus or lost it.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldFocused(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                generation: jint,
+                focused: jboolean,
+            ) {
+                with(|h| h.field_focused(id as u32, generation as u32, focused == JNI_TRUE));
+            }
+
+            /// The reader's field `id` holds `value` after its edit number
+            /// `seq`, with its selection at `start` to `end` (UTF-16
+            /// units): the person's edit, composing text included.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldEdited(
+                env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                generation: jint,
+                seq: jint,
+                value: jstring,
+                start: jint,
+                end: jint,
+            ) {
+                let value = $crate::canvas::field::text(env, value);
+                let (edit, selection) = (
+                    (generation as u32, seq as u32),
+                    (start.max(0) as u32, end.max(0) as u32),
+                );
+                with(|h| h.field_edited(id as u32, edit, &value, selection));
+            }
+
+            /// The reader's field `id` moved its selection with no edit.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldSelected(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                generation: jint,
+                start: jint,
+                end: jint,
+            ) {
+                let selection = (start.max(0) as u32, end.max(0) as u32);
+                with(|h| h.field_selected(id as u32, generation as u32, selection));
+            }
+
+            /// The reader's field `id` had its action key pressed, or
+            /// Enter or Tab on a hardware keyboard: `action` is what the
+            /// key said it does (`presenter::field_action`).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldAction(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                generation: jint,
+                action: jint,
+            ) {
+                with(|h| h.field_action(id as u32, generation as u32, action));
             }
 
             /// The reader moved scroller `id` by (`dx`, `dy`) pixels,

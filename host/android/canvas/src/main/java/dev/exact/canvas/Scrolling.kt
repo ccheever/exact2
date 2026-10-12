@@ -164,10 +164,11 @@ internal class Scrolling(private val view: ExactView) {
      * statement that tells each scroller's place is published before this arrives ([Owner.under]).
      */
     fun under(serial: Int, w: IntArray) {
-        if (serial != this.serial || mode != WATCHING || w.size < 2) return
+        if (serial != this.serial || mode != WATCHING || w.size < 3) return
         claims = w[0]
         val links = ArrayList<Link>(w[1])
-        var i = 2
+        // After the claims and the count, the hosted field under the touch ([Fields.under]); then the scrollers.
+        var i = 3
         while (i + 11 <= w.size) {
             val s = scrollers.getOrPut(w[i]) { Scroller(w[i]) }
             if (!s.told) { s.rev = w[i + 2]; s.nowX = f(w[i + 3]); s.nowY = f(w[i + 4]); s.maxX = f(w[i + 5]); s.maxY = f(w[i + 6]) }
@@ -187,6 +188,8 @@ internal class Scrolling(private val view: ExactView) {
     private fun decide(x: Float, y: Float) {
         val ax = abs(x - downX); val ay = abs(y - downY)
         if (max(ax, ay) <= slop) return
+        // A hosted text field that drags its own selection or caret asked to keep its touch, as it asks a ScrollView.
+        if (view.fieldKeeps()) return
         val across = ax > ay
         if (claims and (if (across) 1 else 2) != 0) { mode = THEIRS; return }
         val takes = { side: Boolean -> chain.any { if (side) it.x else it.y } }
@@ -236,6 +239,7 @@ internal class Scrolling(private val view: ExactView) {
             if (abs(rest) < 0.01f) { rest = 0f; break }
         }
         place()
+        view.fields?.place()
         view.tick()
         if (waits) view.awaitScrolled()
         return rest

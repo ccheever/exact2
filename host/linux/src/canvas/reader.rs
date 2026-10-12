@@ -21,6 +21,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let rescaled = scale != self.scale;
         self.scale = scale;
         self.viewport = viewport;
+        crate::fields::rescale(scale);
         let error = if rescaled {
             self.p.resize_scaled(viewport.0, viewport.1, scale)
         } else {

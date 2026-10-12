@@ -82,6 +82,8 @@ impl<D: DataSource> Presenter<D> {
         if device.font_scale.is_finite() && device.font_scale > 0.0 {
             let px = ROOT_FONT_SIZE * f64::from(device.font_scale);
             error = error.or(self.set_root_font_size(px));
+            // A field the shell hosts starts at the scaled size too (D8).
+            error = error.or(self.scale_field_font(device.font_scale));
         }
         // A tag the runner refuses (an empty one) leaves the place as it was.
         if !device.locale.is_empty() && place != *self.host.runner().place() {
@@ -106,8 +108,10 @@ impl<D: DataSource> Presenter<D> {
         self.brush.forget_rows();
         // Nor of what it was told of the scrollers: the new one asks again.
         self.reader = Default::default();
-        // Nor of Back and the keyboard, which it is told anew (D5).
+        // Nor of Back and the keyboard, which it is told anew (D5), nor of
+        // the text fields it hosts (D8).
         self.requests_reset();
+        self.hosted_reset();
         self.dirty = true;
     }
 }

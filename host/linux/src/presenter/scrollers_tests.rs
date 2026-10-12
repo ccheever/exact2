@@ -170,8 +170,12 @@ fn the_reader_moves_a_scroller_and_is_told_where_it_is() {
     assert_eq!(p.reader_scrolled(page, (0., 10.), 0), None, "never told");
     // The touch's answer, in the reader's pixels (two a point).
     let words = p.reader_under(400., 480., 2.);
-    assert_eq!(&words[..2], &[0, 2], "no claims, two scrollers");
-    let first = &words[2..13];
+    assert_eq!(
+        &words[..3],
+        &[0, 2, 0],
+        "no claims, two scrollers, no hosted field"
+    );
+    let first = &words[3..14];
     assert_eq!(
         &first[..3],
         &[inner as i32, 2, 0],
@@ -182,7 +186,7 @@ fn the_reader_moves_a_scroller_and_is_told_where_it_is() {
         .map(|w| f32::from_bits(*w as u32))
         .collect();
     assert_eq!(px, [0., 0., 0., 600., 0., 360., 800., 240.]);
-    assert_eq!(words[13], page as i32);
+    assert_eq!(words[14], page as i32);
     // The first statement is whole: both scrollers, where they are.
     let all = p.reader_scrollers(&[(page, (0., 0.))], 2.).unwrap();
     assert_eq!(told(&all, page), (2 | 4, 0, [0., 0., 0., 0., 0., 2040.]));

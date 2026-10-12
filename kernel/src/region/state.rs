@@ -582,6 +582,13 @@ impl TextMeasurer for Candidate<'_> {
     fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
         self.measurer.field_chrome(request)
     }
+    fn field_text(
+        &mut self,
+        kind: crate::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        self.measurer.field_text(kind, request)
+    }
     fn height_free(&self) -> bool {
         self.height_free
     }
