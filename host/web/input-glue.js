@@ -57,6 +57,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
+  // With no `navigate` handler it is the runner's own `go` (LLP 1115.000
+  // D4.3), as Back is its own `back`: a link to a route never reloads the page.
   // A modified or other-button click, a `target` or `download`, is the
   // browser's alone — a pressing link's press does not also run — and so are
   // other origins, fragments of this page and undeclared paths (a file).
@@ -68,13 +70,12 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
       || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) event.stopPropagation(); return; }
     const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url;
-    const { wasm, writeIn, navigate } = globalThis.exact;
+    const { wasm, writeIn, navigate, go } = globalThis.exact;
     if (url.origin !== location.origin || (here && url.hash) || wasm.exact_route_match(writeIn(to)) !== 1) return;
-    const nav = root.firstElementChild;
-    if (!press && !(nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate"))) return;
+    const nav = root.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
     event.preventDefault();
     if (press || here) return;
-    if (!navigate(to)?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
+    if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Tab") radioStops(root); // a radio group's one stop, before the focus moves

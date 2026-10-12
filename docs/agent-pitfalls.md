@@ -239,12 +239,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
   control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
-- **The browser's Forward does nothing on the web.** With no `navigate` handler the
-  browser's Back pops the router by itself (LLP 1115 D5), but Forward to the popped
-  `/item/1` is refused (the log says "navigate … refused") and an in-app link reloads the
-  page. Fix: `navigate=follow` on the root and `action follow(url: string)` with
-  `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route
-  (LLP 1116.002, 1116.003).
+- **A `link` to a route does nothing on iOS or the Mac.** On the web the browser's
+  Back and Forward and a `link` to a declared route work with no `navigate` handler:
+  the runner pops or goes there itself (LLP 1115 D5, LLP 1115.000 D4.3). A native host
+  has that only for Back; a link, or a URL the system opens, is refused there (the log
+  says "navigate refused"). Fix: `navigate=follow` on the root and
+  `action follow(url: string)` with `nav = go(nav, url)`, as every pattern has;
+  `one-screen` keeps it with one route (LLP 1116.002, 1116.003).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller; a title collapses only with
   the scroller right after the route's `header`. Fix: a `scroll flex=1 min-height=0`

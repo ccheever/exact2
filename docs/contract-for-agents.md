@@ -1116,7 +1116,10 @@ root with a `navigationKey` alone is the navigation root and names no control. A
 control still has the platform's back button, edge swipe and swipe down (and the
 browser's Back): they go back through the root's `navigate` handler with the location
 beneath (`nav = go(nav, url)` pops to it), or, with no handler, the runner pops the
-router itself, as `nav = back(nav)` would (LLP 1115 D5). A declared but disabled
+router itself, as `nav = back(nav)` would (LLP 1115 D5). On the web the browser's
+Forward and a `link` to a declared route do the same with no handler: the runner goes
+there itself, as `nav = go(nav, url)` would (LLP 1115.000 D4.3); a native host's link
+still needs the handler. A declared but disabled
 control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,

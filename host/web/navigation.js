@@ -6,7 +6,7 @@ let managed = new WeakMap(), shown = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
 const queue = [], waiters = new Set();
-let root, navigate, log, hostBack;
+let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own
 // tablist's tabs name with aria-controls, in tab order (a tablist inside a
@@ -191,15 +191,15 @@ function popped({ j, state, url }) {
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
   // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationRules.back): the route's
-  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed.
+  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3).
   const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
   try {
     if (back) why = pressBack(nav);
-    else if (navigate(target) === false && step) {
-      own = true; back = !!backControl(nav) || closedNone(selectedRoute(nav));
-      if (back) why = pressBack(nav); else hostBack?.(written[cursor].id);
+    else if (navigate(target) === false) {
+      own = true; back = step && (!!backControl(nav) || closedNone(selectedRoute(nav)));
+      if (back) why = pressBack(nav); else if (step) hostBack?.(written[cursor].id); else hostGo?.(target);
     }
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
@@ -216,7 +216,7 @@ function popped({ j, state, url }) {
       }
     } else {
       if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
-      else log(`history: ${own ? `Back to ${JSON.stringify(target)} refused: the navigation root has no navigate handler (navigate=…), and the runner's own back from visit ${written[cursor].id} committed no router change` : `${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none`}; restoring the entry`);
+      else log(`history: ${own ? `${step ? "Back to" : "navigate"} ${JSON.stringify(target)} refused: the navigation root has no navigate handler (navigate=…), and the runner's own ${step ? `back from visit ${written[cursor].id}` : "go there"} committed no router change` : `${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none`}; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
@@ -232,9 +232,9 @@ function drain() {
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 
 export const navigation = {
-  /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
-  connect(hostRoot, dispatch, journal, back = null) {
-    root = hostRoot; navigate = dispatch; log = journal; hostBack = back;
+  /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
+  connect(hostRoot, dispatch, journal, back = null, goTo = null) {
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
     // A row a press reaches in a list column (`project` marks it once its detail shows), and a resize across WIDE.
     root.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row) pressedRow = [row, performance.now(), last?.url]; }, true);
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));

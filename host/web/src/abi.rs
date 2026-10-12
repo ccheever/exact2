@@ -403,6 +403,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// `exact_host_go`: the platform's own navigation to the location in the
+    /// input buffer (LLP 1115.000 D4.3), a batch.
+    pub fn host_go(&mut self, len: usize, now_ms: f64) -> u32 {
+        let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let out = match self.host.as_mut() {
+            Some(h) => h.host_go(&location, now_ms),
+            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
     /// Whether the location in the input buffer names a declared route
     /// (LLP 1038 §7): the page then follows a same-origin link in place.
     pub fn route_matches(&self, len: usize) -> u32 {
@@ -1128,6 +1139,15 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_back(id: f64, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().host_back(id as u64, now_ms))
+        }
+
+        /// The platform's own navigation to a location (the input buffer),
+        /// for the browser's Forward and a link to a declared route under a
+        /// root with no `navigate` handler (LLP 1115.000 D4.3); returns the
+        /// batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_host_go(len: u32, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().host_go(len as usize, now_ms))
         }
 
         /// Whether a location (the input buffer) names a declared route.
