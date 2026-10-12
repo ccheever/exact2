@@ -928,8 +928,9 @@ nothing presses.
 On macOS, the unmodified `ContextMenu` key opens it at the focused node's
 visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
 A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
-handler runs before its `contextPopover` opens; a field keeps its editing
-menu. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
+handler runs before its `contextPopover` opens; a text field keeps its editing
+menu, and a control in the node (a checkbox, a range, a date) has none, so the
+node's runs. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
 default on macOS, matching Chrome on that platform. Native context menus retain
 the existing `disabled` guard, including on plain containers.
 
@@ -1094,6 +1095,23 @@ extended), and when `setSelectionRange` changes the selection, collapsed
 included; typing and a plain caret move do not fire it. Its payload is the
 `InputEvent`.
 
+While an input method composes in a text field or a textarea (Japanese kana
+before its kanji, pinyin, a Korean syllable), `input` fires at every change
+with the composing text in the value, as the DOM's does, on every host that
+composes (the web, macOS, iOS, Android): "に", "にほ", "にほん", then "日本".
+Contract has no `compositionstart`, `compositionend` or `isComposing`, so an
+action cannot tell composing text from committed text; it is handed the
+field's value and should treat it as that. On macOS and iOS the commit of
+what is composed as it stands changes no text and is not another `input`;
+`change` is still the end of the editing. An action that writes the value it
+was handed back (a controlled input) changes nothing in the field, and the
+composition goes on. One that writes a different value (trimmed,
+upper-cased, cut to a length) does not interrupt the person either: on
+macOS, iOS and the web's wasm target the value is held while the text
+composes and lands when the composition ends, committed or cancelled, so the
+rewrite shows a moment later. Android and the web's JS target do not hold
+yet: there such a write replaces the text and ends the composition.
+
 `setSelectionRange(id, start, end)` and `setSelectionRange(id, start, end,
 direction)` are the field's own method, by its `id`, after the commit's tree
 is in place (so a `value` written beside it is there first). It does not
@@ -1133,9 +1151,9 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   printable ones in a field included. On macOS and iOS, keys an input
   method is composing are its own, but for two: a modifier's own press and
   release (so a Shift let go mid-syllable is still a keyup), and a ⌘ chord,
-  whose keydown commits the composed text first: the field's `input` hears
-  the text, then the chord's `key` handlers run and read the value Chrome's
-  would (there the page's value already holds the composed text). A
+  whose keydown commits the composed text first: the chord's `key` handlers
+  then run on committed text and read the value Chrome's would, which the
+  field's `input` heard as it was composed (the commit is not heard again). A
   composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
   presses no `aria-keyshortcuts` button, as the web's skip a key that came
   composing. On the web, Chrome hands the `key` handlers every key while

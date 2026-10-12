@@ -147,6 +147,8 @@ final class TextRunShadow: NSObject {
 extension NSAttributedString.Key {
     static let exactHidden = NSAttributedString.Key("ExactRunHidden")
     static let exactShadow = NSAttributedString.Key("ExactRunShadow")
+    /// `Run.fixedInk`: the run's colour is one its author fixed.
+    static let exactFixedInk = NSAttributedString.Key("ExactRunFixedInk")
 }
 
 extension TextLinePaint {
@@ -158,8 +160,11 @@ extension TextLinePaint {
     /// draws them. Emoji and other colour glyphs stay as they are. A hidden
     /// run paints nothing, nor does one whose ink is fully transparent,
     /// unless `transparentInk` (`background-clip: text`, whose glyphs show).
-    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, ink: CGColor, transparentInk: Bool = false) {
-        enum Paint { case nothing, own, ink, decorated }
+    /// With `keepsFixed` (the light appearance), a run whose colour its
+    /// author fixed (`Run.fixedInk`) is drawn as it was, its own colour at
+    /// its own alpha and its decorations with it, as an `NSTextView` leaves it.
+    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, ink: CGColor, keepsFixed: Bool = false, transparentInk: Bool = false) {
+        enum Paint { case nothing, own, ink, decorated, keptLined }
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         var solid = [Bool](repeating: true, count: runs.count)
         let paints: [Paint] = runs.enumerated().map { i, run in
@@ -170,7 +175,9 @@ extension TextLinePaint {
             if alpha == 0, !transparentInk { return .nothing }
             solid[i] = alpha == 1
             let lined = { (key: NSAttributedString.Key) in (a[key] as? NSNumber)?.doubleValue ?? 0 != 0 }
-            return alpha > 0 && (lined(.underlineStyle) || lined(.strikethroughStyle) || lined(.strokeWidth)) ? .decorated : .ink
+            let decorated = lined(.underlineStyle) || lined(.strikethroughStyle) || lined(.strokeWidth)
+            if keepsFixed, alpha > 0, a[NSAttributedString.Key.exactFixedInk] as? Bool == true { return decorated ? .keptLined : .own }
+            return alpha > 0 && decorated ? .decorated : .ink
         }
         ctx.saveGState()
         defer { ctx.restoreGState() }
@@ -196,10 +203,20 @@ extension TextLinePaint {
             ctx.endTransparencyLayer()
             ctx.restoreGState()
         }
+        // A kept run's decoration is CoreText's too, in the run's own colour:
+        // the line again, clipped to those runs and left as it draws.
+        let kept = zip(runs, paints).filter { $0.1 == .keptLined }.map { extent($0.0) }
+        if !kept.isEmpty {
+            ctx.saveGState()
+            ctx.clip(to: kept)
+            ctx.textPosition = .zero
+            CTLineDraw(line, ctx)
+            ctx.restoreGState()
+        }
         ctx.setFillColor(ink)
         for (i, run) in runs.enumerated() {
             switch paints[i] {
-            case .nothing: continue
+            case .nothing, .keptLined: continue
             case .own:
                 ctx.textPosition = .zero
                 CTRunDraw(run, ctx, CFRange())

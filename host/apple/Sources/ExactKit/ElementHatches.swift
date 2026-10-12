@@ -355,6 +355,8 @@ final class ElementHatches {
                 t.replaceCharacters(in: NSRange(location: 0, length: (t.string as NSString).length), with: value)
             }
             #endif
+            // The app is told whatever the hatch wrote, and that is the text it knows from here.
+            node.toldText = value
             self.presenter.typed(id, value, input: node.handlers.contains("input"))
             self.said(id, "input (\(node.props["type"] == "password" ? "protected" : "\(value.count) chars"), delivery: hatch)")
         }

@@ -111,6 +111,8 @@ package final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
+    /// The one editor every `input`'s field of this session edits in (`FieldEditor`).
+    lazy var fieldEditor = FieldEditor.make()
     /// Nodes marked `hatch="word"` (LLP 1075.003.000).
     lazy var elements = ElementHatches(self)
     lazy var shortcuts = ShortcutHost(presenter: self)

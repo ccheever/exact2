@@ -31,6 +31,8 @@ struct RegionTextRun: Sendable {
     let lineHeight: CGFloat?
     let letterSpacing: CGFloat
     let color: CGColor
+    /// `Run.fixedInk`: its colour is one its author fixed.
+    let fixedInk: Bool
     let underline: Bool
     let strike: Bool
     let href: String
@@ -74,6 +76,7 @@ final class RegionTextSource: Sendable {
             return RegionTextRun(text: run.text, font: font(run), lineHeight: run.lineHeight,
                                  letterSpacing: run.letterSpacing,
                                  color: TextEngine.color(run.color ?? spec.color).cgColor,
+                                 fixedInk: run.fixedInk && run.color != nil,
                                  underline: run.underlined,
                                  strike: run.decoration.contains("line-through"), href: run.href,
                                  range: NSRange(location: offset, length: count))
@@ -125,6 +128,7 @@ final class RegionTextSource: Sendable {
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): run.color,
             ]
             if run.letterSpacing != 0 { attributes[.kern] = run.letterSpacing }
+            if run.fixedInk { attributes[.exactFixedInk] = true }
             if run.underline { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if run.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             value.append(NSAttributedString(string: run.text, attributes: attributes))

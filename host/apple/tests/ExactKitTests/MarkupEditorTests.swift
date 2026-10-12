@@ -210,6 +210,11 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(f.string, "first second")
     }
 
+    /// While text is marked a formatting command is refused, and the app's
+    /// value waits (LLP 1045 D5): the value the editor shows leaves the
+    /// composition alone and holds nothing; a different one is held, and
+    /// applied when the composition ends, which the editor now does itself
+    /// as it unmarks.
     func testMarkedTextDefersValueAndRefusesFormatting() {
         let (node, f, window, presenter) = editor("hello", selection: NSRange(location: 5, length: 0))
         defer { window.close(); _ = presenter }
@@ -219,10 +224,10 @@ final class MarkupEditorTests: XCTestCase {
         node.props["value"] = "external"
         node.applyTextArea()
         XCTAssertEqual(f.string, composing)
+        XCTAssertEqual(f.markedRange(), NSRange(location: 5, length: 1), "the composition stands")
         XCTAssertEqual(node.pendingValue, "external")
         XCTAssertFalse(node.formatMarkup("bold"))
         f.unmarkText()
-        node.textDidChange(Notification(name: NSText.didChangeNotification, object: f))
         XCTAssertEqual(f.string, "external")
         XCTAssertNil(node.pendingValue)
     }
@@ -233,6 +238,7 @@ final class MarkupEditorTests: XCTestCase {
         f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 0))
         node.writeValue(f.string, into: f)
         XCTAssertNil(node.pendingValue)
+        XCTAssertTrue(f.hasMarkedText(), "the echo leaves the composition alone")
         f.unmarkText()
         f.insertText("本", replacementRange: NSRange(location: 1, length: 0))
         XCTAssertEqual(f.string, "に本")

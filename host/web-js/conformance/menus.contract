@@ -1,7 +1,9 @@
 // Synthetic conformance plan (review b5-b 3, 4): a `contextmenu` is heard by
 // the nearest node that declares it, not its ancestors too, and a field's
-// own edit menu is the browser's (no handler runs there); a `wheel` reaches a
-// disabled box (`disabled` means nothing on a div) and not a disabled button.
+// own edit menu is the browser's (no handler runs there); a control's input
+// has none, so its node hears it and its node's popover opens (#487); a
+// `wheel` reaches a disabled box (`disabled` means nothing on a div) and not
+// a disabled button.
 component Menus
   state heard = ""
   action outer
@@ -15,8 +17,13 @@ component Menus
   view
     column testId="root" contextmenu=outer gap=4 padding=8
       text heard testId="heard"
-      row testId="row" tabindex=0 contextmenu=inner padding=8 background-color="#ddd"
+      row testId="row" tabindex=0 contextmenu=inner padding=8 gap=8 background-color="#ddd"
         text "row"
+        input type="checkbox" aria-label="Check" testId="check"
+      row testId="held" contextPopover="pop" padding=8
+        input type="checkbox" aria-label="Other" testId="other"
+      column id="pop" popover="auto" testId="pop" padding=8
+        text "Popover"
       textarea testId="area" value="" height=40
       box testId="pad" disabled=true wheel=spun width=120 height=40 background-color="#bbb"
       button "Off" testId="off" disabled=true wheel=pressed

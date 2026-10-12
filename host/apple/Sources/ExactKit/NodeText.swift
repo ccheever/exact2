@@ -96,7 +96,10 @@ extension NodeView {
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
-            runs = MarkdownLink.installed?.expand(source, base: textRun(""), color: textChannels("text_color", dark: night)) ?? [textRun(source)]
+            // Every piece is in the node's ink, or a share of it: one kind.
+            var base = textRun("")
+            base.fixedInk = style["text_color"]?.fixesInk == true
+            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night)) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)

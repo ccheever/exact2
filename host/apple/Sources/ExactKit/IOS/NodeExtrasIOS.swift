@@ -66,6 +66,7 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    var toldText: String?
     var pendingValue: String?
     /// A native field in a grouped list's row (`isCellField`).
     var fieldInCell = false
@@ -168,6 +169,9 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    /// The editor's text as the app was last told it; nil once the app has set the value since (`FieldComposition.swift`).
+    var toldText: String? { get { extras?.toldText } set { if newValue != nil || extras != nil { more.toldText = newValue } } }
+    /// A `value` that arrived while text was marked, applied when the composition ends.
     var pendingValue: String? { get { extras?.pendingValue } set { if newValue != nil || extras != nil { more.pendingValue = newValue } } }
     var video: VideoView? { get { extras?.video } set { if newValue != nil || extras != nil { more.video = newValue } } }
     var web: UIView? { get { extras?.web } set { if newValue != nil || extras != nil { more.web = newValue } } }
