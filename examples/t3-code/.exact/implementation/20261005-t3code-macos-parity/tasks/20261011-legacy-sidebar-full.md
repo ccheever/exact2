@@ -141,6 +141,15 @@ LS-7 and LS-8 were in the first build's "Remaining differences" too; U22 is the 
 | S5 (Project settings on a project only a background environment has) | The clone's Settings › Projects reads and writes the focused environment's groups only (clone scope, not an Exact limit) | Declared in EXACT2-GAPS.md ("Legacy sidebar: Project settings on a background environment's project") with a proposed follow-up task (`settings-projects-fleet`: the page over every environment, writes through each environment's transport); a row for STATUS.md "Known differences" |
 | S4 (evidence and coverage) | | LS-8 text before/after (`ls8-record.txt`); Bun: LS-1 on a background environment's row (the panel by the thread's key, then the focus switch; the page's `environmentId`) |
 
+### Review round 2 (2026-10-12, the re-review of PR #469)
+
+| Finding | Cause | Fix |
+| --- | --- | --- |
+| B2, left open: the pointer on a non-top row's Archive (or a collapsed project's status) as the thread starts running from a new message: the row re-sorts to the top in that batch, the host hovers the row that slid under the pointer, and the moved row kept `inner` (painted hovered while running, then Archive shown and its time hidden after the run) | Round 1 relied on the host hovering the row itself again; it does that only for the row still under the pointer. The leave the host sends to the hovered trigger (Presenter `hover`: the old node's leave, then the new node's enter) is dropped for a destroyed node (`send`), and Archive's trigger was under `when not t.running` | Every tooltip trigger of a legacy row and header keeps its box while its trigger is not drawn: `LegacyRowTip(shown=…)` is `display: none` and the trigger's own `when` moved inside it (pull request, port, worktree, terminal, Archive under `not confirmShown and not t.running`, the collapsed status). A hidden node is still the presenter's, so its leave arrives with the host's hit-test after the layout wherever the row went, and `relay(false)` clears `inner`. The focus is unchanged: the controls themselves still unmount (no hidden first responder) |
+| LS-7, found in round 2: the title, pull request, worktree, port, terminal and Archive tooltips of each project's first row showed a sliver | `TipBubble` was drawn beside the trigger inside the thread list, which clips (`overflow="hidden"`, the reference's own, for autoAnimate); the reference portals every TooltipPopup | `LegacyRowTip` and `LegacyTitleTip` hand the bubble to the window's hover layer (`hoverTipAt`, `legacyTip`: kind "tooltip", Base UI's 600 ms, `frame(tipId)` of the trigger), the clone's portal for tooltips in clipping areas (hover-layer.contract). All legacy tips share one key, so the row or header the pointer is next on closes one whose trigger went with no leave (a rename replaces the title); Archive's press and a right-click on a row or header close it first (Base UI's closeOnClick), as either can remove the row. The list keeps its clip |
+| Double-click race: `action nested(name)` set `focused` on the pull request and port buttons' `dblclick`, so the first click's `sidebar:opened:focus` moving the focus to the composer before the second click's dblclick left the row focused (Archive shown, time hidden) | The body wrote state the focus and blur own | `nested` only calls `stopPropagation()` (handleRowDoubleClick returns for a nested control); `focused` stays with `within` |
+| Base moved to `ca4f28e35` (#482); two fixtures exported `contractComponent` with different semantics | `contract-component-fixture.ts` ran statements one after another with writes visible at once; #482's `contract-action-fixture.ts` follows Contract's action semantics | Merged; `contract-component-fixture.ts` is gone. `contract-action-fixture.ts` takes call statements (action props, injected actions, host commands, read with the action's starting state) and `drawn(marker, state, scope)` (the `when` / `else when` / `else` arms around a view line); the legacy row tests run through it (`mount` in the test) |
+
 ## Tests
 
 - `legacy-sidebar-full.test.ts` (new): LS-1 (panel beside a thread and the thread opened, in place, the Pull Requests page,
@@ -162,7 +171,14 @@ LS-7 and LS-8 were in the first build's "Remaining differences" too; U22 is the 
   event sequences: the opened row after the composer takes the focus, the header's status trigger unmounted, Archive's
   trigger replaced by Confirm, the pointer onto the title, the focus between controls and out, a focused control that
   goes (port, rename); LS-1 on a background environment's row; stale drops, a failed open's drops, a failed port focus.
-  The pre-fix contract fails the hover and focus cases (`review-hover-focus-record.txt`).
+  The pre-fix contract fails the hover and focus cases (`review-hover-focus-record.txt`). Since round 2 they run through
+  `contract-action-fixture.ts` (Contract's action semantics), with the host's leave modelled per trigger.
+- Review round 2 (`legacy-sidebar-full.test.ts`, "review 2: …", 6 tests; `r12-sidebar.test.ts` reads `openMenu`): the
+  pointer on Archive as the thread runs and re-sorts (the host's leave reaches the trigger only while `drawn`), a
+  collapsed project's status as the projects re-sort, every trigger's box kept with `shown` and its `when` inside, the
+  hover layer's tip (key, kind, text, side, align, the trigger's frame; none without a label), the row's and header's
+  hover, Archive's press and both right-clicks closing a legacy tip, and the double-click race. Round 1's contract
+  fails all six (`r2-review-record.txt`).
 
 ## Acceptance results
 
@@ -171,11 +187,17 @@ LS-7 and LS-8 were in the first build's "Remaining differences" too; U22 is the 
 | LS-1 | pass (agent drive, Bun): a provider-less pull request link (Archive me open) opens the link and the thread stays (`opened-urls.txt`: `https://git.example.invalid/acme/app/pull/7`); with Studio branch open, Review changelog's glyph goes to Review changelog with #132 in its right panel, as the reference; on an unsent draft it opens the Pull Requests page on #132, as the reference; before, each press opened the row's thread. ⌘-click: Bun only (real-input step 5). Review: Bun covers a background environment's row (the panel by the thread's key, then the focus switch; the page's `environmentId`) | [link](https://raw.githubusercontent.com/ccheever/exact2/3bf40709025d06777f52d8dbf02a7c67f12472dc/legacy-sidebar-full/ls1-link.png), [beside](https://raw.githubusercontent.com/ccheever/exact2/164e2a9914885fbe0edb8d70c8ae33d82412d5ce/legacy-sidebar-full/ls1-beside.png), [page](https://raw.githubusercontent.com/ccheever/exact2/bbdcc3c93fe9b414f42dc10d9bff2b2d29dd44b1/legacy-sidebar-full/ls1-page.png) |
 | LS-2 | pass (agent drive, Bun): a server on 16565 in Dev server's terminal gives the row the globe ("Open localhost:16565"); its press opens the thread with a Browser tab on `localhost:16565`; a background environment's Dev server row shows its own globe from that environment's stream | [port](https://raw.githubusercontent.com/ccheever/exact2/316aa3d91a31edf8d7593b5f3cde92fbbf286d58/legacy-sidebar-full/ls2-port.png), [rows](https://raw.githubusercontent.com/ccheever/exact2/c019a38a9db68cd97159f70c372bf4fd6604858b/legacy-sidebar-full/ls2-row.png) |
 | LS-3 | in-app path pass (AppKit test, Bun): before, no drag destination over a row; after, the row's target takes file drags (clicks still reach the row), rings, reports the row's key and files, and the open thread's composer takes them. Review: a drop on the open thread's row only queues; a drop whose thread did not open goes (AppKit 5 run, Bun). A real Finder drag is real-input step 1 | [ls3-record.txt](https://raw.githubusercontent.com/ccheever/exact2/55cb0b24a59d392720c2a558c9f56cd6952fd061/legacy-sidebar-full/ls3-record.txt), [ls3-review-record.txt](https://raw.githubusercontent.com/ccheever/exact2/6f9b851a673eeeedbf986b54dc3788aec8b2743b/legacy-sidebar-full/ls3-review-record.txt) |
-| LS-4 | pass (agent drive, Bun): Tab from the Archive me row, with no pointer on it, shows its Archive with the focus, as the reference; before, Tab skipped it. Review (after-review drive on `05b9c5547`'s app code): a press that opens Dev server leaves the focus in the composer (`tree`: `composer` focused) and, the pointer on Branch work, the open row shows "just now", as the reference (before the fix it showed Archive); Archive confirmation on: Confirm shows and has the focus, stays with the pointer on the row's title, and goes with the pointer on another row, which leaves the row unhovered with its time; Tab still shows Archive. Real keys: step 2 | [tab](https://raw.githubusercontent.com/ccheever/exact2/078995f3735ee7fc99dab7603d2ca774345c4033/legacy-sidebar-full/ls4-tab.png), [open row](https://raw.githubusercontent.com/ccheever/exact2/9e985d11247c6b77ecf2669b0d562cd055701d04/legacy-sidebar-full/review-open-row.png), [confirm](https://raw.githubusercontent.com/ccheever/exact2/507f5f4628ccb46417d783fb1f3cb4353088b9f2/legacy-sidebar-full/review-confirm.png), [hover-focus record](https://raw.githubusercontent.com/ccheever/exact2/b89c291949f59e42d4e33a5e697e28b9cfa27f02/legacy-sidebar-full/review-hover-focus-record.txt) |
+| LS-4 | pass (agent drive, Bun). Review 2: the double-click race on the pull request or port leaves the row unfocused (Bun; round 1's contract fails it, [record](https://raw.githubusercontent.com/ccheever/exact2/745aaae6116bce943d3acb7eb58d033d5064f0ca/legacy-sidebar-full/r2-review-record.txt)). Tab from the Archive me row, with no pointer on it, shows its Archive with the focus, as the reference; before, Tab skipped it. Review (after-review drive on `05b9c5547`'s app code): a press that opens Dev server leaves the focus in the composer (`tree`: `composer` focused) and, the pointer on Branch work, the open row shows "just now", as the reference (before the fix it showed Archive); Archive confirmation on: Confirm shows and has the focus, stays with the pointer on the row's title, and goes with the pointer on another row, which leaves the row unhovered with its time; Tab still shows Archive. Real keys: step 2 | [tab](https://raw.githubusercontent.com/ccheever/exact2/078995f3735ee7fc99dab7603d2ca774345c4033/legacy-sidebar-full/ls4-tab.png), [open row](https://raw.githubusercontent.com/ccheever/exact2/9e985d11247c6b77ecf2669b0d562cd055701d04/legacy-sidebar-full/review-open-row.png), [confirm](https://raw.githubusercontent.com/ccheever/exact2/507f5f4628ccb46417d783fb1f3cb4353088b9f2/legacy-sidebar-full/review-confirm.png), [hover-focus record](https://raw.githubusercontent.com/ccheever/exact2/b89c291949f59e42d4e33a5e697e28b9cfa27f02/legacy-sidebar-full/review-hover-focus-record.txt) |
 | LS-5 | in-app path pass (text before/after of the menu's command, Bun): "New thread on feature/audit" on a worktree thread opens the draft with `{envMode: "worktree", branch: "feature/audit", worktreePath: …}`; before, a plain draft. The native menu pick is real-input step 3 | [ls56-menu-record.txt](https://raw.githubusercontent.com/ccheever/exact2/0fec515747a8be59585538c1543541a3815b7f7f/legacy-sidebar-full/ls56-menu-record.txt) |
 | LS-6 | pass (agent drive, Bun, text record): Archive on a background environment's row archives it there with the undo notice; New thread on a background project opens its draft on that environment, as the reference (before: "Open a thread on that environment first."); the background project's menu has Rename, Group into... and Remove enabled and acting there, a background thread's menu shows and acts there (text record). Native menu picks: step 4 | [archive](https://raw.githubusercontent.com/ccheever/exact2/fb1ac9bd0f10fcc5ce38f2519cc9af15f032d084/legacy-sidebar-full/ls6-archive.png), [new thread](https://raw.githubusercontent.com/ccheever/exact2/467d6e450790475dbdfa16b83b2e7686bee15aed/legacy-sidebar-full/ls6-new-thread.png), [ls56-menu-record.txt](https://raw.githubusercontent.com/ccheever/exact2/0fec515747a8be59585538c1543541a3815b7f7f/legacy-sidebar-full/ls56-menu-record.txt) |
-| LS-7 | pass (agent drive, Bun): the title's tooltip on hover (the background Dev server row); the worktree and status tooltips, Bun. The first after drive found the title's trigger took the row's hover (below); fixed, and the second drive's Archive press is the proof. Review: a trigger that goes under the pointer no longer leaves its row or header hovered (Bun, the pre-fix contract fails it) | [title](https://raw.githubusercontent.com/ccheever/exact2/c9d6cd5b761e6a168b09c063196fc76dd2801d6e/legacy-sidebar-full/ls7-title.png), [hover-focus record](https://raw.githubusercontent.com/ccheever/exact2/b89c291949f59e42d4e33a5e697e28b9cfa27f02/legacy-sidebar-full/review-hover-focus-record.txt) |
+| LS-7 | pass (agent drive, Bun). Review 2: the first row's title, pull request and Archive tooltips draw whole above it, over the project header, as the reference's ([title](https://raw.githubusercontent.com/ccheever/exact2/460b25b52e55111e3eaa2d747ffdb94e5ea41ac1/legacy-sidebar-full/r2-first-row-title-tip.png), [pull request, Archive](https://raw.githubusercontent.com/ccheever/exact2/57c927b56cc69fe58ad8678bdbc38bc17e4e6600/legacy-sidebar-full/r2-first-row-pr-archive-tips.png)); the pointer moving to another row closes the tip and lets the row go; Confirm still ends as the pointer leaves ([pointer](https://raw.githubusercontent.com/ccheever/exact2/61493782ba129310621c10f9b4248874d04c2ab1/legacy-sidebar-full/r2-pointer-and-confirm.png)); a trigger that goes as its row re-sorts lets the row or header go (Bun, [record](https://raw.githubusercontent.com/ccheever/exact2/745aaae6116bce943d3acb7eb58d033d5064f0ca/legacy-sidebar-full/r2-review-record.txt)). Round 1: the title's tooltip on hover (the background Dev server row); the worktree and status tooltips, Bun. The first after drive found the title's trigger took the row's hover (below); fixed, and the second drive's Archive press is the proof. Review: a trigger that goes under the pointer no longer leaves its row or header hovered (Bun, the pre-fix contract fails it) | [title](https://raw.githubusercontent.com/ccheever/exact2/c9d6cd5b761e6a168b09c063196fc76dd2801d6e/legacy-sidebar-full/ls7-title.png), [hover-focus record](https://raw.githubusercontent.com/ccheever/exact2/b89c291949f59e42d4e33a5e697e28b9cfa27f02/legacy-sidebar-full/review-hover-focus-record.txt) |
 | LS-8 | in-app path pass (Bun: motion attributes, the arrival flag by tick, none under reduced motion, the destructive "Delete anyway" in bg-destructive `light-dark(#fb2c36, #fb414a)`; text before/after: the toast's tone and the motion attributes, the toast itself needs the native menu); the motion under a real archive and the red Delete anyway are real-input steps 7 and 4 | [ls8-record.txt](https://raw.githubusercontent.com/ccheever/exact2/8423a36833ae49ce2573a5f6fb298a0c62771d95/legacy-sidebar-full/ls8-record.txt) |
+
+Review round 2 drive (agent mode, 1280×840, fresh storages): before on the evidence worktree (`6db5cadea`), after on
+this branch's bundle of `8949d0dba` (`r2-before/`, `r2-after/` t0-t6), the reference by CDP (`r2-ref-*.png`); `tree`
+after each tip shows the layer's `legacy-tip-title-lsf-pr-bubble` and `legacy-tip-archive-lsf-pr-bubble`, none once the
+pointer moved, and `thread-archive-confirm-lsf-pr` until the pointer left. The right-click close (`openMenu`) came after
+the drive: Bun and the contract build only.
 
 Drives (agent mode, 1280×840, `screenshot … window`): before on the evidence worktree (`6db5cadea`), after on this
 branch's bundle (`aef1a2d16`'s app code), the reference by CDP on its lane; the GitHub lane's primary server (16564) paired
@@ -206,6 +228,10 @@ in a worktree), the GitHub lane's server paired as a second environment (Setting
    left along the row over its title: Confirm stays; move it to another row: Confirm goes and the row shows its time,
    unhovered. Confirm focused, ⇧Tab: Confirm stays; Tab out of the row: it goes. Collapse a project with a running or
    unread thread, click its status dot (it expands), move away: the header loses its hover and New thread hides.
+   Review 2: rest the pointer on the first row's title, then its pull request glyph, then Archive: each tooltip shows
+   whole above the row (over the project header). Right-click the title while its tooltip shows: the tooltip goes as the
+   menu opens. Click a pull request glyph of a thread that is not open, then at once click it again (a double-click),
+   move the pointer off the sidebar: that row shows its time, not Archive.
 3. **LS-5, menu.** Right-click the branch thread › "New thread on <branch>": the draft's branch chip shows that branch
    (Current checkout); on the worktree thread the draft is in that worktree.
 4. **LS-6, menus.** Right-click the background project: Rename, Group into..., Remove are enabled. Rename › the dialog
@@ -222,6 +248,23 @@ in a worktree), the GitHub lane's server paired as a second environment (Setting
    never System Settings).
 
 ## Checks
+
+Review round 2, on `35b170c8a` (the final app code; the commit after it changes only this record), after merging
+`origin/feat(example)/t3-code` (`ca4f28e35`, no newer commit at the checks):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4759 pass, 1 skip, 0 fail (319 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,427 lines; 250 diagnostics, all warnings, the same set as the merged base's (none new in `legacy-sidebar.contract`) |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed (its first run, on `8949d0dba`, exited 101: "app sources changed during capture", my `openMenu` edit landing mid-bake; rerun clean) |
+| AppKit `macos/tests/row-drop` | not rerun | no Swift changed in round 2 (round 1: 5 run, 0 failed) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap (on the record's commit) |
+| `cargo build --all-targets --keep-going` | 0 | on `8949d0dba`; `35b170c8a` changes only the clone's contract and tests, which no default member builds |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored (on `8949d0dba`, as above) |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | on `8949d0dba` |
+| `cargo fmt --all -- --check` | 0 | on `8949d0dba` |
+| `bun scripts/boot.mjs` | 0 | on `8949d0dba` |
 
 Review round 1, all on `731407007` (the final app code; the commit after it changes only this record), after merging
 `origin/feat(example)/t3-code` (`8fa9446cc`, no newer commit at the checks):
@@ -252,6 +295,12 @@ Round 0 (on `aef1a2d16`, `fe0e39c91` merged): all the same checks exit 0 but `ca
 - Real-input steps 1-7 (above): a Finder file drag (LS-3), real Tab and Enter (LS-4), native menu picks (LS-5, LS-6),
   a real pointer and ⌘-click (LS-1, LS-2), the list motion under a real archive (LS-8). The agent cannot enter a
   native menu's tracking or start an AppKit drag session; the in-app paths are covered as listed.
+- A legacy tooltip whose row goes with no press of its own (another device archives it, a key shortcut) while it
+  shows, the pointer then resting on no legacy row, header or trigger (the empty space under the list): it stays until
+  the pointer reaches one or the surface changes. A component has no unmount event in Contract to close it, and the
+  tooltip lives in the window's hover layer (the reference's portal closes with its unmounted Tooltip root). Rare;
+  Archive's press and the right-click menus, the paths a person takes, close it first.
+- The B2 case itself (a thread starting to run) live: it needs a provider turn, which the lane never sends; Bun runs it.
 - Project settings on a project only a background environment has: the clone makes that environment the focus first,
   then opens Settings › Projects on it; the reference opens Settings › Projects scoped to the logical project without
   changing the focus. The clone's Settings › Projects page reads and writes the focused environment only: a clone scope
@@ -263,6 +312,10 @@ Round 0 (on `aef1a2d16`, `fe0e39c91` merged): all the same checks exit 0 but `ca
 ## Seen while building, not a finding row
 
 - The reference's tooltips also open on keyboard focus (Base UI); the clone's `Tip` opens on hover only, app-wide.
+- Round 2: the legacy rows' tooltips are now the hover layer's `HoverText` (the look the layer gives every portaled
+  TooltipPopup, ThreadAutomationsPanel's included) instead of `TipCard`: both port ui/tooltip.tsx's popup, `HoverText`
+  at 16 px leading, `TipCard` at leading-snug. Base UI's closeOnClick on the pull request, port and title presses is not
+  modelled (the tip stays while the pointer rests, as the clone's `Tip` does app-wide); Archive and the right-click do it.
 - Fixed in review round 1: the terminal glyph's tooltip (`TerminalProcessIndicator`, shared with the default sidebar)
   did not relay its hover to the row, so a pointer entering a row on that 12 px glyph left Archive hidden, and crossing
   it ended a confirmation; the legacy row now wraps the glyph (`TerminalGlyph`, split out of the indicator) in its own
@@ -274,6 +327,6 @@ Draft PR [#469](https://github.com/ccheever/exact2/pull/469) into `feat(example)
 
 ## Next action
 
-Review round 1 is fixed (2026-10-12). Re-review the draft PR; the coordinator creates the proposed
+Review round 2 is fixed (2026-10-12). Re-review the draft PR; the coordinator creates the proposed
 `settings-projects-fleet` task and the STATUS.md "Known differences" row for Project settings; real-input steps 1-7 in
-the coordinator's batch (step 2 now includes the review's focus and Confirm checks).
+the coordinator's batch (step 2 now includes the reviews' focus, Confirm, tooltip and double-click checks).
