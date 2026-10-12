@@ -228,10 +228,13 @@ the GitHub lane paired. Never send a message.
   `|cancel|` release; PS-1's guard: the Pull Requests list mounts on the page and the scheme only, never on the window's
   focus or visibility, its rows keyed. The three PS-2 tests fail on the base (`6db5cadea`'s contracts), the two others
   pass there.
-- `sidebar-sweep.test.ts` (SW-1's, merged in review round 1): its interpreter of ThreadSection's actions now runs a call
-  to an action prop, and a fourth test checks each sweep's first arming closes the window's hover once, a fresh sweep
-  after a release included, and a cancelled sweep arms nothing more (it fails if the gate reads the slot `sweepKeys`,
-  which an action sees from before it, instead of the move's `armed`).
+- `sidebar-sweep.test.ts` (SW-1's, merged in review round 1): a fourth test checks each sweep's first arming closes the
+  window's hover once, a fresh sweep after a release included, and a cancelled sweep arms nothing more (it fails if the
+  gate reads the slot `sweepKeys`, which an action sees from before it, instead of the move's `armed`). Since review
+  round 2 it runs on #482's shared interpreter, `contract-action-fixture.ts` (`threadSection.call`, with `hoverId`,
+  `hoverSeq` and `unhover` in its scope), whose `run` now executes a call of a function in scope (an action prop such as
+  `unhover`); before, it threw `unsupported statement`. The other users of the fixture (`queued-drag.test.ts`) are
+  unchanged.
 
 ## Review round 1 (2026-10-12)
 
@@ -242,7 +245,26 @@ the GitHub lane paired. Never send a message.
 | The comment above `sectionHover` described the arming's `unhover` | should-fix | fixed: removed with the handler; the resting-hover comment says what ends it and why the section takes no hover |
 | Two differences found here had no follow-up: the per-scheme remount on a real appearance change; one row more armed on later gestures | should-fix | the remount: "For the coordinator's known-differences list" above, EXACT2-GAPS X58 and the PR; the extra row: SW-1's fix (#472) merged here, the after drive now arms two rows and settles 2, as the reference |
 
+## Review round 2 (2026-10-12)
+
+| Finding | Severity | Result |
+| --- | --- | --- |
+| The PR no longer merged: the base moved to `ca4f28e35` (#482, followups-1012), which moved `sidebar-sweep.test.ts`'s ThreadSection interpreter into `contract-action-fixture.ts` without this PR's action-prop call branch; with the base's fixture all three SW-1 tests fail with `unsupported statement: unhover(hoverId, false)` against this PR's `sidebar.contract` | blocking | fixed (`d9770b097`, the merge): the call branch moved into the fixture's `run` and its header names the statement; the hover test runs on `threadSection.call`. The merged files on the base's fixture: 8 pass / 4 fail over `sidebar-sweep`, `queued-drag` and `pr-list-scroll-and-sidebar-sweep` (the three SW-1 tests and the hover test, each `unsupported statement: unhover(hoverId, false)`); with the branch, 12 pass |
+
 ## Checks
+
+Review round 2, on the merge `d9770b097` (this branch merged with the feature tip `ca4f28e35`), each run once:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `sidebar-sweep.test.ts`, `queued-drag.test.ts`, `pr-list-scroll-and-sidebar-sweep.test.ts` | 1 then 0 | 8 pass / 4 fail on the base's fixture, 12 pass with the call branch |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4715 pass, 1 skip, 0 fail (319 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 29,225,369 bytes; `app.contract` 1,418 lines; the warnings are the feature branch's |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | this round changes a Bun test fixture only; no Rust or Swift |
+| the five checks of CLAUDE.md | not run again | since round 1's run on `2acdadc0f` the base moved by #482 alone, which changes only `examples/t3-code` (no framework, no Rust); `contract build` above compiles the app |
+| bundle and live drive | not run again | this PR's contracts are as in round 1's after drive; the merge adds #482's `composer-controls` and `pages-pr-timeline` changes, which #482 drove |
 
 Review round 1, on `2acdadc0f` (`d33c70ac1`'s code: this branch merged with the feature tip `8fa9446cc`), each run once:
 
@@ -266,7 +288,7 @@ First round, on `2207574b3` (merged with `fe0e39c91`): the same checks, all 0 ex
 
 ## Delivery
 
-Draft PR [#468](https://github.com/ccheever/exact2/pull/468) into `feat(example)/t3-code`. Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the first round's checks, no conflicts; in review round 1 from `8fa9446cc` (main adoption round 10 and SW-1, #472, and later task PRs): `sidebar.contract`'s sweep conflicted with SW-1 and was resolved keeping both (SW-1's `let` bindings; this task's resting hover, and the first arming's `unhover` gated on the move's `armed`).
+Draft PR [#468](https://github.com/ccheever/exact2/pull/468) into `feat(example)/t3-code`. Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the first round's checks, no conflicts; in review round 1 from `8fa9446cc` (main adoption round 10 and SW-1, #472, and later task PRs): `sidebar.contract`'s sweep conflicted with SW-1 and was resolved keeping both (SW-1's `let` bindings; this task's resting hover, and the first arming's `unhover` gated on the move's `armed`). In review round 2 from `ca4f28e35` (#482): `sidebar-sweep.test.ts` conflicted with #482's move of its interpreter into `contract-action-fixture.ts` and was resolved on the base's fixture, with this task's action-prop call branch ported into the fixture.
 
 ## Next action
 
