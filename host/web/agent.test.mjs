@@ -926,7 +926,7 @@ test('pending, failed and invalid optional modules leave Rust and JS apps ready 
     h.timer.reject(new Error('timer unavailable'));
     if (failure === 'reject') h.input.reject(new Error('input unavailable'));
     else if (failure === 'invalid') h.input.resolve(undefined);
-    else h.input.resolve(() => ({ pan: 'installed after readiness' }));
+    else h.input.resolve(() => ({ pan: 'installed after readiness', arrive() {} }));
     await h.activation;
     await checkpoint();
     expect(f.root.dataset.error).toBeUndefined();
@@ -945,7 +945,7 @@ test('required app module failure still keeps dispatch gated and settles the err
   expect(h.f.root.dataset.moduleReady).toBeUndefined();
   expect(h.f.root.dataset.error).toContain('required app unavailable');
   expect(h.f.events).toEqual(['boot', 'ready']);
-  h.input.resolve(() => ({})); h.timer.resolve(() => ({}));
+  h.input.resolve(() => ({ arrive() {} })); h.timer.resolve(() => ({}));
   await checkpoint();
 });
 

@@ -80,6 +80,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   document.addEventListener("keydown", (event) => {
     if (event.key === "Tab") radioStops(root); // a radio group's one stop, before the focus moves
     if (event.isComposing || !ready() || event.defaultPrevented) return;
+    if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
     const physical = physicalKey(event);
     const matches = (chord) => {
@@ -222,7 +223,44 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
+  // @ref LLP 1115.000 D4.2 — a route is a page, so the focus follows it, as a careful web app moves it when it
+  // navigates. On a push (or a replace) it goes to the new route's header's heading, else to the route itself; on
+  // Back, to the control whose press pushed the route that left (the row, the link, the button that opened a sheet),
+  // else as on a push. A focus the commit set is left alone: an `autofocus` field, a `focus()` command, anything
+  // now inside the route, or anywhere that is neither the pressed control nor where the focus was as the press began
+  // (so a route that arrives with no press never takes the focus from where a person put it). Another
+  // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
+  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
+  // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
+  let shown = null, pressed = null;
+  const origins = new WeakMap();
+  // The press is noted as it begins (the pointer going down; Enter or Space, in the keys' listener above), before the
+  // click any listener navigates by: a link to a route is followed from the document's capture phase (above, and the
+  // JS target's router.js), so its commit arrives before a listener here would hear that click. A click with neither
+  // before it (a script's, the agent's) is noted as it is heard.
+  const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
+  document.addEventListener("pointerdown", e => note(e, false), true);
+  document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
+  const lands = el => !!el?.isConnected && !el.closest("[inert]") && el.getClientRects().length > 0 && !el.matches(":disabled");
+  const arrive = () => {
+    const nav = root.querySelector("[navigationBack]"), key = nav?.getAttribute("navigationKey");
+    const top = key == null ? null : [...nav.querySelectorAll("[navigationKey]")].find(r => r.getAttribute("navigationKey") === key && r.parentElement.closest("[navigationKey]") === nav);
+    if (!top) return;
+    const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey")), stack = routes.slice(0, routes.indexOf(top) + 1);
+    const was = shown, active = document.activeElement, by = pressed && performance.now() - pressed.at < 2000 ? pressed : null;
+    shown = stack;
+    if (!was || was[0] !== stack[0] || was.at(-1) === top) return;
+    const back = was.includes(top);
+    if (!back) origins.set(top, was.length === stack.length ? origins.get(was.at(-1)) : by?.el); // a replace keeps where its route came from
+    pressed = null;
+    if (active && active !== document.body && (top.contains(active) || ![by?.el, by?.focus].includes(active))) return;
+    const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
+    const to = lands(origin) ? origin : [...top.children].find(c => c.localName === "header")?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]") ?? top;
+    if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
+    to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) });
+  };
   return {
+    arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
     // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
     // button or a touch going down on the node, then up or cancelled (a
     // cancel is an up). The up is heard on the document, so it arrives
