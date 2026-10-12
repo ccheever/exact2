@@ -43,7 +43,7 @@ component Shared
       each e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
           header display="flex" align-items="center" padding="8px 16px"
-            text "Shared List" role="heading" aria-level=1
+            text "Shared List" role="heading" aria-level=2
           column padding="0 16px 8px"
             row role="radiogroup" aria-label="Signed in as"
               each p in ["Ada", "Grace"] key=p
@@ -115,8 +115,8 @@ test "another person's item arrives on the poll; the persona is kept"
   server already answering is refused: stop yours.
 - **A second person is a test line**: `request POST "/items" {...} as grace` sends `Authorization:
   Bearer grace` (a persona's token is its name); then `clock +4000` (the poll), `clock data`.
-- **A persona switcher is a `radiogroup`** kept with `persist`, never a disabled button;
-  `loadItems(persona)` reads again when it changes.
+- **A persona switcher is a `radiogroup`** kept with `persist`, never a disabled button,
+  fixed under an inline title (`aria-level=2`; a large one never collapses over it).
 - Every failure is words (the server's `error`, or a sentence for a lost connection), never a
   status code. The field clears in `then`, on an ok reply ([after-a-write](after-a-write.md)); a
   failed poll keeps the last list.

@@ -100,8 +100,10 @@ component App
       each e in stack(nav) key=e.id
         when e.name == "items"
           column navigationKey="items" navigationScroll="items-list" position="absolute" inset=0
+            // The title is inline (`aria-level=2`): the switcher below stays fixed, and a large title
+            // over fixed content never collapses. A control that may scroll away goes in the list instead.
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              text "Starter" role="heading" aria-level=1
+              text "Starter" role="heading" aria-level=2
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
             // Who is signed in: a segmented control, its choice kept across launches.

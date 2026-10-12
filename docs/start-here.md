@@ -5,7 +5,7 @@ The only required reading; the rest is lookup.
 ## The idea
 
 1. **Write the web, ship the platform.** Layout and names are CSS's and HTML's (flex, gap,
-   `role`, `aria-*`, `inputmode`). Say what a thing *is* (a `header` with a heading and
+   `role`, `aria-*`). Say what a thing *is* (a `header` with a heading and
    buttons, a `tablist`, a `dialog role="alertdialog"`); each host draws its own control.
 2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
@@ -26,8 +26,7 @@ The only required reading; the rest is lookup.
    - `RowText(title, detail, value)`, `Badge(label, tint)` a status, `DoneMark(caption, done)`
    - `EmptyState(symbol, title, message)` over your `button`
 4. **A wide window** needs no code for tabs (a sidebar) or a list whose rows push (beside
-   its detail); for two columns, wrap cards (`flex="1 1 320px"`) or `when viewport.width
-   >= 900` over `resource viewport = exactViewport() as shape Viewport`.
+   its detail); two columns are wrapping cards (`flex="1 1 320px"`; `responsive-columns`).
 
 ## The workflow
 
@@ -177,15 +176,17 @@ locale seed`. The rest: `tests`.
 
 ## Pitfalls that cost the most
 
-1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`,
-   `height`) on a `button`, field or bar makes it your box. Emphasis is a part (above) or
+1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`)
+   on a `button`, field or bar makes it your box. Emphasis is a part (above) or
    `buttonStyle="bordered-prominent"`.
-2. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
-   (or a search field, a `tablist`); anything else isn't in the iOS bar.
+2. **A `header` holds a heading, one text after it (the subtitle) and buttons** (or a
+   search field, a `tablist`); anything else isn't in the iOS bar. A control fixed under
+   the bar goes with an inline title (`aria-level=2`); one that may scroll away, in the
+   list's first section.
 
 ## Look it up
 
-Open a recipe (`recipes/<name>.md`) when you write that part, not before: one per feature.
+Open a recipe (`recipes/<name>.md`) when you write that part..
 
 |The app has|Read|
 |---|---|
@@ -210,7 +211,7 @@ Open a recipe (`recipes/<name>.md`) when you write that part, not before: one pe
 |driving iOS|`ios-driving`|
 |functions|`functions`|
 
-**Otherwise:** `bun exact.mjs contract vocab <name> …` answers any tag, property,
-function, part or how-to (`screen`, `modal`); `docs/contract-for-agents.md`,
+**Otherwise:** `bun exact.mjs contract vocab <name> …` answers any tag, property or
+how-to (`screen`, `modal`); `docs/contract-for-agents.md`,
 `docs/agent-pitfalls.md` and `docs/reference.md` by section; `<exact2>/apps/shelf` is a
 whole app.
