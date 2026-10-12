@@ -190,6 +190,116 @@ fn a_stopped_key_reaches_no_ancestor() {
 }
 
 #[test]
+fn capture_precedes_target_and_bubble_and_controls_the_default() {
+    const SOURCE: &str = r#"component App
+  state draft = ""
+  state heard = ""
+  action edit(v: string)
+    draft = v
+  action outerCapture(k: string)
+    heard = `${heard}C`
+    if k == "x"
+      stopPropagation()
+    if k == "z"
+      preventDefault()
+  action innerCapture(k: string)
+    heard = `${heard}T`
+    if k == "y"
+      stopPropagation()
+  action inner(k: string)
+    heard = `${heard}K`
+  action outer(k: string)
+    heard = `${heard}B`
+  view
+    column keycapture=outerCapture testId="root" width=300 height=200
+      column key=outer
+        input value=draft input=edit keycapture=innerCapture key=inner testId="field"
+      text heard testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(SOURCE).unwrap().encode(),
+        Keeps,
+        (300., 200.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(
+        !p.focusable(id(&p, "root")),
+        "capture alone adds no Tab stop"
+    );
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    assert_eq!(log(&p), "CTKB");
+    p.type_key(field, "KeyX", "x", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBC");
+    p.type_key(field, "KeyY", "y", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBCCT");
+    p.type_key(field, "KeyZ", "z", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBCCTCTKB");
+    assert_eq!(
+        p.host()
+            .kernel()
+            .node(field)
+            .unwrap()
+            .props
+            .str(PropId::Value),
+        Some("axy")
+    );
+}
+
+#[test]
+fn keys_skip_disabled_controls_without_cutting_off_ancestors() {
+    const SOURCE: &str = r#"component App
+  state heard = ""
+  action captured(k: string)
+    heard = `${heard}C`
+  action outer(k: string)
+    heard = `${heard}B`
+  action inner(k: string)
+    heard = `${heard}K`
+  action released(k: string)
+    heard = `${heard}U`
+  view
+    column keycapture=captured key=outer keyup=released testId="root"
+      column disabled=true
+        input value="" key=inner testId="field"
+      button disabled=true keycapture=inner key=inner keyup=inner testId="disabled-parent"
+        input value="" key=inner testId="nested-field"
+      input disabled=true keycapture=captured key=inner testId="disabled-field"
+      button "Disabled" disabled=true keycapture=captured key=inner testId="disabled-button"
+      text heard testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(SOURCE).unwrap().encode(),
+        Keeps,
+        (300., 200.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    assert_eq!(log(&p), "CKB");
+    let nested = id(&p, "nested-field");
+    p.type_key(nested, "KeyA", "a", true, false).unwrap();
+    p.type_key(nested, "KeyA", "a", false, false).unwrap();
+    assert_eq!(log(&p), "CKBCKBU");
+    for control in ["disabled-field", "disabled-button", "disabled-parent"] {
+        for kind in [EventKind::Keycapture, EventKind::Key, EventKind::Keyup] {
+            assert_eq!(
+                p.handler_target(id(&p, control), kind),
+                Some(id(&p, "root"))
+            );
+        }
+    }
+}
+
+#[test]
 fn focus_from_an_action_moves_the_focus() {
     let mut p = boot();
     p.tap(id(&p, "go-field")).unwrap();

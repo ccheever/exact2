@@ -270,7 +270,7 @@ kernel's parent chain, crossing only the arms and rows on that path, and
 reconstructs their frames for curried arguments.
 
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
-| Key(record) | Keyup(record) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
+| Keycapture(record) | Key(record) | Keyup(record) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event
 payload — a change's text, a hover's `over` (in or out: one kind, one handler,
 one action), a key's web name (`Enter`, `Escape`, `ArrowDown`, `a` — the
@@ -285,6 +285,15 @@ activation / a long press and a double click / tap. The `EventKind`s are
 and a wheel's offsets reaching the runner (a scroll
 container's position is the host's, LLP 1007 §6); `keyup` became one on
 2026-10-07 (§9).
+
+**Approved next, not implemented** (Charlie, 2026-10-11; #283):
+`focusin` and `focusout` bubble from the element whose focus changes through
+its ancestors, with the DOM event's target and relatedTarget available to
+handlers. `focusout` fires even when focus moves between descendants of the
+same ancestor. A handler on an ancestor adds no Tab stop. Programmatic,
+click, Tab and removal transitions must agree with Chrome; the open issue
+`issues/20261009-bubbling-focus-events.md` tracks implementation.
+
 `Scroll` (2026-09-09, Messages) appends two number arguments, `scrollLeft`
 and `scrollTop`, in CSS pixels, after the authored arguments. It reports the
 host's changed position, including programmatic changes, and does not bubble.
@@ -550,6 +559,7 @@ reaches the focus whatever took the keydown (a shortcut, a
 `repeat`, true on the keydowns the platform repeats while a key is held
 (never on a keyup). An element with a `keyup` handler takes the focus, as
 one with `key` does.
+
 - **ABI:** kind 6 (`key`) and 43 (`keyup`), one wire for both
   (`KeyboardEvent::parse`): the chord the hosts already wrote
   (`Shift+Meta+b`), then, where the host knows them, `\n` and the code,
@@ -581,9 +591,30 @@ Tests: `contract/cli/tests/it/keyup.rs` (the wire, the record, the
 refusals), `runner/src/runner/event/keyboard.rs`, `KeyUpMacTests` (AppKit's
 keyUp and a modifier's flags change), Linux's
 `keyup_hears_a_release_and_both_carry_code_and_repeat`, and the JS target's
-`keys` conformance plan (Chrome, against the wasm runner). Not here: a
-capture-phase handler and a reserved held-modifier fact (#140, the owner's to
-decide).
+`keys` conformance plan (Chrome, against the wasm runner). A reserved
+held-modifier fact remains out (#140).
+
+**Capture-phase keys** (Charlie, 2026-10-11; #140, the coding-agent desktop
+app's window shortcuts). `keycapture=action` hears DOM `keydown` on the path
+from the outermost ancestor through the focused target before any `key=`
+handler. Its string payload and optional `KeyboardEvent` are the same as
+`key=`. The target's capture handler precedes its bubble handler regardless
+of attribute order. `disabled` excludes only HTML form controls from the key
+path; the walk skips a disabled control and continues at its parent, while a
+disabled container still hears and passes keys (LLP 1088 D7.3). A capture
+handler that calls `stopPropagation()` prevents target and bubble handlers,
+including the target's `key=` handler when called at the target.
+This stops Exact's handler walk while leaving the key's default action,
+including Enter submission, available. `preventDefault()` at any phase
+cancels the key's native default, including a field edit. The path is fixed before dispatch and
+actions run in phase order. `keycapture` on a container does not itself add a
+Tab stop; held modifiers remain `keyup` plus `exactPage().hasFocus`, with no
+keyboard fact. The ABI kind is 44, after `keyup` in
+`plan/tables/format.json`.
+The compiler/runner test in `contract/cli/tests/it/keyup.rs` holds the wire
+and record; Linux's `capture_precedes_target_and_bubble_and_controls_the_default`,
+`KeyUpMacTests` and `PressFocusIOSTests` hold the native order and stop; the
+`capture-keys` web conformance plan drives both browser runtimes in Chrome.
 
 **A chord during an input method's composition, and held modifiers**
 (2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text

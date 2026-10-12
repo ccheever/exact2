@@ -396,7 +396,7 @@ function installMarkupEditor(textarea, host) {
   el.addEventListener('compositionstart', () => { selectionChanged(); rememberNativeSelection(); composing = true; });
   el.addEventListener('compositionend', () => { composing = false; queueMicrotask(() => { reconcile(); flush(); }); });
   el.addEventListener('keydown', e => {
-    if (e.isComposing || destroyed) return;
+    if (e.isComposing || destroyed || e.defaultPrevented || e.exactStopped || e.$stopped) return;
     const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     let command = null;
     if (mod && !e.altKey) {

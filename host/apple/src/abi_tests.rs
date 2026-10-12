@@ -989,7 +989,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    for kind in [44, 99, u32::MAX] {
+    for kind in [99, u32::MAX] {
         let len = bridge.input_write(b"typed");
         let n = bridge.dispatch(view, kind, len, 0.);
         let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
@@ -999,6 +999,34 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let len = bridge.input_write(b"typed");
     bridge.dispatch(view, 1, len, 0.);
     assert_eq!(slots(&bridge), vec![("text".into(), Value::str("typed"))]);
+}
+
+#[test]
+fn keycapture_abi_kind_reaches_the_runner() {
+    let bytes = contract::compile(
+        r#"component App
+  state heard = ""
+  action captured(k: string, e: KeyboardEvent)
+    heard = `${k}:${e.code}`
+  view
+    box keycapture=captured testId="root"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let key = host.runner().kernel().find_by_test_id("root")[0];
+    let view = host.runner().kernel().node_by_key(key).unwrap().id;
+    let len = bridge.input_write(b"x\nKeyX\nfalse");
+    let n = bridge.dispatch(view, 44, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(
+        bridge.host.as_ref().unwrap().carry().slots,
+        vec![("heard".into(), Value::str("x:KeyX"))]
+    );
 }
 
 #[test]

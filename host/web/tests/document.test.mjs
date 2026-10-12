@@ -476,6 +476,102 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
   }, { html, files });
 }, 60000);
 
+browserCheck(`early key replay carries capture cancellation to key handlers and Enter submit${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
+  const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
+    <div data-view="1" data-exact-on="keycapture key"><input data-view="2" data-exact-on="key submit" name="draft"></div></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = [];
+      const views = new Map([...document.querySelectorAll('[data-view]')].map(el => {
+        el.exactHandlers = el.dataset.exactOn.split(' '); return [Number(el.dataset.view), el];
+      }));
+      const page = exact.documentPage.connect({ views, dispatch: (id, kind, value, event) => {
+        __events.push([id, kind, value]);
+        if (kind === 44) { if (value.startsWith('Shift+')) event?.preventDefault(); else if (!value.startsWith('Alt+') && event) event.exactStopped = true; }
+        if (kind === 6 && id === 1 && value.startsWith('Alt+')) event?.preventDefault();
+      }});
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+  };
+  await withDocument('/', async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live(`(() => { const el = document.querySelector('input');
+      el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,cancelable:true}));
+      el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',shiftKey:true,bubbles:true,cancelable:true}));
+      el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',altKey:true,bubbles:true,cancelable:true})); })()`);
+    await live.until('typeof globalThis.__release === "function"', 'interaction runtime');
+    await live('__release()');
+    await live.until('!exact.documentPage.holding && __events.length >= 2', 'early key replay');
+    expect(await live('__events.map(([id,kind]) => [id,kind])')).toEqual([[1,44],[2,7],[1,44],[2,6],[1,6],[1,44],[2,6],[1,6]]);
+  }, { html, files });
+}, 60000);
+
+browserCheck('early presses reject replacement labels after an adoption mismatch', async () => {
+  const html = `<!doctype html><div id="exact-root">
+    <button data-view="1" data-exact-on="press">Delete Alice</button>
+    <button data-view="2" data-exact-on="press">Keep</button></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = []; globalThis.__logs = [];
+      const views = new Map(), root = document.getElementById('exact-root');
+      const page = exact.documentPage.connect({ views, log: line => __logs.push(line),
+        dispatch: (id, kind) => __events.push([id, kind]) });
+      globalThis.__release = () => {
+        page.hold({ops:[{op:'adopt',adopted:false}]});
+        page.release(() => {
+          for (const [id, label] of [[1, 'Delete Bob'], [2, 'Keep']]) {
+            const el = document.createElement('button'); el.dataset.view = id;
+            el.textContent = label; el.exactHandlers = ['press']; views.set(id, el); root.append(el);
+          }
+        });
+      };`,
+  };
+  await withDocument('/', async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live("document.querySelectorAll('button').forEach(el => el.click())");
+    await live.until('typeof globalThis.__release === "function"', 'interaction runtime');
+    await live('__release()');
+    expect(await live('__events')).toEqual([[2, 0]]);
+    expect(await live('__logs.some(line => line.includes("early press was dropped (view 1"))')).toBe(true);
+  }, { html, files });
+}, 60000);
+
+browserCheck(`early capture updates keep the same view's bubble handler${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
+  const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
+    <div data-view="1" data-exact-on="keycapture key"><input data-view="2" data-exact-on="submit"><span id="log">before</span></div></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = []; globalThis.__logs = [];
+      const views = new Map([...document.querySelectorAll('[data-view]')].map(el => {
+        el.exactHandlers = el.dataset.exactOn.split(' '); return [Number(el.dataset.view), el];
+      }));
+      const page = exact.documentPage.connect({ views, log: line => __logs.push(line),
+        dispatch: (id, kind, value, event) => {
+          __events.push([id, kind]);
+          if (kind === 44) document.getElementById('log').textContent = 'after';
+          if (kind === 6) event.preventDefault();
+        }});
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+  };
+  await withDocument('/', async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live("document.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,cancelable:true}))");
+    await live.until('typeof globalThis.__release === "function"', 'interaction runtime');
+    await live('__release()');
+    await live.until('!exact.documentPage.holding', 'early key replay');
+    expect(await live('__events')).toEqual([[1, 44], [1, 6]]);
+    expect(await live('__logs')).toEqual([]);
+  }, { html, files });
+}, 60000);
+
 // LLP 1069.011.001 D5/D6: the shipped shell isolates button layout and
 // truncates only the requested titles. LLP 1116.005 D8 (superseding D16's
 // kept accent on the web): a disabled button is the disabled look whatever

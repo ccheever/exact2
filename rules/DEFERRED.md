@@ -32,6 +32,13 @@ scheme and fragment. A no-router URL event remains deferred; Charlie's ruling
 keeps the navigation root requirement. Take: no second delivery mechanism is
 added.
 
+**Expanded (Charlie, 2026-10-11, events ruling):** `keycapture=` admits DOM
+capture-phase key dispatch for the coding-agent desktop app's early shortcuts;
+`focusin`/`focusout` admit bubbling subtree focus observation for the clipped
+block and row actions reported in #283. The ruling names no take. Held
+modifiers continue to use `keyup` plus page focus; no new
+keyboard fact or Tab stop is admitted.
+
 **Taken off (Charlie, 2026-09-23: "Take off Messages as the Snapback4
 consumer. We don't need that on the list"):** the trade for web rendering
 (LLP 1048, below). Messages is no longer the Snapback4 consumer admitted

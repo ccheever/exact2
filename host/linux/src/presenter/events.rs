@@ -1,6 +1,6 @@
 //! The events beyond press and change (LLP 1005 §3), as the web and Apple
 //! hosts dispatch them: `focus` and `blur` as the focus moves from node to
-//! node, `key` and `keyup` by the web's name at the focused node with the
+//! node, `keycapture`, `key` and `keyup` by the web's name at the focused node with the
 //! physical key (`code`) and auto-repeat (#140), `submit` for Enter in a
 //! single-line input, and `hover` in and out as the pointer crosses nodes.
 use super::*;
@@ -135,8 +135,9 @@ impl<D: DataSource> Presenter<D> {
 
     /// A key at the focused node, by the web's name, with its physical key
     /// (`code`, "" when unknown) and whether it is an auto-repeat: every
-    /// `key` handler (`kind`; `keyup` for a release, #140) at or above it
-    /// hears it, innermost first, as a keydown bubbles — the path fixed
+    /// `keycapture` hears a keydown outermost first, then each `key` handler
+    /// (`kind`; `keyup` for a release, #140) at or above it hears it,
+    /// innermost first as the keydown bubbles — the path fixed
     /// before the first runs; one that called `stopPropagation()` is the
     /// last. True when one called `preventDefault()`: the caller skips the
     /// key's default action (docs/contract-grammar.md#events).
@@ -148,8 +149,9 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
         now_ms: f64,
     ) -> (Option<String>, bool) {
+        let target = self.focus;
         let mut path = Vec::new();
-        let mut at = self.focus.and_then(|id| self.handler_target(id, kind));
+        let mut at = target.and_then(|id| self.handler_target(id, kind));
         while let Some(id) = at {
             path.push(id);
             at = self
@@ -159,15 +161,35 @@ impl<D: DataSource> Presenter<D> {
                 .and_then(|n| n.parent)
                 .and_then(|p| self.handler_target(p, kind));
         }
+        let mut capture = Vec::new();
+        if kind == EventKind::Key {
+            let mut at = target.and_then(|id| self.handler_target(id, EventKind::Keycapture));
+            while let Some(id) = at {
+                capture.push(id);
+                at = self
+                    .host
+                    .kernel()
+                    .node(id)
+                    .and_then(|n| n.parent)
+                    .and_then(|p| self.handler_target(p, EventKind::Keycapture));
+            }
+            capture.reverse();
+        }
         let (mut error, mut prevented) = (None, false);
-        for id in path {
+        for (id, phase) in capture
+            .into_iter()
+            .map(|id| (id, EventKind::Keycapture))
+            .chain(path.into_iter().map(|id| (id, kind)))
+        {
             let key = exact_runner::KeyboardEvent {
                 key: name.to_owned(),
                 code: code.to_owned(),
                 repeat: repeat && kind == EventKind::Key,
                 held: self.modifiers(),
             };
-            let event = if kind == EventKind::Keyup {
+            let event = if phase == EventKind::Keycapture {
+                Event::Keycapture(key)
+            } else if phase == EventKind::Keyup {
                 Event::Keyup(key)
             } else {
                 Event::Key(key)

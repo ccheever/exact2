@@ -513,12 +513,12 @@ function syncViewportFit() {
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
-  el.exactFlowEvents = handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], key: ["keydown"] }[k] ?? []));
+  el.exactFlowEvents = [...new Set(handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], key: ["keydown"], keycapture: ["keydown"] }[k] ?? [])))];
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   if (handlers.includes("message")) messageViews.add(id);
-  const on = (event, handle) => el.addEventListener(event, (e) => {
+  const on = (event, handle, capture = false) => el.addEventListener(event, (e) => {
     if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load") && !(page?.restoringFocus && (event === "focus" || event === "blur"))) handle(e);
-  });
+  }, capture);
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
     on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
   if (el.localName === "img" && (handlers.includes("load") || handlers.includes("error"))) imageEvents(el, failure => { // kind 8, or a media `error` (kind 19) with its message
@@ -577,9 +577,9 @@ function attach(el, id, handlers) {
       on("focus", () => send(wasm.exact_dispatch(id, 4, 0, now())));
     } else if (kind === "blur") {
       on("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
-    } else if (kind === "key" || kind === "keyup") {
-      // keydown (`key`, kind 6) or keyup (kind 43, #140), the key's name as the web spells it (`e.key`); it bubbles to every ancestor's handler.
-      on(kind === "key" ? "keydown" : "keyup", (e) => { if (e.exactStopped) return; const outer = keyEvent; keyEvent = e; try { const n = writeIn(keyChord(e)); send(wasm.exact_dispatch(id, kind === "key" ? 6 : 43, n, now())); } finally { keyEvent = outer; } });
+    } else if (kind === "key" || kind === "keycapture" || kind === "keyup") {
+      // `keycapture` (kind 44) hears keydown outermost first; `key` (6) and `keyup` (43) bubble with the web's key name (`e.key`).
+      on(kind === "keyup" ? "keyup" : "keydown", (e) => { if (e.exactStopped) return; const outer = keyEvent; keyEvent = e; try { const n = writeIn(keyChord(e)); send(wasm.exact_dispatch(id, kind === "keycapture" ? 44 : kind === "key" ? 6 : 43, n, now())); } finally { keyEvent = outer; } }, kind === "keycapture");
     }
     if (kind === "submit" && el.tagName !== "TEXTAREA" && !el.exactMarkup) {
       // The web's implicit submission: Enter in a text input submits — here
@@ -1425,7 +1425,7 @@ function loadGpuIfNeeded() {
   gpuLoading = loadAfterPaint(globalThis.exact.compat?.inputs?.gpuModules ? './gpu-modules.js' : './gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error)); // @ref LLP 1009 D6
 }
 async function main() {
-  if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "") => send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())) }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
+  if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "", event = null) => { const outer = keyEvent; if (event) keyEvent = event; try { send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())); } finally { keyEvent = outer; } } }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
   // A served document's download began at its first paint (LLP 1048.000 D6).
   // A navigation that leaves the page stops it, or the glue's own, and their
   // preload, so the next document has the link. A page that stays downloads it

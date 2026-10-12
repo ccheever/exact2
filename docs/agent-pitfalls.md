@@ -946,6 +946,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Working on exact2 itself
 
+- **Bundling `host/web-js/rt.js` alone reports missing imports.** Its
+  `./navigation.js` and other relative imports are supplied beside it by the
+  web build, so `bun build host/web-js/rt.js` is not a valid host build. Use
+  `host/web-js/build.mjs` to verify the target, or `bun build
+  host/web-js/rt.js --external '*'` for a syntax-only check. (Events lane,
+  2026-10-11.)
+
 - **A bisect that shares another worktree's Cargo target directory builds
   stale code.** `CARGO_TARGET_DIR` pointed at one worktree while checking out
   older commits in another left generated enums (`PropId`, `Stdlib`) from the

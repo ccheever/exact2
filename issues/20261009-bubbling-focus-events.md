@@ -7,6 +7,16 @@
 **Date:** 2026-10-09
 **Related:** https://github.com/ccheever/exact2/issues/283
 
+## 2026-10-11 events lane
+
+Still open. The regression was reproduced: `focusin=` and `focusout=` both
+produce `lower-unknown-attr` on a `column`. This lane completed capture-phase
+keys first. Remaining: specify the Contract `FocusEvent` target and
+relatedTarget representation, dispatch old-target `focusout` and new-target
+`focusin` through each host's focus transition (including a removed focused
+node), preserve the wrapper's existing Tab order, and drive programmatic,
+click, Tab and removal cases against Chrome on web, macOS, iOS and Linux.
+
 ## Current scope
 
 Implement approved bubbling focusin/focusout with target/relatedTarget information, without a new Tab stop. Correct the original acceptance: DOM focusout also fires between descendants. Cover programmatic/click/Tab focus and removal.

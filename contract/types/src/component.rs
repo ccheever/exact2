@@ -528,6 +528,7 @@ fn refine_params_from_view(
                             | "focus"
                             | "blur"
                             | "key"
+                            | "keycapture"
                             | "keyup"
                             | "submit"
                             | "load"
@@ -624,8 +625,8 @@ fn refine_params_from_view(
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
                                 }
-                                "change" | "input" | "key" | "keyup" | "message" | "navigate"
-                                | "error" => {
+                                "change" | "input" | "key" | "keycapture" | "keyup" | "message"
+                                | "navigate" | "error" => {
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],

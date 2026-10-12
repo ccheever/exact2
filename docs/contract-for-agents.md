@@ -1713,6 +1713,13 @@ the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
+Use `keycapture=shortcut` on a container when its shortcut must run before
+the focused field's `key=` handler. Capture runs outermost first, then the
+target's capture and `key` handlers, then `key` bubbles outward. A capture
+handler can call `stopPropagation()` to stop later handlers, including the
+target's `key` handler when called there. `preventDefault()` keeps the field
+from editing. The container gains no Tab stop from `keycapture` alone.
+
 `key` is the DOM's keydown and `keyup` its keyup; an action that takes it hears
 a `KeyboardEvent` (`metaKey`, `code`, `repeat`, …). Track a held modifier as a
 page does: set it from the event on every keydown and keyup, and forget it when

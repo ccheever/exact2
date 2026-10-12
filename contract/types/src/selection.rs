@@ -48,7 +48,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
         "wheel" => Some("WheelEvent"),
         "drop" => Some("DragEvent"),
-        "key" | "keyup" => Some("KeyboardEvent"),
+        "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),

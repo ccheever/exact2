@@ -196,6 +196,9 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Focus => Event::Focus,
         EventKind::Blur => Event::Blur,
         EventKind::Key => Event::key(rng.pick(&["Enter", "Escape", "Shift+ArrowDown", "a"])),
+        EventKind::Keycapture => {
+            Event::of_host_kind(44, rng.pick(&["Meta+b\nKeyB\nfalse", "a\nKeyA\ntrue"])).unwrap()
+        }
         EventKind::Keyup => {
             Event::of_host_kind(43, rng.pick(&["Meta\nMetaLeft\nfalse", "a\nKeyA\nfalse"])).unwrap()
         }

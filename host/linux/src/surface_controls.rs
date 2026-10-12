@@ -486,13 +486,23 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let kernel = self.host.kernel();
+        let key = matches!(
+            kind,
+            EventKind::Keycapture | EventKind::Key | EventKind::Keyup
+        );
         let mut at = Some(id);
         while let Some(n) = at {
             let node = kernel.node(n)?;
-            if node.props.bool(PropId::Disabled) == Some(true) {
-                return None;
-            }
-            if self.host.runner().handlers_of(n).contains(&kind) {
+            let disabled = if key {
+                disabled_control(&node)
+            } else {
+                node.props.bool(PropId::Disabled) == Some(true)
+            };
+            if disabled {
+                if !key {
+                    return None;
+                }
+            } else if self.host.runner().handlers_of(n).contains(&kind) {
                 return Some(n);
             }
             at = self.display.parent(kernel, n);

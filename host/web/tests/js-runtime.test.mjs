@@ -425,6 +425,36 @@ test('a key handler stops and prevents its event while a view transition holds t
   } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
 });
 
+test('capture stop ends Exact key handlers but leaves Enter submission and the browser default available', async () => {
+  const { on, onKey, onSubmit, Hosts } = await import(resolve(dir, 'rt.js'));
+  const saved = globalThis.addEventListener, windowListeners = [];
+  globalThis.addEventListener = (type, f) => windowListeners.push([type, f]);
+  try {
+    const listeners = [];
+    const el = { localName: 'input', addEventListener: (type, f, capture) => listeners.push([type, f, capture]),
+      removeEventListener: (type, f) => { const at = listeners.findIndex(x => x[0] === type && x[1] === f); if (at >= 0) listeners.splice(at, 1); } };
+    const heard = [];
+    on(el, 'keycapture', (_, record) => { heard.push('capture'); if (record[1]) Hosts.preventDefault(); else Hosts.stopPropagation(); }, onKey);
+    on(el, 'key', () => heard.push('key'), onKey);
+    on(el, 'submit', () => heard.push('submit'), onSubmit);
+    const enter = shiftKey => ({ key: 'Enter', shiftKey, target: el, defaultPrevented: false, browserStopped: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.browserStopped = true; } });
+    const send = ev => {
+      for (const [, f] of listeners.filter(([type, , capture]) => type === 'keydown' && capture)) f(ev);
+      for (const [, f] of listeners.filter(([type, , capture]) => type === 'keydown' && !capture)) f(ev);
+      for (const [, f] of windowListeners) f(ev);
+    };
+    const ev = enter(false);
+    send(ev);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect([ev.$stopped, ev.browserStopped, ev.defaultPrevented, heard]).toEqual([true, false, false, ['capture', 'submit']]);
+    const prevented = enter(true);
+    send(prevented);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect([prevented.$stopped, prevented.browserStopped, prevented.defaultPrevented, heard]).toEqual([undefined, false, true, ['capture', 'submit', 'capture', 'key']]);
+  } finally { globalThis.addEventListener = saved; }
+});
+
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
 test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {

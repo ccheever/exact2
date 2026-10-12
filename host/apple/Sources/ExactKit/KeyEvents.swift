@@ -1,7 +1,8 @@
-// A keydown as the web dispatches one (docs/contract-grammar.md#events): at
-// the focused node — the field or textarea being edited counts as its node —
-// then at every ancestor with a `key` handler, innermost first, and then the
-// key's default action unless a handler called `preventDefault()`. Every
+// A keydown as the web dispatches one (docs/contract-grammar.md#events):
+// capture handlers outermost first, then the focused node — the field or
+// textarea being edited counts as its node — and every ancestor with a `key`
+// handler, innermost first. Then the key's default action unless a handler
+// called `preventDefault()`. Every
 // key, printable or not, on every host: calc F3 (macOS's field editor ate
 // printable keys) and minesweeper F7 (no way to claim a key) in the
 // x2apps diaries. A keyup goes the same way to the `keyup` handlers, a
@@ -43,7 +44,7 @@ extension KeyCodes {
 }
 
 /// A key event for the runner (#140): DOM's `keydown` (`key`, ABI kind 6)
-/// or `keyup` (43), its chord (`Shift+Meta+b`, `Event::key`), its
+/// or `keyup` (43), or a capture keydown (44): its chord (`Shift+Meta+b`, `Event::key`), its
 /// `KeyboardEvent.code` ("" when the host cannot tell) and `repeat`. It
 /// prints as its chord, which the hosts' tests read.
 struct KeyPress: ExpressibleByStringLiteral, CustomStringConvertible {
@@ -51,6 +52,7 @@ struct KeyPress: ExpressibleByStringLiteral, CustomStringConvertible {
     var code = ""
     var repeats = false
     var up = false
+    var capture = false
     init(_ chord: String, code: String = "", repeats: Bool = false, up: Bool = false) {
         self.chord = chord
         self.code = code == "Unidentified" || !code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) ? "" : code
@@ -90,22 +92,35 @@ extension Presenter {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
     }
     private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress) -> Bool {
-        var path: [UInt32] = []
+        var path: [NodeView] = []
         var next: KeyPlatformView? = target
         while let view = next {
-            if let node = view as? NodeView, views[node.id] === node, node.handlers.contains(handler), !node.formDisabled, !node.inert {
-                path.append(node.id)
+            if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !node.inert {
+                path.append(node)
             }
             next = view.superview
         }
         var prevented = false
-        for id in path {
+        func deliver(_ node: NodeView, _ press: KeyPress) -> Bool {
             defaultPrevented = false
             propagationStopped = false
-            key(id, press)
+            key(node.id, press)
             prevented = prevented || defaultPrevented
-            // `stopPropagation()`: no ancestor hears it (files diary F8).
-            if propagationStopped { break }
+            return propagationStopped
+        }
+        if handler == "key" {
+            for node in path.reversed() where node.handlers.contains("keycapture") {
+                var captured = press
+                captured.capture = true
+                if deliver(node, captured) {
+                    defaultPrevented = false
+                    propagationStopped = false
+                    return prevented
+                }
+            }
+        }
+        for node in path where node.handlers.contains(handler) {
+            if deliver(node, press) { break }
         }
         defaultPrevented = false
         propagationStopped = false

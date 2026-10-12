@@ -1263,6 +1263,7 @@ impl Em<'_> {
                 | EventKind::Focus
                 | EventKind::Blur
                 | EventKind::Key
+                | EventKind::Keycapture
                 | EventKind::Keyup
                 | EventKind::Submit
                 | EventKind::Load

@@ -866,7 +866,6 @@ export function Sm(e, prop, unit, f) {
     else css(e, prop, unit, v);
   });
 }
-/** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
 export const OnHooks = {};
 function guestOrigin(e) {
@@ -887,7 +886,7 @@ export function on(e, kind, f, bind) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
   const go = f, wall = !clock.agent;
   f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); return go(...a); };
-  const l = (t, g) => e.addEventListener(t, g);
+  const l = (t, g, capture = false) => e.addEventListener(t, g, capture);
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
   if (e.$media && Media.MEDIA_EVENTS.has(kind)) return Media.mediaOn(e, kind, f); // media.js: the glue's reports
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
@@ -910,8 +909,8 @@ export const onValue = (e, kind, f, l) => { return l(kind, ev => {
       if (radio) settleRadios(e, r => r.$checked);
     }); };
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
-// `key` is keydown and `keyup` keyup (#140); each bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order: code and repeat last)
-export const onKey = (e, kind, f, l) => { return l(kind === "keyup" ? "keyup" : "keydown", ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }); };
+// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last).
+export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }, kind === "keycapture"); };
 // The window's, heard by every connected element that declares it (studio diary R17).
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)
@@ -1093,10 +1092,9 @@ export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
  * of the same untransformed boxes at the viewport point; `none` until the
  * reader has loaded. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest("[id]"); return n && n !== root && root.contains(n) && n.id || null; };
-/** A Markdown text field (LLP 1045 D5): the web host's own editor
- * (markup-editor.js over its wasm), fetched at the first one; it replaces
- * the textarea, which then forwards to it what this runtime writes and
- * listens for: its value, attributes, style and events. */
+/** A Markdown field (LLP 1045 D5): markup-editor.js over its wasm replaces
+ * the textarea on demand. Runtime writes proxy to the editor; its events
+ * forward to the detached textarea's handlers. */
 let Editor = null;
 export function mde(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
@@ -1113,15 +1111,17 @@ export function mde(e) {
       replace(n) {
         Ids.set(n, id); Views.set(id, n);
         Object.defineProperty(e, "value", { configurable: true, get: () => n.value, set: v => { n.value = v; } });
-        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => e.dispatchEvent(new ev.constructor(t, ev)));
+        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
+          const forwarded = new ev.constructor(t, ev); forwarded.$stopped = ev.$stopped; if (ev.defaultPrevented) forwarded.preventDefault();
+          if (!e.dispatchEvent(forwarded)) ev.preventDefault(); if (forwarded.$stopped) ev.$stopped = true;
+        }, t === "keydown"); // before the editor applies its own key default
         new MutationObserver(ms => { for (const m of ms) { const v = e.getAttribute(m.attributeName); v == null ? n.removeAttribute(m.attributeName) : n.setAttribute(m.attributeName, v); } n.exactMarkup?.sync(); }).observe(e, { attributes: true });
       },
       select: (n, p) => { const [formats, mixed, unavailable, link] = p.split("\n"); e.$select?.([formats, mixed === "1", link ?? "", unavailable]); },
     });
   }).catch(err => say(`markup editor: ${err.message}`)).finally(() => inflight.n--);
 }
-/** `select`: the editor's facts at each selection change (runner Event::Select);
- * a text field's own, HTML's, its `InputEvent` (x2apps codeedit #2). */
+/** `select`: the editor's selection facts (runner Event::Select); a field's `InputEvent` (x2apps codeedit #2). */
 export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () => { if (textField(e)) f(inputRecord(e, e.value, false)); }); }
 /** The `InputEvent` record (contract/types selection.rs's order): the value,
  * whether checked, and a text field's selection (UTF-16, the DOM's); a type

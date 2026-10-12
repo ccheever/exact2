@@ -6,7 +6,8 @@ use super::Event;
 use exact_plan::EventKind;
 
 impl Event {
-    /// Decode ABI kind 6 (`key`) or 43 (`keyup`), 10 (contextmenu, its point when it has one), 13
+    /// Decode ABI kind 6 (`key`), 43 (`keyup`) or 44 (`keycapture`),
+    /// 10 (contextmenu, its point when it has one), 13
     /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease, LLP
     /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
@@ -14,10 +15,13 @@ impl Event {
     /// `contentRect` as `x,y,width,height`) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
-            // A key's down (6) and up (43, #140): the chord, then its code
+            // A key's down (6), up (43) or capture (44, #140): the chord, then its code
             // and repeat (`KeyboardEvent::parse`).
             6 => super::KeyboardEvent::parse(payload)
                 .map(Event::Key)
+                .ok_or("invalid key event"),
+            44 => super::KeyboardEvent::parse(payload)
+                .map(Event::Keycapture)
                 .ok_or("invalid key event"),
             // DOM's keyup is never a repeat.
             43 => super::KeyboardEvent::parse(payload)

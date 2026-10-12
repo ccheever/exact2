@@ -790,7 +790,7 @@ link sheet.
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 59 handler names.
+arguments precede the event payload. The table contains all 60 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -798,7 +798,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | --- | --- |
 | A string, then optionally an `InputEvent` | `change`, `input` on a text field, textarea, `select`, date or time input, and `type="radio"` (the radio's `value`); an action taking one more parameter also hears the [target](#form-controls-radio-inputevent-setselectionrange) |
 | One string | `message`, `error` |
-| A string, then optionally a `KeyboardEvent` | `key` (DOM's `keydown`) and `keyup`: the key's name; an action taking one more parameter also hears the [modifiers, the physical key and whether it repeats](#keys) |
+| A string, then optionally a `KeyboardEvent` | `keycapture` (capture-phase `keydown`), `key` (bubble-phase `keydown`) and `keyup`: the key's name; an action taking one more parameter also hears the [modifiers, the physical key and whether it repeats](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
 | One boolean | `hover`; `fullscreenchange` (whether the video is now full screen) |
@@ -1205,6 +1205,14 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   shortcut, a `preventDefault()`). It has no default to prevent on a native
   host. An element with a `keyup` handler takes the focus, as one with
   `key` does.
+- **Capture.** `keycapture` hears a keydown on the outermost ancestor first,
+  down to the focused target, before the target and ancestors hear `key`.
+  It takes the same name and optional `KeyboardEvent` as `key`. An ancestor's
+  `stopPropagation()` during capture stops target and bubble handlers,
+  including the target's `key` handler when called at the target. A capture
+  stop still lets Enter submit; a capture handler's `preventDefault()`
+  cancels the field edit, submission or other default.
+  Putting `keycapture` on a container does not add a Tab stop.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
   commits an input (its `change`, when its value changed, as HTML's does)
@@ -1219,7 +1227,7 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   command `preventDefault()` is the handler's `event.preventDefault()`: that
   default does not happen. Ancestors' handlers still hear the key, as they do
   on the web, unless the action also calls `stopPropagation()`, the handler's
-  `event.stopPropagation()`: no ancestor's `key` handler hears it, and its
+  stop for Exact's key handlers: no ancestor's `key` handler hears it, and its
   default still happens (an inline rename field's Enter submits without the
   list around it opening the selection). Call either only for the keys you
   handle, so typing still works:

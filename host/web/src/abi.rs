@@ -489,7 +489,7 @@ impl<D: DataSource> Bridge<D> {
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
     /// key's chord with its code and repeat (`KeyboardEvent::parse`), or a
     /// guest message — is the input buffer's first `len` bytes, UTF-8).
-    /// Kind 43 is `keyup`, its payload a keydown's (#140).
+    /// Kind 43 is `keyup`; 44 is `keycapture`, with the keydown payload (#140).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     /// Kind 20 is pan (`dx,dy`); 28 panrelease (`vx,vy`, px/s; LLP 1057 §10.6).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
@@ -521,9 +521,9 @@ impl<D: DataSource> Bridge<D> {
             // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
             // the clipboard's three, a text's selectionchange, beforeunload,
             // wheel, drop and resize, and a text field's input, change and
-            // select with its selection, and a key's down (6) and up (43)
+            // select with its selection, and a key's down (6), up (43) and capture (44)
             // with its code and repeat (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=43 => match Event::of_host_kind(kind, &payload) {
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=44 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },

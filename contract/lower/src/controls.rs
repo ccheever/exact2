@@ -785,11 +785,14 @@ impl Lowerer<'_> {
                     );
                 }
                 Some(crate::tags::AttrTarget::Handler(h))
-                    if !matches!(h, "press" | "focus" | "blur" | "key" | "keyup" | "hover") =>
+                    if !matches!(
+                        h,
+                        "press" | "focus" | "blur" | "key" | "keycapture" | "keyup" | "hover"
+                    ) =>
                 {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button takes `press`, `focus`, `blur`, `key`, `keyup` and `hover` handlers, not `{name}`: {alternative}"),
+                        format!("a native button takes `press`, `focus`, `blur`, `key`, `keycapture`, `keyup` and `hover` handlers, not `{name}`: {alternative}"),
                     );
                 }
                 _ => {}

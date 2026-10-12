@@ -64,13 +64,13 @@ function documentBoot(options) {
     for (let el = target.closest("[data-view]"); el && root.contains(el); el = el.parentElement?.closest("[data-view]")) out.push(el);
     return out;
   };
-  const matches = (el, at) => el && el.localName === at.tag && el.getAttribute("name") === at.name
+  const matches = (el, at, sameDispatch = false) => el && el.localName === at.tag && el.getAttribute("name") === at.name
     && el.getAttribute("data-testid") === at.test && el.getAttribute("type") === at.type
-    && (at.text === null || el.textContent === at.text);
+    && (sameDispatch || at.text === null || el.textContent === at.text);
   const usable = target => target instanceof Element && root.contains(target)
     && !target.closest("[inert],:disabled,[disabled='true']");
-  const enqueue = (el, kind, value = "") => {
-    const event = { at: identity(el), kind, value };
+  const enqueue = (el, kind, value = "", keyEvent = null) => {
+    const event = { at: identity(el), kind, value, keyEvent };
     const previous = events.at(-1);
     // Consecutive edits carry their latest value; action ordering is preserved.
     if (kind === "input" && previous?.kind === kind && previous.at.id === event.at.id) events.pop();
@@ -93,11 +93,18 @@ function documentBoot(options) {
       const kind = event.type === "focusin" ? "focus" : "blur";
       if (hears(event.target, kind)) enqueue(event.target, kind);
     } else if (event.type === "keydown") {
+      // One keydown's phases share cancellation; its default replays last.
+      const keyEvent = { type: "keydown", exactStopped: false, defaultPrevented: false,
+        identities: els.map(identity),
+        preventDefault() { this.defaultPrevented = true; } };
+      for (const el of [...els].reverse()) if (hears(el, "keycapture")) enqueue(el, "keycapture", keyChord(event), keyEvent);
       for (const el of els) {
         // The chord kind 6 carries, as glue.js's `keyChord` writes it.
-        if (hears(el, "key")) enqueue(el, "key", keyChord(event));
+        if (hears(el, "key")) enqueue(el, "key", keyChord(event), keyEvent);
+      }
+      for (const el of els) {
         if (hears(el, "submit") && el.localName !== "textarea" && event.key === "Enter" && !event.isComposing) {
-          event.preventDefault(); enqueue(el, "submit");
+          event.preventDefault(); enqueue(el, "submit", "", keyEvent);
         }
       }
     } else if (event.type === "keyup") {
@@ -132,11 +139,17 @@ function documentBoot(options) {
     try { for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith("exact.secret.")) { start(); break; } } catch {}
   }
   const replay = event => {
+    if (event.keyEvent?.exactStopped && (event.kind === "keycapture" || event.kind === "key")) return;
+    if (event.keyEvent?.defaultPrevented && event.kind === "submit") return;
     const at = event.at;
     const el = at && views.get(at.id);
-    if (matches(el, at) && el.exactHandlers?.includes(event.kind) && usable(el)) {
+    // Validate the whole key path before its first action can change its text.
+    // Later phases keep those elements; other queued events still check labels.
+    const targets = event.keyEvent && (event.keyEvent.targets ??= new Map(event.keyEvent.identities
+      .filter(at => matches(views.get(at.id), at)).map(at => [at.id, views.get(at.id)])));
+    if ((!targets || targets.get(at.id) === el) && matches(el, at, !!targets) && el.exactHandlers?.includes(event.kind) && usable(el)) {
       const box = at.type === "checkbox";
-      dispatch(at.id, { press: 0, change: box ? 24 : 1, input: box ? 25 : 23, focus: 4, blur: 5, key: 6, keyup: 43, submit: 7 }[event.kind], event.value ?? "");
+      dispatch(at.id, { press: 0, change: box ? 24 : 1, input: box ? 25 : 23, focus: 4, blur: 5, key: 6, keycapture: 44, keyup: 43, submit: 7 }[event.kind], event.value ?? "", event.keyEvent);
     } else log(`document: an early ${event.kind} was dropped (view ${at.id} is not what received it)`);
   };
   const page = {

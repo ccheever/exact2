@@ -1,6 +1,7 @@
 # Keyboard: a capture-phase key handler and held-modifier state (keyup, code, repeat landed in #220)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** keycapture dispatches in capture-target-bubble order on web, Apple and Linux; browser tests through the JS runtime cover Markdown forwarding cancellation and deduplicated flowed-link capture, Linux presenter tests skip disabled controls without losing ancestor key handlers, and existing reverse-order and replay tests cover propagation and replacement-label validation
 **Systems:** Contract, runner events, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
