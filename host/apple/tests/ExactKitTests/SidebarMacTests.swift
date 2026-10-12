@@ -234,6 +234,7 @@ final class SidebarMacTests: XCTestCase {
         XCTAssertEqual(item.keyEquivalent, "s")
         XCTAssertEqual(item.keyEquivalentModifierMask, [.command, .control])
         XCTAssertTrue(split.validateUserInterfaceItem(item))
+        XCTAssertEqual(item.title, "Hide Sidebar", "AppKit names the item for what it will do, when it validates it")
         // Its action reaches the split view controller from inside the page, up the responder chain; the
         // sidebar goes and the page takes the window, then comes back. AppKit animates both.
         func toggled(_ hidden: Bool, _ why: String) {
@@ -250,6 +251,8 @@ final class SidebarMacTests: XCTestCase {
         toggled(true, "hidden by the person")
         XCTAssertTrue(tablist.isHidden, "hidden is not gone: the tablist stays the sidebar's")
         XCTAssertEqual(p.covers.delivered, [tablist.id: .whole])
+        XCTAssertTrue(split.validateUserInterfaceItem(item))
+        XCTAssertEqual(item.title, "Show Sidebar")
         toggled(false, "shown again")
 
         // The author hides the tab bar on a screen (`display: none`): the sidebar goes with it, and its button.
