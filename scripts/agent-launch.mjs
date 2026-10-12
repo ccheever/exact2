@@ -266,6 +266,14 @@ export function withFaults(href, failFetch) {
   return url.href;
 }
 
+/** The page address at another date at the clock's zero (a test's `reload`, LLP 1116.009 D1): `epoch` Unix ms, else the address as it is. */
+export function withEpoch(href, epoch) {
+  if (epoch === undefined) return href;
+  const url = new URL(href);
+  url.searchParams.set('epoch', String(epoch));
+  return url.href;
+}
+
 /** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
 export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
 

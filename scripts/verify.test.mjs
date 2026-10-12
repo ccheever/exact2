@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, groups, judgeRelaunch, pinnedLaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
+import { appServer, groups, judgeRelaunch, movedClock, pinnedLaunch, relaunchFacts, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -151,6 +151,20 @@ test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
   const saved = { ...test(defaults), end: { ...test(defaults).end, resources: october(['A fresh start.']).resources } };
   assert.deepEqual(judgeRelaunch(saved, october([]), october(['A fresh start.'])).problems, []);
   assert.equal(judgeRelaunch(saved, october([]), october([])).problems.length, 1);
+});
+
+// LLP 1116.009 D1: a `reload` relaunches at the virtual time the test had reached, and so does verify's relaunch; a test
+// that only moved the clock pinned nothing, but its first screen may say another day, so the comparison is made at that day.
+test('the relaunch starts at the date the test reached, which moves the comparison with it and pins nothing', () => {
+  const defaults = { epoch: Date.parse('2026-01-01T00:00:00Z'), timeZone: 'UTC', locale: 'en-US', seed: 1 };
+  const reached = defaults.epoch + 86_400_000;
+  const test = (end) => ({ name: 'saves', failures: [], store: 's', end: { keep: true, resources: {}, ops: 3, launch: defaults, ...end } });
+  assert.deepEqual(relaunchFacts(test({ reached })), { ...defaults, epoch: reached });
+  assert.deepEqual(relaunchFacts(test({})), defaults); // a test run without a reached date relaunches as it launched
+  assert.equal(movedClock(test({ reached })), true);
+  assert.equal(movedClock(test({ reached: defaults.epoch })), false);
+  assert.equal(movedClock(test({})), false);
+  assert.equal(pinnedLaunch(test({ reached }), defaults), false);
 });
 
 test('the compiler\'s warnings: a group before the tests, capped as findings are, counted as findings', () => {

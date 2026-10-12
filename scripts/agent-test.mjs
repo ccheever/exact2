@@ -176,8 +176,9 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`, each result `{ name, failures, notes }`: notes are advice, never a failure.
- * `atEnd(s, { name, index, size, store, failures, reload, launch })` (verify's, LLP 1116.005 D7; `launch`: the epoch, zone, locale
- * and seed the test launched with, LLP 1116.007 D3.4) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
+ * `atEnd(s, { name, index, size, store, failures, reload, launch, reached })` (verify's, LLP 1116.005 D7; `launch`: the epoch, zone, locale
+ * and seed the test launched with, LLP 1116.007 D3.4; `reached`: the epoch a relaunch starts at, the date it launched at plus the virtual
+ * time it reached, as a `reload` relaunches, LLP 1116.009 D1) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', atEnd } = {}) {
@@ -222,7 +223,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       leading++;
     }
     // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
-    // a test, so a `reload` relaunches at the same date on every host (the web's page keeps its launch URL's).
+    // a test, so a `reload` relaunches from the same date on every host. `facts.epoch` is the date at the clock's zero
+    // of the launch now running: a `reload` moves it on by the virtual time that launch reached (LLP 1116.009 D1).
     try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
@@ -232,6 +234,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // `--touch platform` makes every tap a real touch too (splitter rough 12: a test of what a finger reaches).
     const drags = !device && ['ios', 'host-ios'].includes(host) && t.steps.some((st) => st.op === 'drag');
     const fingers = touch !== 'agent' ? touch : drags ? 'drag' : 'agent';
+    // The date a relaunch starts at: this launch's date at the clock's zero plus the virtual time the test has reached
+    // (every `clock +N`, settle and timer), as the runner reports it; whole milliseconds, which every host takes.
+    const first = facts.epoch; // the test's launch date, which a `reload` moves `facts.epoch` on from
+    const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
     const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars });
     let s = await launch(fresh);
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
@@ -240,7 +246,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // driver connected). An unsettled wait leaves the expects to name what is still in flight.
     const data = async () => { if (!beforeData) await s.clock('data'); };
     // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
-    // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied.
+    // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied; both
+    // at the virtual time the test had reached, as a phone restarted at 9:05 wakes at 9:05 (LLP 1116.009 D1).
     // It asks what persists, so storage the app started and did not await finishes first, as `clock data` lands it
     // (LLP 1097 D9): a write lost at `reload` is what a crash does. The next `logs` begins with what it waited for.
     const reload = async () => {
@@ -254,7 +261,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A page whose table no fetch or fault request made yet still has its launch's; an unreadable state is an error.
       const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
-      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      facts.epoch = await reached();
+      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
       await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
@@ -433,7 +441,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
-      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, env: env ?? {} }) }).catch((e) => ({ error: e.message }));
+      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached() }).catch((e) => ({ error: e.message }));
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
