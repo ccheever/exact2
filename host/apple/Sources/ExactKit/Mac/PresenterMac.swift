@@ -120,6 +120,9 @@ package final class Presenter {
     lazy var elements = ElementHatches(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
+    /// What native presentations cover of boxes (LLP 1115.002 D8.1, CoversMac.swift).
+    lazy var covers = HostCovers(self)
+    var onCovers: (([(UInt32, HostCover?)]) -> Void)?
     /// The head's title goes to the window the app attached, through the
     /// toolbar host that already owns its title (LLP 1048.003 D1).
     func headTitle(_ title: String?) { toolbar.headTitle(title) }
@@ -616,6 +619,7 @@ package final class Presenter {
         dialogs.reset()
         toolbar.reset()
         navigation.reset()
+        covers.reset()
         segments.reset()
         controls.reset()
         fieldSelections.reset()
