@@ -1087,6 +1087,41 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             out.insert("data-exact-field".into(), String::new());
         }
     }
+    // @ref LLP 1115.000 D4 part B — under the neutral look (the role table's
+    // column says a process shows it) the page's sheet draws these marks
+    // itself (neutral.css), and reads here what CSS cannot say. A checkbox,
+    // radio, range or file control whose appearance is the platform's is
+    // marked, as a switch and a date field are above: `appearance="none"`
+    // hands the box to the author. And a row the author wrote where the
+    // sheet would draw over an inherited or implied one (D2's bit) is named:
+    // a spinner's own `color`, a grouped list's own ground.
+    if exact_kernel::style::roles::column() == exact_kernel::style::roles::Column::Neutral {
+        use exact_kernel::{ControlKind, StyleId};
+        let kind = ControlKind::of(node.node_type, node.props);
+        if node.style.appearance == exact_kernel::Appearance::Auto
+            && matches!(
+                kind,
+                Some(
+                    ControlKind::Checkbox
+                        | ControlKind::Radio
+                        | ControlKind::Range
+                        | ControlKind::File
+                )
+            )
+        {
+            out.insert("data-exact-control".into(), String::new());
+        }
+        let said = match kind {
+            Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
+            _ if node.props.get(PropId::ListStyle).is_some() => {
+                Some((StyleId::BackgroundColor, "background-color"))
+            }
+            _ => None,
+        };
+        if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
+            out.insert("data-exact-said".into(), name.into());
+        }
+    }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
         out.get_or_insert_with("type".into(), || "button".into());

@@ -54,6 +54,16 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         let len = bridge.boot(&plan, NoData, 390.0, 844.0, "/");
         String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned()
     };
+    // The element a batch creates for a test id: its op, to the next one.
+    let created = |batch: &str, test_id: &str| {
+        let at = batch
+            .find(&format!("\"data-testid\":\"{test_id}\""))
+            .unwrap_or_else(|| panic!("no {test_id} in {batch}"));
+        let start = batch[..at].rfind("{\"op\":").unwrap();
+        let end = batch[at..].find("{\"op\":").map_or(batch.len(), |n| at + n);
+        batch[start..end].to_string()
+    };
+
     // As every page boots today: Apple's pairs, and no mark.
     let apple = boot(0);
     assert!(
@@ -70,5 +80,37 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
     assert!(
         neutral.contains("var(--exact-separator, light-dark(#0000001f, #ffffff29))"),
         "a role's fallback is the neutral column's: {neutral}"
+    );
+    for drawn in ["check", "radio", "range", "file"] {
+        let op = created(&neutral, drawn);
+        assert!(op.contains("\"data-exact-control\":\"\""), "{drawn}: {op}");
+    }
+    // `appearance="none"` hands the box to the author; the switch has its
+    // own mark; a control the sheet draws nothing over has none.
+    for (other, why) in [
+        ("own", "the author's box"),
+        ("switch", "its own mark"),
+        ("spinner", "a spinner is no drawn control"),
+    ] {
+        let op = created(&neutral, other);
+        assert!(!op.contains("data-exact-control"), "{other}, {why}: {op}");
+    }
+    assert!(created(&neutral, "switch").contains("\"data-exact-switch\":\"\""));
+    // The rows the author wrote where the sheet would draw over them.
+    assert!(!created(&neutral, "spinner").contains("data-exact-said"));
+    assert!(
+        created(&neutral, "red").contains("\"data-exact-said\":\"color\""),
+        "{}",
+        created(&neutral, "red")
+    );
+    assert!(
+        !created(&neutral, "bar").contains("data-exact-said"),
+        "a determinate bar's colour is no ring's"
+    );
+    assert!(!created(&neutral, "list").contains("data-exact-said"));
+    assert!(
+        created(&neutral, "ground").contains("\"data-exact-said\":\"background-color\""),
+        "{}",
+        created(&neutral, "ground")
     );
 }
