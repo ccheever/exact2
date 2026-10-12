@@ -552,6 +552,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
       if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
+      // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
+      // values into the view to see them; `logs` had them all along). Advice only.
+      if (failures.length && closedAt == null) try {
+        const logs = await Promise.race([s.logs(), new Promise((done) => setTimeout(() => done(null), 3000))]);
+        const said = (logs?.host ?? []).filter((l) => /^console\.\w+: /.test(l));
+        if (said.length) notes.push(`the data module logged${said.length > 8 ? ` (the last 8 of ${said.length})` : ''}: ${said.slice(-8).join(' | ')}`);
+      } catch { /* advice only */ }
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });

@@ -250,3 +250,6 @@ the build names an extra field, and a failing test names a refused reply.
 `input`’s `value`, `input=`, `change=` and `placeholder` for several lines.
 A date made from a value works (`new Date(ms)`, `Intl.DateTimeFormat`);
 reading the current date in a data module is refused.
+
+`console.log` in a source appears in the agent’s `logs`; a failed test’s
+notes show its last lines.
