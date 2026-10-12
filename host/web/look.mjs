@@ -11,6 +11,12 @@ export const DEFAULT_LOOK = 'apple';
 export const LOOK = process.env.EXACT_WEB_LOOK || DEFAULT_LOOK;
 if (!['apple', 'neutral'].includes(LOOK)) throw new Error(`EXACT_WEB_LOOK=${LOOK}: the looks are apple and neutral`);
 
+/** What a build's shell is made of, for a receipt that says when the build is stale (a wasm bake's, scripts/app.mjs):
+ * its sources as repository paths, and the look it was built in where that is not the default one, which is a
+ * setting, so no file's digest says it. */
+export const SHELL_SOURCES = ['host/web/index.html', 'host/web/neutral.css', 'host/web/look.mjs'];
+export const LOOK_SETTING = LOOK === DEFAULT_LOOK ? {} : { EXACT_WEB_LOOK: LOOK };
+
 /** The shell (index.html's text) as `look` builds it: unchanged for `apple`, and for `neutral` with the neutral sheet
  * at the end of the shell's own `<style>`, where each build's minifier takes it with the rest. The sheet's first rule
  * marks the page (`--exact-look: neutral` on the root), which is how a page says which look it is: a wasm page's glue

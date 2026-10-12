@@ -1,8 +1,9 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
+// And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
@@ -172,4 +173,20 @@ function createReader() {
   }, close() { fail(new Error('filesystem reader closed')); }};
   reference(false);
   return session;
+}
+
+/** Remove a private mkdtemp directory owned by this invocation. Bun 1.4.2's
+ * recursive rm can silently leave entries in large captured Git repositories. */
+export function removePrivateTree(path) {
+  path = resolve(path);
+  if (dirname(path) === path) throw new Error(`refusing to remove a filesystem root: ${path}`);
+  if (process.platform === 'win32') {
+    rmSync(path, {recursive:true, force:true, maxRetries:3, retryDelay:100});
+    if (existsSync(path)) throw new Error(`could not remove private directory ${path}: directory remains`);
+    return;
+  }
+  const result = spawnSync('/bin/rm', ['-rf', '--', path], { encoding: 'utf8' });
+  if (result.status !== 0 || existsSync(path)) {
+    throw new Error(`could not remove private directory ${path}: ${result.error?.message || result.stderr || result.signal || 'directory remains'}`);
+  }
 }
