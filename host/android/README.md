@@ -11,7 +11,7 @@ the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
-| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Surfaces` (the top layer's windows: a `Dialog`, a `PopupWindow`), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
+| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Surfaces` (the top layer's windows: a `Dialog`, a `PopupWindow`), `Bars` (the top app bar and the navigation bar, each a view over the page), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
@@ -53,6 +53,13 @@ and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id
 
 Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
 `bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
+
+It builds on a Mac as on the Linux build box (tried 2026-10-12 with an SDK under `~/android`: platform-tools, NDK
+27.1.12297006, a JDK, and `ANDROID_HOME`, `ANDROID_NDK_HOME` and `JAVA_HOME` naming them). Gradle fetches what the
+SDK lacks when its licences are accepted there: it installed build-tools 36.0.0 and platform 37.2 on that run. The
+library goes into that APK unstripped (Shelf's is 69 MB there against 20.5 MB from the build box), which changes
+nothing a person sees; a cold start is measured with the stripped one. Shelf also needs the Android Hermes bundle,
+which copies between machines as its directory under `~/.cache/exact/hermes-android/` with `current` naming it.
 
 ## A TypeScript data module (LLP 1115.001 §5.2)
 
@@ -145,7 +152,7 @@ not say `EXACT_AGENT=1` answers no request, and a production bake drops that var
 | Operation | On the reader |
 |---|---|
 | `tree`, `state`, `logs`, `layout` | answered by the handler as on Linux; `layout` is in points, in the page the reader placed (the viewport the system's bars and the keyboard leave) |
-| `tap <target>` | the presenter's addressed press, as on Linux: it is not a touch through Android's input, so the reader's own gesture code (its slop, its long-press timer, a field's touch) is not what is tested. A row of an open alert or menu is chosen by its authored node |
+| `tap <target>` | the presenter's addressed press, as on Linux: it is not a touch through Android's input, so the reader's own gesture code (its slop, its long-press timer, a field's touch) is not what is tested. A row of an open alert or menu is chosen by its authored node, and so is what a bar stands for: a header's button, a tab, the Back control the Up arrow stands for ("The bars", below) |
 | `tap <target> contextmenu` | opens the menu the node names, as a finger held on it does (`Presenter::long_press`) |
 | `type <target> <text>` | sets the field's value through the presenter; the hosted `EditText` then shows it, focused, with its keyboard up. Not typed through the keyboard: nothing composes |
 | `clock data`, `clock settle`, `clock +<ms>` | as on Linux. What the reader plays itself is outside the clock: a fling, the keyboard's slide, a `Dialog`'s own fade. A drive launches with `lower=0`, so no layer plays on the reader's clock |
@@ -350,7 +357,7 @@ capability has a call of its own.
 | 4 | `share` | one word saying which of the three the app gave (bit 0 the title, 1 the text, 2 the URL), then three strings: title, text, URL | the Sharesheet (`ACTION_SEND` in a chooser) | `shared`, `dismissed`, or why it could not be shown; exact2 journals `share: shared`, `share: dismissed` or `share: refused: …` |
 | 5 | whether Back has somewhere to go in the app (D6) | one word: 1 or 0 | registers its `OnBackInvokedCallback` while it has, and unregisters it while it has not, so Back at the first screen is the system's own and leaves with its animation | none |
 | 6 | the software keyboard | two words: 0 hidden, 1 shown for an `input`, 3 for a `textarea`; then the hosted field it is for (D8), or 0 for a field exact2 paints | for a hosted field, that `EditText` takes the focus and shows its own keyboard (`Fields.focus`); else `Keys.show` | none |
-| 7 | the top layer's surface (D10, below) | its serial; what it is (0 it closed, 1 an alert, 2 a menu); flags (bit 0 Back and Escape dismiss it, bit 1 a tap outside does); where its window goes in the activity's window and its size (x, y, width, height, pixels; an alert's place is the platform's); its container's corner radius and elevation in pixels, as float bits; a count, then that many words: its picture, an op stream of its own | makes, repaints, moves or dismisses that surface's window (`Surfaces.told`) | none by id: what happens in the window is told by `Native.surface` |
+| 7 | the top layer's surface (D10, below) | its serial; what it is (0 it closed, 1 an alert, 2 a menu); flags (bit 0 Back and Escape dismiss it, bit 1 a tap outside does, bits 2 and 3 the corner a menu grows from: its right side, its bottom); where its window goes in the activity's window and its size (x, y, width, height, pixels; an alert's place is the platform's); its container's corner radius and elevation in pixels, as float bits; a count, then that many words: its picture, an op stream of its own | makes, repaints, moves or dismisses that surface's window (`Surfaces.told`) | none by id: what happens in the window is told by `Native.surface` |
 
 Kinds 5, 6 and 7 are statements of the app's state, told when it changes and anew to a reader made again; exact2
 reads them as the queue is taken (`Presenter::tell_shell`), Back only after a commit or when a surface opens or
@@ -627,11 +634,26 @@ A surface the reader cannot make (no window to attach to, a kind it does not kno
 closes it, says so in the journal, and the page is live again. exact2's half of that is held by a test; no phone
 has refused one.
 
-**Motion** is what the platform gives these windows, with nothing set here. Filmed: the dialog fades and settles into
-place over about 180 ms as its scrim fades in, complete in every frame, and leaves in about 140 ms with its scrim
-gone in about 50. **The menu has no motion**: it is whole in one frame and gone in one, since a popup placed by
-`showAtLocation` gets none of the grow a dropdown shown from an anchor view gets. Material's menu scales and fades
-from its anchor's corner in about 120 ms.
+**Motion** is the platform's. The dialog has what the platform gives its window, with nothing set here. Filmed: it
+fades and settles into place over about 180 ms as its scrim fades in, complete in every frame, and leaves in about
+140 ms with its scrim gone in about 50.
+
+**The menu is given its motion**, since the platform gives none to a popup it did not place (Charlie's ruling of
+2026-10-12: the window keeps Exact's placement, and Android animates it). Checked on a Pixel 10 Pro XL first:
+
+| The same menu | `dumpsys window`, its window's attributes | Filmed at 120 frames a second |
+|---|---|---|
+| placed by `showAtLocation`, nothing set (as it was) | no `wanim` | whole in one frame, gone in one |
+| dropped from an anchor view (`showAsDropDown`), nothing set | `wanim=0x1030304`, the platform's drop-down style | grows over about 150 ms, leaves in about 100 |
+| placed by `showAtLocation` with a window animation of its own (as it is) | `wanim=0x7f020005`, this library's | grows over about 130 ms, fades out in about 70 |
+
+So `PopupWindow`'s default animation is the drop-down's, chosen only for a popup shown from an anchor. The menu's
+window gets one of four styles (`PopupWindow.setAnimationStyle`; `res/values/motion.xml`, `res/anim/exact_menu_*`),
+by the corner it grows from, which exact2 says with the surface (the flags' bits 2 and 3: the corner at its anchor,
+as `look::place` put the menu): a scale from 80% at that corner over 120 ms with a 30 ms fade in, and a 75 ms fade
+out at its size, as Compose's `DropdownMenu` moved it (those four numbers from memory of its source, not read that
+day). The window manager runs it as it runs any window's, so the system's animation scale and "remove animations"
+apply. In the film every frame of both has the menu's rows painted: none shows the page through an empty window.
 
 **What it costs** (one Pixel, one run of each). Nothing is made until a surface opens: one window root before any,
 and cold start within its spread (median 90 ms before, 93 after, twenty launches each). A surface's first frame is
@@ -641,8 +663,6 @@ above what it was before any, which has not been attributed.
 
 Not built of D10:
 
-- **The menu's motion**, above. Dropping it from an anchor view would give the platform's grow and the platform's
-  placement, which is not Material's; painting the motion is the other way.
 - **Accessibility.** `uiautomator dump` shows an open alert as a window of its own holding one focused
   `android.view.View` with no text, description or children: TalkBack lands on it and has nothing to read (D13).
 - **A text field inside a dialog.** The shape rule admits text and buttons only, so a dialog with an `input` is no
@@ -661,6 +681,139 @@ open; rotation with a surface open; a second display; TalkBack. The dialog's wid
 its limits is the window less 24 dp a side, which was not compared with a Compose dialog on the same phone, and no
 screenshot here was compared with a reference app's.
 
+## The bars (LLP 1115.001 D11)
+
+A route's `header` is Material 3's **top app bar** and the navigation root's `tablist` is its **navigation bar**
+(`Bars.kt`). Each is a picture exact2 paints, replayed in a `Pane` of its own over the page, as a surface of the top
+layer is replayed in a window of its own: no library, and none of the framework's widgets. exact2's side is
+`kernel/src/bars.rs` (what counts as either), `host/linux/src/bars.rs` (what leaves the page for them),
+`presenter/bars.rs` (what each says, where it is, what a touch does) and `presenter/bars/look.rs` (Material's
+metrics, measured and painted), with `canvas/surface.rs` for this host.
+
+**One rule, two hosts.** What is header-shaped, and which tablist is the root's, is decided in the kernel
+(`exact_kernel::bars`), not here: a route whose first child is a `header` holding exactly one heading; the heading
+its title; its buttons before the heading leading and after it trailing; the stack's Back control the platform's
+own Back on a pushed route. iOS makes UIKit's navigation bar from the same rule (`HeaderRuleIOS.swift`). What each
+bar becomes is the platform's: nothing below is UIKit's.
+
+**Which host has them.** A shell that shows bars says so (`Presenter::serve_bars`, which the Canvas host does as it
+boots, beside `serve_windows`). With no such shell (desktop Linux, a headless run, the headless Android carrier)
+nothing is projected: the header and the tablist are laid out and painted in the page as written.
+
+**Out of the page, as iOS takes them.** After each commit the host reads the first navigation root's routes and
+tabs by the rule and tells the kernel what the bars cover (`HostCover`, the Apple hosts' own):
+
+- the header a top bar replaces takes no room and is neither painted nor hit;
+- the tablist the navigation bar replaces, likewise;
+- each route is inset by the room its bars take: 64 dp at its top where it has a top bar, the navigation bar's
+  height at its bottom.
+
+So the page's content starts under the top bar and ends at the navigation bar, and neither bar is in the page's
+stream. Both are over it: the top bar at the window's top, reaching under the status bar, whose area is the bar's
+own colour; the navigation bar at the window's bottom, reaching under the gesture bar. **A keyboard does not move
+the navigation bar.** It ends the page above itself and covers the bar, as it covers a Material app's, and the room
+the bar took of the routes goes to nothing while it is covered (`Presenter::fit_bars`).
+
+**The top app bar** (Material's small one; Compose's `TopAppBar`):
+
+| | Here | Material 3 |
+|---|---|---|
+| Height | 64 dp, under the status bar | 64 dp |
+| Colour | `surface`; `surfaceContainer` once the route's content has scrolled; the status bar's area the same | the same two (`OnScrollContainerColor`) |
+| Title | the heading, title-large (22/28 sp, regular), `onSurface`, one line cut with an ellipsis; 16 dp from the side, or 52 dp after the Up arrow | title-large; 16 dp, and after a 48 dp navigation icon 4 dp from the side |
+| Up arrow | on a pushed route: Material Symbols' `arrow_back`, 24 dp in a 48 dp target 4 dp from the side, `onSurface` | the same |
+| Buttons | the header's, at the trailing side, 4 dp from it: a 24 dp symbol in a 48 dp target (`onSurfaceVariant`) where the button has a symbol, else a text button (label-large, `primary`, 12 dp padding, at least 58 dp wide) | icon buttons and text buttons, the same metrics |
+| Held | a state layer (10%): a 40 dp circle on an icon, a pill on a text button | a state layer and a ripple |
+
+A level-1 heading is the same small bar: Material's medium and large bars, which collapse as the content scrolls,
+are S3's, and so is the change of colour as a transition (it switches in one frame here; Compose animates it).
+The Up arrow goes Back in Back's own order (D6, `Presenter::system_back`), so it presses the route's authored Back
+control where there is one, which is then no item of the bar. A presented route (`navigationPresentation="modal"`,
+still a page here: the sheet is D10's) has no Up arrow, and its Back control is the bar's leading item: Shelf's add
+form is Cancel, New Book, Save. Material's full-screen dialog has a close icon there. A pushed route with no header
+of the bar's has no bar at all: Android's Back is the system's, not a bar's button. A route that says
+`navigationBar="none"` keeps its header in the page.
+
+**Search in a header** stays in the page, under the bar: a header that holds an `input type="search"` (or a
+`tablist`) is not taken out whole. What the bar shows of it (the heading, the buttons, and whatever else holds
+neither) is, and the field keeps its place in what is left of the header. Material's own answer is a search bar
+that opens a search view, or a search action in the bar; neither is built.
+
+**The navigation bar** (Compose's `NavigationBar`):
+
+| | Here | Material 3 |
+|---|---|---|
+| Height | 80 dp, over the gesture bar | 80 dp |
+| Colour | `surfaceContainer`, the gesture bar's area the same | `surfaceContainer` |
+| Destinations | the root tablist's tabs that name a panel, sharing the width | 3 to 5, sharing the width |
+| Symbol and label | a 24 dp symbol 16 dp from the top, its label under it (label-medium, 12/16 sp), 16 dp from the bottom | the same |
+| Active indicator | a 64 by 32 dp pill in `secondaryContainer` behind the selected symbol | the same |
+| Colours | the selected destination `onSurface`, the others `onSurfaceVariant` | the same for labels; the selected symbol is `onSecondaryContainer`, a role the reader does not report yet |
+
+"Here" in both tables is what was seen on a Pixel 10 Pro XL (Android 16, 2.4375 pixels a dp), from `state.bars`
+and its screenshots: the top bar's view is 317 pixels tall (a 66.05 dp status bar and 64 dp), the navigation bar's
+254 (80 dp and a 24.2 dp gesture bar); read off the pictures, the indicator is about 156 by 77 pixels and the
+title's first glyph about 40 pixels from the side, about 129 after the arrow. "Material 3" is the Compose Material 3 library's `TopAppBar` and `NavigationBar`
+and their tokens (`TopAppBarSmallTokens`, `NavigationBarTokens`) as remembered, not read against the library that
+day, and no reference app was beside it: the one S2 builds is what checks these.
+
+A destination tapped again while it is selected and its stack is at its root scrolls that route's content to its
+top, as iOS does (in one step: nothing animates it). Above its root the tap is the app's own. At the largest font
+scale (2.0) the label is twice as tall and the 80 dp still hold it; past that the bar would grow, as Compose's does.
+The bar shows on every route, a presented one included: the add form has it under it until that form is a sheet.
+
+**What crosses.** One statement out, one call in.
+
+| Call | Direction | What it says |
+|---|---|---|
+| `Native.bars()` (`CanvasHost::bars`, `Presenter::reader_bars`) | exact2 tells, with each stream | Null while nothing changed. Else a count, then for each bar: which it is (1 the top app bar, 2 the navigation bar), its frame in the window (x, y, width, height, pixels), a count of words and that many: its picture, an op stream of its own, whole (it defines every face it draws with). A bar a statement leaves out is gone |
+| `Native.bar(which, what, x, y)` (`CanvasHost::bar`, `Presenter::bar_event`) | reader tells, on exact2's thread | A touch in that bar (`what` 0 down, 1 up, 2 move, 3 cancel) at the bar's own pixels. exact2 does the hit testing: it lights the target a finger holds and chooses the one the finger lifts in |
+
+The statement is taken with each stream (`Owner.Pub.bars`) and not on the channel, so a bar and the page under it
+change in one frame. The reader's two views are made with the reader and laid out by hand when a statement says
+where they are: a statement often arrives while the page's view is being drawn, where a layout asked of the parent
+would come a frame late. They sit in a layer of their own over the page (the window's size, drawing nothing itself
+and taking no touch), which the frame's drawing reaches after the page's view and records again in that same pass.
+Filmed at 120 frames a second, a tab switch changes the page, the title and the indicator in one frame. A cold
+launch was not read frame by frame: it is under the launcher's own opening animation.
+
+**Addressing what is in a bar.** A driver reads the bars from the agent's `state.bars`: each one's frame in the
+window, what it says, and each target's authored node and box (`kind` is `up`, `item` or `tab`). `tap` names a node
+as it always did: a header's button or a tab is chosen in its bar (the answer says `"bar":"top"` or `"bottom"`),
+and on a pushed route the authored Back control is the Up arrow. `tree` still shows the authored header and
+tablist, which the page no longer paints. To an accessibility service each bar is one `android.view.View` with its
+own bounds and no text, description or children (`uiautomator dump`: `[0,0][1080,317]` and `[0,2150][1080,2404]`
+on a Pixel 10 Pro XL), as a surface's window is: TalkBack has nothing to read in either until D13's provider
+serves them.
+
+**What it costs** (one Pixel 10 Pro XL, twenty cold starts each, `am start -W` after a force-stop, the two builds
+in alternating blocks of ten, each build installed fresh). Against the same main built without the bars
+(`db7a98a02`): Shelf's median 89.5 ms before and 89.5 after (quartiles 88 to 93 and 87 to 94); Caltrain's, which
+has no bars, 90.0 and 90.0. A session an hour earlier against the older base gave Shelf 94.5 and 95.5 and Caltrain
+90.5 and 95.5: sessions differ by more than the bars do. The first frame now carries two more pictures and the
+page is laid out once more as it boots; neither shows. Shelf's APK is 70,644 bytes larger (20,506,607 to
+20,577,251), Caltrain's 10,420.
+
+Not built of D11:
+
+- **The medium and large top app bars**, which collapse as the content scrolls (S3); the colour change as a
+  transition; a centred title; an overflow menu for buttons that do not fit (they are all placed, and the title
+  is cut first).
+- **The segmented buttons** for a `tablist` in the content, and for one in a header (it stays in the page, as the
+  search field does); **list items** and their dividers (rows as cells land on every host at once).
+- **A header's rich title**: the avatar, the subtitle and the tap on the title that iOS shows are not read here.
+- **`onSecondaryContainer`** for the selected symbol, badges, a navigation rail on a wide window, and hiding the
+  navigation bar for a route pushed while the tablist is hidden (the bar follows the tablist's own `display`).
+- **A window whose page does not start at its top.** The top bar is at the window's top and its room is taken
+  from each route's own top edge: a route that begins lower in the page (under a banner of the app's own) would
+  have the bar over what is above it. A page under `viewport-fit="cover"` that pads itself by
+  `env(safe-area-inset-*)` is inset by the bar as well as by its own padding.
+- **Right to left**: the Up arrow is not mirrored and the bar's sides are not swapped (the host has no door for
+  the direction yet).
+- **The content scroller rule** (`navigationScroll`, else the first node under the route that scrolls up and
+  down) is written a second time here, in `presenter/bars.rs`: it is the iOS host's `contentScroller`, in Swift.
+- A bar's symbols are still the symbol table's paths (D14 is S2's), but for the Up arrow.
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -677,6 +830,8 @@ The cut was the smallest one. Left in the reader:
 
 - **Most of LLP 1115.001.** The controls have the desktop painter's shapes, a sheet or a chooser is refused, and
   there is no accessibility tree. What is built of it:
+  - *A header is the top app bar and the root tablist the navigation bar* (D11): the section above, with what is
+    not built of it.
   - *An alert and a menu are windows* (D10): the section above, with what is not built of it.
   - *A text field is a real `EditText`* (D8): the section above, with what is not built of it.
   - *The device's colours* (D4, colours only) and *the channel out* (D5): the two sections above. The type ramp
