@@ -129,6 +129,10 @@ object Native {
     /** The answer to request [id] (the share sheet's: `shared` or `dismissed`, or why it could not be shown), or null
      * when it was cancelled. On the host's thread. */
     @JvmStatic external fun answer(id: Int, answer: String?)
+    /** One request of the agent API (LLP 1012), a JSON line as UTF-8, and its answer the same way: the Linux
+     * host's own handler (`host/linux/src/canvas/agent.rs`), on the host's thread. From the first one the host's turns
+     * run at the driver's clock, which only a `clock` request moves. [AgentDrive] calls it for a driver over adb. */
+    @JvmStatic external fun agent(line: ByteArray): ByteArray
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean
     /** An ADPF hint session over [tids] (this process's threads), [targetNs] their work's target. */
