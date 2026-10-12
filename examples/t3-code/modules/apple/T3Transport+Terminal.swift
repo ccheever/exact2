@@ -85,7 +85,7 @@ extension T3Transport {
     func terminalRetired() {
         let gone = Array(terminalStreams.values); terminalStreams.removeAll()
         for stream in gone { stream.ended(nil, true) }
-        terminalConnection?(false)
+        terminalConnection?(false, "")
     }
 
     var terminalStreamCount: Int { terminalStreams.count }
