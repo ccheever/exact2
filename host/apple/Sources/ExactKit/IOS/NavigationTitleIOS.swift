@@ -143,20 +143,14 @@ struct HeaderTitle: Equatable {
 }
 
 extension HeaderShape {
-    /// The shape, unless its header is hidden as authored (`display: none`):
-    /// a header the web does not show is no bar's (§9.10), and its route is
-    /// one with no header.
-    static func shown(_ shape: HeaderShape) -> HeaderShape? {
-        shape.header.style["display"]?.string == "none" ? nil : shape
-    }
-
-    /// The header a route's bar is projected from in the app: its shape
-    /// when it is shown, unless the route says it has no bar
-    /// (`navigationBar="none"`, LLP 1115.000 D5.2), where its header paints
-    /// in the page as written.
+    /// The header a route's bar is projected from in the app: its shape,
+    /// unless the route says it has no bar (`navigationBar="none"`, LLP
+    /// 1115.000 D5.2), where its header paints in the page as written, or
+    /// its header is hidden as authored (`display: none`): a header the web
+    /// does not show is no bar's (§9.10), and its route is one with no
+    /// header. Both are the shared rule's (`HeaderRule`, `projected`).
     static func bar(of route: NodeView, back: String? = nil, backIsUIKits: Bool = true) -> HeaderShape? {
-        guard route.props["navigationBar"] != "none" else { return nil }
-        return HeaderShape(route: route, back: back, backIsUIKits: backIsUIKits).flatMap(shown)
+        HeaderShape(route: route, back: back, backIsUIKits: backIsUIKits, projected: true)
     }
 
     /// The heading's group as the bar shows it (§9.10). A tablist's

@@ -57,54 +57,6 @@ pub fn route_visibility(keys: &[&str], selected: &str, modal: bool) -> Option<Ve
     )
 }
 
-/// A navigation root's tabpanels (LLP 1075.003 §3.7): those its own
-/// tablist's tabs name with `aria-controls`, in tab order — the browser's
-/// `panelsOf`. A tablist inside a route is that route's.
-fn tab_panels(kernel: &Kernel, children: &[ViewId]) -> Vec<ViewId> {
-    fn walk(kernel: &Kernel, ids: &[ViewId], lists: &mut Vec<ViewId>, panels: &mut Vec<ViewId>) {
-        for id in ids {
-            let Some(node) = kernel.node(*id) else {
-                continue;
-            };
-            let role = node.props.str(PropId::AccessibilityRole);
-            if role == Some("tabpanel") {
-                panels.push(*id);
-            }
-            if role == Some("tablist") {
-                lists.push(*id);
-            }
-            if node.props.str(PropId::NavigationKey).is_none() && role != Some("tablist") {
-                walk(kernel, &node.children(), lists, panels);
-            }
-        }
-    }
-    let (mut lists, mut panels) = (Vec::new(), Vec::new());
-    walk(kernel, children, &mut lists, &mut panels);
-    for list in lists {
-        let Some(list) = kernel.node(list) else {
-            continue;
-        };
-        let named: Vec<ViewId> = list
-            .children()
-            .iter()
-            .filter_map(|t| kernel.node(*t))
-            .filter(|t| t.props.str(PropId::AccessibilityRole) == Some("tab"))
-            .filter_map(|t| t.props.str(PropId::AccessibilityControls))
-            .filter_map(|name| {
-                panels.iter().copied().find(|p| {
-                    kernel
-                        .node(*p)
-                        .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
-                })
-            })
-            .collect();
-        if !named.is_empty() {
-            return named;
-        }
-    }
-    Vec::new()
-}
-
 #[derive(Default)]
 pub(crate) struct Navigation {
     routes: BTreeMap<ViewId, (bool, bool)>,
@@ -163,8 +115,10 @@ impl Navigation {
                     })
                     .collect()
             };
-            // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
-            let panels = tab_panels(kernel, &nav.children());
+            // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack. What
+            // the root's tabs are is the kernel's rule, which every host
+            // with a tab bar reads (LLP 1115.001 D11).
+            let panels = kernel.root_tabs(*id).map_or(Vec::new(), |tabs| tabs.panels);
             self.panels.extend(panels.iter().copied());
             let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
                 vec![route_rows(&nav.children())]

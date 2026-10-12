@@ -456,6 +456,28 @@ uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double
 /* A recognition threshold exact2 defines itself: 0 the swipe knee, 1 its
  * resistance, 2 the leading edge a swipe yields, 3 the drag slop (LLP 1057.001 §3). */
 double exact_gesture_constant(uint32_t which);
+/* A route's header as its bar shows it (LLP 1115.001 D11): the kernel's rule
+ * (kernel/src/bars.rs), which the Android host reads from the kernel's own
+ * tree, over this host's mirror of the route. words: the route, then its first
+ * child's subtree, in preorder, two words a node: its facts and the count of
+ * its children. Facts: 1 a heading (a text whose role is heading), 2 an
+ * input type="search", 4 a tablist, 8 it hears press, 16 a button that opens a
+ * popover, 32 its id is the stack's Back control's, 64 a header, 128
+ * display: none, 256 a route that says navigationBar="none"; a heading's
+ * aria-level (1 to 6, else 0) shifted left 16. flags: 1 the platform's own Back
+ * stands for the Back control on this route, 2 the header as the bar is
+ * projected from it (none for a route that says no bar, or a hidden header).
+ * Writes to out, naming nodes by their place in words: the header, the heading,
+ * its level, one more than the pressable around the heading, the search field
+ * and the tablist (0: none), the counts of leading items, trailing items and
+ * all items, then those three lists. Returns the count written; 0 for a route
+ * that is not header-shaped, or an answer longer than cap. No runtime. */
+uint32_t exact_header_shape(const uint32_t *words, size_t count, uint32_t flags, uint32_t *out, size_t cap);
+/* What a route shows of the platform's bar (LLP 1115.000 D5.2): 0 its header,
+ * 1 the platform's Back alone, 2 nothing. facts: 1 the route says
+ * navigationBar="none", 2 its header is the bar's, 4 it is pushed, 8 the
+ * platform's bar has a Back button. */
+uint32_t exact_route_bar(uint32_t facts);
 /* The pan contact's release velocity where the platform measures none (AppKit,
  * the iOS agent's recognized contact; LLP 1057 §10.6, 1057.001 §3): the engine's
  * tracker, one per runtime. A sample is the pointer in viewport CSS px at t

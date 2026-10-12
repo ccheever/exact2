@@ -114,37 +114,14 @@ struct HeaderShape: Equatable {
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
     /// has none, so there it is an item like the others.
-    init?(route: NodeView, back: String?, backIsUIKits: Bool = true) {
-        guard let header = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
-              header.props["semanticTag"] == "header" else { return nil }
-        var headings: [NodeView] = [], before: [Item] = [], after: [Item] = [], search: NodeView?, segments: NodeView?
-        var tap: NodeView?, items: [NodeView] = []
-        func walk(_ node: NodeView) {
-            for case let child as NodeView in node.container.subviews {
-                if child.isHeading {
-                    headings.append(child)
-                } else if child.kind == "input", child.props["type"] == "search" {
-                    search = search ?? child
-                } else if child.props["accessibilityRole"] == "tablist" {
-                    // Its tabs press, but they are the title view's
-                    // segments, never bar items.
-                    segments = segments ?? child
-                } else if child.handlers.contains("press") || (child.isButton && child.props["popovertarget"] != nil && child.props["popovertargetaction"] != "hide") {
-                    // A pressable heading's group is the title, tapped (§9.10).
-                    if tap == nil, child.handlers.contains("press"), HeaderTitle.holdsHeading(child) { tap = child; walk(child); continue }
-                    items.append(child)
-                    guard !backIsUIKits || back == nil || child.props["id"] != back else { continue }
-                    if headings.isEmpty { before.append(Item(child)) } else { after.append(Item(child)) }
-                } else {
-                    walk(child)
-                }
-            }
-        }
-        walk(header)
-        guard headings.count == 1 else { return nil }
+    init?(route: NodeView, back: String?, backIsUIKits: Bool = true, projected: Bool = false) {
+        // What is header-shaped is the kernel's rule, read over this route's views (`HeaderRule`, LLP 1115.001 D11).
+        guard let rule = HeaderRule(route: route, back: back, backIsUIKits: backIsUIKits, projected: projected) else { return nil }
+        let header = rule.header, headings = [rule.heading], before = rule.leading.map { Item($0) }, after = rule.trailing.map { Item($0) }
+        let search = rule.search, segments = rule.segments, tap = rule.tap, items = rule.items
         self.header = header
         title = headings[0].accessibleText
-        level = headings[0].headingLevel ?? 2
+        level = rule.level
         leading = before
         trailing = after
         self.search = search

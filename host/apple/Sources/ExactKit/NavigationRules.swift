@@ -7,6 +7,7 @@
 // (recognition, progress, cancellation, animation).
 //
 // @ref LLP 1035.001 §3; LLP 1008 §9
+import CExact
 import Foundation
 
 enum NavigationRules {
@@ -130,10 +131,14 @@ enum NavigationRules {
     /// (`backButton`; tvOS's has none, its Back is the remote's Menu). The
     /// first route of a stack, with nothing to go back to and no such
     /// header, has nothing to show.
+    /// The rule itself is the kernel's (`exact_kernel::Bar::of`), which
+    /// the Android host reads too (LLP 1115.001 D11).
     static func bar(asked: String?, header: Bool, pushed: Bool, backButton: Bool = true) -> Bar {
-        if asked == "none" { return .hidden }
-        if header { return .header }
-        return pushed && backButton ? .back : .hidden
+        switch exact_route_bar((asked == "none" ? 1 : 0) | (header ? 2 : 0) | (pushed ? 4 : 0) | (backButton ? 8 : 0)) {
+        case 0: return .header
+        case 1: return .back
+        default: return .hidden
+        }
     }
 
     /// D1: whether an interactive pop may begin at all — a stack to pop, no

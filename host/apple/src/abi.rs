@@ -1450,7 +1450,7 @@ pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};
 #[path = "abi/commands.rs"]
 mod commands;
 mod exports;
-pub use exports::gesture_constant;
+pub use exports::{gesture_constant, header_shape, route_bar};
 mod group;
 mod preferences;
 pub(crate) mod segments;

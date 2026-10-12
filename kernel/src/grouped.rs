@@ -207,7 +207,7 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
 /// the web collapse it (LLP 1116.004 D2): `normal` makes a line feed a
 /// space, and `pre-line` keeps it, so a footer the author set `pre-line` is
 /// two lines in UIKit's cell as on the page. `None` when blank.
-fn text_of(node: &NodeRef<'_>) -> Option<String> {
+pub(crate) fn text_of(node: &NodeRef<'_>) -> Option<String> {
     if node.node_type != NodeType::Text {
         return None;
     }

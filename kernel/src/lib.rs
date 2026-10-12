@@ -28,6 +28,7 @@
 #![warn(missing_docs)]
 
 pub mod arena;
+pub mod bars;
 pub mod clip;
 pub mod control;
 pub mod control_measurement;
@@ -61,6 +62,7 @@ pub mod transform;
 pub mod txn;
 pub mod wire;
 
+pub use bars::{Bar, HeaderShape, RootTabs};
 pub use control::{Choice, ControlKind, PressFace, Progress, Range};
 pub use control_measurement::{
     ButtonFaceStyle, ButtonFonts, ButtonImagePlacement, ButtonMeasure, ButtonMeasureRequest,
