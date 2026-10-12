@@ -29,8 +29,8 @@ component App
       each e in stack(nav) key=e.id
         when e.name == "home"
           column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0
-            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              text "Starter" role="heading" aria-level=1
+            header display="flex" align-items="center" padding="8px 16px"
+              text "Starter" role="heading" aria-level=1 flex=1
               button press=reset disabled=(count == 0) testId="reset"
                 text "Reset"
             scroll id="content" flex=1 min-height=0
