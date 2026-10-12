@@ -529,6 +529,93 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     assert_eq!(json["part"]["props"][1], "status: string");
 }
 
+/// LLP 1116.010 D3: a part's entry ends with one call as a builder would
+/// paste it, written beside the component (`// Call: …`), and every part's
+/// compiles with no diagnostic: a prop added to a component fails here until
+/// its call passes it, so the call cannot drift from the props.
+#[test]
+fn every_content_part_ends_with_one_working_call() {
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../lib/content.contract"
+    ))
+    .unwrap();
+    let parts: Vec<&str> = source
+        .lines()
+        .filter_map(|l| l.strip_prefix("component "))
+        .collect();
+    assert_eq!(parts.len(), 9, "{parts:?}");
+    let dir = std::env::temp_dir().join(format!("exact-parts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    let mut failures = Vec::new();
+    for part in &parts {
+        let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", part]))).unwrap();
+        let Some(call) = json["part"]["call"].as_str() else {
+            failures.push(format!("{part}: no `// Call:` line above its component"));
+            continue;
+        };
+        assert!(call.starts_with(&format!("{part}(")), "{part}: {call}");
+        // The text entry ends with it, the call's own line.
+        let text = stdout(&vocab(&[part]));
+        assert_eq!(
+            text.trim_end().lines().last().unwrap().trim(),
+            format!("call {call}"),
+            "{part}"
+        );
+        assert!(
+            !json["part"]["about"].as_str().unwrap().contains("Call:"),
+            "{part}"
+        );
+        // Every prop is passed, an option as `none` or `some(…)`, and it builds.
+        let props: Vec<&str> = json["part"]["props"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().split(':').next().unwrap())
+            .collect();
+        for prop in &props {
+            assert!(
+                call.contains(&format!("{prop}=")),
+                "{part}: {prop} in {call}"
+            );
+        }
+        for (prop, ty) in json["part"]["props"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().split_once(": ").unwrap())
+        {
+            if ty.starts_with("option<") {
+                assert!(
+                    call.contains(&format!("{prop}=none"))
+                        || call.contains(&format!("{prop}=some(")),
+                    "{part}: {prop} is an option: {call}"
+                );
+            }
+        }
+        // `press=toggle` and `press=pick(…)` name the author's own actions.
+        let app = format!(
+            "use {part} from \"exact:content\"\n\ncomponent App\n  state running = false\n  state picked = \"\"\n  action toggle\n    running = not running\n  action pick(a: string)\n    picked = a\n  view\n    column\n      {call}\n"
+        );
+        std::fs::write(&path, &app).unwrap();
+        let (compiled, warnings) = contract::compile_path_all_warned(&path, false);
+        if let Err(all) = compiled {
+            failures.extend(
+                all.iter()
+                    .map(|e| format!("{part}: [{}] {}", e.id, e.message)),
+            );
+        }
+        failures.extend(
+            warnings
+                .iter()
+                .map(|w| format!("{part}: warning [{}] {}", w.id, w.message)),
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// LLP 1116.004 D5.1: a concept a builder searches for answers with its whole
 /// idiom, several in one call, after the entries of a tag of the same name.
 #[test]

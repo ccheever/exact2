@@ -108,11 +108,15 @@ struct Entry {
 }
 
 /// A component of a built-in library (`exact:content`'s `RoundButton`), read
-/// from its source: its props, and the comment above it (LLP 1116.003 D4).
+/// from its source: its props, the comment above it (LLP 1116.003 D4), and the
+/// call that comment ends with (`// Call: EmptyState(…)`, LLP 1116.010 D3): one
+/// that works as written, which a test compiles for every part, so it cannot
+/// drift from the props.
 struct Part {
     module: &'static str,
     props: Vec<String>,
     about: String,
+    call: Option<String>,
 }
 
 const PARTS: &[(&str, &str)] = &[("exact:content", include_str!("../../lib/content.contract"))];
@@ -127,9 +131,17 @@ fn part(name: &str) -> Option<Part> {
             .iter()
             .rposition(|l| !l.starts_with("//"))
             .map_or(0, |i| i + 1);
-        let about: Vec<&str> = lines[first..at]
+        let comment: Vec<&str> = lines[first..at]
             .iter()
             .map(|l| l.trim_start_matches('/').trim())
+            .collect();
+        let call = comment
+            .iter()
+            .find_map(|l| l.strip_prefix("Call:"))
+            .map(|c| c.trim().to_owned());
+        let about: Vec<&str> = comment
+            .into_iter()
+            .filter(|l| !l.starts_with("Call:"))
             .collect();
         let mut props = Vec::new();
         let mut rest = lines[at + 1..].iter().skip_while(|l| l.trim() != "props");
@@ -143,6 +155,7 @@ fn part(name: &str) -> Option<Part> {
             module,
             props,
             about: about.join(" "),
+            call,
         })
     })
 }
@@ -221,7 +234,8 @@ fn one_json(name: &str) -> (Value, bool) {
         doc["function"] = function_json(f);
     }
     if let Some(p) = part {
-        doc["part"] = json!({ "module": p.module, "props": p.props, "about": p.about });
+        doc["part"] =
+            json!({ "module": p.module, "props": p.props, "about": p.about, "call": p.call });
     }
     if let Some(c) = concept {
         // A name the web has and Contract refuses (`every`) says so beside it.
@@ -268,6 +282,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         );
         println!("  props {}", p.props.join(", "));
         println!("  {}", p.about);
+        if let Some(call) = &p.call {
+            println!("  call {call}");
+        }
     }
     if let Some(t) = tags::tag(name) {
         println!("{name}: tag, {}", tag_text(&t));
