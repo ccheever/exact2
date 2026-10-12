@@ -8,7 +8,6 @@ extension NodeView {
     /// CSS's admitted `x mandatory` / `start` and `end` scroll snap. UIKit supplies
     /// the projected resting offset and owns the resulting deceleration.
     package func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        guard scrollView === self.scrollView else { return }
         guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return }
         let maximum = max(0, scrollView.contentSize.width - scrollView.bounds.width)
         var positions: [CGFloat] = []
@@ -29,7 +28,7 @@ extension NodeView {
                     positions.append(min(end, max(start, targetContentOffset.pointee.x)))
                 }
                 // A nested scroll container captures its own snap areas.
-                if node.scrollView == nil && !node.scrollDormant && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
+                if node.scroll == nil && !node.scrollDormant && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
             }
         }
         visit(scrollView)
