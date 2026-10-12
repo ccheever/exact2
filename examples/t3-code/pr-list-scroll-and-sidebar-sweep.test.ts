@@ -51,10 +51,14 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
     expect(cancel).toContain('sweepCancelled = true');
     expect(cancel).toMatch(/sweepRest = join\(map\(filter\(rows, \(t\) => frame\(`row-\$\{t\.id\}`\)\.y <= sweepAt and .* > sweepAt\), \(t\) => t\.hoverKey\), ""\)/);
     expect(cancel).toContain('sweepRestSeq = hoverSeq');
-    // A new sweep forgets it; the pointer leaving the section ends it (the host may never have hovered that row).
+    // A new sweep forgets it. The pointer's first move (out of the section too) ends it through the window's hover
+    // count: the host sends the leave of the control it kept hovered through the pan.
     expect(action(section, 'sweep')).toContain('sweepRest = ""');
-    expect(section).toContain('hover=sectionHover');
-    expect(action(section, 'sectionHover')).toBe('    if not over\n      sweepRest = ""\n');
+    // The section takes no hover of its own: the macOS host hovers one node at a time (#322), so a hover on the
+    // section would trade it with the row under the pointer on every move.
+    const view = section.slice(section.indexOf('\n  view\n'));
+    expect(view).not.toMatch(/\n    column [^\n]*\bhover=/);
+    expect(section).not.toContain('sectionHover');
   });
 
   test('the card or a control\'s tooltip closes as the sweep takes over, through the root\'s half of the hover', async () => {

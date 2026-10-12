@@ -251,7 +251,10 @@ component ThreadSection
   // pr-list-scroll-and-sidebar-sweep (X13): a cancelled sweep gives the rows the pointer again, as the reference's
   // `**:pointer-events-none` comes off: the row under the pointer is the hovered one (its actions, no card yet), through
   // the release, until the window's hover moves on. The host keeps the pressed row hovered through a pan and hovers
-  // nothing new at the release until the pointer moves. `sweepRestSeq` is the window's hover count when it was cancelled.
+  // nothing new at the release until the pointer moves; that first move, out of the section too, sends the leave of
+  // the node it kept hovered (the pressed control's tip) through the window's `sidebarHover`, which counts it.
+  // `sweepRestSeq` is the window's hover count when it was cancelled. The section takes no `hover` of its own: the
+  // macOS host hovers one node at a time (#322), so it would trade the hover with the row under the pointer.
   state sweepRest = ""
   state sweepRestSeq = 0
   derive sweepLive = sweepKeys != "" and sweepEpoch == data.sidebar.sweepEpoch and not busy and not sweepCancelled
@@ -260,12 +263,6 @@ component ThreadSection
     sweepKeys = ""
     sweepRest = join(map(filter(rows, (t) => frame(`row-${t.id}`).y <= sweepAt and frame(`row-${t.id}`).y + frame(`row-${t.id}`).height > sweepAt), (t) => t.hoverKey), "")
     sweepRestSeq = hoverSeq
-  // SidebarPointerSensor's onStart: the list stops taking the pointer, so a row's card or a control's tooltip closes as
-  // the sweep takes over (X13), whether or not the press moved the focus (the buttons' `focus` only hides them).
-  // The pointer leaving the section ends it too: the host may not have hovered the row it rested on.
-  action sectionHover(over: bool)
-    if not over
-      sweepRest = ""
   action sweep(id: string, verb: string, dx: number, dy: number)
     if sweepId != id or sweepEpoch != data.sidebar.sweepEpoch
       sweepId = id
@@ -297,7 +294,7 @@ component ThreadSection
   derive tone = section == "snoozed" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#71717b99, #a3a3a399)"
   view
     // r5-shell: an empty pinned or active block takes no gap (the reference's markers are 0pt tall with a -1pt margin).
-    column gap=1 width="100%" margin-bottom=(label == "" and length(rows) == 0 ? "-1px" : "0px") hover=sectionHover
+    column gap=1 width="100%" margin-bottom=(label == "" and length(rows) == 0 ? "-1px" : "0px")
       when label != ""
         button cursor="pointer" id=`shelf-${section}` press=local("shelf", section, "") width="calc(100% - 4px)" margin-left="0.125rem" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}`
           text (expanded ? label : `${label} (${count})`) font-size="0.75rem" font-weight=500 line-height="1rem" color=(section == "settled" and dragTarget == "settled" ? "light-dark(#1b4ed8, #346bf1)" : section == "settled" and dragId != "" ? "light-dark(#27272acc, #f3f3f3cc)" : tone) flex-shrink=0
