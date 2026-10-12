@@ -2,24 +2,31 @@ import AppKit
 import XCTest
 
 // realinput-1010d RD-4: a right-click on selected read-only text shows the desktop shell's menu (DesktopWindow.ts
-// installContextMenu: Cut disabled, Copy, Paste disabled, Select All), not ExactKit's NSTextView menu (Look Up, Copy,
-// Speech, Services). `HostParagraph` stands in for an ExactKit text node: its `menu(for:)` is the host's read-only text
-// menu while it has a selection, its `copy:` and `selectAll:` are the node's, and its `rightMouseDown` counts where
-// NodeViewMac's calls `super`, which pops the host's menu.
+// installContextMenu: Cut disabled, Copy, Paste disabled, Select All), not ExactKit's NSTextView menu (since main `6a7f16c6f`
+// AppKit's own for a read-only text view holding the selection: Look Up, Translate, Search With, Copy, Share, Writing Tools,
+// Speech, Services, its items aimed at that view). `HostParagraph` stands in for an ExactKit text node: its `menu(for:)` is
+// that menu while it has a selection (`SelectionMenuText` standing in for TextMenuMac.swift's view), its `copy:` and
+// `selectAll:` are the node's, and its `rightMouseDown` counts where NodeViewMac's calls `super`, which pops the host's menu.
+
+/// ExactKit's text view that answers for the selection (TextMenuMac.swift); the shell knows the host's menu by it.
+private final class SelectionMenuText: NSTextView {}
 
 private final class HostParagraph: NSView {
     var selected = true
     private(set) var copies = 0, selections = 0, hostMenus = 0
+    private let answering = SelectionMenuText(frame: .zero)
     override func rightMouseDown(with event: NSEvent) { hostMenus += 1 }
     override func menu(for event: NSEvent) -> NSMenu? {
         guard selected else { return super.menu(for: event) }
         let menu = NSMenu()
-        menu.addItem(withTitle: "Look Up “selected”", action: NSSelectorFromString("lookUpSelection:"), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Look Up “selected”", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "").target = self
+        let speech = NSMenuItem(title: "Speech", action: nil, keyEquivalent: "")
+        speech.submenu = NSMenu()
+        speech.submenu!.addItem(withTitle: "Start Speaking", action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: "").target = answering
+        menu.addItem(speech)
         return menu
     }
-    @objc func lookUpSelection(_ sender: Any?) {}
     @objc func copy(_ sender: Any?) { copies += 1 }
     override func selectAll(_ sender: Any?) { selections += 1 }
 }

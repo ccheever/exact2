@@ -9,9 +9,10 @@
 //   right-click monitor takes the click, focuses the input as Chromium's mousedown does, selects the word (or the
 //   misspelling) under the pointer unless the click is inside the selection, and pops the shell's menu for the input:
 //   suggestions from NSSpellChecker where the input checks spelling, Cut, Copy, Paste and Select All by its state.
-// - Selected page text: ExactKit would show the menu an NSTextView shows for read-only text (Look Up, Copy, Speech,
-//   Services; its menu carries the Look Up action), so the monitor takes that click too and pops the shell's on the same
-//   text node: Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`).
+// - Selected page text: ExactKit would show the menu an NSTextView shows for read-only text (since main `6a7f16c6f`
+//   AppKit's own, from a text view holding the selection: Look Up, Translate, Search With, Copy, Share, Writing Tools,
+//   Speech, Services), so the monitor takes that click too and pops the shell's on the same text node: Copy (the node's
+//   `copy:`, its `copy` event first) and Select All (the node's `selectAll:`).
 // - Anywhere else on the page: the click goes on to ExactKit. A node with a `contextmenu` (or a context popover) answers
 //   it and ends it there, as `preventDefault` keeps Electron's event from firing; a click no node answers is passed up
 //   the responder chain to the window, and a responder placed after the window's content view (`T3ShellMenuTail`) pops
@@ -59,8 +60,9 @@ struct T3ShellSpelling {
 }
 
 final class T3TextContextMenu: NSObject {
-    /// ExactKit's read-only text menu's Look Up item (TextSelectionMac.swift `lookUpSelection(_:)`).
-    static let hostTextMenuAction = NSSelectorFromString("lookUpSelection:")
+    /// The text view whose own menu ExactKit gives for selected page text (TextMenuMac.swift, main `6a7f16c6f`): AppKit's
+    /// menu for a read-only text view holding the selection, its items pointed at that view.
+    static let hostTextMenuView = "SelectionMenuText"
     /// ExactView's Edit ▸ Speech ▸ Start Speaking, which it enables exactly while page text is selected.
     static let startSpeaking = NSSelectorFromString("startSpeaking:")
 
@@ -244,9 +246,17 @@ final class T3TextContextMenu: NSObject {
     static func replacement(for event: NSEvent) -> (NSMenu, NSView)? {
         guard isSecondaryClick(event), let window = event.window, let content = window.contentView else { return nil }
         let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-        guard let view = content.hitTest(point), let hostMenu = view.menu(for: event),
-              hostMenu.items.contains(where: { $0.action == hostTextMenuAction }) else { return nil }
+        guard let view = content.hitTest(point), let hostMenu = view.menu(for: event), isHostTextMenu(hostMenu) else { return nil }
         return (pageMenu(view, event, selected: true), view)
+    }
+
+    /// Whether `menu` is ExactKit's for selected page text: an item of it (a submenu's included) aims at the text view
+    /// ExactKit asked for AppKit's menu (`hostTextMenuView`). Under the agent ExactKit gives none (its tracking would hold
+    /// the agent's click), so there the click goes on to the tail's page menu, Copy enabled by the selection.
+    static func isHostTextMenu(_ menu: NSMenu) -> Bool {
+        menu.items.contains { item in
+            item.target.map { String(describing: type(of: $0)) == hostTextMenuView } == true || item.submenu.map(isHostTextMenu) == true
+        }
     }
 
     // MARK: The page
