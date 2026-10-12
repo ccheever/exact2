@@ -19,7 +19,12 @@
 // figures (it does not jitter as it changes), a line about it, and,
 // optionally, a fraction drawn as the platform's determinate progress and a
 // symbol (`"symbol:<role>"` or `"symbol:sf/<name>"`). The detail sits beside
-// the number where the card is wide enough, under it where it is not.
+// the number where the card is wide enough, under it where it is not. Its
+// surface is the platform's tertiary fill, a translucent grey that shows on
+// a plain page and on a `-exact-grouped-background` one alike: the
+// secondary background is the grouped page's own grey in the light scheme
+// and the grouped card's white is the plain page's, so a part that cannot
+// know its page takes neither.
 component SummaryCard
   props
     label: string
@@ -28,7 +33,7 @@ component SummaryCard
     progress: option<number>
     symbol: option<string>
   view
-    column gap=4 padding=20 border-radius=16 background-color="-exact-secondary-background" min-width=0
+    column gap=4 padding=20 border-radius=16 background-color="-exact-tertiary-fill" min-width=0
       row align-items="center" gap=6 min-width=0
         match symbol
           case some(s)
