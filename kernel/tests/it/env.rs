@@ -459,3 +459,115 @@ fn viewport_lengths_resolve_against_the_window_and_follow_resize() {
     k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
     assert_eq!(frame(&k, 1), (0.0, 0.0, 200.0, 220.0));
 }
+
+#[test]
+fn compact_inset_sums_clamp_only_at_the_finite_length_limits() {
+    for (inset, offset, expected) in [
+        (3e38, 1e38, f32::MAX),
+        (-3e38, -1e38, f32::MIN),
+        (3e38, -3e38, 0.0),
+        (24.0, -32.0, -8.0),
+        (24.0, 12.0, 36.0),
+    ] {
+        let env = Env::new(inset, 0.0, 0.0, 0.0);
+        assert!(env.is_finite());
+        let source = format!("calc(env(safe-area-inset-top) + {offset}px)");
+        let d = Dimension::parse_env(&source).unwrap();
+        assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
+    }
+}
+
+#[test]
+fn compact_segment_sums_clamp_and_undefined_segments_stay_auto() {
+    exact_kernel::link_segments();
+    for (width, offset, expected) in [
+        (3e38, 1e38, f32::MAX),
+        (-3e38, -1e38, f32::MIN),
+        (3e38, -3e38, 0.0),
+        (24.0, -32.0, -8.0),
+        (24.0, 12.0, 36.0),
+    ] {
+        let env = Env::default().with_segments(
+            2,
+            1,
+            vec![Rect::new(0.0, 0.0, width, 100.0), Rect::default()],
+        );
+        assert!(env.is_finite());
+        let source = format!("calc(env(viewport-segment-width 0 0) + {offset}px)");
+        let d = Dimension::parse_env(&source).unwrap();
+        assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
+        assert_eq!(d.resolve(&Env::default()), Dimension::Auto);
+    }
+}
+
+#[test]
+fn a_compact_env_sum_keeps_positioned_layout_finite() {
+    let mut kernel = Kernel::with_monospace();
+    let mut child = StyleProps::default();
+    for (id, value) in [
+        (StyleId::PositionType, "absolute"),
+        (StyleId::Left, "calc(env(safe-area-inset-left) + 1e38px)"),
+        (StyleId::Top, "calc(env(safe-area-inset-top) - 1e38px)"),
+        (StyleId::Width, "10px"),
+        (StyleId::Height, "10px"),
+    ] {
+        child
+            .set_dynamic(id, &StyleValue::Text(value.into()))
+            .unwrap();
+    }
+    kernel
+        .apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: Box::new(child),
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+    kernel.set_env(Env::new(-3e38, 0.0, 0.0, 3e38)).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(400.0, 800.0))
+        .unwrap();
+    assert_eq!(frame(&kernel, 2), (f32::MAX, f32::MIN, 10.0, 10.0));
+}
+
+#[test]
+fn compact_segment_edges_preserve_cancellation_before_narrowing() {
+    exact_kernel::link_segments();
+    for var in ["right", "bottom"] {
+        for (origin, size, offset, expected) in [
+            (3e38, 3e38, -3e38, 3e38),
+            (-3e38, -3e38, 3e38, -3e38),
+            (3e38, 3e38, 0.0, f32::MAX),
+            (-3e38, -3e38, 0.0, f32::MIN),
+            (20.0, 40.0, -70.0, -10.0),
+        ] {
+            let env = Env::default().with_segments(
+                2,
+                1,
+                vec![Rect::new(origin, origin, size, size), Rect::default()],
+            );
+            assert!(env.is_finite());
+            let source = format!("calc(env(viewport-segment-{var} 0 0) + {offset}px)");
+            let d = Dimension::parse_env(&source).unwrap();
+            assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
+            assert_eq!(d.resolve(&Env::default()), Dimension::Auto);
+        }
+    }
+}

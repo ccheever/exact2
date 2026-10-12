@@ -399,7 +399,19 @@ pub(crate) fn decode(kind: u8, plus: f32, x: u8, y: u8) -> Option<Dimension> {
 
 fn resolve_segment(var: SegmentVar, x: u8, y: u8, plus: f32, env: &Env) -> Dimension {
     match env.segment(x, y) {
-        Some(rect) => Dimension::Points(var.of(rect) + plus),
+        Some(rect) => {
+            // Keep derived edges wide through the offset: x + width can exceed
+            // f32 even when x + width + plus is representable. Narrow only the
+            // completed length (CSS Values 4 §10.9.2 and §10.12).
+            let base = match var {
+                SegmentVar::Right => f64::from(rect.x) + f64::from(rect.width),
+                SegmentVar::Bottom => f64::from(rect.y) + f64::from(rect.height),
+                _ => f64::from(var.of(rect)),
+            };
+            Dimension::Points(
+                (base + f64::from(plus)).clamp(f64::from(f32::MIN), f64::from(f32::MAX)) as f32,
+            )
+        }
         None => Dimension::Auto,
     }
 }

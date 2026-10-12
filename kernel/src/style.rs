@@ -173,7 +173,11 @@ impl Dimension {
     /// [`StyleProps::to_taffy`] substitutes exactly before lowering.
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
-            Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
+            // Clamp the completed compact sum, not terms inside a comparison.
+            // CSS Values 4 §10.9.2 keeps infinities internal to calculations.
+            Dimension::Env(edge, plus) => {
+                Dimension::Points((env.inset(edge) + plus).clamp(f32::MIN, f32::MAX))
+            }
             Dimension::Viewport(unit, n) => Dimension::Points(unit.basis(env) * n / 100.0),
             Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
             Dimension::Compare(c) => Dimension::Points(c.value(env)),
