@@ -501,8 +501,8 @@ write that part. A screen to capture is a test's end (\`verify --shots <dir>\`);
 
 ${DIARY_LINE}
 
-The rest: \`bun exact.mjs help\` lists every verb (\`mac\`, \`linux\`, \`android\`, \`hatch\`, \`update\`, and
-your own in app.json \`"commands"\`); a verb's \`--help\` only when a flag is in question.
+The rest: \`bun exact.mjs help\` gives each verb's common flags (and lists \`mac\`, \`linux\`, \`android\`,
+\`hatch\`, \`update\`, your own in app.json \`"commands"\`); a verb's \`--help\` only for the rest.
 \`bun exact.mjs contract vocab <name>\` answers for any tag, property or function, and
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,

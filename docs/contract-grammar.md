@@ -469,7 +469,8 @@ shows (a prefilled reply). `type "id" key "Name"` presses the key;
 `down` and `up` are the two halves, and `for <ms>` holds it that long on the
 virtual clock (`down` or `up` together with `for` is refused). `reload` restarts the app on the store it had: the
 web page loads again in the same profile, a native app relaunches on the same
-scratch store. Its state starts over and the clock is 0 again; what the app
+scratch store. Its state starts over and `performanceNow()` is 0 again, at the date the test had
+reached (`epoch` plus its `clock` steps); what the app
 stored is what it reads, so persistence is testable. `close` presses the
 window's close button as ⌘W or the red button does (the driver's `close`): its
 `beforeunload` handlers hear it, and a window one keeps stays open, so the

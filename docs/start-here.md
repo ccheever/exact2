@@ -46,7 +46,7 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` after each edit, `verify ios` at milestones. A screen you
 want checked or captured is a test's end; `verify --shots <dir>` copies its screenshots;
-one drive takes any others (`resize`, `prefer prefers-color-scheme dark`, `screenshot`).
+a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 ## One screen: the view, its data, its test
@@ -183,16 +183,18 @@ and `pass fetch`. Launch lines (`epoch "…"`, `time-zone "…"`, `size 390x844`
    search field, a `tablist`); anything else isn't in the iOS bar. A control fixed under
    the bar goes with an inline title (`aria-level=2`); one that may scroll away, in the
    list's first section.
+3. **`width="100%"` with padding overflows**, as in CSS: drop the width; a `flex=1` field
+   takes `min-width=0`.
 
 ## Look it up
 
-Start from the nearest pattern: a working, tested app with what the recipes teach. A recipe
+Start from the nearest pattern, a tested app with what the recipes teach; a recipe
 (`recipes/<name>.md`) is for what it lacks.
 
 |Pattern|Already has|
 |---|---|
-|`one-screen`|a tracker: a total, buttons, a dated log kept in a file, a centred column|
-|`dashboard`|a summary, bars, dated rows, an add sheet validated after Save, two columns|
+|`one-screen`|a tracker: a total, buttons, a dated log in a file, a centred column|
+|`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
 |`list-detail`|a detail, an add sheet, a delete alert, a missing record, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
 |`rest`|its own server, polled; a signed-in person (`rest-backend`)|
@@ -207,6 +209,5 @@ Start from the nearest pattern: a working, tested app with what the recipes teac
 
 The others are named for their topic: `dates-and-days`, `timers`, `money`, `symbols`…
 
-**Otherwise:** `contract vocab <name> …` answers any tag, property or how-to (`screen`,
-`modal`); `docs/contract-for-agents.md`, `agent-pitfalls.md` and
-`reference.md` by section; `<exact2>/apps/shelf` is a whole app.
+**Otherwise:** `contract vocab <name> …` answers any tag, property or how-to;
+`docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.

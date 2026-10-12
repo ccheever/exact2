@@ -132,8 +132,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `height="100%"`). Fix: `box-sizing="border-box"` on the padded box or its style;
   or drop `width`, since a box in a block or a `column` already fills the width.
   (Chat2 and Workout DIARY, Gallery's `height`; reproduced on the web, 2026-10-04.)
-  **Candidate diagnostic:** the compiler could name `box-sizing` when a
-  content-box node has `width="100%"` and horizontal padding.
+  **Diagnosed:** the compiler warns (`lower-width-padding`) for a content-box
+  container with `width="100%"` and horizontal padding or a border, and `check`
+  names the box that runs past its parent by its padding (LLP 1116.009 D5).
 
 ## Lists and scrolling
 

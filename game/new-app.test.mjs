@@ -308,8 +308,8 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     assert.ok(existsSync(resolve(root, 'docs/start-here.md')));
     assert.match(notes, /the only\s+required reading/);
     // `help` is the pointer to the rest, and a verb's `--help` is for a flag in question: no tour of the verbs' help.
-    assert.match(notes, /`bun exact\.mjs help` lists every verb/);
-    assert.match(notes, /`--help` only when a flag is in question/);
+    assert.match(notes, /`bun exact\.mjs help` gives each verb's common flags/);
+    assert.match(notes, /`--help` only for the rest/);
     assert.doesNotMatch(notes, /Read\s+these|contract types|no-tells|\.exact\//);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);

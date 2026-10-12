@@ -2,8 +2,15 @@
 // shipped app does not show — a header node the iOS navigation bar leaves out,
 // which the agent's own chrome still paints — fails, and says why (LLP 1116 D2).
 import { test, expect } from 'bun:test';
-import { serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runTests, serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
+import { withEpoch } from './agent-launch.mjs';
+import { serveBuildTree } from '../host/web/serve.mjs';
 
 test('a presented popover belongs to its AppKit modal for outside-modal findings', () => {
   const elements = [
@@ -68,3 +75,65 @@ test('a request line sends the method, the JSON body and the persona\'s token un
   } finally { await server.stop(true); }
   await expect(serverRequest(base, { method: 'GET', path: '/items', body: null, as: null })).rejects.toThrow(/nothing answered/);
 });
+
+// LLP 1116.009 D1: a `reload` relaunches at the virtual time the test had reached (the date it launched at plus every
+// `clock +N`), not at its launch date: a phone restarted at 9:05 does not wake at 9:00 (habit-tracker, rounds 10 and 11).
+test('the page address a reload loads takes the date it relaunches at, and keeps the rest', () => {
+  const href = 'http://127.0.0.1:9/detail/3?agent=1&seed=1&epoch=1773489600000&timeZone=UTC&q=a';
+  expect(new URL(withEpoch(href, 1773576000000)).searchParams.get('epoch')).toBe('1773576000000');
+  expect(new URL(withEpoch(href, 1773576000000)).searchParams.get('q')).toBe('a');
+  expect(new URL(withEpoch('http://127.0.0.1:9/', 5)).searchParams.get('epoch')).toBe('5');
+  expect(withEpoch(href, undefined)).toBe(href);
+});
+
+test('a reload keeps the clock the test had reached, again and again, and the run ends with it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-reload-clock-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  writeFileSync(contract, `shape Time
+  epochAtZero: number
+  utcOffset: number
+
+component Day
+  state now = 0
+  resource time = exactTime() as shape Time
+  derive day = formatDate(time.epochAtZero + now, time.utcOffset, "iso")
+  task tick mount
+    every(60000, step)
+  action step
+    now = performanceNow()
+  view
+    column testId="root"
+      text day testId="day"
+`);
+  writeFileSync(file, `test "a relaunch is on the day the test reached"
+  epoch "2026-03-14T12:00:00Z"
+  expect text "day" == "2026-03-14"
+  clock +86400000
+  clock data
+  expect text "day" == "2026-03-15"
+  reload
+  expect text "day" == "2026-03-15"
+  clock +86400000
+  clock data
+  expect text "day" == "2026-03-16"
+  reload
+  expect text "day" == "2026-03-16"
+`);
+  const root = new URL('..', import.meta.url).pathname;
+  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((request, response) => serveBuildTree(dist, request, response));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const ends = [];
+  try {
+    const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/`, size: [420, 900], atEnd: async (s, t) => { ends.push([t.launch.epoch, t.reached]); return {}; } });
+    expect(r.results.map((x) => x.failures)).toEqual([[]]);
+    expect(r.passed).toBe(1);
+    // verify's relaunch starts where the test left off too: the test names the date it launched at and the date it had reached.
+    expect(ends).toEqual([[Date.UTC(2026, 2, 14, 12), Date.UTC(2026, 2, 16, 12)]]);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180_000);

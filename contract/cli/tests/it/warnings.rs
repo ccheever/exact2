@@ -1164,3 +1164,129 @@ fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
     .replace("state tab = \"all\"", "state tab = \"all\" persist");
     assert_eq!(warned(&kept), []);
 }
+
+const WIDTH_PADDING: &str = "lower-width-padding";
+
+#[test]
+fn a_full_width_box_with_padding_is_named_with_its_repair() {
+    // LLP 1116.009 D5: focus-timer's and recipe-finder's round-11 bodies,
+    // `column padding=24 width="100%"`, which ran past a phone's right
+    // side while `verify` said nothing. The parent is the view's column
+    // (lines 7 on).
+    let src = buttons(
+        "column padding=24 gap=12 width=\"100%\"\n  text \"Timer\"\nbox width=\"100%\" padding=\"8px 16px\"\n  text \"x\"\nview width=\"100%\" border=\"1px solid -exact-separator\"\n  text \"y\"\nscroll flex=1\n  column padding-left=16 width=\"100%\"\n    text \"z\"",
+    );
+    assert_eq!(
+        warned(&src),
+        [
+            (WIDTH_PADDING.to_string(), 7),
+            (WIDTH_PADDING.to_string(), 9),
+            (WIDTH_PADDING.to_string(), 11),
+            (WIDTH_PADDING.to_string(), 14)
+        ]
+    );
+    let (_, warnings) = contract::compile_warned(&src);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with("`width=\"100%\"` with padding is wider than its parent by the padding")
+            && m.contains("drop the width (a block or a stretched flex item fills its parent")
+            && m.contains("`flex=1` field `min-width=0`")
+            && m.contains("`box-sizing=\"border-box\"`"),
+        "{m}"
+    );
+    // A style's rows count as the node's, its own winning.
+    let styled = "style Panel\n  padding=16 width=\"100%\"\n\ncomponent App\n  view\n    column\n      column class=Panel\n        text \"a\"\n      column class=Panel box-sizing=\"border-box\"\n        text \"b\"\n      column class=Panel padding=0\n        text \"c\"\n";
+    assert_eq!(warned(styled), [(WIDTH_PADDING.to_string(), 7)]);
+}
+
+#[test]
+fn what_fits_or_the_compiler_cannot_see_is_not_named_for_width_and_padding() {
+    for (case, view) in [
+        // The author's own word on sizing, or no room taken.
+        (
+            "border-box",
+            "column padding=24 width=\"100%\" box-sizing=\"border-box\"\n  text \"a\"",
+        ),
+        (
+            "a width that leaves room",
+            "column padding=8 width=\"50%\"\n  text \"a\"",
+        ),
+        ("a fixed width", "column padding=24 width=320\n  text \"a\""),
+        ("no padding", "column width=\"100%\"\n  text \"a\""),
+        (
+            "vertical padding only",
+            "column padding=\"16px 0\" width=\"100%\"\n  text \"a\"",
+        ),
+        (
+            "padding taken back",
+            "column padding=24 padding-left=0 padding-right=0 width=\"100%\"\n  text \"a\"",
+        ),
+        (
+            "a border with no line",
+            "column border=\"2px none -exact-separator\" width=\"100%\"\n  text \"a\"",
+        ),
+        // A value the compiler cannot read.
+        (
+            "a computed padding",
+            "column padding=(label == \"\" ? 0 : 24) width=\"100%\"\n  text \"a\"",
+        ),
+        (
+            "a computed width",
+            "column padding=24 width=(label == \"\" ? \"100%\" : \"50%\")\n  text \"a\"",
+        ),
+        (
+            "a length it does not read",
+            "column padding=\"env(safe-area-inset-left)\" width=\"100%\"\n  text \"a\"",
+        ),
+        // Not in the parent's flow, or not a container.
+        (
+            "positioned",
+            "column padding=24 width=\"100%\" position=\"absolute\"\n  text \"a\"",
+        ),
+        (
+            "hidden",
+            "column padding=24 width=\"100%\" display=\"none\"\n  text \"a\"",
+        ),
+        ("a field", "input width=\"100%\" padding=12 value=label"),
+        // A row's items shrink to fit; a grid's resolve against a cell.
+        (
+            "in a row",
+            "row\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+        (
+            "in a grid",
+            "view display=\"grid\"\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+        (
+            "in a flex row",
+            "view display=\"flex\"\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+        (
+            "a slot's children",
+            "Pill()\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+    ] {
+        let src = buttons(view);
+        assert_eq!(warned(&src), [], "{case}\n{src}");
+    }
+    // A flex column and an explicit block both stretch their items.
+    for parent in [
+        "view display=\"flex\" flex-direction=\"column\"",
+        "view display=\"block\"",
+    ] {
+        let src = buttons(&format!(
+            "{parent}\n  column padding=24 width=\"100%\"\n    text \"a\""
+        ));
+        assert_eq!(warned(&src), [(WIDTH_PADDING.to_string(), 8)], "{src}");
+    }
+}
+
+#[test]
+fn a_grouped_lists_rows_are_not_named_for_width_and_padding() {
+    // The grouped list's sections place their rows themselves (lowering's,
+    // not the author's block): not a parent a percentage is of.
+    let src = buttons(
+        "list appearance=\"auto\" listStyle=\"inset-grouped\" flex=1 min-height=0\n  section\n    row width=\"100%\" padding-left=16\n      text \"a\"",
+    );
+    assert_eq!(warned(&src), []);
+}

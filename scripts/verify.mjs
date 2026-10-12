@@ -6,9 +6,10 @@
 // phone width and a desktop width (iOS: the simulator's own size, with UIKit's bars), and runs `check` light and
 // dark there. Each test's end screen is checked the same way inside the test's own session (the web at both
 // widths, resized to each), so its secondary screens and populated states are in the report. Then the app
-// relaunches once on the store a passing test left, on real time (at most REAL_MS) and under the date, zone,
-// locale and seed the test launched with (LLP 1116.007 D3.4), and its first screen is compared with a fresh
-// launch's under the same: what the test stored should come back. One capture of each screen is kept in
+// relaunches once on the store a passing test left, on real time (at most REAL_MS) and under the zone, locale and seed
+// the test launched with and the date it had reached (its launch date plus its `clock` steps, as a `reload` relaunches,
+// LLP 1116.007 D3.4, LLP 1116.009 D1), and its first screen is compared with a fresh launch's under the same (the
+// driver's, for an app whose server holds the tests' writes): what the test stored should come back. One capture of each screen is kept in
 // .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the relaunch's and the compiler's warnings (`contract build`'s,
@@ -316,7 +317,7 @@ const testEnd = (host, shots) => async (s, t) => {
   const shot = (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === near[0]) ? path : undefined);
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
-  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch };
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached };
 };
 
 /** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
@@ -390,6 +391,14 @@ export function judgeRelaunch(test, fresh, after, { busy = [], failed = {} } = {
 const LAUNCH_FACTS = ['epoch', 'timeZone', 'locale', 'seed'];
 const launchOf = (launch) => Object.fromEntries(LAUNCH_FACTS.filter((k) => launch?.[k] != null).map((k) => [k, launch[k]]));
 
+/** The facts a relaunch on the store `test` left is made under: its launch facts, the date being the one it had reached
+ * (its launch date plus its `clock` steps), as a `reload` relaunches (LLP 1116.009 D1): a phone restarted at 9:05 wakes at 9:05. */
+export const relaunchFacts = (test) => ({ ...test.end?.launch, ...(test.end?.reached != null ? { epoch: test.end.reached } : {}) });
+
+/** Whether the test ended at a date other than the one it launched at: its relaunch's first screen may say another day,
+ * so a fresh launch to compare with is made at that date too. */
+export const movedClock = (test) => test.end?.reached != null && test.end.launch?.epoch != null && test.end.reached !== test.end.launch.epoch;
+
 /** Whether `test` launched under facts other than the driver's own, which the first screens launch under: a date, zone,
  * locale or seed its leading lines pinned. What it stored is read back under those facts, and a fresh launch to compare
  * with must be made under them too (LLP 1116.007 D3.4). */
@@ -412,13 +421,13 @@ async function freshUnder(host, app, launch, store) {
   }
 }
 
-/** One launch on the store `test` left, under the facts the test launched with (its date, zone, locale and seed, as a
- * `reload` relaunches), at the phone's width (iOS: the simulator's, with UIKit's bars), not emptied:
+/** One launch on the store `test` left, under the facts the test ended with (its zone, locale and seed, and the date it had
+ * reached, as a `reload` relaunches), at the phone's width (iOS: the simulator's, with UIKit's bars), not emptied:
  * its first loads on real time, in REAL_STEP steps until nothing is in flight or REAL_MS pass, then its transitions
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(test.end?.launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
   try {
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
     const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
@@ -602,7 +611,10 @@ async function main(argv) {
       // test's facts. An app with a server has no fresh database after the tests: its relaunch is not compared.
       relaunched = await (async () => {
         const { launchFacts } = await import('./agent-launch.mjs');
-        const against = !pinnedLaunch(chosen, launchFacts({})) ? fresh : running ? null : await freshUnder(host, app, chosen.end.launch, host === 'web' ? `verify.${tag}.fresh` : 'verify');
+        // A test that moved the clock relaunches at the date it reached, and its first screen may say another day than a fresh
+        // launch's at the driver's: that comparison is made under the reached date too, unless the server's database is the tests'.
+        const pinned = pinnedLaunch(chosen, launchFacts({}));
+        const against = running ? (pinned ? null : fresh) : pinned || movedClock(chosen) ? await freshUnder(host, app, relaunchFacts(chosen), host === 'web' ? `verify.${tag}.fresh` : 'verify') : fresh;
         return relaunch(host, app, chosen, against, shots);
       })().catch((e) => ({ test: chosen.name, error: e.message }));
     }
