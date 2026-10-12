@@ -1016,3 +1016,43 @@ measurement and flow vectors until physical slot reuse or tree destruction and
 allowed stale node keys to retrieve removed contexts. Focused drop-counter
 tests cover immediate and exactly-once destruction, replacement, physical slot
 reuse, stale-key absence, and preservation of an unrelated survivor context.
+
+## Patch 33: a flex item's length in its container's main size is clamped by its maximum — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-10-12, for issue X86
+(`issues/20261012-column-height-ignores-leaf-max-height.md`).
+
+`determine_container_main_size` sums the items' lengths for a container
+whose main size is automatic. Three of its sites took an item's flex base
+size without its `max_size`: the definite-available-space branch and the
+wrapping `MinContent` branch floored the base size by `min_size` alone, and
+the intrinsic branch's scroll-container arm took the base size as it was. A
+leaf's base size is measured under `SizingMode::ContentSize`, which drops
+its min and max (`compute_leaf_layout`), so it is the whole content. A
+column holding a scrolling leaf (an `overflow: hidden` text, or a textarea,
+which scrolls by default) at `max-height: 160px` was as tall as the whole
+text when it was a row's unstretched item or a block's child (the
+scroll-container arm, under a max-content offer), and an absolutely
+positioned column was, whatever the leaf (the definite branch): a T3 Code
+popover reached 16,000 pt while its textarea was laid out clamped. A box
+clamps its own measured size, and a leaf that does not scroll takes the
+measured arm, which clamps, so neither showed it. Chrome sizes the column
+from its items' clamped sizes in every case. The three sites now clamp the
+base size by the item's min and max main sizes, as the measured and
+preferred-size arms do; the scroll-container arm floors the result at the
+padding and border, as the base size already was, and adds the margin after
+the clamp (patch 14's order). The same clamps give a row's min-content width
+when a leaf's unbroken word is wider than its `max-width` (a wrapping row,
+or an `overflow: hidden` leaf). Upstream main (`7d33901cc`, 2026-10-09) has
+the same three sites.
+
+**Held by** `browser_flex::a_column_is_as_tall_as_its_items_clamped_by_max_height`
+(Chrome 155, plain HTML, 22 cases; 13 failed before): a row's column holding
+a text leaf or an image, with margins, a negative margin, content- and
+border-box padding, a border-box `max-height` under its padding, two leaves
+and a gap; the absolutely positioned column; a column in a block; a block, a
+row and a column holding a box as controls; and four rows of an unbroken
+word at `max-width: 130px`. On macOS the issue's probe lays out cases A to D
+at 132, 132, 130 and 132 pt (898, 434, 656 and 706 before), and a column
+holding a content-sized textarea typed past its maximum stays at the
+textarea's height.

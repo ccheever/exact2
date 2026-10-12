@@ -4,7 +4,7 @@
 //! is written as the three rows Contract lowers it to, in authored order, so
 //! a later `flex-grow` row replaces the shorthand's, as the later
 //! declaration wins in CSS.
-use crate::browser_cases::{lay_out_with, mismatches, props, Rows};
+use crate::browser_cases::{css_rows, lay_out_with, mismatches, props, Rows};
 use crate::support::reader::{number as n, text as t};
 use exact_kernel::StyleId::*;
 use exact_kernel::StyleValue;
@@ -578,4 +578,246 @@ fn a_fit_content_row_is_as_tall_as_its_wrapped_text() {
             }
         }
     }
+}
+
+/// A flex column whose height is automatic is as tall as its items, each
+/// clamped by its minimum and maximum (CSS Flexbox §9.2 step 4, §9.9.1),
+/// whatever space it is offered (issue X86, vendored Taffy patch 33). A
+/// leaf's flex base size is its whole content, and the column took it past
+/// the leaf's `max-height`: as a row's unstretched item or a block's child
+/// when the leaf scrolls (`overflow: hidden`, as a textarea scrolls), and
+/// absolutely positioned (D) whatever the leaf. E, F and G held before. W:
+/// a row's min-content width, where an unbroken word at `max-width: 130px`
+/// made a fit-content row as wide as the word. Chrome 155, 2026-10-12, plain
+/// HTML by the method of `browser_cases.rs`; `prose` is the issue's 1,220
+/// characters, and every size asserted is one a clamp sets, not the font.
+#[test]
+fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
+    let prose = "The quick brown fox jumps over the lazy dog. "
+        .repeat(28)
+        .chars()
+        .take(1220)
+        .collect::<String>();
+    let prose = prose.trim_end();
+    let word = "x".repeat(200);
+    let row = "display:flex;align-items:flex-start;width:400px";
+    let col = "display:flex;flex-direction:column;width:200px";
+    // A row's column holding one text leaf styled `leaf`.
+    let in_row = |leaf: &str| {
+        vec![
+            (2, 1, css_rows(row)),
+            (3, 2, css_rows(col)),
+            (4, 3, css_rows(leaf)),
+        ]
+    };
+    let clipped = "max-height:160px;overflow:hidden";
+    let mut cases: Vec<(&str, Vec<(u32, u32, Rows)>, Vec<u32>, Images, Frames)> = vec![
+        (
+            "C: a text leaf at max-height",
+            in_row(clipped),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "C: without overflow",
+            in_row("max-height:160px"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "C: min-height wins over max-height",
+            in_row("min-height:200px;max-height:160px;overflow:hidden"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 200.0]), (4, [0.0, 0.0, 200.0, 200.0])],
+        ),
+        (
+            "C: margins outside the clamp",
+            in_row("max-height:160px;overflow:hidden;margin-top:10px;margin-bottom:4px"),
+            vec![4],
+            &[],
+            &[
+                (3, [0.0, 0.0, 200.0, 174.0]),
+                (4, [0.0, 10.0, 200.0, 160.0]),
+            ],
+        ),
+        (
+            "C: a negative margin",
+            in_row("max-height:160px;overflow:hidden;margin-top:-20px"),
+            vec![4],
+            &[],
+            &[
+                (3, [0.0, 0.0, 200.0, 140.0]),
+                (4, [0.0, -20.0, 200.0, 160.0]),
+            ],
+        ),
+        (
+            "C: content-box padding",
+            in_row("max-height:160px;overflow:hidden;padding:10px"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 180.0]), (4, [0.0, 0.0, 200.0, 180.0])],
+        ),
+        (
+            "C: border-box padding",
+            in_row("max-height:160px;overflow:hidden;padding:10px;box-sizing:border-box"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "C: a border-box max-height under its padding",
+            in_row("max-height:10px;padding:20px;box-sizing:border-box;overflow:hidden"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 40.0]), (4, [0.0, 0.0, 200.0, 40.0])],
+        ),
+        (
+            "C: a definite height",
+            in_row("height:10px"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 10.0]), (4, [0.0, 0.0, 200.0, 10.0])],
+        ),
+        (
+            "C: two leaves and a gap",
+            vec![
+                (2, 1, css_rows(row)),
+                (3, 2, css_rows(&format!("{col};gap:6px"))),
+                (4, 3, css_rows("max-height:50px;overflow:hidden")),
+                (5, 3, css_rows("max-height:70px;overflow:hidden")),
+            ],
+            vec![4, 5],
+            &[],
+            &[
+                (3, [0.0, 0.0, 200.0, 126.0]),
+                (4, [0.0, 0.0, 200.0, 50.0]),
+                (5, [0.0, 56.0, 200.0, 70.0]),
+            ],
+        ),
+        (
+            "C: an image, max-width through its ratio",
+            in_row("max-width:100px"),
+            vec![],
+            &[(4, Some((200.0, 656.0)))],
+            &[(3, [0.0, 0.0, 200.0, 328.0]), (4, [0.0, 0.0, 100.0, 328.0])],
+        ),
+        (
+            "C: an image at max-height",
+            in_row("max-height:130px"),
+            vec![],
+            &[(4, Some((200.0, 656.0)))],
+            &[(3, [0.0, 0.0, 200.0, 130.0]), (4, [0.0, 0.0, 200.0, 130.0])],
+        ),
+        (
+            "D: an absolutely positioned column",
+            vec![
+                (2, 1, css_rows("width:200px;height:300px;position:relative")),
+                (
+                    3,
+                    2,
+                    css_rows(&format!("{col};position:absolute;top:0px;left:0px")),
+                ),
+                (4, 3, css_rows(clipped)),
+            ],
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "E: a block",
+            vec![(2, 1, css_rows("width:200px")), (3, 2, css_rows(clipped))],
+            vec![3],
+            &[],
+            &[(2, [0.0, 0.0, 200.0, 160.0]), (3, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "F: a row (the cross axis)",
+            vec![
+                (2, 1, css_rows("display:flex;width:200px")),
+                (3, 2, css_rows(clipped)),
+            ],
+            vec![3],
+            &[],
+            &[(2, [0.0, 0.0, 200.0, 160.0]), (3, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "G: a column holding a box",
+            vec![
+                (2, 1, css_rows(row)),
+                (3, 2, css_rows(col)),
+                (
+                    4,
+                    3,
+                    css_rows(&format!("display:flex;flex-direction:column;{clipped}")),
+                ),
+                (5, 4, vec![]),
+            ],
+            vec![5],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "H: a column in a 300-tall block",
+            vec![
+                (2, 1, css_rows("width:200px;height:300px")),
+                (3, 2, css_rows("display:flex;flex-direction:column")),
+                (4, 3, css_rows(clipped)),
+            ],
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "H: a border-box max-height under its padding",
+            vec![
+                (2, 1, css_rows("width:200px;height:300px")),
+                (3, 2, css_rows("display:flex;flex-direction:column")),
+                (
+                    4,
+                    3,
+                    css_rows("max-height:10px;padding:20px;box-sizing:border-box;overflow:hidden"),
+                ),
+            ],
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 40.0]), (4, [0.0, 0.0, 200.0, 40.0])],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (name, nodes, text_ids, images, want) in cases.drain(..) {
+        let texts: Vec<(u32, &str)> = text_ids.iter().map(|id| (*id, prose)).collect();
+        let k = lay_out_with(props(&css_rows("width:800px")), nodes, &texts, images);
+        failures.extend(mismatches(name, &k, want));
+    }
+    for (wrap, leaf) in [
+        ("wrap", "max-width:130px;overflow:hidden"),
+        ("nowrap", "max-width:130px;overflow:hidden"),
+        ("wrap", "max-width:130px"),
+        ("nowrap", "max-width:130px"),
+    ] {
+        let nodes = vec![
+            (
+                2,
+                1,
+                css_rows("display:flex;flex-direction:column;align-items:flex-start;width:400px"),
+            ),
+            (3, 2, css_rows(&format!("display:flex;flex-wrap:{wrap}"))),
+            (4, 3, css_rows(leaf)),
+        ];
+        let k = lay_out_with(
+            props(&css_rows("width:800px")),
+            nodes,
+            &[(4, word.as_str())],
+            &[],
+        );
+        failures.extend(mismatches(
+            &format!("W: flex-wrap: {wrap}, {leaf}"),
+            &k,
+            &[(3, [0.0, 0.0, 130.0, 18.0]), (4, [0.0, 0.0, 130.0, 18.0])],
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
