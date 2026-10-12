@@ -890,7 +890,7 @@ export function pattern(args, say = console.log) {
   say(next);
 }
 
-function main(argv) {
+async function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
