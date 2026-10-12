@@ -16,12 +16,19 @@ extension NodeView {
         // Return the published insets applied to that argument, rather than
         // an absolute rect: the latter hid values or moved their baseline.
         // UIKit centres its single line within the resulting content box.
-        return proposed.inset(by: UIEdgeInsets(top: rect.minY, left: rect.minX,
-            bottom: max(0, bounds.height - rect.maxY), right: max(0, bounds.width - rect.maxX)))
+        var insets = UIEdgeInsets(top: rect.minY, left: rect.minX,
+            bottom: max(0, bounds.height - rect.maxY), right: max(0, bounds.width - rect.maxX))
+        // A number input's stepper takes the text's trailing end (LLP 1116.007 D4).
+        let room = stepperRoom
+        if room > 0 { if style["direction"]?.string == "rtl" { insets.left += room } else { insets.right += room } }
+        var content = proposed.inset(by: insets)
+        content.size.width = max(0, content.width)
+        return content
     }
     func layoutField() {
         guard let field else { return }
         field.frame = isNativeTextControl ? bounds : contentBox()
+        layoutStepper()
         #if !os(tvOS)
         if let chrome = searchChrome {
             chrome.frame = field.frame

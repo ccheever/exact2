@@ -212,6 +212,39 @@ fn a_date_or_time_control_takes_the_field_look_unless_the_author_has_it() {
     assert!(include_str!("../index.html").contains("input[data-exact-field]"));
 }
 
+/// LLP 1116.007 D4: a text field whose appearance is `textfield` is still the
+/// platform's field (`data-native`) and is marked for the page to take a
+/// number input's spin buttons off; `auto` and `none` are not.
+#[test]
+fn a_textfield_appearance_is_native_and_marked_for_the_page() {
+    let marks = |appearance| {
+        let style = StyleProps {
+            appearance,
+            ..StyleProps::default()
+        };
+        let mut props = PropList::default();
+        props.set(PropId::Type, PropValue::Str("number".into()));
+        let out = super::props_of(&NodeFacts {
+            id: 1,
+            node_type: NodeType::TextInput,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        });
+        (
+            out.contains_key("data-native"),
+            out.contains_key("data-exact-textfield"),
+        )
+    };
+    use exact_kernel::Appearance::{Auto, None, Textfield};
+    assert_eq!(marks(Auto), (true, false));
+    assert_eq!(marks(Textfield), (true, true));
+    assert_eq!(marks(None), (false, false));
+    assert!(include_str!("../index.html")
+        .contains("input[data-exact-textfield]::-webkit-inner-spin-button"));
+}
+
 /// A link to an absolute URL opens outside the app, as natively, unless
 /// its `target` is authored; a path stays (chat F11, hn-reader F3).
 #[test]

@@ -2163,7 +2163,8 @@
     "Appearance": {
       "values": [
         "auto",
-        "none"
+        "none",
+        "textfield"
       ],
       "default": "auto"
     },
@@ -3414,7 +3415,7 @@
       "terminal": "admit",
       "codec": "enum:Appearance",
       "layout": true,
-      "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS."
+      "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS. @ref LLP 1116.007 D4: `textfield` is CSS UI 4's compat keyword on a text field: the platform's field without the stepping control an `input type=\"number\"` draws (the web's spin buttons); on any other text field it is `auto`, and lowering refuses it elsewhere."
     },
     {
       "bit": 147,

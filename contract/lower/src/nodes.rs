@@ -380,6 +380,13 @@ impl Lowerer<'_> {
             if let Some(origins) = &mut origins {
                 origins.resize(bindings.len(), Origin::Tag);
             }
+        } else if let Some(a) = crate::fields::textfield_elsewhere(expanded) {
+            // @ref LLP 1116.007 D4
+            return err(
+                "lower-appearance",
+                "`appearance=\"textfield\"` is for a text field (an `input`, a `textarea`): it drops a number input's stepper and changes nothing else. Write `\"auto\"` or `\"none\"` here",
+                a.span,
+            );
         }
         // @ref LLP 1057.003 C6 — a transform drag needs both halves:
         // the page's geometry and the release. A handle with one is

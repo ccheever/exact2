@@ -1179,6 +1179,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             }
             f.isEnabled = !disabled
             if isNativeTextControl { styleNativeField() }
+            updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }
         if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
@@ -1280,6 +1281,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
             styleNativeField()
+            updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)
         }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)

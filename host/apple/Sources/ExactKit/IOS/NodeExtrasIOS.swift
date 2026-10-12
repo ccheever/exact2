@@ -66,6 +66,10 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    #if os(iOS)
+    /// A number input's stepper (`NumberStepperIOS.swift`).
+    var stepper: FieldStepper?
+    #endif
     var toldText: String?
     var pendingValue: String?
     /// A native field in a grouped list's row (`isCellField`).

@@ -28,7 +28,7 @@ impl Painter {
         // A row does not keep a caret, nor a focus ring, which comes and
         // goes with no change of the tree: a hosted field has one too.
         self.row_refuse();
-        let native = node.style.appearance == exact_kernel::Appearance::Auto;
+        let native = node.style.appearance != exact_kernel::Appearance::None;
         let disabled = node.props.bool(PropId::Disabled) == Some(true);
         let field_shape = native.then(|| self.text_field_chrome(surface, disabled, ts));
         let content = if let Some(c) = node.field_content_rect() {

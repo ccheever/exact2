@@ -44,6 +44,7 @@ extension NodeView {
         }
         if !disabled { typedText(field?.stringValue ?? "") }
         if let editor = field?.currentEditor() as? NSTextView { applyHeldValue(to: editor) }
+        if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds (LLP 1116.007 D4)
     }
     /// The composition in `editor` is over, the app told of its text: what
     /// the app wrote while it lasted and is still held lands now

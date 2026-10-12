@@ -39,6 +39,7 @@ extension NodeView {
         // (`FieldComposition.swift`). Writing it first told the app its own
         // held value in place of the committed text.
         if !disabled { typedText(field?.text ?? "") }
+        if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds (LLP 1116.007 D4)
         if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
     }
     @objc package func textFieldDidBeginEditing(_ textField: UITextField) {

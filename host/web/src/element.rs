@@ -775,9 +775,17 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // @ref LLP 1104 D8 — shared by live wasm batches, server documents and
     // the JS target's templates. Lowering keeps excluded editors bare.
     if node.node_type == NodeType::TextInput
-        && node.style.appearance == exact_kernel::Appearance::Auto
+        && node.style.appearance != exact_kernel::Appearance::None
     {
         out.insert("data-native".into(), String::new());
+    }
+    // @ref LLP 1116.007 D4 — `appearance: textfield` drops a number input's
+    // spin buttons: Firefox reads the CSS, Chrome and Safari need their
+    // pseudo-elements told (index.html).
+    if node.node_type == NodeType::TextInput
+        && node.style.appearance == exact_kernel::Appearance::Textfield
+    {
+        out.insert("data-exact-textfield".into(), String::new());
     }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());

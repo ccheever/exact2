@@ -111,6 +111,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package var textArea: NSTextView?
     var textAreaScroll: NSScrollView?
     package var field: NSTextField?
+    /// A number input's stepper beside its field (`NumberStepperMac.swift`).
+    var stepper: FieldStepper?
     /// The editor's text as the app was last told it (nil once the app has
     /// set the value since), a `value` that arrived while text was marked,
     /// applied when the composition ends, and whether a value is being
@@ -917,6 +919,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.isEnabled = !disabled
             f.isEditable = !disabled && props["editable"] != "false"
             styleNativeField()
+            updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }
         // Each AppKit accessibility write posts a notification, changed or
         // not: write only what differs from the last write (a new view's
@@ -1108,6 +1111,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
             styleNativeField()
+            updateNumberStepper() // `appearance` may have changed (LLP 1116.007 D4)
         }
         updateMaterial()
         needsDisplay = true

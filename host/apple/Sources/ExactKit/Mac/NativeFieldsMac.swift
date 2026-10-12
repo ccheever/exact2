@@ -24,6 +24,7 @@ extension NodeView {
     func layoutField() {
         guard let field else { return }
         field.frame = isNativeTextControl ? bounds : contentBox()
+        layoutStepper() // a number input's stepper takes the field's trailing end (LLP 1116.007 D4)
         field.needsDisplay = true
     }
     /// The AppKit class an input's field is: a password's secure field; a

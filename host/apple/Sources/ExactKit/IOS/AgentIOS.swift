@@ -409,6 +409,9 @@ extension Agent {
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
         if let canvas { native["canvas"] = "#\(canvas.id)" }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.isFirstResponder }
+        #if os(iOS)
+        if let stepper = host.stepperObservation { native["stepper"] = stepper }
+        #endif
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = t.isFirstResponder }
         if let m = host.materialKind { native["effect"] = m; if m != "backdrop" { native["material"] = Materials.agentMaterial(m) } }
         host.glassAgentFields(&native)
@@ -655,6 +658,10 @@ extension Agent {
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        #if os(iOS)
+        // A finger on a number input's stepper steps it (LLP 1116.007 D4).
+        if plain, req["at"] != nil, let stepped = steppedTap(v, hit: hit, at: p, tapped: at) { return stepped }
+        #endif
         var n: UIView? = hit
         while let cur = n, !(cur is NodeView) { n = cur.superview }
         // What a touch up does first (`NodeView.touchesEnded`, up the

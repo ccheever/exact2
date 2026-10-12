@@ -319,6 +319,7 @@ extension Agent {
         var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
+        if let stepper = host.stepperObservation { native["stepper"] = stepper }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let control = presenter.controls.observation(host) { native["control"] = control }
