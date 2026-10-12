@@ -95,6 +95,7 @@
     "tool-icon-light",
     "tool-icon-dark",
     "tool-icon-muted",
-    "thread-key"
+    "thread-key",
+    "thread-open"
   ]
 }

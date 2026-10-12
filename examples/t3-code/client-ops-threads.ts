@@ -6,6 +6,8 @@ import type { OpOut } from './client-ops';
 import { sidebarSelecting } from './sidebar-commands';
 import { parseFleetThreadId, focusFleetThread } from './settings-b-fleet';
 import { dismissThreadError } from './requests';
+import { clearRowDrops } from './legacy-sidebar-drop';
+import { composerTakesFocus } from './legacy-sidebar-links';
 import { heroCarry, heroLand, ensureScratchProject } from './pages-home';
 import { obj, str, messages } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
@@ -31,10 +33,16 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       if (carry) heroLand(this, carry);
     } else if (op === 'select-thread') {
       // A notification names its thread with its environment (shell-notify.ts): the focused one's opens here.
+      const pressed = id, before = `${this.environmentId}\n${this.threadId}`;
       const qualified = parseFleetThreadId(id);
       if (qualified && qualified.environmentId === this.environmentId) id = qualified.threadId;
-      if (parseFleetThreadId(id)) { const focused = await focusFleetThread(this, native, id); this.adoptStatus(focused.value, focused.generation); } // settings-b: another environment
-      else if (!(await sidebarSelecting(this, native, id, value))) await this.openSelected(native, id);
+      try {
+        if (parseFleetThreadId(id)) { const focused = await focusFleetThread(this, native, id); this.adoptStatus(focused.value, focused.generation); } // settings-b: another environment
+        else if (!(await sidebarSelecting(this, native, id, value))) await this.openSelected(native, id);
+      } catch (error) { await clearRowDrops(this, native, [pressed, id]); throw error; } // handleThreadFileDrop: a drop whose thread did not open is let go
+      // ChatView focuses the composer on every thread change (activeThread.id, a frame later), unless the terminal drawer is open.
+      const target = parseFleetThreadId(id) ?? (this.threadId && `${this.environmentId}\n${this.threadId}` !== before ? { environmentId: this.environmentId, threadId: this.threadId } : null);
+      if (target && composerTakesFocus(this, target)) resultMessage = 'focus:composer';
     } else if (op === 'history') await this.history(native);
     else return false;
     return true;

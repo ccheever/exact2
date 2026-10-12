@@ -705,10 +705,12 @@ component T3Code
           jumpRequest = jumpRequest + 1
           utilityPage = ""
           focus("composer")
-        if result.message == "sidebar:opened" // legacy-sidebar-full: a row's pull request or port went to its thread first (openThread's own effects)
+        if startsWith(result.message, "sidebar:opened") // legacy-sidebar-full: a row's pull request or port went to its thread first (openThread's own effects); `:focus`, ChatView's composer focus on a thread change
           draftOwner = "__unset__"
           jumpRequest = jumpRequest + 1
           utilityPage = ""
+          if result.message == "sidebar:opened:focus"
+            focus("composer")
         if result.message == "pr-handoff-next" // the thread shows first, then its checkout runs (pages-pr-handoffs.ts)
           send prHandoffChanged = command("pageslocal:pr-act-handoff-run", "", "", 0)
         if result.message == "sidebar:palette-new-thread" or startsWith(result.message, "palette:") // pr-links-previews-and-routing: `palette:<page>` (the linked threads, on the pull request's URL; the thread picker)

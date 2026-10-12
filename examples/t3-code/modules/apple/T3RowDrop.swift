@@ -5,9 +5,10 @@ import AppKit
 /// `makeWorkspaceFileDropHandlers` and `handleThreadFileDrop`, sidebarPendingFileDropStore.ts). Each legacy
 /// thread row's button carries the `t3-row-drop` hatch and its thread key (`data-thread-key`); this adds a drop
 /// target over it. A file drag over the row rings it (`ring-1 ring-inset ring-primary/70`); the drop queues the
-/// files under the row's key and presses the row, which opens the thread; TypeScript then takes the queue for the
-/// open thread (`rowDropTake`, legacy-sidebar-drop.ts) and the files are staged as the composer's Attach stages
-/// them (T3ComposerAttach.swift). The target answers drags only: AppKit finds a drag destination by its registered
+/// files under the row's key and, unless the row is the open thread's (`data-thread-open`), presses the row, which
+/// opens the thread; TypeScript then takes the queue for the open thread (`rowDropTake`, legacy-sidebar-drop.ts) and
+/// the files are staged as the composer's Attach stages them (T3ComposerAttach.swift), or lets a drop go whose
+/// thread did not open (`rowDropClear`). The target answers drags only: AppKit finds a drag destination by its registered
 /// types (`_hitTest:dragTypes:`), not by `hitTest`, so a press, a hover or a right click still reach the row.
 final class T3RowDrop {
     private var targets: [ObjectIdentifier: T3RowDropTarget] = [:]
@@ -32,9 +33,7 @@ final class T3RowDrop {
         target.key = key
         target.autoresizingMask = [.width, .height]
         target.dropped = { [weak self, weak element] key, urls in
-            guard let self, !urls.isEmpty else { return }
-            self.queue(key, urls)
-            element?.click() // handleThreadFileDrop: the row's thread opens; ChatView then takes the files
+            self?.drop(key, urls, open: element?.data[.threadOpen] == "1") { element?.click() }
         }
         view.addSubview(target)
         targets[ObjectIdentifier(element)] = target
@@ -52,11 +51,28 @@ final class T3RowDrop {
         targets = [:]
     }
 
+    /// handleThreadFileDrop: the drop queues; a row that is not the open thread's is pressed, which opens its thread
+    /// (ChatView then takes the files). On the open thread's own row nothing navigates: the next refresh takes them.
+    func drop(_ key: String, _ urls: [URL], open: Bool, press: () -> Void) {
+        guard !urls.isEmpty else { return }
+        queue(key, urls)
+        if !open { press() }
+    }
+
     /// queuePendingFileDrop (internal so tests can queue without a drag).
     func queue(_ key: String, _ urls: [URL]) {
         guard !key.isEmpty else { return }
         pending.append((key, urls))
         changed("t3.status")
+    }
+
+    /// clearPendingFileDrop: the drops queued under these keys go (their thread did not open, or another did).
+    func clear(_ request: [String: Any]) -> [String: Any] {
+        let keys = Set(request["keys"] as? [String] ?? [])
+        let before = pending.count
+        pending.removeAll { keys.contains($0.key) }
+        if pending.count != before { changed("t3.status") }
+        return ["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["cleared": before - pending.count]]
     }
 
     /// consumePendingFileDrop: every queued drop for these keys, oldest first, each file staged as Attach stages a

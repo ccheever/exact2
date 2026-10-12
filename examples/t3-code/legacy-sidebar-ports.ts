@@ -106,7 +106,9 @@ export async function openRowPort(client: T3Client, native: Native, id: string):
   const row = rowThread(client, id), port = rowPorts(client, id)[0];
   if (!row || !port) return '';
   if (!row.focused) pendingOpens.set(client, { ...row.ref, url: port.url });
-  const result = await goTo(client, native, id, row.ref);
+  let result = '';
+  // A focus switch that fails leaves no port to open later, when that environment is the focus by other means.
+  try { result = await goTo(client, native, id, row.ref); } catch (error) { if (!row.focused) pendingOpens.delete(client); throw error; }
   if (row.focused) await openBeside(client, native, row.ref, port.url);
   return result;
 }

@@ -21,6 +21,10 @@ import { browserHistory } from './browser-history';
 import { legacyGroups, legacySession, legacySidebarSnapshot } from './legacy-sidebar-view';
 import { fleetPortsEvent, fleetPortsPass, openPendingPort, portLabels, rowPorts, watchRowPorts } from './legacy-sidebar-ports';
 import { takeRowDrops } from './legacy-sidebar-drop';
+import { threadOps } from './client-ops-threads';
+import type { OpOut } from './client-ops';
+import { terminalUiStore } from './terminal-ui-state';
+import { contractComponent } from './contract-component-fixture';
 
 const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const files: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
@@ -85,7 +89,7 @@ afterEach(() => { fleet.entries.clear(); });
 describe('LS-1: the pull request glyph (handlePrClick)', () => {
   test('beside an open thread, a pull request its environment reads opens in that thread\'s right panel, and the thread opens', async () => {
     const { client, native, opened } = rig();
-    expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('sidebar:opened');
+    expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('sidebar:opened:focus');
     expect(opened).toEqual(['thread-2']);
     const panel = surfaceStore(client).panels.get('local:thread-2')!;
     expect(panel).toMatchObject({ visible: true, active: 'pull-request:p1:github.com:acme%2Fapp:7' });
@@ -132,7 +136,7 @@ describe('LS-1: the pull request glyph (handlePrClick)', () => {
     expect(rows.find(row => row.id === 'thread-2')).toMatchObject({ prTooltip: 'PR #7 - Open: Ship it', prPending: false });
     expect(rows.find(row => row.id === 'thread-3')).toMatchObject({ prTooltip: 'PR #7, status pending', prPending: true });
     const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-    expect(view).toContain('button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested');
+    expect(view).toContain('button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested("pr")');
   });
 });
 
@@ -164,7 +168,7 @@ describe('LS-2: the discovered-port button (useThreadDiscoveredPorts, openDiscov
     await watchRowPorts(client, native);
     discoveredServersEvent(client, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, subscriptionId: 'sub-1', value: { servers: [server(5173, 'thread-2')] } });
     void ops;
-    expect(await sidebarCommand(client, native, files, 'legacy-port', 'thread-2', '')).toBe('sidebar:opened');
+    expect(await sidebarCommand(client, native, files, 'legacy-port', 'thread-2', '')).toBe('sidebar:opened:focus');
     expect(opened).toEqual(['thread-2']);
     expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 'thread-2', url: 'http://localhost:5173/' });
     expect(surfaceStore(client).panels.get('local:thread-2')).toMatchObject({ visible: true, active: 'browser:tab-1' });
@@ -207,7 +211,7 @@ describe('LS-2 on a background environment: its own stream, and its thread opens
     await watchRowPorts(client, native);
     await fleetPortsPass(async () => ({ id: 'sub-7' }), entry);
     fleetPortsEvent(entry, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, generation: 3, subscriptionId: 'sub-7', value: { servers: [server(3000, 't9')] } });
-    expect(await sidebarCommand(client, native, files, 'legacy-port', 'fleet:env-remote:t9', '')).toBe('sidebar:opened');
+    expect(await sidebarCommand(client, native, files, 'legacy-port', 'fleet:env-remote:t9', '')).toBe('sidebar:opened:focus');
     expect(opsOf(ops, 'connect').at(-1)).toMatchObject({ origin: 'http://studio.local:3773' });
     expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
     client.environmentId = 'env-remote'; client.threadId = 'other';
@@ -217,7 +221,7 @@ describe('LS-2 on a background environment: its own stream, and its thread opens
     const again = background([thread('t9', { projectId: 'r1' })]);
     await fleetPortsPass(async () => ({ id: 'sub-8' }), again);
     fleetPortsEvent(again, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, generation: 3, subscriptionId: 'sub-8', value: { servers: [server(3000, 't9')] } });
-    expect(await sidebarCommand(client, native, files, 'legacy-port', 'fleet:env-remote:t9', '')).toBe('sidebar:opened');
+    expect(await sidebarCommand(client, native, files, 'legacy-port', 'fleet:env-remote:t9', '')).toBe('sidebar:opened:focus');
     client.environmentId = 'env-remote'; client.threadId = 't9';
     await openPendingPort(client, native);
     expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 't9' });
@@ -284,7 +288,9 @@ describe('LS-8 (found while building): list motion and the destructive "Delete a
   });
   test('the "Project is not empty" toast\'s Delete anyway is the destructive button', () => {
     const toastView = readFileSync(new URL('./shell-toast.contract', import.meta.url), 'utf8');
-    expect(toastView).toContain('background-color=(toast.actionDestructive ? "#dc2626" : "light-dark(#1b4ed8, #346bf1)")');
+    // bg-destructive: --error, red-500 (#fb2c36), lighter in dark mode, as the clone's other destructive buttons.
+    expect(toastView).toContain('background-color=(toast.actionDestructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")');
+    expect(toastView).not.toContain('#dc2626');
   });
 });
 
@@ -328,12 +334,12 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
     for (const target of ['press=open(t.id, "click")', 'press=run("legacy-pr"', 'press=run("legacy-port"', 'press=archive']) {
       const at = thread.indexOf(target);
       expect(at).toBeGreaterThan(0);
-      expect(thread.slice(at, thread.indexOf('\n', at))).toContain('focus=within(true) blur=within(false)');
+      expect(thread.slice(at, thread.indexOf('\n', at))).toMatch(/focus=within\("(\w+)", true\) blur=within\("\1", false\)/);
     }
-    expect(thread).toContain('opacity=(revealed or confirming ? 0 : 1)'); // the meta hides the same way
+    expect(thread).toContain('opacity=(revealed or confirmShown ? 0 : 1)'); // the meta hides the same way
   });
-  test('Confirm takes the focus; leaving it ends the confirmation; the tooltip shows only without confirmation', () => {
-    expect(thread).toContain('press=confirmArchive focus=within(true) blur=confirmLeft autofocus=true');
+  test('Confirm takes the focus; the tooltip shows only without confirmation', () => {
+    expect(thread).toContain('press=confirmArchive focus=within("confirm", true) blur=within("confirm", false) autofocus=true');
     expect(thread).toContain('Tip(label=(legacy.confirmArchive ? "" : "Archive")');
   });
   test('the project\'s New thread stays mounted and crossfades with the environment badge', () => {
@@ -433,5 +439,198 @@ describe('LS-6: a background environment\'s rows act on that environment', () =>
     expect(opsOf(ops, 'connect')).toHaveLength(1);
     expect(sidebarSession(client).navigate).toEqual({ kind: 'project-settings', projectId: 'r1' });
     void sidebarPrefs;
+  });
+});
+
+// The review of PR #469: the row that opened its thread kept the focus (so Archive stayed shown), a tooltip trigger that
+// went away under the pointer left its row hovered, Confirm ended when the focus or the pointer moved within the row,
+// the toast's destructive tone, and the drop and port edge cases.
+describe('review: a thread change focuses the composer (ChatView\'s effect on activeThread.id)', () => {
+  const select = async (client: T3Client, native: Native, id: string) => {
+    const out = { message: '', id: '', value: '' } as OpOut;
+    await threadOps.call(client, 'select-thread', id, 'click', 0, native, files, out);
+    return out.message;
+  };
+  test('a row press that opens another thread focuses the composer; the open thread\'s own row and a ⌘-click do not', async () => {
+    const { client, native } = rig();
+    expect(await select(client, native, 'thread-2')).toBe('focus:composer');
+    expect(await select(client, native, 'thread-2')).toBe(''); // no thread change: the focus stays on the row
+    const held = rig({ modifiers: { command: true } });
+    expect(await select(held.client, held.native, 'thread-2')).toBe(''); // a selection toggle opens nothing
+  });
+  test('not while the opened thread\'s terminal drawer is open, which owns the keys', async () => {
+    const { client, native } = rig();
+    terminalUiStore(client).getState().setTerminalOpen({ environmentId: 'local', threadId: 'thread-2' }, true);
+    expect(await select(client, native, 'thread-2')).toBe('');
+  });
+  test('the pull request glyph and the port button say so with `sidebar:opened:focus`', async () => {
+    const { client, native } = rig();
+    terminalUiStore(client).getState().setTerminalOpen({ environmentId: 'local', threadId: 'thread-2' }, true);
+    expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('sidebar:opened');
+    const app = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
+    expect(app).toContain('if startsWith(result.message, "sidebar:opened")');
+    expect(app).toContain('if result.message == "sidebar:opened:focus"\n            focus("composer")');
+  });
+});
+
+describe('review: a row\'s hover and focus as the host reports them (LegacyThread, LegacyProject run)', () => {
+  const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+  const clock = { now: 1000 };
+  const host = (runs: unknown[][] = []) => ({ performanceNow: () => clock.now, preventDefault() {}, run: (...args: unknown[]) => { runs.push(args); }, open() {}, local() {} });
+  const row = (t: Obj = {}, confirmArchive = true, runs: unknown[][] = []) => contractComponent(view, 'LegacyThread', { reduced: false, page: '', busy: false, legacy: { confirmArchive },
+    t: { id: 't1', title: 'Fix', active: false, selected: false, running: false, renaming: false, prIcon: 'git-pull-request', portLabel: '', worktree: false, ...t } }, host(runs));
+  // The host hovers one node at a time: moving onto a trigger leaves the row and enters the trigger at one instant.
+  const ontoTrigger = (run: ReturnType<typeof row>) => { run.act('hover', false); run.act('innerHover', true); };
+
+  test('the row that opened its thread shows its time again once the composer took the focus and the pointer left', () => {
+    const run = row();
+    run.act('hover', true);
+    run.act('within', 'row', true); // a mouse press makes the row's button first responder
+    expect(run.scope.revealed).toBe(true);
+    run.act('within', 'row', false); // the composer takes the focus
+    clock.now += 100;
+    run.act('hover', false);
+    expect(run.scope.revealed).toBe(false);
+  });
+  test('a collapsed project\'s status trigger that goes as a press expands it leaves the header unhovered after the pointer leaves', () => {
+    const header = contractComponent(view, 'LegacyProject', { reduced: false, p: { key: 'k', expanded: false, statusLabel: 'Working' }, legacy: {}, now: 0, page: '', busy: false }, host());
+    header.act('hover', true);
+    ontoTrigger(header);
+    expect(header.scope.pointed).toBe(true);
+    // The press expands the project: the status box and its trigger go with no leave; the host's hit-test after the
+    // layout hovers the header itself again.
+    header.act('hover', true);
+    header.act('hover', false);
+    expect(header.scope.pointed).toBe(false);
+    expect(header.scope.revealed).toBe(false);
+  });
+  test('Archive\'s trigger replaced by Confirm, then the pointer leaving: no hover, no Confirm, the time shown', () => {
+    const runs: unknown[][] = [], run = row({}, true, runs);
+    run.act('hover', true);
+    ontoTrigger(run); // Archive's tooltip trigger
+    run.act('within', 'archive', true);
+    run.act('archive');
+    run.act('within', 'confirm', true); // autofocus
+    expect(run.scope.confirmShown).toBe(true);
+    run.act('hover', true); // the host's hit-test after the layout: Confirm has no hover handler, the row has
+    expect(run.scope.inner).toBe(false);
+    clock.now += 100;
+    run.act('hover', false);
+    expect(run.scope.pointed).toBe(false);
+    expect(run.scope.confirmShown).toBe(false); // handleMouseLeave
+    expect(run.scope.revealed).toBe(false); // Confirm went with the focus: no control of the row holds it
+    clock.now += 500;
+    run.act('hover', true); // back later: the confirmation stays ended
+    expect(run.scope.confirming).toBe(false);
+    expect(runs).toEqual([]);
+  });
+  test('the pointer moving from Confirm onto the title, a trigger, keeps the confirmation; leaving the row from there ends it', () => {
+    const run = row();
+    run.act('hover', true);
+    run.act('archive');
+    clock.now += 100;
+    ontoTrigger(run); // the title's tooltip trigger, within the row
+    expect(run.scope.confirmShown).toBe(true);
+    clock.now += 100;
+    run.act('innerHover', false); // out of the row from the title
+    expect(run.scope.confirmShown).toBe(false);
+  });
+  test('handleBlurCapture: the focus moving to another control of the row keeps Confirm; leaving the row ends it', () => {
+    const run = row();
+    run.act('within', 'archive', true);
+    run.act('archive');
+    run.act('within', 'confirm', true);
+    run.act('within', 'confirm', false); run.act('within', 'pr', true); // ⇧Tab to the pull request link, one instant
+    expect(run.scope.confirmShown).toBe(true);
+    run.act('within', 'pr', false); // Tab on, out of the row
+    expect(run.scope.confirmShown).toBe(false);
+    clock.now += 100;
+    run.act('within', 'row', true); // the focus comes back later: the confirmation stays ended
+    expect(run.scope.confirming).toBe(false);
+    expect(run.scope.revealed).toBe(true);
+  });
+  test('a focused control that goes away (the port\'s server stops, the thread starts running, a rename) counts as left', () => {
+    const port = row({ portLabel: 'Open localhost:5173' });
+    port.act('within', 'port', true);
+    expect(port.scope.inside).toBe(true);
+    port.scope.t = { ...(port.scope.t as Obj), portLabel: '' };
+    expect(port.scope.inside).toBe(false);
+    const renamed = row();
+    renamed.act('within', 'row', true);
+    renamed.scope.t = { ...(renamed.scope.t as Obj), renaming: true };
+    renamed.act('within', 'rename', true); // the field's autofocus
+    renamed.scope.t = { ...(renamed.scope.t as Obj), renaming: false }; // Enter saved it; the field went with no blur
+    expect(renamed.scope.inside).toBe(false);
+    expect(renamed.scope.revealed).toBe(false);
+  });
+  test('without confirmation Archive archives at once', () => {
+    const runs: unknown[][] = [], run = row({}, false, runs);
+    run.act('archive');
+    expect(runs).toEqual([['legacy-archive', 't1', '']]);
+    expect(run.scope.confirmShown).toBe(false);
+  });
+});
+
+describe('review: LS-1 on a background environment\'s row', () => {
+  const remoteProject = { id: 'r2', title: 'app', workspaceRoot: '/srv/app', repositoryIdentity: repo, createdAt: at(0), updatedAt: at(0) };
+  const reading = (entry: FleetEntry) => { entry.config = { environment: { label: 'Studio', capabilities: { pullRequests: true, threadPullRequests: true } }, settings: {} }; return entry; };
+  test('beside a thread, the pull request opens in that thread\'s panel by its key (prTarget over its environment\'s projects), then that environment becomes the focus', async () => {
+    const { client, native, ops } = rig();
+    reading(background([thread('t9', { projectId: 'r2', pullRequests: linked() })], [remoteProject]));
+    expect(await sidebarCommand(client, native, files, 'legacy-pr', 'fleet:env-remote:t9', '')).toBe('sidebar:opened:focus');
+    expect(surfaceStore(client).panels.get('env-remote:t9')).toMatchObject({ visible: true, active: 'pull-request:r2:github.com:acme%2Fapp:7' });
+    expect(surfaceStore(client).panels.get('local:thread-1')).toBeUndefined();
+    expect(opsOf(ops, 'connect').at(-1)).toMatchObject({ origin: 'http://studio.local:3773' });
+    expect(client.local.selections['env-remote']).toEqual({ projectId: 'r2', threadId: 't9' });
+  });
+  test('on a page, a pull request only a background environment reads opens on the Pull Requests page named with that environment', async () => {
+    const { client, native, ops } = rig({ caps: { pullRequests: false } });
+    reading(background([thread('t9', { projectId: 'r2', pullRequests: linked() })], [remoteProject]));
+    const result = await sidebarCommand(client, native, files, 'legacy-pr', 'fleet:env-remote:t9', 'pull-requests');
+    expect(result.startsWith('sidebar:pr-page:')).toBe(true);
+    expect(JSON.parse(result.slice(16))).toEqual({ projectId: 'r2', host: 'github.com', repository: 'acme/app', number: 7, environmentId: 'env-remote' });
+    expect(opsOf(ops, 'connect')).toEqual([]); // the page itself picks the environment: no focus switch here
+  });
+});
+
+describe('review: drops and port opens whose thread did not open (handleThreadFileDrop, handleOpenDiscoveredPort)', () => {
+  test('a drop queued for a thread that is not open goes once another thread opens; one whose thread opens is taken', async () => {
+    const { client, native, ops } = rig({ threadId: 'thread-1', presentation: { rowDrops: ['thread-3'] } });
+    expect(await takeRowDrops(client, native)).toBe(false); // its press is still on the way
+    expect(opsOf(ops, 'rowDropClear')).toEqual([]);
+    client.threadId = 'thread-2'; // the press found the app busy, or another thread opened first
+    expect(await takeRowDrops(client, native)).toBe(false);
+    expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['thread-3']]);
+    const landed = rig({ threadId: 'thread-1', presentation: { rowDrops: ['thread-3'] } });
+    await takeRowDrops(landed.client, landed.native);
+    landed.client.threadId = 'thread-3';
+    await takeRowDrops(landed.client, landed.native);
+    expect(opsOf(landed.ops, 'rowDropClear')).toEqual([]);
+    expect(opsOf(landed.ops, 'rowDropTake').map(op => op.keys)).toEqual([['thread-3', 'fleet:local:thread-3']]);
+  });
+  test('a press whose thread fails to open lets the row\'s drop go', async () => {
+    const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:env-gone:t1'] } });
+    const out = { message: '', id: '', value: '' } as OpOut;
+    await expect(threadOps.call(client, 'select-thread', 'fleet:env-gone:t1', 'click', 0, native, files, out)).rejects.toThrow('That environment is no longer connected.');
+    expect(opsOf(ops, 'rowDropClear').map(op => op.keys)).toEqual([['fleet:env-gone:t1']]);
+  });
+  test('the open thread\'s own row only queues (no press); its drop is taken at the next refresh', () => {
+    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+    expect(view).toContain('data-thread-key=t.id data-thread-open=(isOpen ? "1" : "0")');
+    expect(JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8')).data).toContain('thread-open');
+    const swift = readFileSync(new URL('./modules/apple/T3RowDrop.swift', import.meta.url), 'utf8');
+    expect(swift).toContain('self?.drop(key, urls, open: element?.data[.threadOpen] == "1") { element?.click() }');
+  });
+  test('a port whose environment fails to become the focus is not opened later', async () => {
+    const { client, native, rpcs } = rig();
+    const entry = background([thread('t9', { projectId: 'r1' })]);
+    await watchRowPorts(client, native);
+    await fleetPortsPass(async () => ({ id: 'sub-7' }), entry);
+    fleetPortsEvent(entry, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, generation: 3, subscriptionId: 'sub-7', value: { servers: [{ host: '127.0.0.1', port: 3000, url: 'http://localhost:3000/', processName: 'node', pid: 7, terminal: { threadId: 't9', terminalId: 't' } }] } });
+    native.later = (original => async (request: unknown) => obj(request).op === 'connect' ? { ok: false, generation: 0, error: { kind: 'Connect', message: 'Studio refused.', uncertain: false } } : original(request))(native.later.bind(native));
+    await expect(sidebarCommand(client, native, files, 'legacy-port', 'fleet:env-remote:t9', '')).rejects.toThrow('Studio refused.');
+    client.environmentId = 'env-remote'; client.threadId = 't9'; // that environment became the focus later, by other means
+    await openPendingPort(client, native);
+    expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
   });
 });

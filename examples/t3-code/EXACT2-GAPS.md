@@ -936,3 +936,16 @@ reference's are 2 pt every 8. Framework gap filed on main by [#430](https://gith
 `contract build`; Chrome paints one `repeating-linear-gradient` on the scroller with `background-attachment: local`
 unbroken across rows of any height). Goes when Contract paints that (or a row can place its background in its list's
 content coordinates): then the list carries the reference's gradient and the empty side shows it.
+
+## Legacy sidebar: Project settings on a background environment's project (declared difference; clone scope, no framework gap)
+
+Task `20261011-legacy-sidebar-full` (LS-6; found by the PR #469 review). The reference's "Project settings" goes to
+`/projects/$projectKey`, Settings › Projects scoped to the logical project, whose groups span every environment
+(`useSettingsProjectGroups`), and the focused environment stays. The clone's Settings › Projects (`projects-view.ts`
+`projectsPage`, its actions, icons, workspace mode and removal) reads and writes the focused environment's project
+groups only, so on a project that only a background environment has, the legacy sidebar's Project settings makes that
+environment the focus first, then opens the page on the project (`legacy-sidebar-commands.ts` `projectSettings`). This
+is not an Exact limit: the page needs the fleet's groups and per-environment writes, as the scoped settings already
+have (`settings-scope-sources.ts` `scopeProjectGroups`, `environmentRequest`). That page work is outside the legacy
+sidebar's scope and is proposed as its own task (`settings-projects-fleet`); until it lands, the row belongs in
+STATUS.md's "Known differences". On a project the focused environment has (alone or with others), nothing differs.

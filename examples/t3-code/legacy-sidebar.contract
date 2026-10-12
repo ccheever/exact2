@@ -263,8 +263,12 @@ component LegacyProject
   state inside = false
   // The pointer on the header's status or New thread tooltip trigger (LegacyThread `inner`).
   state inner = false
+  // A trigger that goes away under the pointer (the status box, as a press expands the project) reports no leave;
+  // the host hovers the header itself again then (its hit-test after the layout), so its hover clears `inner`.
   action hover(value: bool)
     over = value
+    if value
+      inner = false
   action innerHover(value: bool)
     inner = value
   action within(value: bool)
@@ -338,35 +342,61 @@ component LegacyThread
     local: action
     run: action
   state over = false
-  state inside = false
   state confirming = false
   // The pointer on one of the row's own tooltip triggers (title, pull request, port, worktree, Archive): the host
   // hovers only the nearest node with a hover handler, so a pointer entering the row on its title would leave the
-  // row itself unhovered; the triggers report it here (group-hover holds for the whole row in the reference).
+  // row itself unhovered; the triggers report it here (group-hover holds for the whole row in the reference). A
+  // trigger that goes away under the pointer reports no leave; the host hovers the row itself again then (its
+  // hit-test after the layout), so the row's own hover clears it.
   state inner = false
+  // The row's control that holds the focus ("row", "pr", "port", "archive", "confirm", "rename"; "" for none). A
+  // control that goes away with the focus reports no blur, so only one still drawn counts (group-focus-within).
+  state focused = ""
+  // When the pointer left the row and its triggers, and when the focus left its controls (performanceNow(); -1
+  // while on it). The host moves the hover from the row to a trigger, and the focus from one control to the next,
+  // by a leave and an enter at one instant, which is no leave. A real one ends the confirmation (handleMouseLeave;
+  // handleBlurCapture, which looks a frame later for the focus in the row).
+  state pointerLeft = -1
+  state focusLeft = -1
   action hover(value: bool)
     over = value
-    if not value
-      confirming = false
+    if value
+      inner = false
+      if pointerLeft >= 0 and performanceNow() - pointerLeft > 16
+        confirming = false
+      pointerLeft = -1
+    else if not inner
+      pointerLeft = performanceNow()
   action innerHover(value: bool)
     inner = value
-  action within(value: bool)
-    inside = value
+    if value
+      if pointerLeft >= 0 and performanceNow() - pointerLeft > 16
+        confirming = false
+      pointerLeft = -1
+    else if not over
+      pointerLeft = performanceNow()
+  action within(name: string, value: bool)
+    if value
+      if focusLeft >= 0 and performanceNow() - focusLeft > 16
+        confirming = false
+      focused = name
+      focusLeft = -1
+    else if focused == name
+      focused = ""
+      focusLeft = performanceNow()
   // handleRowDoubleClick ignores a double-click on a nested control (a button or a link): no rename.
-  action nested
-    inside = true
+  action nested(name: string)
+    focused = name
   action archive
     if legacy.confirmArchive
       confirming = true
+      pointerLeft = -1
+      focusLeft = -1
     else
       run("legacy-archive", t.id, "")
   action confirmArchive
     confirming = false
     run("legacy-archive", t.id, "")
-  // handleBlurCapture: the focus leaving Confirm ends the confirmation.
-  action confirmLeft
-    inside = false
-    confirming = false
   // The row's own ContextMenu menu at its centre (legacy-sidebar-commands `row-key`); prevented, so the
   // host's default (exact2 #314) does not also run `contextmenu`, whose menu opens at the pointer.
   action rowKey(name: string)
@@ -377,20 +407,22 @@ component LegacyThread
   derive isOpen = t.active and page == ""
   derive highlighted = isOpen or t.selected
   derive pointed = over or inner
+  derive confirmShown = confirming and pointerLeft < 0 and focusLeft < 0 and not t.running and not t.renaming
+  derive inside = t.renaming ? focused == "rename" : focused == "row" or (focused == "pr" and t.prIcon != "") or (focused == "port" and t.portLabel != "") or (focused == "archive" and not confirmShown and not t.running) or (focused == "confirm" and confirmShown)
   derive revealed = (pointed or inside) and not t.running
   derive surface = isOpen ? "light-dark(#ffffff, #f1f3f71c)" : t.selected ? "light-dark(#ffffff, #f1f3f712)" : pointed ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000"
   view
     row id=`legacy-row-${t.id}` width="100%" height="2rem" position="relative" hover=hover -exact-layout-transition=(reduced ? "none" : "180ms ease-out") -exact-exit-animation=(reduced ? "none" : "lsRowOut 180ms ease-out") animation=(t.enter and not reduced ? "lsRowIn 180ms ease-out" : "none") testId=`thread-row-${t.id}`
       when t.renaming
         row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color=surface
-          LegacyRenameField(t=t, local=local, run=run)
+          LegacyRenameField(t=t, local=local, run=run, within=within)
       else
-        button cursor="pointer" press=open(t.id, "click") dblclick=local("legacy-rename-start", t.id, "") contextmenu=run("legacy-thread-menu", t.id, "") key=rowKey focus=within(true) blur=within(false) hatch="t3-row-drop" data-thread-key=t.id aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center"
+        button cursor="pointer" press=open(t.id, "click") dblclick=local("legacy-rename-start", t.id, "") contextmenu=run("legacy-thread-menu", t.id, "") key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.id data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center"
           row flex=1 min-width=0 gap="0.375rem" align-items="center"
             // handlePrClick: the pull request beside the thread, on the Pull Requests page, or as a link (legacy-sidebar-links.ts).
             when t.prIcon != ""
               LegacyRowTip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", offset=16, relay=innerHover)
-                button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested focus=within(true) blur=within(false) aria-label=t.prTooltip testId=`thread-pr-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+                button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested("pr") focus=within("pr", true) blur=within("pr", false) aria-label=t.prTooltip testId=`thread-pr-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
                   when t.prPending
                     LegacyIcon(name="git-pull-request", size=12, color="light-dark(#71717b, #818181)")
                   else
@@ -406,7 +438,7 @@ component LegacyThread
             // handleOpenDiscoveredPort: the first server a terminal of this thread listens on, in a Browser tab beside it.
             when t.portLabel != ""
               LegacyRowTip(label=t.portTip, side="top", align="center", offset=16, relay=innerHover)
-                button cursor="pointer" press=run("legacy-port", t.id, "") dblclick=nested focus=within(true) blur=within(false) aria-label=t.portLabel testId=`thread-port-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+                button cursor="pointer" press=run("legacy-port", t.id, "") dblclick=nested("port") focus=within("port", true) blur=within("port", false) aria-label=t.portLabel testId=`thread-port-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
                   LegacyIcon(name="globe-2", size=12, color="light-dark(#007a55, #00d492)")
             when t.worktree
               LegacyRowTip(label=t.worktreeLabel, side="top", align="center", offset=16, relay=innerHover)
@@ -414,7 +446,7 @@ component LegacyThread
                   SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
             when t.terminalCount > 0
               TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
-            row min-width="3rem" justify-content="flex-end" align-items="center" gap="0.25rem" opacity=(revealed or confirming ? 0 : 1)
+            row min-width="3rem" justify-content="flex-end" align-items="center" gap="0.25rem" opacity=(revealed or confirmShown ? 0 : 1)
               when t.remoteMachine != ""
                 box flex-shrink=0 display="flex" role="img" aria-label=t.remoteLabel testId=`thread-remote-${t.id}`
                   CnMachineIcon(kind=t.remoteMachine, size=12, color="light-dark(#71717b66, #81818166)")
@@ -422,15 +454,15 @@ component LegacyThread
                 text t.jump height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#ffffffe6, #0a0a0ae6)" font-family="ui-monospace, monospace" font-size="0.625rem" line-height="1.125rem" font-weight=500 color="light-dark(#27272a, #f3f3f3)" white-space="nowrap" aria-label=t.jump testId=`thread-jump-${t.id}`
               else
                 text t.age font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(highlighted ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#71717b, #818181)") white-space="nowrap"
-        when confirming and not t.running
-          button cursor="pointer" press=confirmArchive focus=within(true) blur=confirmLeft autofocus=true aria-label=`Confirm archive ${t.title}` testId=`thread-archive-confirm-${t.id}` position="absolute" right="0.25rem" top="0.375rem" height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="light-dark(#e7000b1f, #ff646f2e)" display="flex" flex-direction="row" align-items="center"
+        when confirmShown
+          button cursor="pointer" press=confirmArchive focus=within("confirm", true) blur=within("confirm", false) autofocus=true aria-label=`Confirm archive ${t.title}` testId=`thread-archive-confirm-${t.id}` position="absolute" right="0.25rem" top="0.375rem" height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="light-dark(#e7000b1f, #ff646f2e)" display="flex" flex-direction="row" align-items="center"
             text "Confirm" font-size="0.625rem" line-height="0.875rem" font-weight=500 color="light-dark(#e7000b, #ff646f)"
         else
           when not t.running
             box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")
               // The tooltip shows only without the confirmation (LegacySidebar.tsx: the confirm path has none).
               LegacyRowTip(label=(legacy.confirmArchive ? "" : "Archive"), side="top", align="center", offset=28, relay=innerHover)
-                button cursor="pointer" press=archive focus=within(true) blur=within(false) aria-label=`Archive ${t.title}` testId=`thread-archive-${t.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                button cursor="pointer" press=archive focus=within("archive", true) blur=within("archive", false) aria-label=`Archive ${t.title}` testId=`thread-archive-${t.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                   LegacyIcon(name="archive", size=14, color="light-dark(#71717b, #818181)")
 
 // A tooltip around a truncating text: unlike Tip's box it grows and shrinks with the row, so the text still clamps.
@@ -468,16 +500,19 @@ component LegacyRowTip
       when label != ""
         TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=over)
 
+// The rename field reports its focus to its row (LegacyThread `focused`), which then counts the row button it
+// replaced as left.
 component LegacyRenameField
   props
     t: LegacyThreadRow
     local: action
     run: action
+    within: action
   state title = t.title
   action edit(value: string)
     title = value
   view
-    input value=title input=edit submit=run("legacy-rename", t.id, title) blur=run("legacy-rename", t.id, title) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f3f3f3)" autocorrect="off"
+    input value=title input=edit submit=run("legacy-rename", t.id, title) blur=run("legacy-rename", t.id, title) focus=within("rename", true) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f3f3f3)" autocorrect="off"
 
 // The legacy sidebar's dialogs, mounted with the window's overlays (sidebar-overlays.contract):
 // Rename project, Project grouping, the project removal confirm and "Archive N threads?".

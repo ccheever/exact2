@@ -8,7 +8,7 @@ import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { letGo } from './let-go';
 import { pushToast } from './toast';
-import { scopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';
+import { scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
 import { surfaceStore, type PanelState } from './r4-surfaces-panel';
 import { openPullRequestIn } from './r5-panels-surfaces';
 import { prTarget } from './r5-panels-pr';
@@ -42,9 +42,14 @@ function panelOf(client: T3Client, ref: ScopedThreadRef): PanelState {
   if (!state) { state = { surfaces: [], active: '', visible: false, userRevision: 0 }; store.panels.set(key, state); }
   return state;
 }
+/** ChatView's effect on every thread change: the composer takes the focus (a frame later), unless that thread's terminal drawer is open. */
+export function composerTakesFocus(client: T3Client, ref: ScopedThreadRef): boolean {
+  return !selectThreadTerminalUiState(terminalUiStore(client).getState().terminalUiStateByThreadKey, ref).terminalOpen;
+}
 /**
- * navigateToThread: the selection clears and anchors on the row; a thread that is not open opens ('sidebar:opened'),
- * a background environment's by focusing that environment (select-thread, client-ops-threads.ts).
+ * navigateToThread: the selection clears and anchors on the row; a thread that is not open opens ('sidebar:opened',
+ * with ':focus' when the composer takes the focus), a background environment's by focusing that environment
+ * (select-thread, client-ops-threads.ts).
  */
 export async function goTo(client: T3Client, native: Native, id: string, ref: ScopedThreadRef): Promise<string> {
   const session = sidebarSession(client);
@@ -54,7 +59,7 @@ export async function goTo(client: T3Client, native: Native, id: string, ref: Sc
     const focused = await focusFleetThread(client, native, `fleet:${ref.environmentId}:${ref.threadId}`);
     (client as unknown as { adoptStatus?(value: Obj, generation: number): void }).adoptStatus?.(focused.value, focused.generation);
   } else await (client as unknown as Navigator).openSelected?.(native, ref.threadId);
-  return 'sidebar:opened';
+  return composerTakesFocus(client, ref) ? 'sidebar:opened:focus' : 'sidebar:opened';
 }
 async function modifierHeld(client: T3Client, native: Native): Promise<boolean> {
   let flags: Obj = {};

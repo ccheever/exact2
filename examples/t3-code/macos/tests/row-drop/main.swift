@@ -127,6 +127,37 @@ final class RowDropTests: XCTestCase {
     }
 }
 
+extension RowDropTests {
+    /// handleThreadFileDrop: a row that is not the open thread's is pressed; the open thread's own row only queues.
+    func testADropPressesOnlyARowThatIsNotOpen() throws {
+        let drops = T3RowDrop(attach: T3ComposerAttach(dataRoot: root, agent: false)) { _ in }
+        let file = try write("notes.txt", Data("hello".utf8))
+        var presses = 0
+        drops.drop("thread-2", [file], open: false) { presses += 1 }
+        XCTAssertEqual(presses, 1, "another thread's row opens its thread")
+        drops.drop("thread-1", [file], open: true) { presses += 1 }
+        XCTAssertEqual(presses, 1, "the open thread's row does not press itself again (openSelected would reset its panel)")
+        drops.drop("thread-3", [], open: false) { presses += 1 }
+        XCTAssertEqual(presses, 1, "an empty drop does nothing")
+        XCTAssertEqual(drops.status["rowDrops"] as? [String], ["thread-2", "thread-1"])
+    }
+
+    /// clearPendingFileDrop: a drop whose thread did not open goes; the others stay.
+    func testClearingLetsTheNamedDropsGo() throws {
+        var topics: [String] = []
+        let drops = T3RowDrop(attach: T3ComposerAttach(dataRoot: root, agent: false)) { topics.append($0) }
+        let file = try write("notes.txt", Data("hello".utf8))
+        drops.queue("thread-2", [file]); drops.queue("thread-3", [file]); drops.queue("thread-2", [file])
+        let reply = drops.clear(["keys": ["thread-2", "thread-9"], "generation": 7])
+        XCTAssertEqual(reply["generation"] as? Int, 7)
+        XCTAssertEqual((reply["value"] as? [String: Any])?["cleared"] as? Int, 2)
+        XCTAssertEqual(drops.status["rowDrops"] as? [String], ["thread-3"])
+        XCTAssertEqual(topics.count, 4, "three queued and one clear")
+        _ = drops.clear(["keys": ["thread-9"]])
+        XCTAssertEqual(topics.count, 4, "nothing cleared, nothing changed")
+    }
+}
+
 _ = NSApplication.shared
 let suite = XCTestSuite(forTestCaseClass: RowDropTests.self)
 suite.run()

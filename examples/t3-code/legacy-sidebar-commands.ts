@@ -267,7 +267,8 @@ const archiveRow = (client: T3Client, native: Native, id: string): Promise<void>
 const markUnreadRow = (client: T3Client, native: Native, id: string): Promise<void> => isBackground(client, id) ? markUnreadBackground(client, native, id) : markUnread(client, native, id);
 /**
  * "Project settings" (/projects/$projectKey → Settings › Projects scoped to the project): a background member's
- * environment becomes the focus first, as Settings › Projects lists the focused environment's projects.
+ * environment becomes the focus first, as Settings › Projects lists the focused environment's projects (a declared
+ * difference: EXACT2-GAPS.md "Legacy sidebar: Project settings on a background environment's project").
  */
 async function projectSettings(client: T3Client, native: Native, memberId: string): Promise<string> {
   const background = backgroundRef(client, memberId);
