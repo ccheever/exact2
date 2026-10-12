@@ -991,24 +991,54 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
     await db.logout();
     expect((await db.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
     expect((await db.send('draft', { body: 'Alice private' }, Date.now())).state).toBe('sent');
+    // A request already carrying the old token cannot erase a refresh's replacement.
+    for (const [path, request] of [
+      ['/q/myDrafts', () => db.read('myDrafts', {}, Date.now())],
+      ['/sync', () => db.sync()],
+    ] as const) {
+      let enter!: () => void, release!: () => void;
+      const entered = new Promise<void>(done => { enter = done; });
+      const held = new Promise<void>(done => { release = done; });
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith(path)) { enter(); await held; }
+        return realFetch(input as never, init);
+      }) as typeof fetch;
+      try {
+        const pending = request();
+        await entered;
+        const renewed = await db.refreshSession(Date.now());
+        if (!renewed.ok) throw new Error(renewed.denied.code);
+        release();
+        expect((await pending).denied?.code).toBe('E_AUTH');
+        expect(db.session?.token).toBe(renewed.session.token);
+      } finally { release(); globalThis.fetch = realFetch; }
+      expect(await db.sync()).toEqual({ ok: true });
+    }
     const staleAlice = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
-    let enter!: () => void, release!: () => void;
+    let enter!: () => void, enterSync!: () => void, release!: () => void;
     const entered = new Promise<void>(done => { enter = done; });
+    const syncEntered = new Promise<void>(done => { enterSync = done; });
     const heldReply = new Promise<void>(done => { release = done; });
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const response = await realFetch(input as never, init);
       if (String(input).endsWith('/q/myDrafts')) { enter(); await heldReply; }
+      if (String(input).endsWith('/sync')) { enterSync(); await heldReply; }
       return response;
     }) as typeof fetch;
     const reading = db.read<{ body: string }[]>('myDrafts', {}, Date.now()).catch(error => error);
     try {
       await entered;
+      const syncing = db.sync().catch(error => error);
+      await syncEntered;
+      const queuedSync = db.sync().catch(error => error);
       await db.logout();
       expect((await db.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
       await expect(staleAlice.download('not-even-fetched')).rejects.toThrow(/E_AUTH/);
       await expect(staleAlice.upload(new Uint8Array([1]))).rejects.toThrow(/E_AUTH/);
       release();
       expect((await reading as { code: string }).code).toBe('E_STALE');
+      expect((await syncing as { code: string }).code).toBe('E_STALE');
+      expect((await queuedSync as { code: string }).code).toBe('E_STALE');
     } finally { release(); globalThis.fetch = realFetch; }
     await staleAlice.close();
     // A revoked session, including one kept across a backend reset, is forgotten.
@@ -1026,7 +1056,42 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
     db = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
     expect(db.session).toBeNull();
     expect(store.get('session')).toBeNull();
-    await db.close(); secrets.close();
+    await db.close();
+    // The native module has one open partition, even when several sources share it.
+    const { webDevice } = await import('./web.ts');
+    let nativeDevice: Awaited<ReturnType<typeof webDevice>> | undefined;
+    const native = { call: async (request: Record<string, unknown>) => {
+      if (request.op === 'open') {
+        if (nativeDevice) throw new Error('close the current Snapback4 partition before opening another');
+        nativeDevice = await webDevice(page, options.app, String(request.path), `file://${wasm}`);
+      }
+      if (!nativeDevice) throw new Error('no native partition');
+      const answer = await nativeDevice.call(request as never);
+      if (request.op === 'close') { await nativeDevice.close?.(); nativeDevice = undefined; }
+      return answer;
+    } };
+    const nativeOptions = { ...options, name: 'native-account', native, auth: { store, key: 'native-session', now: Date.now() } };
+    const owner = await Snapback.open(nativeOptions);
+    expect((await owner.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    const oldHandle = await Snapback.open(nativeOptions);
+    await owner.logout();
+    expect(nativeDevice).toBeUndefined();
+    expect(oldHandle.usable).toBe(false);
+    expect((await owner.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    await oldHandle.close();                            // must not close Bob's current native device
+    expect((await owner.send('send', { body: 'native Bob' }, Date.now())).state).toBe('sent');
+    await owner.logout();
+    expect((await owner.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    const refusedHandle = await Snapback.open(nativeOptions);
+    await realFetch(`${url}/auth/logout`, { method: 'POST', headers: { authorization: `Bearer ${owner.session!.token}` } });
+    expect((await owner.sync()).denied?.code).toBe('E_AUTH');
+    expect((await owner.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect(refusedHandle.usable).toBe(false);
+    await refusedHandle.close();
+    expect((await owner.send('send', { body: 'native recovery' }, Date.now())).state).toBe('sent');
+    await owner.logout(); await owner.close();
+    expect(nativeDevice).toBeUndefined();
+    secrets.close();
     const mixed = Snapback.switcher((viewer: string) => ({ app: 'test.exact.password', origin: url,
       viewer, wasm: `file://${wasm}`, headers: () => ({ authorization: `Bearer ${held.token}`, 'x-snapback-persona': undefined }) }));
     expect(await mixed.use(principal, page, null, async client => client.options.name)).toBe(Snapback.partitionName(principal));

@@ -281,6 +281,20 @@ async function openPartition(options: Options & { viewer: string }, path: string
   } catch (error) { await device.close?.(); throw error; }
 }
 
+async function retirePartition(partition: Partition): Promise<void> {
+  partition.closing = true;
+  const { partitions, closing } = partition.page;
+  if (partition.entry && partitions.get(partition.path) === partition.entry) partitions.delete(partition.path);
+  const cleanup = (async () => {
+    await partition.device.call({ op: 'close' }).catch(() => undefined);
+    // A cleanup the device deferred (it will run it) or that failed can be
+    // asked for again.
+    partition.cleaned = (await partition.device.close?.()) !== false;
+  })();
+  closing.set(partition.path, cleanup);
+  try { await cleanup; } finally { if (closing.get(partition.path) === cleanup) closing.delete(partition.path); }
+}
+
 export class Snapback {
   private closed = false;
   private constructor(private held: Partition | undefined, readonly options: Options, private baseName = options.name) {}
@@ -288,6 +302,7 @@ export class Snapback {
     if (this.closed) throw new Error('Snapback4: this client is closed');
     if (!this.held || (this.options.auth && this.session?.principal !== this.held.viewer))
       throw refusal('E_AUTH', 'sign in before reading or writing this partition');
+    if (this.held.closing) throw refusal('E_STALE', 'this account partition was retired; open the current account again');
     return this.held;
   }
   get session(): Session | null {
@@ -315,6 +330,11 @@ export class Snapback {
     return next;
   }
 
+  private invalidate(token: string | undefined): void {
+    const auth = this.options.auth;
+    if (auth && token && this.session?.token === token) auth.store.forget(auth.key);
+  }
+
   /** A lossless filename for any principal, including `user:<ULID>`. */
   static partitionName(principal: string): string {
     return `p-${Array.from(new TextEncoder().encode(principal), byte => byte.toString(16).padStart(2, '0')).join('')}`;
@@ -331,7 +351,7 @@ export class Snapback {
   private fence(): () => void {
     const partition = this.partition;
     return () => {
-      if (this.closed || this.held !== partition || (this.options.auth && this.session?.principal !== partition.viewer))
+      if (this.closed || partition.closing || this.held !== partition || (this.options.auth && this.session?.principal !== partition.viewer))
         throw refusal('E_STALE', 'the account changed while this request was in flight');
     };
   }
@@ -400,9 +420,18 @@ export class Snapback {
   private async bindSession(): Promise<void> {
     const session = this.session;
     if (!session) return;
-    if (this.held?.viewer === session.principal) return;
+    if (this.held?.viewer === session.principal && !this.held.closing) return;
     if (this.held) { await this.close(); this.closed = false; this.held = undefined; }
     const name = `${this.baseName}-${Snapback.partitionName(session.principal)}`;
+    if (this.options.native) {
+      // One native device per module: retire every previous file, including
+      // references held by another source or left after a refused session.
+      const page = pageOf(this.options), path = `app:/data/${name}.sqlite`;
+      for (const opening of [...page.partitions.values()]) {
+        const previous = await opening;
+        if (previous.path !== path && !previous.cleaned) await retirePartition(previous);
+      }
+    }
     const bound = await Snapback.openViewer({ ...this.options, name, viewer: session.principal });
     this.held = bound.held;
     this.options.name = name;
@@ -441,7 +470,7 @@ export class Snapback {
     try { if (this.session) reply = await this.exchange({ method: 'POST', path: '/auth/logout' }); }
     finally {
       auth.store.forget(auth.key);
-      await this.close(); this.closed = false; this.held = undefined;
+      await this.release(true); this.closed = false; this.held = undefined;
       this.options.name = this.baseName;
       this.options.viewer = undefined;
     }
@@ -463,10 +492,10 @@ export class Snapback {
    * not given up (the web's, when even rebuilding from the disk failed). An
    * app replaces an unusable client by opening the partition again: the new
    * device takes over what the old one could not save. */
-  get usable(): boolean { return !this.closed && (this.held?.device.healthy?.() ?? true); }
+  get usable(): boolean { return !this.closed && !this.held?.closing && (this.held?.device.healthy?.() ?? true); }
 
   /** Whether the partition is open (it has synced at least once). */
-  get isOpen(): boolean { return !this.closed && (this.held?.opened ?? false); }
+  get isOpen(): boolean { return !this.closed && !this.held?.closing && (this.held?.opened ?? false); }
 
   /** A partition that has never synced opens in its first round: start one
    * (or wait for the one running) before reading or writing. Unreached, the
@@ -525,6 +554,7 @@ export class Snapback {
   private async serverRead<T>(name: string, args: Args): Promise<Read<T>> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
     const check = this.fence();
+    const token = this.session?.token;
     const reply = await this.exchange({ method: 'POST', path: `/q/${encodeURIComponent(name)}`, body: { args: args as Request } });
     check();
     if (reply.error !== undefined) {
@@ -533,7 +563,7 @@ export class Snapback {
     }
     const body = (reply.body ?? {}) as { data?: T; complete?: boolean; next?: string | null; denied?: Refusal };
     if (body.denied) {
-      if (body.denied.code === 'E_AUTH') this.options.auth?.store.forget(this.options.auth.key);
+      if (body.denied.code === 'E_AUTH') this.invalidate(token);
       return { server: true, denied: body.denied };
     }
     if (typeof reply.status === 'number' && (reply.status < 200 || reply.status >= 300)) {
@@ -637,9 +667,14 @@ export class Snapback {
   sync(): Promise<Round> {
     if (this.closed) return Promise.reject(new Error('Snapback4: this client is closed'));
     const partition = this.partition;
-    const run = partition.rounds.then(() => this.round());
+    const check = this.fence();
+    const run = partition.rounds.then(() => { check(); return this.round(); });
     partition.rounds = run.catch(() => undefined);
-    return run;
+    return run.then(done => {
+      // E_AUTH is a completed refusal, even though it forgets the session.
+      if (done.denied?.code !== 'E_AUTH') check();
+      return done;
+    });
   }
 
   private async round(): Promise<Round> {
@@ -659,10 +694,12 @@ export class Snapback {
       if (partition.abandoned === abandoned) partition.abandoned = undefined;
     }
     let step = ok<{ fetch?: Request; done?: Round }>(await call({ op: 'sync' }));
+    let token: string | undefined;
     try {
       while (step.fetch) {
         const exchange = step.fetch.exchange as string;
         try {
+          token = this.session?.token;
           const reply = await this.exchange(step.fetch);
           step = ok(await call({ op: 'deliver', exchange, reply }));
         } catch (error) {
@@ -675,7 +712,7 @@ export class Snapback {
     } finally { partition.routes.clear(); }
     const done = step.done ?? { ok: false };
     if (done.ok) partition.opened = true;
-    if (done.denied?.code === 'E_AUTH') this.options.auth?.store.forget(this.options.auth.key);
+    if (done.denied?.code === 'E_AUTH') this.invalidate(token);
     return done;
   }
 
@@ -749,25 +786,17 @@ export class Snapback {
   /** Close this client. It refuses every call from now on and says it is not
    * open. The partition closes with the last client that has it open;
    * closing that one again retries a cleanup that failed. */
-  async close(): Promise<void> {
+  async close(): Promise<void> { await this.release(false); }
+
+  private async release(force: boolean): Promise<void> {
     const partition = this.held;
     if (!partition) { this.closed = true; return; }
     if (!this.closed) {
       this.closed = true;
       partition.clients--;
     }
-    if (partition.clients > 0 || partition.cleaned) return;
-    partition.closing = true;
-    const { partitions, closing } = partition.page;
-    if (partition.entry && partitions.get(partition.path) === partition.entry) partitions.delete(partition.path);
-    const cleanup = (async () => {
-      await partition.device.call({ op: 'close' }).catch(() => undefined);
-      // A cleanup the device deferred (it will run it) or that failed can be
-      // asked for again.
-      partition.cleaned = (await partition.device.close?.()) !== false;
-    })();
-    closing.set(partition.path, cleanup);
-    try { await cleanup; } finally { if (closing.get(partition.path) === cleanup) closing.delete(partition.path); }
+    if (partition.cleaned || (!force && partition.clients > 0)) return;
+    await retirePartition(partition);
   }
 
   /** Refused writes (by the server or by the device at `write`), oldest
