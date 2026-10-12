@@ -172,9 +172,10 @@ extension Presenter {
     /// or textarea: the text is committed as it stands before the chord's
     /// `key` handlers run. The app has heard it as `input` as it was
     /// composed (`FieldComposition.swift`), as Chrome's page has, so the
-    /// commit is not heard again; the handlers read the value Chrome's
-    /// read, and a value one writes lands on committed text (a composer's
-    /// ⌘Enter sends the text and clears the field). The chord
+    /// commit is not heard again; a value the app wrote while it was marked
+    /// lands then; the handlers read the value Chrome's read, and a value
+    /// one writes lands on committed text (a composer's ⌘Enter sends the
+    /// text and clears the field). The chord
     /// presses no `aria-keyshortcuts` button, by its key or its menu item:
     /// the web's shortcut listener skips a keydown that arrived composing.
     func endComposition(_ event: NSEvent, at responder: NSResponder?) {
@@ -288,14 +289,20 @@ extension NodeView {
     /// text here, a modifier's own press and release still reach the
     /// handlers, and a ⌘ chord's keydown does once it has committed the
     /// composition (the app has heard the composed text as `input` as it
-    /// was composed, so it holds it, and the commit is not heard again);
-    /// any other key is the composition's.
+    /// was composed, so it holds it, and the commit is not heard again; a
+    /// value the app wrote meanwhile lands); any other key is the
+    /// composition's.
     func passesComposition(_ code: String, command: Bool, down: Bool) -> Bool {
         guard (field?.markedTextRange ?? textArea?.markedTextRange) != nil else { return true }
         if KeyCodes.modifier(code) { return true }
         guard command, down else { return false }
-        field?.unmarkText()
-        textArea?.unmarkText()
+        if let f = field {
+            f.unmarkText()
+            if f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
+        } else if let t = textArea {
+            t.unmarkText()
+            if t.markedTextRange == nil, let held = pendingValue { writeValue(held, into: t) }
+        }
         return true
     }
     /// A hardware key's `key` (down) or `keyup` handlers at this node and

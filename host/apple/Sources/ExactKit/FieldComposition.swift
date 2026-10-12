@@ -1,8 +1,7 @@
-// @ref LLP 1115.000 §5 (ruling 6, 2026-10-12) and LLP 1115.001 D8: what an
-// app hears of a field or a text area while an input method composes in it
+// @ref LLP 1115.000 §5 (ruling 6, 2026-10-12) and LLP 1045 D5: what an app
+// hears of a field or a text area while an input method composes in it
 // (Japanese kana before its kanji, pinyin, a Korean syllable), and what the
-// app's value does to a composition. The same on macOS and iOS, which is
-// also what Android's field does.
+// app's value does to a composition. The same on macOS and iOS.
 //
 // **What the app hears.** One `input` for each change of the editor's text,
 // with the text the input method has marked in the value, as it happens:
@@ -17,10 +16,18 @@
 // `isComposing`: an action is handed the field's value and cannot tell
 // marked text from committed text, as it cannot on the web without them.
 //
-// **What the app's value does.** A commit that sets the value the editor
-// already shows changes nothing in it: the composition and the selection
-// stand. One that sets a different value replaces the text and ends the
-// composition (each platform's `writeValue`).
+// **What the app's value does.** It never ends a composition. A commit that
+// sets the value the editor already shows changes nothing in it: the
+// composition and the selection stand. One that sets a different value while
+// text is marked is held (`pendingValue`, the last one written; one equal to
+// the editor's text takes its place with nothing), and when the composition
+// ends, committed or cancelled, the app is first told the text if it
+// changed and then what is still held is written, if it is not the text.
+// Contract gives an action no way to know a composition is going on, so an
+// action that rewrites what it hears (upper-cases it, strips spaces, formats
+// a number) would otherwise end one at its first keystroke, and nobody
+// could type Japanese or Chinese in that field. Its rewrite shows a moment
+// later instead. Nothing marked, a value is written at once.
 import Foundation
 
 extension NodeView {

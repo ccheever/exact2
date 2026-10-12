@@ -211,25 +211,25 @@ final class MarkupEditorTests: XCTestCase {
     }
 
     /// While text is marked a formatting command is refused, and the app's
-    /// value follows LLP 1115.001 D8's rule (`FieldComposition.swift`; it
-    /// was held until the composition ended, LLP 1045 D5): the value the
-    /// editor shows leaves the composition alone, and a different one
-    /// replaces the text and ends it.
-    func testMarkedTextRefusesFormattingAndADifferentValueEndsIt() {
+    /// value waits (LLP 1045 D5): the value the editor shows leaves the
+    /// composition alone and holds nothing; a different one is held, and
+    /// applied when the composition ends, which the editor now does itself
+    /// as it unmarks.
+    func testMarkedTextDefersValueAndRefusesFormatting() {
         let (node, f, window, presenter) = editor("hello", selection: NSRange(location: 5, length: 0))
         defer { window.close(); _ = presenter }
         f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 5, length: 0))
         XCTAssertTrue(f.hasMarkedText())
         let composing = f.string
-        XCTAssertFalse(node.formatMarkup("bold"))
-        node.props["value"] = composing
-        node.applyTextArea()
-        XCTAssertEqual(f.string, composing)
-        XCTAssertEqual(f.markedRange(), NSRange(location: 5, length: 1), "the value it shows: the composition stands")
         node.props["value"] = "external"
         node.applyTextArea()
+        XCTAssertEqual(f.string, composing)
+        XCTAssertEqual(f.markedRange(), NSRange(location: 5, length: 1), "the composition stands")
+        XCTAssertEqual(node.pendingValue, "external")
+        XCTAssertFalse(node.formatMarkup("bold"))
+        f.unmarkText()
         XCTAssertEqual(f.string, "external")
-        XCTAssertFalse(f.hasMarkedText(), "a different value ends it")
+        XCTAssertNil(node.pendingValue)
     }
 
     func testCompositionEchoDoesNotLeaveAStaleWriteback() {
@@ -237,6 +237,7 @@ final class MarkupEditorTests: XCTestCase {
         defer { window.close(); _ = presenter }
         f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 0))
         node.writeValue(f.string, into: f)
+        XCTAssertNil(node.pendingValue)
         XCTAssertTrue(f.hasMarkedText(), "the echo leaves the composition alone")
         f.unmarkText()
         f.insertText("本", replacementRange: NSRange(location: 1, length: 0))

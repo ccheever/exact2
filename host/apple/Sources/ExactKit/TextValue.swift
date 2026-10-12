@@ -6,13 +6,11 @@
 // sees. When they differ the host replaces the shortest middle that makes
 // them equal and carries the selection through that replacement. A write of
 // the value the editor already shows changes nothing, so the echo of a
-// controlled input never tears a marked range; a different value written
-// while an input method composes ends the composition first, on what was
-// marked as text (`FieldComposition.swift`; it was held until the
-// composition ended).
+// controlled input never tears a marked range; a different value that
+// arrives during IME composition (marked text) is held and applied when the
+// composition ends (`FieldComposition.swift`).
 //
 // @ref LLP 1045 D5 — the write-back fix that leads slice 2.
-// @ref LLP 1115.001 D8 — a different value ends a composition.
 import Foundation
 
 /// The shortest replacement that turns `old` into `new`, in UTF-16 units.

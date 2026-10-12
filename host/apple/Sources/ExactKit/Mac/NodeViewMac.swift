@@ -112,9 +112,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textAreaScroll: NSScrollView?
     package var field: NSTextField?
     /// The editor's text as the app was last told it (nil once the app has
-    /// set the value since), and whether its value is being written in
-    /// (`FieldComposition.swift`).
+    /// set the value since), a `value` that arrived while text was marked,
+    /// applied when the composition ends, and whether a value is being
+    /// written in (`FieldComposition.swift`).
     var toldText: String?
+    var pendingValue: String?
     var writingValue = false
     package var scroll: ChainingScrollView?
     /// `box-shadow` (`BoxShadow.swift`): outer, and inset (LLP 1077 D4).

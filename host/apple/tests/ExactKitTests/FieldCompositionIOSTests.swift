@@ -4,14 +4,16 @@ import XCTest
 @testable import ExactKit
 
 /// A field and a text area composing through an input method (LLP 1115.000
-/// §5, ruling 6; LLP 1115.001 D8; `FieldComposition.swift`), as on the Mac
+/// §5, ruling 6; LLP 1045 D5; `FieldComposition.swift`), as on the Mac
 /// (`FieldCompositionMacTests`): the app hears each change of the marked
 /// text, with it in the value; the commit of what is marked as it stands is
-/// not heard again; the value the editor shows leaves a composition alone
-/// and a different one ends it. Driven through `UITextInput`
-/// (`setMarkedText`, `unmarkText`). A text view tells its delegate of each
-/// of those itself; a field sends its control event only for a keyboard's,
-/// so the tests send that by hand. Nobody typed with a real keyboard.
+/// not heard again; and the app's value never ends a composition: the value
+/// the editor shows changes nothing, and a different one written while text
+/// is marked is held and applied when the composition ends. Driven through
+/// `UITextInput` (`setMarkedText`, `insertText`, `unmarkText`). A text view
+/// tells its delegate of each of those itself; a field sends its control
+/// event only for a keyboard's, so the tests send that by hand. Nobody
+/// typed with a real keyboard.
 /// UIKit, so a simulator runs it:
 ///   EXACT_TESTS=1 EXACT_LIB_DIR=<target>/aarch64-apple-ios-sim/release EXACT_LIB=caltrain_apple \
 ///   xcodebuild test -scheme Exact -destination 'platform=iOS Simulator,name=<iPhone>' \
@@ -46,8 +48,9 @@ final class FieldCompositionIOSTests: XCTestCase {
 
     /// A node of `kind` in a key window with the focus in its editor, what
     /// its app hears, and UIKit's notice of a change. `echo`: a controlled
-    /// input writes back what it hears, or what `echo` makes of it.
-    private func fixture(_ kind: String, echo: @escaping (String) -> String = { $0 }) throws -> (node: NodeView, input: UITextInput & UIResponder, heard: () -> [String], changed: () -> Void, keep: [AnyObject]) {
+    /// input writes back what it hears, or what `echo` makes of it; nil
+    /// writes nothing.
+    private func fixture(_ kind: String, value: String = "", echo: ((String) -> String)? = { $0 }) throws -> (node: NodeView, input: UITextInput & UIResponder, heard: () -> [String], changed: () -> Void, keep: [AnyObject]) {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         let node = NodeView(id: 1, kind: kind, presenter: p)
@@ -55,82 +58,169 @@ final class FieldCompositionIOSTests: XCTestCase {
         node.handlers = ["input"]
         window.addSubview(node); p.views[node.id] = node
         window.makeKeyAndVisible()
+        node.applyProps(set: ["value": value], clear: [])
         final class Heard { var inputs: [String] = [] }
         let heard = Heard()
         p.onInput = { [unowned node] _, value in
             heard.inputs.append(value)
-            node.applyProps(set: ["value": echo(value)], clear: [])
+            if let echo { node.applyProps(set: ["value": echo(value)], clear: []) }
         }
         let input: UITextInput & UIResponder = try XCTUnwrap(node.field ?? node.textArea)
         XCTAssertTrue(input.becomeFirstResponder())
+        input.selectedTextRange = input.textRange(from: input.endOfDocument, to: input.endOfDocument)
         // A text view has told its delegate already (measured on iOS 27.0).
         let changed = { [unowned node] in if node.field != nil { node.fieldChanged() } }
         return (node, input, { heard.inputs }, changed, [p, window])
     }
     private func text(_ node: NodeView) -> String { node.field?.text ?? node.textArea?.text ?? "" }
+    private typealias Fixture = (node: NodeView, input: UITextInput & UIResponder, heard: () -> [String], changed: () -> Void, keep: [AnyObject])
+    private func mark(_ f: Fixture, _ text: String) {
+        f.input.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
+        f.changed()
+    }
+    /// The candidate chosen: the keyboard inserts it over what was marked.
+    private func choose(_ f: Fixture, _ text: String) {
+        f.input.insertText(text)
+        f.changed()
+    }
+    private func commit(_ f: Fixture) {
+        f.input.unmarkText()
+        f.changed()
+    }
+    private func cancel(_ f: Fixture) {
+        f.input.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+        f.changed()
+    }
 
     /// にほん, then 日本: each change of the marked text is an `input` with
     /// it in the value, and the app's echo of what it heard leaves the
-    /// composition marked (it was held and written back at the commit).
+    /// composition marked and is not held.
     func testEachChangeOfMarkedTextIsAnInput() throws {
         for kind in ["input", "textarea"] {
             let f = try fixture(kind)
             defer { _ = f.keep }
             for kana in ["に", "にほ", "にほん"] {
-                f.input.setMarkedText(kana, selectedRange: NSRange(location: (kana as NSString).length, length: 0))
-                f.changed()
+                mark(f, kana)
                 XCTAssertEqual(f.heard().last, kana, "\(kind): heard as it is composed")
                 XCTAssertNotNil(f.input.markedTextRange, "\(kind): the echo leaves it marked")
+                XCTAssertNil(f.node.pendingValue, "\(kind): the echo is the text: nothing is held")
             }
-            // The candidate replaces what was marked.
-            f.input.setMarkedText("日本", selectedRange: NSRange(location: 2, length: 0))
-            f.changed()
+            choose(f, "日本")
+            XCTAssertNil(f.input.markedTextRange)
+            XCTAssertEqual(text(f.node), "日本", "\(kind): the candidate replaces what was marked")
             XCTAssertEqual(f.heard(), ["に", "にほ", "にほん", "日本"], kind)
             // Committed as it stands: no text changes, and it is not heard again.
-            f.input.unmarkText()
-            f.changed()
+            mark(f, "ご")
+            commit(f)
             XCTAssertNil(f.input.markedTextRange)
-            XCTAssertEqual(text(f.node), "日本", kind)
-            XCTAssertEqual(f.heard(), ["に", "にほ", "にほん", "日本"], "\(kind): the commit is no second input")
+            XCTAssertEqual(text(f.node), "日本ご", kind)
+            XCTAssertEqual(f.heard(), ["に", "にほ", "にほん", "日本", "日本ご"], "\(kind): the commit is no second input")
             // A composition cancelled takes its text away, which is a change.
-            f.input.setMarkedText("x", selectedRange: NSRange(location: 1, length: 0))
-            f.changed()
-            XCTAssertEqual(f.heard().last, "日本x", kind)
-            f.input.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
-            f.changed()
-            XCTAssertEqual(f.heard().last, "日本", "\(kind): the cancelled text is gone from what the app holds")
+            mark(f, "x")
+            XCTAssertEqual(f.heard().last, "日本ごx", kind)
+            cancel(f)
+            XCTAssertEqual(f.heard().last, "日本ご", "\(kind): the cancelled text is gone from what the app holds")
             // The caret moving inside what is marked changes no text: no input.
-            f.input.setMarkedText("かな", selectedRange: NSRange(location: 2, length: 0))
-            f.changed()
+            mark(f, "かな")
             f.input.setMarkedText("かな", selectedRange: NSRange(location: 1, length: 0))
             f.changed()
-            XCTAssertEqual(f.heard(), ["に", "にほ", "にほん", "日本", "日本x", "日本", "日本かな"], "\(kind): one input for each change")
-            // A value from anywhere else (another action) lands on committed text.
-            f.node.applyProps(set: ["value": "done"], clear: [])
-            XCTAssertEqual(text(f.node), "done", "\(kind): a different value replaces the text")
-            XCTAssertNil(f.input.markedTextRange, "\(kind): and ends the composition")
-            XCTAssertEqual(f.heard().count, 7, "\(kind): the app's own write is no input: \(f.heard())")
+            XCTAssertEqual(f.heard(), ["に", "にほ", "にほん", "日本", "日本ご", "日本ごx", "日本ご", "日本ごかな"], "\(kind): one input for each change")
         }
     }
 
-    /// LLP 1115.001 D8's rule: an app commit that sets a different value
-    /// while text is marked replaces the text and ends the composition (it
-    /// was held until the composition ended), and the app hears no `input`
-    /// for its own write.
-    func testADifferentValueEndsTheComposition() throws {
+    /// LLP 1045 D5: an action that rewrites what it hears never ends a
+    /// composition. Here it upper-cases: each change of にほん is heard, each
+    /// rewrite is held while the text stays marked, and the rewrite lands
+    /// when the composition ends, by the candidate chosen or as it stands.
+    func testAnActionThatRewritesWhatItHearsWaitsForTheCompositionToEnd() throws {
         for kind in ["input", "textarea"] {
-            // The app keeps three characters.
-            let f = try fixture(kind) { String($0.prefix(3)) }
+            var f = try fixture(kind, value: "ab", echo: { $0.uppercased() })
+            for kana in ["に", "にほ", "にほん"] {
+                mark(f, kana)
+                XCTAssertEqual(text(f.node), "ab" + kana, "\(kind): the text is the person's while it is marked")
+                XCTAssertNotNil(f.input.markedTextRange, "\(kind): the app's value does not end the composition")
+                XCTAssertEqual(f.node.pendingValue, "AB" + kana, "\(kind): it is held, the last one written")
+            }
+            XCTAssertEqual(f.heard(), ["abに", "abにほ", "abにほん"], "\(kind): the app heard each change")
+            choose(f, "日本")
+            XCTAssertEqual(f.heard(), ["abに", "abにほ", "abにほん", "ab日本"], "\(kind): and the commit, which changed the text")
+            XCTAssertEqual(text(f.node), "AB日本", "\(kind): its rewrite of that lands at once, nothing being marked")
+            XCTAssertNil(f.input.markedTextRange)
+            XCTAssertNil(f.node.pendingValue, "\(kind): and nothing older is left to land")
+
+            // Committed as it stands: nothing more is heard, and what was held lands.
+            f = try fixture(kind, value: "ab", echo: { $0.uppercased() })
+            mark(f, "にほ"); mark(f, "にほん")
+            XCTAssertEqual(f.node.pendingValue, "ABにほん", kind)
+            commit(f)
+            XCTAssertEqual(f.heard(), ["abにほ", "abにほん"], "\(kind): the commit changed no text")
+            XCTAssertEqual(text(f.node), "ABにほん", "\(kind): the held value is applied when the composition ends")
+            XCTAssertNil(f.node.pendingValue, kind)
+            XCTAssertNil(f.input.markedTextRange)
+        }
+    }
+
+    /// The same when the composition is cancelled: the app hears the text
+    /// without what was marked, and what it wrote lands.
+    func testAHeldValueLandsWhenTheCompositionIsCancelled() throws {
+        for kind in ["input", "textarea"] {
+            var f = try fixture(kind, value: "ab", echo: { $0.uppercased() })
+            mark(f, "に"); mark(f, "にほ")
+            XCTAssertEqual(f.node.pendingValue, "ABにほ", kind)
+            XCTAssertNotNil(f.input.markedTextRange)
+            cancel(f)
+            XCTAssertEqual(f.heard(), ["abに", "abにほ", "ab"], "\(kind): the cancel is a change of text")
+            XCTAssertEqual(text(f.node), "AB", "\(kind): and the app's value for it lands")
+            XCTAssertNil(f.node.pendingValue, kind)
+
+            // A value from another action while text is marked, and an app that answers nothing to the cancel.
+            f = try fixture(kind, echo: nil)
+            mark(f, "に")
+            f.node.applyProps(set: ["value": "done"], clear: [])
+            XCTAssertEqual(text(f.node), "に", "\(kind): held")
+            XCTAssertNotNil(f.input.markedTextRange, "\(kind): the composition stands")
+            mark(f, "にほ")
+            XCTAssertEqual(f.node.pendingValue, "done", "\(kind): still held as the composition goes on")
+            cancel(f)
+            XCTAssertEqual(f.heard(), ["に", "にほ", ""], kind)
+            XCTAssertEqual(text(f.node), "done", "\(kind): applied at the cancel")
+            XCTAssertNil(f.node.pendingValue, kind)
+        }
+    }
+
+    /// An action that clears the field on one value: the clear waits for
+    /// the composition, a later echo of the text takes its place with
+    /// nothing, and committed at that value the field is cleared.
+    func testAnActionThatClearsOnAValueWaitsToo() throws {
+        let clears = { (value: String) in value == "にほ" ? "" : value }
+        for kind in ["input", "textarea"] {
+            var f = try fixture(kind, echo: clears)
+            mark(f, "に"); mark(f, "にほ")
+            XCTAssertEqual(f.node.pendingValue, "", "\(kind): the clear is held")
+            XCTAssertNotNil(f.input.markedTextRange, "\(kind): and the composition goes on")
+            mark(f, "にほん")
+            XCTAssertNil(f.node.pendingValue, "\(kind): the app's value is the text again: nothing is owed")
+            choose(f, "日本")
+            XCTAssertEqual(text(f.node), "日本", "\(kind): no stale clear lands at the commit")
+            XCTAssertEqual(f.heard(), ["に", "にほ", "にほん", "日本"], kind)
+
+            f = try fixture(kind, echo: clears)
+            mark(f, "にほ")
+            commit(f)
+            XCTAssertEqual(text(f.node), "", "\(kind): committed at that value, the field is cleared")
+            XCTAssertEqual(f.heard(), ["にほ"], "\(kind): which the app does not hear as typing")
+        }
+    }
+
+    /// Nothing marked, a value the app writes is the text at once, and is no `input`.
+    func testAValueWrittenWithNothingMarkedAppliesAtOnce() throws {
+        for kind in ["input", "textarea"] {
+            let f = try fixture(kind, value: "ab")
             defer { _ = f.keep }
-            f.input.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 0))
-            f.changed()
-            XCTAssertNotNil(f.input.markedTextRange, "\(kind): within its limit the composition stands")
-            f.input.setMarkedText("にほんご", selectedRange: NSRange(location: 4, length: 0))
-            f.changed()
-            XCTAssertEqual(f.heard(), ["にほ", "にほんご"], kind)
-            XCTAssertEqual(text(f.node), "にほん", "\(kind): the app's value is the text")
-            XCTAssertNil(f.input.markedTextRange, "\(kind): and the composition is over")
-            XCTAssertEqual(f.heard(), ["にほ", "にほんご"], "\(kind): the app's own write is no input")
+            f.node.applyProps(set: ["value": "now"], clear: [])
+            XCTAssertEqual(text(f.node), "now", kind)
+            XCTAssertNil(f.node.pendingValue, kind)
+            XCTAssertTrue(f.heard().isEmpty, kind)
         }
     }
 
@@ -166,6 +256,7 @@ final class FieldCompositionIOSTests: XCTestCase {
         XCTAssertTrue(node.passesComposition("Enter", command: true, down: true))
         XCTAssertNil(field.markedTextRange)
         XCTAssertEqual(field.text, "한")
+        XCTAssertNil(node.pendingValue)
         node.fieldChanged()
         XCTAssertEqual(heard, ["한"], "the commit is not heard again, should UIKit say the field changed")
         node.applyProps(set: ["value": ""], clear: [])

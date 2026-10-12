@@ -320,14 +320,12 @@ extension NodeView {
     /// The app's value into the editor: the changed middle only, with the
     /// selection carried through (LLP 1045 D5). The value the editor already
     /// shows changes nothing, so a composition and its selection stand. A
-    /// different one replaces the text and ends a composition (LLP 1115.001
-    /// D8's rule, `FieldComposition.swift`): what was marked is text, and
-    /// the value lands on that.
+    /// different one is held while text is marked, the last one written,
+    /// and applied when the composition ends (`FieldComposition.swift`).
     func writeValue(_ value: String, into f: UITextView) {
-        if (f.text ?? "").utf16.elementsEqual(value.utf16) { return }
-        // A text view says its text changed as it unmarks: still the text the
-        // app was told, so nothing is said, and then the value is the app's.
-        if f.markedTextRange != nil { f.unmarkText() }
+        if (f.text ?? "").utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
+        if f.markedTextRange != nil { pendingValue = value; return }
+        pendingValue = nil
         toldText = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
         // Native undo ranges refer to the old buffer. An external edit has
@@ -350,6 +348,7 @@ extension NodeView {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
         if !disabled { typedText(textView.text ?? "") }
+        if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()

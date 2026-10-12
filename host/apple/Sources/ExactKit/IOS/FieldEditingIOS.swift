@@ -7,11 +7,13 @@ import UIKit
 extension NodeView {
     /// As `writeValue(_:into:)` for a text view: the value the field already
     /// shows changes nothing, so a composition and its selection stand; a
-    /// different one ends a composition (what was marked is text) and
-    /// replaces the text, the caret carried through the changed middle.
+    /// different one is held while text is marked and applied when the
+    /// composition ends; with nothing marked it replaces the text, the
+    /// caret carried through the changed middle.
     func writeValue(_ value: String, into f: UITextField) {
-        if (f.text ?? "").utf16.elementsEqual(value.utf16) { return }
-        if f.markedTextRange != nil { f.unmarkText() }
+        if (f.text ?? "").utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
+        if f.markedTextRange != nil { pendingValue = value; return }
+        pendingValue = nil
         toldText = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
         var selection = NSRange(location: (f.text ?? "").utf16.count, length: 0)
@@ -32,9 +34,12 @@ extension NodeView {
             return
         }
         // UIKit says so at each change, the text an input method has marked
-        // included: the app hears the field's text as it stands
-        // (`FieldComposition.swift`).
+        // included: the app hears the field's text as it stands, and only
+        // then does a value held while it composed apply
+        // (`FieldComposition.swift`). Writing it first told the app its own
+        // held value in place of the committed text.
         if !disabled { typedText(field?.text ?? "") }
+        if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
     }
     @objc package func textFieldDidBeginEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()

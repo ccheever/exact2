@@ -231,15 +231,16 @@ extension NodeView {
     /// The app's value into the editor: the changed middle only, with the
     /// selection carried through (LLP 1045 D5). The value the editor already
     /// shows changes nothing, so a composition and its selection stand. A
-    /// different one replaces the text and ends a composition (LLP 1115.001
-    /// D8's rule, `FieldComposition.swift`): what the input method had
-    /// marked becomes text (`commitComposition`), and the value lands on
-    /// that. None of it is typing, so the app does not hear it as `input`.
+    /// different one is held while text is marked, the last one written,
+    /// and applied when the composition ends (`applyHeldValue`,
+    /// `FieldComposition.swift`). The write is not typing, so the app does
+    /// not hear it as `input`.
     func writeValue(_ value: String, into f: NSTextView) {
-        if f.string.utf16.elementsEqual(value.utf16) { return }
+        if f.string.utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
+        if f.hasMarkedText() { pendingValue = value; return }
+        pendingValue = nil
         writingValue = true
         defer { writingValue = false; toldText = nil }
-        if f.hasMarkedText() { commitComposition(in: f) }
         guard let edit = minimalTextEdit(from: f.string, to: value) else { return }
         // Native undo ranges refer to the old buffer. An external edit has
         // no position map for those ranges; discard only this view's history.
@@ -335,6 +336,7 @@ extension NodeView {
         // What AppKit says of the app's own value going in, or of a
         // composition's commit in its steps, is not typing.
         if !disabled, !writingValue { typedText(f.string) }
+        if !writingValue { applyHeldValue(to: f) }
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()

@@ -43,9 +43,16 @@ extension NodeView {
             return
         }
         if !disabled { typedText(field?.stringValue ?? "") }
+        if let editor = field?.currentEditor() as? NSTextView { applyHeldValue(to: editor) }
+    }
+    /// The composition in `editor` is over, the app told of its text: what
+    /// the app wrote while it lasted and is still held lands now
+    /// (`pendingValue`). Nothing while text is still marked.
+    func applyHeldValue(to editor: NSTextView) {
+        if !editor.hasMarkedText(), let held = pendingValue { writeValue(held, into: editor) }
     }
     /// What an input method has marked in `editor` becomes text, now: a ⌘
-    /// chord's keydown, or the app's different value, ends the composition.
+    /// chord's keydown ends the composition.
     /// The input method is asked to let go of it first, which it answers
     /// by inserting the text, and what it leaves marked is committed
     /// (Firefox's `CommitIMEComposition`; committing first could insert the
@@ -67,6 +74,7 @@ extension NodeView {
         body()
         writingValue = writing
         if !writing, !disabled { typedText(editor.string) }
+        if !writing { applyHeldValue(to: editor) }
     }
     /// The text an input method is composing in this node's editor changed
     /// (`setMarkedText`, which `FieldEditor` and `TextArea` say here). AppKit
@@ -77,6 +85,8 @@ extension NodeView {
         guard !writingValue, !disabled, props["emojiPicker"] != "true" else { return }
         if editor === textArea { editor.needsDisplay = true }
         typedText(editor.string)
+        // Cancelled: AppKit posts no change for it, so the held value lands here.
+        applyHeldValue(to: editor)
     }
     /// The ring Exact draws for a focused field (LLP 1104 D6): its border,
     /// painted by the box painter (`boxPlan`) two points wide in the focus
