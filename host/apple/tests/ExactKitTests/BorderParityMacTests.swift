@@ -35,7 +35,7 @@ final class BorderParityMacTests: XCTestCase {
     /// would, so one window, one wait and one capture serve a whole page;
     /// nil where no window server answers (a process may read its own
     /// windows without permission).
-    private func onScreen(_ styles: [NodeStyle], dark: Bool, page: CGColor) -> [[UInt8]]? {
+    private func onScreen(_ styles: [NodeStyle], dark: Bool, page: CGColor, native: Bool = false) -> (scale: Int, pixels: [[UInt8]])? {
         _ = NSApplication.shared
         let columns = min(styles.count, 10), rows = (styles.count + columns - 1) / columns
         let size = NSSize(width: 100 * columns, height: 70 * rows)
@@ -72,16 +72,19 @@ final class BorderParityMacTests: XCTestCase {
               !Agent.emptyPicture(image)
         else { return nil }
         let scale = CGFloat(image.width) / size.width
-        return styles.indices.map { i in
+        let pictures = styles.indices.map { i in
             let cell = CGRect(x: CGFloat(i % columns) * 100 * scale, y: CGFloat(i / columns) * 70 * scale, width: 100 * scale, height: 70 * scale)
+            let crop = image.cropping(to: cell)!
+            if native { return BorderParity.pixels(crop).2 }
             let ctx = BorderParity.canvas(page)
             ctx.saveGState()
             ctx.translateBy(x: 0, y: 70); ctx.scaleBy(x: 1, y: -1)
             ctx.interpolationQuality = .high
-            ctx.draw(image.cropping(to: cell)!, in: CGRect(x: 0, y: 0, width: 100, height: 70))
+            ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 100, height: 70))
             ctx.restoreGState()
             return BorderParity.bytes(ctx)
         }
+        return (native ? Int(scale) : 1, pictures)
     }
 
     /// A page's cases on screen, in the order `check` asks for them: the
@@ -89,7 +92,7 @@ final class BorderParityMacTests: XCTestCase {
     private func onScreen(_ cases: [BorderParity.Case]) -> (NodeStyle, Bool, CGColor) -> [UInt8] {
         var pictures: [[UInt8]] = [], next = 0
         return { [self] _, dark, page in
-            if pictures.isEmpty { pictures = onScreen(cases.map(\.style), dark: dark, page: page)! }
+            if pictures.isEmpty { pictures = onScreen(cases.map(\.style), dark: dark, page: page)!.pixels }
             defer { next += 1 }
             return pictures[next]
         }
@@ -98,7 +101,8 @@ final class BorderParityMacTests: XCTestCase {
     /// On screen, where the box is layers: the same Chrome pictures. A
     /// Retina window's picture is resampled to Chrome's 1×, which moves every
     /// antialiased edge a little (the drawn cases measure 1–2.2 mean there),
-    /// so the band is wider than the drawing tests'.
+    /// so the band is wider than the drawing tests'. Patterned borders stay
+    /// at the capture's native scale: resampling fills the 1px dots' gaps.
     func testEveryCaseMatchesChromeOnScreen() throws {
         guard onScreen([[:]], dark: false, page: CGColor(gray: 1, alpha: 1)) != nil else { throw XCTSkip("no window server picture (no window server, or its display is asleep or the screen locked)") }
         // The window server blends a translucent layer in the display's
@@ -115,7 +119,12 @@ final class BorderParityMacTests: XCTestCase {
         }
         let band = (mean: 3.0, over: 4.0)
         var failures = BorderParity.check(flipped: false, dark: false, band: band, render: onScreen(BorderParity.cases(flipped: false)))
-        failures += BorderParity.checkPatterns(band: (5, 5), render: onScreen(BorderParity.patterns()))
+        let patterns = onScreen(BorderParity.patterns().map(\.style), dark: false, page: CGColor(gray: 1, alpha: 1), native: true)!
+        var nextPattern = 0
+        failures += BorderParity.checkPatterns(scale: patterns.scale) { _, _, _ in
+            defer { nextPattern += 1 }
+            return patterns.pixels[nextPattern]
+        }
         failures += GradientParity.check(dark: false, band: band, render: onScreen(GradientParity.cases()))
         failures += GradientParity.check(dark: true, band: band, render: onScreen(GradientParity.cases()))
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
@@ -133,33 +142,54 @@ final class BorderParityMacTests: XCTestCase {
     }
 
     func testThinDottedUnderlineBandRejectsMissingInk() {
-        var blank = [UInt8](repeating: 255, count: 100 * 70 * 4)
-        XCTAssertFalse(BorderParity.underlineHasInkAndGaps(blank), "blank passed")
-        for x in 10..<90 {
-            let i = (69 * 100 + x) * 4
-            blank[i] = 229; blank[i + 1] = 57; blank[i + 2] = 53
+        for scale in [1, 2] {
+            var blank = [UInt8](repeating: 255, count: 100 * 70 * scale * scale * 4)
+            XCTAssertFalse(BorderParity.underlineHasInkAndGaps(blank, scale: scale), "blank passed at \(scale)×")
+            for x in 10 * scale..<90 * scale {
+                let i = ((70 * scale - 1) * 100 * scale + x) * 4
+                blank[i] = 229; blank[i + 1] = 57; blank[i + 2] = 53
+            }
+            XCTAssertFalse(BorderParity.underlineHasInkAndGaps(blank, scale: scale), "solid line passed at \(scale)×")
         }
-        XCTAssertFalse(BorderParity.underlineHasInkAndGaps(blank), "solid line passed")
     }
 
     func testThinBoxGuardsRejectBlankAndSolidEdges() {
-        let chrome = BorderParity.chrome("border-patterns.web.png")
-        for (x, y) in [(20, 20), (20, 115)] {
-            var box: [UInt8] = []
-            for py in 0..<70 {
-                for px in 0..<100 {
-                    let i = ((y + py) * chrome.0 + x + px) * 4
-                    box.append(contentsOf: chrome.2[i..<i + 4])
+        for scale in [1, 2] {
+            let chrome = BorderParity.chrome(scale == 1 ? "border-patterns.web.png" : "border-patterns.web-2x.png")
+            for (x, y) in [(20, 20), (20, 115)] {
+                var box: [UInt8] = []
+                for py in 0..<70 * scale {
+                    for px in 0..<100 * scale {
+                        let i = ((y * scale + py) * chrome.0 + x * scale + px) * 4
+                        box.append(contentsOf: chrome.2[i..<i + 4])
+                    }
+                }
+                XCTAssertTrue(BorderParity.thinBoxEdgesHaveInkAndGaps(box, scale: scale))
+                // Mutate one edge at a time: three good edges must not hide
+                // either a missing edge or a solid fallback on the fourth.
+                for edge in BorderParity.thinBoxEdges(scale: scale) {
+                    for color: [UInt8] in [[255, 255, 255], [229, 57, 53]] {
+                        var broken = box
+                        for (px, py) in edge {
+                            let i = (py * 100 * scale + px) * 4
+                            broken.replaceSubrange(i..<i + 3, with: color)
+                        }
+                        XCTAssertFalse(BorderParity.thinBoxEdgesHaveInkAndGaps(broken, scale: scale), "bad edge passed at \(scale)×")
+                    }
+                    if y == 20 {
+                        XCTAssertTrue(BorderParity.thinDotPhaseMatchesChrome(box, reference: chrome, at: x, y, scale: scale))
+                        var shifted = box
+                        for (offset, point) in edge.enumerated() {
+                            let source = edge[(offset + scale) % edge.count]
+                            let a = (point.1 * 100 * scale + point.0) * 4
+                            let b = (source.1 * 100 * scale + source.0) * 4
+                            shifted.replaceSubrange(a..<a + 4, with: box[b..<b + 4])
+                        }
+                        XCTAssertTrue(BorderParity.thinBoxEdgesHaveInkAndGaps(shifted, scale: scale))
+                        XCTAssertFalse(BorderParity.thinDotPhaseMatchesChrome(shifted, reference: chrome, at: x, y, scale: scale), "wrong phase passed at \(scale)×")
+                    }
                 }
             }
-            XCTAssertTrue(BorderParity.thinBoxEdgesHaveInkAndGaps(box))
-            var blank = [UInt8](repeating: 255, count: 100 * 70 * 4)
-            XCTAssertFalse(BorderParity.thinBoxEdgesHaveInkAndGaps(blank), "blank passed")
-            for py in 0..<70 { for px in 0..<100 where px == 0 || px == 99 || py == 0 || py == 69 {
-                let i = (py * 100 + px) * 4
-                blank[i] = 229; blank[i + 1] = 57; blank[i + 2] = 53
-            } }
-            XCTAssertFalse(BorderParity.thinBoxEdgesHaveInkAndGaps(blank), "solid passed")
         }
     }
 

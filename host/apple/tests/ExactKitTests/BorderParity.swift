@@ -92,13 +92,14 @@ enum BorderParity {
     }
 
     /// Mean absolute channel difference (0–255) and the share of pixels
-    /// where a channel differs by more than 48, over one 100×70 box. `ours`
-    /// is the box alone, opaque, at 1×.
-    static func compare(_ ours: [UInt8], _ reference: (Int, Int, [UInt8]), at x: Int, _ y: Int) -> (Double, Double) {
+    /// where a channel differs by more than 48, over one 100×70 CSS-pixel box. `ours`
+    /// is the box alone, opaque, at the reference's device scale.
+    static func compare(_ ours: [UInt8], _ reference: (Int, Int, [UInt8]), at x: Int, _ y: Int, scale: Int = 1) -> (Double, Double) {
+        let width = 100 * scale, height = 70 * scale
         var (sum, over) = (0, 0)
-        for j in 0..<70 {
-            for i in 0..<100 {
-                let a = (j * 100 + i) * 4, b = ((y + j) * reference.0 + x + i) * 4
+        for j in 0..<height {
+            for i in 0..<width {
+                let a = (j * width + i) * 4, b = ((y * scale + j) * reference.0 + x * scale + i) * 4
                 var beyond = false
                 for k in 0..<3 {
                     let d = abs(Int(ours[a + k]) - Int(reference.2[b + k]))
@@ -107,7 +108,7 @@ enum BorderParity {
                 over += beyond ? 1 : 0
             }
         }
-        return (Double(sum) / (3 * 7000), 100 * Double(over) / 7000)
+        return (Double(sum) / Double(3 * width * height), 100 * Double(over) / Double(width * height))
     }
 
     /// Every case against one of Chrome's pictures; the failures, named.
@@ -125,48 +126,49 @@ enum BorderParity {
     }
 
     // CoreGraphics and Skia differ on the one-pixel dots and curved joins.
-    // The 1× fixture's measured worst case stays under 5/255 mean and 5%.
-    static func checkPatterns(band: (mean: Double, over: Double) = (5, 5), render: (NodeStyle, Bool, CGColor) -> [UInt8]) -> [String] {
-        let reference = chrome("border-patterns.web.png")
+    // Keep the same band at 1× and 2×; the edge guards below also reject
+    // missing or solid thin borders that a whole-box average can hide.
+    static func checkPatterns(scale: Int = 1, band: (mean: Double, over: Double) = (5, 5), render: (NodeStyle, Bool, CGColor) -> [UInt8]) -> [String] {
+        let reference = chrome(scale == 1 ? "border-patterns.web.png" : "border-patterns.web-\(scale)x.png")
         let page = CGColor(gray: 1, alpha: 1)
         return patterns().compactMap { c in
             let pixels = render(c.style, false, page)
-            let (mean, over) = compare(pixels, reference, at: c.x, c.y)
+            let (mean, over) = compare(pixels, reference, at: c.x, c.y, scale: scale)
             print("border pattern parity \(c.name): mean \(String(format: "%.2f", mean))/255, \(String(format: "%.2f", over))% beyond 48")
             if mean > band.mean || over > band.over { return "\(c.name): mean \(mean), \(over)% beyond 48" }
-            if c.name == "underline-dot" && !underlineHasInkAndGaps(pixels) { return "\(c.name): missing ink or gaps" }
-            if ["dot1", "dash1"].contains(c.name) && !thinBoxEdgesHaveInkAndGaps(pixels) { return "\(c.name): missing ink or gaps on an edge" }
-            if c.name == "dot1" && !thinDotPhaseMatchesChrome(pixels, reference: reference, at: c.x, c.y) { return "\(c.name): wrong dot phase" }
+            if c.name == "underline-dot" && !underlineHasInkAndGaps(pixels, scale: scale) { return "\(c.name): missing ink or gaps" }
+            if ["dot1", "dash1"].contains(c.name) && !thinBoxEdgesHaveInkAndGaps(pixels, scale: scale) { return "\(c.name): missing ink or gaps on an edge" }
+            if c.name == "dot1" && !thinDotPhaseMatchesChrome(pixels, reference: reference, at: c.x, c.y, scale: scale) { return "\(c.name): wrong dot phase" }
             return nil
         }
     }
 
-    static func underlineHasInkAndGaps(_ pixels: [UInt8]) -> Bool {
-        let greens = (10..<90).map { pixels[(69 * 100 + $0) * 4 + 1] }
-        return greens.filter { $0 < 160 }.count >= 20 && greens.filter { $0 > 245 }.count >= 20
+    static func underlineHasInkAndGaps(_ pixels: [UInt8], scale: Int = 1) -> Bool {
+        let greens = (10 * scale..<90 * scale).map { pixels[((70 * scale - 1) * 100 * scale + $0) * 4 + 1] }
+        return greens.filter { $0 < 160 }.count >= 20 * scale && greens.filter { $0 > 245 }.count >= 20 * scale
     }
 
-    static func thinBoxEdges() -> [[(Int, Int)]] {
-        [(10..<90).map { ($0, 0) }, (10..<60).map { (99, $0) },
-         (10..<90).map { ($0, 69) }, (10..<60).map { (0, $0) }]
+    static func thinBoxEdges(scale: Int = 1) -> [[(Int, Int)]] {
+        [(10 * scale..<90 * scale).map { ($0, 0) }, (10 * scale..<60 * scale).map { (100 * scale - 1, $0) },
+         (10 * scale..<90 * scale).map { ($0, 70 * scale - 1) }, (10 * scale..<60 * scale).map { (0, $0) }]
     }
 
-    static func thinBoxEdgesHaveInkAndGaps(_ pixels: [UInt8]) -> Bool {
-        thinBoxEdges().allSatisfy { edge in
+    static func thinBoxEdgesHaveInkAndGaps(_ pixels: [UInt8], scale: Int = 1) -> Bool {
+        thinBoxEdges(scale: scale).allSatisfy { edge in
             let lows = edge.map { point -> UInt8 in
-                let i = (point.1 * 100 + point.0) * 4
+                let i = (point.1 * 100 * scale + point.0) * 4
                 return min(pixels[i], pixels[i + 1], pixels[i + 2])
             }
-            return lows.filter { $0 < 160 }.count >= 10 && lows.filter { $0 > 245 }.count >= 10
+            return lows.filter { $0 < 160 }.count >= 10 * scale && lows.filter { $0 > 245 }.count >= 10 * scale
         }
     }
 
-    static func thinDotPhaseMatchesChrome(_ pixels: [UInt8], reference: (Int, Int, [UInt8]), at x: Int, _ y: Int) -> Bool {
-        thinBoxEdges().allSatisfy { edge in
+    static func thinDotPhaseMatchesChrome(_ pixels: [UInt8], reference: (Int, Int, [UInt8]), at x: Int, _ y: Int, scale: Int = 1) -> Bool {
+        thinBoxEdges(scale: scale).allSatisfy { edge in
             edge.filter { point in
-                (pixels[(point.1 * 100 + point.0) * 4 + 1] < 160) !=
-                    (reference.2[((y + point.1) * reference.0 + x + point.0) * 4 + 1] < 160)
-            }.count <= 4
+                (pixels[(point.1 * 100 * scale + point.0) * 4 + 1] < 160) !=
+                    (reference.2[((y * scale + point.1) * reference.0 + x * scale + point.0) * 4 + 1] < 160)
+            }.count <= 4 * scale
         }
     }
 

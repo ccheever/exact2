@@ -1,5 +1,7 @@
-// Dotted/dashed border parity at 1x: Chrome is the reference for the native
-// painters. Each 100x70 box is at the same positions as borders.contract.
+// Dotted/dashed border parity: Chrome is the reference for the native painters.
+// Each 100x70 box is at the same positions as borders.contract. The web.png
+// fixture is 1x; web-2x.png is Chrome 155.0.8059.39 at deviceScaleFactor=2
+// (390x460 CSS viewport), for native Retina capture without resampling.
 component BorderPatterns
   view
     main testId="borders" position="relative" width=390 height=460 background-color="#ffffff"
