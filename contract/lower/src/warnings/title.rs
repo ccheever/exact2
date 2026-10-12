@@ -43,8 +43,10 @@ fn says(node: &Node) -> Option<Says> {
     }
 }
 
+/// A heading is a `text` whose role says so; an `aria-level` alone is not
+/// one (LLP 1115.000 D12.5, `lower-level-without-heading`).
 fn heading(tag: &str, attrs: &[contract_syntax::Attr]) -> bool {
-    tag == "text" && (literal(attrs, "role") == Some("heading") || has(attrs, "aria-level"))
+    tag == "text" && literal(attrs, "role") == Some("heading")
 }
 
 /// One walk of a route's content for headings that say its title.

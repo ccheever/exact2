@@ -268,6 +268,38 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(commands.count, 3)
     }
 
+    /// LLP 1115.000 D12.5: the bar's title is a heading by its role. An
+    /// `aria-level` with no `role="heading"` gets no heading style from the
+    /// compiler (which warns, `lower-level-without-heading`), and the bar
+    /// read it as the title anyway: a large title over body text. It is no
+    /// title now, so the header is not the bar, as on every other host.
+    func testALevelWithNoHeadingRoleIsNotTheBarsTitle() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationKey": "home"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "header"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Inbox", "accessibilityHeadingLevel": "1"]],
+            ["op": "create", "id": 4, "kind": "button", "handlers": ["press"], "props": ["id": "tap"]],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Inbox", "accessibilityHeadingLevel": "2"]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "roots", "ids": [1]],
+        ])
+        let route = try XCTUnwrap(p.views[1]), text = try XCTUnwrap(p.views[3]), pressable = try XCTUnwrap(p.views[4])
+        XCTAssertFalse(text.isHeading)
+        XCTAssertNil(HeaderShape(route: route, back: nil), "a level alone: the header holds no heading, so it is not the bar")
+        XCTAssertFalse(HeaderTitle.holdsHeading(pressable), "nor is a pressable around one the title's group")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityRole": "heading"], "clear": []],
+                           ["op": "props", "id": 5, "set": ["accessibilityRole": "heading"], "clear": []]]))
+        let shape = try XCTUnwrap(HeaderShape(route: route, back: nil), "with its role it is the bar's title")
+        XCTAssertEqual(shape.title, "Inbox")
+        XCTAssertEqual(shape.level, 1, "level 1: the large title")
+        XCTAssertTrue(HeaderTitle.holdsHeading(pressable))
+        // The role alone is ARIA's level 2, which lowering also says.
+        p.apply(wireBatch([["op": "props", "id": 3, "set": [:], "clear": ["accessibilityHeadingLevel"]]]))
+        XCTAssertEqual(HeaderShape(route: route, back: nil)?.level, 2)
+    }
+
     /// Only one scroll view answers the status bar, or UIKit scrolls none:
     /// with no routes and a page that does not scroll, the first vertical
     /// scroller; a horizontal one and the viewport are off.

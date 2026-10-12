@@ -57,6 +57,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                     .flatten();
                 out.extend(button.filter(|_| fresh));
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
+                out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
                 let route = in_root && keyed && !has(attrs, "navigationBack");
                 // A route that says it has no bar (LLP 1115.000 D5.2) draws
@@ -145,7 +146,8 @@ enum Part {
     /// Not shown in the header on any host: `display="none"`, or a popover
     /// or dialog, which shows over the page when it opens.
     Hidden,
-    /// `text role="heading"` (or with `aria-level`): the bar's title.
+    /// `text role="heading"`: the bar's title. An `aria-level` with no role
+    /// is not one (LLP 1115.000 D12.5), there or to the bar.
     Heading,
     /// Another `text`: the subtitle when it is the first after the heading.
     Text,
@@ -183,7 +185,7 @@ fn part(node: &Node) -> Part {
         return Part::Pressable;
     }
     match tag.as_str() {
-        "text" if role == Some("heading") || has(attrs, "aria-level") => Part::Heading,
+        "text" if role == Some("heading") => Part::Heading,
         "text" => Part::Text,
         "input" if computed(attrs, "type") => Part::Doubt,
         "input" if literal(attrs, "type") == Some("search") => Part::Search,
