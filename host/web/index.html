@@ -275,6 +275,13 @@
      A route's `header` is an app bar: a material over what scrolls under it
      (a `scroll document` page), a bottom separator, a minimum height. */
   :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; background-color: light-dark(#f9f9f9eb, #1d1d1feb); backdrop-filter: saturate(180%) blur(20px); box-shadow: 0 .5px 0 var(--exact-separator, light-dark(#3c3c431f, #54545880)); }
+  /* LLP 1115.000 D4.11: a material the host paints honours the person's settings. With Reduce Transparency the bar's
+     and the tab bar's materials are opaque (the same colour, whole) and the bar does not blur what is under it. An
+     effect the author wrote (a `backdrop-filter`, a `backgroundMaterial`, a glass button) is the author's: untouched. */
+  @media (prefers-reduced-transparency: reduce) {
+    :where(#exact-root [navigationkey] > header) { background-color: light-dark(#f9f9f9, #1d1d1f); backdrop-filter: none; }
+    :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9, #1d1d1f); }
+  }
   /* A dialog is a card over a dimmed page. An alert (`role="alertdialog"`) is
      the system's: a fixed width, its title (the label, which assistive
      technology already reads) over its message, its actions side by side. */
@@ -328,6 +335,19 @@
      CSS animation does. */
   [data-exact-progress]::before { content: ""; pointer-events: none; background: conic-gradient(transparent 10%, currentColor); mask: radial-gradient(circle closest-side, transparent 76%, #000 calc(76% + .5px) calc(100% - .5px), transparent 100%); animation: exact-progress 1s linear infinite; }
   @keyframes exact-progress { to { rotate: 1turn; } }
+  /* LLP 1115.000 D4.11: under forced colours (a contrast theme) a fill, a shadow and a gradient are gone, and a control
+     drawn with them shows no edge and no state. So each drawn control is the browser's own again: a button and a
+     dialog take the user agent's border, a select, the switch and a determinate progress are its controls, the
+     selected segment or tab is the system's selection, and the spinner, which no browser draws, is a ring of borders. */
+  @media (forced-colors: active) {
+    #exact-root button[data-button-style], :where(#exact-root dialog) { border: revert; }
+    #exact-root :is([role="tablist"] > button[role="tab"][aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"])[data-button-style] { forced-color-adjust: none; background: SelectedItem; color: SelectedItemText; }
+    #exact-root select:not([multiple]) { appearance: auto; padding: revert; background: revert; }
+    #exact-root input[data-exact-switch] { appearance: auto; }
+    #exact-root input[data-exact-switch]::before { content: none; }
+    progress { appearance: auto; border: revert; }
+    [data-exact-progress]::before { box-sizing: border-box; background: none; mask: none; border: .15em solid; border-block-start-color: transparent; border-radius: 50%; }
+  }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */
