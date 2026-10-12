@@ -55,11 +55,8 @@ What to know:
 - **The first frame.** A kept value of the state's type replaces the declared one.
   A missing value keeps the declared one, and so does a value of another shape
   (the state's type changed since it was kept); `logs` names that one.
-- **Where.** The page's `localStorage` (`exact.state.<name>`; a development
-  build's, `exact.state.@<digest>/<name>`, is its app folder's own, since every app
-  the dev server serves shares its origin), the app's `UserDefaults` domain on
-  Apple (never the Keychain), a file in the app's data directory on Linux. The key
-  is the state's name: renaming the state forgets it.
+- **Where.** The page's `localStorage`, `UserDefaults` on Apple, a file on Linux, keyed by the
+  state's name: renaming the state forgets it.
 - **Only small settings.** A number, string or bool, or an option or list of one,
   at most 16 KB as JSON. `persist` on a record or a list of records is refused
   (`type-persist-type`): keep app data in a source. A child component's state

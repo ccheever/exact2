@@ -1,7 +1,7 @@
 # Recipe: the keyboard and focus
 
-What Return does, putting the keyboard away, and moving the focus: said on the field and
-in actions, done by each host with its own keyboard.
+What Return does, putting the keyboard away, and moving the focus: said on the field and in
+actions.
 
 ```contract
 shape Guest
@@ -35,7 +35,7 @@ component Guests
   action startAdding
     focus("draft")
   view
-    column height="100%" display="flex" flex-direction="column" testId="app"
+    column height="100%" testId="app"
       row gap=8 padding="8px 16px" align-items="center"
         input id="search" type="search" value=query input=search submit=searched focus=began blur=ended
           placeholder="Search" aria-label="Search guests" enterkeyhint="search" testId="search" flex=1 min-width=0
@@ -49,7 +49,7 @@ component Guests
         section
           row
             input id="draft" value=draft input=edit submit=add placeholder="Add a guest"
-              aria-label="New guest" autocomplete="name" testId="draft" flex=1 min-width=0
+              aria-label="New guest" testId="draft" flex=1 min-width=0
         section
           each g in shown key=g.id
             row
@@ -67,40 +67,16 @@ test "Return searches and puts the keyboard away; Cancel clears it"
   tap "cancel"
   expect state query == ""
   expect state searching == false
-
-test "Return in the add field adds and keeps typing"
-  tap "start-adding"
-  type "draft" "Katherine Johnson"
-  type "draft" key "Enter"
-  expect text "guest-3" == "Katherine Johnson"
-  expect state draft == ""
 ```
 
-- **Return** is the field's `submit`; `enterkeyhint` labels the key. On iOS Return then
-  puts the keyboard away, as an iOS text field does, and `next` moves to the next field
-  (at the last, puts it away). To keep typing several in a row, focus the field again in
-  the action, as `add` does: the keyboard stays up and never flickers. On the Mac Return
-  also ends the editing as a text field's does: the field keeps the focus with its text
-  selected, unless the action moved it. There Space presses the focused control, and
-  Return a `dialog`'s default
-  button: its one `buttonStyle="filled"` button that is not `destructive`, when there
-  is exactly one (a field with `submit` takes Return itself; one without passes it on).
-- **`blur()`** puts the keyboard away from an action on every host (the web keeps the
-  focus on Enter): call it where the typing is finished, as `searched` does.
-  `blur("search")` takes the focus from that field only.
-- **`focus("id")`** moves the focus to a field by its `id`, from an action; a sheet's
-  first field takes `autofocus=true` instead. On the Mac a new window opens with the
-  caret in its first text field, as AppKit's windows do (its `focus=` runs then);
-  `autofocus=true` on another control starts there instead.
-- **`focus=` and `blur=`** on a field say when it is being edited. Keep Cancel while
-  there is a query too: on the web, pressing it blurs the field first. On the Mac a
-  click on a button leaves the focus in the field, as AppKit's buttons do, so say
-  `blur()` or `focus("id")` in the action when the press should move it.
-- **Tab** moves between the fields. On the Mac it reaches the buttons too only where the
-  person has turned Keyboard navigation on in System Settings, as in every Mac app; a
-  `tabindex=0` you write makes a control a stop whatever the setting.
-- **On scroll:** with nothing written, a drag on a `list` or `scroll` that reaches the
-  keyboard pulls it down, as Messages does, and scrolling alone leaves it up.
-  `keyboardDismissMode="on-drag"` puts it away as the drag starts and `"none"` keeps it
-  up whatever the drag does. A composer that rides above the keyboard:
-  [chat-thread](chat-thread.md).
+- **Return** is the field's `submit`; `enterkeyhint` labels the key. On iOS it puts the keyboard
+  away, and `next` moves to the next field. To keep typing several in a row, focus the field
+  again in the action, as `add` does: the keyboard stays up and never flickers.
+- **`blur()`** puts the keyboard away from an action; `blur("search")` takes the focus from
+  that field only. **`focus("id")`** moves it to a field by its `id`; a sheet's first field takes
+  `autofocus=true` instead.
+- **`focus=` and `blur=`** say when a field is being edited. Keep Cancel while there is a query
+  too: on the web, pressing it blurs the field first.
+- **On scroll,** a drag on a `list` or `scroll` that reaches the keyboard pulls it down, as
+  Messages does; `keyboardDismissMode="on-drag"` puts it away as the drag starts, `"none"` keeps it
+  up. A composer above the keyboard: [chat-thread](chat-thread.md).

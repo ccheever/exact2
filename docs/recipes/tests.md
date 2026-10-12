@@ -39,26 +39,10 @@ test (pin `epoch` and `time-zone`); give every screen its own ids.
 
 ## Before you call it done
 
-`verify` (`verify ios`) runs these tests, then `check`s the first screen and the screen
-each test ends on, light and dark at a phone and a desktop width: clipped text, covered
-controls, small targets, overflow, low contrast, a card that does not show. Then it
-relaunches once, on real time, on the store a passing test left, and says whether the
-first screen shows what that test stored. One screenshot of each screen is in
-`.exact/verify/`, named by test. A clean `verify` is done: look at the screenshots at
-milestones. A screen no test ends on is not checked, so end a test there rather than
-driving it by hand. Drive by hand (`agent web --storage s1 …`; `"clock +1500 real"` waits
-real time, and a second drive on the same `--storage` relaunches) to find out why
-something fails.
-
-A second user's write, seen through the app's own polling: the drive in the background,
-the write through the server with the other persona's token once its first `state` is out:
-
-```sh
-bun exact.mjs agent web --json --storage live "clock data" state "clock +3000 real" "clock +5000" "clock data" state > .exact/live.jsonl &
-until grep -q '"slots"' .exact/live.jsonl; do sleep 0.2; done
-curl -s -X POST localhost:6410/cards -H 'authorization: Bearer bob' -H 'content-type: application/json' -d '{"title":"From Bob"}'
-wait; tail -n 1 .exact/live.jsonl    # the last state holds Bob's card
-```
-
-`clock +5000` fires the app's poll (make it longer than the poll's interval) and `clock
-data` lands its reply; `agent ios` is the same.
+`verify` (`verify ios`) runs these tests, then `check`s the first screen and the screen each test
+ends on, light and dark at a phone and a desktop width (clipped text, covered controls, small
+targets, overflow, low contrast, a card that does not show), then relaunches once on real time
+and says whether the first screen shows what the test stored. Screenshots are in
+`.exact/verify/`, named by test. A clean `verify` is done; a screen no test ends on is not
+checked, so end a test there. To find out why something fails, drive by hand (`agent web
+--storage s1 …`; `"clock +1500 real"` waits real time).

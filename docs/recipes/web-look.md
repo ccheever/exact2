@@ -32,11 +32,9 @@ text `-exact-label`) or unsaid: a hex stays the same in dark mode while the cont
   A root tab bar is a sidebar there, and a list whose rows push (the `forward-chevron`)
   sits beside its detail, with nothing to write ([tabs](tabs.md), [navigation-stack](navigation-stack.md)).
   For another composition, `resource viewport = exactViewport() as shape Viewport`
-  (`width: number`), `derive wide = viewport.width >= 900`, and `when wide` chooses it.
-  Cards that wrap: [responsive-columns](responsive-columns.md).
+  (`width: number`) and `when viewport.width >= 900`. Cards that wrap: [responsive-columns](responsive-columns.md).
 - **A route is a page.** The tab's title is the route `header`'s heading (a `head`'s
   `title` wins), the focus moves to that heading on a push and back to the row on Back,
   a sheet is a dialog to a screen reader, and a tab bar and a menu move by arrow keys,
-  with nothing to write. Write a row that only navigates as `link href=path(…)`, not a
-  `button` with a `press`: then a new tab, "Copy Link" and the status bar's address work
-  too ([navigation-stack](navigation-stack.md)).
+  with nothing to write. A row that only navigates is a `link href=path(…)`, not a `button`:
+  a new tab, "Copy Link" and the status bar's address work too ([navigation-stack](navigation-stack.md)).
