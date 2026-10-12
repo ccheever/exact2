@@ -283,6 +283,12 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = press.perform(NSSelectorFromString(action), with: control)
         until("the tab pressed") { state(session, "segment") as? String == "missed" }
         until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+        // LLP 1115.000 D11.6: the title takes its own width, the size UIKit
+        // fits it to. Exact held each segment to 90 points at least, so two
+        // short titles made a control 180 wide.
+        let own = { control.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).width }
+        XCTAssertEqual(control.frame.width, own(), accuracy: 0.5, "its own width")
+        XCTAssertLessThan(control.frame.width, 180, "two short titles: narrower than 90 points a segment")
         // Sized for the text size and weight it shows, when they change and
         // no batch follows (every batch leaves it alone otherwise).
         let segments = try XCTUnwrap((top as? RouteController)?.titleSegments)
@@ -292,7 +298,8 @@ final class NavigationBarIOSTests: XCTestCase {
             control.traitOverrides.legibilityWeight = weight
             control.updateTraitsIfNeeded()
             XCTAssertEqual(segments.sized?.traits, [category, weight.rawValue] as [AnyHashable])
-            XCTAssertGreaterThanOrEqual(control.frame.width, 180, "sized again: two segments, 90 pt each at least")
+            XCTAssertEqual(control.frame.width, own(), accuracy: 0.5, "sized again, to its own width")
+            XCTAssertGreaterThan(control.frame.width, 1)
             XCTAssertGreaterThan(control.frame.height, 1)
         }
     }

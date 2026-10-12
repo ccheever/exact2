@@ -337,14 +337,15 @@ final class TitleSegments: NSObject {
         }
     }
     /// Sized for `titles` unless it already is: sizing lays it out, and
-    /// every batch projects every tab's routes.
+    /// every batch projects every tab's routes. Its width is its own, the
+    /// one UIKit fits it to (LLP 1115.000 D11.6); Exact held each segment to
+    /// 90 points at least.
     func fit(_ titles: [String]) {
         let t = control.traitCollection
         let traits: [AnyHashable] = [t.preferredContentSizeCategory, t.legibilityWeight.rawValue]
         guard sized?.titles != titles || sized?.traits != traits else { return }
         sized = (titles, traits)
         control.sizeToFit()
-        control.frame.size.width = max(control.frame.width, CGFloat(titles.count) * 90)
     }
 }
 private var titleSegmentsKey: UInt8 = 0
