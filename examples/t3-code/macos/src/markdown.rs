@@ -125,13 +125,7 @@ impl DataSource for Markdown {
             // audit-wave-followups-3 FW-2: a sent attachment's rendered Markdown
             // (AttachmentFilePreview: ChatMarkdown with no `cwd`), its checkboxes disabled.
             if kind == "attachment" {
-                documents.push(document_with_links(
-                    id.clone(),
-                    text,
-                    None,
-                    false,
-                    &link_href_without_cwd,
-                ));
+                documents.push(document_with_links(id.clone(), text, None, false, false));
                 continue;
             }
             // UserMessageBody renders ChatMarkdown with `lineBreaks`: a single
@@ -166,6 +160,7 @@ include!("pierre_icons.rs");
 include!("r4_timeline_tables.rs");
 include!("r4_integrate_align.rs");
 include!("markdown_links.rs");
+include!("markdown_media.rs");
 
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
@@ -252,6 +247,9 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         }
         // The href stays: r4-timeline-chips.ts resolves the chip by it.
         ("context-citation", "")
+    } else if href.starts_with(IMAGE_MARK) {
+        // An image inside a line of text: FlowRuns draws it through its media chip.
+        ("media", "")
     } else if let Some(target) = href.strip_prefix(FILE_LINK) {
         let (text, icon) = file_chip(target);
         fields[1] = Value::str(&text);
@@ -591,17 +589,17 @@ fn document_with_tasks(
     skill_values: Option<&Value>,
     toggle_tasks: bool,
 ) -> Value {
-    document_with_links(id, text, skill_values, toggle_tasks, &link_href)
+    document_with_links(id, text, skill_values, toggle_tasks, true)
 }
 
-/// `link`: what each destination becomes in a run's `href` (`link_href`, or
-/// `link_href_without_cwd` for a document with no workspace folder).
+/// `cwd`: the document has a workspace folder; without one (a sent attachment) a
+/// relative file link is targetless (`links_without_cwd`).
 fn document_with_links(
     id: Value,
     text: &str,
     skill_values: Option<&Value>,
     toggle_tasks: bool,
-    link: &dyn Fn(&str) -> String,
+    cwd: bool,
 ) -> Value {
     let skills: Vec<(String, String)> = match skill_values {
         Some(Value::List(skills)) => skills
@@ -622,7 +620,13 @@ fn document_with_links(
     // `![name](t3-context://…)`, which would shift every later marker by one.
     let source = text;
     let text = image_chip_links(text);
-    let mut doc = markdown_parse::parse(&text, link);
+    // media-signed-urls-and-attachment-markdown MD-1: an image inside a line of text is a media run.
+    let text = inline_image_links(&text);
+    let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
+    if !cwd {
+        links_without_cwd(&mut doc.blocks);
+    }
+    unmark_runs(&mut doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
@@ -712,6 +716,9 @@ fn document_with_links(
             );
         }
         fields[7] = chat_runs(&fields[7]);
+        if let Some(tokens) = &flow {
+            standalone_media(block, tokens, tasks[index].0, &mut fields[7]);
+        }
         if let Value::List(cells) = &fields[8] {
             fields[8] = Value::list(
                 cells
@@ -762,6 +769,10 @@ fn flow_tokens(block: &markdown_parse::Block) -> Option<Vec<markdown_parse::Run>
     }
     let mut tokens = Vec::new();
     for run in &block.runs {
+        if run.href.starts_with(IMAGE_MARK) {
+            push_media_token(&mut tokens, run);
+            continue;
+        }
         if run.code
             || run.href.starts_with(FILE_LINK)
             || run.href.starts_with("t3-context://")
@@ -833,6 +844,7 @@ fn collapse_spaces(tokens: Vec<markdown_parse::Run>) -> Vec<markdown_parse::Run>
             continue;
         }
         if token.code
+            || token.href.starts_with(IMAGE_MARK)
             || token.href.starts_with(FILE_LINK)
             || token.href.starts_with("t3-context://")
             || token.href.starts_with("t3-citation://")

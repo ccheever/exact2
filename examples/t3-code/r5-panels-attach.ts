@@ -19,7 +19,6 @@ import { markdownEnv, messageChips, type MarkdownEnv } from './r4-timeline-chips
 import { messageCodeBlocks } from './timeline-highlight';
 import { filesMermaid, type MermaidDiagramView } from './timeline-mermaid';
 import { timelineView } from './timeline-presentation';
-import { markdownMediaUrls } from './media-views';
 import { fileIconToken } from './timeline-files';
 import { mediaBody, mediaErrorMessage } from './r6-media-preview'; // lane r6-media: PDF, HTML, audio and video bodies
 import { sourceGutter } from './r9-device-crumbs'; // lane r9-device: the reference's line-number column
@@ -109,19 +108,20 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
 
 /**
  * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered
- * file uses (r4-surfaces-files.ts renderedMarkdown), with no folder: relative links and images resolve against nothing
- * (macos/src/markdown_links.rs link_href_without_cwd), code blocks keep their colours and Copy code, tables their menu,
+ * file uses (r4-surfaces-files.ts renderedMarkdown), with no folder: relative links resolve against nothing
+ * (macos/src/markdown_media.rs links_without_cwd), code blocks keep their colours and Copy code, tables their menu,
  * ```mermaid fences draw (filesMermaid: Files and an attachment are never the active surface together), and the task
- * checkboxes stay disabled.
+ * checkboxes stay disabled. Its media have no folder and no thread (media-signed-urls-and-attachment-markdown MD-2): a
+ * web URL loads as written, and a host path, relative or absolute, is "Image unavailable · <alt>" (MarkdownImage's
+ * ChatMarkdownImageFallback), so nothing is signed.
  */
-async function renderedAttachment(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, text: string, now: number) {
+async function renderedAttachment(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, text: string) {
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
-  const urls = native?.available ? await markdownMediaUrls(client, native, '', now, [text]) : [];
   const diagrams = await filesMermaid(client, native, text);
   return {
     markdownSource: [{ id: `attachment:${meta.id}`, kind: 'attachment', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, '', []) },
-    code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], '', { thread: false }) },
+    code: messageCodeBlocks(text), diagrams, mdUrls: [],
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
@@ -155,7 +155,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   // useCopyToClipboard: "Copied" for two seconds of the window's clock, stamped by the first view after the copy.
   if (state.copiedAt < 0 && now) state.copiedAt = now;
   const copied = state.copiedAt < 0 || (state.copiedAt > 0 && now - state.copiedAt < 2000);
-  const rich = preview === 'markdown' ? await renderedAttachment(client, native, meta, text, now) : NO_MARKDOWN();
+  const rich = preview === 'markdown' ? await renderedAttachment(client, native, meta, text) : NO_MARKDOWN();
   return {
     id: meta.id, name: meta.name, size: formatAttachmentSize(meta.sizeBytes), preview, error: failure,
     canRender: !!renderedMode, rendered,

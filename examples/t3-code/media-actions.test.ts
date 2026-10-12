@@ -186,7 +186,8 @@ describe('media views', () => {
       source: { name: 'Logo', reference: { kind: 'file', path: '/repo/screens/logo.png', relativePath: 'screens/logo.png' }, openFile: 'screens/logo.png', asset: { resource: { _tag: 'media-file', path: '/repo/screens/logo.png' } } } });
     expect(markdownMedia('', '//cdn.example/a.mp4', '', '/repo')).toMatchObject({ access: 'direct', kind: 'video', key: 'https://cdn.example/a.mp4', source: { name: 'video', reference: { kind: 'url', url: '//cdn.example/a.mp4' } } });
     expect(markdownMedia('Home', '~/a.png', 't3-file:~/a.png', '/repo')).toMatchObject({ access: 'blocked', source: null });
-    expect(markdownMediaChips('![Logo](screens/logo.png)\n![Logo](screens/logo.png)', '/repo')).toEqual([{ href: 't3-file:screens/logo.png', kind: 'media', label: 'Logo', size: 'image', tip: '/repo/screens/logo.png',
+    // media-signed-urls-and-attachment-markdown: the image line's chip, then the same image's as a media run (markdownInlineImages).
+    expect(markdownMediaChips('![Logo](screens/logo.png)\n![Logo](screens/logo.png)', '/repo').filter(chip => !chip.href.startsWith('t3-image:'))).toEqual([{ href: 't3-file:screens/logo.png', kind: 'media', label: 'Logo', size: 'image', tip: '/repo/screens/logo.png',
       detail: encodeMediaSource(markdownMedia('Logo', 'screens/logo.png', '', '/repo').source!), icon: 'environment', target: 'media:/repo/screens/logo.png' }]);
   });
   test('Markdown: host-path media are signed for the shown thread; a refusal is listed', async () => {
