@@ -10,23 +10,22 @@ export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference
 export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-open-files': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'root-font-size': ['<px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2; `has-focus`: #114; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, LLP 1115.000 D7.2, refused by name on the other hosts)
 export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
 
-/** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected. */
+/** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected.
+ * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names): round 9, three builds. */
 export function preferGroups(facts) {
   const media = {}, page = {}, fold = {};
-  const expected = () => Object.entries({ ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS }).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
-  for (const [name, value] of Object.entries(facts ?? {})) {
+  const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS };
+  const expected = () => Object.entries(all).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
+  const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
+  for (const [given, value] of Object.entries(facts ?? {})) {
+    const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
     if ((PREFERENCES[name] ?? []).includes(value)) media[name] = value;
     else if ((PAGE_FACTS[name] ?? []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
     else if (name === 'root-font-size' && Number(value) > 0 && Number.isFinite(Number(value))) page[name] = Number(value);
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
     else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) { const [c, r] = String(value).split('x').map(Number); fold.cols = c; fold.rows = r; }
     else if (name === 'gap' && Number(value) >= 0 && Number.isFinite(Number(value))) fold.gap = Number(value);
-    else {
-      // A near spelling of a fact (`colorScheme`, `color-scheme`): name the one meant (authoring bench).
-      const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
-      const near = Object.keys({ ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS }).find(k => k !== name && norm(k) === norm(name));
-      throw new Error(`prefer: ${name} ${value}: ${near ? `did you mean \`${near} ${value}\`? ` : ''}expected ${expected()}`);
-    }
+    else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
   }
   if (fold.gap != null && fold.cols == null) throw new Error('prefer: gap needs segments <cols>x<rows>');
   return { media, page, fold };
