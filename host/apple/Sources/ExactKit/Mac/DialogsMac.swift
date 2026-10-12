@@ -23,6 +23,7 @@ final class DialogHost {
         }
     }
     private var entries: [Entry] = []
+    private var accessibilityBlocker: ObjectIdentifier?
     /// The native button drawn as the open dialog's default (DefaultButtonMac.swift).
     weak var drawnDefault: NativeButtonMac?
     var active: NodeView? { entries.last?.dialog }
@@ -35,6 +36,14 @@ final class DialogHost {
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
     func blocks(_ node: NSView) -> Bool {
         guard let active else { return false }
+        return presenter?.menus.contains(active, node) != true
+    }
+    private var accessibleActive: NodeView? {
+        guard let active, active.accessibilityVisible, !active.accessibilityHiddenByProp else { return nil }
+        return active
+    }
+    func accessibilityBlocks(_ node: NSView) -> Bool {
+        guard let active = accessibleActive else { return false }
         return presenter?.menus.contains(active, node) != true
     }
     private func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
@@ -151,7 +160,7 @@ final class DialogHost {
             let hidden = !owns(dialog) || dialog.style["display"]?.string == "none"
             if dialog.isHidden != hidden { dialog.isHidden = hidden; changed = true }
         }
-        if changed { refreshInputGates() }
+        if changed || accessibleActive.map(ObjectIdentifier.init) != accessibilityBlocker { refreshInputGates() }
         layout()
         if active != nil || drawnDefault != nil { syncDefaultButton() }
         if let window = presenter.viewport.window, active != nil,
@@ -159,6 +168,7 @@ final class DialogHost {
     }
     private func refreshInputGates() {
         guard let presenter else { return }
+        accessibilityBlocker = accessibleActive.map(ObjectIdentifier.init)
         presenter.navigation.refreshInputGates(Array(presenter.views.values))
         presenter.topLayerChanged()
     }

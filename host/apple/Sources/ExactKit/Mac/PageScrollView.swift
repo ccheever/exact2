@@ -25,6 +25,17 @@ package final class PageScrollView: NSScrollView {
     var lostKey: (() -> Void)?
     private var keyObserver: NSObjectProtocol?
     deinit { if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) } }
+    var modalAccessibilityChildren: (() -> [NSView]?)?
+    package override func accessibilityChildren() -> [Any]? {
+        modalAccessibilityChildren?() ?? super.accessibilityChildren()
+    }
+    package override func accessibilityContents() -> [Any]? {
+        modalAccessibilityChildren?() ?? super.accessibilityContents()
+    }
+    package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .children || attribute == .contents, let projected = modalAccessibilityChildren?() { return projected }
+        return super.accessibilityAttributeValue(attribute)
+    }
     private var pointerArea: NSTrackingArea?
     package override func updateTrackingAreas() {
         super.updateTrackingAreas()

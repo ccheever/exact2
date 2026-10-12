@@ -261,7 +261,8 @@ export function axFindings(reply) {
     if (h) flagged.set(e.i, h.id);
     if (h && flagged.get(e.parent) !== h.id) out.push({ kind: 'exposed-hidden', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}" under #${h.id} (${h.why})`, under: h.id });
     // UIKit's rule is the host's to apply (it knows the modal view's siblings); elsewhere, outside the modal element.
-    const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none' && !inside(e, ax.modal.element);
+    const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none'
+      && !inside(e, ax.modal.element) && !(ax.source === 'appkit' && ax.modal.presented?.some(i => inside(e, i)));
     if (leaks) out.push({ kind: 'outside-modal', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}"`, basis: ax.source === 'uikit' ? 'documented-rule' : ax.source === 'appkit' ? 'sheet' : 'platform' });
   }
   return out;

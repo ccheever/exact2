@@ -80,6 +80,22 @@ final class MenuHost: NSObject {
     private var pointerDown: (button: Int, ancestor: UInt32?)?
     private var escapeHeld = false
     var presented: [NodeView] { entries.filter { $0.menu == nil }.map(\.popover) }
+    /// Modal accessibility includes an external popover opened from the
+    /// modal, and popovers opened from that popover, as the focus scope does.
+    func presented(within ancestor: NSView) -> [NodeView] {
+        func belongs(_ view: NSView, seen: inout Set<ObjectIdentifier>) -> Bool {
+            if contains(ancestor, view) { return true }
+            for entry in entries where contains(entry.popover, view) {
+                guard seen.insert(ObjectIdentifier(entry.popover)).inserted, let source = entry.source else { continue }
+                if belongs(source, seen: &seen) { return true }
+            }
+            return false
+        }
+        return presented.filter { view in
+            var seen: Set<ObjectIdentifier> = []
+            return belongs(view, seen: &seen)
+        }
+    }
     init(presenter: Presenter) { self.presenter = presenter }
 
     func isOpen(_ node: NodeView) -> Bool { entries.contains { $0.popover === node } }

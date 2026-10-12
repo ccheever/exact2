@@ -502,10 +502,67 @@ extension Presenter {
             _ = target.becomeFirstResponder()
             #endif
         }
-        #if os(iOS) || os(tvOS)
+        #if os(macOS)
+        let modal = macAccessibilityModal.map(ObjectIdentifier.init)
+        if modal != announcedModal {
+            announcedModal = modal
+            NSAccessibility.post(element: viewport, notification: .layoutChanged)
+        }
+        #else
         syncModal()
         #endif
     }
+    #if os(macOS)
+    var macModalAccessibilityChildren: [NodeView]? {
+        guard let modal = macAccessibilityModal else { return nil }
+        return [modal] + menus.presented(within: modal).filter { $0 !== modal }
+    }
+    /// The frontmost exposed authored modal, or the dialog in HTML's top
+    /// layer. The viewport serves it directly so AppKit cannot flatten a
+    /// scroll or a native control beside it into the accessible page.
+    var macAccessibilityModal: NodeView? {
+        if let active = dialogs.active, active.accessibilityVisible,
+           active.props["accessibilityElementsHidden"] != "true", !active.isAccessibilityHidden(),
+           leaving[active.id] == nil { return active }
+        func path(_ view: NSView) -> [NSView] {
+            Array(sequence(first: view, next: \.superview).prefix { $0 !== viewport }.reversed())
+        }
+        func inFront(_ a: NSView, of b: NSView) -> Bool {
+            if a.isDescendant(of: b) { return true }
+            if b.isDescendant(of: a) { return false }
+            for (left, right) in zip(path(a), path(b)) where left !== right {
+                if left.layer?.zPosition != right.layer?.zPosition { return (left.layer?.zPosition ?? 0) > (right.layer?.zPosition ?? 0) }
+                let siblings = left.superview?.subviews ?? []
+                return (siblings.firstIndex(of: left) ?? 0) > (siblings.firstIndex(of: right) ?? 0)
+            }
+            return false
+        }
+        func exposed(_ node: NodeView) -> Bool {
+            guard node.props["accessibilityModal"] == "true", node.accessibilityVisible,
+                  !node.isAccessibilityHidden(), leaving[node.id] == nil else { return false }
+            for view in sequence(first: node as NSView, next: \.superview) {
+                if view.isAccessibilityHidden() { return false }
+                guard let parent = view.superview else { break }
+                if parent.subviews.contains(where: { sibling in
+                    guard sibling !== view, let cover = sibling as? NodeView,
+                          !cover.cssVisibilityHidden, !cover.isHidden, !cover.isAccessibilityHidden(),
+                          !isLeaving(cover), cover.alphaValue == 1, let layer = cover.layer,
+                          layer.opacity == 1, layer.backgroundColor?.alpha == 1,
+                          layer.cornerRadius == 0, layer.mask == nil, CATransform3DIsIdentity(layer.transform)
+                    else { return false }
+                    // Only a painted opaque rectangle covering the entire
+                    // dialog establishes occlusion. Intersecting boxes do not.
+                    // AppKit's visibleRect can extend beyond an unclipped box.
+                    return cover.convert(cover.visibleRect.intersection(cover.bounds), to: node).contains(node.bounds) && inFront(cover, of: view)
+                }) { return false }
+                if view === viewport { break }
+            }
+            return true
+        }
+        return chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }.filter(exposed)
+            .max { inFront($1, of: $0) }
+    }
+    #endif
     #if os(iOS) || os(tvOS)
     /// `aria-modal` (LLP 1080.003), after a batch and after a native
     /// transition settles. A view is modal while its prop is true and it is

@@ -126,7 +126,7 @@ final class NavigationHost {
     func refreshInputGates(_ nodes: [NodeView]) {
         for node in nodes {
             let inert = node.inert
-            let hidden = inert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp
+            let hidden = node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp
             // The AX getter can traverse the legacy unsupported-attribute path
             // for non-elements; writing this property is cheaper than querying it.
             node.setAccessibilityHidden(hidden)
