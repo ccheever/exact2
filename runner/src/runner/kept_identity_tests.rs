@@ -117,11 +117,11 @@ fn plan_with(through_derive: bool, key_is_context: bool, account_reads_store: bo
     b.finish().unwrap()
 }
 
-fn launch(through_derive: bool, snapshot: Vec<(String, String)>) -> Runner<Source> {
+fn launch(through_derive: bool, snapshot: Vec<(String, Vec<u8>)>) -> Runner<Source> {
     launch_plan(plan(through_derive), snapshot)
 }
 
-fn launch_plan(plan: Plan, snapshot: Vec<(String, String)>) -> Runner<Source> {
+fn launch_plan(plan: Plan, snapshot: Vec<(String, Vec<u8>)>) -> Runner<Source> {
     Runner::boot_stored(
         plan,
         Source::default(),
@@ -143,7 +143,7 @@ fn shows(r: &Runner<Source>, name: &str, value: &str) {
     assert_eq!(r.resource(name), Some(&Value::str(value)), "{name}");
 }
 
-fn feeds_kept(args: &[Value], value: &str) -> (String, String) {
+fn feeds_kept(args: &[Value], value: &str) -> (String, Vec<u8>) {
     (
         kept::kept_name("feeds"),
         kept::encode(args, &Value::str(value)),
