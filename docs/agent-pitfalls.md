@@ -246,12 +246,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route
   (LLP 1116.002, 1116.003).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
-  collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
-  names one; a title collapses only with the scroller right after the route's
-  `header`. Fix: a `scroll id="feed" flex=1 min-height=0` right after the `header`
-  and `navigationScroll="feed"` on the route (docs/contract-for-agents.md, "Routes and
-  web documents"). The compiler refuses a name nothing in the route carries, or one
-  on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
+  collapses.** Cause: a route is a box, not a scroller; a title collapses only with
+  the scroller right after the route's `header`. Fix: a `scroll flex=1 min-height=0`
+  right after the `header`. It is the bar's scroller with nothing written, and
+  `navigationScroll="id"` on the route names a different one
+  (docs/contract-for-agents.md, "Routes and web documents"). A pushed route's large
+  title opens collapsed over its scroller and expands on a pull (QUEUE.md); keep
+  large titles for a stack's first screen. The compiler refuses a name nothing in the
+  route carries, or one on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
   compiler could refuse a named scroller that is not right after the `header` (an
   iOS-only rule today, so not refused); the hosts could journal a route whose
   content overflows with nothing to scroll it (QUEUE.md).

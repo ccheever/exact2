@@ -1100,8 +1100,9 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a route with `navigationPresentation="modal"` | a sheet |
 
 `contract vocab <name>` lists each one's props. A route does not scroll by
-itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
-`navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
+itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which is
+the bar's scroller with nothing written (`navigationScroll` names another; "Routes
+and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
 route's enabled control whose `id` is the root's `navigationBack`, which is optional: a
 root with a `navigationKey` alone is the navigation root and names no control. A route with no such
 control still has the platform's back button, edge swipe and swipe down (and the
@@ -1440,21 +1441,24 @@ two screens share names two nodes: give each screen its own (`list-error`,
 A route does not scroll by itself, as a `div` does not: content taller than it is
 never seen. A fixed shell (a map, a camera, a chat whose composer stays put) is
 fine; anything else puts its content in a `scroll` or `list` with `flex=1
-min-height=0` right after its `header`, and names it with `navigationScroll`:
+min-height=0` right after its `header`:
 
 ```text
-column navigationKey=`${e.id}` navigationScroll="feed" position="absolute" inset=0 display="flex" flex-direction="column"
+column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
   header
     text "Inbox"
-  scroll id="feed" flex=1 min-height=0
+  scroll flex=1 min-height=0
     …
 ```
 
-`navigationScroll` names an element of the route by its `id`; on iOS that scroller
-goes under the bar and collapses a large title, which happens only when it is the
-route's child right after its `header`. The compiler refuses a literal name that no
-element of the route carries, or one whose element is a box that never scrolls on y
-(`lower-route-scroll`).
+That scroller is the route's content scroller with nothing written: the first in the
+route that scrolls vertically. On iOS it goes under the bar and collapses a large
+title, which happens only when it is the route's child right after its `header` (in
+a route with no header, its first child); a tap on the status bar, or on the selected
+tab at its root, scrolls it to the top. A route with several scrollers names a
+different one with `navigationScroll`, by its `id`. The compiler refuses a literal
+name that no element of the route carries, or one whose element is a box that never
+scrolls on y (`lower-route-scroll`).
 
 ## Tabs and stacks
 

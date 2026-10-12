@@ -333,7 +333,10 @@ component NativeFixture
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             each e in t.stack key=e.id
-              column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+              // Second names no scroller: its `scroll` right after the header
+              // is the bar's with nothing written (LLP 1115.000 D11.1), and
+              // its large title collapses with it. The others name theirs.
+              column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
                 // Photo is a full-bleed viewer that draws its own Close: it
                 // says it has no bar (`navigationBar="none"`, LLP 1115.000
                 // D5.2). Menu, a sheet's first route, has nothing to go back to.

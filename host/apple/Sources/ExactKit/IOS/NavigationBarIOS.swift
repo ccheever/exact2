@@ -503,7 +503,7 @@ extension NavigationHost {
                                                        backButton: Self.barHasBackButton) : .hidden
             let shows = bar != .hidden
             let canGoBack = index > 0 && canInvokeBack
-            let scroll = contentScroll(of: c)
+            let scroller = contentScroller(of: c), scroll = scroller?.scroll
             let dataset = c.node.props["dataset"]
             let source = BarSource(bar: bar, header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
                                    trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
@@ -516,7 +516,7 @@ extension NavigationHost {
                 c.projectedSource = source
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
-            collapse(c, shape: shape, scroll: scroll)
+            collapse(c, shape: shape, shows: shows, scroller: scroller)
             reachBottom(c)
             c.paintBackdrop()
             if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
@@ -526,7 +526,7 @@ extension NavigationHost {
             presenter.session?.natives.routeHatch(c.hatched ? .changed : .built, controller: c, navigation: nav, scroll: scroll,
                                                  key: c.key, dataset: dataset)
             c.hatched = true
-            if let scroll { c.ownedScroll = element(named: c.node.props["navigationScroll"] ?? "", in: c.node).flatMap { $0.scroll === scroll ? $0 : nil } }
+            if scroll != nil { c.ownedScroll = scroller }
         }
         // A route's header shown or hidden in place; a push or pop sets the
         // bar in `willShow` instead, with UIKit's transition.
@@ -662,17 +662,26 @@ extension NavigationHost {
     }
 
     /// Stage 3 (LLP 1075.003 §3.7): a large title collapses with its route's
-    /// content scroll view when that scroller comes right after the header
-    /// the bar replaces. The scroller then goes under the bar, UIKit insets it
+    /// content scroller (`contentScroller`: with nothing written, the first
+    /// that scrolls vertically, LLP 1115.000 D11.1) when that scroller is at
+    /// the route's top: right after the header the bar replaces, or first in
+    /// a route whose bar holds the system Back alone. The scroller then goes
+    /// under the bar, UIKit insets it
     /// and follows its offset, and CSS `scrollTop` is measured from the
     /// expanded title's inset (`scrollOrigin`), so an authored offset lands
     /// where the browser's does while the bar's height changes. An inline
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
-    /// scroll edge appearance follows it; its inset does not change.
-    private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?) {
+    /// scroll edge appearance follows it; its inset does not change. A
+    /// scroller with something above it in the route keeps its place and the
+    /// title keeps still: what is above it would sit under the bar.
+    private func collapse(_ c: RouteController, shape: HeaderShape?, shows: Bool, scroller: NodeView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
-        let node = kids.firstIndex { $0 === shape?.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil }
-        let target = node?.scroll != nil && node?.scroll === scroll ? node : nil
+        let flowing = { (v: NodeView) in
+            !v.isHidden && v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+        }
+        let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil } }
+            ?? (shows ? kids.first(where: flowing) : nil)
+        let target = node?.scroll != nil && node === scroller ? node : nil
         guard c.collapseScroll !== target else { return }
         if let old = c.collapseScroll, let sv = old.scroll {
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
@@ -842,11 +851,19 @@ extension NavigationHost {
         return item
     }
 
-    /// The scroll view a route names with `navigationScroll`, resolved
-    /// inside it by HTML id as its Back control is (E7: nothing searches).
-    func contentScroll(of c: RouteController) -> UIScrollView? {
-        guard let name = c.node.props["navigationScroll"], !name.isEmpty else { return nil }
-        return element(named: name, in: c.node)?.scroll
+    /// A route's content scroller (LLP 1115.000 D11.1). With nothing written
+    /// it is the first scroller under the route that scrolls vertically, as
+    /// a hand-built screen's scroll view is its bar's unasked; a route names
+    /// a different one with `navigationScroll`, resolved inside it by HTML
+    /// id as its Back control is (E7: nothing searches), and a name that
+    /// finds no scroller is none. One rule for everything that asks: the
+    /// bar's scroller (`collapse`), the status bar's tap and a reselected
+    /// tab's (`ScrollsToTopIOS`), and the scroll view a route hatch is given.
+    func contentScroller(of c: RouteController) -> NodeView? {
+        if let name = c.node.props["navigationScroll"], !name.isEmpty {
+            return element(named: name, in: c.node).flatMap { $0.scroll == nil ? nil : $0 }
+        }
+        return Presenter.firstVerticalScroller(under: c.node)
     }
 
     private func element(named name: String, in route: NodeView) -> NodeView? {
