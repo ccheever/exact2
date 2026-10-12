@@ -202,6 +202,10 @@ pub(super) struct State {
     host: u32,
     pane: (i32, String),
     told: bool,
+    /// The page's tree and its route while a surface's is the tree told:
+    /// what a live region of the page came to say meanwhile is spoken when
+    /// the page is told again.
+    page: Option<(Vec<Node>, i32)>,
     /// Counts the statements.
     serial: u32,
 }
@@ -1063,12 +1067,9 @@ impl<D: DataSource> Presenter<D> {
     /// ([`change`]), and for a scroller that moved, how far. A node whose
     /// children came, went or moved is one change, of its subtree; what is
     /// under such a node is not told apart, but for a live region, whose
-    /// change is spoken. `None`: too much changed to tell apart.
-    fn access_changes(
-        before: &[Node],
-        now: &[Node],
-        new_pane: bool,
-    ) -> Option<Vec<(i32, i32, f32, f32)>> {
+    /// change is spoken, and a node that became selected or checked or
+    /// stopped being so, whose state a service says.
+    fn access_changes(before: &[Node], now: &[Node], new_pane: bool) -> Vec<(i32, i32, f32, f32)> {
         let old: BTreeMap<i32, &Node> = before.iter().map(|n| (n.id, n)).collect();
         let new: BTreeMap<i32, &Node> = now.iter().map(|n| (n.id, n)).collect();
         let children = |nodes: &[Node]| {
@@ -1091,6 +1092,9 @@ impl<D: DataSource> Presenter<D> {
         }
         let live = |node: &Node| node.flags & (flag::POLITE | flag::ASSERTIVE) != 0;
         let mut spoken = Vec::new();
+        // A node that became selected or checked, or stopped being so, is
+        // told apart wherever it is: a service says so of the node it is on.
+        let mut stated = Vec::new();
         for node in now {
             let Some(was) = old.get(&node.id) else {
                 // An alert that appears is spoken, as a browser's is; a
@@ -1116,6 +1120,9 @@ impl<D: DataSource> Presenter<D> {
             }
             if what != 0 {
                 mark(&mut changed, node.id, what);
+            }
+            if (was.flags ^ node.flags) & (flag::SELECTED | flag::CHECKED) != 0 {
+                stated.push(node.id);
             }
             if what & change::SCROLLED != 0 {
                 let by = node.range[0] - was.range[0];
@@ -1162,10 +1169,12 @@ impl<D: DataSource> Presenter<D> {
             .filter(|(id, _)| **id == 0 || !covered(**id))
             .map(|(id, (what, dx, dy))| (*id, *what, *dx, *dy))
             .collect();
+        let stated = stated.into_iter().filter(|id| covered(*id));
+        out.extend(stated.map(|id| (id, change::STATE, 0.0, 0.0)));
         spoken.sort_unstable();
         spoken.dedup();
         out.extend(spoken.into_iter().map(|id| (id, change::LIVE, 0.0, 0.0)));
-        (out.len() <= MOST_CHANGES).then_some(out)
+        out
     }
 
     /// What the shell is told of the accessibility tree, in its pixels
@@ -1174,8 +1183,8 @@ impl<D: DataSource> Presenter<D> {
     /// was just turned on) and is told the tree whole. The words:
     ///
     /// - the statement's number; the surface whose window the nodes are in
-    ///   (its serial; 0: the page's window); 1 when the tree is told whole
-    ///   and nothing is said of what changed;
+    ///   (its serial; 0: the page's window); 1 when the tree is told whole,
+    ///   and the only changes listed are live regions that speak;
     /// - the pane: the identity of the route that shows (0: none) and its
     ///   title, a string (its bytes' count, then UTF-8 padded to whole
     ///   words), as the top app bar shows it;
@@ -1200,24 +1209,41 @@ impl<D: DataSource> Presenter<D> {
         if !again && same && nodes == self.access.nodes && pane == self.access.pane {
             return None;
         }
-        let changes = match again || !same {
-            true => None,
-            false => {
-                let new_pane = pane.0 != self.access.pane.0;
-                Self::access_changes(&self.access.nodes, &nodes, new_pane)
-            }
-        };
         let state = &mut self.access;
+        let spoken = |c: Vec<(i32, i32, f32, f32)>| -> Vec<(i32, i32, f32, f32)> {
+            c.into_iter().filter(|c| c.1 == change::LIVE).collect()
+        };
+        // Told whole: to a shell that holds nothing, when the tree is
+        // another window's, and when too much changed to tell apart. What a
+        // live region came to say is spoken even so, but to a shell that
+        // holds nothing.
+        let (changes, whole) = match (again, same, &state.page) {
+            (true, ..) => (Vec::new(), true),
+            (_, true, _) => {
+                let new_pane = pane.0 != state.pane.0;
+                let all = Self::access_changes(&state.nodes, &nodes, new_pane);
+                match all.len() <= MOST_CHANGES {
+                    true => (all, false),
+                    false => (spoken(all), true),
+                }
+            }
+            // The page again, after a surface closed.
+            (_, _, Some((page, route))) if host == 0 => {
+                let all = Self::access_changes(page, &nodes, pane.0 != *route);
+                (spoken(all), true)
+            }
+            _ => (Vec::new(), true),
+        };
+        if again || host == 0 {
+            state.page = None;
+        } else if state.told && state.host == 0 {
+            state.page = Some((std::mem::take(&mut state.nodes), state.pane.0));
+        }
         state.serial += 1;
         let px = |v: f32| (v * scale).round() as i32;
-        let mut out = vec![
-            state.serial as i32,
-            host as i32,
-            i32::from(changes.is_none()),
-        ];
+        let mut out = vec![state.serial as i32, host as i32, i32::from(whole)];
         out.push(pane.0);
         string(&mut out, &pane.1);
-        let changes = changes.unwrap_or_default();
         out.push(changes.len() as i32);
         for (id, what, dx, dy) in changes {
             let moved = [(dx * scale).to_bits() as i32, (dy * scale).to_bits() as i32];

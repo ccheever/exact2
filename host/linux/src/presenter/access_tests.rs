@@ -105,6 +105,21 @@ const ROWS: &str = r#"component App
             text `Row ${x}`
 "#;
 
+/// A status line, and a menu whose one row changes what it says.
+const MENU: &str = r#"component App
+  state said = "Nothing yet"
+  action say
+    said = "Saved"
+  view
+    column width=320 height=400 align-items="flex-start"
+      text said role="status" testId="status" width=200 height=20
+      button popovertarget="more" aria-label="More" testId="more" height=30
+        text "More"
+      column id="more" popover="auto" role="menu" aria-label="More"
+        button press=say popovertarget="more" popovertargetaction="hide" testId="menu-save"
+          text "Save"
+"#;
+
 /// The shell's painter for a bar or a window: it draws nothing.
 struct Blank;
 impl SurfacePainter for Blank {
@@ -545,6 +560,58 @@ fn a_statement_says_what_changed_and_nothing_is_said_twice() {
     p.access_reset();
     assert!(p.access_told().is_empty());
     assert!(statement(&mut p).whole);
+}
+
+#[test]
+fn a_live_region_speaks_and_a_selection_is_told_apart_whatever_else_changed() {
+    // A menu's row changes the page's status line while the menu's window
+    // is the tree. The page is told whole when the menu closes, and the
+    // status line is still said to speak.
+    let mut p = boot(MENU, (320., 400.), 0);
+    p.serve_requests();
+    p.serve_windows(Box::new(Blank));
+    settle(&mut p);
+    let page = statement(&mut p);
+    let status = named(&page.nodes, "Nothing yet").id;
+    tap(&mut p, "more");
+    let menu = statement(&mut p);
+    assert!(menu.host != 0 && menu.whole && menu.changes.is_empty());
+    assert!(p.access_act(named(&menu.nodes, "Save").id, act::CLICK, 0.0, 0.0));
+    settle(&mut p);
+    let after = statement(&mut p);
+    assert!(after.host == 0 && after.whole);
+    assert_eq!(after.changes, [(status, change::LIVE, 0.0, 0.0)]);
+    assert_eq!(
+        after.nodes.iter().find(|n| n.id == status).unwrap().name,
+        "Saved"
+    );
+    // A shell made again is told no change at all.
+    assert!(told(&p.reader_access(1.0, true).unwrap())
+        .changes
+        .is_empty());
+    // Shelf's filter: the list under it empties and no longer scrolls,
+    // which is one change, of everything; the two tabs whose selection
+    // moved are told apart even so, and a service on one of them says it
+    // is selected.
+    let _hosting = hosting();
+    let mut p = shelf(12);
+    let library = statement(&mut p).nodes;
+    let (all, want) = (named(&library, "All").id, named(&library, "Want").id);
+    tap(&mut p, "filter-want");
+    let filtered = statement(&mut p);
+    assert!(!filtered.whole);
+    assert_eq!(
+        filtered.changes,
+        [
+            (0, change::SUBTREE, 0.0, 0.0),
+            (all, change::STATE, 0.0, 0.0),
+            (want, change::STATE, 0.0, 0.0)
+        ]
+    );
+    assert_eq!(
+        named(&filtered.nodes, "Want").flags,
+        flag::CLICK | flag::SELECTED
+    );
 }
 
 #[test]
