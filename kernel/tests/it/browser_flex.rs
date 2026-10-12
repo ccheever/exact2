@@ -611,7 +611,15 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
         ]
     };
     let clipped = "max-height:160px;overflow:hidden";
-    let cases: Vec<(&str, Vec<(u32, u32, Rows)>, Vec<u32>, Images, Frames)> = vec![
+    // A name, the nodes, the text leaves, the images and Chrome's frames.
+    type Case<'a> = (
+        &'a str,
+        Vec<(u32, u32, Rows)>,
+        Vec<u32>,
+        Images<'a>,
+        Frames<'a>,
+    );
+    let cases: Vec<Case> = vec![
         (
             "C: a text leaf at max-height",
             in_row(clipped),
