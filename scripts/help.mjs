@@ -22,7 +22,7 @@ const takesValue = (spec) => spec.includes(' ');
 // The drive flags `scripts/agent-launch.mjs` `parseFlags` takes, shared by `agent` and `test`
 // (`runTests` reads all but those `test` lists as internal).
 const DRIVE = [
-  ['--storage <name>', 'a scratch store for storage sources, kept between drives under that name'],
+  ['--storage <name>', 'a scratch store, kept between drives under that name'],
   ['--size <w>x<h>', 'the viewport (desktop default 420x900; a simulator is its device\'s size)'],
   ['--chrome platform', 'Apple: the real navigation and tab bars (default: the authored ones, painted)'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
@@ -32,15 +32,15 @@ const DRIVE = [
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
-  ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
+  ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
-  ['--world <file>', 'a game: a saved world to load'],
-  ['--open <file> · --json', 'macOS: a document on its command line · replies as JSON lines'],
+  ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
+  ['--json', 'one compact JSON object per op reply, one per line (default: indented text)'],
 ];
 const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
-const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim'];
+const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim', '--json'];
 const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
 const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
@@ -117,8 +117,8 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app (building it first when missing or stale, saying so on stderr), runs each
-op, one quoted argument each, on the agent's clock, prints each reply and closes it. Without
+    body: `Launches the app anew each drive (building first when missing or stale, said on stderr), runs
+each op (one quoted argument each) on the agent's clock, prints its reply, closes it. Without
 --storage, storage is refused.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · state [<path>] · logs · layout [<target>]
@@ -127,7 +127,7 @@ Ops      a target is a testId, else a view's exact text or label
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>
-Runs     to completion; each drive launches the app anew (--storage keeps its data).`,
+Runs     to completion.`,
     bodyAll: `Trace    trace <file> reads a saved development trace. Every op's forms: docs/contract-for-agents.md
          "Inspection and testing", or agent web with no op.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
@@ -139,7 +139,7 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
     usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--json]',
     flags: [
-      ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
+      ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--json', 'the report as one JSON object'],
     ],
     internal: ['--app <name>'],
@@ -169,7 +169,7 @@ Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simu
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
       PREBUILD,
-      ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
+      ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
       ['--archive <out.ipa>', 'with --device: an .ipa to distribute (EXACT_IDENTITY, EXACT_PROFILE), no phone'],

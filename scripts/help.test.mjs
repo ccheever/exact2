@@ -122,4 +122,6 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
     assert.match(all, /^Ports {4}/m, `${verb} --help all says its ports`);
     assert.doesNotMatch(all, /^More /m);
   }
+  // LLP 1116.007 D2: a builder parses `agent` output, so the short text says --json is one object per line.
+  assert.match(helpText('agent'), /^ {2}--json +one compact JSON object per op reply, one per line/m);
 });
