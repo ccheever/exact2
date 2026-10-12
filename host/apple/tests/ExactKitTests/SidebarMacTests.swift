@@ -289,6 +289,40 @@ final class SidebarMacTests: XCTestCase {
         XCTAssertEqual(changes, 2)
     }
 
+    /// The owner's window is a plain titled one showing something else when
+    /// the app's first batch names its tabs, as ExactMac's is. Installed
+    /// there, the list's first row is where AppKit puts one in a window that
+    /// was full-size-content from the start: under the bar, with none of the
+    /// padding a list keeps from a window whose content stopped under it.
+    func testInstalledInAPlainWindowTheFirstRowIsUnderTheBar() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        self.window = window
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 500))
+        // Ordered in, off every screen, never key and never active.
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderFrontRegardless()
+        window.layoutIfNeeded()
+        XCTAssertFalse(window.styleMask.contains(.fullSizeContentView))
+
+        let split = ExactSidebarController(view: view, autosaveName: nil, minimumPageWidth: 320)
+        split.install(in: window)
+        XCTAssertTrue(window.contentViewController === split)
+        XCTAssertTrue(window.styleMask.contains(.fullSizeContentView), "the sidebar runs under the title bar")
+        XCTAssertEqual(window.frame.width, 700, "the window keeps its width")
+        XCTAssertTrue(view.attachWindowToolbar(to: window))
+        window.layoutIfNeeded()
+        let table = split.table
+        XCTAssertEqual(table.numberOfRows, 2)
+        XCTAssertEqual(table.rect(ofRow: 0).minY, 0, "no padding above the first row: the bar is over the list")
+        let row = try XCTUnwrap(table.rowView(atRow: 0, makeIfNecessary: true))
+        let bar = window.frame.height - window.contentLayoutRect.height
+        XCTAssertGreaterThan(bar, 0)
+        XCTAssertEqual(window.frame.height - row.convert(row.bounds, to: nil).maxY, bar, accuracy: 0.5, "the first row starts where the bar ends")
+    }
+
     func testTheSidebarsWidthIsRememberedByName() throws {
         let session = try boot(size: CGSize(width: 700, height: 500))
         let view = ExactView(session: session)

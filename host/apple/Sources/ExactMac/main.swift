@@ -280,10 +280,10 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             if window.contentView === view { window.contentView = NSView() }
             let minimum = scripted && ExactEnv.environment["EXACT_WINDOW_MINWIDTH"] == nil ? 0 : minimumSize.width
             let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum)
-            // The window takes its content's size: the one it has.
-            split.view.frame = NSRect(origin: .zero, size: window.contentView?.frame.size ?? was.size)
             sidebar = split
-            window.contentViewController = split
+            // Full-size content, then the split view: the order AppKit
+            // places a source list's first row by.
+            split.install(in: window)
         } else {
             sidebar?.release()
             sidebar = nil

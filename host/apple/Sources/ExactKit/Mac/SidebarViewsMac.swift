@@ -15,8 +15,8 @@
 import AppKit
 
 /// The window's content while the app's root tab bar is its sidebar. The
-/// window's owner makes one when `ExactView.wantsWindowSidebar` and makes it
-/// the window's content view controller; `release()` gives the view back.
+/// window's owner makes one when `ExactView.wantsWindowSidebar` and installs
+/// it (`install(in:)`); `release()` gives the view back.
 public final class ExactSidebarController: NSSplitViewController {
     public let exactView: ExactView
     private let list: SidebarList
@@ -74,6 +74,21 @@ public final class ExactSidebarController: NSSplitViewController {
     }
     /// The first root's `viewport-fit` changed (the owner's hook).
     public func viewportFitChanged() { pin() }
+
+    /// Make this the window's content, at the size its content has. The
+    /// window is made full-size-content first, and that order is AppKit's:
+    /// it decides a source list's top padding when the list enters its
+    /// window. One that enters a window whose content stops under the title
+    /// bar is given 10 points above its first row and keeps them when the
+    /// bar comes over it afterwards; one that enters a full-size-content
+    /// window starts under the bar, as a hand-built app's does (measured,
+    /// LLP 1115.002 §1).
+    public func install(in window: NSWindow) {
+        if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+        // The window takes its content's size: the one it has.
+        view.frame = NSRect(origin: .zero, size: window.contentView?.frame.size ?? window.frame.size)
+        window.contentViewController = self
+    }
 
     /// The view leaves the pane, placed by frames again: the owner makes it
     /// the window's content when the root has no tab bar for a sidebar.
