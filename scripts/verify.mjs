@@ -16,7 +16,8 @@
 // by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
 // takes one drive at a time, and runs the tests with UIKit's bars (`--chrome platform`) so their end screens
 // are what a person sees. An app with a server of its own (the `rest` pattern's) has it run by verify, where the
-// app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`).
+// app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`); a server
+// entry that does not read DB is refused before the build, in one line naming it and the fix (LLP 1116.008 D1).
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
@@ -39,30 +40,53 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const LOCAL = /\bhttps?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{2,5}(?:\/[\w\-./]*)?/;
 const readIn = (dir, path) => { try { return readFileSync(resolve(dir, path), 'utf8'); } catch { return null; } };
 
+/** The modules of the app's own that `path` imports (`from './x'`, `import './x'`, `import('./x')`, `require('./x')`),
+ * as paths in `dir` that exist: `./x` is x, x.ts, x.js, x.mjs or x/index.ts. */
+function importsOf(dir, path) {
+  const found = [], base = resolve(dir, path, '..');
+  for (const [, spec] of (readIn(dir, path) ?? '').matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g)) {
+    const at = resolve(base, spec);
+    const file = [at, `${at}.ts`, `${at}.js`, `${at}.mjs`, `${at}/index.ts`].find((p) => readIn(dir, p) != null);
+    if (file && !relative(dir, file).startsWith('..')) found.push(relative(dir, file));
+  }
+  return found;
+}
+
 /** The server URL the data module calls: the first local one (`http://127.0.0.1:8787`, or localhost) in app.ts, else in
  * a module of the app's own that it imports (`import { API } from './api'`); null when it calls none. */
 export function serverUrl(dir) {
-  const main = readIn(dir, 'app.ts') ?? '', at = (text) => text?.match(LOCAL)?.[0].replace(/\/$/, '') ?? null;
-  if (at(main)) return at(main);
-  for (const [, path] of main.matchAll(/\bfrom\s+['"](\.{1,2}\/[^'"]+)['"]/g))
-    for (const p of [path, `${path}.ts`, `${path}/index.ts`]) if (at(readIn(dir, p))) return at(readIn(dir, p));
-  return null;
+  const at = (text) => text?.match(LOCAL)?.[0].replace(/\/$/, '') ?? null;
+  return at(readIn(dir, 'app.ts')) ?? importsOf(dir, 'app.ts').map((p) => at(readIn(dir, p))).find(Boolean) ?? null;
+}
+
+/** Whether `entry`, or a module of the app's own it imports (a root shim that only imports the backend), reads the
+ * database's path from `DB`: `process.env.DB`, `Bun.env.DB`, `env["DB"]`, `const { DB } = process.env`. */
+const READS_DB = /\benv\??\.DB\b|\benv\[\s*['"]DB['"]\s*\]|\{[^}]*\bDB\b[^}]*\}\s*=\s*[\w.]*\benv\b/;
+function readsDB(dir, entry) {
+  const seen = new Set([entry]);
+  for (const path of seen) {
+    if (READS_DB.test(readIn(dir, path) ?? '')) return true;
+    for (const next of importsOf(dir, path)) if (seen.size < 40) seen.add(next);
+  }
+  return false;
 }
 
 /** The app's own server, the `rest` pattern's shape: an entry Bun runs (app.json's `commands.server`, as
  * `["bun", "server/index.ts"]`, else server.ts, server/index.ts or server/server.ts) at the URL the data module calls,
- * its database's path read from `DB`. null without one; else `{ entry, url, port, why }`, `why` saying what keeps it
- * from being run on an empty database (null when nothing does). */
+ * its database's path read from `DB`. null without one; else `{ entry, url, port, why, refusal }`: `why` says what keeps it
+ * from being run when the app calls no local URL (null when nothing does), `refusal` (LLP 1116.008 D1) the one line for an
+ * entry that does not read `DB`, which `test` and `verify` stop on, never running without it. */
 export function appServer(dir) {
   let named = null;
   try { const argv = JSON.parse(readIn(dir, 'app.json') ?? '{}').commands?.server; if (Array.isArray(argv) && /(^|\/)bun$/.test(argv[0])) named = argv.slice(1).find((a) => !a.startsWith('-')) ?? null; } catch {}
   const entry = [named, 'server.ts', 'server/index.ts', 'server/server.ts'].find((p) => p && readIn(dir, p) != null);
   if (!entry) return null;
   const url = serverUrl(dir);
-  const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown`
-    : !/\b(?:process\.env|Bun\.env)\.DB\b|\benv\[['"]DB['"]\]/.test(readIn(dir, entry)) ? `${entry} is left alone: it does not read its database's path from DB (new Database(process.env.DB ?? 'data.db')), so it cannot be given an empty one`
+  const why = !url ? `${entry} is left alone: app.ts calls no local URL (http://127.0.0.1:<port>), so where the app reaches it is unknown` : null;
+  const refusal = url && !readsDB(dir, entry)
+    ? `${entry}${entry === named ? ' (app.json\'s commands.server)' : ''} does not read its database's path from DB, so it cannot be run on an empty one: write new Database(process.env.DB ?? 'data.db') in it or a module it imports, or name the entry that does in app.json: "commands": { "server": ["bun", "server/index.ts"] }`
     : null;
-  return { entry, url, port: url ? Number(new URL(url).port) : null, why };
+  return { entry, url, port: url ? Number(new URL(url).port) : null, why, refusal };
 }
 
 /** Whether anything answers HTTP at `url` (any status). */
@@ -116,7 +140,8 @@ export async function startServer(dir, server, name, { forward = false } = {}) {
 
 /** `fn` with the app's server running on an empty database, as verify runs it: its exit code, or 1 when the server cannot
  * run, said in one line. `bun exact.mjs test` runs its tests so (LLP 1116.007 D2: `optional`: an app with no server, or one
- * left alone as `verify` leaves it, runs them as they are, the second said once, and the tests use whatever answers there);
+ * whose URL app.ts does not say, runs them as they are, the second said once, and the tests use whatever answers there);
+ * a server entry that does not read `DB` is refused whatever the verb (LLP 1116.008 D1), never run without it;
  * a server its parent process runs (an older app's api-test test.mjs, which runs `test` under `withAppServer`) is used, not started again.
  * `api-test` is the same call without `optional`: it wants a server, and says why it has none. */
 export async function withAppServer(dir, fn, { verb = 'api-test', optional = false } = {}) {
@@ -124,6 +149,7 @@ export async function withAppServer(dir, fn, { verb = 'api-test', optional = fal
   if (server && ['api-test', 'test', 'verify'].some((name) => readIn(dir, `.exact/${name}/owner`)?.trim() === String(process.ppid))) return fn(null);
   let running;
   try {
+    if (server?.refusal) throw new Error(server.refusal);
     if (!server || server.why) {
       if (!optional) throw new Error(server?.why ?? 'no server: server.ts, server/index.ts, server/server.ts, or app.json\'s commands.server');
       if (server) console.error(`${verb}: ${server.why}; the tests use whatever answers there`);
@@ -448,9 +474,11 @@ async function main(argv) {
   const app = resolveApp(value('--app'));
   const say = (lines) => console.log(lines.join('\n'));
   // An app with a server of its own: verify runs it where the app calls it, on an empty database. One already
-  // answering there (the builder's dev server) is refused before the build: never stopped, never written to.
+  // answering there (the builder's dev server) is refused before the build: never stopped, never written to; so is
+  // an entry that does not read DB (LLP 1116.008 D1), which could only be run on its own database.
   const server = appServer(app.dir), owned = server && !server.why;
-  const refuse = (line) => { if (json) console.log(JSON.stringify({ host, server: { error: line }, problems: 1, exit: 1 })); else say([`verify: ${line}`]); return 1; };
+  const refuse = (line) => { if (json) console.log(JSON.stringify({ host, server: { error: line }, problems: 1, exit: 1 })); else console.error(`verify: ${line}`); return 1; };
+  if (server?.refusal) return refuse(server.refusal);
   if (owned && await answering(server.url)) return refuse(heldLine(server));
 
   const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);

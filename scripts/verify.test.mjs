@@ -13,6 +13,13 @@ import { chromium } from './agent-launch.mjs';
 import { appServer, groups, judgeRelaunch, pinnedLaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
+/** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
+function onPort(dir) {
+  const probe = Bun.serve({ port: 0, fetch: () => new Response('') }), port = probe.port;
+  probe.stop(true);
+  for (const file of ['app.ts', 'app.test.contract']) writeFileSync(resolve(dir, file), readFileSync(resolve(dir, file), 'utf8').replaceAll('8787', String(port)));
+  return port;
+}
 const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
 const shots = SIZES.flatMap(([w, h]) => ['light', 'dark'].map((scheme) => `/app/.exact/verify/web-${w}x${h}-${scheme}.png`));
 
@@ -168,23 +175,41 @@ test('check\'s text splits by scheme, counting what its own cap left out', () =>
 });
 
 // LLP 1116.006 D3: the server an app calls, found where the rest pattern and the builders put it.
+// LLP 1116.008 D1: an entry that does not read DB (itself, or in a module it imports) is refused in one line naming it.
 test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be run on an empty database', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-'));
   const put = (files) => { rmSync(dir, { recursive: true, force: true }); for (const [path, text] of Object.entries(files)) { mkdirSync(resolve(dir, path, '..'), { recursive: true }); writeFileSync(resolve(dir, path), text); } };
   const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
   try {
     put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
-    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', url: 'http://127.0.0.1:6810', port: 6810, why: null });
+    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null });
     put({ 'app.ts': "export const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': reads, 'app.json': JSON.stringify({ commands: { server: ['bun', '--watch', 'srv/main.ts'] } }) });
     assert.equal(appServer(dir).entry, 'srv/main.ts');
     put({ 'app.ts': "import type { Answer } from './app.contract.d.ts';\nimport { API } from './api';\n", 'api.ts': "export const API = 'http://localhost:3000/v1/';\n", 'server/server.ts': 'const DB = Bun.env.DB;\n' });
-    assert.deepEqual([serverUrl(dir), appServer(dir).port, appServer(dir).why], ['http://localhost:3000/v1', 3000, null]);
+    assert.deepEqual([serverUrl(dir), appServer(dir).port, appServer(dir).refusal], ['http://localhost:3000/v1', 3000, null]);
     put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "new Database('data.db');\n" });
-    assert.match(appServer(dir).why, /^server\.ts is left alone: it does not read its database's path from DB/);
+    assert.match(appServer(dir).refusal, /^server\.ts does not read its database's path from DB, so it cannot be run on an empty one: write new Database\(process\.env\.DB \?\? 'data\.db'\) in it .*"commands": \{ "server": \["bun", "server\/index\.ts"\] \}$/);
+    assert.equal(appServer(dir).why, null);
+    // The entry app.json names is the one it looked at, and says so.
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': 'Bun.serve({});\n', 'app.json': JSON.stringify({ commands: { server: ['bun', 'srv/main.ts'] } }) });
+    assert.match(appServer(dir).refusal, /^srv\/main\.ts \(app\.json's commands\.server\) does not read /);
     put({ 'app.ts': "const API = 'https://api.example.com';\n", 'server.ts': reads });
     assert.match(appServer(dir).why, /^server\.ts is left alone: app\.ts calls no local URL/);
     put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n" });
     assert.equal(appServer(dir), null);
+    // The spellings of reading DB, and a root shim that only imports the backend that reads it (book-club, polls, event-rsvp).
+    for (const spelling of ['Bun.env.DB', 'process.env["DB"]', "process.env['DB'] ?? 'x.db'", 'env.DB', 'process.env?.DB', "const { DB } = process.env;", "const { DB: path = 'x.db', PORT } = Bun.env;", 'start(process.env.DB)']) {
+      put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${spelling}\n` });
+      assert.equal(appServer(dir).refusal, null, spelling);
+    }
+    for (const reader of ["process.env.DB_PATH", 'const DB = "data.db"', '// the DB is data.db']) {
+      put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${reader}\n` });
+      assert.match(appServer(dir).refusal, /^server\.ts does not read/, reader);
+    }
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "import './server/index.ts';\n", 'server/index.ts': "import { serve } from './polls';\nserve();\n", 'server/polls.ts': reads });
+    assert.equal(appServer(dir).refusal, null);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "export * from './a';\n", 'a.ts': "import('./b');\n", 'b.ts': "import './a';\nconst x = require('./c');\n", 'c.js': 'new Database("data.db");\n' });
+    assert.match(appServer(dir).refusal, /^server\.ts does not read/); // the cycle ends
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -196,6 +221,7 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     const dir = resolve(parent, 'shared-list');
     createApp(dir);
     applyPattern(dir, 'rest');
+    const port = onPort(dir); // a port of its own: other runs on this machine may hold 8787
     const { Database } = await import('bun:sqlite');
     const theirs = new Database(resolve(dir, 'data.db'));
     theirs.run('CREATE TABLE items (id INTEGER PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL, by TEXT NOT NULL, locked INTEGER NOT NULL DEFAULT 0)');
@@ -205,7 +231,7 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     const verify = () => { const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'verify'], { cwd: dir, encoding: 'utf8', timeout: 240_000 }); return { ...r, lines: r.stdout.trim().split('\n') }; };
     const clean = verify();
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
-    assert.equal(clean.lines[0], 'server: bun server.ts at http://127.0.0.1:8787, on an empty database (.exact/verify/db.sqlite, removed after)', clean.stdout);
+    assert.equal(clean.lines[0], `server: bun server.ts at http://127.0.0.1:${port}, on an empty database (.exact/verify/db.sqlite, removed after)`, clean.stdout);
     assert.ok(clean.lines.includes('tests: 1 passed, 0 failed'), clean.stdout);
     assert.match(clean.stdout, /^relaunch on .*: the first screen shows what it stored: /m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
@@ -215,7 +241,7 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
     const tested = plain();
     assert.equal(tested.status, 0, tested.stdout + tested.stderr);
-    assert.match(tested.stderr, /^test: bun server\.ts at http:\/\/127\.0\.0\.1:8787, on an empty database \(\.exact\/test\/db\.sqlite, removed after\)$/m);
+    assert.match(tested.stderr, new RegExp(`^test: bun server\\.ts at http://127\\.0\\.0\\.1:${port}, on an empty database \\(\\.exact/test/db\\.sqlite, removed after\\)$`, 'm'));
     assert.match(tested.stdout, /^1 passed, 0 failed$/m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'test leaves the builder\'s data.db as it was');
     writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT2}/scripts/verify.mjs`);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
@@ -227,17 +253,27 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     // Their dev server (started here, so this test may stop it) holds the port: one line naming it, and it runs on.
     const dev = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
     try {
-      for (let i = 0; !(await fetch('http://127.0.0.1:8787/health').then((r) => r.ok, () => false)); i++) { assert.ok(i < 100, 'the dev server answers'); await Bun.sleep(100); }
+      for (let i = 0; !(await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false)); i++) { assert.ok(i < 100, 'the dev server answers'); await Bun.sleep(100); }
       const refused = verify();
       assert.equal(refused.status, 1, refused.stdout + refused.stderr);
-      assert.equal(refused.lines.length, 1, refused.stdout);
-      assert.match(refused.lines[0], new RegExp(`^verify: http://127\\.0\\.0\\.1:8787 already answers \\(pid ${dev.pid}: .*server\\.ts\\), and the tests would write into that server's database: stop it \\(kill ${dev.pid}\\) and run this again, which starts server\\.ts itself on an empty one$`));
+      assert.deepEqual([refused.stdout, refused.stderr.trim().split('\n').length], ['', 1], refused.stdout + refused.stderr); // one line, on stderr
+      assert.match(refused.stderr, new RegExp(`^verify: http://127\\.0\\.0\\.1:${port} already answers \\(pid ${dev.pid}: .*server\\.ts\\), and the tests would write into that server's database: stop it \\(kill ${dev.pid}\\) and run this again, which starts server\\.ts itself on an empty one$`, 'm'));
       assert.equal(dev.exitCode, null, 'the dev server runs on');
       const held = plain();
       assert.equal(held.status, 1, held.stdout + held.stderr);
-      assert.match(held.stderr, new RegExp(`^test: http://127\\.0\\.0\\.1:8787 already answers \\(pid ${dev.pid}: .*server\\.ts\\)`, 'm'));
+      assert.match(held.stderr, new RegExp(`^test: http://127\\.0\\.0\\.1:${port} already answers \\(pid ${dev.pid}: .*server\\.ts\\)`, 'm'));
       assert.equal(dev.exitCode, null, 'the dev server runs on');
     } finally { dev.kill(); await dev.exited; }
+    // LLP 1116.008 D1: a server.ts that hardcodes its database stops both before anything builds or runs: one line on
+    // stderr naming the entry and the fix, a non-zero exit, no output, and no server started.
+    const server = readFileSync(resolve(dir, 'server.ts'), 'utf8');
+    writeFileSync(resolve(dir, 'server.ts'), server.replace("process.env.DB ?? 'data.db'", "'data.db'"));
+    const line = /^(test|verify): server\.ts does not read its database's path from DB, so it cannot be run on an empty one: write new Database\(process\.env\.DB \?\? 'data\.db'\) in it .*app\.json: "commands": \{ "server": \["bun", "server\/index\.ts"\] \}\n$/;
+    for (const r of [plain(), verify()]) {
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.deepEqual([r.stdout, line.test(r.stderr)], ['', true], r.stdout + r.stderr);
+    }
+    assert.deepEqual(['.exact/test/db.sqlite', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []); // nothing started
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 300_000);
 

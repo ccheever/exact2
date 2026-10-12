@@ -103,7 +103,8 @@ store, after its first data has landed; its leading lines (size, epoch, fail fet
 override flags.
 Server   an app with its own (server.ts, the rest pattern's): test runs it where app.ts calls it,
          on an empty database (DB=.exact/test/db.sqlite), then stops it, as verify does; one
-         already answering there (a dev server) is refused, named, never written to.
+         already answering there (a dev server) is refused, named, never written to; so is a
+         server entry that does not read DB (process.env.DB), with the fix.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, back, fail|pass fetch,
          request <METHOD> "/path" [json] [as <persona>]: docs/recipes/tests.md; all:
@@ -162,7 +163,8 @@ Runs     to completion: exit 1 when the build, a test, a launch or the relaunch 
          fail it. A screen no test ends on is not checked: end a test there.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
          it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops
-         it; one already answering there (a dev server) is refused, named, never written to.
+         it; one already answering there (a dev server) is refused, named, never written to; so is
+         a server entry that does not read DB (process.env.DB), with the fix.
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
     example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
   },
