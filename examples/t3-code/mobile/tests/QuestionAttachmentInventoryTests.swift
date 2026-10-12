@@ -6,6 +6,7 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
     private let lock = NSLock()
     private var failure: Failure = .none
     private(set) var replaceCalls = 0
+    var beforeRead: ((String) -> Void)?
     init(_ root: URL) { files = .init(dataRoot: root) }
     func arm(_ failure: Failure) { lock.lock(); self.failure = failure; lock.unlock() }
     private func take() -> Failure { lock.lock(); defer { lock.unlock() }; let value = failure; failure = .none; return value }
@@ -18,7 +19,7 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
         if failure == .afterReplace { throw CocoaError(.fileWriteUnknown) }
     }
     func write(_ id: String, bytes: Data) throws { try files.write(id, bytes: bytes) }
-    func read(_ id: String, limit: Int) throws -> Data { try files.read(id, limit: limit) }
+    func read(_ id: String, limit: Int) throws -> Data { beforeRead?(id); return try files.read(id, limit: limit) }
     func remove(_ id: String) throws { try files.remove(id) }
 }
 
@@ -425,6 +426,98 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
         }
     }
 
+    private static func localPins() throws {
+        let dataRoot = try root("pins"), disk = QuestionFaultDisk(dataRoot), owner = T3QuestionAttachments(disk: disk)
+        let (request, admitted) = try admission(owner), epoch = UUID().uuidString.lowercased(), process = UUID().uuidString.lowercased()
+        let payload = String(repeating: "a", count: 64)
+        let zero = try owner.open(admitted, kind: "files")
+        refuses("Opened zero-slot intake blocks new text response preparation") {
+            _ = try owner.preparePin(request: request, questions: questions, command: "empty", epoch: epoch, process: process, payloadDigest: payload, requireEmpty: true, selection: [])
+        }
+        try owner.cancel(zero)
+        let empty = try owner.preparePin(request: request, questions: questions, command: "empty", epoch: epoch, process: process,
+                                         payloadDigest: payload, requireEmpty: true, selection: [])
+        let emptyID = empty["pinId"] as! String, emptyDigest = empty["pinDigest"] as! String
+        let changed = try owner.open(admitted, kind: "paste")
+        refuses("Intake started between prepare and bind blocks new text Submit") {
+            try owner.bindPin(emptyID, command: "empty", payloadDigest: payload, pinDigest: emptyDigest)
+        }
+        try owner.cancel(changed)
+        let (_, item) = try add(owner, admitted, bytes: Data("durable local pin".utf8))
+        refuses("Adopted item blocks selecting zero for new text Submit") {
+            _ = try owner.preparePin(request: request, questions: questions, command: "omit", epoch: epoch, process: process, payloadDigest: payload, requireEmpty: true, selection: [])
+        }
+        let local = try owner.preparePin(request: request, questions: questions, command: "local", epoch: epoch, process: process,
+                                         payloadDigest: payload, requireEmpty: false, selection: [item.id])
+        let localID = local["pinId"] as! String, localDigest = local["pinDigest"] as! String
+        try owner.bindPin(localID, command: "local", payloadDigest: payload, pinDigest: localDigest)
+        refuses("Bound nonempty local pin refuses dispatch without upload provenance") {
+            try owner.issuePin(localID, command: "local", payloadDigest: payload, pinDigest: localDigest)
+        }
+        let lease = try owner.lease(request: request, question: "one", id: item.id)
+        try owner.remove(admitted, id: item.id)
+        check(try lease.read() == Data("durable local pin".utf8), "Remove preserves leased immutable local selection bytes")
+        lease.release(); try owner.collect()
+        check(FileManager.default.fileExists(atPath: path(dataRoot, item.id).path), "Durable local pin holds bytes after transient lease release")
+        disk.arm(.afterReplace)
+        refuses("Lost release acknowledgement is surfaced") { _ = try owner.releasePin(localID, command: "local", pinDigest: localDigest) }
+        disk.arm(.beforeReplace)
+        refuses("Readable release cannot authorize status before successful durability confirmation") { _ = try owner.pinStatus(localID) }
+        let token = try owner.releasePin(localID, command: "local", pinDigest: localDigest)
+        check(try owner.releasePin(localID, command: "local", pinDigest: localDigest) == token, "Repeated release preserves its native token")
+        try owner.ackPin(localID, command: "local", token: token)
+        check(!FileManager.default.fileExists(atPath: path(dataRoot, item.id).path), "Durably released pin permits physical byte collection")
+        let (_, beside) = try add(owner, admitted, bytes: Data("keep local draft".utf8))
+        for command in ["stop", "dismiss"] {
+            let noMap = try owner.preparePin(request: request, questions: questions, command: command, epoch: epoch, process: process,
+                payloadDigest: payload, requireEmpty: false, selection: [])
+            try owner.bindPin(noMap["pinId"] as! String, command: command, payloadDigest: payload, pinDigest: noMap["pinDigest"] as! String)
+            try owner.issuePin(noMap["pinId"] as! String, command: command, payloadDigest: payload, pinDigest: noMap["pinDigest"] as! String)
+            _ = try owner.releasePin(noMap["pinId"] as! String, command: command, pinDigest: noMap["pinDigest"] as! String)
+        }
+        check(try owner.items(request: request, question: "one").contains(beside), "Stop and Dismiss empty ownership retain local question drafts")
+    }
+    private static func leasedPinRace() throws {
+        let dataRoot = try root("pin-read-remove"), disk = QuestionFaultDisk(dataRoot), owner = T3QuestionAttachments(disk: disk)
+        let (request, admitted) = try admission(owner), (_, item) = try add(owner, admitted, bytes: Data("racing pin bytes".utf8))
+        let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+        let resultLock = NSLock(); var prepared = false, prepareError = false
+        disk.beforeRead = { id in if id == item.id { entered.signal(); _ = release.wait(timeout: .now() + 5) } }
+        DispatchQueue.global().async {
+            do {
+                _ = try owner.preparePin(request: request, questions: questions, command: "racing", epoch: UUID().uuidString.lowercased(),
+                    process: UUID().uuidString.lowercased(), payloadDigest: String(repeating: "a", count: 64), requireEmpty: false, selection: [item.id])
+                resultLock.lock(); prepared = true; resultLock.unlock()
+            } catch { resultLock.lock(); prepareError = true; resultLock.unlock() }
+            finished.signal()
+        }
+        check(entered.wait(timeout: .now() + 5) == .success, "Pin hashing enters real leased byte read")
+        let removed = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async { try? owner.remove(admitted, id: item.id); removed.signal() }
+        check(removed.wait(timeout: .now() + 1) == .success, "Remove progresses while pin hashing runs outside inventory lock")
+        check(FileManager.default.fileExists(atPath: path(dataRoot, item.id).path), "Read lease retains physical bytes across racing Remove")
+        release.signal(); check(finished.wait(timeout: .now() + 5) == .success, "Racing preparation finishes")
+        resultLock.lock(); let refused = !prepared && prepareError; resultLock.unlock()
+        check(refused, "Revised selection cannot publish a stale local pin after hashing")
+        try owner.collect(); check(!FileManager.default.fileExists(atPath: path(dataRoot, item.id).path), "Failed preparation releases transient byte hold for collection")
+    }
+
+    private static func optionalPinValidation() throws {
+        for (field, value) in [("revision", NSNull() as Any), ("revision", true as Any), ("revision", 1.5 as Any),
+                               ("revision", 9_007_199_254_740_992 as Any), ("pins", NSNull() as Any), ("unknown", 1 as Any)] {
+            let dataRoot = try root("pin-schema"), files = T3QuestionAttachmentFiles(dataRoot: dataRoot)
+            var raw: [String: Any] = ["version": 1, "requests": [], "operations": [], "items": [], "garbage": []]
+            raw[field] = value; try files.replace(JSONSerialization.data(withJSONObject: raw))
+            refuses("Optional inventory \(field) rejects \(String(describing: value))") {
+                _ = try T3QuestionAttachments(disk: files).register(scope, questions: questions)
+            }
+        }
+        let dataRoot = try root("bare-current"), files = T3QuestionAttachmentFiles(dataRoot: dataRoot)
+        try files.replace(JSONSerialization.data(withJSONObject: ["version": 1, "requests": [], "operations": [], "items": [], "garbage": []]))
+        let owner = T3QuestionAttachments(disk: files)
+        check(!(try owner.register(scope, questions: questions)).isEmpty, "Five-key current inventory initializes optional pin facts with one decoder")
+    }
+
     private static func corruptAndPaths() throws {
         let missingRoot = try root("missing")
         let missingDirectory = missingRoot.appendingPathComponent("question-attachments", isDirectory: true)
@@ -478,6 +571,9 @@ private final class QuestionFaultDisk: T3QuestionAttachmentDisk {
             ("actual restart", restart),
             ("persistence failures", persistenceFailures),
             ("uncached load acknowledgement", uncachedLoadAcknowledgement),
+            ("local pin holds and empty response", localPins),
+            ("leased pin hashing versus Remove", leasedPinRace),
+            ("optional pin facts", optionalPinValidation),
             ("corrupt/path integrity", corruptAndPaths),
         ] { run(name, body) }
     }

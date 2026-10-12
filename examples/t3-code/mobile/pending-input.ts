@@ -6,7 +6,7 @@ import { activeRun, ClientError, type Native, type Files } from './shared/protoc
 import { pendingRequests } from './shared/requests';
 import { letGo, letGoAware } from './shared/let-go';
 import { mobilePendingInputColors } from './design';
-import { questionJournalWrite, questionJournalObserve, questionJournalBlocked, questionRecordForPending, questionRecordForRequest, type QuestionRecord } from './pending-input-journal';
+import { questionJournalConsumed, questionJournalError, questionJournalHome, questionJournalWrite, questionJournalObserve, questionJournalBlocked, questionRecordForPending, questionRecordForRequest, type QuestionRecord } from './pending-input-journal';
 
 export interface PendingInputRoute { active: boolean; visit: string; url: string; environmentId: string; threadId: string }
 export interface PendingInputOption { id: string; label: string; description: string; selected: boolean }
@@ -16,7 +16,7 @@ export interface PendingInputResult { revision: number; owner: string; message: 
 interface Draft { selected: string[]; custom: string }
 interface Question { id: string; header: string; question: string; multiSelect: boolean; customAllowed: boolean; options: { id: string; label: string; description: string }[] }
 interface Request { id: string; signature: string; questions: Question[]; resumable: boolean; dismissible: boolean }
-interface Entry { incarnation: number; drafts: Map<string, Draft>; error: string; operation: { responding: boolean } | null }
+interface Entry { incarnation: number; signature: string; drafts: Map<string, Draft>; error: string; operation: { responding: boolean } | null }
 interface State { route: string; serial: number; entries: Map<string, Entry> }
 const states = new WeakMap<T3Client, State>();
 const pendingOwners = new WeakMap<Pending, Entry>();
@@ -26,7 +26,7 @@ const state = (client: T3Client) => {
   return value;
 };
 const origin = (client: T3Client) => client.origin.trim().replace(/\/+$/, '');
-const prefix = (client: T3Client) => JSON.stringify([origin(client), client.environmentId, client.threadId]);
+const prefix = (client: T3Client) => JSON.stringify([questionJournalHome(client) || origin(client), client.environmentId, client.threadId]);
 const key = (client: T3Client, id: string) => `${prefix(client)}:${JSON.stringify(id)}`;
 const routeKey = (route: PendingInputRoute) => JSON.stringify(route);
 function routeCurrent(client: T3Client, route: PendingInputRoute): boolean {
@@ -50,9 +50,9 @@ function requests(client: T3Client): Request[] {
 function entry(client: T3Client, request: Request): Entry {
   const s = state(client), id = key(client, request.id);
   let value = s.entries.get(id);
-  if (!value) {
+  if (!value || value.signature !== request.signature) {
     const saved = questionRecordForRequest(client, request.id, request.signature);
-    value = { incarnation: ++s.serial, drafts: new Map(Object.entries(saved?.drafts ?? {})), error: '', operation: null }; s.entries.set(id, value);
+    value = { incarnation: ++s.serial, signature: request.signature, drafts: new Map(Object.entries(saved?.drafts ?? {})), error: '', operation: null }; s.entries.set(id, value);
   }
   return value;
 }
@@ -103,7 +103,7 @@ export function mobilePendingInput(client: T3Client, route: PendingInputRoute, s
     responding, dismissible: request.dismissible, canSubmit: editable && client.writable && !client.pending && !blocked && !value.operation && !client.busy && answers(request, value) !== null,
     canDismiss: request.dismissible && !responding && client.writable && !client.pending && !blocked && !value.operation && !client.busy,
     canStop: !!activeRun(client.projection) && client.writable && !client.pending && !blocked && !value.operation && !client.busy && !responding,
-    reason: !request.resumable ? 'The provider process for this request is no longer available. Interrupt or restart the run to continue.' : '', error: value.error,
+    reason: questionJournalError(client) || (!request.resumable ? 'The provider process for this request is no longer available. Interrupt or restart the run to continue.' : ''), error: value.error,
     questions: request.questions.map(question => {
       const current = draft(value, question.id), custom = question.customAllowed && !!current.custom.trim(), values = selected(question, current);
       return { ...question, answer: question.customAllowed ? current.custom : '', options: question.options.map(option => ({ ...option, selected: !custom && values.includes(option.id) })) };
@@ -123,7 +123,7 @@ export function mobilePendingInputCommand(client: T3Client, native: Native | nul
 /** Question-local edits never borrow the ordinary composer, its draft key or its request index. */
 export async function mobilePendingInputAction(client: T3Client, nativeInput: Native | null | undefined, storage: Files,
   route: PendingInputRoute, expectedOwner: string, op: string, questionId: string, text: string): Promise<PendingInputResult> {
-  const s = state(client), local = client.local, request = requests(client)[0];
+  const s = state(client), local = client.local, request = requests(client)[0], generation = client.generation, endpoint = origin(client);
   const stale = () => new ClientError('This question request changed.');
   const current = () => client.local === local && !!request && routeCurrent(client, route) && s.route === routeKey(route)
     && requests(client)[0]?.signature === request.signature && requests(client)[0]?.id === request.id
@@ -164,7 +164,10 @@ export async function mobilePendingInputAction(client: T3Client, nativeInput: Na
     const operation = { responding: op !== 'stop' }; value.operation = operation; value.error = ''; client.revision++;
     let dispatched = false, pending: Pending | undefined;
     const before = () => {
-      if (!current() || !client.writable || value.operation !== operation || client.busy || client.pending && client.pending !== pending) throw stale();
+      const saved = questionRecordForPending(client);
+      const consumed = dispatched && saved !== undefined && saved.pending === pending && questionJournalConsumed(client, saved);
+      const sameRoute = client.local === local && client.generation === generation && origin(client) === endpoint && routeCurrent(client, route) && s.route === routeKey(route);
+      if (!(current() || sameRoute && consumed) || !client.writable || value.operation !== operation || client.busy || client.pending && client.pending !== pending) throw stale();
     };
     const base = letGoAware(nativeInput), native: Native = { available: true, watch(topic) { if (!dispatched) before(); base.watch(topic); },
       async later(raw) {
@@ -180,7 +183,7 @@ export async function mobilePendingInputAction(client: T3Client, nativeInput: Na
       pendingOwners.set(pending, value);
       const record: QuestionRecord = { origin: origin(client), environmentId: route.environmentId, threadId: route.threadId, requestId: request!.id, signature: request!.signature,
         pending, drafts: Object.fromEntries([...value.drafts].map(([id, draft]) => [id, { custom: draft.custom, selected: [...draft.selected] }])), phase: 'preflight' };
-      await questionJournalWrite(client, native, storage, record, before);
+      await questionJournalWrite(client, native, storage, record, before, false, Object.fromEntries(request!.questions.map(question => [question.id, JSON.stringify(question)])));
       return result();
     } finally { if (value.operation === operation) value.operation = null; client.revision++; }
   } catch (error) {
@@ -194,13 +197,11 @@ export async function mobilePendingInputAction(client: T3Client, nativeInput: Na
 /** Existing Retry row, with current route captured before any asynchronous work. */
 export async function mobilePendingInputRetry(client: T3Client, native: Native | null | undefined, storage: Files): Promise<{ revision: number; message: string } | null> {
   const saved = questionRecordForPending(client); if (!saved) return null;
-  const s = state(client), local = client.local, generation = client.generation, token = s.route, route = JSON.parse(token || 'null') as PendingInputRoute | null;
-  const current = () => client.local === local && client.generation === generation && !!route && s.route === token && routeCurrent(client, route) && origin(client) === saved.origin
+  const s = state(client), local = client.local, generation = client.generation, endpoint = origin(client), token = s.route, route = JSON.parse(token || 'null') as PendingInputRoute | null;
+  const current = () => client.local === local && client.generation === generation && !!route && s.route === token && routeCurrent(client, route) && origin(client) === endpoint
     && client.environmentId === saved.environmentId && client.threadId === saved.threadId;
   const request = requests(client)[0], value = request ? entry(client, request) : null;
-  const resolved = () => client.threadLive && (saved.pending.payload.type === 'run.interrupt'
-    ? !arr(client.projection.runs).some(run => run.id === saved.pending.payload.runId && ['preparing', 'starting', 'running', 'waiting'].includes(str(run.status)))
-    : !pendingRequests(client.projection).inputs.some(input => input.requestId === saved.requestId));
+  const resolved = () => questionJournalConsumed(client, saved);
   const before = () => {
     const cleanup = saved.phase === 'unsent' || saved.phase === 'settled' || resolved();
     if (!current() || !native?.available || !client.writable || client.busy || questionRecordForPending(client) !== saved

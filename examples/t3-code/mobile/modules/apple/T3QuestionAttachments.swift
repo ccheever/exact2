@@ -1,4 +1,4 @@
-// Native question intake only. Uploads and response pins are separate, unimplemented owners.
+// Native question intake and local byte pins. Attachment dispatch requires the separate upload owner.
 // @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import Foundation
 
@@ -149,6 +149,45 @@ final class T3QuestionAttachmentLease {
     deinit { release() }
 }
 
+private struct QuestionPin: Codable {
+    enum Phase: String, Codable { case prepared, bound, issued, released, quarantined }
+    let id: String; let request: String; let command: String; let epoch: String; let process: String
+    let inventoryRevision: Int; let payloadDigest: String; let recordDigest: String; let pinDigest: String
+    let questions: [String: String]; let items: [T3QuestionAttachment]; let requireEmpty: Bool
+    var phase: Phase; var releaseToken: String; var acknowledged: Bool
+    init(id: String, request: String, command: String, epoch: String, process: String, inventoryRevision: Int,
+         payloadDigest: String, recordDigest: String, questions: [String: String], items: [T3QuestionAttachment], requireEmpty: Bool) throws {
+        self.id = id; self.request = request; self.command = command; self.epoch = epoch; self.process = process
+        self.inventoryRevision = inventoryRevision; self.payloadDigest = payloadDigest; self.recordDigest = recordDigest; self.questions = questions
+        self.items = items; self.requireEmpty = requireEmpty; phase = .prepared; releaseToken = ""; acknowledged = false
+        pinDigest = try Self.digest(request: request, command: command, epoch: epoch, process: process, revision: inventoryRevision,
+            payload: payloadDigest, record: recordDigest, questions: questions, items: items, empty: requireEmpty)
+    }
+    init(from decoder: Decoder) throws {
+        try questionKeys(decoder, ["id", "request", "command", "epoch", "process", "inventoryRevision", "payloadDigest", "recordDigest", "pinDigest", "questions", "items", "requireEmpty", "phase", "releaseToken", "acknowledged"])
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id); request = try c.decode(String.self, forKey: .request)
+        command = try c.decode(String.self, forKey: .command); epoch = try c.decode(String.self, forKey: .epoch); process = try c.decode(String.self, forKey: .process)
+        inventoryRevision = try c.decode(Int.self, forKey: .inventoryRevision); payloadDigest = try c.decode(String.self, forKey: .payloadDigest)
+        pinDigest = try c.decode(String.self, forKey: .pinDigest); questions = try c.decode([String: String].self, forKey: .questions)
+        recordDigest = try c.decode(String.self, forKey: .recordDigest)
+        items = try c.decode([T3QuestionAttachment].self, forKey: .items); requireEmpty = try c.decode(Bool.self, forKey: .requireEmpty)
+        phase = try c.decode(Phase.self, forKey: .phase); releaseToken = try c.decode(String.self, forKey: .releaseToken)
+        acknowledged = try c.decode(Bool.self, forKey: .acknowledged)
+    }
+    private struct Binding: Encodable {
+        let request: String; let command: String; let epoch: String; let process: String; let revision: Int
+        let payload: String; let record: String; let questions: [String: String]; let items: [T3QuestionAttachment]; let empty: Bool
+    }
+    static func digest(request: String, command: String, epoch: String, process: String, revision: Int, payload: String,
+                       record: String, questions: [String: String], items: [T3QuestionAttachment], empty: Bool) throws -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return t3QuestionDigest(try encoder.encode(Binding(request: request, command: command, epoch: epoch, process: process,
+            revision: revision, payload: payload, record: record, questions: questions, items: items, empty: empty)))
+    }
+    var evidence: [String: Any] { ["pinId": id, "pinDigest": pinDigest, "requestIncarnation": request, "inventoryRevision": inventoryRevision] }
+}
+
 /// All durable transitions are serialized. Byte producers run outside this lock, with a live writer hold.
 final class T3QuestionAttachments {
     private struct Request: Codable {
@@ -194,13 +233,18 @@ final class T3QuestionAttachments {
         }
     }
     private struct State: Codable {
-        let version: Int; var requests: [Request]; var operations: [Operation]; var items: [T3QuestionAttachment]; var garbage: [String]
-        init() { version = 1; requests = []; operations = []; items = []; garbage = [] }
+        let version: Int; var requests: [Request]; var operations: [Operation]; var items: [T3QuestionAttachment]; var garbage: [String]; var revision: Int; var pins: [QuestionPin]
+        init() { version = 1; requests = []; operations = []; items = []; garbage = []; revision = 0; pins = [] }
         init(from decoder: Decoder) throws {
-            try questionKeys(decoder, ["version", "requests", "operations", "items", "garbage"])
+            let keys = try decoder.container(keyedBy: QuestionKey.self)
+            let required: Set<String> = ["version", "requests", "operations", "items", "garbage"]
+            let actual = Set(keys.allKeys.map(\.stringValue))
+            guard required.isSubset(of: actual), actual.isSubset(of: required.union(["revision", "pins"])) else { throw T3QuestionAttachmentFailure("Invalid question inventory fields.") }
             let c = try decoder.container(keyedBy: CodingKeys.self)
             version = try c.decode(Int.self, forKey: .version); requests = try c.decode([Request].self, forKey: .requests)
             operations = try c.decode([Operation].self, forKey: .operations); items = try c.decode([T3QuestionAttachment].self, forKey: .items); garbage = try c.decode([String].self, forKey: .garbage)
+            revision = c.contains(.revision) ? try c.decode(Int.self, forKey: .revision) : 0
+            pins = c.contains(.pins) ? try c.decode([QuestionPin].self, forKey: .pins) : []
         }
     }
     private static let process = UUID().uuidString.lowercased()
@@ -224,10 +268,24 @@ final class T3QuestionAttachments {
     private func fail(_ message: String = "The question attachment operation changed.") -> T3QuestionAttachmentFailure { .init(message) }
     private static func uuid(_ value: String) -> Bool { UUID(uuidString: value)?.uuidString.lowercased() == value }
     private func validate(_ value: State) throws {
-        guard value.version == 1, value.requests.count <= 10_000, value.operations.count <= 100_000, value.items.count <= 1_000_000,
+        guard value.version == 1, (0...9_007_199_254_740_991).contains(value.revision), value.pins.count <= 100_000, value.requests.count <= 10_000, value.operations.count <= 100_000, value.items.count <= 1_000_000,
               Set(value.requests.map(\.id)).count == value.requests.count, Set(value.operations.map(\.id)).count == value.operations.count,
               Set(value.items.map(\.id)).count == value.items.count, Set(value.garbage).count == value.garbage.count,
               value.garbage.allSatisfy(Self.uuid) else { throw fail("Question attachment inventory is corrupt.") }
+        guard Set(value.pins.map(\.id)).count == value.pins.count, Set(value.pins.map(\.command)).count == value.pins.count else { throw fail() }
+        for pin in value.pins {
+            guard Self.uuid(pin.id), Self.uuid(pin.epoch), Self.uuid(pin.process), Self.uuid(pin.request),
+                  !pin.command.isEmpty, pin.command.utf8.count <= 65_536, (0...9_007_199_254_740_991).contains(pin.inventoryRevision),
+                  value.requests.contains(where: { $0.id == pin.request && $0.questions == pin.questions }), pin.inventoryRevision <= value.revision, pin.items.count <= 100,
+                  Set(pin.items.map(\.id)).count == pin.items.count, pin.items.allSatisfy({ $0.request == pin.request && pin.questions[$0.question] != nil }),
+                  pin.payloadDigest.count == 64, pin.payloadDigest.allSatisfy({ $0.isHexDigit && !$0.isUppercase }),
+                  pin.recordDigest.count == 64, pin.recordDigest.allSatisfy({ $0.isHexDigit && !$0.isUppercase }),
+                  !pin.requireEmpty || pin.items.isEmpty, !pin.acknowledged || pin.phase == .released,
+                  pin.phase == .released ? Self.uuid(pin.releaseToken) : pin.releaseToken.isEmpty,
+                  try QuestionPin.digest(request: pin.request, command: pin.command, epoch: pin.epoch, process: pin.process,
+                    revision: pin.inventoryRevision, payload: pin.payloadDigest, record: pin.recordDigest, questions: pin.questions, items: pin.items, empty: pin.requireEmpty) == pin.pinDigest else { throw fail("Question pin inventory is corrupt.") }
+            for item in pin.items { try item.metadata.validate(size: item.size, fileLimit: 50 * 1024 * 1024) }
+        }
         var ids = Set<String>()
         for request in value.requests {
             try request.scope.validate()
@@ -270,7 +328,9 @@ final class T3QuestionAttachments {
             guard request.order.count + reservations <= 100 else { throw fail() }
         }
     }
-    private func commit(_ next: State) throws {
+    private func commit(_ value: State, logical: Bool = true) throws {
+        var next = value
+        if logical { guard next.revision < 9_007_199_254_740_991 else { throw fail() }; next.revision += 1 }
         try validate(next)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         do { try disk.replace(encoder.encode(next)); state = next }
@@ -279,7 +339,7 @@ final class T3QuestionAttachments {
     private func load() throws -> State {
         if let state { return state }
         guard let bytes = try disk.load() else {
-            let next = State(); try commit(next); return next
+            let next = State(); try commit(next, logical: false); return next
         }
         var next = try JSONDecoder().decode(State.self, from: bytes); try validate(next)
         var changed = false
@@ -293,7 +353,8 @@ final class T3QuestionAttachments {
             changed = true
         }
         // A readable replacement may still lack its durability acknowledgement.
-        try commit(next)
+        // Durability confirmation alone must not advance logical selection revision.
+        try commit(next, logical: changed)
         if changed {
             try collectLocked()
             guard let state else { throw fail("Question attachment restart recovery failed.") }
@@ -552,18 +613,190 @@ final class T3QuestionAttachments {
             let value = try load()
             guard let item = value.items.first(where: { $0.id == id && $0.request == request && $0.question == question }) else { throw fail() }
             holds[id, default: 0] += 1
-            return T3QuestionAttachmentLease(item: item, read: { [self] in try locked {
+            return T3QuestionAttachmentLease(item: item, read: { [self] in
                 let bytes = try disk.read(id, limit: item.size)
                 guard bytes.count == item.size, t3QuestionDigest(bytes) == item.digest else { throw fail("The attachment bytes changed.") }
                 return bytes
-            } }, release: { [self] in locked { releaseHold(id) } })
+            }, release: { [self] in locked { releaseHold(id) } })
+        }
+    }
+    func retainedEpochs() throws -> Set<String> { try locked { Set(try load().pins.map(\.epoch)) } }
+    func ownedCommandIDs() throws -> Set<String> { try locked { Set(try load().pins.map(\.command)) } }
+    /// Negative replay filtering only. These names grant no pin, receipt or mutation authority.
+    func blockedCommandIDs() -> Set<String> {
+        locked {
+            if let value = try? load() { return Set(value.pins.map(\.command)) }
+            guard let bytes = try? disk.load(), let raw = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  let pins = raw["pins"] as? [[String: Any]] else { return [] }
+            return Set(pins.compactMap { $0["command"] as? String }.filter { !$0.isEmpty && $0.utf8.count <= 65_536 })
+        }
+    }
+    func quarantineUnverifiedPins() throws {
+        try locked {
+            var next = try load(), changed = false
+            for index in next.pins.indices where [.bound, .issued].contains(next.pins[index].phase) {
+                next.pins[index].phase = .quarantined; changed = true
+            }
+            if changed { try commit(next, logical: false) }
+        }
+    }
+    /// A name alone never proves the receipt which owns a bound/issued inventory pin.
+    func reconcilePins(receipts: [String: T3QuestionPinReceipt], pinless: Set<String>) throws {
+        try locked {
+            var next = try load(), changed = false, invalid = false
+            for index in next.pins.indices {
+                let pin = next.pins[index]
+                guard [.bound, .issued, .quarantined].contains(pin.phase) else { continue }
+                let request = next.requests.first { $0.id == pin.request }
+                let receipt = receipts[pin.command]
+                let matches = receipt.map { receipt in
+                    receipt.id == pin.id && receipt.digest == pin.pinDigest && receipt.payload == pin.payloadDigest && receipt.record == pin.recordDigest && receipt.request == pin.request
+                        && receipt.revision == pin.inventoryRevision && receipt.questions == pin.questions && request?.scope == receipt.scope
+                } == true && !pinless.contains(pin.command)
+                if !matches || pin.phase == .quarantined {
+                    invalid = true
+                    if pin.phase != .quarantined { next.pins[index].phase = .quarantined; changed = true }
+                }
+            }
+            // Every provided receipt must name exactly one native pin, including a prepared create gap.
+            if next.pins.contains(where: { pinless.contains($0.command) }) { invalid = true }
+            for receipt in receipts.values {
+                guard let pin = next.pins.first(where: { $0.id == receipt.id }), pin.command == receipt.command,
+                      pin.pinDigest == receipt.digest, pin.payloadDigest == receipt.payload, pin.recordDigest == receipt.record, pin.request == receipt.request,
+                      pin.inventoryRevision == receipt.revision, pin.questions == receipt.questions,
+                      next.requests.first(where: { $0.id == pin.request })?.scope == receipt.scope else { invalid = true; continue }
+            }
+            if changed { try commit(next, logical: false) }
+            if invalid { throw fail("The question receipt and native pin binding disagree. Retained ownership needs recovery.") }
+        }
+    }
+    /// Exact native incarnation retirement never borrows a successor's request or intake.
+    func retireBoundRequest(_ binding: T3QuestionPinReceipt) throws {
+        try locked {
+            let value = try load()
+            guard let request = value.requests.first(where: { $0.id == binding.request }), request.scope == binding.scope,
+                  request.questions == binding.questions,
+                  let pin = value.pins.first(where: { $0.id == binding.id }), pin.command == binding.command,
+                  pin.pinDigest == binding.digest, pin.payloadDigest == binding.payload, pin.recordDigest == binding.record else { throw fail() }
+            if request.active { try retire(request: request.id) }
+            else { try commit(value, logical: false) }
+        }
+    }
+    func hasBoundPins() throws -> Bool { try locked { try load().pins.contains { [.bound, .issued, .quarantined].contains($0.phase) } } }
+    private func pinRequest(_ pin: QuestionPin, in value: State) throws {
+        guard let request = value.requests.first(where: { $0.id == pin.request && $0.active }), request.questions == pin.questions else { throw fail("The native request catalog changed.") }
+        if pin.requireEmpty {
+            guard value.revision == pin.inventoryRevision, request.order.isEmpty,
+                  !value.items.contains(where: { $0.request == request.id }),
+                  !value.operations.contains(where: { $0.request == request.id && $0.phase == .opened }) else {
+                throw fail("Finish or remove every question attachment and intake before submitting text answers.")
+            }
+        }
+    }
+    /// Local selection hashing holds byte leases, never this inventory's mutex.
+    /// The journal's real text path passes no selection and performs no large file work under its mutex.
+    func preparePin(request: String, questions: [String: String], command: String, epoch: String, process: String,
+                    payloadDigest: String, requireEmpty: Bool, selection: [String], recordDigest: String? = nil) throws -> [String: Any] {
+        let captured: (Int, [T3QuestionAttachmentLease]) = try locked {
+            let value = try load()
+            guard let owner = value.requests.first(where: { $0.id == request && $0.active }), owner.questions == questions,
+                  selection.count <= 100, Set(selection).count == selection.count else { throw fail() }
+            if requireEmpty {
+                guard owner.order.isEmpty, !value.items.contains(where: { $0.request == request }),
+                      !value.operations.contains(where: { $0.request == request && $0.phase == .opened }) else { throw fail("The question request still owns attachments or intake.") }
+            }
+            let leases = try selection.map { id -> T3QuestionAttachmentLease in
+                guard let item = value.items.first(where: { $0.id == id && $0.request == request }) else { throw fail() }
+                return try lease(request: request, question: item.question, id: id)
+            }
+            return (value.revision, leases)
+        }
+        defer { captured.1.forEach { $0.release() } }
+        for lease in captured.1 { _ = try lease.read() }
+        return try locked {
+            var next = try load()
+            guard next.revision == captured.0, let owner = next.requests.first(where: { $0.id == request && $0.active }), owner.questions == questions,
+                  captured.1.allSatisfy({ next.items.contains($0.item) }) else { throw fail("The question selection changed during preparation.") }
+            let items = captured.1.map(\.item)
+            guard items.filter({ $0.metadata.wireKind == .image }).reduce(0, { $0 + $1.size }) <= 80 * 1024 * 1024 else { throw fail() }
+            if let prior = next.pins.first(where: { $0.command == command }) {
+                guard prior.request == request, prior.epoch == epoch, prior.process == process, prior.payloadDigest == payloadDigest,
+                      prior.recordDigest == (recordDigest ?? payloadDigest),
+                      prior.questions == questions, prior.items == items, prior.requireEmpty == requireEmpty, prior.phase == .prepared else { throw fail() }
+                try pinRequest(prior, in: next); try commit(next, logical: false); return prior.evidence
+            }
+            let pin = try QuestionPin(id: UUID().uuidString.lowercased(), request: request, command: command, epoch: epoch,
+                process: process, inventoryRevision: next.revision, payloadDigest: payloadDigest, recordDigest: recordDigest ?? payloadDigest, questions: questions, items: items, requireEmpty: requireEmpty)
+            try pinRequest(pin, in: next); next.pins.append(pin); try commit(next, logical: false); return pin.evidence
+        }
+    }
+    @discardableResult func pinStatus(_ id: String) throws -> [String: Any] {
+        try locked {
+            let next = try load(); guard let pin = next.pins.first(where: { $0.id == id }) else { throw fail() }
+            try commit(next, logical: false)
+            return pin.evidence.merging(["phase": pin.phase.rawValue, "releaseToken": pin.releaseToken, "acknowledged": pin.acknowledged], uniquingKeysWith: { _, new in new })
+        }
+    }
+    func bindPin(_ id: String, command: String, payloadDigest: String, pinDigest: String) throws {
+        try locked {
+            var next = try load(); guard let index = next.pins.firstIndex(where: { $0.id == id }), next.pins[index].command == command,
+                  next.pins[index].payloadDigest == payloadDigest, next.pins[index].pinDigest == pinDigest,
+                  [.prepared, .bound, .issued].contains(next.pins[index].phase) else { throw fail() }
+            try pinRequest(next.pins[index], in: next)
+            if next.pins[index].phase != .issued { next.pins[index].phase = .bound }; try commit(next, logical: false)
+        }
+    }
+    func issuePin(_ id: String, command: String, payloadDigest: String, pinDigest: String) throws {
+        try locked {
+            var next = try load(); guard let index = next.pins.firstIndex(where: { $0.id == id }), next.pins[index].command == command,
+                  next.pins[index].payloadDigest == payloadDigest, next.pins[index].pinDigest == pinDigest,
+                  [.bound, .issued].contains(next.pins[index].phase) else { throw fail() }
+            // A local nonempty hold has no native upload provenance, regardless of caller descriptor IDs.
+            guard next.pins[index].items.isEmpty else { throw fail("Question attachment dispatch requires native upload provenance.") }
+            try pinRequest(next.pins[index], in: next); next.pins[index].phase = .issued; try commit(next, logical: false)
+        }
+    }
+    func releasePin(_ id: String, command: String, pinDigest: String) throws -> String {
+        try locked {
+            var next = try load(); guard let index = next.pins.firstIndex(where: { $0.id == id }), next.pins[index].command == command,
+                  next.pins[index].pinDigest == pinDigest, next.pins[index].phase != .quarantined else { throw fail() }
+            if next.pins[index].phase != .released {
+                next.pins[index].phase = .released; next.pins[index].releaseToken = UUID().uuidString.lowercased()
+            }
+            let token = next.pins[index].releaseToken
+            try commit(next, logical: false); try collectLocked(); return token
+        }
+    }
+    func ackPin(_ id: String, command: String, token: String) throws {
+        try locked {
+            var next = try load(); guard let index = next.pins.firstIndex(where: { $0.id == id }), next.pins[index].command == command,
+                  next.pins[index].phase == .released, next.pins[index].releaseToken == token else { throw fail() }
+            next.pins[index].acknowledged = true; try commit(next, logical: false)
+        }
+    }
+    /// Only seals already present before this actual process starts can authorize collection.
+    func recoverPins(receipts: Set<String>, priorSeals: Set<String>, process: String) throws {
+        try locked {
+            var next = try load(), changed = false
+            for index in next.pins.indices {
+                let pin = next.pins[index]
+                if !receipts.contains(pin.command), [.bound, .issued].contains(pin.phase) {
+                    next.pins[index].phase = .quarantined; changed = true
+                } else if pin.process != process, priorSeals.contains(pin.epoch), pin.phase == .prepared, !receipts.contains(pin.command) {
+                    next.pins[index].phase = .released; next.pins[index].releaseToken = UUID().uuidString.lowercased(); next.pins[index].acknowledged = true; changed = true
+                }
+            }
+            let obsolete = next.pins.filter { $0.process != process && priorSeals.contains($0.epoch) && $0.phase == .released && $0.acknowledged && !receipts.contains($0.command) }
+            if !obsolete.isEmpty { next.pins.removeAll { pin in obsolete.contains { $0.id == pin.id } }; changed = true }
+            if changed { try commit(next, logical: false); try collectLocked() }
         }
     }
     private func releaseHold(_ id: String) { holds[id, default: 0] -= 1; if holds[id] == 0 { holds.removeValue(forKey: id) }; try? collectLocked() }
     func collect() throws { try locked { try collectLocked() } }
     private func collectLocked() throws {
         var next = try load(), changed = false
-        for id in next.garbage where holds[id, default: 0] == 0 {
+        let pinned = Set(next.pins.filter { $0.phase != .released }.flatMap { $0.items.map(\.id) })
+        for id in next.garbage where holds[id, default: 0] == 0 && !pinned.contains(id) {
             try disk.remove(id); next.garbage.removeAll { $0 == id }; changed = true
         }
         if changed { try commit(next) }
