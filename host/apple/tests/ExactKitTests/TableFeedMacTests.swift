@@ -102,7 +102,7 @@ final class TableFixture {
         return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
     }
 
-    init(count: Int, size: CGSize = CGSize(width: 480, height: 600), style: NSTableView.Style = .inset, table: Bool = true) throws {
+    init(count: Int, size: CGSize = CGSize(width: 480, height: 600), style: NSTableView.Style = .inset, table: Bool = true, source: String? = nil) throws {
         _ = NSApplication.shared
         session = ExactApp.shared.makeSession(label: "table-feed")
         view = ExactView(session: session)
@@ -110,7 +110,7 @@ final class TableFixture {
         window.isReleasedWhenClosed = false
         window.contentView = view
         view.layoutSubtreeIfNeeded()
-        XCTAssertNil(session.boot(plan: try Self.plan(Self.source(count: count)), size: size).error)
+        XCTAssertNil(session.boot(plan: try Self.plan(source ?? Self.source(count: count)), size: size).error)
         let presenter = session.presenter
         list = try XCTUnwrap(presenter.views.values.first { $0.props["testId"] == "rows" })
         presenter.settlePump()

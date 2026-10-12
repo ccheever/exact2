@@ -98,8 +98,11 @@ final class TableFeedPerfMacTests: XCTestCase {
             f.window.setFrameTopLeftPoint(NSPoint(x: x, y: screen.visibleFrame.maxY - 40))
             f.window.orderFrontRegardless()
         }
-        let shown = Date().addingTimeInterval(3)
-        while !(table.window.occlusionState.contains(.visible) && today.window.occlusionState.contains(.visible)), Date() < shown { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        // The window server says a window shows in an event, so the application's queue is read, not only the run loop turned.
+        let shown = Date().addingTimeInterval(5)
+        while !(table.window.occlusionState.contains(.visible) && today.window.occlusionState.contains(.visible)), Date() < shown {
+            if let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.05), inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+        }
         table.settle(); today.settle()
         // How ExactKit was compiled, said by whoever built it optimized (`swift build -c release`): a debug build overstates every time here.
         let build = ProcessInfo.processInfo.environment["EXACT_TABLE_PERF_BUILD"] ?? "a debug build of ExactKit"

@@ -24,8 +24,8 @@ final class TableFeedKeyMacTests: XCTestCase {
         }
     }
     /// The fixture's window at the front and key, with the table first responder.
-    private func keyed(count: Int = 10_000) throws -> TableFixture {
-        let f = try TableFixture(count: count)
+    private func keyed(count: Int = 10_000, source: String? = nil) throws -> TableFixture {
+        let f = try TableFixture(count: count, source: source)
         fixture = f
         NSApp.setActivationPolicy(.accessory)
         f.window.setFrameTopLeftPoint(NSPoint(x: 80, y: (NSScreen.main?.visibleFrame.maxY ?? 800) - 40))
@@ -63,6 +63,20 @@ final class TableFeedKeyMacTests: XCTestCase {
                                              context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!)
         }
         f.settle()
+    }
+    /// A key through the application's queue, as a person's arrives: it is `NSApp.currentEvent` while it is handled.
+    private func queued(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], in f: TableFixture) {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            NSApp.postEvent(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                                             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!, atStart: false)
+        }
+        pump(1)
+        f.settle()
+    }
+    /// Letters, digits and spaces typed one key after another, quicker than a type-select forgets.
+    private func type(_ text: String, in f: TableFixture) {
+        let codes: [Character: UInt16] = ["r": 15, "o": 31, "w": 13, " ": 49, "1": 18, "2": 19, "9": 25]
+        for character in text { key(codes[character]!, String(character), in: f) }
     }
     private func down(in f: TableFixture) { key(125, "\u{F701}", [.function, .numericPad], in: f) }
     private func up(in f: TableFixture) { key(126, "\u{F700}", [.function, .numericPad], in: f) }
@@ -136,6 +150,132 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertEqual(f.table.numberOfRows, 10_001)
         XCTAssertEqual(f.table.selectedRow, 13, "the selection moved with its item")
         XCTAssertEqual(f.cells[13]?.row.map(f.item), 12)
+    }
+
+    func testThePageKeysScrollTypingSelectsAMountedRowAndReturnSpaceAndEscapePressNothing() throws {
+        let f = try keyed()
+        click(try f.node("title-5"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 5)
+        XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), f.status)
+        // Page Down and Page Up: the list moves by a page and the selection
+        // stays, as a stock table's does.
+        key(121, "\u{F72D}", [.function], in: f)
+        pump(1) { f.clip.bounds.minY > 300 }
+        f.settle()
+        XCTAssertGreaterThan(f.clip.bounds.minY, 300, "Page Down scrolled the list")
+        XCTAssertLessThan(f.clip.bounds.minY, f.clip.bounds.height, "by no more than a page")
+        XCTAssertEqual(f.table.selectedRow, 5)
+        key(116, "\u{F72C}", [.function], in: f)
+        pump(1) { f.clip.bounds.minY == 0 }
+        f.settle()
+        XCTAssertEqual(f.clip.bounds.minY, 0, "Page Up scrolled it back")
+        // Return, Enter, Space and Escape on a selected row: the selection
+        // stays and the row's press does not run. A stock table and SwiftUI's
+        // list do nothing with them either (measured beside this).
+        for (code, characters) in [(UInt16(36), "\r"), (76, "\u{3}"), (49, " "), (53, "\u{1B}")] {
+            key(code, characters, in: f)
+            XCTAssertEqual(f.table.selectedRow, 5, "key \(code)")
+            XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), "key \(code): \(f.status)")
+            XCTAssertTrue(f.window.firstResponder === f.table, "key \(code)")
+        }
+        XCTAssertEqual(f.clip.bounds.minY, 0, "and Space did not scroll")
+        // Typing selects the next row whose text begins with what was typed,
+        // among the rows that are mounted: the feed has no text for the others.
+        XCTAssertTrue(f.table.allowsTypeSelect)
+        type("row 2", in: f)
+        let found = try XCTUnwrap(f.cells[f.table.selectedRow]?.row, "typing selected a mounted row (\(f.table.selectedRow))")
+        XCTAssertEqual(f.table.selectedRow, 20, "the next row after the selected one whose text begins \"Row 2\"")
+        XCTAssertTrue(try f.node("title-\(f.item(found))").accessibleText.hasPrefix("Row 2"))
+        XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), "typing selects and presses nothing: \(f.status)")
+        // A row that is not mounted is not found: a stock table, which has
+        // every row's text, would select row 9,999.
+        XCTAssertNil(f.mounted[9_999])
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5)) // the type-select forgets what was typed
+        type("row 9999", in: f)
+        XCTAssertNotEqual(f.table.selectedRow, 9_999)
+        XCTAssertNotNil(f.mounted[f.table.selectedRow], "the selection is on a mounted row (\(f.table.selectedRow))")
+    }
+
+    func testAnArrowKeyPressesTheRowItReachesWhenSelectingIsThePress() throws {
+        let f = try keyed()
+        click(try f.node("title-5"), in: f)
+        XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), f.status)
+        // As SwiftUI's list of navigation links pushes when the keyboard
+        // moves the selection (measured beside this): chosen by the feed's owner.
+        f.feed.press = .selection
+        queued(125, "\u{F701}", [.function, .numericPad], in: f)
+        XCTAssertEqual(f.table.selectedRow, 6)
+        XCTAssertTrue(f.status.hasPrefix("opened 6 presses 2 "), f.status)
+        // A click is still one press, not the selection's and the action's both.
+        click(try f.node("title-8"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 8)
+        XCTAssertTrue(f.status.hasPrefix("opened 8 presses 3 "), f.status)
+    }
+
+    /// A list of `count` rows whose press pushes a route for the row, and
+    /// that route's Back.
+    private static func pushing(count: Int) -> String {
+        """
+        routes nav
+          items "/"
+            item "/item/:id"
+
+        component Rows
+          state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          derive d1 = concat(seed, seed)
+          derive d2 = concat(d1, d1)
+          derive d3 = concat(d2, d2)
+          derive d4 = concat(d3, d3)
+          derive rows = slice(map(d4, (x, i) => i), 0, \(count))
+          action open(r: number)
+            nav = push(nav, path("item", `${r}`))
+          action back
+            nav = back(nav)
+          action follow(url: string)
+            nav = go(nav, url)
+          view
+            main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
+              each e in stack(nav) key=e.id
+                when e.name == "items"
+                  column navigationKey=`${e.id}` position="absolute" inset=0
+                    list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
+                      each r in rows key=`k${r}`
+                        row press=open(r) testId=`row-${r}` padding="6px 0" width="100%"
+                          text `Row ${r}` testId=`title-${r}`
+                when e.name == "item"
+                  column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
+                    text `Item ${e.params.id}` testId="detail"
+                    button id="back" press=back testId="back"
+                      text "Back"
+
+        """
+    }
+
+    func testTheSelectionIsStillTheRowsWhenThePersonComesBackFromItsPush() throws {
+        let f = try keyed(count: 160, source: Self.pushing(count: 160))
+        // A click on a row pushes its route when the mouse comes up.
+        click(try f.node("title-7"), in: f)
+        XCTAssertEqual(try f.node("detail").accessibleText, "Item 7")
+        XCTAssertNotNil(f.presenter.navigation.pushedRoute, "the row's press pushed a route")
+        XCTAssertEqual(f.table.selectedRow, 7, "under the pushed route the row is still selected")
+        let row = try XCTUnwrap(f.cells[7]?.row)
+        // Back: the list's table is the one it was, the row the runner's
+        // same row, selected, as SwiftUI's stack leaves its list (measured
+        // beside this: selected on return and still selected two seconds on).
+        f.presenter.press(try f.node("back").id)
+        f.settle()
+        pump(0.6) { false }
+        f.settle()
+        XCTAssertNil(f.presenter.navigation.pushedRoute)
+        XCTAssertFalse(f.presenter.views.values.contains { $0.props["testId"] == "detail" }, "the pushed route is gone")
+        XCTAssertTrue(f.presenter.tables.feeds[f.list.id] === f.feed, "the same feed")
+        XCTAssertEqual(f.table.selectedRow, 7)
+        XCTAssertTrue(f.cells[7]?.row === row, "the same row, in its cell")
+        XCTAssertEqual(f.table.rowView(atRow: 7, makeIfNecessary: false)?.isSelected, true)
+        // And the next arrow key goes on from it, once the table has the keyboard.
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        down(in: f)
+        XCTAssertEqual(f.table.selectedRow, 8)
     }
 
     /// The window server's picture of the fixture's window, saved where `EXACT_PROOF_SHOTS` says.
