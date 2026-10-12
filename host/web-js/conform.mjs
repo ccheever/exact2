@@ -328,8 +328,9 @@ async function drive(t, report, fail, dir, ws, js) {
       driveAt = `${step} state`;
       const [sw, sj] = await pair(() => W.state(), () => J.state().catch(e => ({ error: e.message })));
       const at = `${sw?.navigation?.route} ${sw?.navigation?.url}`; if (routeAt !== undefined && at !== routeAt) routed = true; routeAt = at;
-      // A write's id orders it within one runtime; the two number them apart, so the mutations and states compare.
-      for (const s of [sw, sj]) if (s?.writes) s.writes = s.writes.map(w => ({ mutation: w.mutation, landed: w.landed }));
+      // A write's id orders it within one runtime; each numbers them apart (the Linux host's too), so the mutations and states compare.
+      const plainWrites = s => { if (s?.writes) s.writes = s.writes.map(w => ({ mutation: w.mutation, landed: w.landed })); };
+      plainWrites(sw); plainWrites(sj);
       addSession(sw); addSession(sj);
       if (sj.error) { fail(step, `state: ${other} ${sj.error}`); st++; }
       else if (crossBrowser) {
@@ -341,7 +342,7 @@ async function drive(t, report, fail, dir, ws, js) {
       const o2 = diffLists(norm(tw), norm(tj), 'tree', other, reference); o2.forEach((x, i) => fail(step, x, crossBrowser ? `tree.${i}` : null)); st += o2.length;
       await onLinux(step, async L => {
         const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [];
-        addSession(sl);
+        plainWrites(sl); addSession(sl);
         for (const k of STATE_KEYS) diffJSON(sw[k], sl[k], k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(unfocused(norm(tw)), unfocused(norm(tl)), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
