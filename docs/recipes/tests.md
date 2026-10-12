@@ -41,8 +41,8 @@ test (pin `epoch` and `time-zone`); give every screen its own ids.
 
 `verify` (`verify ios`) runs these tests, then `check`s the first screen and the screen each test
 ends on, light and dark at a phone and a desktop width; on the web it reloads each end screen (a
-route keeps what its URL and storage hold), then relaunches once on real time and says whether the
-first screen shows what the test stored. Screenshots are in `.exact/verify/`, named by test;
+route keeps what its URL and storage hold), then relaunches once on real time and checks the first
+screen shows what the test stored. Screenshots are in `.exact/verify/`, named by test;
 `verify --shots <dir>` copies them, a test's `screenshot "x.png"` too. A clean `verify` is done; a
-screen no test ends on is not checked, so end a test there. To see why something fails, drive by
-hand (`agent web --storage s1 …`; `"clock +1500 real"` waits real time).
+screen no test ends on is not checked, so end a test there. Drive by hand to see why a step
+fails (`agent web --storage s1 …`).
