@@ -275,6 +275,11 @@ differ visibly (`controlBackgroundColor`), the table says so. Open question
 > therefore resolves as `LinkText` does. An unset page background is
 > `background` (`windowBackgroundColor` on the Mac); `Canvas` stays
 > `textBackgroundColor` there, the document's white.
+>
+> **And by its D3.4.** On the Mac `AccentColor` is the view's tint too (`@tint`):
+> the nearest authored `accent-color` up the view chain, else
+> `controlAccentColor`, so an authored accent reaches a row, a symbol or an
+> `svg` paint that names it, as on iOS and the web, and not only a control.
 
 **There is no `accent` role.** `AccentColor` is the accent: on iOS it is
 the view's inherited `tintColor`, which is what an app's `accent-color` row

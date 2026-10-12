@@ -4674,7 +4674,7 @@
       "#282828b3"
     ]
   ],
-  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
+  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
   "colors": [
     [
       "Canvas",
@@ -4740,7 +4740,7 @@
       "AccentColor",
       "",
       "@tint",
-      "controlAccentColor",
+      "@tint",
       "#0088ff",
       "#0091ff",
       "#0b66d6",

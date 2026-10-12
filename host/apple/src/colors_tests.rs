@@ -497,3 +497,37 @@ fn hdr_colors_outside_motion_storage_change_discretely() {
         );
     }
 }
+
+/// A role crosses as this platform's name for it (LLP 1095 D1). The accent
+/// is the view's tint on both Apple platforms (LLP 1115.000 D3.4: on the Mac
+/// the nearest authored `accent-color`, else the system's), so an authored
+/// accent reaches it. A link and a button's text are the tint on iOS, and
+/// resolve alike there (D3.6); on the Mac they are AppKit's own colours. An
+/// unset page is `-exact-background`.
+#[test]
+fn a_role_crosses_as_this_platforms_colour() {
+    let name = |role: &str| {
+        let mut out = String::new();
+        let color = exact_kernel::ColorValue::parse_light_dark(role).unwrap();
+        crate::style::push_color_value(&mut out, color);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        v["sys"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{out}"))
+            .to_owned()
+    };
+    let mac = cfg!(target_os = "macos");
+    let on = |macos: &'static str, ios: &'static str| if mac { macos } else { ios };
+    assert_eq!(name("AccentColor"), "@tint");
+    assert_eq!(name("LinkText"), on("linkColor", "@tint"));
+    assert_eq!(name("-exact-link"), name("LinkText"));
+    assert_eq!(name("ButtonText"), on("controlTextColor", "@tint"));
+    assert_eq!(
+        name("-exact-background"),
+        on("windowBackgroundColor", "systemBackgroundColor")
+    );
+    assert_eq!(
+        name("Canvas"),
+        on("textBackgroundColor", "systemBackgroundColor")
+    );
+}

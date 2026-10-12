@@ -18,8 +18,8 @@ extension NodeView {
     /// The symbol's own tint, or `nil` to follow the platform's accent
     /// (LLP 1095 stage 2): the initial `-exact-tint-color` is `AccentColor`, which the
     /// platform keeps dynamic (iOS inherits the hierarchy's `tintColor`, a
-    /// window or app tint included; macOS has `controlAccentColor`), so it is
-    /// never resolved to channels here.
+    /// window or app tint included; macOS has the nearest authored accent,
+    /// else `controlAccentColor`), so it is never resolved to channels here.
     var symbolTint: PlatformColor? {
         guard let row = style["tint_color"] else { return nil }
         if case .object(let o) = row, o["sys"]?.string == "@tint" { return nil }
@@ -38,7 +38,7 @@ extension NodeView {
         #if os(iOS) || os(tvOS)
         return tintColor
         #else
-        return .controlAccentColor
+        return viewTint ?? .controlAccentColor
         #endif
     }
 

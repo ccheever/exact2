@@ -171,13 +171,15 @@ pub fn reported_generation() -> u64 {
     GENERATION.load(Ordering::Acquire)
 }
 
-/// Whether a role is the tint itself (`@tint` on iOS, at full strength:
-/// `AccentColor`, `LinkText`), which resolves to the nearest `accent-color`
-/// a node or an ancestor sets, else the platform's (LLP 1116.001 D2), as
-/// UIKit's inherited `tintColor` does: iOS sets an authored accent as the
-/// view's tint. The web's own two are [`web_accent`].
-pub fn follows_accent(id: u8) -> bool {
-    role_of(id).is_some_and(|r| r.ios == "@tint")
+/// Whether a role is the tint itself on an Apple platform (`@tint`, at full
+/// strength: on iOS `AccentColor`, a link and a button's text; on the Mac
+/// `AccentColor`), which resolves to the nearest `accent-color` a node or an
+/// ancestor sets, else the platform's (LLP 1116.001 D2; LLP 1115.000 D3.4
+/// for the Mac), as UIKit's inherited `tintColor` does: iOS sets an
+/// authored accent as the view's tint, and the Mac's presenter reads the
+/// nearest one up the view chain. The web's own two are [`web_accent`].
+pub fn follows_accent(id: u8, macos: bool) -> bool {
+    role_of(id).is_some_and(|r| if macos { r.macos } else { r.ios } == "@tint")
 }
 
 /// Whether the browser draws a role in the accent: CSS's `AccentColor`,
@@ -673,12 +675,21 @@ mod tests {
                 assert_eq!(got, want & 0xffff_ff00 | alpha, "{}: Apple's", r.name);
             }
             assert_eq!(
-                follows_accent(role_id(r.name)),
+                follows_accent(role_id(r.name), false),
                 r.ios == "@tint",
                 "{}",
                 r.name
             );
         }
+        // LLP 1115.000 D3.4: on the Mac the accent alone is the view's tint,
+        // the nearest authored `accent-color` and else the system's; a link
+        // and a control's text are AppKit's own colours there.
+        let mac: Vec<&str> = COLOR_ROLES
+            .iter()
+            .filter(|r| follows_accent(role_id(r.name), true))
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(mac, ["AccentColor"]);
         assert_eq!(named("link").ios, named("LinkText").ios);
         assert_eq!(
             named("link").macos,

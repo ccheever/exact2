@@ -56,6 +56,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var contextClicked = false
     var cachedTextSpec: Spec?
     var textLayoutValid = false
+    /// The node whose `accent-color` this view last read as its tint, nil for the system's (NodeColorMac.swift).
+    var tintSource: ObjectIdentifier?
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
     var textRaster: IOSurface?
     var textRasterScale: CGFloat = 2
@@ -734,7 +736,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key]?.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast)
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) }
     }
 
     /// Whether any colour on this node is a pair — what says an appearance
@@ -753,7 +755,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.viewDidChangeEffectiveAppearance()
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
-        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock); presenter?.session?.noteAppearance(self)
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
         guard hasSchemeColor || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
@@ -764,7 +766,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard hasSchemeColor || symbolView != nil || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
-    private func reapplyColors() {
+    func reapplyColors() {
         paragraphOwner.invalidateText()
         paragraphOwner.needsDisplay = true
         applyStyle(style)
@@ -989,6 +991,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if old["display"] != s["display"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
+        if old["accent_color"] != s["accent_color"] { accentChanged() }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         syncDynamicRange(from: old)
@@ -1139,6 +1142,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         paintOrderMoved()
         syncDisabledLook() // a list's row is known by where it is mounted (PressLookMac.swift)
+        if window != nil { retintSubtree() } // and its tint by what is above it (NodeColorMac.swift)
     }
 
     /// `overflow: hidden` clips to the rounded corners: one radius rides the
@@ -1187,6 +1191,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil { retint() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
     }
