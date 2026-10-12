@@ -176,6 +176,7 @@ final class TableFeedMacTests: XCTestCase {
             let node = try XCTUnwrap(mounted[row], "\(note): row \(row) shows and is mounted", file: file, line: line)
             XCTAssertTrue(cell.row === node && node.superview === cell, "\(note): row \(row)'s cell holds the runner's row", file: file, line: line)
             XCTAssertEqual(f.inDocument(node), cell.kernel, "\(note): row \(row) is where layout put it", file: file, line: line)
+            XCTAssertTrue(cell.bounds.insetBy(dx: -0.01, dy: -0.01).contains(node.frame), "\(note): row \(row) is inside its cell (\(node.frame) in \(cell.bounds)), where a click reaches it", file: file, line: line)
             let rect = f.table.convert(f.table.rect(ofRow: row), to: f.document)
             XCTAssertEqual(rect.minY, cell.kernel.minY, accuracy: 0.01, "\(note): the table's row \(row) starts where layout's does", file: file, line: line)
             XCTAssertEqual(rect.height, cell.kernel.height, accuracy: 0.01, "\(note): the table's row \(row) is as tall as layout made it", file: file, line: line)

@@ -32,26 +32,28 @@ struct TableRowHeights: Equatable {
     init() {}
     /// `mounted`: each mounted row's index, its start from the first item's
     /// start and its size, as layout has them. `extent`: every item's,
-    /// mounted or estimated. A run of rows not mounted whose share moved by
-    /// less than half a point in all keeps `previous`'s heights: float noise
-    /// in a long list's offsets is not news to the table.
-    init(count: Int, extent: CGFloat, mounted: [(index: Int, start: CGFloat, size: CGFloat)], previous: TableRowHeights? = nil) {
+    /// mounted or estimated. `pixel`: a device pixel, in points. The rows
+    /// between two mounted ones share the room layout left for them in
+    /// whole pixels (the first of them a pixel taller where it does not
+    /// divide), so the table's rows start on pixels as layout's do: AppKit
+    /// puts a row's view on a whole pixel whatever its row's start is.
+    init(count: Int, extent: CGFloat, pixel: CGFloat = 1, mounted: [(index: Int, start: CGFloat, size: CGFloat)]) {
         self.count = max(0, count)
         var next = 0, at: CGFloat = 0
         for row in mounted.sorted(by: { $0.index < $1.index }) where row.index >= next && row.index < self.count {
-            share(first: next, count: row.index - next, room: row.start - at, previous)
+            share(first: next, count: row.index - next, room: row.start - at, pixel)
             runs.append(Run(first: row.index, count: 1, height: max(Self.least, row.size)))
             next = row.index + 1
             at = row.start + row.size
         }
-        share(first: next, count: self.count - next, room: extent - at, previous)
+        share(first: next, count: self.count - next, room: extent - at, pixel)
     }
-    private mutating func share(first: Int, count: Int, room: CGFloat, _ previous: TableRowHeights?) {
+    private mutating func share(first: Int, count: Int, room: CGFloat, _ pixel: CGFloat) {
         guard count > 0 else { return }
-        var height = max(Self.least, room / CGFloat(count))
-        if let previous, previous.count == self.count, let run = previous.run(first), run.first + run.count >= first + count,
-           abs(run.height - height) * CGFloat(count) < 0.5 { height = run.height }
-        runs.append(Run(first: first, count: count, height: height))
+        let each = max(Self.least, (room / CGFloat(count) / pixel).rounded(.down) * pixel)
+        let taller = max(0, min(count, Int(((room - each * CGFloat(count)) / pixel).rounded())))
+        if taller > 0 { runs.append(Run(first: first, count: taller, height: each + pixel)) }
+        if taller < count { runs.append(Run(first: first + taller, count: count - taller, height: each)) }
     }
     private func run(_ row: Int) -> Run? {
         guard !runs.isEmpty, row >= 0, row < count else { return nil }
@@ -129,21 +131,20 @@ final class TableRowCell: NSView {
     }
 
     /// A control in the row keeps its clicks. The rest of the row is the
-    /// table's: its click selects, and the feed presses the row's root.
+    /// table's, as a stock table's row is where no cell's control is: the
+    /// table takes the keyboard as the mouse goes down, its click selects,
+    /// and the feed presses the row's root.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
-        return feed?.keepsClick(hit, in: self) == true ? hit : self
+        return feed?.keepsClick(hit, in: self) == true ? hit : feed?.table ?? self
     }
 }
 
-/// The table: AppKit's, with what a table's own first-responder rule would
-/// take from a control in a row given back to the control.
+/// The table: AppKit's. It overrides no mouse method: a table class that
+/// does is tracked in AppKit's older loop, which selects as the mouse goes
+/// down, where a stock table and SwiftUI's list select as it comes up.
 final class RunnerTableView: NSTableView {
     fileprivate weak var feed: TableFeed?
-    /// A table lets a text field in a row take the keyboard only on a
-    /// second click (its cells are labels that may be renamed). A field an
-    /// author put in a row is a field: it takes its own click.
-    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool { true }
     /// The table moved its rows (new rows near what shows, a new guess for
     /// the rows that do not): it goes back where layout has them.
     override func layout() {
@@ -157,9 +158,12 @@ final class RunnerTableView: NSTableView {
 
 /// One list's rows in a table.
 final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-    /// When a click on a row presses its root. A hand-built table selects on
-    /// the mouse going down and sends its action when it comes up.
-    enum Press { case selection, action, never }
+    /// What presses a row's authored root. A click does, when the mouse
+    /// comes up in the row: the table's action. In a hand-built table on
+    /// macOS 27.0, key window, nothing a delegate or a target hears happens
+    /// while the button is down. `selection` presses too when the keyboard
+    /// moves the selection, as SwiftUI's list of navigation links pushes.
+    enum Press { case action, selection }
 
     let table = RunnerTableView()
     let id: UInt32
@@ -174,7 +178,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// follows the item when rows before it come and go.
     private(set) var selectedKey: String?
     private var syncing = false, aligning = false
-    var press = Press.selection
+    var press = Press.action
     /// Rows moved between the document and a cell, and the table's rows
     /// told of a new height, since the feed began (the tests, the measures).
     private(set) var moves = 0, noted = 0
@@ -254,7 +258,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             mounted[row.index] = node
             roots[row.view] = row.root
         }
-        let next = TableRowHeights(count: snapshot.count, extent: CGFloat(snapshot.extent), mounted: rows, previous: heights)
+        let next = TableRowHeights(count: snapshot.count, extent: CGFloat(snapshot.extent), pixel: 1 / (table.window?.backingScaleFactor ?? 1), mounted: rows)
         let recount = next.count != heights.count
         let changed = recount ? IndexSet() : next.changed(from: heights)
         // The selected item, wherever its row is now.
@@ -291,12 +295,17 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         if table.superview !== home { home.addSubview(table, positioned: .below, relativeTo: nil) }
         // As wide as the port: a row that overflows widens the document, not the table.
         let port = list.scroll?.contentView.bounds ?? .zero
-        if table.frame.width != port.width { table.setFrameSize(NSSize(width: port.width, height: table.frame.height)) }
+        if table.frame.width != port.width {
+            table.setFrameSize(NSSize(width: port.width, height: table.frame.height))
+            // The one column fills it: a row is hit only inside its cell.
+            table.sizeLastColumnToFit()
+        }
         // The first mounted row that shows, else any: float error in a long
         // list's offsets then lands in rows nobody sees.
         let shown = mounted.filter { kernel($0.value).maxY > port.minY }.min { $0.key < $1.key } ?? mounted.min { $0.key < $1.key }
         let y: CGFloat
-        if let shown { y = kernel(shown.value).minY - table.rect(ofRow: shown.key).minY }
+        // Its view's place where it has one: AppKit rounds that to a pixel.
+        if let shown { y = kernel(shown.value).minY - (table.rowView(atRow: shown.key, makeIfNecessary: false)?.frame.minY ?? table.rect(ofRow: shown.key).minY) }
         else { y = list.contentBox().minY - (table.numberOfRows > 0 ? table.rect(ofRow: 0).minY : 0) }
         if table.frame.origin != NSPoint(x: 0, y: y) { table.setFrameOrigin(NSPoint(x: 0, y: y)) }
     }
@@ -347,13 +356,12 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         mounted[row].map(\.accessibleName).flatMap { $0.isEmpty ? nil : $0 }
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !syncing else { return }
         let row = table.selectedRow
-        if !syncing { selectedKey = mounted[row]?.props["listItemKey"] }
-        if press == .selection, !syncing, NSApp.currentEvent?.type == .leftMouseDown { pressRow(row) }
+        selectedKey = mounted[row]?.props["listItemKey"]
+        if press == .selection, NSApp.currentEvent?.type == .keyDown { pressRow(row) }
     }
-    @objc private func clicked() {
-        if press == .action { pressRow(table.clickedRow) }
-    }
+    @objc private func clicked() { pressRow(table.clickedRow) }
     /// The press of the row's authored root, as a click on it was.
     func pressRow(_ row: Int) {
         guard let node = mounted[row], let root = roots[node.id], let target = presenter?.views[root], target.pressable, !target.disabled, !target.inert else { return }
