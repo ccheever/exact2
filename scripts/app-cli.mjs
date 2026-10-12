@@ -113,10 +113,15 @@ export async function run({ dir, name, game = false, exact2, args }) {
   }
   if (own[verb]) { const [command, ...args] = own[verb]; return log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', dir)); }
   if (verb !== 'test') return log(await script(verbs[verb], rest));
-  let failed = 0;
-  for (const file of tests.length ? tests : [resolve(dir, 'app.test.contract')]) {
-    if (tests.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
-    failed = (await script(verbs.test, ['--test', file, ...rest])) || failed;
-  }
-  return log(failed);
+  // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
+  // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).
+  const { withAppServer } = await import(resolve(exact2, 'scripts/verify.mjs'));
+  return log(await withAppServer(dir, async () => {
+    let failed = 0;
+    for (const file of tests.length ? tests : [resolve(dir, 'app.test.contract')]) {
+      if (tests.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
+      failed = (await script(verbs.test, ['--test', file, ...rest])) || failed;
+    }
+    return failed;
+  }, { verb: 'test', optional: true }));
 }

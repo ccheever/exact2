@@ -20,7 +20,7 @@
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardFlags } from './help.mjs';
@@ -81,9 +81,12 @@ export function heldLine(server) {
  * the database; `exited` is its exit code once it has ended on its own, else null. `forward` passes its stderr on. */
 export async function startServer(dir, server, name, { forward = false } = {}) {
   if (await answering(server.url)) throw new Error(heldLine(server));
-  const db = resolve(dir, '.exact', name, 'db.sqlite'), clear = () => { for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true }); };
+  // `owner` names this process, for a `bun exact.mjs test` it runs (an api-test's test.mjs) to find the server already here.
+  const db = resolve(dir, '.exact', name, 'db.sqlite'), owner = resolve(dirname(db), 'owner');
+  const clear = () => { for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true }); rmSync(owner, { force: true }); };
   mkdirSync(dirname(db), { recursive: true });
   clear();
+  writeFileSync(owner, `${process.pid}\n`);
   const child = Bun.spawn([process.execPath, server.entry], { cwd: dir, env: { ...process.env, DB: db, PORT: String(server.port) }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' });
   let said = '';
   (async () => { for await (const chunk of child.stderr) { said = (said + new TextDecoder().decode(chunk)).slice(-4000); if (forward) process.stderr.write(chunk); } })().catch(() => {});
@@ -111,17 +114,25 @@ export async function startServer(dir, server, name, { forward = false } = {}) {
   return { stop, exited: () => child.exitCode, tail };
 }
 
-/** `fn` with the app's server running on an empty database, as verify runs it (`bun exact.mjs api-test`, the rest
- * pattern's test.mjs): its exit code, or 1 when the server cannot run, said in one line. */
-export async function withAppServer(dir, fn) {
+/** `fn` with the app's server running on an empty database, as verify runs it: its exit code, or 1 when the server cannot
+ * run, said in one line. `bun exact.mjs test` runs its tests so (LLP 1116.007 D2: `optional`: an app with no server, or one
+ * left alone as `verify` leaves it, runs them as they are, the second said once, and the tests use whatever answers there);
+ * a server its parent process runs (an older app's api-test test.mjs, which runs `test` under `withAppServer`) is used, not started again.
+ * `api-test` is the same call without `optional`: it wants a server, and says why it has none. */
+export async function withAppServer(dir, fn, { verb = 'api-test', optional = false } = {}) {
   const server = appServer(dir);
+  if (server && ['api-test', 'test', 'verify'].some((name) => readIn(dir, `.exact/${name}/owner`)?.trim() === String(process.ppid))) return fn(null);
   let running;
   try {
-    if (!server) throw new Error('no server: server.ts, server/index.ts, server/server.ts, or app.json\'s commands.server');
-    if (server.why) throw new Error(server.why);
-    running = await startServer(dir, server, 'api-test', { forward: true });
-  } catch (e) { console.error(`api-test: ${e.message}`); return 1; }
-  try { return await fn(running); } finally { await running.stop(); }
+    if (!server || server.why) {
+      if (!optional) throw new Error(server?.why ?? 'no server: server.ts, server/index.ts, server/server.ts, or app.json\'s commands.server');
+      if (server) console.error(`${verb}: ${server.why}; the tests use whatever answers there`);
+    } else {
+      running = await startServer(dir, server, verb, { forward: true });
+      console.error(`${verb}: bun ${server.entry} at ${server.url}, on an empty database (.exact/${verb}/db.sqlite, removed after)`);
+    }
+  } catch (e) { console.error(`${verb}: ${e.message}`); return 1; }
+  try { return await fn(running); } finally { await running?.stop(); }
 }
 
 /** Builds the web app when its dist is missing or older than its sources, as the driver would refuse it:

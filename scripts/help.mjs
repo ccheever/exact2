@@ -101,6 +101,9 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
 older than its sources, saying so on stderr. Each test launches the app fresh with its own
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
+Server   an app with its own (server.ts, the rest pattern's): test runs it where app.ts calls it,
+         on an empty database (DB=.exact/test/db.sqlite), then stops it, as verify does; one
+         already answering there (a dev server) is refused, named, never written to.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, back, fail|pass fetch,
          request <METHOD> "/path" [json] [as <persona>]: docs/recipes/tests.md; all:
@@ -248,10 +251,10 @@ Ports    none. Runs to completion: exit 0 when it compiled.`,
     usage: 'bun exact.mjs pattern [<name>] [--force]',
     flags: [['--force', 'replace a file you edited (without it, it is refused, named)']],
     body: `With no name, lists the patterns. With one, writes its app.contract, app.ts and
-app.test.contract here (and what else it needs: rest's server.ts and test.mjs) with this
+app.test.contract here (and what else it needs: rest's server.ts) with this
 app's id and name, then the types app.ts imports. A file still as exact new or a pattern
 wrote it is replaced; one you edited is refused unless --force. Each pattern passes its own
-tests and no-tells; rest's run with bun exact.mjs api-test web or verify, which run its server.
+tests and no-tells; rest's run with test or verify, which run its server.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs pattern list-detail && bun exact.mjs test web',
   },

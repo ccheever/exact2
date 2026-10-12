@@ -10,7 +10,7 @@ It listens where app.ts calls it: the address is in one place, app.ts's `API`.
 import { Database } from 'bun:sqlite';
 import { API } from './app.ts';
 
-const db = new Database(process.env.DB ?? 'data.db'); // verify and api-test name an empty one
+const db = new Database(process.env.DB ?? 'data.db'); // test and verify name an empty one
 db.run('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, title TEXT NOT NULL, by TEXT NOT NULL)');
 const PEOPLE: Record<string, string> = { ada: 'Ada', grace: 'Grace' };
 const person = (req: Request) => PEOPLE[req.headers.get('authorization')?.replace('Bearer ', '') ?? ''];
@@ -162,20 +162,12 @@ test "an item is added for everyone, and another person's arrives on the poll; a
   expect text "draft" == ""
 ```
 
-**`verify` runs the server itself**, on an empty database: it finds server.ts (or
-server/index.ts, or app.json's `commands.server`), starts it with `DB` naming a scratch
-file at the address app.ts calls, keeps it through the tests, their end screens and the
-relaunch, then stops it and removes the file. Your data.db is never touched. A server
+**`test` and `verify` run the server themselves**, on an empty database: they find server.ts
+(or server/index.ts, or app.json's `commands.server`), start it with `DB` naming a scratch
+file at the address app.ts calls, keep it through the tests (`verify`: and their end screens
+and the relaunch), then stop it and remove the file. Your data.db is never touched. A server
 already answering there, your dev server, is refused in one line naming its pid: stop it
-first. `bun exact.mjs api-test web` runs `test` the same way; its `test.mjs` (in
-`app.json`'s `"commands": {"api-test": ["bun", "test.mjs"]}`) is a few lines:
-
-```js
-if (!process.env.EXACT2) throw new Error('run it as bun exact.mjs api-test web');
-const { withAppServer } = await import(`${process.env.EXACT2}/scripts/verify.mjs`);
-process.exit(await withAppServer(import.meta.dir, () =>
-  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));
-```
+first.
 
 - **A second person is a test line** (LLP 1116.006 D8): `request POST "/items" {"title":
   "Bread"} as grace` is the driver calling the server, under app.ts's `API`, with

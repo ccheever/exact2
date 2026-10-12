@@ -210,6 +210,20 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     assert.match(clean.stdout, /^relaunch on .*: the first screen shows what it stored: /m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
     assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
+    // LLP 1116.007 D2: `test` runs the same server on the same terms (it was the builder's to start, and `api-test`'s to know),
+    // and an older app's api-test, whose test.mjs runs `test` under `withAppServer`, still passes on the one server it started.
+    const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+    const tested = plain();
+    assert.equal(tested.status, 0, tested.stdout + tested.stderr);
+    assert.match(tested.stderr, /^test: bun server\.ts at http:\/\/127\.0\.0\.1:8787, on an empty database \(\.exact\/test\/db\.sqlite, removed after\)$/m);
+    assert.match(tested.stdout, /^1 passed, 0 failed$/m);
+    assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'test leaves the builder\'s data.db as it was');
+    writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT2}/scripts/verify.mjs`);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')), commands: { 'api-test': ['bun', 'test.mjs'] } }, null, 2));
+    const old = plain('api-test');
+    assert.equal(old.status, 0, old.stdout + old.stderr);
+    assert.match(old.stdout, /^1 passed, 0 failed$/m);
+    assert.deepEqual(['data.db-wal', '.exact/test/db.sqlite', '.exact/api-test/db.sqlite', '.exact/api-test/owner'].filter((f) => existsSync(resolve(dir, f))), []);
     // Their dev server (started here, so this test may stop it) holds the port: one line naming it, and it runs on.
     const dev = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
     try {
@@ -218,6 +232,10 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
       assert.equal(refused.status, 1, refused.stdout + refused.stderr);
       assert.equal(refused.lines.length, 1, refused.stdout);
       assert.match(refused.lines[0], new RegExp(`^verify: http://127\\.0\\.0\\.1:8787 already answers \\(pid ${dev.pid}: .*server\\.ts\\), and the tests would write into that server's database: stop it \\(kill ${dev.pid}\\) and run this again, which starts server\\.ts itself on an empty one$`));
+      assert.equal(dev.exitCode, null, 'the dev server runs on');
+      const held = plain();
+      assert.equal(held.status, 1, held.stdout + held.stderr);
+      assert.match(held.stderr, new RegExp(`^test: http://127\\.0\\.0\\.1:8787 already answers \\(pid ${dev.pid}: .*server\\.ts\\)`, 'm'));
       assert.equal(dev.exitCode, null, 'the dev server runs on');
     } finally { dev.kill(); await dev.exited; }
   } finally { rmSync(parent, { recursive: true, force: true }); }

@@ -157,7 +157,7 @@ export async function serverRequest(base, st) {
   const headers = { ...(st.body != null ? { 'content-type': 'application/json' } : {}), ...(st.as ? { authorization: `Bearer ${st.as}` } : {}) };
   let res;
   try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
-  catch (e) { throw new Error(`${said}: nothing answered (${e.message}); verify and api-test run the app's server, test uses the one running`); }
+  catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
   const text = (await res.text().catch(() => '')).trim();
   if (!res.ok) throw new Error(`${said}: the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`);
 }
