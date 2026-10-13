@@ -232,10 +232,12 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.ok(!existsSync(resolve(dir, 'app.json')), 'a game\'s manifest stays optional');
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
-    for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs']) {
+    for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
     }
+    mkdirSync(resolve(sdk, 'snapback4/web'), { recursive: true });
+    writeFileSync(resolve(sdk, 'snapback4/web/device-build.mjs'), 'export function devicePreflight() { throw new Error("a manifest-free game has no Snapback device"); }');
     withCli(sdk);
     const real = realpathSync(dir);
     const drive = (command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
@@ -245,6 +247,7 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
       [['web-build'], ['block-hop']],
       [['agent', 'web', 'tree'], ['web', '--app', 'block-hop', 'tree']],
       [['feedback', 'status'], ['status']],
+      [['contract', 'build', 'app.contract'], ['contract', 'build', resolve(real, 'app.contract')]],
     ]) {
       const result = drive(command);
       assert.equal(result.status, 0, result.stderr);

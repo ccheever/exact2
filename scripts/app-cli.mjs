@@ -141,7 +141,7 @@ if (verb === 'contract') {
     const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name, ...sim], [], [0, 2, 2]);
     if (built) return log(built);
   }
-  if (verb === 'contract' && rest[0] === 'build' && existsSync(resolve(exact2, 'snapback4/web/device-build.mjs'))) {
+  if (verb === 'contract' && rest[0] === 'build' && existsSync(manifest) && existsSync(resolve(exact2, 'snapback4/web/device-build.mjs'))) {
     const app = { dir, manifest: JSON.parse(readFileSync(manifest, 'utf8')) };
     const { devicePreflight } = await import(resolve(exact2, 'snapback4/web/device-build.mjs'));
     await devicePreflight(app);
