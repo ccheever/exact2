@@ -110,6 +110,7 @@ function shaped(t, v, path, name) {
     if (t === "u") return v === null ? null : fail();
     return (t === "n" && typeof v === "number") || (t === "b" && typeof v === "boolean") || (t === "s" && typeof v === "string") ? v : fail();
   }
+  if (Array.isArray(t) && t[0] === "e") return v === undefined ? t[1][0] : typeof v === "string" ? v : fail();
   if (t[0] === "?") return v == null ? null : shaped(t[1], v, path, name);
   if (Array.isArray(t)) {
     if (v === undefined) return [];

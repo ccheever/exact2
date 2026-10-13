@@ -419,3 +419,52 @@ fn r13_surface_call_corpus_fixtures_roundtrip() {
         );
     }
 }
+
+#[test]
+fn finite_surface_defaults_include_nested_omitted_fields() {
+    let source = r#"shape Nested
+  one: enum<"a|b","n🥳">
+  maybe: option<enum<"a|b","n🥳">>
+  many: list<enum<"a|b","n🥳">>
+shape State
+  state: enum<"a|b","n🥳">
+  nested: Nested
+component App
+  resource hud = exactSurface("world") as shape State
+  view
+    canvas surface=world()
+      text hud.state
+"#;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let default = Value::record(vec![
+        Value::str("a|b"),
+        Value::record(vec![
+            Value::str("a|b"),
+            Value::Option(None),
+            Value::list(vec![]),
+        ]),
+    ]);
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.resource("hud"), Some(&default));
+    for json in ["{}", r#"{"nested":{}}"#] {
+        runner.set_surface_record("world", Some(json)).unwrap();
+        assert_eq!(runner.resource("hud"), Some(&default));
+    }
+    runner
+        .set_surface_record("world", Some(r#"{"state":"n🥳"}"#))
+        .unwrap();
+    let Value::Record(fields) = runner.resource("hud").unwrap() else {
+        panic!("record")
+    };
+    assert_eq!(fields[0], Value::str("n🥳"));
+    assert!(runner
+        .set_surface_record("world", Some(r#"{"state":"invalid"}"#))
+        .is_err());
+}

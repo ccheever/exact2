@@ -397,3 +397,65 @@ fn finite_strings_keep_member_bytes_when_a_hidden_capture_allows_nonfinite_numbe
     assert!(hidden.contains("pending"));
     assert!(hidden.contains("n🥳"));
 }
+
+#[test]
+fn wire_types_erase_finite_strings_but_surface_defaults_preserve_members() {
+    let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+    let words = b.string_enum(&["a|b".into(), "n🥳".into()]);
+    let maybe = b.option(words);
+    let list = b.list(words);
+    let nested = b.record(
+        "Nested",
+        &[("one", words), ("maybe", maybe), ("many", list)],
+    );
+    let record = b.record("State", &[("state", words), ("nested", nested)]);
+    let plan = b.finish().unwrap();
+    assert_eq!(crate::emit::type_code_wire(&plan, record), "{s{s?s[s}}");
+    let ordinary = crate::emit::type_code_numeric(&plan, record, false);
+    assert!(ordinary.contains("a|b"));
+    assert!(ordinary.contains('e'));
+    let defaults: serde_json::Value =
+        serde_json::from_str(&crate::emit::surface_type_json(&plan, record)).unwrap();
+    assert_eq!(defaults["state"], serde_json::json!(["e", ["a|b", "n🥳"]]));
+    assert_eq!(defaults["nested"]["one"], defaults["state"]);
+}
+
+#[test]
+fn virtual_surface_finite_defaults_run_unpublished_omitted_and_nested() {
+    let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+    let words = b.string_enum(&["a|b".into(), "n🥳".into()]);
+    let maybe = b.option(words);
+    let list = b.list(words);
+    let nested = b.record(
+        "Nested",
+        &[("one", words), ("maybe", maybe), ("many", list)],
+    );
+    let record = b.record("State", &[("state", words), ("nested", nested)]);
+    let plan = b.finish().unwrap();
+    let descriptor = crate::emit::surface_type_json(&plan, record);
+    let script = format!(
+        r#"
+const src = await Bun.file(process.argv[1]).text();
+const data = {{}}, Resources = [], commit = f => {{ f(); return true; }}, R = () => {{}}, Refusal = Error;
+const surfaces = new Function('data','Resources','commit','R','Refusal',src.replace(/^import .*;$/gm,'').replace(/^export /gm,'') + ';return surfaces;')(data,Resources,commit,R,Refusal);
+surfaces({{hud:['world',{descriptor}]}});
+const read = () => data.reserved.exactSurface(null, [], 'hud');
+const expected = ['a|b', ['a|b', null, []]];
+function equal(a,b) {{ if(JSON.stringify(a)!==JSON.stringify(b)) throw Error(JSON.stringify(a)); }}
+equal(read(), expected);
+for (const json of ['{{}}','{{"nested":{{}}}}']) {{ exact.surfaceRecord('world',json); equal(read(),expected); }}
+exact.surfaceRecord('world','{{"state":"n🥳"}}'); equal(read(),['n🥳',expected[1]]);
+exact.surfaceRecord('world',null); equal(read(),expected);
+"#
+    );
+    let out = std::process::Command::new("bun")
+        .args(["--eval", &script])
+        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("facts.js"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
