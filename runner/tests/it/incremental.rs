@@ -295,6 +295,7 @@ fn feedback(r: &Runner<Fake>, rng: &mut Rng) -> Option<CollectionFeedback> {
         port_cross: 320.0,
         port_main: *rng.pick(&[120.0, 400.0]),
         cross: *rng.pick(&[320.0, 320.0, 640.0]),
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()
@@ -354,6 +355,7 @@ fn reorder(full: &mut Runner<Fake>, incremental: &mut Runner<Fake>, y: f64) -> (
                 port_cross: 320.0,
                 port_main: 400.0,
                 cross: 320.0,
+                padding: [0.0; 2],
                 measurements: c
                     .rows
                     .iter()

@@ -490,3 +490,47 @@ fn an_unauthored_move_snaps_an_idle_box_and_retargets_a_moving_one() {
     assert!(engine.is_active(node, Property::Layout), "still moving");
     assert_eq!(engine.target(node, Property::Layout), k.layout_box(key));
 }
+
+#[test]
+fn continuation_keeps_creation_identity_and_detached_exit_parents() {
+    let mut k = kernel();
+    let parent = k.node(1).unwrap().key;
+    let departing = k.node(2).unwrap().key;
+    k.begin_document_commit(
+        0,
+        2,
+        &[
+            view(5),
+            Op::SetStyle {
+                id: 5,
+                patch: exit("fade 200ms"),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![4, 5],
+            },
+        ],
+        None,
+    )
+    .unwrap();
+    let ephemeral = k.node(5).unwrap().key;
+    k.continue_document_commit(&[Op::DestroyView { id: 2 }, Op::DestroyView { id: 5 }])
+        .unwrap();
+    let r = k.finish_document_commit().unwrap();
+    assert!(r.created.is_empty());
+    assert!(r.destroyed.contains(&ephemeral));
+    assert_eq!(r.exits.len(), 1);
+    assert_eq!((r.exits[0].key, r.exits[0].parent), (departing, parent));
+    assert_eq!(r.touched, vec![parent]);
+
+    // An exit parent retired in a later phase suppresses that exit, including
+    // when the retired slot has been reused by a fresh allocation.
+    let mut k = kernel();
+    k.begin_document_commit(0, 2, &[Op::DestroyView { id: 3 }], None)
+        .unwrap();
+    k.continue_document_commit(&[Op::DestroyView { id: 2 }, view(6)])
+        .unwrap();
+    let r = k.finish_document_commit().unwrap();
+    assert_eq!(r.exits.len(), 1);
+    assert_eq!(r.exits[0].parent, k.node(1).unwrap().key);
+}

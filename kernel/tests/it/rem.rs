@@ -238,3 +238,44 @@ fn an_unusable_root_size_is_refused_and_kept_across_a_reset() {
         Dimension::Points(40.0)
     );
 }
+
+#[test]
+fn continuation_resolves_inherited_em_before_the_next_phase() {
+    let mut kernel = tree();
+    let epoch = kernel.epoch();
+    kernel
+        .begin_document_commit(
+            0,
+            2,
+            &[
+                Op::SetStyle {
+                    id: 1,
+                    patch: style(&[(StyleId::FontSize, "30px")]),
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: style(&[(StyleId::ScrollPaddingTop, "2em")]),
+                },
+            ],
+            None,
+        )
+        .unwrap();
+    assert_eq!(font(&kernel, 3), 60.0);
+    assert_eq!(
+        kernel.node(3).unwrap().style.rare.scroll_padding_top,
+        Dimension::Points(120.0)
+    );
+    kernel
+        .continue_document_commit(&[Op::SetStyle {
+            id: 1,
+            patch: style(&[(StyleId::FontSize, "40px")]),
+        }])
+        .unwrap();
+    assert_eq!(font(&kernel, 3), 80.0);
+    assert_eq!(
+        kernel.node(3).unwrap().style.rare.scroll_padding_top,
+        Dimension::Points(160.0)
+    );
+    assert_eq!(kernel.epoch(), epoch);
+    assert_eq!(kernel.finish_document_commit().unwrap().epoch, epoch + 1);
+}

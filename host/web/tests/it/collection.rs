@@ -66,6 +66,7 @@ fn facts(snapshot: &CollectionSnapshot) -> CollectionFeedback {
         port_cross: 320.0,
         port_main: 180.0,
         cross: 305.0,
+        padding: [0.0; 2],
         focus_view: None,
         interaction_view: None,
         measurements: snapshot

@@ -275,6 +275,7 @@ pub struct Kernel {
     incarnation: u64,
     provisional_layouts: u64,
     receipts: VecDeque<RetainedReceipt>,
+    document_commit: Option<Box<txn::DocumentCommit>>,
     region: Option<crate::region::RegionState>,
     region_leases: crate::region::RegionLeases,
     /// A kernel with layout on demand builds the engine only when a layout
@@ -344,6 +345,7 @@ impl Kernel {
             incarnation: 1,
             provisional_layouts: 0,
             receipts: VecDeque::new(),
+            document_commit: None,
             region: None,
             region_leases: Default::default(),
             on_demand: true,
@@ -967,6 +969,7 @@ impl Kernel {
 
     /// Destroy every node and bump the incarnation. Keys minted before never resolve again.
     pub fn reset(&mut self) {
+        self.document_commit = None;
         self.region = None;
         self.arena.reset();
         self.layout =
@@ -998,6 +1001,7 @@ impl Kernel {
             incarnation: self.incarnation,
             provisional_layouts: self.provisional_layouts,
             receipts: VecDeque::new(),
+            document_commit: None,
             region: None,
             region_leases: Default::default(),
             on_demand: self.on_demand,

@@ -46,6 +46,7 @@ fn fixture() -> (Host<Rows>, ReorderBinding) {
             port_cross: 320.,
             port_main: 100.,
             cross: 320.,
+            padding: [0.0; 2],
             focus_view: None,
             interaction_view: Some(h.runner.kernel().node_by_key(handle).unwrap().id),
             measurements: c
@@ -230,6 +231,7 @@ fn refused_missing_source_pin_does_not_advance_clock_or_take_property() {
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -392,6 +394,7 @@ fn remeasure(h: &mut Host<Rows>, b: ReorderBinding, source: f64) {
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         focus_view: None,
         interaction_view: Some(h.runner.kernel().node_by_key(b.handle).unwrap().id),
         measurements: c
@@ -499,6 +502,7 @@ fn op_21_moves_the_gap_into_another_grouped_list_and_drops_there() {
                 port_cross: 100.,
                 port_main: 100.,
                 cross: 100.,
+                padding: [0.0; 2],
                 focus_view: None,
                 interaction_view: c.rows.iter().any(|r| r.root == pin).then_some(pin),
                 measurements: c
@@ -630,6 +634,7 @@ fn refused_group_drop_publishes_timer_receipts() {
                 port_cross: 100.,
                 port_main: 100.,
                 cross: 100.,
+                padding: [0.; 2],
                 focus_view: None,
                 interaction_view: c.rows.iter().any(|r| r.root == pin).then_some(pin),
                 measurements: c
@@ -737,6 +742,7 @@ fn a_first_measurement_at_the_estimate_publishes_the_grip_binding() {
             port_cross: 320.,
             port_main: 100.,
             cross: 320.,
+            padding: [0.0; 2],
             focus_view: None,
             interaction_view: None,
             measurements: if measured {

@@ -19,12 +19,12 @@ package struct CollectionFacts: Equatable {
     var measurements: [CollectionMeasurement]
     var focus: UInt32?
     var interaction: UInt32?
-    /// The main-axis padding before the rows and after them: not on the
-    /// wire (the runner reads it from its kernel), but a change of it alone
-    /// is still news to the runner (LLP 1010 §6.9).
-    var padding: [Double] = []
+    /// The main-axis padding before the rows and after them, as laid out:
+    /// the room `offset` counts past (LLP 1010 §6.9).
+    var paddingStart = 0.0
+    var paddingEnd = 0.0
 
-    /// Wire version 3: `velocity` (points/s, positive toward the end),
+    /// Wire version 4: `velocity` (points/s, positive toward the end),
     /// `limit`, the rows past what it owes this report may build (nil: any),
     /// and whether an enclosing list is moving (LLP 1070 F2).
     /// `createOnly` and `noBuild` split a moving list's report around the
@@ -35,8 +35,8 @@ package struct CollectionFacts: Equatable {
             var le = value.littleEndian
             withUnsafeBytes(of: &le) { bytes.append(contentsOf: $0) }
         }
-        integer(UInt32(3)); integer(view); integer(revision); integer(sequence)
-        for value in [offset, portMain, portCross, cross] { integer(value.bitPattern) }
+        integer(UInt32(4)); integer(view); integer(revision); integer(sequence)
+        for value in [offset, portMain, portCross, cross, paddingStart, paddingEnd] { integer(value.bitPattern) }
         integer(focus ?? 0); integer(interaction ?? 0)
         integer((velocity.isFinite ? velocity : 0).bitPattern); integer(limit.map { Swift.min($0, UInt32.max - 1) } ?? UInt32.max)
         integer(UInt32(ancestorMoving ? 1 : 0) | UInt32(createOnly ? 2 : 0) | UInt32(noBuild ? 4 : 0))

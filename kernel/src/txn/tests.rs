@@ -474,3 +474,200 @@ fn trees_past_the_depth_bound_are_refused_whole() {
             .unwrap();
     }
 }
+
+#[test]
+fn continuation_rejects_misuse_and_never_publishes_a_failed_commit() {
+    use crate::{ApplyError, KernelError};
+    let mut k = kernel(&create([1], NodeType::View));
+    let (epoch, history) = (k.epoch(), k.receipts().count());
+    assert!(matches!(
+        k.continue_document_commit(&[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.finish_document_commit(),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    let invalid = [tall(1, 20.0), Op::DestroyView { id: 99 }];
+    assert!(matches!(
+        k.begin_document_commit(0, 2, &invalid, None),
+        Err(KernelError::Apply(_))
+    ));
+    assert_eq!(k.node(1).unwrap().style.height, crate::Dimension::Auto);
+    // Rejected initial validation did not reserve a continuation.
+    k.begin_document_commit(0, 2, &[tall(1, 30.0)], None)
+        .unwrap();
+    assert!(matches!(
+        k.begin_document_commit(0, 3, &[], None),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.apply(0, 3, &[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.apply_document(0, 3, &[], None),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.continue_document_commit(&invalid),
+        Err(KernelError::Apply(ApplyError::UnknownView { .. }))
+    ));
+    assert_eq!(
+        k.node(1).unwrap().style.height,
+        crate::Dimension::Points(30.0)
+    );
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, history));
+    assert!(matches!(
+        k.finish_document_commit(),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.continue_document_commit(&[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert!(matches!(
+        k.apply(0, 3, &[]),
+        Err(KernelError::DocumentCommit(_))
+    ));
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, history));
+    k.reset();
+    k.apply(0, 3, &create([1], NodeType::View)).unwrap();
+}
+
+#[test]
+fn continuation_preserves_detached_and_unchanged_commit_behavior() {
+    let mut detached = Kernel::detached();
+    let invalid = [Op::DestroyView { id: 99 }];
+    let expected = detached.apply_document(7, 2, &invalid, None).unwrap();
+    detached
+        .begin_document_commit(7, 2, &invalid, None)
+        .unwrap();
+    detached.continue_document_commit(&invalid).unwrap();
+    assert!(detached.apply(0, 3, &[]).is_err());
+    assert_eq!(detached.finish_document_commit().unwrap(), expected);
+    assert_eq!(detached.live_count(), 0);
+    assert_eq!(detached.receipts().count(), 0);
+
+    let mut k = kernel(&create([1], NodeType::View));
+    let (epoch, history) = (k.epoch(), k.receipts().count());
+    k.begin_document_commit(7, 2, &[], None).unwrap();
+    k.continue_document_commit(&[]).unwrap();
+    let receipt = k.finish_document_commit().unwrap();
+    assert_eq!(
+        receipt,
+        crate::CommitReceipt {
+            batch: 2,
+            root_id: 7,
+            epoch,
+            ..Default::default()
+        }
+    );
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, history + 1));
+}
+
+#[test]
+fn continuation_filters_and_deduplicates_final_live_display_keys() {
+    let display = |id, value: &str| {
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(StyleId::Display, &StyleValue::Text(value.into()))
+            .unwrap();
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let mut k = kernel(&create([1, 2], NodeType::View));
+    let old = k.node(2).unwrap().key;
+    k.begin_document_commit(0, 2, &[display(1, "none"), display(2, "none")], None)
+        .unwrap();
+    k.continue_document_commit(&[display(1, "flex"), Op::DestroyView { id: 2 }])
+        .unwrap();
+    k.continue_document_commit(&create([2], NodeType::View))
+        .unwrap();
+    k.continue_document_commit(&[display(2, "none")]).unwrap();
+    let fresh = k.node(2).unwrap().key;
+    assert_ne!(old, fresh);
+    let receipt = k.finish_document_commit().unwrap();
+    assert_eq!(receipt.display_changed, vec![k.node(1).unwrap().key, fresh]);
+    assert_eq!(receipt.created, vec![fresh]);
+    assert_eq!(receipt.destroyed, vec![old]);
+    assert_eq!(receipt.touched, vec![k.node(1).unwrap().key]);
+}
+
+#[test]
+fn continuation_resynchronizes_text_created_in_an_earlier_phase() {
+    for on_demand in [false, true] {
+        for promote in [true, false] {
+            let mut k = if on_demand {
+                Kernel::with_monospace_on_demand()
+            } else {
+                Kernel::with_monospace()
+            };
+            let mut initial = create([1], NodeType::View);
+            initial.extend(create([2], NodeType::Text));
+            initial.extend([children(1, &[2]), Op::AttachRoot { id: 1 }]);
+            k.apply(0, 1, &initial).unwrap();
+            let mut height = StyleProps::default();
+            height
+                .set_dynamic(StyleId::Height, &StyleValue::Text("2em".into()))
+                .unwrap();
+            let mut first = create([3], NodeType::Text);
+            first.extend([
+                Op::SetStyle {
+                    id: 3,
+                    patch: Box::new(height),
+                },
+                prop(3, PropId::Text, "alpha"),
+            ]);
+            first.push(if promote {
+                children(2, &[3])
+            } else {
+                children(1, &[2, 3])
+            });
+            k.begin_document_commit(0, 2, &first, None).unwrap();
+            // Move directly: the source parent's children are pruned by the op.
+            // Lifecycle creation identity persists, but text ownership must sync
+            // again when a later phase promotes or demotes this same allocation.
+            let mut font = StyleProps::default();
+            font.set_dynamic(StyleId::FontSize, &StyleValue::Number(20.0))
+                .unwrap();
+            k.continue_document_commit(&[
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(font),
+                },
+                if promote {
+                    children(1, &[2, 3])
+                } else {
+                    children(2, &[3])
+                },
+            ])
+            .unwrap();
+            let receipt = k.finish_document_commit().unwrap();
+            let key = k.node(3).unwrap().key;
+            assert_eq!(receipt.created, vec![key]);
+            assert_eq!(k.receipts().last(), Some(receipt));
+            k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+            let slot = k.arena().slot_of(3).unwrap();
+            assert_eq!(
+                k.arena().taffy(slot).is_some(),
+                promote,
+                "on_demand={on_demand}, promote={promote}: final text ownership"
+            );
+            let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+            rebuilt
+                .compute_layout(1, Offer::definite(400.0, 800.0))
+                .unwrap();
+            assert_eq!(k.node(3).unwrap().frame, rebuilt.node(3).unwrap().frame);
+            assert_eq!(
+                k.node(3).unwrap().style.height,
+                crate::Dimension::Points(40.0)
+            );
+            if promote {
+                assert_eq!(k.node(3).unwrap().frame.height, 40.0);
+            }
+        }
+    }
+}
