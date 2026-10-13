@@ -389,16 +389,16 @@ Linux host exercises simulation, input, Contract UI, CPU picks and saves.
 
 Proof receipts bind the completed build's inputs. Editing authored inputs during
 a build rejects the proof and removes its receipt. Directory tracking includes
-shared sources and empty source directories, so creating and removing a source
+the app root, shared sources and every admitted source subtree, including empty
+directories, so creating and removing a source
 during compilation also rejects the proof. Changes to entries in a tracked
 directory require a rerun, even when the changed entry is excluded from inputs.
 Asset directory entry changes also require a rerun, including generated file
 creation, pruning and atomic replacement. The baker uses atomic replacement for
-changed assets. Rerun after
-the tree settles; the proof rebuilds before caching the result. In-place rewrites
-of manifest-owned generated files can complete in the same invocation. If
-`assets/` is absent, changes to its parent directory conservatively require a
-rerun too, so a temporary asset tree cannot go unnoticed.
+changed assets. Rerun after the tree settles; the proof rebuilds before caching
+the result. In-place rewrites of manifest-owned generated files can complete in
+the same invocation. The app root is tracked whether or not `assets/` exists,
+so temporary files and source trees there cannot go unnoticed.
 
 ### Compare captured world state
 

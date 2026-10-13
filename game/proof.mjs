@@ -189,8 +189,8 @@ export function artifactDigest(host, dist, artifacts) {
 }
 // Shared by the proof and its artifact lifecycle regression: mode is baked only on web.
 export function buildInputHash(host, target, mode = '0', profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev') {
-  // Receipts made before shared directory checks may describe stale artifacts.
-  const hash = createHash('sha256').update('exact game proof receipt v3\0').update(host).update(target);
+  // Receipts made before complete directory checks may describe stale artifacts.
+  const hash = createHash('sha256').update('exact game proof receipt v4\0').update(host).update(target);
   if (host === 'web') hash.update(mode);
   if (host === 'linux' || host === 'windows') hash.update(profile);
   return hash;
@@ -395,15 +395,19 @@ export function proofInputs(root, app, cachePath) {
     ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
   const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
   // File stats miss sources created, consumed and removed between scans. Walk
-  // shared source directories too, including empty ones, to retain those edits.
-  const sourceDirectories = (dir, state) => {
-    // The app's authored and generated trees are scanned separately below.
-    if (!existsSync(dir) || dir === resolve(app)) return;
+  // shared and app source directories, including empty ones, to retain edits.
+  const directories = new Set();
+  const sourceDirectories = dir => {
+    if (!existsSync(dir) || directories.has(dir)) return;
     const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
     if (proofInputExcluded(file + 'input.rs', basename(app), prefix)) return;
+    directories.add(dir);
+    // The app root also contains the generated manifest. All its entry changes
+    // require a rerun, as do entry changes inside the generated asset tree.
+    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
     state.push([file, statKey(dir)]);
     for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
-      if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name), state);
+      if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
   };
   for(const file of files) {
     const path=resolve(root,file), key=statKey(path); let digest=blobs.get(file);
@@ -430,14 +434,10 @@ export function proofInputs(root, app, cachePath) {
   }
   if(cachePath) {mkdirSync(resolve(cachePath,'..'),{recursive:true});writeFileSync(cachePath,JSON.stringify(next));}
   // Snapshot after writing our cache so its first creation is not a build edit.
-  sourceDirectories(resolve(root), authoredState);
-  for (const dir of ['logic', 'data', 'gpu', 'render', 'art', 'deck']) sourceDirectories(resolve(app, dir), authoredState);
-  // Generated writes can hide transient authored entries in the same directory.
-  // Refuse every directory mutation; a fresh proof can use the completed tree.
-  const assets = resolve(app, 'assets');
-  if (existsSync(assets)) sourceDirectories(assets, assetState);
-  // Without assets/, its parent records a tree created and removed during build.
-  else assetState.push([prefix + 'assets/', 'missing', statKey(app)]);
+  sourceDirectories(resolve(root));
+  // The repository walk excludes other apps at their shared parent, and an
+  // external app may be outside root. Always scan this app's whole input tree.
+  sourceDirectories(resolve(app));
   return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
 }
 // One reader per proof. Directory changes require a rerun, even for baked assets.
@@ -449,7 +449,7 @@ export function proofInputReader(root, app, cachePath) {
     if (previous && previous.authoredState !== inputs.authoredState)
       throw new Error('authored proof inputs changed during build; rerun the proof');
     if (previous && previous.assetState !== inputs.assetState)
-      throw new Error('asset directories changed during build; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)');
+      throw new Error('app or asset directories changed during build; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)');
     previous = inputs;
     return inputs;
   };
