@@ -325,7 +325,8 @@ final class AccessibilityTests: XCTestCase {
     /// `Link` do. A `link` node's `AXURL` is its `href`. A paragraph's `href`
     /// run is one element from one ask to the next, and a hit test returns
     /// it (one made per ask is invalid to another process, VoiceOver's);
-    /// new runs make a new one. Pressing either opens its URL.
+    /// new runs make a new one. Pressing either opens its URL, the run's
+    /// once AppKit's request has returned (`testAnInlineRunsPressRunsOnceTheRequestReturns`).
     func testALinkCarriesItsURLAndAnInlineLinkIsOneElementWhileItsRunsLast() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "link-url")
@@ -367,12 +368,44 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(paragraph.accessibilityHitTest(NSPoint(x: frame.midX, y: frame.midY)) as AnyObject === run, "a hit test over the run returns it")
         XCTAssertTrue(link.accessibilityPerformPress())
         XCTAssertTrue(run.accessibilityPerformPress())
+        XCTAssertEqual(opened.urls, ["https://example.com/link-node"], "the run's URL opens after the request")
+        spin { opened.urls.count == 2 }
         XCTAssertEqual(opened.urls, ["https://example.com/link-node", "https://example.com/inline-run"])
         p.apply(wireBatch([runs("https://example.com/moved")]))
         let moved = try XCTUnwrap(paragraph.accessibilityChildren()?.first as? NSAccessibilityElement)
         XCTAssertFalse(moved === run, "new runs, a new element")
         XCTAssertEqual(moved.accessibilityURL(), URL(string: "https://example.com/moved"))
         XCTAssertTrue(paragraph.accessibilityChildren()?.first as AnyObject === moved)
+    }
+    /// An assistive app's press on an inline run (VoiceOver's VO-Space,
+    /// Switch Control: AppKit's AXPress request) runs the run's `press` once
+    /// the request has returned, and once. AppKit answers the request with
+    /// the first accessibility error recorded while it is open, and the
+    /// update a press makes records one: run inside it, a press that landed
+    /// answered kAXErrorAttributeUnsupported. A run with neither a `press`
+    /// nor an `href` has nothing to do.
+    func testAnInlineRunsPressRunsOnceTheRequestReturns() throws {
+        let (p, w, _, _) = fixture()
+        let paragraph = NodeView(id: 80, kind: "text", presenter: p)
+        paragraph.frame = NSRect(x: 0, y: 60, width: 300, height: 20)
+        p.root.addSubview(paragraph); p.views[paragraph.id] = paragraph
+        func run(_ id: Int, _ props: [String: String], _ handlers: [String] = []) -> [String: Any] {
+            ["id": id, "parent": 80, "paint": true, "props": props, "style": ["font_size": 16.0], "handlers": handlers]
+        }
+        p.apply(wireBatch([["op": "paragraph", "id": 80, "runs": [run(81, ["text": "Press "]), run(82, ["text": "here"], ["press"]),
+                                                                  run(83, ["text": " or "]), run(84, ["text": "this", "accessibilityLabel": "This"])]]]))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let runs = paragraph.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement } ?? []
+        XCTAssertEqual(runs.map { $0.accessibilityLabel() }, ["here", "This"])
+        XCTAssertFalse(runs[1].accessibilityPerformPress(), "nothing to do")
+        XCTAssertTrue(runs[0].accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        spin { drained }
+        XCTAssertEqual(pressed, [82])
+        withExtendedLifetime(w) {}
     }
     /// X78 with #278: a status paragraph's words and link are kept from one
     /// ask to the next like any paragraph's runs, and made again when its
