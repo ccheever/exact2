@@ -238,8 +238,9 @@ final class GesturePrecedenceMacTests: XCTestCase {
 
     /// The T3 Code clone's crash on a click on Settings while a panel held
     /// the pointer (realinput-1011c R11-X79, R11-X51): a batch between the
-    /// down and the up replaces the button's panel, and the up comes to the
-    /// new button under the pointer.
+    /// down and the up replaces the button's panel. AppKit sends that up to
+    /// no view, the one pressed having left the window, so the hold lasts,
+    /// and the next click, on the new button, ends it at its up.
     func testAPanelReplacedUnderAClickTakesThePressedViewWithIt() throws {
         var p: Presenter!
         weak var panel: NodeView?
@@ -276,10 +277,14 @@ final class GesturePrecedenceMacTests: XCTestCase {
             ]))
         }
         XCTAssertNil(panel, "the panel is freed")
+        // No up for that click: AppKit sent it to no view. The next click
+        // is on the new button.
         let again = try XCTUnwrap(p.views[6])
+        again.mouseDown(with: event(.leftMouseDown, again))
         again.mouseUp(with: event(.leftMouseUp, again))
         XCTAssertNil(settings.superview, "the pressed view left with its panel")
-        XCTAssertEqual(log, ["down 1", "up 1"], "the new button was not pressed")
+        // The hold the first up missed ends at this up, as before.
+        XCTAssertEqual(log, ["down 1", "up 1", "press 6"])
         XCTAssertNil(p.pointerHeld)
         XCTAssertNil(p.pointerSource)
     }

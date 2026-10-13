@@ -95,8 +95,10 @@ component Holdcrash
 `bun exact.mjs agent macos --size 420x260 "tap settings down" "tap up" "tap settings-b down" "tap up"`. AppKit sends
 the first up to no view, because the view pressed has left the window, so the hold stays. The second click's up then
 ends with "the app exited (killed by SIGSEGV)", with the faulting thread above (`Holdcrash-2026-10-13-210322.ips`).
-`GesturePrecedenceMacTests.testARowFreedUnderAHoldTakesThePressedViewWithIt` and
-`testAPanelReplacedUnderAClickTakesThePressedViewWithIt` crash in the same frames (xctest exit 139).
+Two AppKit XCTests crash at the second click's up in the same frames (xctest exit 139).
+`GesturePrecedenceMacTests.testARowFreedUnderAHoldTakesThePressedViewWithIt` has a menu take the right-click's up.
+`testAPanelReplacedUnderAClickTakesThePressedViewWithIt` takes the steps above: the first click has no up, and the
+second click is a down and an up on the new button.
 
 ## Current scope
 
