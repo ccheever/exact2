@@ -68,13 +68,14 @@ component Hiddenlist
 ```
 
 Drive: `"type summary-reviewers key Meta+a" "type summary-reviewers key Meta+c" "screenshot <png> window"`, then
-`pbpaste` (and the same after `"tap tab-timeline"` on `timeline-opened`; on `commit-1` in the list app).
+`pbpaste` (and the same after `"tap tab-timeline"` on `timeline-opened`; on `commit-1` in the list app). On main
+after LLP 1116.015 D1 the list repeats with `for`, not `each`.
 
 | Scenario | Platform | Revision | Actual | Expected (Chrome 155, ⌘A ⌘C on the web build) |
 |---|---|---|---|---|
 | Summary shown, ⌘A ⌘C | macOS 26.6.2 (25G83), Apple Silicon | `beaee003d` | the hidden Timeline's five texts are highlighted over the Summary (their fill hides its glyphs) and copied after it: 8 paragraphs | the Summary's 3 paragraphs |
 | Timeline shown, ⌘A ⌘C | macOS | `beaee003d` | boxes where the hidden Summary's texts lie; the copy holds all 8 paragraphs | the Timeline's 5 paragraphs |
-| Virtualized list, ⌘A ⌘C | macOS | `beaee003d` | each mounted row's hidden card is a highlighted box; the copy holds all 30 `Hover card n` (18 rows unmounted) | the 30 commits only |
+| Virtualized list, ⌘A ⌘C | macOS | `beaee003d` | each mounted row's hidden card is a highlighted box; the copy holds all 30 `Hover card n` (18 rows unmounted) | the commits only, no card. Chrome copies the 25 rows in its DOM; the runner's copy on macOS covers all 30 (X81) |
 
 Chrome on the same cases as a static page (`visibility: visible` inside a hidden box, an `inert` box, a
 `display: none` box, a hidden paragraph): it copies the shown text and the visible descendant only.
