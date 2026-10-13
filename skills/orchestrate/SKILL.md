@@ -24,13 +24,12 @@ unsafe or would waste the work if wrong.
 
 | Work | Model |
 |---|---|
-| Implementation | codex `gpt-6.1-sol` — high / xhigh / ultra per task |
+| Implementation | codex `gpt-6.1-sol` high / xhigh / ultra |
 | Code review | **both** `grok-4.7` **and** codex `gpt-6.1-sol` xhigh |
 | Everything else | your call |
 
-Run codex as `codex exec --skip-git-repo-check --ephemeral -m gpt-6.1-sol -c
-model_reasoning_effort="xhigh" -o <out>.md` with the prompt on stdin (add `-s read-only`
-for reviews), and check the run log's `model:` and `reasoning effort:` lines.
+Codex: `codex exec -m gpt-6.1-sol -c model_reasoning_effort=<effort>`, prompt on stdin;
+`-s read-only` for reviews.
 
 Reviews are **mutually blind**: two families, neither shown the other's findings, both on
 the same revision. Agreement across families is signal; a finding only one family raises
