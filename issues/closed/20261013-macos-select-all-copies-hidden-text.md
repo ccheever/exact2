@@ -1,6 +1,7 @@
 # [Bug] macOS: ⌘A highlights and ⌘C copies visibility:hidden text
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #525
 **Systems:** host/apple macOS, text selection, runner
 **Severity:** P2
 **Author:** Daehyeon Mun
