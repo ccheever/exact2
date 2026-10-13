@@ -1840,3 +1840,14 @@ lifetime. The JS target passes the two-field record to the action; wasm sends
 host kind 44 (`0|1,ratio`) through the runner's typed event. No adapter is loaded
 before first paint. Native observation is outside this first slice and remains
 an explicit deviation in LLP 1001 and the open filesystem issue.
+
+### Owned socket sends (2026-10-13)
+
+The TypeScript stream adapter implements LLP 1016.000 D7: the mapper keeps
+its resource's socket handle, mutations stage sends until their commit
+stands, and protocol frames reach the mapper in order without coalescing.
+This is a declared difference from the wasm oracle, which remains
+receive-only. `host/web-js/socket.test.mjs` builds and drives the JS app in
+Chrome against a local echo peer; `host/web/socket.test.mjs` holds the
+transport bounds deterministically. Rust and native adapters remain work
+in the open bidirectional-stream issue.

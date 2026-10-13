@@ -813,6 +813,17 @@ own mutation; to repeat, use a task (see "Repeating while a condition holds").
 Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
+A bidirectional WebSocket uses a resource's TypeScript
+`fetch(url, { exactStream(event, socket) { … } })` (LLP 1016.000 D7).
+Keep the handle in module state by resource identity; after its `open` event,
+a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
+reason)`. The mapper only reads frames and returns snapshots. Sends run after
+the mutation's commit stands, in order, and have bounded admission. The
+source must send and answer synchronously. Refreshing or removing the
+resource invalidates the old handle. **Currently web JS target TypeScript
+only**; the wasm target and native hosts remain receive-only. See
+[the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
+
 ### Optimistic writes: the overlay
 
 To show a write before its reply, the mutation declares `refreshes` and the data
