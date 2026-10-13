@@ -81,7 +81,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             updateLayoutPan()
             updateMaterial()
             updateRefresh()
-            if handlers.contains("scroll") { needScroll() }
+            if handlers.contains("scroll") || handlers.contains("scrollend") { needScroll() }
             #if !os(tvOS)
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
@@ -655,9 +655,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// settle there when it ends, as a browser's scroll anchoring does.
     package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         guard scrollView === self.scrollView else { return }
-        if !decelerate { followEndIfOwed() }
+        // A follow of the end that animates ends with its animation.
+        if !decelerate, !followEndIfOwed() { endScroll() }
     }
-    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView { followEndIfOwed() } }
+    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
     package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView else { return }
         followingEndAnimated = false
@@ -665,13 +666,17 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // a UIKit animation's end is not its end.
         if let c = presenter?.collections, c.offsetDrivers[id] != nil || c.startOwed.contains(id) { return }
         presenter?.collections.animationEnded(id, atTarget: endedAtTarget(scrollView))
+        scrollMayHaveEnded(scrollView)
     }
-    private func followEndIfOwed() {
-        guard followsEndAfterInteraction, let sv = scrollView else { return }
+    /// Whether it started an animation.
+    @discardableResult private func followEndIfOwed() -> Bool {
+        guard followsEndAfterInteraction, let sv = scrollView else { return false }
         followsEndAfterInteraction = false
         let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
-        if sv.contentOffset.y >= maximum - 80 { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true) }
         anchoredScrollTop = maximum
+        guard sv.contentOffset.y >= maximum - 80, abs(sv.contentOffset.y - maximum) > 0.5 else { return false }
+        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true)
+        return true
     }
 
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -697,6 +702,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
         repaintThrough()
+        scrollEndMoved(scrollView)
         // User scrolling is already a coherent position. Deliver before the
         // frame paints so authored scroll-linked geometry cannot lag a frame.
         // Layout-generated offsets still coalesce after the batch completes.
@@ -705,7 +711,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             sendScrollEvent()
         } else { queueScrollEvent() }
     }
-    private func sendScrollEvent() {
+    func sendScrollEvent() {
         guard handlers.contains("scroll"), let sv = scrollView,
               presenter?.views[id] === self, hasScrollLayoutBox else { return }
         let point = sv.contentOffset, top = scrollTopInset(sv)
@@ -1252,7 +1258,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// recognizers, and its registration with the window.
     var swipeOwner = false { didSet { if oldValue && !swipeOwner { syncScroll() } } }
     private(set) var scrollNeeded = false
-    var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") }
+    var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") && !handlers.contains("scrollend") }
     /// The node's overflow scrolls, and its scroll view is still waiting.
     var scrollDormant: Bool {
         !groupedOwner && scrollView == nil && (["scroll", "auto"].contains(style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(style["overflow_y"]?.string ?? ""))

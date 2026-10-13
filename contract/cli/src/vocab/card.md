@@ -55,7 +55,7 @@ select | value disabled | change
 option | value
 progress | value max
 list | listStyle appearance virtualized refreshing scroll-start | reachstart reachend refresh
-scroll | scrollTop navigationScroll keyboardDismissMode | scroll
+scroll | scrollTop navigationScroll keyboardDismissMode | scroll scrollend
 dialog | closedby | cancel close
 
 ## rules

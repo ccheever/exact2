@@ -833,6 +833,11 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Cheap, any time
 
+- **`scrollend` on the Linux and Android host** (2026-10-13; web and Apple have it, LLP 1005): a
+  move there ends once still for 100 ms, but the presenter's clock is not fresh when a scroll
+  arrives (a wheel and the Android reader's moves carry no time), and the loops wake on the host's
+  runner timer. Needs the deadline in `Host::timer_due_ms` and the dispatch at the `advance` and
+  `clock` paths; `host/linux/src/host.rs` is at its line cap.
 - **One presenter pass for the batches a frame lands together (iOS)** (2026-10-13, from the
   Bluesky clone's quotes fling): most fling frames apply four batches: the app's `scroll=` batch
   (the clone writes state every frame), one or two list fill slices that `landFill` lands inside

@@ -472,6 +472,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "swiperight" => AttrTarget::Handler("swiperight"),
         "refresh" => AttrTarget::Handler("refresh"),
         "scroll" => AttrTarget::Handler("scroll"),
+        "scrollend" => AttrTarget::Handler("scrollend"),
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
