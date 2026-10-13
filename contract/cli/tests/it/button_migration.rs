@@ -4,8 +4,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// The T3 Code clone: its roots take minutes to compile in a debug build (some
-/// 120,000 nodes), so they are the async lane's (the test at the end).
+/// The T3 Code clone: its one root, app.contract, takes minutes to compile with
+/// its imports in a debug build (some 120,000 nodes), so it is the async lane's
+/// (the test at the end).
 const T3_CODE: &str = "examples/t3-code";
 
 fn sources(path: &Path, skip: &[PathBuf], out: &mut Vec<PathBuf>) {
@@ -172,9 +173,10 @@ fn every_app_corpus_and_example_compiles_and_the_button_migration_is_complete() 
 }
 
 #[test]
-#[ignore = "async lane: compiles the T3 Code clone's roots, minutes in a debug build; bun scripts/async.mjs runs it"]
+#[ignore = "async lane: compiles the T3 Code clone's app.contract and its imports, minutes in a debug build; bun scripts/async.mjs runs it"]
 fn the_t3_code_example_compiles_and_its_button_migration_is_complete() {
-    // Its generated sources are built, not committed (rules/RULES.md): make them first.
+    // Some of the files app.contract imports are generated, and generated sources
+    // are built, not committed (rules/RULES.md): make them first.
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let generated =
         std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
