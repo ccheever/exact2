@@ -835,6 +835,15 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
     between nested drags; no single-tap versus double-tap; no "native only" condition; a `text`
     can't hold an inline badge (already in Charlie's asks).
+- **More gaps from the clone's workers** (bsky5, b32–b33, 2026-10-12), as reported; the
+  first three look like small bugs:
+  - **`autofocus=false` still focuses the field on the web.**
+  - **The dev server answers 404 for a deep link whose last path segment has a dot** (it is taken
+    for a file).
+  - **A disabled button on the web is dimmed on top of the app's own disabled colours.**
+  - Toasts have no warning style; a child component can't hold a resource; `agent` can't hold a
+    fetch, so loading states can't be staged; no leftward swipe (`swiperight` only); no `exp`
+    function; no hit slop.
 - **iOS long-press on an inline text run** (bsky5): a menu on a run inside a paragraph (a hashtag:
   See #tag posts, Mute #tag) acts as a tap. `NodeViewIOS.updateContextGestures` gives a long-press
   recognizer to node views only; runs get a menu on macOS (X77) and on the web.
