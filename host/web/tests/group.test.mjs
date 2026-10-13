@@ -10,11 +10,11 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 const page = `<!doctype html>
 <style>#exact-root .card { display: flex; gap: 6px; background: rgb(1, 2, 3); }</style>

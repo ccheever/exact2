@@ -90,7 +90,7 @@ export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 export function glueTests(root) {
   const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
-  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs'];
+  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
@@ -99,7 +99,10 @@ export function checks(sha, since, selection = {}) {
   const glue = selection.glue ?? glueTests(WT);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
-    ['test', 'env', ['EXACT_PURE_CHROME_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
+    // This commit's Caltrain web builds for the tests that drive one (below): wasm with every
+    // capability linked (the document, placement, motion, focusout and no-GPU tests), and JS.
+    prepareCheck,
+    ['test', 'env', ['EXACT_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
     gameCheck,
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
@@ -108,16 +111,16 @@ export function checks(sha, since, selection = {}) {
     ['boot', 'bun', ['scripts/boot.mjs']],
     // Every web host unit test (LLP 1012.001.000 D9; Charlie, 2026-09-30)
     // and the source capture fixtures, in the existing async glue step.
-    ['glue', 'env', ['EXACT_GLUE_FAST=1', 'bun', 'test', ...glue]],
+    ['glue', 'env', ['EXACT_GLUE_FAST=1', ...required, ...distEnv, 'bun', 'test', ...glue]],
     // This document proof builds Weatherlight's wasm target. Keep it out of
     // glue's seconds loop while retaining it in the asynchronous lane.
-    ['web-build-test', 'bun', ['test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
+    ['web-build-test', 'env', [...required, 'bun', 'test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
-    // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), over the
-    // wasm Caltrain dist conformance just built; a missing dist fails it.
-    ['web-ax-test', 'env', [`EXACT_WEB_DIST=${resolve(STATE_DIR, 'conform-wasm', 'caltrain')}`, 'EXACT_AX_REQUIRED=1', 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs']],
+    // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), over this
+    // commit's Caltrain dists; a missing dist fails it.
+    ['web-ax-test', 'env', [...required, ...distEnv, 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs']],
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
@@ -138,6 +141,30 @@ export function checks(sha, since, selection = {}) {
 }
 
 const changedPaths = (sha, since, diff) => diff(['diff', '--name-only', since ?? `${sha}^`, sha], WT).split('\n').filter(Boolean);
+
+// The lane owns the coverage of its checks (scripts/coverage.mjs): a missing
+// prerequisite (a browser, a toolchain, a built fixture) fails a test instead
+// of skipping it.
+const required = ['EXACT_REQUIRED=1'];
+const DISTS = resolve(STATE_DIR, 'dists');
+export const prepareCheck = ['prepare', 'sh', ['-c', [
+  `rm -rf ${JSON.stringify(DISTS)} && mkdir -p ${JSON.stringify(DISTS)}`,
+  `EXACT_WEB_LINK=all EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-wasm'))} bun host/web/build.mjs caltrain-web --wasm`,
+  `EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-js'))} bun host/web/build.mjs caltrain-web`,
+].join(' && ')]];
+const distEnv = [`EXACT_WEB_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_WEB_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,
+  `EXACT_NO_GPU_WASM_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_NO_GPU_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,
+  `EXACT_MOTION_DIST=${resolve(DISTS, 'caltrain-wasm')}`];
+
+/** Settings a check inherits from the lane's own environment that change what it tests. */
+export const ENV_DROPPED = ['EXACT_UPDATE_TRUST', 'CARGO_TARGET_DIR', 'EXACT_WEB_BROWSER', 'EXACT_JS_ENGINE', 'EXACT_JS_GPU_SURFACES',
+  'EXACT_WEB_LOOK', 'EXACT_WEB_LINK', 'EXACT_WEB_DIST', 'EXACT_WEB_JS_DIST', 'EXACT_NO_GPU_WASM_DIST', 'EXACT_NO_GPU_JS_DIST',
+  'EXACT_NO_GPU_CHROME', 'EXACT_MOTION_DIST', 'EXACT_GLUE_FAST', 'EXACT_REQUIRED'];
+export const laneEnv = base => {
+  const env = { ...base, HERMES_LEAN_SYS_OFFLINE: '1' };
+  for (const k of Object.keys(env)) if (ENV_DROPPED.includes(k) || k.startsWith('EXACT_AGENT')) delete env[k];
+  return env;
+};
 
 export function appleTouched(sha, since, diff = git) {
   const paths = changedPaths(sha, since, diff);
@@ -190,7 +217,7 @@ export function retainSkippedFailures(previous, result, conditionalNames = ['lan
 }
 
 /** Every failure a log names, as stable strings (compared across commits). */
-function failures(name, log, status) {
+export function failures(name, log, status) {
   const found = new Set();
   for (const m of log.matchAll(/error: could not compile `([^`]+)` \(([^)]+)\)/g)) found.add(`${name}: ${m[1]} (${m[2]}) does not compile`);
   // A failing binary ends with cargo's stable `-p <package> --test <target>`.
@@ -213,6 +240,8 @@ function failures(name, log, status) {
   // conform --strict: a failing step by target and step (the what varies run to run).
   for (const m of log.matchAll(/^FAIL (\S+) ([^:\n]+):/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   for (const m of log.matchAll(/^\(fail\) (.+?) \[[\d.]+m?s\]$/gm)) found.add(`${name}: ${m[1]}`);
+  // A bun step that selected no test passed on nothing (`-t` matching none exits 0).
+  if (/^bun test v/m.test(log) && /matched 0 tests|had no matches|^Ran 0 tests/m.test(log)) found.add(`${name}: ran no tests`);
   // difftest: a case that diverged (on the JS target too), failed an expectation or was refused.
   for (const m of log.matchAll(/^(DIVERGE|DIVERGE-JS|ERROR-JS|EXPECT|EMIT|SCRIPT|REFUSED) (.+?)(?: at line \d+)?:/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   // difftest apps: an app embedding that is not what the compiler makes of the app now.
@@ -256,8 +285,7 @@ async function check(sha, since) {
   mkdirSync(dir, { recursive: true });
   prune();
   git(['checkout', '--detach', '--force', sha], WT);
-  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
-  delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR; delete env.EXACT_WEB_BROWSER;
+  const env = laneEnv(process.env);
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
   if (installed.status !== 0) result.failures.push(`install: bun install --frozen-lockfile exit ${installed.status}`);

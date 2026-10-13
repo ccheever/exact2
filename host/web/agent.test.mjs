@@ -14,6 +14,7 @@ import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
 import { nodeNamed } from '../../scripts/agent-test.mjs';
+import { browserMissing } from '../../scripts/agent-playwright.mjs'; import { required } from '../../scripts/coverage.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -553,11 +554,10 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     expect(await chrome.carrier.evaluate(({ probe() { return 5; } }).probe)).toBe(5);
     expect(await chrome.carrier.evaluate(({ async probe() { return 6; } }).probe)).toBe(6);
     await chrome.close(); chrome = null;
-    const { firefox } = await import('playwright-core');
-    if (!existsSync(firefox.executablePath())) {
-      console.log('skip: Firefox is not installed; bunx playwright@1.63.0 install firefox webkit');
-      return;
-    }
+    // The Firefox half: a missing Firefox fails under EXACT_REQUIRED (scripts/coverage.mjs), else the Chrome half stands.
+    const firefoxMissing = await browserMissing('firefox');
+    if (firefoxMissing && required()) throw new Error(`missing firefox: ${firefoxMissing} (EXACT_REQUIRED=1)`);
+    if (firefoxMissing) return console.warn(`SKIP: missing firefox: ${firefoxMissing}`);
     session = await open({ host:'web', browser:'firefox', url, onProcess: child => { browserProcess = child; } });
     expect(session.carrier.browser).toBe('firefox');
     expect(browserProcess?.pid).toBeGreaterThan(0);

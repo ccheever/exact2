@@ -15,11 +15,11 @@ import { join, resolve } from 'node:path';
 import { open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { serveBuildTree } from '../serve.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const { unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 const MENUS = `component Menus
   state heard = ""
