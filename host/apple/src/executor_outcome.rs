@@ -62,3 +62,20 @@ pub(super) fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortControll
         ),
     }
 }
+
+/// A count a measurement build sets (LLP 1120 §5's arms: `EXACT_HTTP_WORKERS`,
+/// `EXACT_HTTP_IN_FLIGHT`), or `default`.
+pub(super) const fn build_number(set: Option<&str>, default: usize) -> usize {
+    let Some(text) = set else {
+        return default;
+    };
+    let bytes = text.as_bytes();
+    let (mut n, mut i) = (0, 0);
+    while i < bytes.len() {
+        assert!(bytes[i].is_ascii_digit(), "a build count is digits");
+        n = n * 10 + (bytes[i] - b'0') as usize;
+        i += 1;
+    }
+    assert!(n > 0, "a build count is at least 1");
+    n
+}

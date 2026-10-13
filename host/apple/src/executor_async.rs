@@ -37,7 +37,7 @@ use timer::Timer;
 
 /// Resumed independent HTTP exchanges at once, the session's per-host
 /// connection limit too (LLP 1120 D2, D5): HTTP/2 multiplexes them.
-pub(super) const IN_FLIGHT: usize = 32;
+pub(super) const IN_FLIGHT: usize = super::build_number(option_env!("EXACT_HTTP_IN_FLIGHT"), 32);
 /// HTTP/1.1 exchanges the core resumes per origin per lane until one there
 /// reports `h2` or `h3` (D3): URLSession's own limit, so it never queues.
 const PER_ORIGIN: usize = 6;
@@ -1442,6 +1442,15 @@ impl FetchEvents for Events {
         }
     }
     fn metrics(&self, url: &str, metrics: HopMetrics) {
+        ibex2::transport::metrics_log::note(
+            "lane",
+            url,
+            metrics.protocol.as_deref(),
+            metrics.reused,
+            metrics.local.as_deref(),
+            metrics.remote.as_deref(),
+            metrics.queued_ms,
+        );
         if let Some(protocol) = metrics.protocol {
             self.machine
                 .post(self.lane, Event::Protocol(origin(url), protocol));

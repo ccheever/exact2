@@ -14,7 +14,7 @@ use std::sync::{
 
 /// Independent HTTP workers, each with its own transport: a browser's six
 /// connections a host, so a source's `Promise.all` of reads overlaps.
-const INDEPENDENT: usize = 6;
+const INDEPENDENT: usize = build_number(option_env!("EXACT_HTTP_WORKERS"), 6);
 /// The ordered owner and the independent ones.
 const WORKERS: usize = 1 + INDEPENDENT;
 /// Sixteen cores' workers; includes retired workers until they actually exit.
@@ -1484,7 +1484,7 @@ mod asynch;
 #[path = "executor_outcome.rs"]
 mod outcome;
 use asynch::{asynch_lanes, asynchronous, drained};
-use outcome::{bounded_outcome, fetch_failure, retained};
+use outcome::{bounded_outcome, build_number, fetch_failure, retained};
 
 #[path = "executor_body.rs"]
 mod body;
