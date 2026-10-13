@@ -444,11 +444,14 @@ writeFileSync(resolve(gen, 'main-server.js'), [
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
 // A release admits no agent mode (LLP 1069.007 D2): every file that reads
 // `?agent` declares AGENT_ADMITTED, written false here, as host/web/build.mjs
-// gates the wasm host's.
+// gates the wasm host's. Lazy host modules pass through the same gate.
+const gateAgent = (code, name) => {
+  if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)|URLSearchParams\([^)]*\)\.has\(["']agent["']\)/.test(code) && !code.includes('const AGENT_ADMITTED = true;')) throw new Error(`${name} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode`);
+  return code.replaceAll('const AGENT_ADMITTED = true;', 'const AGENT_ADMITTED = false;');
+};
 if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))) {
   const code = readFileSync(resolve(gen, f), 'utf8');
-  if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)|URLSearchParams\([^)]*\)\.has\(["']agent["']\)/.test(code) && !code.includes('const AGENT_ADMITTED = true;')) { console.error(`${f} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode`); process.exit(1); }
-  writeFileSync(resolve(gen, f), code.replaceAll('const AGENT_ADMITTED = true;', 'const AGENT_ADMITTED = false;'));
+  writeFileSync(resolve(gen, f), gateAgent(code, f));
 }
 // A development page's storage is its app's (LLP 1116.004 D8): every app the dev server serves
 // shares its origin, so the app directory's digest (agent-launch.mjs `appDigest`) keys its files,
@@ -596,7 +599,7 @@ async function copyLazyModules(roots) {
     const from = resolve(root, source), code = name.endsWith('.js') || name.endsWith('.mjs') ? readFileSync(from, 'utf8') : null;
     mkdirSync(dirname(resolve(out, name)), { recursive: true });
     // The adapters' own storage-environment.js names the app's development store, as the page's chunk does (above).
-    const scoped = code != null && !production ? developmentStore(code, realpathSync(appDir)) : code;
+    const scoped = code == null ? code : production ? gateAgent(code, name) : developmentStore(code, realpathSync(appDir));
     if (scoped !== code) writeFileSync(resolve(out, name), scoped);
     else cpSync(from, resolve(out, name));
     if (code != null) for (const specifier of [...moduleImports(code), ...literalModuleURLs(code)]) {

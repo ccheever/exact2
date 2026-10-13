@@ -75,6 +75,35 @@ final class KeyboardFocusIOSTests: XCTestCase {
     }
 
 
+    func testBlurRemovesWrapperBeforeFocusout() throws {
+        for moving in [true, false] {
+            let p = focusFields()
+            defer { window.endEditing(true); window.isHidden = true }
+            p.apply(wireBatch([
+                ["op": "create", "id": 20, "kind": "view", "handlers": ["focusout"]],
+                ["op": "children", "id": 20, "ids": [11]],
+                ["op": "children", "id": 10, "ids": [20, 12]]
+            ]))
+            let field = try XCTUnwrap(p.views[11]?.field)
+            XCTAssertTrue(field.becomeFirstResponder())
+            let outgoing = expectation(description: "detached focusout")
+            var heard: [String] = []
+            p.onBlur = { _ in
+                heard.append("blur")
+                p.apply(wireBatch([["op": "destroy", "id": 20], ["op": "destroy", "id": 11]]))
+            }
+            p.onFocusEvent = { at, kind, target, related in
+                heard.append("\(at):\(kind):\(target):\(related ?? "-")")
+                if at == 20 { outgoing.fulfill() }
+            }
+            if moving { tab(field) } else { XCTAssertTrue(field.resignFirstResponder()) }
+            wait(for: [outgoing], timeout: 5)
+            XCTAssertEqual(try XCTUnwrap(p.views[12]?.field).isFirstResponder, moving)
+            XCTAssertEqual(heard, moving ? ["blur", "20:focusout:a:b", "10:focusin:b:a"] : ["blur", "20:focusout:a:-"])
+            XCTAssertNil(p.views[20])
+        }
+    }
+
     func testFocusTransitionUsesTheRenamedId() throws {
         let p = focusFields()
         defer { window.endEditing(true); window.isHidden = true }

@@ -64,7 +64,7 @@ final class FocusEvents {
                              inbound: state.inbound, outbound: state.outbound)
     }
 
-    private func emit(_ state: FocusSnapshot, entering: Bool, related: String?) {
+    private func emit(_ state: FocusSnapshot, entering: Bool, related: String?, afterBlur: Bool = false) {
         guard let presenter else { return }
         let kind = entering ? "focusin" : "focusout"
         let path = entering ? state.inbound : state.outbound
@@ -73,7 +73,11 @@ final class FocusEvents {
             let enclosingStopped = presenter.propagationStopped
             defer { presenter.propagationStopped = enclosingStopped }
             presenter.propagationStopped = false
-            for id in path where presenter.textHost(id) != nil {
+            // A blur may detach its subtree before focusout starts. Its old
+            // connected ancestors are no longer on that event's path.
+            let detached = afterBlur && presenter.textHost(state.node) == nil
+            let detachedPath = detached ? Set(state.path.prefix { presenter.textHost($0) == nil }) : []
+            for id in path where detached ? detachedPath.contains(id) : presenter.textHost(id) != nil {
                 presenter.onFocusEvent?(id, kind, state.name, related)
                 if presenter.propagationStopped { break }
             }
@@ -96,7 +100,7 @@ final class FocusEvents {
         current = next
         // A node blurred and focused again had no other element on either side.
         let other = old?.node == id ? nil : old
-        if let old { emit(old, entering: false, related: other == nil ? nil : next.name) }
+        if let old { emit(old, entering: false, related: other == nil ? nil : next.name, afterBlur: true) }
         direct(id, entering: true)
         emit(next, entering: true, related: other?.name)
     }
@@ -110,7 +114,10 @@ final class FocusEvents {
     }
 
     func removed(_ id: UInt32) {
-        guard let old = (current?.path.contains(id) == true ? current : pending?.path.contains(id) == true ? pending : nil) else { return }
+        // Blur already began this transition. Wait for its related responder,
+        // or flush, even if its handler removes the old views in the meantime.
+        if pending?.path.contains(id) == true { return }
+        guard let old = current, old.path.contains(id) else { return }
         current = nil
         pending = nil
         emit(named(old), entering: false, related: nil)
@@ -119,7 +126,7 @@ final class FocusEvents {
     private func flush() {
         guard let old = pending else { return }
         pending = nil
-        emit(named(old), entering: false, related: nil)
+        emit(named(old), entering: false, related: nil, afterBlur: true)
     }
 }
 #endif

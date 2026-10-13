@@ -304,13 +304,20 @@ transition follows Chrome's observed `change`, `blur`, `focusout`, `focus`,
 entry even when UIKit omits its editing delegate callback. The host ABI kinds
 are 46 (`focusin`) and 47 (`focusout`), after 45 (`intersect`).
 
-**Declared native deviation (2026-10-12, issue #283):** if a `blur` handler
-destroys its wrapper, Apple and Linux skip that destroyed wrapper's later
-`focusout` handler while retaining surviving ancestors from the old path.
-Chrome instead dispatches within the detached subtree, without its former
-connected ancestors.
-Keeping destroyed native handler bindings alive through that event is not
-implemented; the issue remains open for this case.
+If a `blur` handler destroys its wrapper, the subsequent `focusout` stays
+inside that detached subtree, as in Chrome; former connected ancestors do
+not hear it. The runner retains the removed handlers' instance scopes through
+that outgoing event, independently of nested focus transitions, and consumes
+each binding once. Linux fixes the detached path when blur finishes, before
+commit processing can autofocus another field or a focusout handler can remove
+more ancestors. Both web targets commit ordinary blur before DOM focusout;
+the wasm host preserves the detached DOM subtree and its outgoing listeners.
+Exit-animation ghosts count as removed: the outgoing event ends at that
+subtree and keeps its IDs after presence strips the DOM IDs. A blur raised
+during a JS tree flush runs before that commit's focus commands or autofocus.
+Apple waits for the next
+responder (or the deferred blur flush) before delivering it, preserving the
+other element's `relatedTarget`.
 
 Not events
 (2026-08-30, the minimal set first): pointer coordinates and moves (a drag)

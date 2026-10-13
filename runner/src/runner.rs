@@ -347,6 +347,8 @@ struct Timer {
     k: u32,
 }
 
+type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
+
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
@@ -355,6 +357,7 @@ pub struct Runner<D: DataSource> {
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
+    detached_focus: Vec<(ViewId, FocusPath)>,
     data: D,
     kernel: Kernel,
     slots: Vec<Value>,
@@ -805,6 +808,7 @@ impl<D: DataSource> Runner<D> {
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
+            detached_focus: Vec::new(),
             data,
             kernel,
             slots: Vec::new(),

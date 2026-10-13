@@ -662,8 +662,8 @@ export function deferredFulfill(fulfill, inflight) {
 }
 // An admission refusal answers its ticket Refused (kind 2) with the reason, in its incarnation.
 export const refusal = (op, incarnation) => [incarnation, op.ticket, 2, 0, "", new TextEncoder().encode(op.message)];
-export function focusController({ready, elements, inert}) {
-  const processed = new WeakSet();
+export function focusController({ready, elements, inert, removed = el => !el.isConnected}) {
+  const processed = new WeakSet(), outgoing = new WeakMap();
   let pointerTarget = null, restarting = false;
   const autofocus = () => {
     if (restarting || !ready()) return;
@@ -687,7 +687,15 @@ export function focusController({ready, elements, inert}) {
     const el = id != null && nodes.get(id)?.type === kept.type ? view(id) : null;
     if (el?.isConnected && el.getClientRects().length && !inert(el) && !el.matches(':disabled')) el.focus({preventScroll: true});
   };
-  return {autofocus, keep, restart, press(event, el, dispatch) {
+  return {autofocus, keep, restart,
+    detached(el, event) { const pending = outgoing.get(event.target); if (!pending || pending.event && pending.event !== event) return false; pending.event = event; const held = pending.path.delete(el); if (!pending.path.size) outgoing.delete(event.target); return held; },
+    blur(el, dispatch) {
+      const path = []; for (let at = el; at; at = at.parentElement) path.push(at);
+      dispatch();
+      // Only the subtree detached by this blur hears the following DOM focusout.
+      const pending = new Set(); for (const at of path) { if (!removed(at)) break; if (at.exactHandlers?.includes("focusout")) pending.add(at); }
+      if (pending.size) outgoing.set(el, { path: pending, event: null });
+    }, press(event, el, dispatch) {
     event.stopPropagation();
     const canvas = el.closest('[data-gpu-input]');
     const previous = pointerTarget;
@@ -758,7 +766,6 @@ export function environment() {
     ...foldEnv(),
   };
 }
-
 // @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device Posture API's `navigator.devicePosture.type`
 // and the viewport segments `window.viewport.segments` (two or more means a divider splits the viewport; the columns
 // are the distinct lefts, the rows the distinct tops). Where the browser lacks the APIs: `continuous`, 1 × 1, which is
@@ -816,7 +823,6 @@ export function preferFold(request) {
   (globalThis.exact ??= {}).foldSubstitute = next;
   return foldEnv();
 }
-
 // @ref LLP 1061 D4, LLP 1069.000 D1: media facts ride each boot and resize.
 // Bits 0–4: motion, transparency, contrast (more|less), dark; 5–7: coarse|none pointer, no hover.
 const DISPLAY_MODES = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"];
@@ -826,7 +832,6 @@ const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7];
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
-
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
 // bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
 // showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
@@ -855,7 +860,6 @@ export function pageReporter(agent, platform = globalThis) {
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize(), "display-scale": displayScale() }), prefer, onChange, rootFontSize, displayScale };
 }
-
 // @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
 // the root element's own size (the browser's setting, or the agent's `prefer root-font-size`), which can change beneath
 // it; `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here.
@@ -913,7 +917,6 @@ function beneathApp(platform, read) {
   rule.disabled = true;
   try { return read(); } finally { rule.disabled = false; }
 }
-
 // The page launch owns its seed, a whole number below 2^32 on every host (LLP 1116.005 D5); a new runner during
 // development reuses it. Agent facts are supplied by the drive, never by the browser's environment.
 export function placeReporter(params, platform = globalThis) {
@@ -928,7 +931,6 @@ export function placeReporter(params, platform = globalThis) {
     return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
   };
 }
-
 // @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
 // 2026-01-01T00:00:00Z), and the offset its zone's at the virtual instant `elapsed` names; `clock +N` moves the date
 // because `now()` moves, and the glue tells the offset again after each clock move, so crossing a DST change re-answers
