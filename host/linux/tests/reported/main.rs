@@ -96,8 +96,8 @@ fn a_reported_palette_is_what_the_roles_and_the_controls_paint_in() {
     .unwrap();
     assert!(error.is_none(), "{error:?}");
 
-    // Before any report, desktop Linux's look: the roles' fallback pairs,
-    // and this painter's own accent on its controls.
+    // Before any report, the look of a host that said none: the roles'
+    // fallback pairs, and this painter's own accent on its controls.
     assert_eq!(page(&mut p), [0xff, 0xff, 0xff]);
     assert_eq!(pixel(&mut p, "accent", 20, 20), [0x00, 0x88, 0xff]);
     assert_eq!(pixel(&mut p, "check", 3, 3), [0x00, 0x75, 0xff]);

@@ -220,6 +220,10 @@ impl<D: DataSource> Presenter<D> {
             .as_ref()
             .map_or(self.host.now(), |c| self.host.now().max(c.last_ms))
     }
+    /// The node the held contact went down on.
+    pub(super) fn contact_hit(&self) -> Option<NodeKey> {
+        self.contact.as_ref().map(|contact| contact.hit)
+    }
     pub(crate) fn contact_position(&self) -> Option<(f32, f32)> {
         self.contact.as_ref().map(|c| c.position)
     }
@@ -290,6 +294,7 @@ impl<D: DataSource> Presenter<D> {
             Ok(taken) => self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err),
             Err(e) => Err(e),
         };
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
         result
     }
@@ -440,6 +445,7 @@ impl<D: DataSource> Presenter<D> {
             true => self.pointer_moved_over(x, y, now_ms),
             false => None,
         };
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Move, x, y);
         over.map_or(moved, Err)
     }
@@ -667,6 +673,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Up, x, y);
         let result = self.pointer_lift(x, y, now_ms);
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Up, x, y);
         result
     }
@@ -810,6 +817,7 @@ impl<D: DataSource> Presenter<D> {
         let at = self.contact_position().or(self.pointer).unwrap_or((0., 0.));
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Cancel, at.0, at.1);
         let result = self.pointer_abandon(now_ms);
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Cancel, at.0, at.1);
         result
     }

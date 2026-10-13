@@ -451,6 +451,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.hover_at(Some((x, y)), self.host.now()) {
             return Err(error);
         }
+        self.refresh_feedback();
         Ok(format!(
             "{{\"tapped\":{id},\"hover\":true,\"delivery\":\"recognized\"}}"
         ))

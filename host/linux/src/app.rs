@@ -549,12 +549,24 @@ pub fn print_baked_receipt(compat: &str) -> bool {
     }
 }
 
+/// Say that this process paints the neutral look (LLP 1115.000 D17), before
+/// it boots a plan. Where Exact paints the controls and there is no platform
+/// toolkit under it (the Linux desktop, a headless run, Windows) the look is
+/// the web's neutral one: the role table's neutral column, and the look's
+/// rows of the schema's `metrics`, which the kernel sizes an unsaid control
+/// by and the painter draws it from. Android's reader does not call this: it
+/// has a platform, and paints Material (LLP 1115.001).
+pub fn show_neutral_look() {
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+}
+
 /// Run a configured app, optionally composed with a delivery adapter.
 pub fn run_config<D: DataSource + Default>(config: &mut Config, started: Instant) -> i32 {
     if let Err(why) = exact_runner::delivery::refuse_analysis(&config.compat) {
         eprintln!("exact: {why}");
         return 1;
     }
+    show_neutral_look();
     if config.headless() {
         return headless::<D>(config, started);
     }

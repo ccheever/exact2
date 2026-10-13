@@ -45,7 +45,9 @@ pub(crate) use lift::{Ghost, Lift};
 pub(crate) mod inline;
 mod layer;
 mod lift;
+pub(crate) mod look;
 mod native;
+pub(crate) mod neutral;
 pub use native::NativeKind;
 mod order;
 mod placed;
@@ -539,6 +541,9 @@ pub struct Painter {
     /// The control a finger's press focused: it is the focus and shows no
     /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
     pub(crate) ringless: Option<ViewId>,
+    /// The control under a pointer that hovers, and the one a contact holds
+    /// down (`presenter/feedback.rs`), which the neutral look washes.
+    pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
     /// Each hosted text field's content box in its own border box (x, y,
     /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
     pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
@@ -640,6 +645,7 @@ impl Painter {
             cpu_ms: None,
             flatten: None,
             ringless: None,
+            feedback: (None, None),
             field_content: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
@@ -1107,6 +1113,11 @@ impl Painter {
                     walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
                 );
             }
+            NodeType::Control
+                if look::neutral() && node.props.str(PropId::Type) == Some("file") =>
+            {
+                self.file_control(node, content, ts);
+            }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
                 node,
@@ -1114,6 +1125,7 @@ impl Painter {
                 ts,
                 self.dark,
                 walk.scene.controls.get(&node.id).copied(),
+                self.feedback.0 == Some(node.id),
             ),
             _ => {}
         }
