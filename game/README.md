@@ -387,6 +387,19 @@ independent assertions continue. The terminal shows checks and failure details;
 `replies.json` retains complete operation replies. Browser runs provide canvas pixels; the GPU-less
 Linux host exercises simulation, input, Contract UI, CPU picks and saves.
 
+Proof receipts bind the completed build's inputs. Editing authored inputs during
+a build rejects the proof and removes its receipt. Directory tracking includes
+shared sources and empty source directories, so creating and removing a source
+during compilation also rejects the proof. Changes to entries in a tracked
+directory require a rerun, even when the changed entry is excluded from inputs.
+Asset directory entry changes also require a rerun, including generated file
+creation, pruning and atomic replacement. The baker uses atomic replacement for
+changed assets. Rerun after
+the tree settles; the proof rebuilds before caching the result. In-place rewrites
+of manifest-owned generated files can complete in the same invocation. If
+`assets/` is absent, changes to its parent directory conservatively require a
+rerun too, so a temporary asset tree cannot go unnoticed.
+
 ### Compare captured world state
 
 In a proof or an agent session, capture inspected state before and after an action:

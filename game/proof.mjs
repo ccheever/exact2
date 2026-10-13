@@ -189,7 +189,8 @@ export function artifactDigest(host, dist, artifacts) {
 }
 // Shared by the proof and its artifact lifecycle regression: mode is baked only on web.
 export function buildInputHash(host, target, mode = '0', profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev') {
-  const hash = createHash('sha256').update(host).update(target);
+  // Receipts made before shared directory checks may describe stale artifacts.
+  const hash = createHash('sha256').update('exact game proof receipt v3\0').update(host).update(target);
   if (host === 'web') hash.update(mode);
   if (host === 'linux' || host === 'windows') hash.update(profile);
   return hash;
@@ -374,7 +375,8 @@ export function proofInputFiles(root, app, inventory) {
 }
 // Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
-const statKey = path => { const s=statSync(path); return [s.dev,s.ino,s.size,s.mtimeMs,s.ctimeMs].join(':'); };
+// Nanosecond timestamps and inode identity catch edits restored before the next scan.
+const statKey = path => { const s=statSync(path, {bigint:true}); return [s.dev,s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':'); };
 export function proofInputs(root, app, cachePath) {
   const git = args => spawnSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:32*1024*1024});
   const listed=git(['ls-files','-s','-z','--cached','--others','--exclude-standard']);
@@ -387,11 +389,22 @@ export function proofInputs(root, app, cachePath) {
   }
   const dirty=new Set((status.stdout??'').split('\0').filter(row=>row && row[1]!==' ').map(row=>row.slice(3)));
   let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
-  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}; let reads=0;
+  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}, authoredState=[], assetState=[]; let reads=0;
   const manifest = resolve(app, '.baked-assets.json');
   const generated = new Set(existsSync(manifest)
     ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
   const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
+  // File stats miss sources created, consumed and removed between scans. Walk
+  // shared source directories too, including empty ones, to retain those edits.
+  const sourceDirectories = (dir, state) => {
+    // The app's authored and generated trees are scanned separately below.
+    if (!existsSync(dir) || dir === resolve(app)) return;
+    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
+    if (proofInputExcluded(file + 'input.rs', basename(app), prefix)) return;
+    state.push([file, statKey(dir)]);
+    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name.localeCompare(b.name)))
+      if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name), state);
+  };
   for(const file of files) {
     const path=resolve(root,file), key=statKey(path); let digest=blobs.get(file);
     if(!digest || status.status!==0 || dirty.has(file)) {
@@ -399,29 +412,44 @@ export function proofInputs(root, app, cachePath) {
       if(!digest) {const bytes=readFileSync(path); reads++; digest=createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');}
       next[file]={key,digest};
     }
-    rows.push([file,digest]);
+    rows.push([file,digest,key]);
   }
   for(const row of rows) {
-    const [file]=row; groups.all.push(row);
-    if (file !== prefix + '.baked-assets.json' && !generated.has(file)) groups.authored.push(row);
+    const [file,digest,key]=row, input=[file,digest]; groups.all.push(input);
+    if (file !== prefix + '.baked-assets.json' && !generated.has(file)) {
+      groups.authored.push(input);
+      authoredState.push([file,key]);
+    }
     // Host bake depends on the declaration, not the game's implementation.
     // Shared compiler crates remain conservative inputs of both graphs.
     const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
     const gpuOnly=own!==null ? /^(logic|gpu|render|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
     const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
-    if(!hostOnly) groups.gpu.push(row);
-    if(!gpuOnly) groups.host.push(row);
+    if(!hostOnly) groups.gpu.push(input);
+    if(!gpuOnly) groups.host.push(input);
   }
   if(cachePath) {mkdirSync(resolve(cachePath,'..'),{recursive:true});writeFileSync(cachePath,JSON.stringify(next));}
-  return {...Object.fromEntries(Object.entries(groups).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
+  // Snapshot after writing our cache so its first creation is not a build edit.
+  sourceDirectories(resolve(root), authoredState);
+  for (const dir of ['logic', 'data', 'gpu', 'render', 'art', 'deck']) sourceDirectories(resolve(app, dir), authoredState);
+  // Generated writes can hide transient authored entries in the same directory.
+  // Refuse every directory mutation; a fresh proof can use the completed tree.
+  const assets = resolve(app, 'assets');
+  if (existsSync(assets)) sourceDirectories(assets, assetState);
+  // Without assets/, its parent records a tree created and removed during build.
+  else assetState.push([prefix + 'assets/', 'missing', statKey(app)]);
+  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
 }
-// One reader per proof: only bake-owned outputs may change while its products build.
+// One reader per proof. Directory changes require a rerun, even for baked assets.
 export function proofInputReader(root, app, cachePath) {
   let previous;
   return () => {
     const inputs = proofInputs(root, app, cachePath);
-    if (previous && previous.authored !== inputs.authored)
+    // Content identity alone misses an edit that is reverted while the build reads it.
+    if (previous && previous.authoredState !== inputs.authoredState)
       throw new Error('authored proof inputs changed during build; rerun the proof');
+    if (previous && previous.assetState !== inputs.assetState)
+      throw new Error('asset directories changed during build; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)');
     previous = inputs;
     return inputs;
   };
