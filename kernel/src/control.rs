@@ -66,22 +66,35 @@ impl ControlKind {
         })
     }
 
-    /// The content size a host that reports none shows (LLP 1069.001 D3):
-    /// each is Chrome's bare control under the web reset. A switch is the
-    /// web page's drawn one (LLP 1116 D1), WebKit's own box and Linux's
-    /// painted one, 38 × 22; an empty select, the page's 36 px tall select
-    /// (its line, padding and line), and a date, time or local date-time
-    /// control in the same field look (LLP 1116.001 D1), Chrome's on macOS
-    /// with an empty value. A native host that presents a different
-    /// switch reports that size through the intrinsic seam. A host that knows
-    /// any control's size reports it.
-    pub fn default_size(self) -> (f32, f32) {
+    /// The content size a host that reports none shows (LLP 1069.001 D3),
+    /// for a control whose font size is `em`.
+    ///
+    /// A checkbox, a radio, a switch and a range's height are the look's
+    /// this process draws, rows of the schema's `metrics` (LLP 1115.000
+    /// D17). Under the neutral look they follow the control's font size (a
+    /// mark is the line's height, 20 px at 16), as the page's sheet sizes
+    /// them, so the kernel and a page lay the same box out. In every other
+    /// column they are Chrome's bare control under the web reset, and the
+    /// switch WebKit's own box, 38 × 22: an Apple host shows them until it
+    /// reports its control's size, and Android's reader paints them.
+    ///
+    /// The rest are the same in every look: an empty select, the page's
+    /// 36 px tall select (its line, padding and line), and a date, time or
+    /// local date-time control in the same field look (LLP 1116.001 D1),
+    /// Chrome's on macOS with an empty value. A host that knows any
+    /// control's size reports it.
+    pub fn default_size(self, em: f32) -> (f32, f32) {
+        use crate::generated::metric;
+        // None of these rows is in `rem`, and each has a value in every column.
+        let look = |index| crate::style::metrics::length(index, em, em).unwrap_or(0.0);
         match self {
-            ControlKind::Checkbox | ControlKind::Radio => (13.0, 13.0),
-            ControlKind::Switch => (38.0, 22.0),
+            ControlKind::Checkbox | ControlKind::Radio => {
+                (look(metric::MARK_SIZE), look(metric::MARK_SIZE))
+            }
+            ControlKind::Switch => (look(metric::SWITCH_WIDTH), look(metric::SWITCH_HEIGHT)),
             ControlKind::File => (347.0, 25.0),
             ControlKind::Select => (46.0, 36.0),
-            ControlKind::Range => (129.0, 16.0),
+            ControlKind::Range => (129.0, look(metric::RANGE_HEIGHT)),
             ControlKind::Date => (164.0, 36.0),
             ControlKind::Time => (131.796_88, 36.0),
             ControlKind::DateTimeLocal => (247.0, 36.0),

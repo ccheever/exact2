@@ -1076,7 +1076,10 @@ impl LayoutTree {
                             crate::control::progress_size(arena, slot)
                         } else {
                             arena.intrinsic(slot).unwrap_or_else(|| {
-                                kind.map_or((0.0, 0.0), crate::ControlKind::default_size)
+                                kind.map_or((0.0, 0.0), |kind| {
+                                    let font = crate::generated::StyleId::FontSize;
+                                    kind.default_size(arena.computed_source(slot, font).font_size)
+                                })
                             })
                         };
                         return Size {

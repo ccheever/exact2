@@ -420,11 +420,13 @@ const PLATFORM: &str = "-exact-platform-color(";
 
 /// A bound row whose code can push a metric's name (LLP 1115.002 D6: a
 /// sheet the compiler wrote, choosing between two by a flag) reads each as
-/// its value in the web's column, which is what the kernel reads a literal
-/// one as: a number, the row's own CSS text, or nothing where the web has
-/// no row (`null`: the row unset). `None` when the code names none.
+/// its value in the column of the look this build draws (the neutral
+/// look's, or the web's first under `EXACT_WEB_LOOK=apple`), which is what
+/// the kernel reads a literal one as: a number, the row's own CSS text, or
+/// nothing where the look has no row (`null`: the row unset). `None` when
+/// the code names none.
 pub fn metric_map(plan: &Plan, code: &[u8]) -> Option<String> {
-    use exact_kernel::style::metrics::{named, value, Column};
+    use exact_kernel::style::metrics::{column, named, value};
     let mut pairs: Vec<String> = Vec::new();
     for i in instructions(code).flatten() {
         if i.op != Opcode::Str {
@@ -432,10 +434,12 @@ pub fn metric_map(plan: &Plan, code: &[u8]) -> Option<String> {
         }
         let name = plan.str(exact_plan::StrId(i.args[0] as u32));
         let Some(metric) = named(name) else { continue };
-        let web = match value(metric, Column::Web) {
+        let web = match value(metric, column()) {
             exact_kernel::MetricValue::Number(n) => serde_json::json!(n),
             exact_kernel::MetricValue::Text("unset") => serde_json::Value::Null,
             exact_kernel::MetricValue::Text(t) => serde_json::json!(t),
+            // A `length` row's, which no sheet names.
+            exact_kernel::MetricValue::Em(_) | exact_kernel::MetricValue::Rem(_) => continue,
         };
         let pair = format!("{}:{web}", serde_json::json!(name));
         if !pairs.contains(&pair) {
