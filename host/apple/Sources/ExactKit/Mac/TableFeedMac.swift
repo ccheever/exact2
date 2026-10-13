@@ -150,11 +150,31 @@ final class RunnerTableView: NSTableView {
         let seen = super.visibleRect
         return feed?.cover(seen) ?? seen
     }
+    /// The rows that show, for VoiceOver: those in the port, not every row
+    /// the table keeps a view for. AppKit's row elements are its own
+    /// objects, handed on as the array they came in and never read here.
+    override func accessibilityVisibleRows() -> [NSAccessibilityRow]? {
+        guard let all = super.accessibilityRows() as NSArray? else { return nil }
+        let shown = rows(in: super.visibleRect)
+        guard shown.location >= 0, NSMaxRange(shown) <= all.count else { return super.accessibilityVisibleRows() }
+        // Bridged as it came: Swift checks an element of such an array only when one is read.
+        return (all.subarray(with: shown) as NSArray) as! [NSAccessibilityRow]
+    }
     /// The table moved its rows (new rows near what shows, a new guess for
     /// the rows that do not): it goes back where layout has them.
     override func layout() {
         super.layout()
         feed?.tableLaidOut()
+    }
+    /// While the table handles a key: a selection it moves then is the
+    /// keyboard's (`TableFeed.tableViewSelectionDidChange`). Said here and
+    /// not read from the application's current event, which a key sent
+    /// straight to the window (the driver's) is not.
+    fileprivate var keying = false
+    override func keyDown(with event: NSEvent) {
+        keying = true
+        defer { keying = false }
+        super.keyDown(with: event)
     }
     /// A row the keyboard reached is shown in the port, which is the
     /// list's: the table's own idea of what shows is wider (`visibleRect`).
@@ -445,6 +465,9 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         }
         rows = next
         held = Set(next.map(\.node.id))
+        // The list's name is the table's, for VoiceOver: "Notes, table".
+        let name = list.authoredLabel
+        if table.accessibilityLabel() != name { table.setAccessibilityLabel(name) }
 
         /// The commonest height among the mounted rows, and how many have it.
         func common() -> (height: CGFloat, rows: Int)? {
@@ -710,7 +733,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // pressed, as SwiftUI's list of navigation links pushes the row an
         // arrow key reaches (measured, macOS 27.0). A stock table's action
         // is the mouse's alone, and so is every other row's press here.
-        if let mounted, NSApp.currentEvent?.type == .keyDown, navigates(mounted) { pressRow(row) }
+        if let mounted, table.keying, navigates(mounted) { pressRow(row) }
     }
     /// A click on a row, when the mouse comes up in it: the table's action.
     /// In a hand-built table on macOS 27.0, key window, nothing a delegate

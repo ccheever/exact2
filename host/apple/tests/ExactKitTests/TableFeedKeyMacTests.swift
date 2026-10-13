@@ -366,7 +366,7 @@ final class TableFeedKeyMacTests: XCTestCase {
       view
         column width="100%" height="100%"
           text `log ${log}` testId="status"
-          list virtualized=true estimated-item-height=44 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" key=listKey testId="rows"
+          list virtualized=true estimated-item-height=44 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" key=listKey aria-label="Twenty rows" testId="rows"
             each r in rows key=`k${r}`
               row press=open(r) contextmenu=aim(r) dblclick=twice(r) key=rowKey testId=`row-${r}` align-items="center" gap=8 padding="6px 0" width="100%"
                 image "symbol:star" testId=`star-${r}`
@@ -521,6 +521,46 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertTrue(f.window.makeFirstResponder(f.table))
         key(48, "\t", in: f)
         XCTAssertNotNil(try f.node("field-3").field?.currentEditor(), "Tab from the table reached the field in row 3")
+    }
+
+    /// What VoiceOver is told: AppKit's own table, rows and cells (a stock
+    /// table's, whose tree is kept beside the audit's records), named by
+    /// the list, with what the runner's row says inside each cell.
+    func testVoiceOverIsToldATableOfRowsAndCellsNamedByTheList() throws {
+        let f = try keyed(count: 20, source: Self.acting)
+        click(try f.node("title-3"), in: f)
+        XCTAssertEqual(f.table.accessibilityRole(), .table)
+        XCTAssertEqual(f.table.accessibilityLabel(), "Twenty rows", "the list's name is the table's")
+        // AppKit's row elements are its own objects, which Swift's typed arrays of the protocol refuse: read as plain arrays.
+        func elements(_ name: String) throws -> [AnyObject] {
+            try XCTUnwrap(f.table.perform(NSSelectorFromString(name))?.takeUnretainedValue() as? NSArray).map { $0 as AnyObject }
+        }
+        let rows = try elements("accessibilityRows")
+        XCTAssertEqual(rows.count, 20, "a row for every item")
+        XCTAssertEqual(Presenter.axFacts(rows[3])?.role, "AXRow")
+        XCTAssertEqual(Presenter.axFacts(rows[3])?.selected, true, "the selected row is said selected")
+        XCTAssertEqual(Presenter.axFacts(rows[4])?.selected, false)
+        // The rows that show are the port's: the table keeps a view for every mounted row, and all twenty are mounted.
+        let port = f.table.rows(in: f.table.convert(f.clip.bounds, from: f.document))
+        XCTAssertEqual(f.feed.rowViews, 20)
+        XCTAssertLessThan(port.length, 20)
+        XCTAssertEqual(try elements("accessibilityVisibleRows").count, port.length, "VoiceOver is told the rows the port shows")
+        /// Every element under one, with its role and what it says, as the driver's `tree --ax` reads them.
+        func said(_ element: Any, depth: Int = 0) -> [String] {
+            guard depth < 8, let facts = Presenter.axFacts(element as AnyObject) else { return [] }
+            let says = [facts.label, facts.title, facts.value as? String].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+            return ["\(facts.role ?? "?") \(says)".trimmingCharacters(in: .whitespaces)] + facts.children.flatMap { said($0, depth: depth + 1) }
+        }
+        let tree = said(rows[3])
+        XCTAssertEqual(tree.first, "AXRow")
+        XCTAssertTrue(tree.contains("AXCell"), "\(tree)")
+        XCTAssertTrue(tree.contains("AXStaticText Row 3"), "the row's title is in its cell: \(tree)")
+        XCTAssertTrue(tree.contains("AXStaticText The second line of row 3"), "\(tree)")
+        XCTAssertFalse(said(rows[4]).isEmpty)
+        if let dir = ProcessInfo.processInfo.environment["EXACT_PROOF_SHOTS"] {
+            try? (["the table: \(f.table.accessibilityRole()?.rawValue ?? "?") \"\(f.table.accessibilityLabel() ?? "")\", \(rows.count) rows"] + tree.map { "  " + $0 })
+                .joined(separator: "\n").write(toFile: dir + "/table-ax.txt", atomically: true, encoding: .utf8)
+        }
     }
 
     /// The window server's picture of the fixture's window, saved where `EXACT_PROOF_SHOTS` says.
