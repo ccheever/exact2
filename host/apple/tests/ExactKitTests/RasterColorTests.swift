@@ -5,7 +5,7 @@ import CoreGraphics
 
 /// LLP 1100 §9 V3: each color fixture decodes to the class, storage and
 /// colors its `.json` says. The expected values come from the standards'
-/// numbers (`scripts/fixtures/color/make.swift`), so these hold the
+/// numbers (`host/apple/tests/ExactKitTests/ColorFixtures/make.swift`), so these hold the
 /// platform's decode and conversion to the standard, not to itself.
 final class RasterColorTests: XCTestCase {
     private struct Patch: Decodable { let x: Int; let y: Int; let w: Int; let h: Int; let linearSRGB: [Double]? }

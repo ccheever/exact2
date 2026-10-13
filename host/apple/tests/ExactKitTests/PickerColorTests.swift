@@ -104,7 +104,7 @@ final class PickerColorTests: XCTestCase {
         XCTAssertFalse(Picker.isHDR(jpeg))
         XCTAssertNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
-        XCTAssertEqual(CIImage(cgImage: image).contentHeadroom, 1)
+        assertSDRHeadroom(image)
         let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(jpeg, 0, nil) as? [CFString: Any])
         XCTAssertEqual(properties[kCGImagePropertyPixelWidth] as? Int, 64)
         XCTAssertEqual(properties[kCGImagePropertyPixelHeight] as? Int, 256)
@@ -135,7 +135,7 @@ final class PickerColorTests: XCTestCase {
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
         XCTAssertEqual(image.width, 64, "the SDR retry applies the source orientation")
         XCTAssertEqual(image.height, 256)
-        XCTAssertEqual(CIImage(cgImage: image).contentHeadroom, 1)
+        assertSDRHeadroom(image)
     }
 
     func testAnSDRRetryThatStaysHDRUsesAnOrientedCoreImageToneMap() throws {
@@ -157,7 +157,7 @@ final class PickerColorTests: XCTestCase {
         let jpeg = try XCTUnwrap(CGImageSourceCreateWithURL(out as CFURL, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
         XCTAssertFalse(Picker.isHDR(jpeg))
-        XCTAssertEqual(CIImage(cgImage: image).contentHeadroom, 1)
+        assertSDRHeadroom(image)
         XCTAssertEqual(image.colorSpace?.name, CGColorSpace.displayP3)
         XCTAssertEqual(image.width, 64)
         XCTAssertEqual(image.height, 256)
@@ -184,6 +184,75 @@ final class PickerColorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "even a finalized but rejected JPEG is removed")
     }
 
+    func testAnSDRSourceDoesNotUseTheHDRToneMap() throws {
+        guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("JPEG range validation needs macOS 15 / iOS 18") }
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+        defer { try? FileManager.default.removeItem(at: out) }
+        let hdr = try Data(contentsOf: Self.dir.appendingPathComponent("gainmap-iso.jpg"))
+        var attempts = 0
+        XCTAssertThrowsError(try Picker.jpeg(from: Self.dir.appendingPathComponent("p3.heic"), to: out, finalize: { destination in
+            attempts += 1
+            _ = CGImageDestinationFinalize(destination)
+            do { try hdr.write(to: out); return true }
+            catch { XCTFail("substituting the finalized JPEG: \(error)"); return false }
+        }))
+        XCTAssertEqual(attempts, 1, "an SDR source cannot enter the HDR tone-map fallback")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path))
+    }
+
+    func testAnAcceptableJPEGSurvivesAnUnavailableCoreImageFallback() throws {
+        guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("JPEG range validation needs macOS 15 / iOS 18") }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("source.heic"), out = directory.appendingPathComponent("picked.jpg")
+        try FileManager.default.copyItem(at: Self.dir.appendingPathComponent("gainmap-iso.heic"), to: source)
+        let sdr = try Data(contentsOf: Self.dir.appendingPathComponent("p3-camera.jpg"))
+        let hdr = try Data(contentsOf: Self.dir.appendingPathComponent("gainmap-iso.jpg"))
+        var attempts = 0
+        XCTAssertNoThrow(try Picker.jpeg(from: source, to: out, finalize: { destination in
+            attempts += 1
+            _ = CGImageDestinationFinalize(destination)
+            do {
+                try (attempts == 1 ? sdr : hdr).write(to: out)
+                if attempts == 2 { try FileManager.default.removeItem(at: source) }
+                return true
+            } catch { XCTFail("substituting the finalized JPEG: \(error)"); return false }
+        }))
+        XCTAssertEqual(attempts, 2)
+        XCTAssertNil(CIImage(contentsOf: source), "Core Image cannot decode the removed source")
+        XCTAssertEqual(try Data(contentsOf: out), sdr, "a valid earlier SDR rendition is still delivered")
+    }
+
+    func testARejectedHDRThumbnailDeclinesBeforeFinalizationAndStillConverts() throws {
+        guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("HDR decode requests need macOS 15 / iOS 18") }
+        let source = Self.dir.appendingPathComponent("gainmap-orient6.heic")
+        let rejectHDR: (CGImageSource, Int, CFDictionary?) -> CGImage? = { source, index, options in
+            let request = (options as? [CFString: Any])?[kCGImageSourceDecodeRequest] as? String
+            if request == kCGImageSourceDecodeToHDR as String { return nil }
+            return CGImageSourceCreateThumbnailAtIndex(source, index, options)
+        }
+        var declined: HDRPlatformProbe.Declined?
+        XCTAssertNoThrow(declined = try HDRPlatformProbe.declined("gainmap-orient6.heic: rejected HDR thumbnail", {
+            try HDRPlatformProbe.requireGainMapJPEG(source, thumbnail: rejectHDR)
+        }))
+        XCTAssertEqual(declined?.finalizations, 0, "a declined HDR decode never reached the encoder")
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+        defer { try? FileManager.default.removeItem(at: out) }
+        var attempts = 0
+        try Picker.jpeg(from: source, to: out, thumbnail: rejectHDR, finalize: { destination in
+            attempts += 1
+            return CGImageDestinationFinalize(destination)
+        })
+        XCTAssertEqual(attempts, 1, "only the SDR retry reached finalization")
+        let jpeg = try XCTUnwrap(CGImageSourceCreateWithURL(out as CFURL, nil))
+        XCTAssertFalse(Picker.isHDR(jpeg))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
+        assertSDRHeadroom(image)
+        XCTAssertEqual(image.width, 64)
+        XCTAssertEqual(image.height, 256)
+    }
+
     func testAnHDRPhotoKeepsItsGainMapAndProfile() throws {
         for file in ["gainmap-iso.heic", "pq.heic", "pq.avif", "hlg.heic"] {
             let declined = try HDRPlatformProbe.declined("\(file): HDR JPEG and gain map", {
@@ -205,28 +274,27 @@ final class PickerColorTests: XCTestCase {
             }
             XCTAssertNil(conversionError, "\(file): JPEG conversion must succeed")
             var expectedAttempts = 1
+            var needsToneMap = false
             if #available(macOS 15, iOS 18, tvOS 18, *), declined != nil {
                 let sdrDeclined = try HDRPlatformProbe.declined("\(file): ImageIO SDR JPEG", {
                     try HDRPlatformProbe.requireSDRJPEG(Self.dir.appendingPathComponent(file))
                 })
-                expectedAttempts = sdrDeclined == nil ? 2 : 3
+                needsToneMap = sdrDeclined != nil
+                expectedAttempts = declined!.finalizations + (sdrDeclined?.finalizations ?? 1) + (needsToneMap ? 1 : 0)
             }
             XCTAssertEqual(attempts, expectedAttempts, "\(file): each supported encode must succeed on its first attempt")
-            XCTContext.runActivity(named: "\(file): JPEG conversion took \(attempts) attempt(s)") { _ in }
+            XCTContext.runActivity(named: "\(file): JPEG conversion attempted \(attempts) finalization(s)") { _ in }
             guard let jpeg = converted else { continue }
             let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
             let (w, h) = try XCTUnwrap(Picker.pixels(Self.dir.appendingPathComponent(file)))
             XCTAssertEqual(image.width, w, file)
             XCTAssertEqual(image.height, h, file)
-            if attempts > 1 {
+            if #available(macOS 15, iOS 18, tvOS 18, *), declined != nil {
                 XCTAssertFalse(Picker.isHDR(jpeg), "\(file): the retry writes plain SDR")
-                if #available(macOS 15, iOS 18, tvOS 18, *) {
-                    let headroom = CIImage(cgImage: image).contentHeadroom
-                    XCTAssertTrue(headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true), file)
-                    XCTAssertNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap), file)
-                }
+                assertSDRHeadroom(image)
+                XCTAssertNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap), file)
             }
-            if attempts == 3 {
+            if needsToneMap {
                 try assertCoreImageToneMap(image, file: file)
             }
             if declined == nil && attempts == 1 {
@@ -256,13 +324,20 @@ final class PickerColorTests: XCTestCase {
             try HDRPlatformProbe.requireGainMapJPEG(Self.dir.appendingPathComponent("gainmap-orient6.heic"))
         })
         if declined == nil { XCTAssertEqual(attempts, 1, "a supported gain-map encode must not fall back to SDR") }
-        XCTContext.runActivity(named: "gainmap-orient6.heic: JPEG conversion took \(attempts) attempt(s)") { _ in }
+        XCTContext.runActivity(named: "gainmap-orient6.heic: JPEG conversion attempted \(attempts) finalization(s)") { _ in }
         if declined == nil && attempts == 1 {
             XCTAssertTrue(Picker.isHDR(jpeg))
             if #available(macOS 15, iOS 18, tvOS 18, *) {
                 XCTAssertNotNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap))
             }
         }
+    }
+
+    @available(macOS 15, iOS 18, tvOS 18, *)
+    private func assertSDRHeadroom(_ image: CGImage, file: StaticString = #filePath, line: UInt = #line) {
+        let headroom = CIImage(cgImage: image).contentHeadroom
+        XCTAssertTrue(headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true),
+            "SDR headroom is 1, or unknown in a non-BT.2100 space: \(headroom)", file: file, line: line)
     }
 
     private func assertCoreImageToneMap(_ image: CGImage, file: String) throws {

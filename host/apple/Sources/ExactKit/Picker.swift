@@ -184,7 +184,9 @@ final class Picker: NSObject {
     /// map where ImageIO can encode it, preserving the color profile.
     /// A rejected HDR encode retries ImageIO's SDR rendition, then Core
     /// Image's Display P3 tone map if ImageIO still writes HDR (LLP 1100 D13).
-    static func jpeg(from: URL, to: URL, finalize: (CGImageDestination) -> Bool = CGImageDestinationFinalize) throws {
+    static func jpeg(from: URL, to: URL,
+                     thumbnail: (CGImageSource, Int, CFDictionary?) -> CGImage? = CGImageSourceCreateThumbnailAtIndex,
+                     finalize: (CGImageDestination) -> Bool = CGImageDestinationFinalize) throws {
         var accepted = false
         defer { if !accepted { try? FileManager.default.removeItem(at: to) } }
         guard let source = CGImageSourceCreateWithURL(from as CFURL, nil), let (w, h) = pixels(from)
@@ -197,14 +199,13 @@ final class Picker: NSObject {
         }
         func write(hdr: Bool) throws {
             let options = jpegOptions(maxPixel: max(w, h), hdr: hdr)
-            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options.decode as CFDictionary)
+            guard let image = thumbnail(source, 0, options.decode as CFDictionary)
             else { throw CocoaError(.fileReadCorruptFile) }
             try encode(image, options: options.encode)
         }
         @available(iOS 18, macOS 15, tvOS 18, *)
-        func isSDRResult() -> Bool {
-            guard let result = CGImageSourceCreateWithURL(to as CFURL, nil),
-                  !isHDR(result), let image = CGImageSourceCreateImageAtIndex(result, 0, nil)
+        func isSDRResult(_ result: CGImageSource) -> Bool {
+            guard !isHDR(result), let image = CGImageSourceCreateImageAtIndex(result, 0, nil)
             else { return false }
             // CIImage reports 0 for unknown headroom, 1 for SDR.
             // https://developer.apple.com/documentation/coreimage/ciimage/contentheadroom
@@ -212,24 +213,39 @@ final class Picker: NSObject {
             return headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true)
         }
         var wantsHDR = false
+        var sdrFallback: Data?
         if #available(iOS 18, macOS 15, tvOS 18, *) { wantsHDR = isHDR(source) }
         if #available(iOS 18, macOS 15, tvOS 18, *), wantsHDR,
            (try? write(hdr: true)) != nil,
-           let result = CGImageSourceCreateWithURL(to as CFURL, nil),
-           CGImageSourceCopyAuxiliaryDataInfoAtIndex(result, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil,
-           isHDR(result) { accepted = true; return }
-        try write(hdr: false)
-        if #available(iOS 18, macOS 15, tvOS 18, *), !isSDRResult() {
-            // ImageIO can finalize a JPEG while ignoring both SDR requests.
-            guard let image = CIImage(contentsOf: from, options: [.toneMapHDRtoSDR: true, .applyOrientationProperty: true]),
-                  let working = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3),
-                  let output = CGColorSpace(name: CGColorSpace.displayP3)
-            else { throw CocoaError(.fileWriteUnknown) }
-            let context = CIContext(options: [.workingColorSpace: working])
-            guard let bitmap = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: output)
-            else { throw CocoaError(.fileWriteUnknown) }
-            try encode(bitmap, options: [kCGImageDestinationLossyCompressionQuality: 0.9])
-            guard isSDRResult() else { throw CocoaError(.fileWriteUnknown) }
+           let result = CGImageSourceCreateWithURL(to as CFURL, nil) {
+            if CGImageSourceCopyAuxiliaryDataInfoAtIndex(result, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil,
+               isHDR(result) { accepted = true; return }
+            // An ignored gain-map request can still produce a usable SDR JPEG.
+            if isSDRResult(result) { sdrFallback = try Data(contentsOf: to) }
+        }
+        do {
+            try write(hdr: false)
+            if #available(iOS 18, macOS 15, tvOS 18, *) {
+                guard let result = CGImageSourceCreateWithURL(to as CFURL, nil)
+                else { throw CocoaError(.fileWriteUnknown) }
+                if !isSDRResult(result) {
+                    // ImageIO can finalize a JPEG while ignoring both SDR requests.
+                    guard wantsHDR, isHDR(result),
+                          let image = CIImage(contentsOf: from, options: [.toneMapHDRtoSDR: true, .applyOrientationProperty: true]),
+                          let working = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3),
+                          let output = CGColorSpace(name: CGColorSpace.displayP3)
+                    else { throw CocoaError(.fileWriteUnknown) }
+                    let context = CIContext(options: [.workingColorSpace: working])
+                    guard let bitmap = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: output)
+                    else { throw CocoaError(.fileWriteUnknown) }
+                    try encode(bitmap, options: [kCGImageDestinationLossyCompressionQuality: 0.9])
+                    guard let converted = CGImageSourceCreateWithURL(to as CFURL, nil), isSDRResult(converted)
+                    else { throw CocoaError(.fileWriteUnknown) }
+                }
+            }
+        } catch {
+            guard let sdrFallback else { throw error }
+            try sdrFallback.write(to: to, options: .atomic)
         }
         accepted = true
     }

@@ -698,13 +698,16 @@ quality 0.9 with orientation applied and no metadata copied.
   the ISO gain map and classify as HDR. A failed or declined encode retries
   with ImageIO's SDR decode and encode requests. The retry must classify as
   SDR and report `CIImage.contentHeadroom` 1, or 0 (unknown) in a non-BT.2100
-  space. If a finalized retry still fails that validation, a third encode
-  uses Core Image's `toneMapHDRtoSDR`, applies the source orientation, and
-  renders RGBA8 Display P3 in an extended linear Display P3 working space.
+  space. Only an HDR source whose finalized SDR retry still classifies as
+  HDR enters a third encode. It uses Core Image's `toneMapHDRtoSDR`, applies
+  the source orientation, and renders RGBA8 Display P3 in an extended linear
+  Display P3 working space.
   It writes a plain JPEG and requires the same SDR validation. Core Image's
   option is available from iOS/tvOS 14.1 and macOS 11; this fallback runs
   inside the 18/15/18 guard needed for the paired ImageIO requests and
-  headroom validation. A failed conversion removes its output.
+  headroom validation. If the gain-map request instead produced a valid SDR
+  JPEG, it is kept as a fallback should either later attempt fail. Conversion
+  fails and removes its output only when no finalized attempt was acceptable.
 - Before 18, an HDR photo becomes its SDR picture.
 
 ## 5. What this changes elsewhere
@@ -896,7 +899,7 @@ On an iPhone with an XDR display and a MacBook Pro with XDR:
 ### V8 — Linux (blocking pinned tests, `host/linux/tests/pinned/`)
 
 - `F1` and `F2` match Chrome's rendering of the same file (recorded into
-  `scripts/fixtures/color/*.web.png` under `--force-color-profile=srgb`),
+  `host/apple/tests/ExactKitTests/ColorFixtures/*.web.png` under `--force-color-profile=srgb`),
   within mean ≤ 2/255 and ≤ 2% beyond 48.
 - A tagged picture (`F3`, `F12p`) draws its raw pixels.
 - An sRGB-gamut `display-p3` color draws its CSS-computed sRGB value.
@@ -905,13 +908,13 @@ On an iPhone with an XDR display and a MacBook Pro with XDR:
 
 ## 9. Fixtures
 
-**Where they live:** `scripts/fixtures/color/`, committed. Each picture is
+**Where they live:** `host/apple/tests/ExactKitTests/ColorFixtures/`, committed. Each picture is
 small (64×64 to 256×64; `F17` is 4096×4096). Each has a sibling
 `<name>.json` with its class, bits per component, and patch values in
 extended linear sRGB (and in cd/m² for PQ). V3, V5 and V8 read the same
 JSON.
 
-**How they are made:** `scripts/fixtures/color/make.swift`, run by hand on
+**How they are made:** `host/apple/tests/ExactKitTests/ColorFixtures/make.swift`, run by hand on
 macOS 15 or later. It writes the pictures through ImageIO's own encoders
 and the JSON from the same patch definitions. No check runs it.
 

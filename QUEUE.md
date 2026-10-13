@@ -815,7 +815,8 @@ sits on that list carries the trade it would take.
   Physical iOS remains unqualified: run `HDRColorTests`, `HDRImageTests`,
   `PickerColorTests` and `RasterColorTests` on a connected iPhone and require
   no declined assertion groups, skips or expected failures. Their colour
-  fixtures are SwiftPM resources loaded through `Bundle.module`.
+  fixtures live in `host/apple/tests/ExactKitTests/ColorFixtures` as regular
+  files, copied into SwiftPM resources and loaded through `Bundle.module`.
   From the repository root, build the device archive and unsigned test bundle
   (the generic iOS build passed without a phone):
 
