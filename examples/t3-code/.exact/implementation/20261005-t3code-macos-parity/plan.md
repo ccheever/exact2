@@ -306,10 +306,15 @@ X79, X81, X82, X84, X85, X86, X58 and X13's pan (#491, #490, #493, #494, #486, #
 round 11, and decided X80 by the platform rule. `realinput-1011c` (the bundle of `1f813789b`, 2026-10-12 to 10-13) ran
 the verify-1011c groups and those tasks' rows: 141 rows, 70 passed, 29 failed, 29 passed in part, 6 not run, 2 not
 reachable, 1 not filmable, 4 other. Its failures and part passes are in `STATUS.md` "Known differences" (the user's
-rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`), which draft main PR #519 (opened
-2026-10-13, not merged) files as `issues/closed/20261013-macos-a-click-after-a-node.md` and fixes. Open: nothing that can
-move; the held tasks below wait for an adoption round: main fixed X48 and X69 on 2026-10-12 (`eaf48e05c`, `afe11ead5`),
-with the other issues it closed after round 11 (`EXACT2-GAPS.md` "Closed on main since round 11"), none adopted yet.
+rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`), which main PR #519 (opened
+2026-10-13, merged as `b49c56029`) files as `issues/closed/20261013-macos-a-click-after-a-node.md` and fixes.
+[adopt-main-fixes-r12](tasks/20261013-adopt-main-fixes-r12.md) (draft PR) adopts main `46f300937` with #519: agent mode
+reproduces the crash's mechanism on the T3 tip's bundle and not on round 12's, and finds another framework crash of the
+same pattern (X87, main `3998e650e`: a press held on a scroller's empty area); the four rows wait for real input. It
+opts the clone's lists and popovers out of the Mac's table and `NSPopover` (LLP 1115.002 D5, D7.3) to keep the
+reference's look, retires X70's disabled pill and the "+N" toggle's solid underline, and lists the other workarounds
+main's fixes since round 11 end (`EXACT2-GAPS.md` "Closed on main since round 11"). The held tasks below can resume
+once it merges: main fixed X48 and X69 on 2026-10-12 (`eaf48e05c`, `afe11ead5`).
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
