@@ -1,21 +1,66 @@
-// Generated from the built T3 reference bundle (Pierre file icons; MIT, see
-// LICENSE-T3) by a one-off script that is not in the repository: the same
-// resolution as timeline-files.ts, whose tables came from the same bundle.
-const PIERRE_BY_NAME: &[(&str, &str)] = &[("package.json", "npm-plain"), ("tsconfig.json", "typescript-plain"), ("agents.md", "agents"), ("pnpm-lock.yaml", "pnpm"), ("pnpm-workspace.yaml", "pnpm"), (".babelrc", "babel"), (".babelrc.json", "babel"), (".bash_profile", "bash"), (".bashrc", "bash"), (".browserslistrc", "browserslist"), (".dockerignore", "docker"), (".eslintignore", "eslint"), (".eslintrc", "eslint"), (".eslintrc.cjs", "eslint"), (".eslintrc.js", "eslint"), (".eslintrc.json", "eslint"), (".eslintrc.yaml", "eslint"), (".eslintrc.yml", "eslint"), (".gitattributes", "git"), (".gitignore", "git"), (".gitkeep", "git"), (".gitmodules", "git"), (".oxlintrc.json", "oxc"), (".postcssrc", "postcss"), (".postcssrc.json", "postcss"), (".postcssrc.yaml", "postcss"), (".postcssrc.yml", "postcss"), (".prettierignore", "prettier"), (".prettierrc", "prettier"), (".prettierrc.cjs", "prettier"), (".prettierrc.js", "prettier"), (".prettierrc.json", "prettier"), (".prettierrc.mjs", "prettier"), (".prettierrc.toml", "prettier"), (".prettierrc.yaml", "prettier"), (".prettierrc.yml", "prettier"), (".stylelintignore", "stylelint"), (".stylelintrc", "stylelint"), (".stylelintrc.cjs", "stylelint"), (".stylelintrc.js", "stylelint"), (".stylelintrc.json", "stylelint"), (".stylelintrc.mjs", "stylelint"), (".stylelintrc.yaml", "stylelint"), (".stylelintrc.yml", "stylelint"), (".terraform.lock.hcl", "terraform"), (".zprofile", "bash"), (".zshenv", "bash"), (".zshrc", "bash"), ("babel.config.cjs", "babel"), ("babel.config.js", "babel"), ("babel.config.json", "babel"), ("babel.config.mjs", "babel"), ("biome.json", "biome"), ("biome.jsonc", "biome"), ("bootstrap.bundle.js", "bootstrap"), ("bootstrap.bundle.min.js", "bootstrap"), ("bootstrap.css", "bootstrap"), ("bootstrap.js", "bootstrap"), ("bootstrap.min.css", "bootstrap"), ("bootstrap.min.js", "bootstrap"), ("bun.lock", "bun"), ("bun.lockb", "bun"), ("bunfig.toml", "bun"), ("claude.md", "claude"), ("compose.yaml", "docker"), ("compose.yml", "docker"), ("docker-compose.override.yml", "docker"), ("docker-compose.yaml", "docker"), ("docker-compose.yml", "docker"), ("dockerfile", "docker"), ("eslint.config.cjs", "eslint"), ("eslint.config.js", "eslint"), ("eslint.config.mjs", "eslint"), ("eslint.config.mts", "eslint"), ("eslint.config.ts", "eslint"), ("gemfile", "ruby"), ("next.config.js", "nextjs"), ("next.config.mjs", "nextjs"), ("next.config.mts", "nextjs"), ("next.config.ts", "nextjs"), ("postcss.config.cjs", "postcss"), ("postcss.config.js", "postcss"), ("postcss.config.mjs", "postcss"), ("postcss.config.ts", "postcss"), ("prettier.config.cjs", "prettier"), ("prettier.config.js", "prettier"), ("prettier.config.mjs", "prettier"), ("rakefile", "ruby"), ("readme.md", "markdown"), ("stylelint.config.cjs", "stylelint"), ("stylelint.config.js", "stylelint"), ("stylelint.config.mjs", "stylelint"), ("svgo.config.cjs", "svgo"), ("svgo.config.js", "svgo"), ("svgo.config.mjs", "svgo"), ("svgo.config.ts", "svgo"), ("tailwind.config.cjs", "tailwind"), ("tailwind.config.js", "tailwind"), ("tailwind.config.mjs", "tailwind"), ("tailwind.config.ts", "tailwind"), ("vite.config.js", "vite"), ("vite.config.mjs", "vite"), ("vite.config.mts", "vite"), ("vite.config.ts", "vite"), ("webpack.config.babel.js", "webpack"), ("webpack.config.cjs", "webpack"), ("webpack.config.js", "webpack"), ("webpack.config.mjs", "webpack"), ("webpack.config.ts", "webpack")];
-const PIERRE_COMPLETE: &[(&str, &str)] = &[("jsx", "react"), ("sass", "sass"), ("scss", "sass"), ("tsx", "react")];
-const PIERRE_BY_EXTENSION: &[(&str, &str)] = &[("7z", "zip"), ("AUTHORS", "text"), ("CHANGELOG", "text"), ("CONTRIBUTORS", "text"), ("LICENSE", "text"), ("astro", "astro"), ("avif", "image"), ("bash", "bash"), ("bmp", "image"), ("bz2", "zip"), ("c", "c"), ("cc", "cpp"), ("cfg", "text"), ("cjs", "javascript"), ("code-workspace", "vscode"), ("conf", "text"), ("cpp", "cpp"), ("csh", "bash"), ("css", "css"), ("csv", "table"), ("cts", "typescript"), ("cxx", "cpp"), ("db", "database"), ("editorconfig", "text"), ("env", "text"), ("env.development", "text"), ("env.local", "text"), ("env.production", "text"), ("eot", "font"), ("erb", "ruby"), ("fish", "bash"), ("gemspec", "ruby"), ("gif", "image"), ("go", "go"), ("gql", "graphql"), ("graphql", "graphql"), ("gz", "zip"), ("h", "c"), ("hh", "cpp"), ("hpp", "cpp"), ("htm", "html"), ("html", "html"), ("hxx", "cpp"), ("icns", "image"), ("ico", "image"), ("ini", "text"), ("inl", "cpp"), ("jar", "zip"), ("jpeg", "image"), ("jpg", "image"), ("js", "javascript"), ("json", "json"), ("json5", "json"), ("jsonc", "json"), ("jsonl", "json"), ("jsx", "javascript"), ("ksh", "bash"), ("less", "css"), ("log", "text"), ("markdown", "markdown"), ("mcp", "mcp"), ("md", "markdown"), ("mdx", "markdown"), ("mdx.tsx", "markdown"), ("mjs", "javascript"), ("mm", "cpp"), ("mts", "typescript"), ("ods", "table"), ("otf", "font"), ("png", "image"), ("postcss", "css"), ("py", "python"), ("pyi", "python"), ("pyw", "python"), ("pyx", "python"), ("rake", "ruby"), ("rar", "zip"), ("rb", "ruby"), ("rs", "rust"), ("rst", "text"), ("rtf", "text"), ("sass", "css"), ("scss", "css"), ("sh", "bash"), ("sql", "database"), ("sqlite", "database"), ("sqlite3", "database"), ("styl", "css"), ("svelte", "svelte"), ("svg", "svg"), ("swift", "swift"), ("tar", "zip"), ("tf", "terraform"), ("tfstate", "terraform"), ("tfvars", "terraform"), ("tgz", "zip"), ("tif", "image"), ("tiff", "image"), ("ts", "typescript"), ("tsv", "table"), ("tsx", "typescript"), ("ttf", "font"), ("txt", "text"), ("vue", "vue"), ("war", "zip"), ("wasm", "wasm"), ("wast", "wasm"), ("wat", "wasm"), ("webp", "image"), ("woff", "font"), ("woff2", "font"), ("xhtml", "html"), ("xls", "table"), ("xlsx", "table"), ("xz", "zip"), ("yaml", "yml"), ("yml", "yml"), ("zig", "zig"), ("zip", "zip"), ("zsh", "bash")];
+// Pierre file-icon resolution for the Markdown module's file chips, as timeline-files.ts resolves
+// (@pierre/trees createFileTreeIconResolver, Apache-2.0, with T3's T3_PIERRE_ICONS, MIT; see LICENSE-T3).
+// Pierre's own tables are generated (macos/pierre-icons.tsv, tools/generate/gen-icons.mjs), so they
+// are read at run time from `crate::pierre_tables()`: the library embeds the file (lib.rs) and the
+// bake reads the one its build script has just generated (build.rs).
+
+/// T3_PIERRE_ICONS.byFileName: two remap a built-in icon to its shape without its colour.
+const T3_PIERRE_BY_NAME: &[(&str, &str)] = &[
+    ("package.json", "npm-plain"),
+    ("tsconfig.json", "typescript-plain"),
+    ("agents.md", "agents"),
+    ("pnpm-lock.yaml", "pnpm"),
+    ("pnpm-workspace.yaml", "pnpm"),
+];
+
+/// Pierre's file-name, complete-set extension and extension tables.
+#[derive(Default)]
+struct PierreTables {
+    name: std::collections::HashMap<&'static str, &'static str>,
+    complete: std::collections::HashMap<&'static str, &'static str>,
+    extension: std::collections::HashMap<&'static str, &'static str>,
+}
+
+fn pierre_tables_parsed() -> &'static PierreTables {
+    static TABLES: std::sync::OnceLock<PierreTables> = std::sync::OnceLock::new();
+    TABLES.get_or_init(|| {
+        let mut tables = PierreTables::default();
+        // One row per entry: kind, key, token; `#` lines are the header.
+        for row in crate::pierre_tables().lines().filter(|row| !row.starts_with('#')) {
+            let mut fields = row.split('\t');
+            let (Some(kind), Some(key), Some(token)) = (fields.next(), fields.next(), fields.next()) else {
+                continue;
+            };
+            let table = match kind {
+                "name" => &mut tables.name,
+                "complete" => &mut tables.complete,
+                "extension" => &mut tables.extension,
+                _ => continue,
+            };
+            table.insert(key, token);
+        }
+        tables
+    })
+}
 
 /// The Pierre icon token for a path ("default" when no specific icon exists).
 fn pierre_icon_token(path: &str) -> &'static str {
     let base = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
-    let find = |table: &[(&str, &'static str)], key: &str| table.iter().find(|(name, _)| *name == key).map(|(_, token)| *token);
-    if let Some(token) = find(PIERRE_BY_NAME, &base) {
+    if let Some((_, token)) = T3_PIERRE_BY_NAME.iter().find(|(name, _)| *name == base) {
+        return token;
+    }
+    let tables = pierre_tables_parsed();
+    if let Some(token) = tables.name.get(base.as_str()) {
         return token;
     }
     let parts: Vec<&str> = base.split('.').collect();
     for index in 1..parts.len() {
         let extension = parts[index..].join(".");
-        if let Some(token) = find(PIERRE_COMPLETE, &extension).or_else(|| find(PIERRE_BY_EXTENSION, &extension)) {
+        if let Some(token) = tables
+            .complete
+            .get(extension.as_str())
+            .or_else(|| tables.extension.get(extension.as_str()))
+        {
             return token;
         }
     }

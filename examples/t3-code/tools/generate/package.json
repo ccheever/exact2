@@ -1,0 +1,16 @@
+{
+  "name": "t3-code-generate",
+  "private": true,
+  "description": "The clone's generated sources (generate.mjs): built from these pinned packages and committed inputs, never committed. The app build (macos/build.rs) runs it.",
+  "type": "module",
+  "dependencies": {
+    "@pierre/theme": "1.1.0",
+    "@pierre/trees": "1.0.0-beta.4",
+    "@shikijs/langs": "4.2.0",
+    "lucide": "0.564.0",
+    "lucide-react": "0.564.0",
+    "morphicons": "1.7.1",
+    "oniguruma-parser": "0.12.2",
+    "oniguruma-to-es": "4.3.6"
+  }
+}

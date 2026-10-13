@@ -5,9 +5,9 @@ import { grammarId, grammarWork, loadedGrammarChunks, tokenizeLine, tokenizeLine
 import { GRAMMAR_CHUNKS, GRAMMAR_INDEX, GRAMMAR_LANGUAGES } from './r12-render-grammar';
 import { FILE_TYPES } from './r12-render-filetypes';
 
-/** tools/grammar/gen-grammar.mjs LICENCE_HELD: the grammars left out for their licences (GPL-3.0, or none granted
- *  upstream; the coordinator's decision of 2026-10-12. The generator is a developer tool with its own packages;
- *  gen-grammar.test.ts checks the committed data is what it makes). */
+/** tools/generate/gen-grammar.mjs LICENCE_HELD: the grammars left out for their licences (GPL-3.0, or none granted
+ *  upstream; the coordinator's decision of 2026-10-12. The generator has its own pinned packages; the data is
+ *  generated, not committed, and generate.test.ts checks what is on disk is what it makes). */
 const LICENCE_HELD = ['ada', 'dax', 'dream-maker', 'glsl', 'gnuplot', 'nginx', 'racket', 'tcl'];
 import { lineTokens } from './timeline-diff-syntax';
 
@@ -39,7 +39,7 @@ afterEach(() => resetHighlightSlicing());
 describe('the reference\'s whole language list (code-highlighting-languages)', () => {
   test('Shiki 4.2\'s 235 languages and 97 aliases but the 8 held for their licences (tools/shiki-compare --list checks the names)', () => {
     const index = JSON.parse(GRAMMAR_INDEX) as { roots: Record<string, number>; aliases: Record<string, string>; chunks: unknown[] };
-    // LICENCE_HELD (tools/grammar/gen-grammar.mjs) leaves out eight languages, none with an alias.
+    // LICENCE_HELD (tools/generate/gen-grammar.mjs) leaves out eight languages, none with an alias.
     expect(LICENCE_HELD.length).toBe(8);
     expect(Object.keys(index.roots).length).toBe(235 - 8);
     expect(Object.keys(index.aliases).length).toBe(97);
