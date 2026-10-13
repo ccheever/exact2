@@ -83,7 +83,7 @@ component AddThemeDialog
                 row min-height="5rem" align-items="center" justify-content="center" gap="0.5rem"
                   text "Searching themes..." font-size="0.875rem" line-height="1.25rem" color=pal.muted
               when data.searched and length(data.results) == 0 and not data.searching
-                column min-height="10rem" align-items="center" justify-content="center" border-radius="1rem" border-width=1 border-style="solid" border-color=pal.border testId="add-theme-empty"
+                column min-height="10rem" align-items="center" justify-content="center" border-radius="1rem" border-width=1 border-style="dashed" border-color=pal.border testId="add-theme-empty"
                   text "No supported open-source themes found" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
                   text "Try a broader search." font-size="0.75rem" line-height="1rem" margin-top="0.25rem" color=pal.muted
               when length(data.results) > 0
@@ -94,7 +94,7 @@ component AddThemeDialog
               box flex=1 height=1 background-color=pal.border
               text "OR IMPORT A FILE" font-size="0.6875rem" line-height="1rem" letter-spacing=0.6 color=pal.muted
               box flex=1 height=1 background-color=pal.border
-            row width="100%" align-items="center" justify-content="space-between" gap="0.75rem" flex-wrap="wrap" padding="0.75rem" box-sizing="border-box" border-radius="0.875rem" border-width=1 border-style="solid" border-color=pal.border background-color=pal.footer testId="add-theme-file"
+            row width="100%" align-items="center" justify-content="space-between" gap="0.75rem" flex-wrap="wrap" padding="0.75rem" box-sizing="border-box" border-radius="0.875rem" border-width=1 border-style="dashed" border-color=pal.border background-color=pal.footer testId="add-theme-file"
               column min-width=0
                 text "Theme file" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
                 text (data.fileName == "" ? "Drop T3 Code or VS Code .json files" : data.fileName) font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
