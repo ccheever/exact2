@@ -41,15 +41,19 @@ final class SettleScrollAnimationIOSTests: XCTestCase {
         if ExactEnv.agentFreezes { throw XCTSkip("frozen agent timing sets a correction at once") }
         XCTAssertTrue(p.collections.animating.contains(1), "the host animates the correction")
         XCTAssertTrue(agent.nativeInFlight(), "a running end-follow keeps settle waiting")
-        // Its end, after the 0.3 s motion.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        let deadline = Date().addingTimeInterval(10)
+        while agent.nativeInFlight(), Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
         XCTAssertFalse(agent.nativeInFlight(), "landed: settle may read the fixed point")
-        _ = list
+        XCTAssertEqual(scroll.contentOffset.y, 1700, accuracy: 0.5, "the correction reached its target")
         // A wheel before the next one's first tick interrupts it, as a drag does.
         let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
         p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 1000, "smooth": true])]))
         XCTAssertTrue(agent.nativeInFlight())
         Agent.scroll(from: scroll, dx: 0, dy: -100)
+        XCTAssertFalse(p.collections.animating.contains(1))
+        XCTAssertEqual(scroll.contentOffset.y, 1600, accuracy: 0.5, "the wheel interrupts at the visible offset")
         XCTAssertFalse(agent.nativeInFlight(), "an interrupted correction does not keep settle waiting")
     }
 }
