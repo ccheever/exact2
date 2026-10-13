@@ -202,7 +202,6 @@ impl NodeArena {
         self.env = env;
         self.refresh_control_styles();
     }
-
     /// Forget every allocation while retaining each slot's generation.
     ///
     /// Resetting the kernel must not make a pre-reset [`NodeKey`] valid for a
@@ -244,17 +243,14 @@ impl NodeArena {
         self.by_local.clear();
         self.live_count = 0;
     }
-
     /// Slots the columns hold (live plus free).
     pub fn slot_count(&self) -> usize {
         self.live.len()
     }
-
     /// Slots ever allocated: identities never repeat below this.
     pub(crate) fn slot_space(&self) -> usize {
         self.generations.len()
     }
-
     /// Return what the columns hold beyond the live nodes, once they hold
     /// more than twice as many slots: trailing free slots go (their
     /// generations stay, so a stale key never names a later node), and each
@@ -298,12 +294,10 @@ impl NodeArena {
         self.flow.shrink_to_fit();
         self.by_local.shrink_to_fit();
     }
-
     /// Whether `slot` holds a live node.
     pub fn is_live(&self, slot: u32) -> bool {
         (slot as usize) < self.live.len() && self.live[slot as usize]
     }
-
     /// The generation-checked key for a live slot.
     pub fn key(&self, slot: u32) -> NodeKey {
         NodeKey {
@@ -311,7 +305,6 @@ impl NodeArena {
             generation: self.generations[slot as usize],
         }
     }
-
     /// The slot a key names, if that allocation is still live.
     pub fn resolve(&self, key: NodeKey) -> Option<u32> {
         if self.is_live(key.index) && self.generations[key.index as usize] == key.generation {
@@ -320,34 +313,28 @@ impl NodeArena {
             None
         }
     }
-
     /// The slot holding wire id `id`.
     pub fn slot_of(&self, id: ViewId) -> Option<u32> {
         self.by_local.get(&id).copied()
     }
-
     /// The key for wire id `id`.
     pub fn key_of(&self, id: ViewId) -> Option<NodeKey> {
         self.slot_of(id).map(|s| self.key(s))
     }
-
     /// Wire id of a slot.
     pub fn local_id(&self, slot: u32) -> ViewId {
         self.local_ids[slot as usize]
     }
-
     /// Node type of a slot.
     pub fn node_type(&self, slot: u32) -> NodeType {
         self.node_types[slot as usize]
     }
-
     /// Whether a slot is a `<button>` element on the web: a Pressable,
     /// whatever its ARIA role, unless an `href` makes it an `<a>`.
     pub(crate) fn is_button(&self, slot: u32) -> bool {
         self.node_type(slot) == NodeType::Pressable
             && self.props(slot).str(crate::PropId::Href).is_none()
     }
-
     /// Parent slot.
     pub fn parent(&self, slot: u32) -> Option<u32> {
         self.parents[slot as usize]
