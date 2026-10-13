@@ -133,7 +133,9 @@ extension NodeView {
     /// (the value is at the bound it steps toward).
     @discardableResult
     func step(up: Bool) -> Bool {
-        guard let field, let next = NumberStepping(props).stepped(shownFieldText, up: up) else { return false }
+        guard !disabled, !inert, props["editable"] != "false", let field,
+              let next = NumberStepping(props).stepped(shownFieldText, up: up) else { return false }
+        defer { updateNumberStepper() }
         if let editor = field.currentEditor() as? NSTextView { writeValue(next, into: editor) } else { field.stringValue = next }
         toldText = next
         presenter?.typed(id, next, input: handlers.contains("input"))

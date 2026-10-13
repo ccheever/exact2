@@ -5,6 +5,28 @@
 import UIKit
 
 extension NodeView {
+    package func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        guard !disabled, !inert, props["editable"] != "false" else { return false }
+        if props["emojiPicker"] == "true" {
+            if EmojiSelection.accepts(string) { presenter?.typed(id, string, input: handlers.contains("input")) }
+            return false
+        }
+        if props["type"]?.lowercased() == "number", textField.markedTextRange == nil {
+            let filtered = NumberStepping.insertion(string, in: textField.text ?? "", range: range)
+            if filtered != string {
+                guard !filtered.isEmpty,
+                      TextInputLimit.allows(textField.text ?? "", range: range, replacement: filtered, props: props),
+                      let start = textField.position(from: textField.beginningOfDocument, offset: range.location),
+                      let end = textField.position(from: start, offset: range.length),
+                      let edit = textField.textRange(from: start, to: end) else { return false }
+                textField.replace(edit, withText: filtered)
+                fieldChanged()
+                return false
+            }
+        }
+        return TextInputLimit.allows(textField.text ?? "", range: range, replacement: string, props: props)
+    }
+
     /// As `writeValue(_:into:)` for a text view: the value the field already
     /// shows changes nothing, so a composition and its selection stand; a
     /// different one is held while text is marked and applied when the

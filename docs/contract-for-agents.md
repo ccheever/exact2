@@ -2726,6 +2726,9 @@ literal keywords and `px` of `column-count` and `column-rule-width` compile to
 their numbers). `max-width` and `max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
 `none` for either. A number field's (`input type="number"`, written so)
 `min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
+On the Mac, Up/Down and accessibility increment/decrement step the number even with
+`appearance="textfield"`. Apple number fields filter typing and paste while keeping signs,
+fractions, exponents and input-method composition; `inputmode` alone does not filter text.
 
 `autocomplete` on an `input` or `textarea` is HTML's attribute, written as
 HTML writes it (`autocomplete="username"`, `"section-login current-password"`,

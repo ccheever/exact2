@@ -1,6 +1,7 @@
 # macOS: a press on a `scroll`'s empty area reaches no node, so neither it nor an ancestor hears `pointerdown`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Empty scroll hits forward contact to the owner and keep AppKit's mouse target in its window through release when overflow changes; ScrollRoutingTests covers window-delivered contact, removal during pointerdown, horizontal/virtualized ports and wheel routing.
 **Systems:** host/apple macOS, scrolling, pointer events
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -84,3 +85,19 @@ The press path above is unchanged since `e200397ec`: the only later change to th
 - Workaround: put a full-height column (`min-height="100%"`) under the scroll content, so the empty area is covered by a node.
 - Not the same as #281, which is the opposite failure: a click inside an open popover also presses the page control under it, so too many nodes hear the press. #277 is about scroll restoration and `scroll-padding`, not hit testing.
 - Not tested: a right-click or `contextmenu` on the empty area, iOS, a horizontal scroller, and a page-level scroll (`PageScrollView`).
+
+## Review fix round 1 (2026-10-13)
+
+Reviewer A's removal finding reproduced in
+`testEmptyScrollPortKeepsTheMouseTargetWhenPointerDownHidesOverflow`: only
+`down` arrived and `pointerHeld`/`pointerSource` stayed set. The scroll view
+now remains transparent in its window until mouse-up, then removes itself;
+new hit tests skip that obsolete view. The test sends down, drag and up
+through `NSWindow.sendEvent` and checks delivery, cleared ownership and removal.
+
+The final targeted AppKit run passes all 48 tests, including the 17
+`ScrollRoutingTests`; fresh web and macOS X65 drives both show `outer 2`
+and `port 2`. Exact commands and the initial failing-test record are in
+[the number-field issue's review verification](20261009-macos-number-field-behavior.md#review-fix-round-1-2026-10-13).
+The window-event tests and agent drives are programmatic; no attended click
+or IME session is claimed.

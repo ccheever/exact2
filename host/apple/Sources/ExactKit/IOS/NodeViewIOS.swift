@@ -428,15 +428,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { applyPadBar(); return !disabled && !inert }
     package func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
-    package func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-        guard !disabled, !inert, props["editable"] != "false" else { return false }
-        if props["emojiPicker"] == "true" {
-            if EmojiSelection.accepts(string) { presenter?.typed(id, string, input: handlers.contains("input")) }
-            return false
-        }
-        return TextInputLimit.allows(textField.text ?? "", range: range, replacement: string, props: props)
-    }
-
     package func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         presenter?.focusAsked = nil
         guard !disabled else { return false }
