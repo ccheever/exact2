@@ -140,6 +140,54 @@ mod apple_codec {
     const FIXTURE: &[u8] = include_bytes!("../../scripts/fixtures/picker/oriented-gps.jpg");
 
     #[test]
+    fn wide_component_and_decoder_surfaces_refuse_before_pixel_decode() {
+        // Valid 16x16 blue RGBA PNGs, encoded at 8 and 16 bits per component.
+        const EIGHT: &[u8] = &[
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 16, 0, 0, 0, 16,
+            8, 6, 0, 0, 0, 31, 243, 255, 97, 0, 0, 0, 24, 73, 68, 65, 84, 120, 156, 99, 96, 96,
+            248, 255, 159, 50, 60, 106, 192, 168, 1, 163, 6, 12, 19, 3, 0, 50, 166, 254, 16, 229,
+            181, 228, 171, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+        ];
+        const SIXTEEN: &[u8] = &[
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 16, 0, 0, 0, 16,
+            16, 6, 0, 0, 0, 79, 99, 35, 34, 0, 0, 0, 36, 73, 68, 65, 84, 120, 156, 99, 96, 0, 130,
+            255, 64, 48, 144, 244, 168, 3, 70, 29, 48, 234, 128, 81, 7, 140, 58, 96, 212, 1, 163,
+            14, 24, 80, 7, 0, 0, 224, 136, 252, 46, 208, 93, 226, 31, 0, 0, 0, 0, 73, 69, 78, 68,
+            174, 66, 96, 130,
+        ];
+        assert!(compress_controlled(
+            EIGHT,
+            16,
+            1000,
+            later(),
+            &|| Ok(()),
+            MAX_SOURCE_PIXELS,
+            11000
+        )
+        .is_ok());
+        for (source, scratch) in [(SIXTEEN, 11000), (EIGHT, 8000)] {
+            let checks = std::cell::Cell::new(0);
+            let result = compress_controlled(
+                source,
+                16,
+                1000,
+                later(),
+                &|| {
+                    checks.set(checks.get() + 1);
+                    Ok(())
+                },
+                MAX_SOURCE_PIXELS,
+                scratch,
+            );
+            assert_eq!(
+                result.unwrap_err(),
+                failure("too-large", "image exceeds its codec memory reservation")
+            );
+            assert_eq!(checks.get(), 2, "no decode or encode trial may start");
+        }
+    }
+
+    #[test]
     fn the_fixture_is_turned_upright_and_loses_its_metadata() {
         let source = inspect(FIXTURE).unwrap();
         assert_eq!(
