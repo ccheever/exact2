@@ -65,7 +65,7 @@ tags: attributes; on events. Every tag takes CSS's style attributes (flex gap pa
   option "…": value
   progress: value max
   list: listStyle appearance virtualized refreshing scroll-start; on reachstart reachend refresh
-  scroll: scrollTop navigationScroll keyboardDismissMode; on scroll
+  scroll: scrollTop navigationScroll keyboardDismissMode; on scroll scrollend
   dialog: closedby; on cancel close
 
 parts: use X from "exact:content"; an option is none or some(…)

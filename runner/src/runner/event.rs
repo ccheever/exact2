@@ -206,6 +206,9 @@ pub enum Event {
         /// Whether it is open after the last change in this turn.
         new_open: bool,
     },
+    /// A scroll finished (DOM's `scrollend`): the person's, its momentum
+    /// included, or an animated one.
+    Scrollend,
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
     /// #2): its text, and the selection its `InputEvent` reports.
     FieldSelect(String, super::FieldSelection),
@@ -1051,6 +1054,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Cancel => "cancel",
                 Event::Close => "close",
                 Event::Toggle { .. } => "toggle",
+                Event::Scrollend => "scrollend",
                 Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
@@ -1106,13 +1110,13 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::InvalidEvent { event });
         }
         let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
-        // Dismissal events without a listener do nothing: a picker's
-        // `cancel` (LLP 1069.010 D3), or a dialog's `close` (LLP 1021).
-        if matches!(event, Event::Cancel | Event::Close) {
-            let kind = if matches!(event, Event::Close) {
-                EventKind::Close
-            } else {
-                EventKind::Cancel
+        // Events without a listener do nothing: a picker's `cancel` (LLP
+        // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end.
+        if matches!(event, Event::Cancel | Event::Close | Event::Scrollend) {
+            let kind = match event {
+                Event::Close => EventKind::Close,
+                Event::Scrollend => EventKind::Scrollend,
+                _ => EventKind::Cancel,
             };
             let has_handler = self
                 .plan
@@ -1163,6 +1167,7 @@ impl<D: DataSource> Runner<D> {
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
             Event::Close => (EventKind::Close, None, "close"),
             Event::Toggle { .. } => (EventKind::Toggle, None, "toggle"),
+            Event::Scrollend => (EventKind::Scrollend, None, "scrollend"),
             Event::Select {
                 formats,
                 mixed,

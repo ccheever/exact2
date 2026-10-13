@@ -598,6 +598,7 @@ fn refine_params_from_view(
                             | "reachstart"
                             | "reachend"
                             | "scroll"
+                            | "scrollend"
                             | "pan"
                             | "panrelease"
                             | "heightrelease"

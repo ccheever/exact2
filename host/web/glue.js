@@ -576,7 +576,7 @@ function attach(el, id, handlers) {
       on("pointerleave", () => send(wasm.exact_dispatch(id, 3, 0, now())));
     } else if (kind === "focusin" || kind === "focusout") {
       on(kind, e => { if (e.exactStopped) return; const target = e.target?.id ?? "", related = e.relatedTarget?.id, outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, kind === "focusin" ? 46 : 47, writeIn(`${encoder.encode(target).length}:${target}${related === undefined ? "0" : `1${related}`}`), now())); } finally { keyEvent = outer; } });
-    } else if (kind === "close") { on(kind, () => send(wasm.exact_dispatch(id, 49, 0, now()))); } else if (kind === "focus" || kind === "blur") {
+    } else if (kind === "close" || kind === "scrollend") { on(kind, () => send(wasm.exact_dispatch(id, kind === "close" ? 49 : 51, 0, now()))); } else if (kind === "focus" || kind === "blur") {
       on(kind, () => send(wasm.exact_dispatch(id, kind === "focus" ? 4 : 5, 0, now())));
     } else if (kind === "key" || kind === "keycapture" || kind === "keyup") {
       // `keycapture` (kind 44) hears keydown outermost first; `key` (6) and `keyup` (43) bubble with the web's key name (`e.key`).

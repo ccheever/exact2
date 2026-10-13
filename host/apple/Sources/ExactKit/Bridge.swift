@@ -325,6 +325,8 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, 13, n, now))
         }
     }
+    /// A scroll finished (DOM's `scrollend`), after its last `scroll`.
+    func scrollend(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 51, 0, now)) } }
     /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
     func intoView(_ view: UInt32, key: String, block: String, inline: String) -> Batch {
         return on {

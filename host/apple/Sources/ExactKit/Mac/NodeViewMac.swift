@@ -599,27 +599,31 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // The list window and the text bands follow the scroll; they are not
         // part of it (`Presenter.scrolled`).
         presenter?.scrolled()
-        repaintThrough(); queueScrollEvent()
+        repaintThrough(); queueScrollEvent(); scrollEndMoved()
     }
     private var scrollEventQueued = false
     private var lastScrollEvent = CGPoint.zero
+    var scrollEnd: ScrollEnd?
     private func queueScrollEvent() {
         guard handlers.contains("scroll"), !scrollEventQueued else { return }
         scrollEventQueued = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.scrollEventQueued = false
-            guard let sv = self.scroll, case let point = sv.contentView.bounds.origin, point != self.lastScrollEvent,
-                  self.presenter?.views[self.id] === self, self.hasScrollLayoutBox else { return }
-            self.lastScrollEvent = point
-            // CSS's extents (`ScrollEvent`): the port, and the port plus
-            // the range the clip view clamps to, so at the end
-            // `scrollHeight - scrollTop - clientHeight` is 0 (chat F4).
-            let port = sv.contentView.bounds.size, document = sv.documentView?.frame.size ?? port
-            let range = CGSize(width: max(0, document.width - port.width), height: max(0, document.height - port.height))
-            self.presenter?.scroll(self.id, [point.x, point.y, port.width + range.width, port.height + range.height,
-                                             port.width, port.height].map(Double.init))
+            self.sendScrollEvent()
         }
+    }
+    func sendScrollEvent() {
+        guard handlers.contains("scroll"), let sv = scroll, case let point = sv.contentView.bounds.origin, point != lastScrollEvent,
+              presenter?.views[id] === self, hasScrollLayoutBox else { return }
+        lastScrollEvent = point
+        // CSS's extents (`ScrollEvent`): the port, and the port plus
+        // the range the clip view clamps to, so at the end
+        // `scrollHeight - scrollTop - clientHeight` is 0 (chat F4).
+        let port = sv.contentView.bounds.size, document = sv.documentView?.frame.size ?? port
+        let range = CGSize(width: max(0, document.width - port.width), height: max(0, document.height - port.height))
+        presenter?.scroll(id, [point.x, point.y, port.width + range.width, port.height + range.height,
+                               port.width, port.height].map(Double.init))
     }
 
     /// The direct child of a canvas this node is under, when that child is
@@ -1065,6 +1069,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // A scroll under a canvas repaints it (LLP 1014 D4 c).
             sv.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
+            observeLiveScroll(sv, replacing: scroll)
             sv.autoresizingMask = [.width, .height]
             GlassGroups.moving(in: self) {
                 for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
@@ -1079,6 +1084,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
                 sv.removeFromSuperview()
             }
+            observeLiveScroll(nil, replacing: sv)
             scroll = nil
             presenter?.scrollers.remove(id)
         }
