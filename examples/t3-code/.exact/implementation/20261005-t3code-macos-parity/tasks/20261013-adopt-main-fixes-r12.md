@@ -77,8 +77,8 @@ the reference itself is ambiguous).
 
 ## Adopted main
 
-**`46f300937`**, then **`96ea7d177`**, then **`ffe36f63a`** (main's tip at the last merge, 439 commits past round 11's
-`b0e4a6c22`):
+**`46f300937`**, then **`96ea7d177`**, **`ffe36f63a`** and, in review round 1, **`aa9705c33`** (main's tip at the last merge, 440
+commits past round 11's `b0e4a6c22`):
 
 - `d7a0e0477`: this record's first version.
 - Before any merge: the T3 tip `8c21a129d`'s bundle built in this worktree and driven (lane `adopt-main-fixes-r12-before`).
@@ -93,6 +93,12 @@ the reference itself is ambiguous).
   build` unchanged (33,309,113 bytes with this round's changes). `a9ae1b645`: the records it touches.
 - `e71f9d7cb`: `git merge --no-ff origin/main` at `ffe36f63a` after the checks (two commits: the web JS target's bound
   `autofocus`, `host/web-js`; nothing the clone uses). No conflict.
+- Review round 1: `de548a792` (the five dashed boxes and the source guards), then `3c00d8b3b`: `git merge --no-ff origin/main`
+  at `aa9705c33` (one commit, #281: on macOS a positioned overlay's mouse contact reaches the overlay and its ancestors,
+  never the siblings it covers, as in Chrome; `NodeViewMac.swift` forwards an unpressed click to `nextResponder` instead of
+  NSView's default, which retried covered siblings; it closes #321's `elementsFromPoint` issue, X68). No conflict. This
+  bundle was built and driven (sessions 1, 2b and 4, below), so the second to fourth merges' Mac changes (`f5839e51b`,
+  `6621ff898`, `aa9705c33`) ran in the app.
 
 On the final head after a fresh fetch: `git merge-base --is-ancestor origin/main HEAD`, `git rev-list --count
 HEAD..origin/feat(example)/t3-code` and `git diff origin/main HEAD -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'`
@@ -108,16 +114,17 @@ main from the branch's ancestry.
 | A vertical `list` is an `NSTableView` (LLP 1115.000 D16, LLP 1115.002 D5) | `c8314ba60`, `beff41742`, `b564b6ab0` | Under real input the clone's five lists (the timeline transcript, the diff, the pull request Code list, the legacy projects, an environment's routes) would become tables with AppKit's separators, selection and keys, where the reference draws divs; main's own apps opt their transcripts and documents out with `appearance="none"` | `appearance="none"` on the five (AD-1) |
 | A popover that is no menu is an `NSPopover` (LLP 1115.002 D7.3) | `34855f4b3`, `38281323f` | Under real input the clone's non-menu popovers would become AppKit popovers (arrow, material, AppKit's placement), where the reference paints Base UI popups; an authored `position-try-fallbacks` row selects the painted layer (LLP 1021 D2), and its painted placement takes `none` as no row (`MenusMac.layout`) | `position-try-fallbacks="none"` on all 62 popovers (AD-1); a menu's shape stays the `NSMenu` it was |
 | A route `header` as the title bar and toolbar, a root `tablist` as a sidebar, a list and its detail as a split view, `list appearance="auto"` as the grouped form, a `dialog` and a modal route as sheets (LLP 1115.002 D2–D4, D6, D7.2, D7.4) | various | The clone writes none of these (no routes, no `dialog`, no `header`, no root `tablist`, no `appearance="auto"`): nothing changes; session 1's screens equal the before's | none |
-| New `contract build` warning `lower-width-padding` (LLP 1116.009 D5: a padded `width="100%"` box is wider than its parent) | `31538c22f` | One site, uncapped: `pages-prs.contract:248`, the pull request list's error notes, 1.5 rem past its parent (content-box; the reference's Tailwind is border-box everywhere) | `box-sizing="border-box"` |
+| New `contract build` warning `lower-width-padding` (LLP 1116.009 D5: a padded `width="100%"` box is wider than its parent) | `31538c22f` | One site, uncapped: `pages-prs.contract:248`, the pull request list's error notes, 1.5 rem past its parent (content-box; the reference's Tailwind is border-box everywhere) | `box-sizing="border-box"`, with a Bun source guard (review round 1) |
 | `lower-dialog-role`, `analyze-read-after-assign`, `lower-count-plural`, `type-performance-now-persisted`, `lower-colour-one-scheme` | — | Read uncapped (a compiler built with `MAX_WARNINGS` lifted into `target/r12/uncapped-target`, the constant restored at once, nothing committed): 21, 8, 1, 73 and 233, the same as round 11's review; nothing new but the padding warning | none |
 | LLP 1115.000 D10 (`hr` one hairline, no margins on checkbox/radio/range, a range and a progress as wide as their parent), D15 (a button's face when no `buttonStyle`) | `2b89082b0`, `590b073cd`, `a9cc2a251`, `e42caa419` | The clone's four `hr`, its range and its progress write their sizes and margins (the author's win); session 1's screens equal the before's | none |
 | An empty `href` is no link; `aria-level` without `role="heading"` is no heading | `a22051869`, `b569b7840` | The clone's headings write `role="heading"`; its tree items keep `aria-level` as items | none |
 | `aria-disabled` (X70) | `9074a745b`, `c4f1279fc` | RT-3: retired | the update pill |
-| `dotted` and `dashed` borders (#287) | `ff2251b0c`, closed by `80a799d7e` | RT-3: the "+N" toggle retired; the unresolved chip's and the pending review comment card's stroked dashed rects listed | the toggle |
+| `dotted` and `dashed` borders (#287) | `ff2251b0c`, closed by `80a799d7e` | RT-3: every `border-dashed` and `border-dotted` of the reference's web UI checked (11 sites): the "+N" toggle and, in review round 1, five boxes retired; the unresolved chip's and the pending review comment card's stroked dashed rects kept (follow-up); three with no clone site (`EXACT2-GAPS.md` #287 row) | the toggle; the themes empty box, the Theme file zone, "No compatible agents found", "Desktop host signals not connected", the keybinding When editor's empty box |
 | The issues main closed since round 11 (X10, X19, X25, X26, X28, X33, X34, X45, X48, X53, X55, X57, X60, X63, X65, X66, X69, X77's note, X83; second merge: X11's backdrop, #292, X29's iframes, the height transition) and the partial fixes (X17, X20, X22, X23, X27, X54) | various | RT-3: each listed with what became of its workaround (`EXACT2-GAPS.md` "Closed on main since round 11") | X70, the "+N" toggle |
 | An empty scroll port passes the pointer on (X65) | `3998e650e` | Adopted; `usage-ground` kept (RT-3). Its `ChainingScrollView` hold refuses AppKit's removal when the parent is freed: X87, found by the live drive (RT-1) | none (framework) |
 | macOS: relaunch, display mode, scroll restore, selection rects, popover commands, `close=`, `keycapture=`, menu-bar items, notification `navigate`, `intersect=`, `scrollend`, `setRangeText`, installed font families, `querySelectorAll` | various | New framework surface the clone can use later; each related workaround listed in RT-3 | none |
 | The agent driver: a tap is one line, `state` one line a section (`4387e37b5`); a tap on a disabled control fails the step (`59156f084`); `--chrome platform` on macos | various | The drive's JSON is unchanged under `--json`; no step taps a disabled control; session 3b uses `--chrome platform` (the T3 tip's agent refuses it on macos) | none |
+| A positioned overlay takes its own click on macOS (#281); `elementsFromPoint` (#321, X68) | `aa9705c33` (review round 1's merge) | Adopted: no clone workaround relied on a click falling through to a covered sibling (sessions 1, 2b and 4 on this bundle; sessions 1 and 2b pixel-equal to the live drive's); Inspect app colors (U18) can be built now: follow-up | none |
 | A sixth check, `cargo check --workspace --all-targets --keep-going` | (round 11) | run with the checks | none |
 | iOS, Android, web, Linux, Windows, LLP docs, QUEUE | various | nothing on the Mac path the clone uses | none |
 
@@ -164,9 +171,19 @@ main from the branch's ancestry.
   (`close=` serves a `dialog` element, a sheet on the Mac now), X25's and X26's native readers and menus, X28 (no routes),
   X83 (needs `background-attachment: local`), X33 and X45 (parity changes), X17, X22, X23, X27, X54 (reworks), the dashed
   rects, `T3MenuTurn` (#292: the module's own menus), the terminal drawer's `interpolate-size` (the height transition),
-  X11's flattened glass (declared). X48 and X69 unblock their held tasks.
+  X11's flattened glass (declared). X48 and X69 unblock their held tasks. Review round 1 put each kept one, and Inspect
+  app colors (U18, unblocked by `aa9705c33`), in the follow-up [r12-kept-workarounds](20261013-r12-kept-workarounds.md).
 - **`lower-width-padding` (fixed).** The pull request list's error notes are `width="100%"` with 0.75 rem padding each side in
-  a content-box column, so 1.5 rem wider than their parent; `box-sizing="border-box"`, as Tailwind's.
+  a content-box column, so 1.5 rem wider than their parent; `box-sizing="border-box"`, as Tailwind's. Review round 1 added its
+  source guard (`adopt-main-fixes-r12.test.ts`; it fails on the T3 tip).
+- **RT-3, #287's dashed boxes (retired, review round 1).** Main paints `dashed` with Chrome's geometry since `ff2251b0c`. Of
+  the reference's 11 `border-dashed`/`border-dotted` sites, five more are boxes the clone drew `solid`: the themes empty box
+  (`ThemeSearchSection.tsx:359`), the Theme file zone (`ThemeImportDialog.tsx:520`), "No compatible agents found"
+  (`AcpRegistrySearchStep.tsx:198`), "Desktop host signals not connected" (`ResourceTelemetryDiagnostics.tsx:1151`) and the
+  keybinding When editor's empty box (`KeybindingsSettings.tsx:687`); each is now `border-style="dashed"` (one attribute;
+  widths and colours unchanged). The unresolved chip and the pending review comment card keep their stroked `svg` rects
+  (retiring them changes the box; follow-up KW-7); the composer's workspace drop overlay, the sidebar's empty-section drop
+  hint and the hero's no-project button have no clone site.
 
 ## Acceptance results
 
@@ -175,10 +192,11 @@ uncapped analysis).
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| AD-1: the branch contains main | pass at the final merge (main `ffe36f63a`) | Adopted main; Checks |
-| AD-1: the framework tree is main's | pass: empty after `7c02ad186`, `7b0ab1cc8`, `e71f9d7cb` and on the final head | Adopted main; Checks |
+| AD-1: the branch contains main | pass at the final merge (main `aa9705c33`) | Adopted main; Checks |
+| AD-1: the framework tree is main's | pass: empty after `7c02ad186`, `7b0ab1cc8`, `e71f9d7cb`, `3c00d8b3b` and on the final head | Adopted main; Checks |
 | AD-1: the checks pass | see Checks | Checks |
 | AD-1: the clone works | pass: session 1 (shell, Settings General, Appearance, Providers, Tab from Back, Usage, the fixture thread, the file viewer, Settings from it, Back) exits 0 on both; every screen is pixel-equal but for the update pill (147 px, RT-3 X70). The lists and popovers keep the reference's presentation under `--chrome platform` (session 3b, after only) | [shell](https://raw.githubusercontent.com/ccheever/exact2/186077d9d38fbd2a946cd86e2d36383e056797d3/adopt-main-fixes-r12/ad1-shell.png), [thread and file viewer](https://raw.githubusercontent.com/ccheever/exact2/97497c53393374936d136fdb3d460a882f6832c2/adopt-main-fixes-r12/ad1-thread-files.png), [Mac presentations](https://raw.githubusercontent.com/ccheever/exact2/88a5316be91eadf0d6b1da893b54da236a0878ba/adopt-main-fixes-r12/ad1-platform-chrome.png), readouts |
+| AD-1: the later merges run (review round 1) | pass: the bundle of `3c00d8b3b` (main `aa9705c33`), sessions 1 and 2b again: exit 0, all 15 screens pixel-equal to the live drive's (main `46f300937`), Tab from Back on the pill (node 1376) | [readouts-r1](https://raw.githubusercontent.com/ccheever/exact2/f7a58fe10fe5387a3cd716dbe9c4b11e1fd868d0/adopt-main-fixes-r12/readouts-r1.txt) |
 | RT-1 (#519's mechanism) | pass: session 2b, a press held on the reply table's Mail cell, ⌘1 ⌘2, the up, Settings: before SIGSEGV at the Settings click's up (`NodeView.releaseHold`, MouseChainMac.swift:383, the realinput frames); after, Settings opens and Back returns (exit 0) | [image](https://raw.githubusercontent.com/ccheever/exact2/a37b824b6ebcbc181a3c01f4213de0ba702814bd/adopt-main-fixes-r12/rt1-519-held-press.png), readouts |
 | RT-1 (the literal third trigger) | no crash on either build under the agent (session 1: the file viewer open, Settings, Appearance, Back); the real one is real-input step 3 | readouts |
 | RT-1 (the menu triggers, G4-14 and LSF-6) | not reachable by the agent (`T3ContextMenu` pops no menu under it, so no menu takes an up): real-input steps 1 and 2 | — |
@@ -187,8 +205,9 @@ uncapped analysis).
 | RT-2 | none to retire (round 11 retired X86's box; `realinput-1011c` DCP-F passed) | Cause and fix |
 | RT-3 X70 | pass: before, Tab from Back went past the pill (node 3592; the pill `disabled`); after, Tab focuses it (node 1376, `accessibilityDisabled`), as the reference's (CDP: "Check for updates", `aria-disabled=true`, `:focus-visible`); the icon `#c8c8cc` as the reference's (before `#e1e1e2`). The agent's window is never key, so the ring AppKit draws is a real-input step | [pill](https://raw.githubusercontent.com/ccheever/exact2/53ec2ea8696459f287e950d3a099ad6e59f263f9/adopt-main-fixes-r12/rt3-x70-pill.png), [Tab](https://raw.githubusercontent.com/ccheever/exact2/3d93f50a17947232215d28fabb1364cc676e8681/adopt-main-fixes-r12/rt3-x70-tab.png) |
 | RT-3 "+N" toggle | pass by `adopt-main-fixes-r12.test.ts` and `contract build`; not driven (needs Network access on): real-input step 6 | Tests |
-| RT-3 listed | records | `EXACT2-GAPS.md` |
-| `lower-width-padding` | pass: the uncapped build no longer names it after the fix | readouts |
+| RT-3 #287's dashed boxes (review round 1) | pass: five guards (fail on the T3 tip and on the round's previous head), `contract build`; session 4, before (the evidence base) solid, after dashed, as the reference's, for all five | [Add theme](https://raw.githubusercontent.com/ccheever/exact2/db9f5304d6dc2c042b51f1aee04226251f887dda/adopt-main-fixes-r12/rt3-287-add-theme.png), [ACP](https://raw.githubusercontent.com/ccheever/exact2/324b49aa62d591c4fc052063bcbb1f29fd8553da/adopt-main-fixes-r12/rt3-287-acp.png), [When](https://raw.githubusercontent.com/ccheever/exact2/05662e3569d50d84e839619b63afb18d83bd7e0b/adopt-main-fixes-r12/rt3-287-when.png), [Diagnostics](https://raw.githubusercontent.com/ccheever/exact2/8317fa15ba5805ae33da2bc6c2d77385135a7873/adopt-main-fixes-r12/rt3-287-diagnostics.png) |
+| RT-3 listed | records, and the follow-up [r12-kept-workarounds](20261013-r12-kept-workarounds.md) (13 rows) | `EXACT2-GAPS.md` |
+| `lower-width-padding` | pass: the uncapped build no longer names it after the fix; the source guard (review round 1) fails on the T3 tip | readouts, Tests |
 | Real input | "Real-input batch steps" below | — |
 
 Drives (agent mode, 1280×840, `--epoch 2026-10-13T22:00:00+09:00 --time-zone Asia/Seoul`, base port 16840, the clone's
@@ -222,6 +241,13 @@ Settings.
    "Reachable at … +N" toggle: a dotted underline, as the reference's. Network access off again.
 7. **X87 (optional, ends the lane app).** In a thread, press and hold below the last message (the timeline's empty area),
    and with the button held press ⌘1: round 12 aborts (X87). Release; relaunch the lane copy.
+8. **The final bundle (main `aa9705c33`, review round 1).** Session 1's walk by real clicks: Settings › General, Appearance,
+   Providers, Back; Usage and back; the fixture thread, the right panel's Files and `fixture.txt`, the sidebar's Settings,
+   Appearance, Back. Session 2b by real input: press and hold on the reply table's Mail cell, ⌘1, ⌘2, release, click the
+   sidebar's Settings, Back. Each click acts once; nothing crashes. Then a click on an overlay over a control (the right
+   panel's "+" popover over the panel's tabs, an open popover's row over the page beneath): only the overlay acts (#281).
+9. **#287's boxes (optional).** Settings › Appearance › Add theme (the Theme file zone; a search for `zzqxjvwk`: the empty
+   box), Settings › Keybindings › + › When (the empty box): dashed as the reference's.
 
 ## Tests
 
@@ -229,6 +255,10 @@ Settings.
   popover says `position-try-fallbacks="none"` (62 or more); the update pill is `aria-disabled`, no HTML `disabled`; the
   "+N" toggle's underline is dotted.
 - `adopt-main-fixes-r11.test.ts`: X51's colour popover guard reads the popover line with its fallback row.
+- `adopt-main-fixes-r12.test.ts` (review round 1, +6, 10 in all): the five boxes the reference draws `border-dashed` are
+  `dashed` (each by its anchor, with its reference line); the pull request list's error notes are `width="100%"`, padded
+  0.75 rem each side and `border-box` (`lower-width-padding`). All ten fail on the T3 tip `8c21a129d`; the five dashed ones
+  fail on the round's previous head `bed687f8b`.
 - No Swift or Rust of the clone changed, so no AppKit binary was rebuilt (`host/apple/modules/` is unchanged since round
   11); `cargo test -p t3-code-macos --lib` ran with the checks.
 
@@ -267,6 +297,8 @@ After a fresh fetch on the final head: `git merge-base --is-ancestor origin/main
 | Before session 2b | `t3-code-ri1011b`'s bundle (`1f813789b`) | run 1: "Contact" names six views; run 2 (the Mail cell by its point): SIGSEGV at the Settings click | the before column of RT-1 |
 | After drive (the live drive) | the bundle of `2746b0f4c`'s sources | session 1 exit 0; session 2 SIGABRT (X87); session 3 met the server session 2's abort had left on the lane port | the after column |
 | Diagnosis | `target/r12/diag` | session 2's ops four times: the reason from a driver copy keeping 400 lines (removed after), then with `MouseChainMac.swift` from before #519, then on the merge commit's clone sources: the same SIGABRT each time; each build restored | readouts |
+| Review round 1 drive | the bundle of `3c00d8b3b` (main `aa9705c33`) | sessions 1 and 2b exit 0 (15 screens pixel-equal to the live drive's); session 4 stopped at op 46 (`tap View diagnostics`: one word per target) after its screens 40-43, and its retry (`setting-diagnostics-link`) exit 0; before session 4 on the evidence base's bundle exit 0 | [drive-r1.sh](https://raw.githubusercontent.com/ccheever/exact2/ea8b39b73f9acdc943caa5c7d1d7277973481c98/adopt-main-fixes-r12/drive-r1.sh.txt), [readouts-r1](https://raw.githubusercontent.com/ccheever/exact2/f7a58fe10fe5387a3cd716dbe9c4b11e1fd868d0/adopt-main-fixes-r12/readouts-r1.txt) |
+| Reference, review round 1 | Electron `1e2ecbd975` on lane `adopt-main-fixes-r12-ref` (16840/16841) over CDP | the When editor, Add theme with no result, the ACP search with no result, Diagnostics | the reference column |
 | After retry (the one retry) | the bundle of `2746b0f4c`'s sources, rebuilt | session 2b exit 0; session 3 targeted a comparison-target button this thread does not show; 3b (the same session with the "Add panel surface" popover) exit 0 | the after column |
 | Reference | Electron `1e2ecbd975` on its lane, CDP | the shell's pill, Tab from Settings' Back, the diff scope popup | the reference column |
 
@@ -277,19 +309,38 @@ After a fresh fetch on the final head: `git merge-base --is-ancestor origin/main
   each session (its own PID only).
 - The pull request footer button (`open-pull-requests`) is absent in this lane's seed for the first minute; the drive left
   the pull request list out.
+- Settings › Diagnostics shows "Desktop host signals not connected" on both builds in this lane (the T3 tip's and round 12's),
+  where the reference shows its Host state rows (power source, idle, lock: its Electron host supplies them). Pre-existing,
+  not this round's; not investigated (the telemetry task's desktop feed should supply them; a known-differences candidate).
 
 ## Not done / not verified
 
 - Real input: steps 1–7 (the menu triggers G4-14 and LSF-6 and the literal R11-X79/X51 trigger need a real pointer; the
   pill's ring needs a key window; the "+N" toggle needs Network access on).
 - X87: a framework crash found here; the clone cannot work around it; not filed (the coordinator files framework issues).
-- The second and third merges (`96ea7d177`, `ffe36f63a`, after the live drive): covered by `contract build`, the Bun tests and
-  the checks, not driven.
-- RT-3's listed workarounds stay by design of this round (each needs a parity change, a rework or a drive the lanes lack).
+- RT-3's listed workarounds stay (each needs a parity change across many sites, a rework, or a drive the round's lanes lack):
+  X10's `text-wrap: balance` and `::placeholder` colours, X57's `text-align="left"` sites, X60's `tsStep`, X65's
+  `usage-ground`, X66's `KeyMenuOpen`, X17's flips, #287's two stroked dashed rects, the terminal drawer's
+  `interpolate-size`, X33's Cite anchor, X45's relaunch, X25/X26's native readers and menus, X22/X23/X27/X54's hooks; and
+  Inspect app colors (U18), unblocked by `aa9705c33`. Each is a row of the follow-up
+  [r12-kept-workarounds](20261013-r12-kept-workarounds.md) (planned; the coordinator decides which to run).
+- The merges' Mac runtime changes under real input (the presenter's empty-batch skip `f5839e51b`, the numeric height
+  transitions `6621ff898`, the overlay contact `aa9705c33`): driven in agent mode on the final bundle (review round 1),
+  real-input step 8.
 
 ## Decision needed
 
 None: every item follows the reference or main's platform rules. X87 is a framework bug for the coordinator to file.
+
+## Review round 1 (2026-10-13)
+
+| Problem | What was done |
+| --- | --- |
+| RT-3's #287 inventory incomplete: four `solid` boxes the reference draws `border-dashed` | All 11 `border-dashed`/`border-dotted` sites of the reference checked: those four and a fifth (the keybinding When editor's empty box) retired to `dashed`, with guards and before/after/reference images; the two stroked rects kept (follow-up KW-7); three have no clone site. `EXACT2-GAPS.md`'s #287 row lists all 11 |
+| `lower-width-padding` had no source guard | A guard in `adopt-main-fixes-r12.test.ts` (fails on the T3 tip) |
+| The second merge's Mac runtime changes never launched | Main had moved again (`aa9705c33`, Mac pointer change): merged, the bundle built, sessions 1 and 2b driven on it (exit 0, pixel-equal to the live drive's) plus session 4; real-input step 8 for the coordinator |
+| Stale records (no `ffe36f63a`) | `STATUS.md` item 5, `plan.md`, `EXACT2-GAPS.md`'s date line and "Closed on main since round 11" heading name every merge through `aa9705c33` |
+| The PR's Not done lacked RT-3's kept workarounds | Listed in the PR and here, each a row of the follow-up [r12-kept-workarounds](20261013-r12-kept-workarounds.md) |
 
 ## Delivery
 
