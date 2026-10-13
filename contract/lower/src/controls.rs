@@ -85,11 +85,14 @@ pub(crate) fn control(
         }
         return Ok(Some("button"));
     }
+    // An author's: the grouped sheet sizes a row's switch by the platform's
+    // metric (LLP 1115.002 D6), which is the compiler's row and not theirs.
     if let Some(a) = attrs.iter().find(|a| {
-        matches!(
-            a.name.as_str(),
-            "-exact-control-size" | "-exact-corner-style"
-        )
+        a.written
+            && matches!(
+                a.name.as_str(),
+                "-exact-control-size" | "-exact-corner-style"
+            )
     }) {
         return err(
             "lower-button-style-attr",

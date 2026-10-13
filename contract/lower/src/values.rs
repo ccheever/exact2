@@ -531,8 +531,9 @@ pub(crate) fn check_style_value(
             }
             Expr::Let { body, .. } => pending.push((body, body.span())),
             // @ref LLP 1095 D3 — a plan's platform colours are its literals:
-            // never built from a template, a concatenation or a call.
-            Expr::Str(..) => {}
+            // never built from a template, a concatenation or a call. A
+            // metric's name is the compiler's alone (LLP 1115.002 D6).
+            Expr::Str(..) => crate::metrics::refuse_authored(a, value, span)?,
             other if builds_platform_color(other) => {
                 return err(
                     "lower-platform-color-literal",
@@ -874,7 +875,10 @@ pub(crate) fn check_style_value(
         let Some(next) = pending.pop() else { break };
         current = next;
     }
-    if !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
+    // A metric in a sheet the compiler wrote is a string that every host
+    // reads as its platform's number (LLP 1115.002 D6).
+    let metric = !a.written && crate::metrics::names(&a.value);
+    if !metric && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
         let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
             (matches!(ty, Ty::String) && !css_wide_branches(&a.value, rows))
                 .then_some(a.value.span())

@@ -58,12 +58,15 @@ extension NodeView {
         remakeFieldIfNeeded()
         guard let field, pageField == nil else { return }
         let native = isNativeTextControl
+        // @ref LLP 1115.002 D6 — a grouped form's field has no bezel, no
+        // ground and no ring: the row is the field, as SwiftUI's `Form` has it.
+        let bezel = native && !fieldInCell
         let standard = FieldChromeCache.platformField(kind: FieldClass(field).chromeKind)
-        field.isBezeled = native
+        field.isBezeled = bezel
         field.bezelStyle = standard.bezelStyle
-        field.drawsBackground = native && standard.drawsBackground
-        field.backgroundColor = native ? standard.backgroundColor : .clear
-        field.focusRingType = outlineNone ? .none : native ? .default : .exterior
+        field.drawsBackground = bezel && standard.drawsBackground
+        field.backgroundColor = bezel ? standard.backgroundColor : .clear
+        field.focusRingType = outlineNone || (native && fieldInCell) ? .none : native ? .default : .exterior
         restyleFieldFocus()
         field.alignment = fieldAlignment
         if native, field.currentEditor() == nil {
@@ -104,6 +107,8 @@ extension NodeView {
         if let r = payload["rect"] as? [Double], r.count == 4 {
             nativeFieldContent = NSRect(x: r[0], y: r[1], width: r[2], height: r[3])
         } else { nativeFieldContent = nil }
+        let cell = nativeFieldContent != nil && payload["cell"] as? Bool == true
+        if cell != fieldInCell { fieldInCell = cell; styleNativeField() }
         layoutField(); layoutTextArea()
     }
 }

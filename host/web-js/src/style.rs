@@ -418,6 +418,38 @@ pub fn color_map(plan: &Plan) -> String {
 
 const PLATFORM: &str = "-exact-platform-color(";
 
+/// A bound row whose code can push a metric's name (LLP 1115.002 D6: a
+/// sheet the compiler wrote, choosing between two by a flag) reads each as
+/// its value in the web's column, which is what the kernel reads a literal
+/// one as: a number, the row's own CSS text, or nothing where the web has
+/// no row (`null`: the row unset). `None` when the code names none.
+pub fn metric_map(plan: &Plan, code: &[u8]) -> Option<String> {
+    use exact_kernel::style::metrics::{named, value, Column};
+    let mut pairs: Vec<String> = Vec::new();
+    for i in instructions(code).flatten() {
+        if i.op != Opcode::Str {
+            continue;
+        }
+        let name = plan.str(exact_plan::StrId(i.args[0] as u32));
+        let Some(metric) = named(name) else { continue };
+        let web = match value(metric, Column::Web) {
+            exact_kernel::MetricValue::Number(n) => serde_json::json!(n),
+            exact_kernel::MetricValue::Text("unset") => serde_json::Value::Null,
+            exact_kernel::MetricValue::Text(t) => serde_json::json!(t),
+        };
+        let pair = format!("{}:{web}", serde_json::json!(name));
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+    }
+    (!pairs.is_empty()).then(|| {
+        format!(
+            "(M=>v=>typeof v===\"string\"&&Object.hasOwn(M,v)?M[v]:v)({{{}}})",
+            pairs.join(",")
+        )
+    })
+}
+
 /// A computed `transition`'s entries as an author's (LLP 1081 D5), shared by
 /// the ordinary and the pressed mappers: comments go (CSS removes them, so a
 /// check must too); springs are the engine's; an entry naming the host's

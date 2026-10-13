@@ -328,7 +328,7 @@ extension Agent {
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let sidebar = presenter.sidebar.observation(host) { native["sidebar"] = sidebar }
-        if let control = presenter.controls.observation(host) { native["control"] = control }
+        if let control = presenter.controls.observation(host) ?? host.rowBezelObservation { native["control"] = control }
         if let toolbar = presenter.toolbar.observation(host) {
             native["windowToolbar"] = toolbar
             // The kernel frame is authored fallback geometry, not the native

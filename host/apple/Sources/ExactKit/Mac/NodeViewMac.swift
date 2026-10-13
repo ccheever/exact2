@@ -130,6 +130,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
     var nativeFieldContent: NSRect?
+    var fieldInCell = false // a grouped form's field, which is borderless (NativeFieldsMac.swift)
     var boxFill: CALayer?
     /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
     /// builds the layer tree each display cycle, and the decision reads
@@ -1017,6 +1018,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         style = s
         if old["display"] != s["display"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
+        if old["appearance"] != s["appearance"] { needsLayout = true } // a form row's bezel (FormRowsMac.swift)
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         if old["accent_color"] != s["accent_color"] { accentChanged() }
         if s["transform_origin"] != origin { applyTransform() }
@@ -1193,6 +1195,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
         guard changed else { return }
+        if let row = superview as? NodeView, row.style["appearance"] != nil { row.needsLayout = true } // its bezel (FormRowsMac.swift)
         if focusVisible { noteFocusRingMaskChanged() } // the ring follows the box
         layerPaintCache = nil
         if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
@@ -1247,6 +1250,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()
         layoutSymbol()
+        layoutRowBezel()
     }
 
     /// The reduced radii; the layer fast path additionally requires circles.

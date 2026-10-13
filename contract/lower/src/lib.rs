@@ -37,6 +37,7 @@ mod keyframes;
 mod lint;
 mod media;
 mod menus;
+mod metrics;
 mod native;
 mod nodes;
 mod routes;

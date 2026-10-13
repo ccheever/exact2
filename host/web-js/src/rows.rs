@@ -329,6 +329,13 @@ impl Em<'_> {
         } else {
             "S"
         });
+        // @ref LLP 1115.002 D6 — a metric the binding may name is its value
+        // in the web's column before the row's own map sees it.
+        let metric = style::metric_map(plan, plan.code(b.expr));
+        let f = match &metric {
+            Some(m) => format!("()=>({m})(({f})())"),
+            None => f.to_string(),
+        };
         for (name, unit, map) in writes {
             match map {
                 Some(m) => {
@@ -755,6 +762,77 @@ mod tests {
                 "drop-shadow(0px 2px 4px #010203ff)",
                 null,
             ])
+        );
+    }
+
+    /// A grouped row whose flag is bound chooses between two metrics as it
+    /// runs (LLP 1115.002 D6): the page, which keeps no kernel, reads each
+    /// name as its value in the web's column, as the kernel reads a literal
+    /// one. A number takes the row's `px`, a role goes on through the colour
+    /// map, and a metric with no row on the web unsets the row.
+    #[test]
+    fn a_bound_metric_is_its_value_in_the_webs_column() {
+        let plan = contract::compile(
+            r#"component App
+  state gone = false
+  action flip
+    gone = !gone
+  view
+    list appearance="auto" flex=1
+      section
+        button press=flip destructive=gone testId="row"
+          when gone
+            image "symbol:sf/trash"
+          text "Remove"
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(
+            !js.contains("\"-exact-grouped-") || js.contains("Object.hasOwn(M,v)?M[v]:v"),
+            "a metric's name is bound and nothing reads it:\n{js}"
+        );
+        let named = |row: &str| {
+            let binding = plan
+                .bindings
+                .iter()
+                .find(|b| {
+                    b.kind == exact_plan::BindingKind::Style
+                        && exact_kernel::StyleId::from_bit(b.id as u32)
+                            .is_some_and(|id| id.name() == row)
+                        && crate::style::literal(&plan, plan.code(b.expr)).is_none()
+                        && crate::style::metric_map(&plan, plan.code(b.expr)).is_some()
+                })
+                .unwrap_or_else(|| panic!("no bound {row} names a metric"));
+            crate::style::metric_map(&plan, plan.code(binding.expr)).unwrap()
+        };
+        // The row starts at its text, after a symbol where one is shown.
+        assert_eq!(
+            run(
+                &named("margin_left"),
+                &[
+                    "-exact-grouped-row-inset",
+                    "-exact-grouped-row-inset-symbol",
+                    "12px"
+                ]
+            ),
+            serde_json::json!([16, 56, "12px"])
+        );
+        // Red when destructive, by its role; the label's colour is no metric.
+        assert_eq!(
+            run(
+                &named("text_color"),
+                &["-exact-grouped-destructive-color", "-exact-label"]
+            ),
+            serde_json::json!(["-exact-system-red", "-exact-label"])
+        );
+        // The Mac's push button's padding is no row on the web.
+        assert_eq!(
+            run(
+                &named("padding_left"),
+                &["-exact-grouped-button-padding-start", "unset"]
+            ),
+            serde_json::json!([null, "unset"])
         );
     }
 
