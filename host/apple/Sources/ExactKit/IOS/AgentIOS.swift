@@ -9,7 +9,8 @@
 // applies a wheel to the first scroll container up the chain that can take
 // it (the web's chaining rule); `type` puts text through the field's own
 // `insertText`; `screenshot` draws the viewport's hierarchy to a PNG (Metal
-// layers included, so `window: true` is the same picture).
+// layers included), or the window's (`window: true`, and whenever UIKit has an
+// alert, action sheet, popover or sheet up, which the viewport's picture leaves out).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -1070,7 +1071,13 @@ extension Agent {
         // 8-bit sRGB: on a wide-color screen the renderer would write a
         // 16-bit PNG, which nothing downstream (scripts/png.mjs) reads.
         format.preferredRange = .standard
-        let captureView: UIView = req["window"] as? Bool == true ? (vp.window ?? vp) : vp
+        // What UIKit presents over the app (an alert, an action sheet, a popover, a presented route's sheet) is a view of
+        // the window beside the viewport, never in the viewport's picture: with one up, the capture is the window's, as
+        // `window` draws it, and says so (LLP 1116.012 D3; grocery-list's first two captures missed its clear alert).
+        // A film's frames keep one size.
+        let presented = req["film"] as? Bool == true ? nil : presentedOverApp()
+        let wholeWindow = req["window"] as? Bool == true || presented != nil
+        let captureView: UIView = wholeWindow ? (vp.window ?? vp) : vp
         let size = captureView.bounds.size
         #if targetEnvironment(simulator)
         // The simulator needs both paths: takeSnapshot alone omits guest
@@ -1123,7 +1130,8 @@ extension Agent {
         for node in captured { node.setNeedsDisplay() }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
-        if req["window"] as? Bool == true { r["window"] = true }
+        if wholeWindow { r["window"] = true }
+        if let presented { r["presented"] = presented }
         if loading > 0 { r["imagesPending"] = loading }
         if !unshown.isEmpty {
             r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
@@ -1140,6 +1148,22 @@ extension Agent {
             r["note"] = "the software keyboard is up: it is not in the capture, and the app above it may be shortened (state shows keyboard.top)"
         }
         return r
+    }
+
+    /// What UIKit has presented over the app's window, by what a person calls it: "alert", "action sheet", "popover" or
+    /// "sheet" (a presented route); nil with nothing presented. The innermost one: a sheet's own alert reads as the alert.
+    func presentedOverApp() -> String? {
+        var found: UIViewController?
+        func visit(_ c: UIViewController) {
+            var at = c
+            while let next = at.presentedViewController { found = next; at = next }
+            for child in c.children { visit(child) }
+        }
+        guard let root = presenter.viewport.window?.rootViewController else { return nil }
+        visit(root)
+        guard let top = found else { return nil }
+        if let alert = top as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
+        return top.modalPresentationStyle == .popover ? "popover" : "sheet"
     }
 
     /// The system appearance (LLP 1061 D5): the window scene's trait, which

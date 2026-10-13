@@ -814,7 +814,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       async screenshot(path, window = false, film = false) {
         const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
-        return window && !film && r.keyboard?.windowTop != null ? withKeyboard(r, path, dev.udid) : r; // the keyboard is a process of its own: the display's pixels
+        return (window || r.window === true) && !film && r.keyboard?.windowTop != null ? withKeyboard(r, path, dev.udid) : r; // the host draws the window itself with an alert or sheet up; the keyboard is a process of its own: the display's pixels
       },
       close,
     };

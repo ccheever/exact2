@@ -725,12 +725,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   included: a backend on real time otherwise sees the app's dates months early
   ("Due in 403783 min"). (Bluesky clone, b12, 2026-10-07; app farm round 2.)
 
-- **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
-  captures the presented route (a fit-content repost sheet came out 402 × 270
-  points), so its type looks twice its size when viewed as a screen. Fix:
-  `screenshot out.png window` for the screen as a person sees it. (Bluesky clone,
-  b12, 2026-10-07.)
-
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
   so the frame and the computed style still read the old value: the toggle
