@@ -1,6 +1,7 @@
 # macOS: CSS resize cursors use the legacy shapes and diagonals show a crosshair
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #527
 **Systems:** host/apple macOS, cursor
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
