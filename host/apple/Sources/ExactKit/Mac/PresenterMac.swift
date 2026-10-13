@@ -738,7 +738,7 @@ package final class Presenter {
     var onKey: ((UInt32, KeyPress) -> Void)?
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
     /// A `text`'s part of the selection changed: its text and source offsets.
-    var onSelectionChange: ((UInt32, String, Int, Int) -> Void)?
+    var onSelectionChange: ((UInt32, String, Int, Int, [CGRect]) -> Void)?
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     /// The primary button went down on a node (`true`) or came up (LLP 1005 §3).
@@ -966,7 +966,7 @@ package final class Presenter {
     }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
-    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
+    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int, rects: [CGRect] = []) { send(id) { [self] in onSelectionChange?(id, text, start, end, rects) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     /// A `contextmenu` with its point (10), a `wheel` (37) or a `drop` (38)
     /// with its line (studio diary R22, R3, R19; MouseEventsMac.swift).

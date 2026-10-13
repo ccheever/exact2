@@ -144,17 +144,47 @@ impl Event {
         Some(Self::Media(kind, value.into()))
     }
 
-    /// Decode ABI kind 35 (`selectionchange`): `start,end,` then the
-    /// selected text verbatim; offsets are whole, `0 <= start <= end`.
+    /// ABI kind 35: start,end,count, then count x,y,width,height rectangles,
+    /// then selected text verbatim. Offsets are whole, `0 <= start <= end`.
     pub fn selection_change_payload(payload: &str) -> Option<Self> {
-        let mut parts = payload.splitn(3, ',');
-        let start: u32 = parts.next()?.parse().ok()?;
-        let end: u32 = parts.next()?.parse().ok()?;
-        let text = parts.next()?;
-        (start <= end).then(|| Self::SelectionChange {
+        let (start, rest) = payload.split_once(',')?;
+        let (end, rest) = rest.split_once(',')?;
+        let (count, mut text) = rest.split_once(',')?;
+        let start: u32 = start.parse().ok()?;
+        let end: u32 = end.parse().ok()?;
+        let count: usize = count.parse().ok()?;
+        if start > end || count > text.len() / 8 {
+            return None;
+        }
+        let mut rects = Vec::new();
+        for _ in 0..count {
+            let mut values = [0.0_f64; 4];
+            for value in &mut values {
+                let (number, rest) = text.split_once(',')?;
+                *value = number.parse().ok()?;
+                if !value.is_finite() {
+                    return None;
+                }
+                text = rest;
+            }
+            let [x, y, width, height] = values;
+            if width < 0.0 || height < 0.0 {
+                return None;
+            }
+            rects.push(crate::geometry::GeometryAnswer {
+                x,
+                y,
+                width,
+                height,
+                provisional: false,
+                unavailable: false,
+            });
+        }
+        Some(Self::SelectionChange {
             text: text.into(),
             start: f64::from(start),
             end: f64::from(end),
+            rects,
         })
     }
 
@@ -174,6 +204,34 @@ impl Event {
 #[cfg(test)]
 mod tests {
     use super::Event;
+
+    #[test]
+    fn selection_rectangles_preserve_geometry_and_verbatim_text() {
+        let event = Event::of_host_kind(35, "3,9,2,-4,12,30,18,0,30,8,18,a, b\nc").unwrap();
+        let Event::SelectionChange {
+            text,
+            start,
+            end,
+            rects,
+        } = event
+        else {
+            panic!("selection event")
+        };
+        assert_eq!((text.as_str(), start, end), ("a, b\nc", 3.0, 9.0));
+        assert_eq!(rects.len(), 2);
+        assert_eq!(
+            rects[0].value(),
+            exact_plan::Value::record(vec![
+                exact_plan::Value::Number(-4.0),
+                exact_plan::Value::Number(12.0),
+                exact_plan::Value::Number(30.0),
+                exact_plan::Value::Number(18.0),
+                exact_plan::Value::Bool(false),
+                exact_plan::Value::Bool(false),
+            ])
+        );
+        assert_eq!(rects[1].y + rects[1].height, 48.0);
+    }
 
     #[test]
     fn kinds_decode_and_refuse_by_name() {
@@ -198,10 +256,18 @@ mod tests {
             Ok(Event::Clipboard(exact_plan::EventKind::Paste, text)) if text == "a\tb\n1\t2"
         ));
         assert!(matches!(
-            Event::of_host_kind(35, "3,9,a, b\nc"),
-            Ok(Event::SelectionChange { text, start: 3.0, end: 9.0 }) if text == "a, b\nc"
+            Event::of_host_kind(35, "3,9,0,a, b\nc"),
+            Ok(Event::SelectionChange { text, start: 3.0, end: 9.0, rects }) if text == "a, b\nc" && rects.is_empty()
         ));
-        for refused in ["9,3,x", "1,2", "-1,2,x", "a,2,x"] {
+        for refused in [
+            "9,3,0,x",
+            "1,2",
+            "-1,2,0,x",
+            "a,2,0,x",
+            "0,1,1,0,0,-1,2,x",
+            "0,1,1,NaN,0,1,2,x",
+            "0,1,2,0,0,1,2,x",
+        ] {
             assert_eq!(
                 Event::of_host_kind(35, refused).err(),
                 Some("invalid text selection"),

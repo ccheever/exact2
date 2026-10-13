@@ -1096,14 +1096,37 @@ column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 when the part of the reader's text selection inside that paragraph changes —
 a drag, a double or triple click, select-all, a click that clears it — an
 action that takes one more parameter gets a `Selection`: its `text` (the
-selected part, as `Range.toString()` gives it) and its `start` and `end`,
+selected source text), its `rects: list<Geometry>`
+(the selected fragments in viewport coordinates), and its `start` and `end`,
 UTF-16 offsets into the node's own text as written (white space before CSS
-collapses it, a `text`'s inline children joined in order). Nothing selected
-there is `text: ""` with `start == end == 0`; it fires while a drag moves,
+collapses it, a `text`'s inline children joined in order, and Markdown line
+breaks counted as newlines). Inline IDs use offsets within that inline text.
+Nothing selected
+there is `text: ""` with `start == end == 0` and `rects: []`; it fires while a drag moves,
 once per change. The web and macOS select text; iOS selects text its author
 made selectable (`user-select="text"`), by a long press, a double tap and the
 selection's handles; Linux has no text selection on a `text`, so it never
 fires there.
+
+On web and macOS, `removeAllRanges()` clears the reader's selection. Each
+paragraph that held a part reports its empty selection. The documented
+extension `setSelectionRange(id, start, end[, direction])` also selects a
+`text`: offsets are UTF-16 in its source text, clamped as for a field; an end
+before the start collapses at the end. Requested source boundaries survive
+CSS whitespace collapsing. `backward` puts the anchor at the end,
+as `Selection.setBaseAndExtent` does. The command replaces the page's previous
+selection and fires `selectionchange` for changed parts without focusing a
+field. An unchanged part does not fire again. These two commands on reader
+text remain unsupported on iOS and Linux; iOS selection events carry an empty
+rectangle list.
+
+Rectangles are snapshots at that event, not live layout facts. On the web they
+are the paragraph's selected `Range.getClientRects()`; macOS uses the same
+CoreText fragments as its selection highlight and inline-run geometry. Their
+`provisional` and `unavailable` flags are false; an empty selection has no
+rectangles. Native paragraphs rendered by the reader worker currently return
+an empty rectangle list: their caret geometry is not available synchronously.
+Scrolling alone does not emit another selection event.
 
 ```text
 action mark(para: string, s: Selection)
@@ -1500,7 +1523,7 @@ rows and content lifted into a popover; an explicit
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
 `playSound`, `playSounds`, `stopSounds`
@@ -1517,7 +1540,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
-| `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
+| `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `setRangeText(id, text[, start, end[, selectionMode]])`: plain-field range replacement, one `input`, preserve selection by default, no undo step ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |

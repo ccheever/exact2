@@ -767,8 +767,8 @@ public final class ExactSession {
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
         presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
-        presenter.onSelectionChange = { [unowned self] id, text, start, end in
-            apply(runtime.selectionChange(id, text, start: start, end: end, now: now()))
+        presenter.onSelectionChange = { [unowned self] id, text, start, end, rects in
+            apply(runtime.selectionChange(id, text, start: start, end: end, rects: rects, now: now()))
         }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
@@ -1102,6 +1102,14 @@ public final class ExactSession {
                 }
                 if name == "focus" || name == "selectText" {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
+                    continue
+                }
+                if name == "removeAllRanges" {
+                    #if os(macOS)
+                    app.deliver { [weak self] in self?.presenter.selection.clear() }
+                    #else
+                    log("removeAllRanges refused: reader selection commands are not supported on this platform")
+                    #endif
                     continue
                 }
                 if name == "setSelectionRange" || name == "setRangeText" {

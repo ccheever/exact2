@@ -328,6 +328,8 @@ pub enum Event {
         start: f64,
         /// Where it ends.
         end: f64,
+        /// Selected fragments in viewport coordinates, sampled with the event.
+        rects: Vec<crate::geometry::GeometryAnswer>,
     },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
@@ -554,10 +556,16 @@ impl Event {
                 .to_vec(),
             )),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
-            Event::SelectionChange { text, start, end } => Some(Value::record(vec![
+            Event::SelectionChange {
+                text,
+                start,
+                end,
+                rects,
+            } => Some(Value::record(vec![
                 Value::str(text),
                 Value::Number(*start),
                 Value::Number(*end),
+                Value::list(rects.iter().map(|r| r.value()).collect()),
             ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),

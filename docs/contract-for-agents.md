@@ -2513,6 +2513,12 @@ select an installed face with the same name; write bundled choices as literals.
 A `text` with `selectionchange=act` hears the reader's real text selection
 on the web, macOS and iOS: `action act(s: Selection)` gets `s.text`, `s.start` and
 `s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
+On web and macOS, `s.rects` is a list of `Geometry` snapshots for the selected
+fragments in viewport space; empty when cleared (and on iOS).
+`removeAllRanges()` clears the reader selection, and
+`setSelectionRange(id, start, end[, direction])` selects a `text` on web and
+macOS using source UTF-16 offsets. Both report changed parts through
+`selectionchange`; see [text selection](contract-grammar.md#text-selection).
 Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`; on iOS, where a
 long press or a double tap selects a word of text its author made selectable
 (`user-select="text"`), with `tap <id> contextmenu [at <x> <y>]` or

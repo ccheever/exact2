@@ -55,7 +55,7 @@ pub(super) fn selection_range_args(
     }
     err(
         "type-set-selection-range",
-        "`setSelectionRange(\"id\", start, end)` or `setSelectionRange(\"id\", start, end, \"backward\")`: the field's `id`, the UTF-16 offsets, and optionally `forward`, `backward` or `none`",
+        "`setSelectionRange(\"id\", start, end)` or `setSelectionRange(\"id\", start, end, \"backward\")`: the node's `id`, the UTF-16 offsets, and optionally `forward`, `backward` or `none`",
         span,
     )
 }
@@ -176,13 +176,18 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // diary), what `selectionchange` hands its action, in the order
     // `exact_runner::Event::SelectionChange` writes it: the selected text
     // (DOM `Range.toString()`) and its UTF-16 start and end in the node's
-    // own text, as written. Nothing selected there is "" with equal offsets.
+    // own text, as written, followed by viewport rectangle snapshots.
+    // Nothing selected there is "" with equal offsets and no rectangles.
     shapes.map.insert(
         "Selection".into(),
         vec![
             ("text".into(), Ty::String),
             ("start".into(), Ty::Number),
             ("end".into(), Ty::Number),
+            (
+                "rects".into(),
+                Ty::List(Box::new(Ty::Record("Geometry".into()))),
+            ),
         ],
     );
     // DOM's `PointerEvent`, the subset every host measures, in the order

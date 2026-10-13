@@ -911,6 +911,13 @@ pub(super) fn check_command(
     if name == "fastSeek" || name == "load" {
         return super::media::command_args(name, args, scope, shapes, span);
     }
+    if name == "removeAllRanges" && !args.is_empty() {
+        return err(
+            "type-remove-all-ranges",
+            "`removeAllRanges()` takes no arguments",
+            span,
+        );
+    }
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);
     }

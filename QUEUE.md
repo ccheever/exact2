@@ -1,5 +1,7 @@
 # Queue
 
+- **Selection rectangles for native reader-worker paragraphs:** ordinary text now reports `Selection.rects` (issue #274); paragraphs delegated to `RegionReaderParagraph` still return `[]`. Carry the worker's selected fragments as an event snapshot without shaping the whole paragraph on the UI thread.
+
 - **Native appearance assertions fail in the PR sweep on macOS 27.0.1 / iOS 27** (2026-10-13). UIKit reports eight HDR/image failures in `HDRColorTests`, `HDRImageTests`, `PickerColorTests` and `RasterColorTests`, also reported during #515/#518 validation. macOS reports border/selected-text colour assertions and `PressFeedbackMacTests` (the focused run expected black at 0.16 alpha but received white at 0.18). Compare against a hand-built control in the same appearance before changing expectations. The retired Back toolbar-item crash found in the same run is fixed by #516; its focused Back/toolbar regressions pass.
 - **Conformance treats `--jobs`' value as an app name** (2026-10-13): `host/web-js/conform.mjs menus --jobs 1 --build --strict` also tries to build and compare app `1`, because the positional-argument filter omits `--jobs`. Omit the option for a single fixture; include it in the filter when fixing the harness.
 

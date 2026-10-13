@@ -127,6 +127,22 @@ File content is data, never Contract source; loading a document compiles no UI.
 Native selection belongs to the host, never to plan state. CoreText remains the
 Apple measurement and drawing engine (LLP 1008 §3).
 
+Selection snapshots (Charlie, 2026-10-08, issue #274; implemented 2026-10-13):
+`Selection.rects` carries selected fragment `Geometry` records in viewport
+space on web and macOS, empty when cleared. Web uses `Range.getClientRects`;
+macOS shares the CoreText selection/inline-run rectangle path. Geometry is
+sampled only when a selected part changes. Native reader-worker paragraphs
+return no rectangles until the worker exposes a selection geometry snapshot.
+`removeAllRanges()` clears the reader selection;
+`setSelectionRange(id, start, end[, direction])` extends the
+field command to `text`, using source UTF-16 offsets and the field's clamping,
+then `setBaseAndExtent` semantics for anchor and focus. Inline IDs use their
+own source offsets; scripted boundaries survive collapsed whitespace. Web
+Markdown breaks count as source newlines, and macOS rectangles follow column
+fragment placement and clipping. Both report changed
+parts through `selectionchange`. UIKit's existing user selection is unchanged
+and reports no rectangles; programmatic reader selection is web/macOS only.
+
 Scope take: this reader is a new real consumer alongside Caltrain; speculative
 native-module implementation (LLP 1024, still awaiting a consumer) is deferred
 behind it. Its `current/` link leaves to keep the 15-document working set.
