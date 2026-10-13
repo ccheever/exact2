@@ -9,6 +9,8 @@ Each rule is **[check]** (enforced in CI) or **[review]** (enforced by a human).
 ## Budgets — every budget is a trade, not a limit
 
 - **6 blocking checks, 65s total.** A seventh requires deleting one, same PR. **[check]**
+  The sixth (`cargo check --workspace --all-targets`) stays blocking (Charlie, 2026-10-12, asked blocking or advisory:
+  "rec is ok for now"), with the false failure it had under load (a build helper's fixed 60 s wait) repaired.
 - **15 documents in the working set** (`llp/current/`). A 16th requires archiving one —
   which is just removing the link. The corpus itself is uncapped. **[check]**
 - **10 documents in the foundation** (`llp/foundation/`). **[check]**

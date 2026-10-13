@@ -809,6 +809,12 @@ boot path executes nothing), for what CSS does on its own.
    names at each use. Before it could land: that reach question decided, the
    `lower-colour-one-scheme` and no-tells lints taught what a theme's literals are,
    `apps/markdown-stress` ported and the Rust record deleted.
+   **Ruled (Charlie, 2026-10-12): "for now, build the reach."** The branch goes on: D1's
+   reference table is carried in the plan, and a role an app replaces reaches each surface
+   the platform offers a supported way to colour (a list, a bar, a sheet, a field), never
+   by replacing a platform control with a look-alike; where the platform offers none (an
+   alert, a system menu) the surface stays the platform's and D4 says so. It still lands
+   only on his word, after that reach is measured.
 7. **§10's fidelity fixes,** in their own order (§10.6).
 
 ## 6. Open questions for the maintainer
