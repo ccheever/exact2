@@ -8,7 +8,7 @@
 //   gen-icons.mjs      settings-b-lucide.ts, pages-icons.contract (Lucide); timeline-files.contract,
 //                      timeline-files-tables.ts, macos/pierre-icons.tsv, assets/composer-icons.json (Pierre)
 //   gen-morph.mjs      shell-morph.contract: morphicons' plan for each icon pair
-//   gen-vectors.mjs    macos/tests/terminal/vectors.json: terminal-output.ts over the buffer cases
+//   gen-vectors.mjs    macos/tests/terminal/vectors.json: the buffer cases and their committed expectations
 //
 // The app build runs it before it bakes (macos/build.rs). Run it by hand before anything else reads
 // them: `bun test examples/t3-code`, the strict tsc, `contract build`, the AppKit tests.
@@ -29,13 +29,10 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
 const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs'];
-/** The app sources a generator reads, beside this directory's own files. */
-const APP_INPUTS = ['terminal-output.ts'];
 
-/** Every input: this directory's scripts, package.json and bun.lock, and APP_INPUTS. */
+/** Every input: this directory's scripts, package.json and bun.lock (no generator reads an app source). */
 export function inputs() {
-  const own = readdirSync(here).filter(name => /\.mjs$/.test(name) || name === 'package.json' || name === 'bun.lock').map(name => join(here, name));
-  return [...own, ...APP_INPUTS.map(name => join(example, name))];
+  return readdirSync(here).filter(name => /\.mjs$/.test(name) || name === 'package.json' || name === 'bun.lock').map(name => join(here, name));
 }
 
 /** The pinned packages: a frozen install with nothing to do takes milliseconds; a missing package is fetched once.

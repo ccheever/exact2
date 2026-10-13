@@ -41,7 +41,8 @@ reference locks; network once) and from committed inputs: the Shiki grammar tabl
 (`settings-b-lucide.ts`, `pages-icons.contract`, `timeline-files.contract`,
 `timeline-files-tables.ts`, `macos/pierre-icons.tsv`, `assets/composer-icons.json`), the morph
 plans (`shell-morph.contract`) and the terminal buffer vectors
-(`macos/tests/terminal/vectors.json`). The app build runs it before it bakes (`macos/build.rs`);
+(`macos/tests/terminal/vectors.json`, whose expectations are test data committed in
+`gen-vectors.mjs`). The app build runs it before it bakes (`macos/build.rs`);
 run it yourself before the tests and checks below:
 
 ```sh
@@ -323,22 +324,27 @@ filed were moved there or closed). The gaps someone using this app runs into:
   is an argument, and debounces and cooldowns are Contract tasks.
 - Data modules cannot send on a WebSocket ([`issues/20261009-runner-owned-bidirectional-streams.md`](../../issues/20261009-runner-owned-bidirectional-streams.md),
   #126), so the RPC transport lives in the Swift module.
-- No `showModal(id)` / `close(id)` ([`issues/20261009-gui-dialog-action-commands.md`](../../issues/20261009-gui-dialog-action-commands.md), #282).
-  Each dialog carries its own Tab trap (`dialog-trap.contract`), and closing a dialog whose
-  opener the view cannot name leaves the focus nowhere (Base UI gives it back).
 - A backdrop blur sees only its parent ([`issues/20261010-macos-backdrop-beyond-parent.md`](../../issues/20261010-macos-backdrop-beyond-parent.md)), so
   the composer is opaque where the reference's glass shows the transcript through it.
-- A hatch cannot keep a fixed period across list rows
-  ([`issues/20261011-repeating-hatch-across-list-rows.md`](../../issues/20261011-repeating-hatch-across-list-rows.md)). Split view's empty side stripes
-  every 10 pt, where the reference stripes every 8 px.
-- An inline link run is never a Tab stop on macOS
-  ([`issues/20261012-macos-inline-link-run-tab-stop.md`](../../issues/20261012-macos-inline-link-run-tab-stop.md)), so a keyboard cannot reach a link in
-  a Markdown table cell.
 - No process relaunch ([`issues/20261009-native-process-relaunch.md`](../../issues/20261009-native-process-relaunch.md)). The Local environment
   switch stops or starts the embedded server in place, where the reference relaunches the app.
-- No capture-phase key handler or app-declared menu bar
-  ([`issues/20261009-capture-phase-key-events.md`](../../issues/20261009-capture-phase-key-events.md), [`issues/20261009-contract-menu-bar-extensions.md`](../../issues/20261009-contract-menu-bar-extensions.md)),
-  so the menu bar and the chord re-issue are the module's (`R8KeysMenus.swift`, `R10Connect.swift`).
+
+Main has since closed five records the clone was written around. Four of them need the clone
+to move to what main now has, which it has not done yet, so it still works the old way:
+
+- `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).
+  Each dialog carries its own Tab trap (`dialog-trap.contract`), and closing a dialog whose
+  opener the view cannot name leaves the focus nowhere (Base UI gives it back).
+- `repeating-linear-gradient()` and length stops
+  ([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)). Split view's empty side
+  stripes every 10 pt, where the reference stripes every 8 px.
+- A capture-phase key handler and app-declared menu bar items
+  ([`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md), [`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+  The menu bar and the chord re-issue are still the module's (`R8KeysMenus.swift`, `R10Connect.swift`).
+- An inline link run as a Tab stop on macOS
+  ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
+  clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
+  table cell since.
 
 Differences that belong to the app:
 
