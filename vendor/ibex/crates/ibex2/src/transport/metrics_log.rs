@@ -14,12 +14,21 @@ fn file() -> Option<&'static Mutex<std::fs::File>> {
     static FILE: OnceLock<Option<Mutex<std::fs::File>>> = OnceLock::new();
     FILE.get_or_init(|| {
         let path = std::env::var_os("IBEX2_HTTP_METRICS")?;
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .ok()?;
-        Some(Mutex::new(file))
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true);
+        // The log holds URLs: the owner's to read only.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        match options.open(&path) {
+            Ok(file) => Some(Mutex::new(file)),
+            Err(e) => {
+                eprintln!(
+                    "IBEX2_HTTP_METRICS {}: {e}; not logging",
+                    path.to_string_lossy()
+                );
+                None
+            }
+        }
     })
     .as_ref()
 }
