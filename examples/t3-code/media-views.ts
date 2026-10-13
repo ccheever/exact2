@@ -244,6 +244,27 @@ export function markdownMedia(alt: string, src: string, href: string, root: stri
   return { href, kind, alt, access: 'blocked', key: '', fragment: '', originalUrl: '', source: null };
 }
 
+/** G4-05 (chat-markdown-media-and-code): the Markdown documents on screen whose images open the expanded preview, by the owner
+ *  their chips carry (a message row's id, `files:<path>`, `attachment:<id>`): ChatMarkdown's markdownImageGallery scope. */
+export type MarkdownDocument = { text: string; root: string; scope: MediaScope };
+const documents = new Map<string, MarkdownDocument>();
+export function noteMarkdownDocument(owner: string, text: string, root: string, scope: MediaScope = {}): void {
+  if (!owner || !text.includes('![')) return;
+  documents.delete(owner);
+  documents.set(owner, { text, root, scope });
+  if (documents.size > 256) documents.delete(documents.keys().next().value!);
+}
+export const markdownDocument = (owner: string): MarkdownDocument | null => documents.get(owner) ?? null;
+export type GalleryImage = { key: string; name: string; access: MarkdownMedia['access']; source: MediaActionSource };
+/** markdownImageGallery: the document's images in order (an image that can load, not a video; not one in a table cell or a
+ *  link's text, which draw their alt text), each as ExpandedImagePreview names it (`alt.trim() || "image"`). */
+export function markdownGallery(document: MarkdownDocument): GalleryImage[] {
+  return markdownInlineImages(document.text).flatMap(image => {
+    const media = markdownMedia(image.alt, image.src, image.href, document.root, document.scope);
+    return media.kind === 'image' && media.access !== 'blocked' && media.source ? [{ key: media.key, name: image.alt.trim() || 'image', access: media.access, source: media.source }] : [];
+  });
+}
+
 /** The chips that carry a message's media to markdown.contract (matched by the image block's or media run's href). */
 export function markdownMediaChips(text: string, root: string, scope: MediaScope = {}): { href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string }[] {
   const seen = new Set<string>();

@@ -11,7 +11,7 @@ import type { T3Client } from './client';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { fontStack } from './settings-appearance';
 import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
-import { markdownLinkHref, markdownMediaChips, type MediaScope } from './media-views'; // media-actions: a message's images and their actions
+import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from './media-views'; // media-actions: a message's images and their actions
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -74,6 +74,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   }
   // media-actions: an image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
   for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });
+  noteMarkdownDocument(owner, text, root, media); // G4-05: the image's press opens the preview over this document's images
   return chips;
 }
 
