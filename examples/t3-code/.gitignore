@@ -13,3 +13,18 @@
 /assets/terminal-symbols-nerd-font-mono.woff2
 # Task records, evidence and diaries: local state, never committed (docs/diary.md).
 /.exact/
+# Generated sources (tools/generate/generate.mjs writes them; the app build runs it): built, not
+# committed (rules/RULES.md).
+/r12-render-grammar.ts
+/r12-render-grammar-*.ts
+/r7-polish-css-words.ts
+/settings-b-lucide.ts
+/pages-icons.contract
+/timeline-files.contract
+/timeline-files-tables.ts
+/shell-morph.contract
+/assets/composer-icons.json
+/macos/pierre-icons.tsv
+/macos/tests/terminal/vectors.json
+# The app's own Cargo workspace builds here (Cargo.toml).
+/target/

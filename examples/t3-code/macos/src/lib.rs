@@ -3,6 +3,12 @@
 
 mod markdown;
 
+/// Pierre's file-icon tables for the Markdown module (pierre_icons.rs): the build script generates
+/// `pierre-icons.tsv` before this crate compiles (tools/generate/gen-icons.mjs).
+fn pierre_tables() -> &'static str {
+    include_str!("../pierre-icons.tsv")
+}
+
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));

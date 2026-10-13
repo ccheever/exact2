@@ -43,7 +43,7 @@ const example = join(here, '..', '..');
 const { tokenizeCode, styleOf } = await import(join(example, 'r12-render-textmate.ts'));
 const { CLASS_OF_PAIR } = await import(join(example, 'r12-render-highlight.ts'));
 const { highlight } = await import(join(example, 'timeline-highlight.ts'));
-const { EMBEDDED_ONLY, LICENCE_HELD } = await import(join(example, 'tools', 'grammar', 'gen-grammar.mjs'));
+const { EMBEDDED_ONLY, LICENCE_HELD } = await import(join(example, 'tools', 'generate', 'gen-grammar.mjs'));
 const theme = name => JSON.parse(readFileSync(join(here, 'node_modules', '@pierre', 'theme', 'themes', `${name}.json`), 'utf8'));
 const THEMES = { light: theme('pierre-light'), dark: theme('pierre-dark') };
 

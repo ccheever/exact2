@@ -79,6 +79,15 @@ export function tierTwoChecks() {
 }
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
+// The T3 Code clone's own workspace (examples/t3-code/Cargo.toml): its build script bakes the whole app on
+// one core, about twelve minutes, so the root's members and the six checks leave it out. Built, tested and
+// linted here, in the root's target (pruned with it), where the units the two workspaces share are built
+// once. Clippy's build of the build script is a unit of its own, so linting bakes once more.
+const t3Code = ['--manifest-path', 'examples/t3-code/Cargo.toml', '--target-dir', 'target', '--workspace', '--locked'];
+export const t3CodeChecks = [
+  ['t3-code', 'cargo', ['test', ...t3Code, '--lib', '--bins', '--tests', '--no-fail-fast']],
+  ['t3-code-clippy', 'cargo', ['clippy', ...t3Code, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
+];
 export function glueTests(root) {
   const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
   return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs'];
@@ -92,6 +101,7 @@ export function checks(sha, since, selection = {}) {
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
     ['test', 'env', ['EXACT_PURE_CHROME_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
     gameCheck,
+    ...t3CodeChecks,
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],

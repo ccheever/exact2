@@ -34,6 +34,25 @@ The terminal page is a build output: the Apple bundle copies `assets/` as it is 
 step that makes an app's assets first, so without `terminal-host/build.mjs` the terminal view
 stays blank and its status names the load error.
 
+Generated sources are built, not committed. `tools/generate/generate.mjs` makes them from the
+packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the versions the
+reference locks; network once) and from committed inputs: the Shiki grammar tables
+(`r12-render-grammar*.ts`), the CSS word lists, the Lucide and Pierre icon data
+(`settings-b-lucide.ts`, `pages-icons.contract`, `timeline-files.contract`,
+`timeline-files-tables.ts`, `macos/pierre-icons.tsv`, `assets/composer-icons.json`), the morph
+plans (`shell-morph.contract`) and the terminal buffer vectors
+(`macos/tests/terminal/vectors.json`). The app build runs it before it bakes (`macos/build.rs`);
+run it yourself before the tests and checks below:
+
+```sh
+bun examples/t3-code/tools/generate/generate.mjs           # writes what differs; --check fails instead
+```
+
+The app is its own Cargo workspace (`Cargo.toml` here, building into `examples/t3-code/target`),
+outside the root's members: its build script bakes the whole app on one core, about twelve
+minutes, so exact2's six blocking checks leave it out and the async lane (`scripts/async.mjs`'s
+`t3-code` and `t3-code-clippy` steps) builds, tests and lints it.
+
 The embedded server. `stage-runtime.mjs` downloads the release archive named by
 `server-runtime/runtime-pin.json`, accepts it only when its SHA-256, the release's `SHA256SUMS`
 and the pin agree, checks the signatures of its Mach-O files, runs `t3 --version`, starts it once on
@@ -355,8 +374,8 @@ event projection. A labelled `button` or `link` that may mount no text says `tit
 LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
 give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
 applies the host's rule to the view tree). `modules/apple/` is the native module; `macos/` holds the bake adapter crate (`t3-code-macos`)
-and the AppKit tests; `tools/` holds the lanes (`github-lane/`, `network-lane/`), the grammar
-generator and the Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
+and the AppKit tests; `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
+of the generated sources (`generate/`) and the Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
 
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
 that arrives while the snapshot read is in flight lets that read's reply land and then asks
@@ -370,16 +389,16 @@ probe the live socket instead of replacing it) and resubscribes a failed stream 
 session after 250 ms doubling to 30 s.
 
 ```sh
+bun examples/t3-code/tools/generate/generate.mjs   # the generated sources, first
 bun test examples/t3-code
 bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2023,DOM examples/t3-code/app.ts
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
-cargo test -p contract --test it button_migration   # main's sweep, which compiles this app's roots too
-EXACT_APP_DIR="$PWD/examples/t3-code" cargo test -p t3-code-macos --lib   # with the Hermes env of the root setup
+cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app's roots (~5 min)
+cargo test --manifest-path examples/t3-code/Cargo.toml --lib   # the app's workspace: the bake, then its tests (Hermes env of the root setup)
 ```
 
-The Apple crate is a workspace member outside the default Cargo members; a Cargo
-build alone does not compile or launch its Swift module. Use the app build above
-for an integrated check.
+A Cargo build alone does not compile or launch the Apple crate's Swift module. Use the app
+build above for an integrated check.
 
 The module AppKit/XCTest binaries under `macos/tests/<name>/` build with Exact's
 module facade, the app's generated data keys, every file in `modules/apple/` (the
@@ -400,7 +419,7 @@ for d in examples/t3-code/macos/tests/*/; do
     -Xlinker -rpath -Xlinker "$F" -Xlinker -rpath -Xlinker "$L" \
     host/apple/modules/ExactNativeModule.swift "$R/ExactDataKeys.swift" $M "$d"*.swift -o "$O/$n-tests" || continue
   [ $n = snapshot ] && { rm -rf "$O/fixture"; mkdir -p "$O/fixture"; export T3_SNAPSHOT_TEST_ROOT="$O/fixture"; }
-  T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
+  EXACT_ASSETS="$T3_APP_DIR" T3_BROWSER_TEST_DIR="$O" T3_COMPOSER_TEST_DIR="$O" T3_MENUS_TEST_DIR="$O" T3_MERMAID_TEST_DIR="$O" T3_PANELS_TEST_DIR="$O" T3_TERMINAL_TEST_DIR="$O" "$O/$n-tests" $([ $n = mermaid ] && echo "$T3_SERVER")
 done
 ```
 
@@ -409,7 +428,7 @@ views. It compiles ExactKit's sources into its own binary, so it passes
 `-package-name apple`, the name SwiftPM gives `host/apple/Package.swift`'s
 package (ExactKit's `package` declarations need one). After building the macOS
 app (`bun host/apple/build.mjs t3-code-macos`, which writes
-`target/aarch64-apple-darwin/host-dev/libt3_code_macos.a`), run it from the
+`examples/t3-code/target/aarch64-apple-darwin/host-dev/libt3_code_macos.a`), run it from the
 repository root:
 
 ```sh
@@ -417,7 +436,7 @@ mkdir -p target/t3-tests
 xcrun swiftc -swift-version 5 -package-name apple -module-name ExactKit -I host/apple/Sources/CExact \
   $(rg --files host/apple/Sources/ExactKit -g '*.swift') \
   examples/t3-code/macos/tests/timeline-keyboard/main.swift \
-  -L target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ \
+  -L examples/t3-code/target/aarch64-apple-darwin/host-dev -lt3_code_macos -lc++ \
   -o target/t3-tests/timeline-keyboard-tests
 target/t3-tests/timeline-keyboard-tests
 ```
