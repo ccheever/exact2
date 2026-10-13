@@ -1,6 +1,7 @@
 # [Bug] macOS: VoiceOver's show menu ignores a contextmenu on an ancestor
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #526
 **Systems:** host/apple macOS, accessibility
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
