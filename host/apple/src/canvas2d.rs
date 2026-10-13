@@ -80,7 +80,7 @@ impl<D: DataSource> Host<D> {
             let (content, radii) = self.runner.kernel().node(c.view).map_or(
                 ((0.0, 0.0, 0.0, 0.0), [(0.0, 0.0); 4]),
                 |n| {
-                    let b = exact_kernel::svg::scene::content_box(&n);
+                    let b = exact_kernel::svg::scene::content_box(self.runner.kernel(), &n);
                     let s = n.style;
                     // The content edge's curve: each radius less the inset
                     // (CSS Backgrounds 3 §5.2), clipping the bitmap as the

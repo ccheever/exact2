@@ -173,3 +173,66 @@ fn a_new_reader_is_sent_every_row_again() {
     assert!(second.begun.iter().all(|(_, previous)| previous.is_none()));
     assert!(second.freed.is_empty(), "it was sent no row to free");
 }
+
+/// A row is recorded again when a layout changes what a node in it
+/// publishes beside a frame that stayed: a percentage padding whose
+/// containing block narrowed (CSS Box Model 3 §4.1) moves the row's content,
+/// which input reads anew, while its frame does not.
+#[test]
+fn a_row_whose_padding_alone_changed_is_recorded_again() {
+    for moved in [false, true] {
+        let (mut p, error) = Presenter::boot_with(
+            &contract::compile(
+                &r##"component App
+  state narrow = false
+  action shrink
+    narrow = true
+  view
+    column
+      box testId="shrink" press=shrink width=40 height=20
+      scroll testId="port" width=400 height=300 margin-top=(narrow ? SHIFT : 0)
+        column width=(narrow ? 300 : 400)
+          box testId="padded" width=200 height=50 box-sizing="border-box" padding-left="5%"
+          box testId="plain" width=200 height=50
+"##
+                .replace("SHIFT", if moved { "10" } else { "0" }),
+            )
+            .unwrap()
+            .encode(),
+            Nothing,
+            (400., 500.),
+            1.,
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let heard = Rc::new(RefCell::new(Heard::default()));
+        p.brush.replace_backend(Box::new(Keeps {
+            heard: heard.clone(),
+            row: 0,
+        }));
+        let _ = p.frame();
+        let first = std::mem::take(&mut *heard.borrow_mut());
+        assert_eq!(first.begun.len(), 2, "each box a kept row");
+        let k = p.host.kernel();
+        let (shrink, padded) = (
+            k.find_by_test_id("shrink")[0],
+            k.find_by_test_id("padded")[0],
+        );
+        let frame = k.node_by_key(padded).unwrap().frame;
+        let shrink = k.node_by_key(shrink).unwrap().id;
+        let reply = crate::agent::handle(&mut p, &format!(r#"{{"op":"tap","id":{shrink}}}"#));
+        assert!(!reply.contains("error"), "{reply}");
+        let k = p.host.kernel();
+        let next = k.node_by_key(padded).unwrap().frame;
+        assert_eq!(next.x, frame.x);
+        assert_eq!(next.y, frame.y + if moved { 10. } else { 0. });
+        assert_eq!((next.width, next.height), (frame.width, frame.height));
+        assert_eq!(k.resolved_padding(padded).map(|p| p.0), Some(15.));
+        let _ = p.frame();
+        let heard = heard.borrow();
+        let again: Vec<_> = heard.begun.iter().map(|(_, previous)| *previous).collect();
+        assert_eq!(again, [Some(first.begun[0].0)], "the padded row alone");
+    }
+}

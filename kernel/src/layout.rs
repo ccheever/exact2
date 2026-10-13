@@ -50,7 +50,8 @@ pub struct LayoutReceipt {
     /// Every node whose absolute frame changed, in preorder.
     pub changed: Vec<NodeKey>,
     /// Publication candidates in preorder: changed frames, parent-relative
-    /// origins and scroll extents. Region passes may include unchanged nodes.
+    /// origins, scroll extents and resolved padding and border. Region passes
+    /// may include unchanged nodes.
     /// Hosts accumulate these across silent passes before emission.
     pub updated: Vec<NodeKey>,
     /// Leaves whose resolved exclusions changed bitwise, in preorder (LLP 1043.000 D4).

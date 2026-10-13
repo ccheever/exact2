@@ -46,8 +46,7 @@ extension NodeView {
     }
     func layoutSymbol() {
         guard let leaf = symbolView, let clip = symbolClip else { return }
-        let uniform = number("border_width")
-        let content = bounds.insetBy(left: number("border_width_left", uniform) + number("padding_left"), top: number("border_width_top", uniform) + number("padding_top"), right: number("border_width_right", uniform) + number("padding_right"), bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        let content = contentBox()
         clip.frame = content; leaf.frame = clip.bounds
         switch style["object_fit"]?.string ?? "fill" {
         case "contain": leaf.imageScaling = .scaleProportionallyUpOrDown

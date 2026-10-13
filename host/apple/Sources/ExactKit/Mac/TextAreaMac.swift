@@ -315,7 +315,7 @@ extension NodeView {
         guard let f = textArea, let scroller = textAreaScroll else { return }
         scroller.frame = isNativeTextControl ? bounds : contentBox()
         if let f = f as? TextArea {
-            if isNativeTextControl, let rect = nativeFieldContent {
+            if isNativeTextControl, let rect = kernelContentBox {
                 let clip = scroller.contentView.frame
                 f.nativeOrigin = NSPoint(x: max(0, rect.minX - clip.minX), y: max(0, rect.minY - clip.minY))
                 f.textContainer?.widthTracksTextView = false

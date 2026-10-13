@@ -19,7 +19,7 @@ extension NodeView {
     /// (LLP 1116.009 D5): a title under its field read as covered by it.
     package static var touchFallsToCellField = true
     func nativeEditorRect(in proposed: CGRect) -> CGRect? {
-        guard isNativeTextControl, let rect = nativeFieldContent else { return nil }
+        guard isNativeTextControl, let rect = kernelContentBox else { return nil }
         // UIKit also asks with a synthetic 100×100 box to derive its insets.
         // Return the published insets applied to that argument, rather than
         // an absolute rect: the latter hid values or moved their baseline.
@@ -66,16 +66,15 @@ extension NodeView {
         layoutField()
     }
     func applyFieldContent(_ payload: [String: Any]) {
-        if let r = payload["rect"] as? [Double], r.count == 4 {
-            nativeFieldContent = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
-        } else { nativeFieldContent = nil }
-        let cell = nativeFieldContent != nil && payload["cell"] as? Bool == true
+        let r = payload["rect"] as? [Double]
+        let box = r.flatMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
+        applyKernelContentBox(box)
+        let cell = box != nil && payload["cell"] as? Bool == true
         if cell != fieldInCell {
             fieldInCell = cell
             if field != nil { styleNativeField() }
             if textArea != nil { styleTextArea() }
         }
-        layoutField(); layoutTextArea()
     }
 }
 

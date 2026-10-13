@@ -3,6 +3,7 @@
 
 mod animation;
 mod canvas_defer;
+mod content_box;
 mod content_region;
 mod controls;
 mod development;

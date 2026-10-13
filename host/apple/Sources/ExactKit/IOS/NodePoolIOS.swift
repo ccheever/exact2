@@ -502,6 +502,8 @@ extension NodeView {
         // The next node's hatch decides again.
         hatchReusable = false
         content = .zero
+        // The next node's layout sends its own content box, if any
+        kernelContentBox = nil
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.
         if layer.contents != nil { layer.contents = nil }
