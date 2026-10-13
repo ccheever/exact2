@@ -48,6 +48,7 @@ use PaFreshnessCard from "./pages-pr-actions.contract"
 use PrLinkPreviewCard from "./pages-pr-links.contract" // pr-links-previews-and-routing
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "./composer-chip-popover.contract" // settings-appearance-and-skill-chip: a skill chip's details
 use CitationCommentLayer from "./citation-comment.contract" // diff-cite-popover DC-1: a citation chip's comment
+use CiteAction, CiteOffer, citeLineFrame from "./diff-cite.contract" // cite-selection-anchor: Cite over the timeline
 component T3Window
   props
     data: Snapshot
@@ -336,6 +337,14 @@ component T3Window
     citeQuote = (citeShown ? chip.quote : "")
     citeAt = (citeShown ? chip.at : -1)
     citeOpen = citeShown
+    // cite-selection-anchor: the answer whose Cite shows (markdown.contract AnswerMarkdown), its offer, its withdrawal, the
+    // timeline's scroll (ChatColumn), and the window's press handlers, which a press on an answer's text reaches through it.
+    citeOffered = (citeShows ? citeFor : "")
+    citeOfferSet
+    citeWithdraw
+    citeScrolled
+    outsidePressDown
+    outsidePressUp
   // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
   action linkOpen(kind: string, href: string)
@@ -415,6 +424,29 @@ component T3Window
   action outsidePressUp
     outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses
     outsideDown = false
+  // cite-selection-anchor (AssistantSelectionToolbar.tsx): the Cite an answer offers, drawn by the window above the timeline
+  // as the reference portals it to the body; shown on the thread it was offered on, under no page, Settings or dialog.
+  // It hides as the timeline scrolls (observeSelectionActions' scroll), and the press sends the quote with the window frame
+  // of the selection's last line, measured again, then clears the selection (`removeAllRanges()` after `onCite`).
+  state citeOffer = CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0)
+  state citeFor = ""
+  state citeThread = ""
+  derive citeShows = citeFor != "" and citeThread == data.threadId and not pageCover and not settingsOpen and not modal
+  action citeOfferSet(offer: CiteOffer)
+    citeOffer = offer
+    citeFor = offer.source
+    citeThread = data.threadId
+  action citeWithdraw(source: string)
+    if citeFor == source
+      citeFor = ""
+  action citeScrolled(left: number, top: number)
+    if citeFor != ""
+      citeFor = ""
+  action citePress
+    let end = frame(citeOffer.end)
+    command("diffreview", `cite:${citeOffer.source}`, `${citeOffer.ranges}|${citeLineFrame(citeOffer, end)}|${citeOffer.stream}`, 0)
+    removeAllRanges()
+    citeFor = ""
   // settings-appearance-and-skill-chip: the newest skill chip press (composer-chip-popover.ts), hidden at
   // once when the window closes it or Settings or a page covers it; `instructions` opens the skill's file first (View instructions).
   state chipClosed = 0
@@ -724,6 +756,9 @@ component T3Window
         // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
         when chipShown and chip.kind != "citation"
           ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
+        // cite-selection-anchor: Cite at the selection in an answer (diff-cite.contract), above the timeline's rows.
+        when citeShows
+          CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))
         // diff-cite-popover DC-1: a citation chip's comment, under the cited text after Cite or above the chip's button.
         when citeShown
           CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)
