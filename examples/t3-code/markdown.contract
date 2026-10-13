@@ -380,7 +380,7 @@ component BlockBody
       // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
       when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
         each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner)
+          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     when block.kind == "quote"
@@ -560,7 +560,7 @@ component FlowRuns
         // its alt text.
         when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0
           each chip in filter(chips, (chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), owner=chip.owner)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
         // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
           each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id

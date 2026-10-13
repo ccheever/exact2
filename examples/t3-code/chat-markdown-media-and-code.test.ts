@@ -88,9 +88,9 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
     expect(markdownDocument('["t1","m1"]')?.text).toBe(TEXT);
     expect(markdownGallery(markdownDocument('["t1","m1"]')!).map(item => item.name)).toEqual(['Shot', 'Logo', 'Badge']);
     const shot = chips.find(chip => chip.kind === 'media' && chip.label === 'Shot')!;
-    imagePreviewAction(client, 'image-md-open', shot.target, shot.owner);
+    imagePreviewAction(client, 'image-md-open', shot.target, `${shot.owner}\nmedia-${shot.owner}-b1`);
     expect(imagePreviewView(client)).toMatchObject({ imagePreviewId: 'media:/repo/docs/shot.png', imagePreviewName: 'Shot', imagePreviewPosition: '(1/3)',
-      imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false, imagePreviewTip: '/repo/docs/shot.png' });
+      imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false, imagePreviewTip: '/repo/docs/shot.png', imagePreviewReturn: 'media-["t1","m1"]-b1' });
     expect(JSON.parse(imagePreviewView(client).imagePreviewSource)).toMatchObject({ kind: 'image', name: 'Shot', reference: { kind: 'file', path: '/repo/docs/shot.png', relativePath: 'docs/shot.png' } });
     imagePreviewAction(client, 'image-step', '', 'next');
     expect(imagePreviewView(client)).toMatchObject({ imagePreviewName: 'Logo', imagePreviewPosition: '(2/3)' });
@@ -119,14 +119,21 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
   });
   test('the settled image is the button; the video, the loading slot and a failure keep MediaActions', () => {
     const body = component('media-markdown.contract', 'MarkdownMediaBody');
-    expect(body).toContain('MediaPreviewActions(source=source, tip=tip, label=`Preview ${trim(alt) != "" ? trim(alt) : "image"}`, open=open, local=local, testId="markdown-image-actions")');
-    expect(body).toContain('MediaActions(source=source, tip=tip, local=local, elementId="", testId="markdown-video-actions")');
-    expect(body).toContain('MediaActions(source=source, tip=tip, local=local, elementId="", testId="markdown-image-actions")');
-    expect(component('media-markdown.contract', 'MarkdownMedia')).toContain('open=local("image-md-open", target, owner)');
+    expect(body).toContain('MediaPreviewActions(source=source, tip=tip, label=`Preview ${trim(alt) != "" ? trim(alt) : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)');
+    expect(body).toContain('when kind == "video" or (brokenUrl != "" and brokenUrl == url)\n      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))');
+    expect(component('media-markdown.contract', 'MarkdownMedia')).toContain('open=local("image-md-open", target, `${owner}\\n${nodeId}`), nodeId=nodeId)');
     const markdown = source('markdown.contract');
-    expect(markdown.match(/MarkdownMedia\([^\n]*owner=chip\.owner\)/g)).toHaveLength(2);
+    expect(markdown).toContain('standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
+    expect(markdown).toContain('standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
     const button = component('media-actions.contract', 'MediaPreviewActions');
-    for (const part of ['button press=press', 'contextmenu=pointerMenu', 'key=menuKey', 'tabindex=0', 'aria-label=label', 'cursor="zoom-in"', 'hatch="t3-media" data-media-kind="actions"', 'MediaTip(label=tip, shown=over)'])
+    expect(button).toMatch(/action pointerMenu\n\s+hover\(false\)\n\s+focus\(nodeId\)\n\s+local\("media-menu", source, "pointer"\)/);
+    // MSU-1: its tooltip is the hover layer's "code" tip at the button's frame, after Base UI's 600 ms (hover-layer.contract).
+    expect(button).toContain('hoverTipAt(hoverTipAtFrame(nodeId, "code", tip, [], "top", "center", frame(nodeId),');
+    expect(source('hover-layer.contract')).toContain('kind == "tooltip" or kind == "code" ? 600 : 0');
+    expect(source('app-window.contract')).toContain('else when hoverTip.kind == "code"\n              HoverCode(tip=hoverTip)');
+    expect(component('hover-layer.contract', 'HoverCode')).toContain('font-family="ui-monospace" font-size="0.6875rem"');
+    expect(component('timeline-attachments.contract', 'ImagePreviewDialog')).toMatch(/action closePreview\n\s+local\("image-close", "", ""\)\n\s+if returnFocus != ""\n\s+focus\(returnFocus\)/);
+    for (const part of ['button id=nodeId press=press', 'contextmenu=pointerMenu', 'key=menuKey', 'tabindex=0', 'aria-label=label', 'cursor="zoom-in"', 'hatch="t3-media" data-media-kind="actions"'])
       expect(button).toContain(part);
     expect(button).toContain('k == "ContextMenu" or (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10")');
   });
