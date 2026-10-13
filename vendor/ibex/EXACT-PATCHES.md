@@ -3,7 +3,7 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `de115401e79843c0e6458718e9651ca3bcb755fd` (2026-10-13).
+  `b20dded821cf284f35930ff8f68933fe4ac6e2b8` (2026-10-13).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
@@ -69,11 +69,14 @@ maxBytes})` resolving to `{path, type, size, width, height}`, as Exact's docs
 give it, and Exact's prelude (`js/src/prelude.js`) adapts that to upstream's
 positional binding (`compressImage(from, to, maxDimension, maxBytes)`, replying
 `width\theight\tsize`). The October 13 refresh replaced the declaration with
-the positional form; `contract/cli/tests/it/typescript.rs` now pins it. A local
-patch in `stdlib/fs_image.rs` keeps the codes apps branch on: a source over the
-read cap is `compressImage: too-large:` (not the generic result limit), and a
-trial deadline that expires, in the source read or before publication, is
-`compressImage: timeout:` (`data/host/src/tests.rs` covers `too-large`).
+the positional form; `contract/cli/tests/it/typescript.rs` now pins it. Upstream
+now preserves Exact's app error branches: a source over the read cap is
+`compressImage: too-large:`, and a trial deadline before publication is
+`compressImage: timeout:`. This retires the local substring-based image error
+patch; exact internal markers and typed deadline errors are matched upstream.
+The source pin also deallocates an upload's bytes before invoking its last-release
+callback, so the executor cannot refund memory while the allocation is retained.
+The standalone manifests, dependency graph and locks are unchanged by this refresh.
 
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.
