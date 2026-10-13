@@ -53,8 +53,10 @@ impl<D: DataSource> Runner<D> {
     /// Whether the stack whose root route is `route` shows that route as a
     /// list beside the route above it (the module's rule), read from the
     /// tree as it now stands. `None` for a stack that pushes, and for a node
-    /// that is no stack's root route.
-    pub fn stack_split(&self, route: ViewId) -> Option<StackSplit> {
+    /// that is no stack's root route. A host may retain a previously split
+    /// list while it has no actionable rows (static placeholders are allowed);
+    /// its current eligibility is still this rule's.
+    pub fn stack_split(&self, route: ViewId, retained: Option<ViewId>) -> Option<StackSplit> {
         let node = self.kernel.node(route)?;
         node.props.str(PropId::NavigationKey)?;
         if matches!(
@@ -70,7 +72,7 @@ impl<D: DataSource> Runner<D> {
         let width = said
             .and_then(|s| s.trim().parse::<f32>().ok())
             .filter(|w| w.is_finite() && *w > 0.0);
-        let found = self.pushing_list(route);
+        let found = self.pushing_list(route, retained);
         if found.is_none() && width.is_none() {
             return None;
         }
@@ -87,7 +89,12 @@ impl<D: DataSource> Runner<D> {
 
     /// The first list under `route`, in tree order, with a row that pushes,
     /// and that list's rows that are links to the app's routes.
-    fn pushing_list(&self, route: ViewId) -> Option<(ViewId, Vec<(ViewId, String)>)> {
+    fn pushing_list(
+        &self,
+        route: ViewId,
+        retained: Option<ViewId>,
+    ) -> Option<(ViewId, Vec<(ViewId, String)>)> {
+        let mut empty = None;
         let mut stack: Vec<ViewId> = self.kernel.node(route)?.children();
         stack.reverse();
         while let Some(id) = stack.pop() {
@@ -102,21 +109,30 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             if node.node_type == NodeType::List && !sideways(&node) {
-                let (mut pushes, mut links) = (false, Vec::new());
-                self.row_presses(id, &mut pushes, &mut links);
+                let (mut pushes, mut actionable, mut links) = (false, false, Vec::new());
+                self.row_presses(id, &mut pushes, &mut actionable, &mut links);
                 if pushes {
                     return Some((id, links));
+                }
+                if retained == Some(id) && !actionable {
+                    empty = Some((id, links));
                 }
                 continue;
             }
             stack.extend(node.children().into_iter().rev());
         }
-        None
+        empty
     }
 
     /// Under `at`, each outermost node a press reaches: whether any pushes,
     /// and those that are links to the app's routes, with their locations.
-    fn row_presses(&self, at: ViewId, pushes: &mut bool, links: &mut Vec<(ViewId, String)>) {
+    fn row_presses(
+        &self,
+        at: ViewId,
+        pushes: &mut bool,
+        actionable: &mut bool,
+        links: &mut Vec<(ViewId, String)>,
+    ) {
         let Some(node) = self.kernel.node(at) else {
             return;
         };
@@ -131,15 +147,19 @@ impl<D: DataSource> Runner<D> {
             let href = row.props.str(PropId::Href).filter(|h| !h.is_empty());
             match (press, href) {
                 // A node that hears `press` is pressed, whatever it links to.
-                (Some(writes), _) => *pushes |= writes,
+                (Some(writes), _) => {
+                    *actionable = true;
+                    *pushes |= writes;
+                }
                 (None, Some(href)) => {
+                    *actionable = true;
                     if href.starts_with('/') && !href.starts_with("//") && self.route_matches(href)
                     {
                         *pushes = true;
                         links.push((child, href.to_string()));
                     }
                 }
-                (None, None) => self.row_presses(child, pushes, links),
+                (None, None) => self.row_presses(child, pushes, actionable, links),
             }
         }
     }

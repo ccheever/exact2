@@ -91,7 +91,7 @@ fn view(r: &Runner<NoData>, test_id: &str) -> ViewId {
 }
 
 fn split(r: &Runner<NoData>) -> Option<StackSplit> {
-    r.stack_split(view(r, "home"))
+    r.stack_split(view(r, "home"), None)
 }
 
 #[test]
@@ -119,8 +119,8 @@ fn a_list_whose_rows_link_to_a_route_splits_and_names_each_rows_detail() {
         ]
     );
     // A pushed route is no stack's root, and a button in a row is not the row.
-    assert_eq!(r.stack_split(view(&r, "item-c")), None);
-    assert_eq!(r.stack_split(view(&r, "star-a")), None);
+    assert_eq!(r.stack_split(view(&r, "item-c"), None), None);
+    assert_eq!(r.stack_split(view(&r, "star-a"), None), None);
 }
 
 #[test]
@@ -180,6 +180,44 @@ fn navigation_split_on_the_root_route_opts_out_names_the_width_and_opts_in() {
     let text = "              each id in [\"a\", \"b\"] key=id\n                text id";
     let found = split(&boot(&app("navigationSplit=300", "", text))).unwrap();
     assert_eq!((found.list, found.width), (None, Some(300.0)));
+}
+
+#[test]
+fn a_retained_list_still_obeys_the_rule_and_only_keeps_nonactionable_rows() {
+    let cases = [
+        ("", "", true),
+        ("", "              text \"No Results\"", true),
+        ("display=\"flex\" flex-direction=\"row\"", "", false),
+        ("display=\"none\"", "", false),
+        ("virtualized=true display=\"flex\" height=132 overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100", LINKS, false),
+        (
+            "",
+            "              button press=pick(\"a\")\n                text \"Pick\"",
+            false,
+        ),
+        (
+            "",
+            "              link href=\"https://example.com\"\n                text \"Outside\"",
+            false,
+        ),
+    ];
+    for (attributes, rows, retained) in cases {
+        let r = boot(&app("", attributes, rows));
+        let list = view(&r, "rows");
+        assert_eq!(
+            r.stack_split(view(&r, "home"), Some(list)).is_some(),
+            retained,
+            "{attributes}: {rows}"
+        );
+    }
+    let mut r = boot(&app(
+        "navigationSplit=(hidden ? \"\" : \"300\")",
+        "",
+        "              text \"No list navigation\"",
+    ));
+    assert_eq!(split(&r).unwrap().width, Some(300.0));
+    r.dispatch(view(&r, "hide"), Event::Press).unwrap();
+    assert_eq!(split(&r), None, "the current authored width is read fresh");
 }
 
 /// A host that shows a stack's top in a pane of its own shows the list

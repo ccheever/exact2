@@ -330,7 +330,7 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(p.navigation.canGoBack)
     }
 
-    func testAListKeepsItsSplitWhenEmptyButLosesItWhenHiddenOrRemoved() throws {
+    func testARetainedListObeysTheCurrentSplitRule() throws {
         let source = """
         routes nav
           library "/"
@@ -338,12 +338,15 @@ final class SplitMacTests: XCTestCase {
         component App
           state mode = "shown"
           state ids = ["a", "b"]
+          state splitWidth = ""
           action follow(url: string)
             nav = go(nav, url)
           action back
             nav = back(nav)
           action change(value: string)
             mode = value
+          action width(value: string)
+            splitWidth = value
           action empty
             ids = []
           action refill
@@ -352,7 +355,7 @@ final class SplitMacTests: XCTestCase {
             main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
               width="100%" height="100%"
               each e in stack(nav) key=e.id
-                column navigationKey=`${e.id}` position="absolute" inset=0
+                column navigationKey=`${e.id}` navigationSplit=splitWidth position="absolute" inset=0
                   when e.name == "library"
                     button press=change("hidden") testId="hide"
                       text "Hide"
@@ -360,15 +363,30 @@ final class SplitMacTests: XCTestCase {
                       text "Show"
                     button press=change("removed") testId="remove"
                       text "Remove"
+                    button press=change("sideways") testId="sideways"
+                      text "Sideways"
+                    button press=change("commands") testId="commands"
+                      text "Commands"
+                    button press=width("300") testId="force"
+                      text "Force"
+                    button press=width("") testId="unforce"
+                      text "Unforce"
                     button press=empty testId="empty"
                       text "Empty"
                     button press=refill testId="refill"
                       text "Refill"
                     when mode != "removed"
-                      list testId="changing-list" display=(mode == "hidden" ? "none" : "block")
-                        each id in ids key=id
-                          link href=path("book", id) testId=`row-${id}`
-                            text id
+                      list testId="changing-list" display=(mode == "hidden" ? "none" : "flex")
+                        flex-direction=(mode == "sideways" ? "row" : "column")
+                        when mode != "commands"
+                          each id in ids key=id
+                            link href=path("book", id) testId=`row-${id}`
+                              text id
+                        when mode == "commands"
+                          button press=refill
+                            text "Local command"
+                        when length(ids) == 0
+                          text "No Results"
                   when e.name == "book"
                     text "Detail"
         """
@@ -382,6 +400,14 @@ final class SplitMacTests: XCTestCase {
         XCTAssertEqual(split.shown?.table, list.id)
         try press("refill")
         XCTAssertTrue(split.active)
+        try press("sideways")
+        XCTAssertFalse(split.active, "a carousel is not a vertical list")
+        try press("show")
+        XCTAssertTrue(split.active)
+        try press("commands")
+        XCTAssertFalse(split.active, "non-navigation actions do not retain a split")
+        try press("show")
+        XCTAssertTrue(split.active)
         try press("hide")
         XCTAssertFalse(split.active, "an authored hidden list no longer asks for a split")
         XCTAssertFalse(columns.splits)
@@ -391,6 +417,11 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(has("changing-list"))
         XCTAssertFalse(split.active, "a removed list must not keep its cached split")
         XCTAssertFalse(columns.splits)
+        try press("force")
+        XCTAssertTrue(split.active, "a current explicit width opts in without a list")
+        XCTAssertNil(split.shown?.table)
+        try press("unforce")
+        XCTAssertFalse(split.active, "clearing that width does not retain it")
         try press("show")
         XCTAssertTrue(split.active)
         XCTAssertEqual(split.shown?.table, try node("changing-list").id, "the current list owns the split")

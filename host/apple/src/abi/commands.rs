@@ -318,11 +318,14 @@ impl<D: DataSource> Bridge<D> {
     /// list whose row pushes, the list column's width where `navigationSplit`
     /// names one, and each route above the root that is a row's detail with
     /// that row; `null` for a stack that pushes. Not a batch: nothing changes.
-    pub fn stack_split(&mut self, view: u32) -> u32 {
+    pub fn stack_split(&mut self, view: u32, retained: u32) -> u32 {
         let json = self
             .host
             .as_ref()
-            .and_then(|h| h.runner().stack_split(view))
+            .and_then(|h| {
+                h.runner()
+                    .stack_split(view, (retained != 0).then_some(retained))
+            })
             .map(|split| {
                 let rows: Vec<String> = split
                     .rows

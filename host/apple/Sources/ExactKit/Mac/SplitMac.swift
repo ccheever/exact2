@@ -59,9 +59,9 @@ struct StackSplit: Equatable {
 extension Runtime {
     /// Whether the stack whose root route is `view` splits, by the runner's
     /// rule; nil for one that pushes, and while the runner is busy.
-    func stackSplit(_ view: UInt32) -> StackSplit? {
+    func stackSplit(_ view: UInt32, retaining list: UInt32?) -> StackSplit? {
         return on(busy: nil) {
-            let len = exact_stack_split(rt, view)
+            let len = exact_stack_split(rt, view, list ?? 0)
             return StackSplit(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
@@ -190,35 +190,19 @@ final class SplitHost {
     /// The rule's answer for the stack whose root route is `list`, asked
     /// again when the stack's routes or the route's `navigationSplit`
     /// change, when a row is being pressed, or when the tree, properties or
-    /// styles that the rule reads change. Frame-only scroll batches reuse it.
+    /// styles that the rule reads change. Layout-only styles reach this host
+    /// as frames, so those invalidate the answer too; scroll ops alone do not.
     private func ask(_ list: NodeView, _ routes: [NodeView], _ batch: Batch?) -> StackSplit? {
         let said = list.props["navigationSplit"] ?? ""
         guard said != "none" else { kept[list.id] = nil; asked = nil; return nil }
         let signature = [said] + routes.map { "\($0.id)" }
-        let changed = batch?.ops.contains { [.create, .destroy, .children, .props, .style].contains($0.op) } ?? true
+        let changed = batch?.ops.contains { [.create, .destroy, .children, .props, .style, .frame].contains($0.op) } ?? true
         if asked?.route != list.id || asked?.signature != signature || pressing != nil || changed {
-            let answer = presenter.session?.runtime.stackSplit(list.id)
+            let answer = presenter.session?.runtime.stackSplit(list.id, retaining: kept[list.id]?.list)
             asked = (list.id, signature, answer)
-            if let answer { kept[list.id] = answer }
+            kept[list.id] = answer
         }
-        if let answer = asked?.answer { return answer }
-        // Its list still stands, with no row that pushes now: the column stays.
-        guard let old = kept[list.id], old.width != nil || old.list.map({ remains($0, under: list) }) == true else { kept[list.id] = nil; return nil }
-        return StackSplit(list: old.list, width: old.width, rows: [:])
-    }
-
-    /// A retained list may lose its last row, but it must still belong to
-    /// this route and be shown as authored. Navigation's own hiding is not
-    /// an authored hide: the list stays beside the detail and under a sheet.
-    private func remains(_ id: UInt32, under route: NodeView) -> Bool {
-        guard let list = presenter.views[id] else { return false }
-        var ancestor: NSView? = list
-        while let view = ancestor {
-            if let node = view as? NodeView, node.style["display"]?.string == "none" { return false }
-            if view === route { return true }
-            ancestor = view.superview
-        }
-        return false
+        return asked?.answer
     }
 
     /// Each batch, inside the navigation's pass, which gates the routes by
