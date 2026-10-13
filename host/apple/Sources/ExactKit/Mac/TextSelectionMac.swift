@@ -443,7 +443,7 @@ package final class TextSelection {
             guard let (owner, p) = position(node, offset: offset), owner === list else { return nil }
             return p.order
         }
-        _ = paragraphs
+        if ordered == nil { _ = paragraphs }
         return indices[node.id].map { (0, $0, offset) }
     }
 
@@ -643,7 +643,7 @@ package final class TextSelection {
             return NSRange(location: lo, length: max(0, hi - lo))
         }
         guard anchor != nil && focus != nil else { return nil }
-        _ = paragraphs
+        if ordered == nil { _ = paragraphs }
         guard let anchor, let focus, let a = indices[anchor.id], let b = indices[focus.id],
               let n = indices[node.id], n >= min(a, b), n <= max(a, b) else { return nil }
         let forward = a < b || (a == b && anchorIndex <= focusIndex)
