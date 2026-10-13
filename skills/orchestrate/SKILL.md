@@ -24,9 +24,15 @@ unsafe or would waste the work if wrong.
 
 | Work | Model |
 |---|---|
-| Implementation | codex `gpt-5.6-sol` — pick high / xhigh / ultra per task |
-| Code review | **both** grok `4.6` **and** codex `gpt-5.6-sol xhigh` |
+| Implementation | codex `gpt-6.1-sol` (Sol 6.1) — pick high / xhigh / ultra per task |
+| Code review | **both** grok `4.6` **and** codex `gpt-6.1-sol xhigh` |
 | Everything else | your call |
+
+Invoke Sol 6.1 as `codex exec -s read-only --skip-git-repo-check --ephemeral -m gpt-6.1-sol
+-c model_reasoning_effort="xhigh" -o <out>.md` (prompt on stdin; drop `-s read-only` for
+implementation lanes) and confirm `model: gpt-6.1-sol` and the effort in the run header —
+a run whose header shows anything else is discarded, not counted. `gpt-5.6-sol` remains
+valid when a lane must stay on the model its earlier rounds used.
 
 Reviews are **mutually blind**: two families, neither shown the other's findings, both on
 the same revision. Agreement across families is signal; a finding only one family raises
