@@ -42,11 +42,11 @@ const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle
   || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
 /** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
  * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
- * `unselected`; the agent's `inactive`). */
-export function unselected(nav) {
+ * `unselected`; the agent's `inactive`). Document fields pass `selectedOnly` to exclude that list too. */
+export function unselected(nav, selectedOnly = false) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
   const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key)), routes = stacks[at] ?? [], top = routes.find(r => r.getAttribute("navigationKey") === key);
-  const beside = routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
+  const beside = !selectedOnly && routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
