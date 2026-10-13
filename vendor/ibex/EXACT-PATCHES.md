@@ -43,22 +43,25 @@ bun -e 'const fs=require("node:fs"),read=p=>Bun.TOML.parse(fs.readFileSync(p,"ut
 ## Reusable patch adoption
 
 Numbers preserve the former ledger so a patch never disappears without its
-replacement and consumer evidence. Qualification is pending the full consumer
-checks on this refresh; implementation replacement alone does not retire a row.
+replacement and consumer evidence. Rows 3–7 and 9–13 retire the corresponding
+local source patches. The evidence below qualifies the macOS consumers and
+portable adapter; platform-specific limits are named rather than inferred from
+source replacement. The four remaining file deltas were checked against the
+pinned upstream tree: two explicit stub build scripts and two standalone locks.
 
 | Former Exact patch | Upstream replacement | Exact consumer evidence |
 |---|---|---|
-| 3. Rustls on macOS | Explicit `portable-http` feature; native Apple default retained | Render selects the feature; HTTP/executor proof pending |
-| 4. Shared `exact-grants`, including `doc:/` | Ibex owns an independent grant grammar; no Exact dependency | Shared native/browser fixture corpus now tests both Rust grammars; native parity passed |
-| 5. Chosen documents | Typed provider and owned `DocumentLease`, with retained directory/file capability and scope guard | Exact table supplies leases; chosen-file/folder/session, replacement and bound tests pending |
-| 6. Denied redirect origin | `HostError::DeniedRedirect`, shared hop admission | Exact runner redirect/refusal tests pending |
-| 7. Per-fetch timeout | Request timeout plus asynchronous exchange lifecycle | Exact retains its single total deadline; redirect/deadline proof pending |
-| 9. Image compression | Admitted `ImageJob`, bounded `ImageService`, owner-scoped work handles and atomic commit arbitration | Native codec and winning/losing cancellation with actual output consumption passed; real lean JS proof pending |
-| 10. Capped app reads/open handle | Public `AppDirectories::open_file` and `read_bounded` on Unix/Windows | Exact chunked upload reader uses the opened file; upload proof pending |
-| 11. Host work in flight | Context count plus owned registry/worker/completion accounting | Exact uses captured work handles; retirement/cancellation proof pending |
-| 12. Bounded native filesystem results | Explicit `ResultLimits`; bounded reads/enumeration and batched recursive removal | Exact supplies 16 MiB envelope; native/app bound passed, document cap follow-up pending |
-| 13. Async fetch | Fallible preparation, infallible accepted activation, terminal retirement, bounded portable workers | Exact adapts reserve/refusal/deadline/accounting; runner proof pending |
-| Windows chosen-document EISDIR | Same retained-handle native document executor | Upstream native Windows qualification; Exact Windows runtime not run here |
+| 3. Rustls on macOS | Explicit `portable-http` feature; native Apple default retained | Render tests pass with the feature; native HTTP deadline/drain tests pass in default and async modes |
+| 4. Shared `exact-grants`, including `doc:/` | Ibex owns an independent grant grammar; no Exact dependency | Shared fixture passes both Rust grammars and the web matcher (111 browser assertions) |
+| 5. Chosen documents | Typed provider and owned `DocumentLease`, with retained directory/file capability and scope guard | Native storage (22 tests), Apple document/session tests and real lean JS tests pass, including replacement and result caps |
+| 6. Denied redirect origin | `HostError::DeniedRedirect`, shared hop admission | Runner redirect/refusal cases and actual slow-redirect total-deadline test pass |
+| 7. Per-fetch timeout | Request timeout plus asynchronous exchange lifecycle | Actual redirect chain and silent/trickling server cancellation pass in default and async modes |
+| 9. Image compression | Admitted `ImageJob`, bounded `ImageService`, owner-scoped work handles and atomic commit arbitration | Native codec, winning/losing cancellation with actual output consumption, and real lean JS (108 tests) pass; private ImageIO workspace qualification below |
+| 10. Capped app reads/open handle | Public `AppDirectories::open_file` and `read_bounded` on Unix/Windows | Opened-handle upload, native single-copy and portable double-copy admission/accounting cases pass |
+| 11. Host work in flight | Context count plus owned registry/worker/completion accounting | Owned-handle retirement and cancellation witnesses pass; JS continuation semantics below |
+| 12. Bounded native filesystem results | Explicit `ResultLimits`; bounded reads/enumeration and batched recursive removal | Exact 16 MiB native/app/document cap tests pass, preserving the typed result-limit error |
+| 13. Async fetch | Fallible preparation, infallible accepted activation, terminal retirement, bounded portable workers | Admission refusal, physical retirement, all six base-start failure positions and bounded-worker lifetime tests pass |
+| Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; Exact Windows runtime remains unqualified here |
 
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.
@@ -88,6 +91,9 @@ the vendor tree into `host/apple/src/executor_metrics.rs`; its asynchronous
 callback records remain consumer-owned, and blocking/native comparisons use
 upstream's explicit diagnostic. Portable workers reserve an additional upload
 copy in the lane's byte budget; native Apple upload buffers are charged once.
+Each portable worker owns its process slot until its actual thread exits.
+Partially started pools cannot retry against still-owned slots; failed base
+startup releases every unstarted portable reservation.
 
 Borrowed timer task support does not install ambient timers in Exact. Its
 production group selection remains `PURE | CRYPTO | ABORT` (plus the existing
@@ -97,3 +103,32 @@ The existing Snapback consumer proves partitioned storage, durable operation
 queues, reconnect and account retirement. There is no Snapback asset-upload API
 in this checkout: the deterministic losing-cancellation output witness is Exact's
 native storage adapter. No new Snapback media feature or qualification is claimed.
+
+## Qualification boundaries
+
+Exact's continuation snapshots the image work visible to its runtime owner turn.
+It can cancel those captured jobs, including other jobs already visible in that
+runtime; it cannot discover or cancel jobs admitted afterward. This is runtime-work
+ownership, not cancellation correlated to one JavaScript Promise. A losing
+cancellation waits outside shared locks for publication's actual result.
+
+The ImageIO codec bounds source pixels, the explicitly retained decoded and trial
+buffers, and encoded output. Its 512 MiB scratch estimate is not a proven bound
+on ImageIO's opaque private allocator or peak process RSS. The consumer does not
+claim a platform allocator guarantee from the configured reservation.
+
+The final-pin focused run passes 108 real lean JS integration tests, 22 native
+storage tests, 15 Fieldnotes mixed TypeScript/Rust persistence tests, and the
+render suite. Real native HTTP drain/redirect/deadline cases pass in both modes;
+async production selection remains opt-in. The separate Snapback workspace
+passes 15 real-server client tests, six durable-device tests and one client unit
+test against its pinned server. The browser grant corpus passes 111 assertions.
+
+The macOS Fieldnotes app was built and driven with the named scratch store
+`ibex-adoption-20261013`: save a note, write/read its Rust backup, restart,
+delete the note, restore that file through TypeScript, then restart again.
+The observed count changed 1 → 0 → 1, and the final title/body matched the
+saved note with no pending work. This uses isolated test storage, not an
+existing notebook. All six required Exact checks are run on the final commit;
+full command receipts and the production lean phase diagnostic are in the
+local consumer-adoption run ledger.
