@@ -252,7 +252,7 @@ pub struct Request {
     /// transport that cannot stop mid-response cannot honor this field.
     pub max_body: Option<usize>,
     /// The platform transport's own request timeout. A caller that needs the
-    /// whole exchange bounded also aborts its signal (Exact patch 7).
+    /// whole exchange bounded also aborts its signal (LLP 0068.000 §4).
     pub timeout: Option<std::time::Duration>,
 }
 
@@ -447,7 +447,7 @@ pub(crate) fn admit_hop(grants: &GrantSet, url: &str, redirected: bool) -> Resul
 
 /// What following one redirect does to the request, decided once for the
 /// blocking `fetch_stream` and the asynchronous `fetch_async::FetchTask`
-/// (LLP 1120 D1), so the two cannot disagree on a hop.
+/// (LLP 0068.000 §2), so the two cannot disagree on a hop.
 pub(crate) struct RedirectStep {
     /// The next hop's URL, resolved against the one just used.
     pub(crate) url: String,

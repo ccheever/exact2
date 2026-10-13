@@ -15,6 +15,29 @@ as root, threshold 0, and mount + enter/leave delivery. Consumer: T3 sidebar
 subscriptions and timeline minimap. Anchors coordinate with #112; container
 queries, derive-time frame and general live geometry remain deferred.
 
+## Current remainder, 2026-10-13
+
+The shared sampler now applies the existing kernel sticky constraint outside
+each box's transform. `native_intersect_sticky_target_and_descendant_follow_scroll`
+first failed because a pinned box was reported outside after 60px of scroll;
+it now passes for both the box and its descendant, including leaving the
+containing section. Chrome supplies the same mount and enter/leave results.
+`native_intersect_rotated_root_ratios_match_chrome` qualifies partial clipping,
+counter-rotation and rotation with scale; those cases already worked.
+The shared fixture verifies sticky-child mount, leave and re-entry in the Linux
+presenter and `IntersectionMacTests` / `IntersectionIOSTests`; all passed.
+Page scrolling is converted to the root's local coordinates before applying
+the sticky constraint. `native_intersect_sticky_page_scroll_uses_root_local_coordinates`
+first failed with no enter event for a root at y=500 after scrolling 450px
+in a 400px viewport; it now matches Chrome's fully visible target at y=50.
+The scoped Rust tests, Chrome suite, Clippy and formatting passed. The semantics
+quick check remains blocked by missing Lean (`lake build` could not start).
+
+Still open: animation samples, SVG clip references, inline-run geometry,
+nested/transformed sticky constraints and the remaining carrier/app drives.
+`position: fixed` is not a schema value; it needs its own implementation,
+not a sampler correction. The earlier qualification lists below are historical.
+
 ## First slice, 2026-10-12
 
 The Contract compiler, typed event/ABI, vocabulary and both web targets now carry

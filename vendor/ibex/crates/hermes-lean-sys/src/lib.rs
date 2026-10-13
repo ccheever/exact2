@@ -31,7 +31,10 @@ pub const LEAN_ENGINE_DIGEST: Option<&str> = option_env!("HERMES_LEAN_LEAN_ENGIN
 /// HBC version reported by the matching `hermesc`.
 pub const BYTECODE_VERSION: &str = env!("HERMES_LEAN_BYTECODE_VERSION");
 
-/// Compiler paired with the selected bundle, verified by the resolver.
+/// Host-executable compiler paired with the selected engine. Cross builds
+/// resolve the host compiler separately and verify its source/HBC compatibility
+/// with the target VM. This path has passed the same resolver checks as the
+/// Cargo `hermesc_path` metadata; it is not a caller-supplied bypass.
 pub const HERMESC_PATH: &str = env!("HERMES_LEAN_HERMESC_PATH");
 
 /// HBC version consumed by [`LEAN_ARCHIVE`], or `None` when no lean archive is

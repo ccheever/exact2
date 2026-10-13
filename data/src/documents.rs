@@ -135,30 +135,37 @@ pub enum Resolved {
     Root(String),
     /// An owned directory and a relative name beneath it (empty for the
     /// selected folder itself). A selected file exposes only its own leaf.
-    Real { directory: Arc<File>, path: String },
+    Real {
+        directory: Arc<File>,
+        path: String,
+        /// A selected file is one leaf in its retained parent, not a subtree.
+        selected_file: bool,
+    },
 }
 
 /// Resolve a `doc:` path to its retained directory and relative name, refusing a handle
 /// not owned by `owner` (or forgotten), a name that is not the handle's, and any
 /// `.`, `..` or empty segment.
-pub fn resolve(path: &str, owner: u64) -> Result<Resolved, String> {
+pub fn resolve(path: &str, owner: u64) -> std::io::Result<Resolved> {
+    use std::io::{Error, ErrorKind};
     let rest = path
         .strip_prefix(PREFIX)
-        .ok_or_else(|| format!("{path} is not a document path"))?;
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "not a document path"))?;
     let rest = rest.strip_suffix('/').unwrap_or(rest);
     let mut parts = rest.split('/');
     let n: usize = parts
         .next()
         .and_then(|n| n.parse().ok())
         .filter(|n| *n > 0)
-        .ok_or_else(|| format!("{path} names no document"))?;
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "no such document"))?;
     let segments: Vec<&str> = parts.collect();
     if segments
         .iter()
         .any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains(['\\', '\0']))
     {
-        return Err(format!(
-            "{path}: a document path has no `.`, `..`, backslash, NUL or empty segment"
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "a document path has no `.`, `..`, backslash, NUL or empty segment",
         ));
     }
     let t = table();
@@ -167,22 +174,27 @@ pub fn resolve(path: &str, owner: u64) -> Result<Resolved, String> {
         .and_then(Option::as_ref)
         .filter(|entry| entry.owner == owner)
         .ok_or_else(|| {
-            format!("{path}: no such document (it was never opened, or its window closed)")
+            Error::new(
+                ErrorKind::NotFound,
+                "no such document (it was never opened, or its window closed)",
+            )
         })?;
     let Some((first, beneath)) = segments.split_first() else {
         return Ok(Resolved::Root(entry.name.clone()));
     };
     if *first != entry.name {
-        return Err(format!("{path}: no such document"));
+        return Err(Error::new(ErrorKind::NotFound, "no such document"));
     }
     if entry.leaf.is_some() && !beneath.is_empty() {
-        return Err(format!(
-            "{path}: a document file is not a directory (filesystem code ENOTDIR)"
+        return Err(Error::new(
+            ErrorKind::NotADirectory,
+            "a document file is not a directory",
         ));
     }
     Ok(Resolved::Real {
         directory: entry.directory.clone(),
         path: entry.leaf.clone().unwrap_or_else(|| beneath.join("/")),
+        selected_file: entry.leaf.is_some(),
     })
 }
 
@@ -198,6 +210,7 @@ mod tests {
         assert!(matches!(resolve(&doc, 7101), Ok(Resolved::Real { .. })));
         assert!(resolve(&doc, 7102)
             .unwrap_err()
+            .to_string()
             .contains("no such document"));
         let root = format!("doc:/{}", doc[PREFIX.len()..].split('/').next().unwrap());
         assert!(matches!(resolve(&root, 7101), Ok(Resolved::Root(_))));
@@ -216,7 +229,9 @@ mod tests {
         let doc = mint(&folder, 7001).unwrap();
         assert!(doc.starts_with("doc:/") && doc.ends_with("/notes"), "{doc}");
         assert_eq!(mint(&folder, 7001).unwrap(), doc, "minting again reuses it");
-        let Resolved::Real { directory, path } = resolve(&format!("{doc}/a/b.md"), 7001).unwrap()
+        let Resolved::Real {
+            directory, path, ..
+        } = resolve(&format!("{doc}/a/b.md"), 7001).unwrap()
         else {
             panic!()
         };
@@ -252,7 +267,10 @@ mod tests {
         symlink(&target, &link).unwrap();
         let doc = open_route(link.to_str().unwrap(), 7002).unwrap();
         assert!(doc.ends_with("/outside/note.md"), "{doc}");
-        let Resolved::Real { directory, path } = resolve(&doc, 7002).unwrap() else {
+        let Resolved::Real {
+            directory, path, ..
+        } = resolve(&doc, 7002).unwrap()
+        else {
             panic!()
         };
         assert_eq!(path, "note.md");

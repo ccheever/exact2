@@ -27,7 +27,7 @@ fn leaf(name: &str) -> bool {
     #[cfg(windows)]
     {
         let mut parts = Path::new(name).components();
-        if ibex2::grant::WindowsPath::validate_component(name).is_err()
+        if exact_grants::WindowsPath::validate_component(name).is_err()
             || !matches!(parts.next(), Some(std::path::Component::Normal(_)))
             || parts.next().is_some()
         {

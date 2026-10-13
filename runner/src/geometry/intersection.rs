@@ -77,7 +77,7 @@ pub(crate) fn intersection(
                     transform = IDENTITY;
                 }
             }
-            transform = mul(own_transform(s, f), transform);
+            transform = mul(placed_transform(kernel, scrolled, slot), transform);
             let parent = (!arena.is_root(slot)).then(|| arena.parent(slot)).flatten();
             let Some(up) = parent else {
                 clipped = map(
@@ -123,7 +123,7 @@ fn to_viewport(kernel: &Kernel, scrolled: &Scrolled, mut slot: u32, rect: Rect) 
     let mut transform = IDENTITY;
     loop {
         let f = arena.frame(slot);
-        transform = mul(own_transform(arena.style(slot), f), transform);
+        transform = mul(placed_transform(kernel, scrolled, slot), transform);
         let Some(up) = (!arena.is_root(slot)).then(|| arena.parent(slot)).flatten() else {
             return map(
                 mul(
@@ -144,6 +144,35 @@ fn to_viewport(kernel: &Kernel, scrolled: &Scrolled, mut slot: u32, rect: Rect) 
         );
         slot = up;
     }
+}
+
+fn placed_transform(kernel: &Kernel, scrolled: &Scrolled, slot: u32) -> Affine {
+    let arena = kernel.arena();
+    let own = own_transform(arena.style(slot), arena.frame(slot));
+    let Some(constraint) = kernel.sticky_constraint(arena.key(slot)) else {
+        return own;
+    };
+    let Some(root) = arena.key_of(constraint.scroller) else {
+        return own;
+    };
+    let s = arena.style(root.index);
+    let implicit =
+        !s.mask.has(StyleId::OverflowY) && arena.node_type(root.index).scrolls_by_default();
+    let scroll =
+        if implicit || s.overflow_x != Overflow::Visible || s.overflow_y != Overflow::Visible {
+            scrolled.offset(root)
+        } else if arena.is_root(root.index) {
+            let frame = arena.frame(root.index);
+            (
+                scrolled.page.0 - f64::from(frame.x),
+                scrolled.page.1 - f64::from(frame.y),
+            )
+        } else {
+            (0.0, 0.0)
+        };
+    // Sticky placement is outside the box's own transform, as in the presenters.
+    let (x, y) = constraint.offset((scroll.0 as f32, scroll.1 as f32));
+    mul(shift(f64::from(x), f64::from(y)), own)
 }
 
 fn map(m: Affine, r: Rect) -> Rect {

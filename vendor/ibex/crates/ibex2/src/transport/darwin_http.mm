@@ -18,10 +18,6 @@
 #import <Foundation/Foundation.h>
 
 #include <cstdlib>
-
-extern "C" int ibex2_metrics_enabled(void);
-extern "C" void ibex2_metrics_note(const char *url, const char *protocol, int reused,
-                                   const char *local, const char *remote);
 #include <cstring>
 #include <string>
 
@@ -226,15 +222,6 @@ char *dup_utf8(NSString *value) {
   [exchange.condition lock];
   if (last != nil) exchange.reused = last.reusedConnection ? 1 : 0;
   [exchange.condition unlock];
-  // The measurement log (metrics_log.rs), when one is named.
-  if (!ibex2_metrics_enabled()) return;
-  NSString *local = last.localAddress == nil ? nil
-      : [NSString stringWithFormat:@"%@:%@", last.localAddress, last.localPort];
-  NSString *remote = last.remoteAddress == nil ? nil
-      : [NSString stringWithFormat:@"%@:%@", last.remoteAddress, last.remotePort];
-  ibex2_metrics_note(task.originalRequest.URL.absoluteString.UTF8String,
-                     last.networkProtocolName.UTF8String, last == nil ? -1 : (last.reusedConnection ? 1 : 0),
-                     local.UTF8String, remote.UTF8String);
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
     willPerformHTTPRedirection:(NSHTTPURLResponse *)response
@@ -358,7 +345,6 @@ void *ibex2_darwin_http_start(void *session_handle, const char *method,
       }
     }
     if (body_len > 0) request.HTTPBody = [NSData dataWithBytes:body length:body_len];
-    // Zero keeps URLSession's default (60 s without data).
     if (timeout_seconds > 0) request.timeoutInterval = timeout_seconds;
     Ibex2Exchange *exchange = [[Ibex2Exchange alloc] initWithLimit:max_body];
     exchange.pool = pool;

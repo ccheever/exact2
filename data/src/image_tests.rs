@@ -256,3 +256,48 @@ mod apple_codec {
         }
     }
 }
+
+#[test]
+fn codec_control_refuses_before_decoding_and_before_the_next_trial() {
+    let refused = compress_controlled(
+        b"not an image",
+        64,
+        1000,
+        later(),
+        &|| Err(failure("timeout", "cancelled by its owner")),
+        MAX_SOURCE_PIXELS,
+        512 << 20,
+    );
+    assert_eq!(
+        refused.unwrap_err(),
+        "compressImage: timeout: cancelled by its owner"
+    );
+    #[cfg(target_vendor = "apple")]
+    {
+        let source = include_bytes!("../../scripts/fixtures/picker/oriented-gps.jpg");
+        let checks = std::cell::Cell::new(0);
+        let refused = compress_controlled(
+            source,
+            64,
+            1000,
+            later(),
+            &|| {
+                checks.set(checks.get() + 1);
+                if checks.get() >= 4 {
+                    Err(failure("timeout", "cancelled between trials"))
+                } else {
+                    Ok(())
+                }
+            },
+            MAX_SOURCE_PIXELS,
+            512 << 20,
+        );
+        assert_eq!(
+            refused.unwrap_err(),
+            "compressImage: timeout: cancelled between trials"
+        );
+        let refused =
+            compress_controlled(source, 64, 1000, later(), &|| Ok(()), MAX_SOURCE_PIXELS, 1);
+        assert!(refused.unwrap_err().contains("codec memory reservation"));
+    }
+}

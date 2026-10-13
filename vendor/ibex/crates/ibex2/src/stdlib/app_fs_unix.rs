@@ -8,7 +8,7 @@ use crate::{
 use std::{
     ffi::{CStr, CString},
     fs::File,
-    io::{self, Read, Write},
+    io::{self, Write},
     os::fd::{AsRawFd, FromRawFd},
     path::Path,
     sync::Arc,
@@ -123,8 +123,29 @@ fn each_name(
     let mut count = 0;
     let mut failure = None;
     loop {
+        // POSIX distinguishes EOF from failure using errno. A stale errno from
+        // a successful visit must not hide or invent an enumeration error.
+        #[cfg(target_vendor = "apple")]
+        unsafe {
+            *libc::__error() = 0;
+        }
+        #[cfg(target_os = "linux")]
+        unsafe {
+            *libc::__errno_location() = 0;
+        }
+        #[cfg(target_os = "android")]
+        unsafe {
+            *libc::__errno() = 0;
+        }
         let entry = unsafe { libc::readdir(stream) };
         if entry.is_null() {
+            #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+            {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().is_some_and(|code| code != 0) {
+                    failure = Some(error);
+                }
+            }
             break;
         }
         let s = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
@@ -312,27 +333,18 @@ impl AppDirectories {
         let (parent, leaf) = self.open_parent(path)?;
         open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)
     }
-    /// Exact patch 9 (`fs.compressImage`): a regular file's bytes, at most
-    /// `cap` of them, read through the opened descriptor, under `fs.read`.
-    /// Public since Exact patch 10: an embedder's request body from an app
-    /// file (exact2 LLP 1108 D6 R2, `exactBodyFrom`) reads through it.
-    pub fn read_capped(
+    pub(crate) fn prepare_atomic(
         &self,
         grants: &GrantSet,
         path: &str,
-        cap: u64,
-    ) -> Result<Vec<u8>, HostError> {
-        let mut bytes = Vec::new();
-        self.open_file(grants, path)?
-            .take(cap)
-            .read_to_end(&mut bytes)
-            .map_err(error)?;
-        Ok(bytes)
+    ) -> Result<AtomicTarget, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.open_parent(path)?;
+        Ok(AtomicTarget { parent, leaf })
     }
-    /// Exact patch 10: a regular file opened for reading through the
-    /// directory handles, under `fs.read`, as [`Self::read_capped`] opens it,
-    /// for an embedder that reads it in its own steps (exact2's
-    /// `exactBodyFrom` stops between chunks when its request has ended).
+    /// Open a granted regular file relative to the retained app roots.
+    /// Trusted Rust callers own subsequent read scheduling and byte bounds.
     pub fn open_file(&self, grants: &GrantSet, path: &str) -> Result<File, HostError> {
         self.parse(path)?;
         crate::boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
@@ -341,6 +353,25 @@ impl AppDirectories {
             return Err(error("read needs a regular file"));
         }
         Ok(file)
+    }
+    /// Read at most `cap` bytes, refusing a larger file, observing cancellation between chunks.
+    pub fn read_capped(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+    ) -> Result<Vec<u8>, HostError> {
+        self.read_bounded(grants, path, cap, &|| false)
+    }
+    pub fn read_bounded(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+        canceled: &dyn Fn() -> bool,
+    ) -> Result<Vec<u8>, HostError> {
+        crate::stdlib::fs::read_bounded_file(self.open_file(grants, path)?, cap, canceled)
+            .map_err(error)
     }
     pub(crate) fn run(
         &self,
@@ -473,6 +504,25 @@ impl AppDirectories {
         }
     }
 }
+/// Native recursive removal shares the bounded raw-name iterator used by app roots.
+pub(crate) fn remove_native(path: &Path) -> Result<FsResult, HostError> {
+    let parent_path = path
+        .parent()
+        .ok_or_else(|| error("cannot remove filesystem root"))?;
+    let leaf = path
+        .file_name()
+        .ok_or_else(|| error("remove needs a filename"))?;
+    use std::os::unix::ffi::OsStrExt;
+    let leaf = CString::new(leaf.as_bytes()).map_err(error)?;
+    let parent = match File::open(parent_path) {
+        Ok(parent) => parent,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(FsResult::Done),
+        Err(e) => return Err(error(e)),
+    };
+    remove_raw(&parent, &leaf).map_err(error)?;
+    Ok(FsResult::Done)
+}
+
 pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostError> {
     let parent = path
         .parent()
@@ -485,7 +535,7 @@ pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostEr
     Ok(FsResult::Done)
 }
 
-/// Exact document paths resolve beneath the directory retained at selection.
+/// Chosen document paths resolve beneath the directory retained at selection.
 /// Every component is opened relative to an owned descriptor with NOFOLLOW;
 /// neither a replaced root name nor a descendant symlink redirects an op.
 fn document_metadata(parent: &File, leaf: Option<&str>) -> io::Result<libc::stat> {
@@ -652,12 +702,22 @@ pub fn resolve_sqlite(
         )?;
         let real = crate::stdlib::fs::realize(&path);
         crate::boundary::admit(
-            &crate::grant::realized_fs(grants),
+            &grants.realized_fs(),
             &Operation::SqliteOpen {
                 path: real.to_string_lossy().into_owned(),
             },
         )?;
         Ok(real)
+    }
+}
+
+pub(crate) struct AtomicTarget {
+    parent: File,
+    leaf: String,
+}
+impl AtomicTarget {
+    pub(crate) fn write(self, data: &[u8]) -> Result<(), HostError> {
+        atomic(&self.parent, &self.leaf, data).map_err(error)
     }
 }
 
@@ -797,17 +857,18 @@ mod tests {
         );
     }
     #[test]
-    fn recursive_remove_is_not_limited_by_listing_result_size() {
+    fn recursive_remove_drains_multiple_bounded_batches() {
         let f = Fixture::new();
         let large = f.path.join("cache/large");
         std::fs::create_dir(&large).unwrap();
-        for index in 0..65_100 {
+        for index in 0..600 {
             let name = format!("{index:05}{}", "x".repeat(250));
             std::fs::write(large.join(name), b"").unwrap();
         }
-        assert!(f
-            .call(FsOp::ReadDir, "app:/cache/large", None, None)
-            .is_err());
+        assert_eq!(
+            batch_names(&File::open(&large).unwrap()).unwrap().len(),
+            256
+        );
         assert_eq!(
             f.call(FsOp::Remove, "app:/cache/large", None, None)
                 .unwrap(),

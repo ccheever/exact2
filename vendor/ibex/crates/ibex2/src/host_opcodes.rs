@@ -154,7 +154,6 @@ pub(crate) mod async_ops {
     pub(crate) const FS_COPY_FILE: u32 = 118;
     pub(crate) const FS_REALPATH: u32 = 119;
     pub(crate) const FS_ATOMIC_WRITE_FILE: u32 = 120;
-    /// Exact patch 9: `fs.compressImage` over the embedder's image codec.
     pub(crate) const FS_COMPRESS_IMAGE: u32 = 121;
 }
 
