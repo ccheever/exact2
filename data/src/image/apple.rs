@@ -87,6 +87,7 @@ extern "C" {
     static kCGImagePropertyPixelWidth: CFTypeRef;
     static kCGImagePropertyPixelHeight: CFTypeRef;
     static kCGImagePropertyOrientation: CFTypeRef;
+    static kCGImagePropertyDepth: CFTypeRef;
     fn CGImageSourceCreateWithData(data: CFTypeRef, options: CFTypeRef) -> CFTypeRef;
     fn CGImageSourceGetType(source: CFTypeRef) -> CFTypeRef;
     fn CGImageSourceGetCount(source: CFTypeRef) -> usize;
@@ -212,6 +213,53 @@ fn integer(properties: CFTypeRef, key: CFTypeRef) -> Option<i64> {
     }
 }
 
+struct Pool(*mut c_void);
+impl Pool {
+    fn new() -> Self {
+        // SAFETY: each token is popped once on the thread that pushed it.
+        Self(unsafe { objc_autoreleasePoolPush() })
+    }
+}
+impl Drop for Pool {
+    fn drop(&mut self) {
+        // SAFETY: this pool is scoped to the creating thread.
+        unsafe { objc_autoreleasePoolPop(self.0) }
+    }
+}
+
+/// Charge explicitly sized surfaces, including 16/32-bit components and row
+/// alignment. ImageIO's private allocations remain outside an allocator proof.
+pub(super) fn scratch_bytes(
+    source_bytes: usize,
+    source: (u32, u32),
+    depth: u32,
+    target: (u32, u32),
+    max_bytes: u64,
+) -> Option<u64> {
+    let source_bpp = match depth {
+        1..=8 => 4,
+        9..=16 => 8,
+        17..=32 => 16,
+        _ => return None,
+    };
+    let surface = |(w, h): (u32, u32), bpp: u64| {
+        u64::from(w)
+            .checked_mul(bpp)?
+            .checked_add(63)
+            .map(|row| row & !63)?
+            .checked_mul(u64::from(h))
+    };
+    // The thumbnail can round up one pixel while contain() floors the target.
+    let thumbnail = (target.0.checked_add(1)?, target.1.checked_add(1)?);
+    // Reserve a second source-sized surface for decoder workspace. The
+    // measured PNG/TIFF paths can retain it alongside the returned thumbnail.
+    (source_bytes as u64)
+        .checked_add(surface(source, source_bpp)?.checked_mul(2)?)?
+        .checked_add(surface(thumbnail, source_bpp)?)?
+        .checked_add(surface(target, 4)?)?
+        .checked_add(max_bytes.checked_add(1)?.checked_mul(2)?)
+}
+
 pub(super) fn compress(
     source: &[u8],
     max_dimension: u32,
@@ -220,17 +268,15 @@ pub(super) fn compress(
 ) -> Result<Compressed, String> {
     // ImageIO autoreleases internally; a storage worker lives long, so each
     // call drains its own pool.
-    struct Pool(*mut c_void);
-    impl Drop for Pool {
-        fn drop(&mut self) {
-            // SAFETY: the token the matching push returned, popped once on
-            // the thread that pushed it.
-            unsafe { objc_autoreleasePoolPop(self.0) }
-        }
-    }
-    // SAFETY: pushes a pool on this thread; `Pool` pops it.
-    let _pool = Pool(unsafe { objc_autoreleasePoolPush() });
+    let _pool = Pool::new();
     deadline.check()?;
+    let surface_budget = deadline.max_scratch_bytes - deadline.max_scratch_bytes / 4;
+    if source.len() as u64 > surface_budget {
+        return Err(failure(
+            "too-large",
+            "image exceeds its codec memory reservation",
+        ));
+    }
     let undecodable = || failure("undecodable", "not an image this host decodes");
     // SAFETY: CFDataCreate copies the bytes.
     let data =
@@ -257,11 +303,12 @@ pub(super) fn compress(
     })
     .ok_or_else(undecodable)?;
     // SAFETY: the keys are immutable statics.
-    let (width, height, orientation) = unsafe {
+    let (width, height, orientation, depth) = unsafe {
         (
             integer(properties.get(), kCGImagePropertyPixelWidth),
             integer(properties.get(), kCGImagePropertyPixelHeight),
             integer(properties.get(), kCGImagePropertyOrientation).unwrap_or(1),
+            integer(properties.get(), kCGImagePropertyDepth).unwrap_or(32),
         )
     };
     let (Some(width), Some(height)) = (width, height) else {
@@ -277,21 +324,22 @@ pub(super) fn compress(
             format!("{width}×{height} pixels is over {}", deadline.max_pixels),
         ));
     }
+    let source_size = (width as u32, height as u32);
     // EXIF 5–8 turn the picture a quarter: the oriented size is transposed.
     let (width, height) = if (5..=8).contains(&orientation) {
         (height as u32, width as u32)
     } else {
         (width as u32, height as u32)
     };
-    // The source copy, a full RGBA decode, thumbnail+drawn bitmap, the
-    // current bounded JPEG and the best retained trial all count. Reject
-    // before ImageIO begins a decode or Core Graphics allocates a bitmap.
-    let (w, h) = super::contain(width, height, max_dimension);
-    let scratch = (source.len() as u64)
-        .checked_add(source_pixels.saturating_mul(4))
-        .and_then(|n| n.checked_add(u64::from(w) * u64::from(h) * 8))
-        .and_then(|n| n.checked_add((max_bytes + 1).saturating_mul(2)));
-    if scratch.is_none_or(|n| n > deadline.max_scratch_bytes) {
+    // Refuse before the first decode, using component depth rather than
+    // assuming every accepted PNG/TIFF/HEIC source has 8-bit channels.
+    let target = super::contain(width, height, max_dimension);
+    let scratch = u32::try_from(depth)
+        .ok()
+        .and_then(|depth| scratch_bytes(source.len(), source_size, depth, target, max_bytes));
+    // Keep one quarter for opaque native workspace beyond the surfaces above.
+    // This is conservative admission headroom, not an ImageIO allocator limit.
+    if scratch.is_none_or(|n| n > surface_budget) {
         return Err(failure(
             "too-large",
             "image exceeds its codec memory reservation",
@@ -299,6 +347,9 @@ pub(super) fn compress(
     }
     let mut drawn: Option<(u32, u32, Owned)> = None;
     let found = search(width, height, max_dimension, max_bytes, |w, h, quality| {
+        // Native temporaries from a failed trial must not accumulate across
+        // the quality search or survive until the outer worker pool drains.
+        let _trial_pool = Pool::new();
         deadline.check()?;
         if drawn.as_ref().is_none_or(|d| (d.0, d.1) != (w, h)) {
             drawn = None; // release the last size's bitmap before decoding the next
