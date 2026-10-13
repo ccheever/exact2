@@ -3,12 +3,12 @@ name: 20261011-restore-defaults-and-timeline-glyph
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-restore-defaults-and-timeline-glyph
 pr_url: https://github.com/ccheever/exact2/pull/470
-verified_commit: 4f3f93def
+verified_commit: 1f813789b
 ---
 
 # Restore defaults resets what the reference resets; the Timeline's lifecycle glyph
@@ -20,8 +20,8 @@ the reference T3 Code (`1e2ecbd975`).
 
 | Id | Clone | Reference (check it first) | Recorded in |
 | --- | --- | --- | --- |
-| RD-1 | Settings › Restore defaults resets every device value this app keeps, so it also resets Font smoothing (and lists it), the legacy sidebar setting (Sidebar (legacy)), typography's Advanced switch, the legacy thread sort and Plan mode (legacy); with only Font smoothing changed, Restore defaults is enabled | `useSettingsRestore` lists and resets exactly its own keys: none of these five. With only Font smoothing changed, Restore defaults is disabled; a restore keeps it | [audit-wave-followups-4](closed/20261010-audit-wave-followups-4.md) "Found, not changed" |
-| TG-1 | A pull request Timeline's "Pull request opened" row (and merged, closed) wears the actor's avatar on the rail | `LifecycleEvent` always draws an `IconMarker` with the pull request glyph (`PullRequestGlyph.pullRequest`, `.merged`, `.closed`); the actor's name stays beside the label | [search-key-and-timeline-commit-title](closed/20261011-search-key-and-timeline-commit-title.md) "Seen while building" |
+| RD-1 | Settings › Restore defaults resets every device value this app keeps, so it also resets Font smoothing (and lists it), the legacy sidebar setting (Sidebar (legacy)), typography's Advanced switch, the legacy thread sort and Plan mode (legacy); with only Font smoothing changed, Restore defaults is enabled | `useSettingsRestore` lists and resets exactly its own keys: none of these five. With only Font smoothing changed, Restore defaults is disabled; a restore keeps it | [audit-wave-followups-4](20261010-audit-wave-followups-4.md) "Found, not changed" |
+| TG-1 | A pull request Timeline's "Pull request opened" row (and merged, closed) wears the actor's avatar on the rail | `LifecycleEvent` always draws an `IconMarker` with the pull request glyph (`PullRequestGlyph.pullRequest`, `.merged`, `.closed`); the actor's name stays beside the label | [search-key-and-timeline-commit-title](20261011-search-key-and-timeline-commit-title.md) "Seen while building" |
 
 ## Steps
 
@@ -138,10 +138,16 @@ inherited from the feature tip then) and `app.contract` 1,398 lines.
 
 None. No real-input rows: both rows are state and drawing the agent's taps and `screenshot … window` reach.
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+This task has no real-input steps. On the same bundle G2-04 (every quit mode as the reference, [G2-04-double-hint-pair.png](https://raw.githubusercontent.com/ccheever/exact2/ce58c483fa3c5994a24469f0da7a8444bc19b15a/realinput-1011c/b3-window-activity/pairs/G2-04-double-hint-pair.png)) passed, and G4-15 (the clone redone in the session's prep, agent mode) passed. TG-1 ends `STATUS.md`'s "Pull request opened" row.
+
 ## Delivery
 
-Draft PR [#470](https://github.com/ccheever/exact2/pull/470) into `feat(example)/t3-code`.
+Merged on 2026-10-12 as `84d8c3474` (#470, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-The coordinator reviews the draft PR and merges it.
+None. Closed after `realinput-1011c`.

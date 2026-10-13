@@ -2,13 +2,13 @@
 name: 20261011-device-player-compact-and-rail-keys
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-device-player-compact-and-rail-keys
 pr_url: https://github.com/ccheever/exact2/pull/464
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # The details card's compact and essential rows, its popover beside the player, and the device rail menus' keys
@@ -16,9 +16,9 @@ verified_commit: null
 ## Outcome
 
 The user decided on 2026-10-11 that every item below is built now, matching the reference T3 Code `1e2ecbd975`. They
-are the remaining differences of [floating-device-player](closed/20261005-floating-device-player.md) ("the card has one
+are the remaining differences of [floating-device-player](20261005-floating-device-player.md) ("the card has one
 density"; "when no placement is left the inline card hides instead of becoming the popover") and of
-[audit-wave-followups-4](closed/20261010-audit-wave-followups-4.md) ("Found, not changed": the device rail's menus draw
+[audit-wave-followups-4](20261010-audit-wave-followups-4.md) ("Found, not changed": the device rail's menus draw
 their rows beside their `KeyMenu`).
 
 | Id | Clone | Reference (check it first) |
@@ -279,11 +279,26 @@ Round 1, on `d6e29bcde` (merged with `origin/feat(example)/t3-code`, already up 
   column and, over a sheet, the window), each in two scheme branches. Round 2's plan sizes (29,331,860 bytes after the
   first merge, 29,825,086 after the second) include the feature branch's growth, so its own share is not separated.
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, DR-1 (iPhone) | DPC-1 (B9) | Pass | [DPC-1-menu-clone-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/f0e72d811c8fa07cd4171e1edfc863db5733fc21/realinput-1011c/b9-device-fixture/pairs/DPC-1-menu-clone-record-pair.png) |
+| 1, DR-1 (Pixel) | DPC-2 (B9) | Partial: Rotate passes and the adb calls are reads only; Device text size not run (fixture: the button stays disabled while the fixture hub sends no video; the prep agent's tap reached it, a real click cannot) | [DPC-2-menus-clone-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/f0e72d811c8fa07cd4171e1edfc863db5733fc21/realinput-1011c/b9-device-fixture/pairs/DPC-2-menus-clone-record-pair.png) |
+| 2, DP-1 | DPC-3 (B9) | Fail: a 37 pt top-edge drag grows the player to 307×682 (its top moves about 6× the pointer), so the details card leaves at once; no compact or essential density shows | [DPC-3-compact-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/f0e72d811c8fa07cd4171e1edfc863db5733fc21/realinput-1011c/b9-device-fixture/pairs/DPC-3-compact-record-pair.png) |
+| 3, DP-2 | DPC-4 (B9) | Partial: steps 2, 4 and 5 pass (the popover opens under the player and closes on a sidebar click); step 3 fails: after a 150 pt shrink the docked card does not return (the player drifted 80 pt left while growing, 146 pt above it) | [DPC-4-back-inline-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/f0e72d811c8fa07cd4171e1edfc863db5733fc21/realinput-1011c/b9-device-fixture/pairs/DPC-4-back-inline-record-pair.png) |
+| 4, sheet | DPC-5 (B9) | Pass | [DPC-5-sheet-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/f0e72d811c8fa07cd4171e1edfc863db5733fc21/realinput-1011c/b9-device-fixture/pairs/DPC-5-sheet-record-pair.png) |
+| 5, float | DPC-6 (B9) | Pass | [DPC-6-float-closes-panel-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/f0e72d811c8fa07cd4171e1edfc863db5733fc21/realinput-1011c/b9-device-fixture/pairs/DPC-6-float-closes-panel-record-pair.png) |
+| 6, review round 2 | DPC-7 (B9) | Pass | [DPC-7-over-drawer-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/f0e72d811c8fa07cd4171e1edfc863db5733fc21/realinput-1011c/b9-device-fixture/pairs/DPC-7-over-drawer-record-pair.png) |
+
+Not passed: DPC-3 and DPC-4's step 3, both the floating player's resize, which overshoots the pointer (B5's DP-2 and DP-4). The session's rechecks of the player (DP-1 … DP-10) ran in B5: DP-1, DP-8 and DP-9 pass; DP-2 (the player moves about 1.5× the pointer), DP-3 (a press on a pill button drags), DP-4 (no resize cursor; a W or SW resize passes the 672 stop) and DP-6 (a held drag stops following once the pointer leaves the window) fail; DP-5 and DP-7 pass in part; DP-10's cells were taken (the clone's cell at 840×620 is 175×380, under the reference's 240×522 minimum). All are in `STATUS.md` "Known differences".
+
 ## Delivery
 
-Draft pull request [#464](https://github.com/ccheever/exact2/pull/464) into `feat(example)/t3-code`.
+Merged on 2026-10-12 as `ad6bac9d6` (#464, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-The coordinator reviews draft PR [#464](https://github.com/ccheever/exact2/pull/464) (review round 2 pushed), runs the
-real-input steps (six, with the fake Android SDK for the Pixel's menus) in the next batch, and merges it.
+None. Closed after `realinput-1011c`; DPC-3, DPC-4's step 3 and the player's drag and resize rows are in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

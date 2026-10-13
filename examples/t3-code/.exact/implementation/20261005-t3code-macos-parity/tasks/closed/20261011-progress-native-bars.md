@@ -2,13 +2,13 @@
 name: 20261011-progress-native-bars
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-progress-native-bars
 pr_url: https://github.com/ccheever/exact2/pull/462
-verified_commit: 201311707
+verified_commit: 1f813789b
 ---
 
 # Progress bars say their value: main's determinate `progress` and ARIA range values
@@ -23,7 +23,7 @@ minimum and maximum) and `ab9110c3a` (a determinate `progress value=… max=…`
 
 | Id | Clone | Reference (check it first) |
 | --- | --- | --- |
-| PB-1 | Every progress UI is a drawn track and fill, `aria-hidden`, with an invisible indeterminate `progress` (a busy indicator) beside it named "<label>, <n>%" (`progress-value.contract` `ProgressValue`, PV-1 of [dialog-trap-and-progress-value](closed/20261011-dialog-trap-and-progress-value.md)): the Antigravity runtime download (`providers-setup.contract`) and the context window meter (`composer-controls.contract`). VoiceOver hears a busy indicator, with no value. The Usage bars and any other drawn track and fill to be checked | The Antigravity download is `<progress aria-label="Antigravity download" value max>` (ProviderSetupSection.tsx); the context window a drawn `role="progressbar"` box with `aria-valuemin=0 aria-valuemax=100 aria-valuenow` (ContextWindowMeter.tsx); accessibility reads the value (AXValue/AXMinValue/AXMaxValue) |
+| PB-1 | Every progress UI is a drawn track and fill, `aria-hidden`, with an invisible indeterminate `progress` (a busy indicator) beside it named "<label>, <n>%" (`progress-value.contract` `ProgressValue`, PV-1 of [dialog-trap-and-progress-value](20261011-dialog-trap-and-progress-value.md)): the Antigravity runtime download (`providers-setup.contract`) and the context window meter (`composer-controls.contract`). VoiceOver hears a busy indicator, with no value. The Usage bars and any other drawn track and fill to be checked | The Antigravity download is `<progress aria-label="Antigravity download" value max>` (ProviderSetupSection.tsx); the context window a drawn `role="progressbar"` box with `aria-valuemin=0 aria-valuemax=100 aria-valuenow` (ContextWindowMeter.tsx); accessibility reads the value (AXValue/AXMinValue/AXMaxValue) |
 | PB-2 | The X49/X55 workaround (`ProgressValue`, and the colour picker's slider values in `aria-description`, "Contract carries no aria-valuenow / aria-valuetext (X49)") is still in the clone; `EXACT2-GAPS.md` X49 and X55 say "the workaround stays until a follow-up task switches the bars" | — (retire the workaround; X49's main issue was fixed by `43f6d298c` and `ab9110c3a`) |
 
 ## Steps
@@ -263,18 +263,29 @@ final head keeps) before the one live drive.
 
 ## Not done / not verified
 
-- VoiceOver hearing the bars and the sliders: real input is the coordinator's session (Real-input batch steps 1–3, 1a).
+- VoiceOver hearing the bars and the sliders: ran in `realinput-1011c` ("Real-input results" below).
 - The accent sliders' AXMinValue/AXMaxValue on macOS: not read this round. The out-of-process reader reached no window
   (`windows: 0`), so the drive read the AppKit accessibility objects in process (`tree --ax`: role, name, value, help,
   focus), which does not report the bounds. The bounds are the markup's (`progress-native-bars.test.ts`) and the same
   host path served them for the theme picker's identical sliders out of process in round 0 (0–100, 0–360).
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, PB-2 (the theme editor's sliders) | G5-D3 (B6, VoiceOver) | Partial: both apps speak the values on the arrows; the clone speaks the hue slider as a percentage ("0%"; reference "0") and gives the instructions as a delayed hint, not the description | [G5-D3-captions-pair.png](https://raw.githubusercontent.com/ccheever/exact2/aef83daaf9c71586e0d8c17f4c7b2ad0d98cd54c/realinput-1011c/b6-voiceover/pairs/G5-D3-captions-pair.png) |
+| 1a, the accent picker | PNB-1a (B6x, VoiceOver) | Partial: Clear color passes; the hue is spoken "61.4%" (reference "221"), Shift+→ does not speak the new saturation ("94%"), and the instructions come as a delayed hint | [PNB-1a-captions-pair.png](https://raw.githubusercontent.com/ccheever/exact2/ed5fa6cb8cfea023e254f918544201ae53abcd5f/realinput-1011c/b6x-voiceover/pairs/PNB-1a-captions-pair.png) |
+| 2, PB-1 on the probe | PNB-2 (B6x, clone only) | Pass: all four bars and the limit image spoken as expected | [PNB-2-context.png](https://raw.githubusercontent.com/ccheever/exact2/ed5fa6cb8cfea023e254f918544201ae53abcd5f/realinput-1011c/b6x-voiceover/PNB-2-context.png) |
+| 3, PB-1 in the app | G5-D1 (B6) | Pass: the context window bar is spoken as its value; the Antigravity half not run (no download in the session); recorded: VoiceOver's order puts the composer's "Message" between the popover's description and its bar | [G5-D1-caption-bar-pair.png](https://raw.githubusercontent.com/ccheever/exact2/aef83daaf9c71586e0d8c17f4c7b2ad0d98cd54c/realinput-1011c/b6-voiceover/pairs/G5-D1-caption-bar-pair.png) |
+
+Not passed: G5-D3 and PNB-1a (the hue's spoken value, the instructions' timing).
+
 ## Delivery
 
-Draft PR [#462](https://github.com/ccheever/exact2/pull/462) into `feat(example)/t3-code`, stacked on #458 (merge after
-it).
+Merged on 2026-10-12 as `fe0e39c91` (#462, squash) into `feat(example)/t3-code`, after #458.
 
 ## Next action
 
-The coordinator reviews #462 (review round 1 fixed) after #458 lands, then runs the real-input steps in the
-verification session.
+None. Closed after `realinput-1011c`; the sliders' spoken hue and delayed instructions (G5-D3, PNB-1a) are in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

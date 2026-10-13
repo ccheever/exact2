@@ -3,12 +3,12 @@ name: 20261011-terminal-drawer-unthreaded
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-drawer-unthreaded
 pr_url: https://github.com/ccheever/exact2/pull/460
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # The terminal drawer for a draft and for a background environment's thread
@@ -16,7 +16,7 @@ verified_commit: null
 ## Outcome
 
 The user decided on 2026-10-11 that the two terminal drawer items left in the "Not done / limits" list of
-[terminal-drawer](closed/20261005-terminal-drawer.md) are built now, matching the reference T3 Code.
+[terminal-drawer](20261005-terminal-drawer.md) are built now, matching the reference T3 Code.
 
 | Id | Clone (as recorded) | Reference (check it first) |
 | --- | --- | --- |
@@ -169,11 +169,20 @@ record), 2026-10-12:
 
 Earlier, on `db2f5c8bb` (first delivery): the same checks all exited 0 (Bun 4656 pass, cargo test 3,679 passed).
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| The optional confirmation | TDU-1 (B11) | Pass: the second server's drawer comes back with only its own thread's log | [TDU-1-drawer-back.png](https://raw.githubusercontent.com/ccheever/exact2/dbf3b209457122ad13ae8928de9538c888000b5d/realinput-1011c/b11-studio/TDU-1-drawer-back.png) |
+
+The session's rechecks over the terminal (G1-1 … G1-8, G2-05 step 5, G2-06's ⌘W half, DP-2, DP-3, DP-4, DP-8) ran on the same bundle: G1-6, G2-05, G2-06 and DP-8 pass; G1-1, G1-3, G1-4, G1-5, DP-2, DP-3 and DP-4 fail and G1-2, G1-7 and G1-8 pass in part, on Korean composition, the middle press, a second ⌘W, terminal links, the paste refusal's text, the Add to chat chip and the floating player's drag; none of them is this task's change (which environment a terminal session follows). They are in `STATUS.md` "Known differences".
+
 ## Delivery
 
-Draft PR [#460](https://github.com/ccheever/exact2/pull/460) into `feat(example)/t3-code`.
+Merged on 2026-10-12 as `8fa9446cc` (#460, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-The coordinator's review and merge (the review's one should-fix finding is fixed). No real-input rows. The one red
-`cargo test` is the feature branch's, cleared when it adopts main's `45940782c`.
+None. Closed after `realinput-1011c`; what stays open is listed in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

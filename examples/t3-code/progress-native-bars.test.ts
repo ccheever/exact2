@@ -7,7 +7,7 @@
 // ProviderAccentColorPicker.tsx, both over color-picker.tsx) its range values, each stop described by the plane's
 // instructions. The Usage bars stay as the reference draws them (an
 // image named with its figures, a button so named, `aria-hidden` decorations). The X49/X55 workaround (an invisible busy
-// indicator named "<label>, <n>%", progress-value.contract) is gone. The AX reads are in tasks/20261011-progress-native-bars.md.
+// indicator named "<label>, <n>%", progress-value.contract) is gone. The AX reads are in tasks/closed/20261011-progress-native-bars.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { providerRuntime } from './provider-install';

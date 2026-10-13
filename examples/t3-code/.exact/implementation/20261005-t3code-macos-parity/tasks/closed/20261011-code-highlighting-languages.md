@@ -2,13 +2,13 @@
 name: 20261011-code-highlighting-languages
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-code-highlighting-languages
 pr_url: https://github.com/ccheever/exact2/pull/466
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # Every language the reference highlights is highlighted
@@ -16,7 +16,7 @@ verified_commit: null
 ## Outcome
 
 The user decided on 2026-10-11 that this is built now, matching the reference T3 Code, and decided U15 (left open by
-[shiki-residuals](closed/20261005-shiki-residuals.md)): take the reference's whole list and accept the size cost.
+[shiki-residuals](20261005-shiki-residuals.md)): take the reference's whole list and accept the size cost.
 
 | Id | Clone | Reference (check it first) |
 | --- | --- | --- |
@@ -286,11 +286,16 @@ difference, not changed.
 - Chrome slants Korean in an italic run; the clone's Korean italic text stays upright (the font has no italic).
 - Dark images: the file tree's labels and the sidebar title keep the light raster after the live switch (X82, known).
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+This task has no real-input steps (its rows are colours, read by the agent's `screenshot … window`). G4-02, the Diff's colours on the bundle, was not run: the lane's Diff listed no file (fixture); the session's agent pre-check on `1f813789b` stands. The eight grammars held for their licences and the template-dense cpp line stay in `STATUS.md` "Known differences" (the coordinator's decisions of 2026-10-12).
+
 ## Delivery
 
-Draft PR [#466](https://github.com/ccheever/exact2/pull/466) into `feat(example)/t3-code`.
+Merged on 2026-10-12 as `63d1c410c` (#466, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-Review of round 3 (the coordinator's two decisions applied and declared; the blocking finding's fix confirmed with its
-test; the cpp line cost stated, not bounded by the work limit). Then merge.
+None. Closed after `realinput-1011c`; what stays open is listed in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

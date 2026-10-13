@@ -2,13 +2,13 @@
 name: 20261012-adopt-main-fixes-r11
 plan: 20261005-t3code-macos-parity
 implementation: done
-verification: pending
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r11'
 pr_url: https://github.com/ccheever/exact2/pull/497
-verified_commit:
+verified_commit: 1f813789b
 ---
 
 # Main adoption, round 11, and the workarounds its fixes end
@@ -237,7 +237,7 @@ Drives: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/6c0502ed3bc
 | AD-1: the checks pass | see Checks | Checks |
 | AD-1: the clone works | pass: the same three sessions before (the T3 tip `20ce9dfdb`'s bundle) and after (the bundle of `6297a1728`'s sources on main `b610c88ba`) exit 0, no op failed; screens equal but for the rows' own changes and main's platform rules (the launch scheme, X58; the launch focus in the first key view, LLP 1115.000 D7.5) | [shell](https://raw.githubusercontent.com/ccheever/exact2/8c79a05e63f94d098d95cc6074884e3145ea0c88/adopt-main-fixes-r11/ad1-shell.png), [Settings](https://raw.githubusercontent.com/ccheever/exact2/71739d0042f659834626ce4a822e3bc886fbfeb7/adopt-main-fixes-r11/ad1-settings.png), [pixels](https://raw.githubusercontent.com/ccheever/exact2/901987fc6fcb5d8fd05a1a975b105bdf4048d912/adopt-main-fixes-r11/ad1-pixels.txt) |
 | RT-1 X63 | pass: `macos/tests/r8-keys` before 6/6, after 6/6; the retired routing over a pre-#327 textarea fails 4 of 6 (⌘Z and Edit › Undo do nothing), so it stood only for want of #327. Real keys: step 4 | [record](https://raw.githubusercontent.com/ccheever/exact2/f466379af15c628b096ad3b48b6d223193f8015a/adopt-main-fixes-r11/x63-and-appkit-record.txt) |
-| RT-1 X64 | pass: the keyed texts are plain; the scheduled task editor's and Settings' selects, the provider row and editor, the model trigger keep their words (Bun guards). Review round 1's drive, with a second environment "Studio" (no provider) paired: a new scheduled task, Runs on › Studio rewrites Runs on ("Daehyeon’s MacBook Pro" → "Studio") and Project ("Verification fixture" → "studio-app", both shorter) and Base branch ("From main" → "From origin/main"), then Runs on › the Mac back again; each label is drawn whole at its new width, before (keyed) and after (plain) alike, the typed name kept; the tree reads the same labels on both. The provider row's status and the model trigger need a provider (Bun guards only) | [image](https://raw.githubusercontent.com/ccheever/exact2/d1a62098a7e0542ba486da64a0b5d92cbe0ff420/adopt-main-fixes-r11/rt1-x64-runs-on.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §1 |
+| RT-1 X64 | pass: the keyed texts are plain; the scheduled task editor's and Settings' selects, the provider row and editor, the model trigger keep their words (Bun guards). Review round 1's drive, with a second environment "Studio" (no provider) paired: a new scheduled task, Runs on › Studio rewrites Runs on (the Mac's name → "Studio") and Project ("Verification fixture" → "studio-app", both shorter) and Base branch ("From main" → "From origin/main"), then Runs on › the Mac back again; each label is drawn whole at its new width, before (keyed) and after (plain) alike, the typed name kept; the tree reads the same labels on both. The provider row's status and the model trigger need a provider (Bun guards only) | [image](https://raw.githubusercontent.com/ccheever/exact2/d1a62098a7e0542ba486da64a0b5d92cbe0ff420/adopt-main-fixes-r11/rt1-x64-runs-on.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §1 |
 | RT-1 X62 | kept, rationale only: the hover layer stays (clipping, the reference's portal) | Cause and fix |
 | RT-1 X52 | pass (Keyboard navigation on, after only): date screen Tab: toggle → Date → **Time** → Cancel → Snooze → X → toggle; duration: toggle → Decrease → amount → Increase → **Unit** → Cancel (the reference's order; before: Time and Unit skipped) | [image](https://raw.githubusercontent.com/ccheever/exact2/54fdf23e450be2bf9eaca699374d5f538a74a2c2/adopt-main-fixes-r11/rt1-x52-snooze.png), readouts |
 | RT-1 X51 | pass: a press on the accent plane over the editor stays in the popover (it stays open, the accent changes, nothing beneath pressed); the focus then on the popover as the reference's (Chromium focuses the PopoverPopup), where before `retainFocus` kept it on the saturation slider | [image](https://raw.githubusercontent.com/ccheever/exact2/c40c2bf5fe6ea50e79664e3b5b1c512531090e16/adopt-main-fixes-r11/rt1-x51-plane.png), [record](https://raw.githubusercontent.com/ccheever/exact2/4779f9d88280eb2c15241d64175c0680881dfcd3/adopt-main-fixes-r11/rt1-x51-record.txt) |
@@ -388,7 +388,7 @@ empty. Main moved one commit after these checks (`b0e4a6c22`, the terminal's ani
 
 ## Not done / not verified
 
-- Real input (steps 1–9): reserved for the coordinator's `realinput-1011c`; this task used none.
+- Real input (steps 1–9): ran in `realinput-1011c` ("Real-input results" below); steps 7 and 9 crashed before their checks.
 - The live drive ran on main `b610c88ba`; the final head adds main `c4cd2bcba` (#495, #496, the Mac text follow-ups) and
   `b0e4a6c22`, X86's retirement and the selected-text menu's adaptation. Those two are covered by `contract build`, the Bun
   guard and the AppKit `contextmenu` binary, not driven (the agent gets no selected-text menu from the host, and a long
@@ -415,7 +415,29 @@ Also: main's one new commit since the last merge (`b0e4a6c22`) merged (`86dcbfd8
 
 None: every item follows the reference or main's platform rule (LLP 1115).
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, RT-3 X85 | RLR-4 (g)–(j) (B13) | Pass | [RLR-4-ctrl-site-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/RLR-4-ctrl-site-pair.png) |
+| 2, RT-3 X77 | R11-X77 (B13) | Pass | [R11-X77-menu-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/R11-X77-menu-pair.png) |
+| 3, selected text (`6a7f16c6f`) | R11-SEL (B14) | Pass: the shell's menu over a selection (the reference's adds Services) | [R11-SEL-menu-pair.png](https://raw.githubusercontent.com/ccheever/exact2/dae1a9619a430b2ecdea34ac21af9c34cdd37a1d/realinput-1011c/b14-r11/pairs/R11-SEL-menu-pair.png) |
+| 4, RT-1 X63 | R11-X63 (B14) | Fail (step 3): ⌘Z, ⇧⌘Z and Edit › Undo and Redo in the composer pass; after an archive from the row menu the clone puts the focus back in the composer, so ⌘Z undoes the composer instead of the archive (reference: the thread comes back) | [R11-X63-thread-undo-pair.png](https://raw.githubusercontent.com/ccheever/exact2/dae1a9619a430b2ecdea34ac21af9c34cdd37a1d/realinput-1011c/b14-r11/pairs/R11-X63-thread-undo-pair.png) |
+| 5, RT-3 X84 (optional) | RLR-6v (B6x) | Fail: VO-⇧-M opens nothing on a link or a thread row (reference: the shell's menu, the row's menu) | [RLR-6v-pair.png](https://raw.githubusercontent.com/ccheever/exact2/ed5fa6cb8cfea023e254f918544201ae53abcd5f/realinput-1011c/b6x-voiceover/pairs/RLR-6v-pair.png) |
+| 6, RT-2 | F12-2 (B12) | Pass; finding: the clone's ⌘A selects and copies hidden views' text and paints stray selection boxes | [F12-2-select-all-pair.png](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/pairs/F12-2-select-all-pair.png) |
+| 7, RT-1 X51 | R11-X51 (B14) | Fail (crash before the step): the clone crashed on the sidebar's Settings click from a draft whose right panel held the file viewer (`NodeView.releaseHold`, releaseHold crash, main issue pending); the reference half not run | [R11-X51-crash-summary.txt](https://raw.githubusercontent.com/ccheever/exact2/dae1a9619a430b2ecdea34ac21af9c34cdd37a1d/realinput-1011c/b14-r11/R11-X51-crash-summary.txt) |
+| 8, X86 | DCP-F (B13) | Pass: the popover holds at about 230 pt | [DCP-F-limit-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/DCP-F-limit-record-pair.png) |
+| 9, RT-5 X79 (optional) | R11-X79 (B13) | Fail (crash at step 1, the same trigger): the reference half and step 5 not run | [R11-X79-crash-summary.txt](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/R11-X79-crash-summary.txt) |
+| X81 (no step of its own) | R11-X81 (B12) | Pass (clone): the copy takes the code without the line numbers; the reference's ⌘C copied nothing (its diff is in a shadow root); recorded: the clone's copy has an extra blank line between the − and + rows | [R11-X81-pbpaste-clone.txt](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/R11-X81-pbpaste-clone.txt) |
+
+Not passed: R11-X63's step 3, RLR-6v, and R11-X51 and R11-X79, which crashed before their steps.
+
+## Delivery
+
+Merged on 2026-10-12 by fast-forward (#497; the branch tip `1f813789b`, the bundle `realinput-1011c` ran), never a squash.
+
 ## Next action
 
-The coordinator reviews the draft PR, runs the real-input steps in `realinput-1011c`, and lands the PR as a merge or a
-fast-forward (never a squash).
+None. Closed after `realinput-1011c`; R11-X63's step 3, RLR-6v and the releaseHold crash (R11-X51, R11-X79; a framework bug, main issue pending) are in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

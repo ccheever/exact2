@@ -2,20 +2,20 @@
 name: 20261011-adopt-main-fixes-r9
 plan: 20261005-t3code-macos-parity
 implementation: done
-verification: pending
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r9'
 pr_url: https://github.com/ccheever/exact2/pull/458
-verified_commit:
+verified_commit: 1f813789b
 ---
 
 # Main adoption, round 9: merge current main into the T3 branch
 
 ## Outcome
 
-`feat(example)/t3-code` takes current `main`. Round 8 ([adopt-main-fixes-r8](closed/20261010-adopt-main-fixes-r8.md),
+`feat(example)/t3-code` takes current `main`. Round 8 ([adopt-main-fixes-r8](20261010-adopt-main-fixes-r8.md),
 #402) adopted main `d413487a8` and landed by fast-forward, so main `d413487a8` is an ancestor of the T3 branch and this
 round is a plain `git merge origin/main` (no `-s ours` step). On 2026-10-11 main had 128 commits the T3 branch
 (`6db5cadea`) lacks (`d413487a8..dd589856e`), among them LLP 1116's bake-off rounds (D1–D8: the web's designed default
@@ -55,9 +55,9 @@ this round is built now (no further decision needed).
 
 ## Reference
 
-- Method: [adopt-main-fixes-r8](closed/20261010-adopt-main-fixes-r8.md) (Steps, "Adopted main", checks, Delivery) and
-  [adopt-main-fixes-r7](closed/20261010-adopt-main-fixes-r7.md) (history; X67 and the flatten,
-  [view-depth-under-test-stack](closed/20261009-view-depth-under-test-stack.md)).
+- Method: [adopt-main-fixes-r8](20261010-adopt-main-fixes-r8.md) (Steps, "Adopted main", checks, Delivery) and
+  [adopt-main-fixes-r7](20261010-adopt-main-fixes-r7.md) (history; X67 and the flatten,
+  [view-depth-under-test-stack](20261009-view-depth-under-test-stack.md)).
 - STATUS.md "Next up" item 4 (the #327 retirements list) and `issues/README.md`'s mapping table.
 - The reference T3 Code source for D7's weights: `apps/web/src/components/settings/settingsLayout.tsx` (SettingsSection
   title `<h2 className="… text-sm font-normal text-foreground/70">`), `ThemeSettings.tsx` ("Color scheme" and "Themes",
@@ -178,12 +178,16 @@ is the window's state at that moment, not the merge.
 
 No row needs real input.
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+This round has no real-input steps of its own. The rows over what it adopted ran on the bundle: X49's and X55's `progress` and range values (progress-native-bars, the stacked retirement 1: G5-D1 and PNB-2 pass; G5-D3 and PNB-1a pass in part, the hue spoken as a percentage) and X73's Filters (round 10's R10-1, which fails: the focus after the second Escape). The red `apps/color-gallery` test this round brought in from main ended with main's `ccd3d3be7` in round 10.
+
+## Delivery
+
+Merged on 2026-10-12 by fast-forward (#458; the branch tip `213149fe7`), never a squash.
+
 ## Next action
 
-**For the coordinator: landing this PR turns the T3 branch's gate red.** Main's own `cargo test` fails on
-`apps/color-gallery/app.contract:269` (main #440 added a styled default button without `appearance="none"`, which the
-examples sweep's button migration refuses); the T3 branch's tip `6db5cadea` predates #440, and this PR brings it in. That
-is main's to fix (this task does not edit main's apps), no open PR into main touches it on 2026-10-12, and the T3 branch
-stays red on that one test until main fixes it and the next adoption round takes the fix. The coordinator reviews the draft PR [#458](https://github.com/ccheever/exact2/pull/458), syncs `STATUS.md` and `plan.md` (round 9 done, main `ccc9afd52` adopted; X49, X55's
-`progressbar` part and X73 fixed on main), lands it as a merge or a fast-forward (never a squash), and schedules the
-retirements above (1 is the stacked progress-bar task).
+None. Closed after `realinput-1011c`; what stays open is listed in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

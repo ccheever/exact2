@@ -2,13 +2,13 @@
 name: 20261011-pr-list-scroll-and-sidebar-sweep
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-open-real-input-rows
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-list-scroll-and-sidebar-sweep
 pr_url: https://github.com/ccheever/exact2/pull/468
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # The Pull Requests list's place across a window refocus, and the sidebar sweep's hover
@@ -286,10 +286,23 @@ During review round 1: the touched Bun tests (`pr-list-scroll-and-sidebar-sweep.
 
 First round, on `2207574b3` (merged with `fe0e39c91`): the same checks, all 0 except `cargo test` 101 (3,744 passed, 1 failed: `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269`, main #440, inherited with round 9; gone with this round's merge). During development: the touched Bun tests and `contract build` after each contract edit (three builds refused while finding how ThreadSection may call the hover: "Framework problem met").
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, PS-1 | PLS-1 (B12) | Fail (clone): every refocus (a click back or ⌘Tab back) empties the Pull Requests list for a moment and brings it back at its top (reference: its rows stay in view) | [PLS-1-refocus-pair.png](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/pairs/PLS-1-refocus-pair.png) |
+| 2, PS-2a | SW-3 (B5) | Fail: the "Settle thread" tooltip stays after the press (reference: gone); at the release the clone opens the hovered row's card at once (reference: no card at 0.5 s) | [SW-3-pressed-pair.png](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/pairs/SW-3-pressed-pair.png) |
+| 3–5, PS-2b, PS-2c and the press from a focused Settle | SW-2 (B5) | Fail: moving inside a row, its hover card closes and the row loses its hover while the pointer is still in it (reference: the row stays hovered with its card); PS-2c's "no card at the release" matches the reference (its FAIL withdrawn); step 5's focus half not reachable (Keyboard navigation off) | [SW-2-inside-end-pair.png](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/pairs/SW-2-inside-end-pair.png) |
+| 6 | SW-1 (B5) | Pass in the clone; not verified against the reference, whose real-input sweep armed the rows and settled nothing on release | [SW-1-mid-drag-pair.png](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/pairs/SW-1-mid-drag-pair.png) |
+
+Not passed: PLS-1, SW-2 and SW-3. PLS-1 is not X58 (real input sends no `prefer`); its cause is not traced.
+
 ## Delivery
 
-Draft PR [#468](https://github.com/ccheever/exact2/pull/468) into `feat(example)/t3-code`. Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the first round's checks, no conflicts; in review round 1 from `8fa9446cc` (main adoption round 10 and SW-1, #472, and later task PRs): `sidebar.contract`'s sweep conflicted with SW-1 and was resolved keeping both (SW-1's `let` bindings; this task's resting hover, and the first arming's `unhover` gated on the move's `armed`). In review round 2 from `ca4f28e35` (#482): `sidebar-sweep.test.ts` conflicted with #482's move of its interpreter into `contract-action-fixture.ts` and was resolved on the base's fixture, with this task's action-prop call branch ported into the fixture.
+Merged on 2026-10-12 as `cf16fe13d` (#468, squash) into `feat(example)/t3-code`. Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the first round's checks, no conflicts; in review round 1 from `8fa9446cc` (main adoption round 10 and SW-1, #472, and later task PRs): `sidebar.contract`'s sweep conflicted with SW-1 and was resolved keeping both (SW-1's `let` bindings; this task's resting hover, and the first arming's `unhover` gated on the move's `armed`). In review round 2 from `ca4f28e35` (#482): `sidebar-sweep.test.ts` conflicted with #482's move of its interpreter into `contract-action-fixture.ts` and was resolved on the base's fixture, with this task's action-prop call branch ported into the fixture.
 
 ## Next action
 
-Review; then the real-input batch steps 1-6 in the coordinator's session.
+None. Closed after `realinput-1011c`; PLS-1, SW-2 and SW-3 are in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

@@ -4,7 +4,7 @@
 // controls in source order, less those, are its reference Tab order. Time and select inputs are stops on
 // macOS too since main #327 (X52, adopted in round 11; Custom snooze's Time and Unit, driven in adopt-main-fixes-r11),
 // with Keyboard navigation on as every control is (LLP 1115.000 D7.2). These checks guard the wiring; the behavior is
-// proven by the macOS drives in tasks/closed/20261008-dialog-shortcut-focus.md and tasks/20261012-adopt-main-fixes-r11.md.
+// proven by the macOS drives in tasks/closed/20261008-dialog-shortcut-focus.md and tasks/closed/20261012-adopt-main-fixes-r11.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 

@@ -2,13 +2,13 @@
 name: 20261011-reply-links-reference-behavior
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-reply-links-reference-behavior
 pr_url: https://github.com/ccheever/exact2/pull/474
-verified_commit: ffec16a91
+verified_commit: 1f813789b
 ---
 
 # Reply links as the reference has them: a fragment leaves the thread, a table cell's mailto opens nothing, the ContextMenu key's shell menu
@@ -16,7 +16,7 @@ verified_commit: ffec16a91
 ## Outcome
 
 The user decided on 2026-10-11 to match the reference on the three reply-link rows
-[reply-links](closed/20261011-reply-links.md) kept (its "Decision", "Not done" and "Seen while building"; `STATUS.md`
+[reply-links](20261011-reply-links.md) kept (its "Decision", "Not done" and "Seen while building"; `STATUS.md`
 "Known differences" rows "A reply's `#fragment` link", "A `mailto:` link in a reply's Markdown table cell" and "The
 ContextMenu key (or VoiceOver's show menu) on a focused …").
 
@@ -229,7 +229,7 @@ main's `apps/color-gallery`); Bun 4664 pass; AppKit 60 run, 0 failed.
   main by [#487](https://github.com/ccheever/exact2/pull/487) (2026-10-12), not adopted yet. At the adoption a Control-click
   runs the link's `contextmenu`, but the module's monitor takes only a right mouse-down as the page click `shellMenu`
   answers, so the shell's menu needs a change then (read from the code, not driven).
-- Real-input steps 1–4: the coordinator's session.
+- Real-input steps 1–4: ran in `realinput-1011c` ("Real-input results" below).
 
 ## Decision needed: decided
 
@@ -265,12 +265,23 @@ An independent review of the PR found five should-fix problems:
 | 4 | The fragment link's modified clicks were read from source, and ⌥ in particular was unconfirmed | Measured over CDP with the main process read back: ⌘ and ⇧ open nothing (match); ⌥ shows Electron's Save dialog (decided not matched, declared); ⌃ opens the shell's menu (X85, a host gap, filed on main by [#485](https://github.com/ccheever/exact2/pull/485)) |
 | 5 | AppKit tests whose names said "nothing opens" passed only because nothing was focused; the menu's place differs from ExactKit's `drawnRect` | Those tests hold a focused link now and pass because of the key record (the first version's module fails 23 assertions in them). A new test shows the menu's middle follows a clipping ancestor and not a non-clipping one, as ExactKit's walk does (`visibleRect` on macOS 14); the remaining difference, a CSS transform, is noted in the code (a reply's links have none) |
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, RL-4 | RLR-4 (B13) | Pass, with round 11's (g)–(j): a ⌃-click is the secondary click (X85) | [RLR-4-ctrl-site-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/RLR-4-ctrl-site-pair.png) |
+| 2, RL-5 | RLR-5 (B13) | Pass: mailto and irc open nothing, the web link opens the default browser, in both apps | [RLR-5-mailto-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/RLR-5-mailto-pair.png) |
+| 3, RL-6 (the ContextMenu key) | RLR-6 (B13) | Fail (clone; step 3 passes): the ContextMenu key on a link gives AppKit's text menu (Look Up …) or nothing, not the shell's menu, and a click does not focus the link | [RLR-6-team-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/RLR-6-team-pair.png) |
+| 4, RL-6 (VoiceOver) | RLR-6v (B6x) | Fail (clone): VO-⇧-M opens nothing on a link or a thread row, with round 11's X84 fix in the bundle (reference: the shell's menu and the row's menu) | [RLR-6v-pair.png](https://raw.githubusercontent.com/ccheever/exact2/ed5fa6cb8cfea023e254f918544201ae53abcd5f/realinput-1011c/b6x-voiceover/pairs/RLR-6v-pair.png) |
+
+Not passed: RLR-6 and RLR-6v.
+
 ## Delivery
 
-Draft PR [#474](https://github.com/ccheever/exact2/pull/474) into `feat(example)/t3-code`.
+Merged on 2026-10-12 as `20ce9dfdb` (#474, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-The coordinator: review the draft PR (both decisions are made); run real-input steps 1–4 in the next session. X84 (#483),
-the cell link's Tab stop (#484) and X85 (#485) are filed; X84 and X85 are fixed on main (#486, #487) and come with the
-next adoption of main, which also needs `shellMenu` to answer VoiceOver's show menu and a Control-click.
+None. Closed after `realinput-1011c`; RLR-6 and RLR-6v are in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).
