@@ -89,9 +89,10 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   `docs/`, `QUEUE.md`, and `*.md` paths
   (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
   the Apple TV bundle and asks for no simulator), the
-  Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
-  running the runner against the Lean semantics over `semantics/corpus` and a fixed
-  random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
+  Contract semantics (`semantics/README.md`: the Lean proofs, the extracted VM's, and
+  `contract-difftest` running the runner and the web JS target against the Lean
+  semantics; each skipped when its inputs are those of a run that passed,
+  `scripts/async-inputs.mjs`), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
   the platforms that ride on another host's code: tvOS on the UIKit presenter
   (installed on an Apple TV simulator, which that machine must have),
   plus cross-target Cargo checks of the Linux host with Caltrain and the Windows

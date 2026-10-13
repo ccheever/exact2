@@ -13,11 +13,11 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // The stylesheet a default build's page has (look.mjs), with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and

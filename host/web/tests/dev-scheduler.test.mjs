@@ -10,6 +10,9 @@ import {runInNewContext} from 'node:vm';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
 import {watchStaticTrees} from '../serve.mjs';
+import {chromium} from '../../../scripts/agent-launch.mjs';
+import {need} from '../../../scripts/coverage.mjs';
+const {executable:chrome,unavailable}=chromium();
 // A test that edits an app's files and writes them back also puts their
 // times back, so a later test's build-freshness check is not tripped.
 const keepTimes = paths => { const kept = paths.map(p => [p, statSync(p)]); return () => { for (const [p, st] of kept) utimesSync(p, st.atime, st.mtime); }; };
@@ -127,12 +130,10 @@ test('the Caltrain JS dev loop keeps its station search across an app edit', asy
     if(dev?.exitCode===null){dev.kill('SIGTERM');await new Promise(ok=>{const t=setTimeout(ok,2000);dev.once('exit',()=>{clearTimeout(t);ok()})})}
   }
 },180_000);
-test('a page whose first build failed reloads into the fixed build', async () => {
+need('chrome', unavailable)('a page whose first build failed reloads into the fixed build', async () => {
   // The first build's error page has no runtime (`globalThis.exact` never
   // exists), so its reload must not wait for one. Driven over a raw DevTools
   // pipe: agent.mjs's open() waits for a runtime this page never has.
-  const chrome=process.env.CHROME;
-  if(!chrome||!existsSync(chrome)){console.warn('SKIP first-build error reload: CHROME names no browser');return;}
   const contract=resolve(new URL('../../../apps/realworld/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
