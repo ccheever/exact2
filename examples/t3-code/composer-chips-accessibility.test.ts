@@ -67,3 +67,15 @@ describe('the context window popover is a dialog (G5-D1)', () => {
     expect(meter).toContain('aria-haspopup="dialog"');
   });
 });
+
+describe('a terminal reference with no record is an unavailable context (G1-8)', () => {
+  test('only a reference the draft holds a record for draws as a terminal excerpt', async () => {
+    const { chipContexts } = await import('./composer-editor');
+    const text = '[Terminal 2 lines 1-738](t3-context://v1/terminal/terminal_abc) [Terminal 1 lines 1-2](t3-context://v1/terminal/terminal_lane1) now ';
+    const client = { local: { terminalContexts: { terminal_abc: record() } }, draft: text } as unknown as Parameters<typeof chipContexts>[0];
+    const contexts = chipContexts(client, text);
+    expect(contexts['terminal/terminal_abc']).toBe('terminal\t\t$ ls\na.txt\nb.txt');
+    // composerContextPresentation's fallback (UnresolvedContextChip): no entry, so the native chip is "Unavailable context".
+    expect(contexts['terminal/terminal_lane1']).toBeUndefined();
+  });
+});

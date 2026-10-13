@@ -85,14 +85,14 @@ enum T3ComposerChipNames {
                     (.citationComment, .popUpButton, chip.detail == "comment" ? "Edit citation comment" : "Add comment to citation", true)]
         default: break
         }
+        // composerContextPresentation's fallback (UnresolvedContextChip): no record for the reference.
+        if styler.chipMissing(chip) { return [(.chip, .group, "Unavailable context, \(label)", false)] }
         let kind = styler.chipKind(chip)
         if kind == "terminal" {
             // TerminalContextInlineChip: the popover's trigger while it holds text, else the expired shell.
             if let text = styler.terminalText(chip), !text.isEmpty { return [(.chip, .popUpButton, "Terminal excerpt, \(label). Show details", true)] }
             return [(.chip, .group, "Terminal excerpt, \(label), expired", false)]
         }
-        // composerContextPresentation's fallback (UnresolvedContextChip): no record for the reference.
-        guard styler.chipResolved(chip) else { return [(.chip, .group, "Unavailable context, \(label)", false)] }
         let size = styler.chipSuffix(chip)
         let sized = size.isEmpty ? label : "\(label), \(size)"
         switch kind {

@@ -136,6 +136,19 @@ final class ComposerChipAccessibilityTests: XCTestCase {
         XCTAssertEqual(fixture.styler.tips.tip(for: fixture.styler.chips[0]), "Terminal context expired. Remove and re-add Terminal 2 lines 1-3 to include it in your message.")
     }
 
+    func testAReferenceWithNoRecordIsAnUnavailableContext() {
+        // composerContextPresentation's fallback (UnresolvedContextChip): CircleDashedIcon, the neutral chip, its tooltip.
+        let fixture = AccessibilityFixture(text: "[Terminal 1 lines 1-2](t3-context://v1/terminal/terminal_lane1) now ")
+        let chip = fixture.styler.chips[0]
+        XCTAssertTrue(fixture.styler.chipMissing(chip))
+        let element = fixture.styler.press.accessibilityElements[0]
+        XCTAssertEqual(element.accessibilityLabel(), "Unavailable context, Terminal 1 lines 1-2")
+        XCTAssertEqual(element.accessibilityRole(), .group)
+        XCTAssertEqual(fixture.styler.tips.tip(for: chip), "This context is no longer available. Remove it or attach it again.")
+        XCTAssertNotNil(T3ComposerIcons.svg("circle-dashed", color: "#000000"))
+        XCTAssertEqual(fixture.legacy(.value) as? String, "Terminal 1 lines 1-2 now ")
+    }
+
     func testTheTerminalExcerptDrawsTheTerminalGlyph() {
         let fixture = AccessibilityFixture()
         let terminal = fixture.styler.chips[0]
