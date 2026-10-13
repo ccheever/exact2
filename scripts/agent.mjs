@@ -70,7 +70,6 @@ export async function assertWebDistApp(dist, app) {
   const shellQuote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run ${ownWebBuild(app, dist) ?? `EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`}`);
 }
-
 const openWeb = async options => (await import('./agent-launch.mjs')).exclusiveWebStore(options, () => openWebUnlocked(options));
 async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null, port: fixed = null }) {
   if (!pageURL) await (await import('./agent-test.mjs')).backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
@@ -547,7 +546,6 @@ export function jsonLines(readable, writable, hostLines) {
     fail: (why) => { failure ??= new Error(why); for (const w of waiting.splice(0)) w.reject(failure); },
   };
 }
-
 /** Why a native app stopped answering, for the error that ends the run: its pid alive or gone, how it exited, any crash report since launch, and the last 20 lines it wrote — not all of them since the last `logs`. */
 export function hangup({ what, pid = null, exit = null, reports = [], hostLines = [] }) {
   const alive = pid == null ? null : (() => { try { process.kill(pid, 0); return true; } catch { return false; } })();
@@ -556,7 +554,6 @@ export function hangup({ what, pid = null, exit = null, reports = [], hostLines 
 }
 /** A native reply's deadline: past `clock settle`'s own 20 s bound, so only a wedged app reaches it (a phone has 45 s). */
 const REPLY_MS = 120000;
-
 /** A refused boot; a format refusal usually means a host binary built before the plan's format changed. */
 const bootRefusal = (error) => 'the app booted with an error: ' + error +
   (/UnsupportedVersion|FormatDigestMismatch|KernelSchemaMismatch/.test(error) ? ' (the plan and the host binary were built from different formats: rebuild the host)' : '');

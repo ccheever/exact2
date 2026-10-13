@@ -356,7 +356,7 @@ impl<D: DataSource> Runner<D> {
         for line in self.data.take_logs() {
             self.log(line);
         }
-        if let Err(DataError::Failed(_, why)) = &answer {
+        if let Err(DataError::Failed(_, why, _)) = &answer {
             self.log(super::lines::send_failed_now(&name(&self.plan), why));
             self.end_write(m, None);
             return Ok(Asked::Failed);

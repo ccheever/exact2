@@ -11,7 +11,7 @@ import { createApp } from '../game/new.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'tamber', 'hatch', 'pattern', 'feedback'];
+const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'tamber', 'hatch', 'snapback', 'pattern', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -117,7 +117,7 @@ test('each verb\'s help names exactly the flags its script parses, in a short te
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],
     ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
-    ['pattern', parsed(between('export function pattern(', '\nfunction main('))],
+    ['pattern', parsed(between('export function pattern(', '\nasync function main('))],
     ['new', parsed(between("if (verb === 'new')", '\n  }'))],
   ]) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
   for (const verb of Object.keys(HELP)) {

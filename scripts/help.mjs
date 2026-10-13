@@ -23,7 +23,8 @@ const takesValue = (spec) => spec.includes(' ');
 // (`runTests` reads all but those `test` lists as internal).
 const DRIVE = [
   ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
-  ['--storage <name>', 'a scratch store, kept between drives by name'],
+  ['--storage <name>', 'a scratch store; Chrome starts empty each drive'],
+  ['--keep-storage · --reset-storage', 'Chrome: reopen a named store · explicitly empty it'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
   ['--scale <n>', 'shrink screenshots to n pixels per point; 1 captures points'],
   ['--chrome platform', 'Apple: UIKit\'s bars, the Mac\'s sidebar (default: painted)'],
@@ -57,8 +58,9 @@ const PREBUILD = ['--prebuild', 'start the build apart from this shell and retur
 export const HELP = {
   snapback: {
     line: 'wire the Snapback backend above the app',
-    usage: 'bun exact.mjs snapback [--port <n>]',
-    flags: [['--port <n>', 'move a loopback backend origin, matching grants and test fetch prefixes']],
+    usage: 'bun exact.mjs snapback [--port <n>] [--rebuild]',
+    flags: [['--port <n>', 'add or move a loopback backend origin, matching grants and test fetch prefixes'],
+      ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
   },
   web: {
@@ -109,13 +111,10 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
 older than its sources, saying so on stderr. Each test launches the app fresh with its own
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
-Server   an app with its own (server.ts, the rest pattern's): test runs it where app.ts calls it,
-         on an empty database (DB=.exact/test/db.sqlite), then stops it, as verify does; one
-         already answering there (a dev server) is refused, named, never written to; so is a
-         server entry that does not read DB (process.env.DB), with the fix.
+Server   runs server.ts at app.ts’s origin on DB=.exact/test/db.sqlite, then stops it.
+         Refuses a server already answering there or an entry that does not read process.env.DB.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Backend  test web checks loopback net.fetch origins before launch; start snapback4 dev on
-         app.ts’s origin’s port. EXACT_PORT sets only the page’s port.
+Backend  start snapback4 dev on app.ts’s origin’s port; checked before launch. EXACT_PORT is the page’s.
 Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
          fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
          all: docs/contract-grammar.md "Authored tests".`,
@@ -134,9 +133,9 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app anew each drive (building first if stale, said on stderr), runs each op (one
-quoted argument each) on the agent's clock, prints its reply. Without --storage, storage is
-refused. An app's server.ts runs for the drive, its database kept per --storage. Runs to completion.
+    body: `Builds if stale, launches, runs each quoted op on the agent's clock, prints replies and closes.
+Without --storage, storage is refused. Chrome starts a named store empty; --keep-storage reopens it.
+An app's server.ts runs for the drive, its database kept per --storage.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · logs · layout [<target>]
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
@@ -146,9 +145,7 @@ Ops      a target is a testId, else a view's exact text or label
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
     bodyAll: `Trace    trace <file> reads a saved trace. Op forms: docs/contract-for-agents.md, "Inspection and testing".
-Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
-         with --storage one fixed by app and store (20000-47999; "in use": another drive has it).
-         ${NATIVE_PORTS}`,
+Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {

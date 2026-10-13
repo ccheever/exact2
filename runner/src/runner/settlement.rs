@@ -683,7 +683,7 @@ impl<D: DataSource> Runner<D> {
                                 // failure belongs to its resource, not its input.
                                 Err(RunnerError::Data {
                                     resource,
-                                    error: DataError::Failed(code, why),
+                                    error: DataError::Failed(code, why, reason),
                                 }) => {
                                     let kept = if let Some(state) = &states[i] {
                                         placeholder = state.placeholder;
@@ -697,15 +697,18 @@ impl<D: DataSource> Runner<D> {
                                     let Some(kept) = kept else {
                                         return Err(RunnerError::Data {
                                             resource,
-                                            error: DataError::Failed(code, why),
+                                            error: DataError::Failed(code, why, reason),
                                         });
                                     };
                                     effects[i] = RequestEffect::Answered;
                                     pending_res[i] = false;
                                     self.log(super::lines::failed_now(&resource, &why));
                                     self.failed_args[i] = Some(args.clone());
-                                    self.failed_why[i] =
-                                        Some(crate::failure::Failure { code, message: why });
+                                    self.failed_why[i] = Some(crate::failure::Failure {
+                                        code,
+                                        message: why,
+                                        reason,
+                                    });
                                     kept
                                 }
                                 Err(error) => return Err(error),

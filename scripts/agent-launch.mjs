@@ -171,7 +171,7 @@ export function netOptions(environment = process.env) {
  * choose different page ports. The OS releases the lock if the driver dies. */
 export async function exclusiveWebStore(options, launch) {
   if (options.storage === undefined || options.browser !== 'chrome' || options.reuse) return launch();
-  const app = resolveApp(options.app), store = driveStore(app.id, options.storage, options.env);
+  const app = resolveApp(options.app), store = driveStore(app, options.storage, options.env);
   mkdirSync(store.base, {recursive: true});
   let release, acquired;
   const ready = new Promise(resolve => { acquired = resolve; });

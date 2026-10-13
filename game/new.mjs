@@ -771,12 +771,10 @@ function snapbackNotes(dir) {
 \`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback --rebuild\` generates operations
 and rebuilds the device, including after exact2 moves; \`snapback --port <n>\` moves the origin. Start
 \`bunx snapback4 dev --port <the origin's port>\` above before \`test web\`. \`fresh\` resets it per test
-(requires Snapback4 0.4.24). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
+(Snapback4 ${snapbackVersion()}, dev only). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
 the write's fate. \`failure(x).reason\` carries a refusal's code. Read the guide before data code.`;
-  return `Shared server data: your own server (${pathFrom(dir, resolve(ROOT, 'docs/recipes/rest-backend.md'))}) or Snapback 4 (${readme}).
-\`exact new <path> --snapback [--port <n>]\` wires an app to the backend above it; \`bun exact.mjs snapback\`
-wires an existing app, generates its operations and builds the device. Install \`snapback4@${snapbackVersion()}\`
-above and start \`snapback4 dev\` on app.ts's origin's port before \`test web\`. Read the guide before data code.`;
+  return `Shared data: \`exact new <path> --snapback\`, or \`bun exact.mjs snapback\` here.
+Install \`snapback4@${snapbackVersion()}\` above; ${readme} has setup and server commands.`;
 }
 
 /** What an agent in the app's directory can't discover (LLP 1086 D1): what

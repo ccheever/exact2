@@ -856,9 +856,9 @@ impl Module {
             // answers fail the same target (LLP 1027.000 D3).
             Ok(Step::Done(r)) => r.map(Answer::Now).map_err(|e| match e {
                 DataError::Unavailable(m) | DataError::BadArguments(m) if session => {
-                    DataError::Failed(FailureCode::Error, m)
+                    DataError::Failed(FailureCode::Error, m, String::new())
                 }
-                DataError::Failed(_, m) if refuses => DataError::Unavailable(m),
+                DataError::Failed(_, m, _) if refuses => DataError::Unavailable(m),
                 e => e,
             }),
             Ok(Step::Pending { call, ticket }) => {

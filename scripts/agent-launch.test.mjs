@@ -156,7 +156,7 @@ test('a store named .locks cannot remove another profile ownership lock', async 
   try {
     owner = await exclusiveWebStore(options, async () => ({close: async () => {}}));
     named = await exclusiveWebStore({...options, storage: '.locks'}, async () => {
-      rmSync(driveStore(resolveApp(options.app).id, '.locks', options.env).profile, {recursive: true, force: true});
+      rmSync(driveStore(resolveApp(options.app), '.locks', options.env).profile, {recursive: true, force: true});
       return {close: async () => {}};
     });
     let launched = false;

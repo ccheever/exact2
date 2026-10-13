@@ -3,7 +3,6 @@
 pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
-
 /// Identifier ranges that are distinct from their AST construct's diagnostic span.
 /// Compiler tooling consumes these; they never enter an executable plan.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -13,14 +12,12 @@ pub struct NameSpans {
     /// Data source name in a resource or send, keyed by its construct.
     pub sources: BTreeMap<Span, Span>,
 }
-
 impl NameSpans {
     /// The exact identifier range, or the construct when it already names a token.
     pub fn name(&self, span: Span) -> Span {
         self.names.get(&span).copied().unwrap_or(span)
     }
 }
-
 /// One source file.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct File {
@@ -63,7 +60,6 @@ pub struct File {
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
 }
-
 impl File {
     /// Describe an unknown component and the merged declarations in source order.
     /// Only refusal paths call this; valid uses allocate no diagnostic list.
@@ -82,7 +78,6 @@ impl File {
         format!("unknown component `{name}`; {choices}")
     }
 }
-
 /// `routes <slot>` with rows in declaration order. @ref LLP 1038 D2.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoutesDecl {
@@ -93,7 +88,6 @@ pub struct RoutesDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One route line. Parent indices refer to earlier rows of the same table.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RouteDecl {
@@ -113,7 +107,6 @@ pub struct RouteDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A declared font family. Faces are static in v1: one path, weight, style.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontDecl {
@@ -124,7 +117,6 @@ pub struct FontDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A declared sound (LLP 1096 D1): a WAV under the app's `assets/`, which
 /// `playSound` and `playSounds` name by its path.
 #[derive(Debug, Clone, PartialEq)]
@@ -134,7 +126,6 @@ pub struct SoundDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One static face in a [`FontDecl`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontFaceDecl {
@@ -147,7 +138,6 @@ pub struct FontFaceDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `test "name"` with steps: the agent API's own operations (LLP 1012) and
 /// `expect` lines that read their replies — compiled to a script the agent
 /// driver runs against the real hosts; never a second evaluator (LLP 1017 P7).
@@ -160,7 +150,6 @@ pub struct TestDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {

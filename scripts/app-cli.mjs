@@ -141,6 +141,11 @@ if (verb === 'contract') {
     const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name, ...sim], [], [0, 2, 2]);
     if (built) return log(built);
   }
+  if (verb === 'contract' && rest[0] === 'build' && existsSync(resolve(exact2, 'snapback4/web/device-build.mjs'))) {
+    const app = { dir, manifest: JSON.parse(readFileSync(manifest, 'utf8')) };
+    const { devicePreflight } = await import(resolve(exact2, 'snapback4/web/device-build.mjs'));
+    await devicePreflight(app);
+  }
   if (own[verb]) { const [command, ...args] = own[verb]; return log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', dir)); }
   if (verb !== 'test') return log(await script(verbs[verb], rest));
   // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
