@@ -547,6 +547,9 @@ uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset
 /* The date the next boot or candidate settles under, told before it; the
  * running runner is not told. A date that does not validate is ignored. */
 uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
+/* Where the viewer is, as exact_set_place's input (locale NUL timeZone NUL
+ * seed), for the next boot or candidate; the running runner is not told. */
+uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told

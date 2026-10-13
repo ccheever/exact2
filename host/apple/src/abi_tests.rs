@@ -38,10 +38,27 @@ fn the_launch_time_is_the_last_valid_one_told_and_set_time_leaves_it() {
     bridge.set_launch_time(1_790_000_000_000.0, -420.0);
     bridge.set_launch_time(f64::NAN, 0.0);
     bridge.set_time(1_800_000_000_000.0, 60.0);
-    let time = bridge.launch_time.unwrap();
+    let time = bridge.launch_facts.time.unwrap();
     assert_eq!(
         (time.epoch_at_zero, time.utc_offset),
         (1_790_000_000_000.0, -420.0)
+    );
+}
+
+#[test]
+fn the_launch_place_is_the_last_valid_one_told() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    let told = |bridge: &mut Bridge<StorageModule>, text: &str| {
+        bridge.input_write(text.as_bytes());
+        bridge.set_launch_place(text.len());
+    };
+    told(&mut bridge, "fr-FR\0Europe/Paris\x007");
+    told(&mut bridge, "\0Europe/Paris\x007");
+    told(&mut bridge, "de-DE\0Europe/Berlin");
+    let place = bridge.launch_facts.place.clone().unwrap();
+    assert_eq!(
+        (place.locale.as_str(), place.time_zone.as_str(), place.seed),
+        ("fr-FR", "Europe/Paris", 7.0)
     );
 }
 

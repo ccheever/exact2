@@ -106,9 +106,9 @@ pub struct Bridge<D: DataSource> {
     /// boots: a runner booted later lays out its first frame with them, not
     /// with a mouse's defaults and then again.
     preferences: exact_runner::Preferences,
-    /// The date last told before a boot (`set_launch_time`): a runner
-    /// booted later reads it from its first settle.
-    launch_time: Option<exact_runner::time::WallTime>,
+    /// The date and place last told before a boot (`set_launch_time`,
+    /// `set_launch_place`): a runner booted later reads them from its first settle.
+    launch_facts: exact_runner::time::Launch,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -159,7 +159,7 @@ impl<D: DataSource> Bridge<D> {
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
             preferences: exact_runner::Preferences::NONE,
-            launch_time: None,
+            launch_facts: exact_runner::time::Launch::NONE,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -536,8 +536,8 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch_time = self.launch_time;
-        match exact_runner::time::launching(launch_time, || {
+        let launch = self.launch_facts.clone();
+        match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 plan,
                 data,
@@ -838,8 +838,8 @@ impl<D: DataSource> Bridge<D> {
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
         let ctx = hooks.ctx;
-        let launch_time = self.launch_time;
-        match exact_runner::time::launching(launch_time, || {
+        let launch = self.launch_facts.clone();
+        match exact_runner::time::launching_with(launch, || {
             Host::boot_stored_after_decode(
                 PlanBytes::Copied(&plan),
                 data,

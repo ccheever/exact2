@@ -798,6 +798,7 @@ impl<D: DataSource> Runner<D> {
             Some(routing) => routing(&plan)?,
             None => None,
         };
+        let launched_place = crate::time::launch_place();
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
@@ -868,7 +869,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             page: Default::default(),
             time: crate::time::launch_time(),
-            place: Default::default(),
+            place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
             links,
