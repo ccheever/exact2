@@ -124,3 +124,52 @@ fn gradients_cross_resolved() {
     assert_eq!(fill["t"], serde_json::json!([64, 0, 0, 64, -32, -32]));
     assert_eq!(fill["st"][1][1], serde_json::json!([244, 63, 94, 255]));
 }
+
+#[test]
+fn a_fixed_svg_reemits_window_geometry_after_resize() {
+    let app = r#"component A
+  view
+    column
+      svg width=200 height=400
+        svg width=100 height="50vh"
+          rect width="100%" height="100%"
+      svg width=20 height=20
+        rect width=10 height=10
+"#;
+    let plan = contract::compile(app).unwrap().encode();
+    let (mut host, batch) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        800.0,
+        600.0,
+    )
+    .unwrap();
+    let initial = scene(&batch);
+    assert_eq!(initial["box"], serde_json::json!([0, 0, 200, 400]));
+    assert_eq!(initial["els"][0]["vp"], serde_json::json!([0, 0, 100, 300]));
+    let resized = host.resize(800.0, 400.0);
+    let next = scene(&resized);
+    assert_eq!(next["box"], initial["box"]);
+    assert_eq!(next["els"][0]["vp"], serde_json::json!([0, 0, 100, 200]));
+    let count = |batch: &str| {
+        let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+        v["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|op| op["op"] == "svg")
+            .count()
+    };
+    assert_eq!(count(&resized), 1, "the unchanged scene is not sent again");
+    assert_eq!(count(&host.resize(800.0, 400.0)), 0);
+    let screened = scene(&host.set_screen(Some((800.0, 700.0))));
+    assert_eq!(screened["els"][0]["vp"][3], 350);
+    assert_eq!(
+        count(&host.resize(800.0, 500.0)),
+        0,
+        "a sheet keeps the screen's basis"
+    );
+    let unscreened = scene(&host.set_screen(None));
+    assert_eq!(unscreened["els"][0]["vp"][3], 250);
+}

@@ -46,6 +46,9 @@ impl<D: DataSource> Host<D> {
             self.present(&mut batch, false);
         }
         self.runner.resize_settled();
+        // Layout-only batches also owe SVG scenes, even without motion or a commit.
+        self.svg
+            .emit(self.runner.kernel(), &self.engine, &mut batch);
         (batch, error)
     }
 }
