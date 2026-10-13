@@ -5,6 +5,8 @@
 // delete (`askRemove`, `remove`, the dialog), the notes (the shape's field, the sheet's and
 // the detail's sections), or the lock (the shape's `locked`, `setLock`, the badge, the
 // switch and Delete's reason).
+// Compose as the platform does: a row pushes its detail, create and edit are sheets, a phone
+// gets one column and a wide window two (`responsive-columns`); not a form above one long list.
 use Badge, EmptyState from "exact:content"
 
 routes nav

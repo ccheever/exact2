@@ -13,17 +13,18 @@ The only required reading; the rest is lookup.
    accent, on the root: a system colour (`accent-color="-exact-system-teal"`) or a
    `light-dark(light, dark)` pair. A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
-   button reads on blue, indigo, purple, pink, red, brown, gray, not on green, mint, teal,
-   cyan, yellow, orange (`check` refuses it, under 2.6:1; `RoundButton` tints them).
+   button fails on green, mint, teal, cyan, yellow, orange (`check` refuses it;
+   `RoundButton` tints them).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step; inset-grouped is for settings and forms.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
    - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark`; `EmptyState` over your `button`
-4. **A wide window:** tabs (a sidebar) and a list whose rows push (beside its detail) need no
-   code. One number and its buttons is a centred column (`max-width=420`); a dashboard is
-   wrapping cards (`flex="1 1 320px"`).
+4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
+   phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
+   list whose rows push (beside its detail) need no code; one number and its buttons: a
+   centred column (`max-width=420`).
 
 ## The workflow
 
@@ -201,7 +202,7 @@ Start from the nearest pattern, a tested app with what the recipes teach; a reci
 |SQLite, grants|`files-and-grants`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 
-The others are named for their topic: `dates-and-days`, `timers`, `money`, `symbols`…
+The others are named for their topic (`timers`, `money`…).
 
 **Otherwise:** run `bun exact.mjs contract vocab` once for the card (every function, the tags with
 their attributes and events, each part's call, the test steps, the agent's operations), then write;
