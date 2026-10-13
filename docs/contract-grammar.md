@@ -1164,11 +1164,10 @@ what is composed as it stands changes no text and is not another `input`;
 `change` is still the end of the editing. An action that writes the value it
 was handed back (a controlled input) changes nothing in the field, and the
 composition goes on. One that writes a different value (trimmed,
-upper-cased, cut to a length) does not interrupt the person either: on
-macOS, iOS and the web's wasm target the value is held while the text
-composes and lands when the composition ends, committed or cancelled, so the
-rewrite shows a moment later. Android and the web's JS target do not hold
-yet: there such a write replaces the text and ends the composition.
+upper-cased, cut to a length) does not interrupt the person either: on every
+host that composes, the value is held while the text composes and lands when
+the composition ends, committed or cancelled, so the rewrite shows a moment
+later (the last value written, where there were several).
 
 `setSelectionRange(id, start, end)` and `setSelectionRange(id, start, end,
 direction)` are the field's own method, by its `id`, after the commit's tree
