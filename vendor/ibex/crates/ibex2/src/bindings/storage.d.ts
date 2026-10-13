@@ -15,8 +15,6 @@ export interface FileSystem {
   writeFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
   /** Atomic replacement visibility; not a power-loss durability guarantee. */
   atomicWriteFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
-  /** Uses the embedder codec. Cancellation is controlled by the embedder's owned work handle. */
-  compressImage(from: string, to: string, maxDimension: number, maxBytes: number): Promise<string>;
   appendFile(path: string, data: ArrayBuffer | Uint8Array): Promise<void>;
   readdir(path: string): Promise<string[]>;
   mkdir(path: string): Promise<void>;
@@ -25,6 +23,33 @@ export interface FileSystem {
   rename(from: string, to: string): Promise<void>;
   copyFile(from: string, to: string): Promise<void>;
   realpath(path: string): Promise<string>;
+  /** Exact patch 9 (exact2 LLP 1069.002 A1), the app interface: decode the
+   * image at `from`, scale it to fit `maxDimension` and encode a JPEG of at
+   * most `maxBytes` at `to`, searching quality as Bluesky's composer does.
+   * Orientation is applied and no metadata is written. Needs `fs.read` on
+   * `from` and `fs.write` on `to`, both `app:/` paths. Rejects with a
+   * `TypeError` for a bad option, else with `code` `unsupported` (no codec
+   * on this host), `undecodable`, `too-large` (over 64 MiB or 64 Mi pixels),
+   * `unfit` (nothing fits) or `timeout` (20 s), or a filesystem code. The
+   * embedder's runtime adapts this to the engine's own positional binding
+   * (`compressImage(from, to, maxDimension, maxBytes)`, which replies
+   * `width\theight\tsize`; exact2's `js/src/prelude.js`), so apps never see it. */
+  compressImage(from: string, to: string, options: CompressImageOptions): Promise<CompressedImage>;
+}
+
+export interface CompressImageOptions {
+  /** An integer from 1 to 8192: the longer side's limit, in pixels. */
+  readonly maxDimension: number;
+  /** An integer from 1 to 67108864: the encoded file's limit. */
+  readonly maxBytes: number;
+}
+
+export interface CompressedImage {
+  readonly path: string;
+  readonly type: "image/jpeg";
+  readonly size: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export interface FileStat {

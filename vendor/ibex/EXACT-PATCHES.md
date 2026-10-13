@@ -63,6 +63,14 @@ and the workspace boundaries below.
 | 13. Async fetch | Fallible preparation, infallible accepted activation, terminal retirement, bounded portable workers | Admission refusal, physical retirement, all six base-start failure positions and bounded-worker lifetime tests pass |
 | Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; Exact Windows runtime remains unqualified here |
 
+Patch 9's app interface stays Exact's and is replayed on a refresh:
+`bindings/storage.d.ts` declares `compressImage(from, to, {maxDimension,
+maxBytes})` resolving to `{path, type, size, width, height}`, as Exact's docs
+give it, and Exact's prelude (`js/src/prelude.js`) adapts that to upstream's
+positional binding (`compressImage(from, to, maxDimension, maxBytes)`, replying
+`width\theight\tsize`). The October 13 refresh replaced the declaration with
+the positional form; `contract/cli/tests/it/typescript.rs` now pins it.
+
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.
 
