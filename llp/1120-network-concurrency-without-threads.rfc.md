@@ -553,8 +553,8 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
   4. **Fails with gate 5,** likewise. Windows 1 and 3 alone would pass: C 1481 and 1602 against A6 1508 and 1624; worst 2002 and 1932 against 2351 and 1955.
   5. **Fails for C.** Windows 1 and 3 have no failed run (one window-1 C launch logged 27 exchanges, one pagination read fewer, with all 19 feed reads). But window 2's C failed two launches, and by the rule above a treatment failure fails that arm's gate; contamination doesn't excuse it. One painted nothing (the null in its block); the other painted at 16.5 s with 14 of its 19 feed reads, five author feeds never connecting and not retried (it is in the table's median, IQR and worst; without it, C's window 2 is 1513, IQR 186, worst 3050).
 - **In sum:** in the clean windows' gated pairs async was not slower (C7 against A7, C against A6 and C7), and in window 3 its spread was the narrowest (C's IQR 78, C7's 110, against 284 and 128); but the primary outcome, gate 1, is a tie well inside the noise, and C failed two launches in window 2.
-- **Finding: one connection, one point of failure (window 2).** In C's failed launch the connection's setup stalled for 15 s, the request deadline (`data/atproto.ts`), and every request of the launch was cancelled together (`NSURLErrorCancelled`, -999, in that run's simulator log); its 12 log lines carry no endpoint or protocol, in two clusters 15 s apart. The cause is open: we read a 15 s stall as unlikely to be CPU contention, a judgement, not a measurement, in a contaminated window. Hypotheses, not shown: the 16.5 s launch (`connect_to_post` 16263 ms), whose five unconnected feed reads log the same way, is the same stall, the rest of its reads getting a connection; under the workers the same stall would cost one connection's share of the exchanges (two to seven of 28), still a failed run, rather than all of them, and no worker launch lost an exchange in any window. Before any default-on, worth trying: a connection-setup timeout shorter than the request deadline with a retry on a fresh connection, or a second connection when the first hasn't opened.
-- **Not done:** the 1b review follow-ups (§4, needed only if this gate passed), stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and a physical device. Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
+- **Finding: connection setup did not complete before the deadline (window 2).** The failed launch waited 15 s, the request deadline (`data/atproto.ts`), then logged clustered `NSURLErrorCancelled` (-999) completions. Those twelve records carry no endpoint or protocol. They establish a setup stall and shared cancellation timing, but do not establish how many physical connections existed or its cause. The earlier “one connection, one point of failure” description was an inference, not a measurement. The 16.5 s launch (`connect_to_post` 16263 ms) may share the cause; its five unconnected feed reads do not prove that. No retry or speculative duplicate request is introduced on that evidence.
+- **Remaining qualification:** independent review of the October 13 stage-1b repairs (§4), stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and a physical device. Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
 
 ## 6. Questions for the ruling
 
@@ -571,6 +571,29 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
 
 - Opaque Rust closure captures remain count-bounded only (§8.4).
 - A handed-off outcome can retain more than the lane's budget when it completes, as LLP 1041 already records (`llp/1041-graceful-overload.rfc.md:689`).
+
+**Controlled setup-stall follow-up (2026-10-13).** The ignored Exact test
+`native_tls_setup_stall_observes_connections_deadlines_and_an_unretried_write`
+uses the real `DarwinLane` and executor, with a loopback peer that accepts TCP
+and retains TLS ClientHello without replying. Nineteen independent reads have
+the original 15-second deadline. Cold-origin admission allows six requests;
+activation-relative deadlines produce terminal waves of 6 / 6 / 6 / 1 at
+15.35 / 30.35 / 45.35 / 60.36 seconds. The peer accepts **four TCP connections**,
+one per wave: URLSession coalesces the six tasks waiting for setup. An ordered
+POST to a healthy loopback origin completes exactly once during the stall; an
+independent GET succeeds afterward, and every charge returns. This supports the
+setup-sharing mechanism under a controlled failure, not the cause of the old
+LTE failures or a performance claim. The run used macOS 27.0.1 on a loaded host.
+The first diagnostic harness had incorrectly allowed only 25 seconds for all
+nineteen activation-relative deadlines; that failed expectation and the corrected
+run are retained in the follow-up run ledger. Production deadlines are unchanged.
+
+The historical `bsky4` commit `c5e6e50` and its `tools/perf/measure.py` are absent
+from the available local, Air and Studio checkouts. The older local Bluesky
+checkout has a Rust-only data module despite `rust.mode=off`, so using it would
+require an app migration and would not reproduce the specified baseline.
+Current included-app device smoke and controlled diagnostics cannot satisfy
+§5's four interleaved 12-run LTE arms. The default therefore remains off.
 
 ## Ibex consumer adoption, 2026-10-13
 

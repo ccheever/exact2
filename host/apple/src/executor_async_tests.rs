@@ -1102,3 +1102,200 @@ fn a_parked_upload_behind_an_origin_blocked_head_reserves_its_future_bytes() {
     assert_eq!(collect(&core, &woke, 5).len(), 5);
     eventually(|| bytes(&core) == [0, 0]);
 }
+
+/// Manual failure diagnosis, not the LTE rollout gate: a local TCP peer accepts
+/// TLS ClientHello but never answers it. Count actual connections rather than
+/// inferring a shared connection from clustered request deadlines.
+#[cfg(target_vendor = "apple")]
+#[test]
+#[ignore = "manual native TLS setup-stall diagnostic: nineteen 15-second deadlines"]
+fn native_tls_setup_stall_observes_connections_deadlines_and_an_unretried_write() {
+    use ibex2::transport::darwin_async::DarwinLane;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    let stalled = TcpListener::bind("127.0.0.1:0").unwrap();
+    let stalled_origin = format!("https://{}", stalled.local_addr().unwrap());
+    stalled.set_nonblocking(true).unwrap();
+    let (stop, stopped) = channel();
+    let stalled_server = std::thread::spawn(move || {
+        let mut connections = Vec::new();
+        loop {
+            match stalled.accept() {
+                Ok((stream, _)) => connections.push(stream),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if stopped.recv_timeout(Duration::from_millis(20)).is_ok() {
+                        break;
+                    }
+                }
+                Err(e) => panic!("stall listener: {e}"),
+            }
+        }
+        let prefixes: Vec<Vec<u8>> = connections
+            .iter()
+            .map(|stream| {
+                stream.set_nonblocking(true).unwrap();
+                let mut bytes = [0; 5];
+                let size = stream.peek(&mut bytes).unwrap_or(0);
+                bytes[..size].to_vec()
+            })
+            .collect();
+        (connections.len(), prefixes)
+    });
+    let healthy = TcpListener::bind("127.0.0.1:0").unwrap();
+    let healthy_origin = format!("http://{}", healthy.local_addr().unwrap());
+    healthy.set_nonblocking(true).unwrap();
+    let healthy_server = std::thread::spawn(move || {
+        let until = Instant::now() + Duration::from_secs(90);
+        let mut methods = Vec::new();
+        while methods.len() < 2 {
+            let mut stream = match healthy.accept() {
+                Ok((stream, _)) => stream,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        Instant::now() < until,
+                        "healthy origin did not receive both calls"
+                    );
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                Err(e) => panic!("healthy listener: {e}"),
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let end = loop {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+                assert!(request.len() < 8192);
+                if request.ends_with(b"\r\n\r\n") {
+                    break request.len();
+                }
+            };
+            let header = String::from_utf8(request[..end].to_vec()).unwrap();
+            let size = header
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':')
+                        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .map(|(_, value)| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            let mut body = vec![0; size];
+            stream.read_exact(&mut body).unwrap();
+            let method = header.split_whitespace().next().unwrap().to_owned();
+            if method == "POST" {
+                assert_eq!(body, b"one-write");
+            }
+            methods.push(method);
+            let response = if methods.len() == 1 {
+                "once"
+            } else {
+                "recovered"
+            };
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            )
+            .unwrap();
+        }
+        methods
+    });
+    let grants = format!("net.fetch {stalled_origin}\nnet.fetch {healthy_origin}");
+    let owners =
+        (0..2)
+            .map(|_| {
+                Some(ibex2::host::Host::new().endow(
+                    ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&grants)).unwrap(),
+                ))
+            })
+            .collect();
+    let (wake, woke) = channel();
+    let lanes: asynch::Lanes = Arc::new(|lane, _, _| {
+        (
+            Arc::new(DarwinLane::new(if lane == 1 {
+                asynch::IN_FLIGHT
+            } else {
+                0
+            })),
+            false,
+        )
+    });
+    let core = Core::with_owners_lanes(
+        owners,
+        &grants,
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+        Arc::new(ibex2::host::Host::new),
+        Some(lanes),
+    );
+    let began = Instant::now();
+    for ticket in 0..19 {
+        let mut request =
+            Request::get(&format!("{stalled_origin}/{ticket}")).independent_http(1024);
+        request.timeout_ms = Some(15_000);
+        core.run(job(ticket, request), None).unwrap();
+    }
+    let mut write = Request::get(&format!("{healthy_origin}/write"));
+    write.method = "POST".into();
+    write.body = b"one-write".to_vec();
+    write.timeout_ms = Some(3_000);
+    core.run(job(19, write), None).unwrap();
+    let first = collect(&core, &woke, 1);
+    assert!(matches!(&first[0], (19, Outcome::Response(r)) if r.body == b"once"));
+    let write_ms = began.elapsed().as_millis();
+    let until = Instant::now() + Duration::from_secs(90);
+    let mut outcomes = Vec::new();
+    let mut terminal_waves = Vec::new();
+    while outcomes.len() < 19 {
+        core.begin_pump();
+        let drained = core.drain();
+        if !drained.is_empty() {
+            terminal_waves.push((began.elapsed().as_millis(), drained.len()));
+        }
+        outcomes.extend(drained);
+        if outcomes.len() < 19 {
+            woke.recv_timeout(until.saturating_duration_since(Instant::now()))
+                .unwrap();
+        }
+    }
+    let terminal_ms = began.elapsed().as_millis();
+    assert!(
+        outcomes.iter().all(|(_, outcome, _)| matches!(
+            outcome,
+            Outcome::Failed {
+                kind: FailureKind::Timeout,
+                ..
+            }
+        )),
+        "{outcomes:?}"
+    );
+    stop.send(()).unwrap();
+    let (connections, prefixes) = stalled_server.join().unwrap();
+    assert!(connections > 0);
+    assert!(
+        prefixes.iter().any(|prefix| prefix.starts_with(&[22, 3])),
+        "no TLS ClientHello: {prefixes:?}"
+    );
+    let mut recover = Request::get(&format!("{healthy_origin}/recover")).independent_http(1024);
+    recover.timeout_ms = Some(3_000);
+    core.run(job(20, recover), None).unwrap();
+    assert!(
+        matches!(&collect(&core, &woke, 1)[0], (20, Outcome::Response(r)) if r.body == b"recovered")
+    );
+    assert_eq!(healthy_server.join().unwrap(), ["POST", "GET"]);
+    eventually(|| bytes(&core) == [0, 0]);
+    println!(
+        "native_tls_setup_stall={}",
+        serde_json::json!({
+            "requests": 19, "accepted_tcp_connections": connections, "timeout_outcomes": outcomes.len(),
+            "healthy_ordered_write_count": 1, "healthy_write_ms": write_ms, "terminal_ms": terminal_ms,
+        "terminal_waves_ms_count": terminal_waves,
+            "recovered": true, "scope": "controlled loopback TLS stall; not historical LTE causation or rollout timing"
+        })
+    );
+}
