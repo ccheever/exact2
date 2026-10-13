@@ -254,6 +254,56 @@ final class TableListMacTests: XCTestCase {
     }
 }
 
+extension TableListMacTests {
+    /// A fix to stage 3b, found on Shelf's library as a `list` (its test "a
+    /// swipe deletes" under the platform's chrome): a row is as wide as its
+    /// list and an inset table's cell is narrower by the table's margin at
+    /// each side, so what a row shows beside its cell was drawn and could
+    /// not be clicked. Shelf's swipe action, a symbol 15 points wide at the
+    /// row's trailing end, was all of it there: the click went to the table.
+    func testWhatARowShowsBesideItsInsetCellIsStillTheRowsToClick() throws {
+        let f = try TableFixture(count: 0, source: Self.swiped)
+        fixture = f
+        let swipe = try f.node("swipe-3"), delete = try f.node("delete-3")
+        let cell = try XCTUnwrap(swipe.superview as? TableRowCell)
+        let inWindow = { (view: NSView) in view.convert(view.bounds, to: nil) }
+        XCTAssertGreaterThan(inWindow(swipe).maxX, inWindow(cell).maxX, "the row stands out of its inset cell at the trailing side")
+        // The swipe, as two fingers on the row or the driver's `reveal` make it: the action comes into the row's port.
+        let clip = try XCTUnwrap(swipe.scroll?.contentView)
+        let shown = delete.convert(delete.bounds, to: clip)
+        clip.scroll(to: clip.constrainBoundsRect(NSRect(x: shown.maxX - clip.bounds.width, y: 0, width: clip.bounds.width, height: clip.bounds.height)).origin)
+        swipe.scroll?.reflectScrolledClipView(clip)
+        f.settle()
+        let button = inWindow(delete)
+        XCTAssertEqual(button.maxX, inWindow(swipe).maxX, accuracy: 0.5, "the action is at the row's trailing end")
+        // A point of the action beside the cell, and one inside it: a click at either is the button's own.
+        for (x, where_) in [(button.maxX - 4, "beside the cell"), (button.minX + 4, "in the cell")] {
+            let point = NSPoint(x: x, y: button.midY)
+            XCTAssertEqual(inWindow(cell).contains(point), where_ == "in the cell", where_)
+            let hit = try XCTUnwrap(f.window.contentView?.hitTest(point), "a click \(where_) lands on something")
+            XCTAssertFalse(hit === f.table, "a click on the action \(where_) is not the table's")
+            XCTAssertTrue(hit === delete || hit.isDescendant(of: delete), "it is the action's: \(hit)")
+            XCTAssertTrue(TableRowCell.whatIsThere { f.window.contentView?.hitTest(point) }.map { $0 === delete || $0.isDescendant(of: delete) } ?? false, "and the hover path and the driver's aim see it \(where_)")
+        }
+        // The click itself, at the point beside the cell: the action runs, and the row is neither selected nor followed.
+        let point = NSPoint(x: button.maxX - 4, y: button.midY)
+        let event = { (type: NSEvent.EventType) in
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                               context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+        }
+        let hit = try XCTUnwrap(f.window.contentView?.hitTest(point))
+        hit.mouseDown(with: event(.leftMouseDown))
+        hit.mouseUp(with: event(.leftMouseUp))
+        f.settle()
+        XCTAssertEqual(try f.node("status").accessibleText, "removed 3", "the swipe's action was pressed")
+        XCTAssertEqual(f.table.selectedRow, -1, "and its row was not selected")
+        // The leading margin holds nothing of this row's: a click there is the table's, as before.
+        let lead = NSPoint(x: inWindow(swipe).minX + 4, y: button.midY)
+        XCTAssertFalse(inWindow(cell).contains(lead))
+        XCTAssertTrue(f.window.contentView?.hitTest(lead) === f.table, "a click on the row beside its cell, where nothing keeps it, is the table's")
+    }
+}
+
 private extension TableFixture {
     /// The rows of a list the runner does not window, wherever each is mounted.
     var mountedRows: Int { presenter.views.values.filter { ($0.props["testId"] ?? "").hasPrefix("row-") && $0.window != nil }.count }

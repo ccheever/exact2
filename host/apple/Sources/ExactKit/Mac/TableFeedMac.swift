@@ -129,10 +129,24 @@ final class TableRowCell: NSTableCellView {
     /// is where no cell's control is: the table takes the keyboard as the
     /// mouse goes down, its click selects, and the feed presses the row
     /// (`TableFeed.pressing`).
+    ///
+    /// The row is as wide as its list and an inset table's cell is
+    /// narrower by the table's margin at each side, so the row stands out
+    /// of its cell there, drawn (nothing clips it) and, by AppKit's own
+    /// hit test, not found: a view's is asked only inside its frame. What
+    /// the row shows beside its cell is the row's all the same: the
+    /// trailing end of a swipe's action, which in a narrow one (a symbol)
+    /// is the whole button.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point) else { return nil }
+        guard let hit = super.hitTest(point) ?? beside(point) else { return nil }
         if Self.asking > 0 { return hit }
         return feed?.keepsClick(hit, in: self, at: point) == true ? hit : feed?.table ?? self
+    }
+    /// What of the row is at a point of the row view that is outside this
+    /// cell (`point` is in the superview's space, as `hitTest`'s is).
+    private func beside(_ point: NSPoint) -> NSView? {
+        guard let row, row.superview === self, !isHidden, let above = superview, !frame.contains(point) else { return nil }
+        return row.hitTest(convert(point, from: above))
     }
 }
 
