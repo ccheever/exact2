@@ -51,6 +51,7 @@ pub mod paint_order;
 pub mod props;
 pub mod ratio;
 pub mod region;
+pub mod rows;
 mod replaced;
 pub mod selector;
 mod shared_style;

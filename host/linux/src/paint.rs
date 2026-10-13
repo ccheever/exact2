@@ -1015,6 +1015,17 @@ impl Painter {
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
+            let (dark, feedback) = (self.dark, self.feedback);
+            let kernel = walk.scene.kernel;
+            neutral::row(
+                self.backend.as_mut(),
+                kernel,
+                node,
+                &surface.outer,
+                ts,
+                dark,
+                feedback,
+            );
         }
         let outer = geometry.outer;
         let content = geometry.content;

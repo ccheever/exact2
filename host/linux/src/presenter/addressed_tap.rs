@@ -148,7 +148,7 @@ impl<D: DataSource> Presenter<D> {
     /// Whether `id` has a press of its own: a `press` handler, a link or a
     /// surface control's `action` — disabled or not (a disabled one presses
     /// nothing, and a tap that names it presses nothing inside it).
-    fn presses_itself(&self, id: ViewId) -> bool {
+    pub(super) fn presses_itself(&self, id: ViewId) -> bool {
         let kernel = self.host.kernel();
         kernel
             .node(id)

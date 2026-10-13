@@ -11,8 +11,23 @@ use exact_linux::Presenter;
 /// written but where each sits; the same under a larger font, and under the
 /// dark scheme.
 const APP: &str = r##"component App
+  state taps = 0
+  action go
+    taps = taps + 1
   view
     column width=400 padding=20 gap=10 align-items="flex-start"
+      list width=300 testId="rows"
+        text "One" height=40 testId="row-1"
+        row press=go height=40 testId="row-2"
+          text "Two"
+        text "Its own line" height=40 border-bottom="2px solid -exact-system-red" testId="row-own"
+        row press=go -exact-press-scale=0.96 height=40 testId="row-scaled"
+          text "Its own press"
+        text "Last" height=40 testId="row-last"
+      list appearance="none" width=300 testId="rows-none"
+        row press=go height=40 testId="none-1"
+          text "The author's"
+        text "rows" height=40
       button appearance="auto" testId="unsaid"
         text "Go"
       button appearance="auto" buttonStyle="filled" testId="filled"
@@ -67,7 +82,7 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
         (),
-        (400., 1000.),
+        (400., 1400.),
         1.,
         std::path::PathBuf::new(),
         PainterChoice::Cpu,
@@ -142,4 +157,42 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "unsaid", 3.0, 18.0), [237; 3]);
     p.pointer_cancel(0.0).unwrap();
     assert_eq!(pixel(&mut p, "filled", 3.0, 18.0), blue, "and no other");
+
+    // A list's rows (LLP 1115.000 D16), as the page's sheet draws them: one
+    // line in the separator's role inside each row's bottom edge but the
+    // last's, taking no room; none where the row's author wrote that edge;
+    // none in a list whose author opted out.
+    let separator = [224; 3];
+    assert_eq!(size(&mut p, "row-1"), (300.0, 40.0), "a row keeps its box");
+    assert_eq!(pixel(&mut p, "row-1", 150.0, 39.0), separator);
+    assert_eq!(pixel(&mut p, "row-1", 150.0, 38.0), white, "one pixel");
+    assert_eq!(pixel(&mut p, "row-1", 0.0, 39.0), separator, "edge to edge");
+    assert_eq!(pixel(&mut p, "row-1", 299.0, 39.0), separator);
+    assert_eq!(pixel(&mut p, "row-2", 150.0, 39.0), separator);
+    assert_ne!(pixel(&mut p, "row-own", 150.0, 39.0), separator, "its own");
+    assert_eq!(pixel(&mut p, "row-own", 150.0, 37.0), white, "and no other");
+    assert_eq!(pixel(&mut p, "row-last", 150.0, 39.0), white, "none last");
+    assert_eq!(pixel(&mut p, "none-1", 150.0, 39.0), white, "opted out");
+    // What presses in a row washes where a pointer hovers and more while
+    // held, as the look's controls do, and the line stays over the wash. A
+    // row with its own press, and a row of a list that is no cell list,
+    // show none of it.
+    let row = id(&p, "row-2");
+    p.hover(row).unwrap();
+    assert_eq!(pixel(&mut p, "row-2", 290.0, 20.0), [245; 3]);
+    assert_eq!(pixel(&mut p, "row-1", 290.0, 20.0), white, "and no other");
+    let (x, y, _, _) = p.rect_of(row).unwrap();
+    assert!(p.pointer_down(x + 290.0, y + 20.0, 0.0).unwrap());
+    assert_eq!(pixel(&mut p, "row-2", 290.0, 20.0), [237; 3]);
+    assert_ne!(pixel(&mut p, "row-2", 290.0, 39.0), [237; 3], "the line");
+    p.pointer_cancel(0.0).unwrap();
+    for (name, why) in [("row-scaled", "its own press"), ("none-1", "no row")] {
+        let node = id(&p, name);
+        p.hover(node).unwrap();
+        assert_eq!(pixel(&mut p, name, 290.0, 20.0), white, "{name}: {why}");
+        let (x, y, _, _) = p.rect_of(node).unwrap();
+        assert!(p.pointer_down(x + 290.0, y + 20.0, 0.0).unwrap());
+        assert_eq!(pixel(&mut p, name, 290.0, 20.0), white, "{name}: {why}");
+        p.pointer_cancel(0.0).unwrap();
+    }
 }
