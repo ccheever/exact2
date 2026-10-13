@@ -297,7 +297,8 @@ public final class ExactView: UIView {
         // presented: the viewport units and the segments are its,
         // root and every sheet, so no length follows a sheet's height.
         // The root's containers decide it, never a presented sheet's bar.
-        let screenFrame = cover || presenter.navigation.rootWantsWholeView ? bounds : bounds.inset(by: safeAreaInsets)
+        let rootWhole = cover || presenter.navigation.rootWantsWholeView
+        let screenFrame = rootWhole ? bounds : bounds.inset(by: safeAreaInsets)
         var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and

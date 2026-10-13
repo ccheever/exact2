@@ -519,6 +519,8 @@ fn prop_type(p: PropId) -> String {
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
 
+const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
+
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
     // `title` is every element's, HTML's tooltip; `head`'s is the document's.
@@ -599,6 +601,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "buttonStyle" {
         doc["note"] = vocab::BUTTON_DEFAULT_NOTE.into();
+    }
+    if name == "appearance" {
+        doc["note"] = APPEARANCE.into();
     }
     doc
 }
@@ -689,6 +694,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "font-family" {
                 lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());
+            }
+            if name == "appearance" {
+                lines.push(APPEARANCE.into());
             }
             lines
         }

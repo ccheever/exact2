@@ -60,6 +60,9 @@ public final class ExactSidebarController: NSSplitViewController {
     /// under `viewport-fit=cover`, where the page reads the bar as its top
     /// inset itself.
     private func pin() {
+        // Removing the page can synchronously reset its toolbar and call
+        // viewportFitChanged while release is still on the stack.
+        guard exactView.superview === page.view else { return }
         let cover = exactView.viewportFit == "cover"
         guard cover != pinnedCover else { return }
         pinnedCover = cover

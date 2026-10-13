@@ -1024,7 +1024,7 @@ package final class Presenter {
         // Finish controls and frames before UIKit synchronously lays out the destination.
         afterBatch { [weak self] in
             guard let self else { return }
-            if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
+            navigation.batchApplied(batch, rowsOnly: rowsOnly)
             syncAccessibility(changed: changed.union(ariaMoved), disabledRoots: disabledRoots)
         }
         #if os(iOS)

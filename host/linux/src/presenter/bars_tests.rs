@@ -360,6 +360,30 @@ fn a_route_with_no_header_or_that_says_no_bar_has_none() {
     assert!(p.rect_of(title).is_some(), "its header is the page's");
 }
 
+/// `appearance="none"` written on a header or the root's tablist keeps the
+/// author's bar (LLP 1075.003 §9.10, #393): no Material bar is made of
+/// either, and both paint in the page.
+#[test]
+fn a_header_or_tablist_that_writes_appearance_none_stays_the_pages() {
+    let source = APP
+        .replace(
+            r#"header display="flex" padding="8px 16px" testId="home-header""#,
+            r#"header display="flex" padding="8px 16px" testId="home-header" appearance="none""#,
+        )
+        .replace(
+            r#"row role="tablist" testId="tabs""#,
+            r#"row role="tablist" testId="tabs" appearance="none""#,
+        );
+    assert_ne!(source, APP);
+    let (mut p, _) = barred(&source);
+    assert!(p.bar_plans().0.is_none(), "no top app bar");
+    assert!(p.bar_plans().1.is_none(), "no navigation bar");
+    for name in ["home-title", "tabs", "tab-home"] {
+        let view = id(&p, name);
+        assert!(p.rect_of(view).is_some(), "{name} paints in the page");
+    }
+}
+
 #[test]
 fn a_touch_lights_its_target_and_the_shell_is_told_each_change_once() {
     let (mut p, pictures) = barred(APP);

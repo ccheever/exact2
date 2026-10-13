@@ -272,6 +272,11 @@ header, and a named scroller under an inline title's bar (LLP 1075.003
 §9.10). The Signal Clone's conversation header and photo viewer are the
 consumer. Unblocks them with no module. Take: none offered; waived by
 Charlie's approval. No new attribute, no title menu, no bar added by a route.
+**Clarified (Charlie, 2026-10-12, ruling 11 for #393):** explicit
+`appearance="none"` on a header or root tablist keeps Pocket Budget's authored
+bar; a header button with it remains authored too (LLP 1075.003 §9.10).
+This uses the existing CSS row, admits no new attribute or apparatus, and
+implements the approved feature ruling rather than inferring from styling.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's

@@ -14,6 +14,7 @@ import UIKit
 /// change projects it again.
 struct BarSource: Equatable {
     let bar: NavigationRules.Bar
+    let authored: [UInt32], placed: [UInt32]
     let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
 }
 
@@ -111,6 +112,9 @@ struct HeaderShape: Equatable {
     /// tablist when it has tabs for the segmented title, and what the title
     /// shows of the heading's group.
     let placed: [NodeView]
+    /// Explicit opt-outs stay in the authored header with their descendants.
+    let authored: [NodeView]
+    let authoredBack: Bool
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
@@ -118,19 +122,31 @@ struct HeaderShape: Equatable {
     init?(route: NodeView, back: String?, backIsUIKits: Bool = true, projected: Bool = false) {
         // What is header-shaped is the kernel's rule, read over this route's views (`HeaderRule`, LLP 1115.001 D11).
         guard let rule = HeaderRule(route: route, back: back, backIsPlatforms: backIsUIKits, projected: projected) else { return nil }
-        let header = rule.header, headings = [rule.heading], before = rule.leading.map { Item($0) }, after = rule.trailing.map { Item($0) }
-        let search = rule.search, segments = rule.segments, tap = rule.tap, items = rule.items
-        self.header = header
-        title = headings[0].accessibleText
-        level = rule.level
-        leading = before
-        trailing = after
+        // Every role the header rule assigns can remain authored. In
+        // particular the title's tap target is not one of its bar items.
+        let roles = rule.items + [rule.heading, rule.tap, rule.search, rule.segments].compactMap { $0 }
+        let authored = projected ? roles.filter { $0.wrote("appearance") && $0.style["appearance"]?.string == "none" } : []
+        self.authored = authored
+        let projects = { (node: NodeView) in !authored.contains { node === $0 || node.isDescendant(of: $0) } }
+        authoredBack = back != nil && roles.contains { $0.props["id"] == back && !projects($0) }
+        let heading = rule.heading, titleProjects = projects(heading)
+        let search = rule.search.flatMap { projects($0) ? $0 : nil }
+        let segments = rule.segments.flatMap { projects($0) ? $0 : nil }
+        let tap = rule.tap.flatMap { projects($0) ? $0 : nil }
+        header = rule.header
+        title = titleProjects ? heading.accessibleText : ""
+        level = titleProjects ? rule.level : 0
+        leading = rule.leading.filter(projects).map { Item($0) }
+        trailing = rule.trailing.filter(projects).map { Item($0) }
         self.search = search
         self.segments = segments
-        let group = HeaderTitle(header: header, heading: headings[0], tap: tap, apart: items + [search, segments].compactMap { $0 })
+        let group = titleProjects ? HeaderTitle(header: header, heading: heading, tap: tap, apart: rule.items + [rule.search, rule.segments].compactMap { $0 }) : nil
         self.group = group
         let tablist = segments.flatMap { HeaderShape.titleTabs($0).isEmpty ? nil : $0 }
-        placed = [headings[0]] + items + [search, tablist].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])
+        // The title's pressable wrapper goes with the title it holds, unless
+        // it holds an opted-out node, which stays where it is.
+        let wrapper = titleProjects ? tap.flatMap { tap in authored.contains { $0.isDescendant(of: tap) } ? nil : tap } : nil
+        placed = ([heading] + rule.items + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
     }
 
     /// The tabs of a header's tablist the segmented title shows (§9.8).
@@ -141,7 +157,7 @@ struct HeaderShape: Equatable {
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
-        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search && a.segments === b.segments && a.group == b.group
+        a.header === b.header && a.authoredBack == b.authoredBack && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search && a.segments === b.segments && a.group == b.group && a.authored.map(\.id) == b.authored.map(\.id)
     }
 }
 
@@ -480,13 +496,12 @@ extension NavigationHost {
             // where the route says so or has nothing to go back to.
             c.pushed = index > 0
             let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
-            let bar = stackShows ? NavigationRules.bar(asked: c.node.props["navigationBar"], header: shape != nil, pushed: index > 0,
-                                                       backButton: Self.barHasBackButton) : .hidden
+            let bar = stackShows ? self.bar(of: c.node, pushed: index > 0) : .hidden
             let shows = bar != .hidden
-            let canGoBack = index > 0 && canInvokeBack
+            let canGoBack = index > 0 && canInvokeBack && shape?.authoredBack != true
             let scroller = contentScroller(of: c), scroll = scroller?.scroll
             let dataset = c.node.props["dataset"]
-            let source = BarSource(bar: bar, header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
+            let source = BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
                                    trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
@@ -500,7 +515,9 @@ extension NavigationHost {
             collapse(c, shape: shape, shows: shows, scroller: scroller)
             reachBottom(c)
             c.paintBackdrop()
-            if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
+            searchField(shows ? shape?.search : nil, in: c)
+            segmentedTitle(shows ? shape?.segments : nil, in: c)
+            richTitle(shows ? shape : nil, in: c)
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
             guard presenter.session?.natives.hatchesConnected == true else { continue }
@@ -529,9 +546,10 @@ extension NavigationHost {
     private func coverLifted(_ routes: [RouteController]) {
         var lifted = false
         for c in routes {
-            guard let header = c.lifted, covers[header.id] != .whole else { continue }
-            covers[header.id] = .whole
-            lifted = true
+            for node in c.lifted.map({ [$0] }) ?? c.barNodes where covers[node.id] != .whole {
+                covers[node.id] = .whole
+                lifted = true
+            }
         }
         guard lifted else { return }
         presenter.afterBatch { [weak self] in self?.deliverCovers() }
@@ -544,11 +562,21 @@ extension NavigationHost {
     /// button's title read from the route beneath, as UIKit reads it.
     private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
         let item = c.navigationItem
-        if let lifted = c.lifted, lifted !== shape?.header {
+        // The host's hiding goes; CSS's `display` decides (`NodeView.isHidden`
+        // keeps the host's word apart: writing CSS's answer kept it hidden).
+        for node in c.barNodes { node.isHidden = false }
+        c.barNodes = []
+        if let lifted = c.lifted, lifted !== shape?.header || shape?.authored.isEmpty == false {
             lifted.isHidden = false
             c.lifted = nil
         }
-        guard shows else { return }
+        guard shows else {
+            // No stale items: the agent aims at a bar item by its press.
+            c.barPresses = []
+            item.leftBarButtonItems = nil
+            item.rightBarButtonItems = nil
+            return
+        }
         item.title = shape?.title
         // tvOS has no large titles or back button.
         #if !os(tvOS)
@@ -559,9 +587,14 @@ extension NavigationHost {
         c.barPresses = []
         item.leftBarButtonItems = shape?.leading.map { barItem($0, c) }
         item.rightBarButtonItems = shape?.trailing.reversed().map { barItem($0, c) }
-        if let header = shape?.header {
-            header.isHidden = true
-            c.lifted = header
+        if let shape {
+            if shape.authored.isEmpty {
+                shape.header.isHidden = true
+                c.lifted = shape.header
+            } else {
+                c.barNodes = shape.placed
+                for node in c.barNodes { node.isHidden = true }
+            }
         }
     }
 
@@ -618,7 +651,20 @@ extension NavigationHost {
         // tvOS navigation items carry no search controller.
         #if !os(tvOS)
         guard let field else {
-            if c.search != nil { c.navigationItem.searchController = nil; c.search = nil }
+            if let search = c.search {
+                search.controller.searchBar.resignFirstResponder()
+                search.controller.isActive = false
+                c.navigationItem.searchController = nil
+                c.search = nil
+                // UIKit restores its bar at the end of search dismissal.
+                // Reapply the route's choice after that transition too.
+                let transition = search.controller.transitionCoordinator ?? c.navigationController?.transitionCoordinator
+                transition?.animate(alongsideTransition: nil) { [weak self, weak c] _ in
+                    guard let self, let c, let nav = c.navigationController else { return }
+                    self.showBar(nav, animated: false)
+                    self.coversChanged()
+                }
+            }
             return
         }
         let search = c.search ?? HeaderSearch(host: self)
@@ -692,7 +738,7 @@ extension NavigationHost {
         }
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil } }
             ?? (shows ? kids.first(where: flowing) : nil)
-        let target = node?.scroll != nil && node === scroller ? node : nil
+        let target = shape?.authored.isEmpty != false && node?.scroll != nil && node === scroller ? node : nil
         guard c.collapseScroll !== target else { return }
         if let old = c.collapseScroll, let sv = old.scroll {
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
@@ -991,7 +1037,7 @@ extension NavigationHost {
         let whole = wantsWholeView && presenter.viewportFit != "cover"
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
-            if let header = c.lifted { wanted[header.id] = .whole }
+            for node in c.lifted.map({ [$0] }) ?? c.barNodes { wanted[node.id] = .whole }
             guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
             let shows = barShows(nav)
             guard shows || whole else { continue }
@@ -1048,7 +1094,29 @@ extension NavigationHost {
             if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
         }
         // The tablist whose place the tab bar takes takes no room.
-        if let list = adoptedTablist, tabOwner != nil, !ExactEnv.authoredChrome { wanted[list] = .whole }
+        if let list = adoptedTablist.flatMap({ presenter.views[$0] }) {
+            measuredTablist = presenter.session?.view.map { list.convert(list.bounds, to: $0) }
+            if adopts(tablist: list) { wanted[list.id] = .whole }
+            else if tablistAppearanceNone, list.style["display"]?.string != "none",
+                    rootWantsWholeView, presenter.viewportFit != "cover",
+                    let view = presenter.session?.view, view.window != nil {
+                // Authored tabs are page content outside the routes. Protect
+                // only the edges they reach; leave the viewport and bar
+                // backgrounds full-size. A sheet never measures these covers.
+                if presenter.modals.coordinateView != nil {
+                    if case .edges? = covers[list.id] { wanted[list.id] = covers[list.id] }
+                } else {
+                    let rect = list.convert(list.bounds, to: view)
+                    let safe = view.bounds.inset(by: view.safeAreaInsets)
+                    let edges = HostCover.Edges(
+                        top: max(0, min(rect.height, safe.minY - rect.minY)),
+                        right: max(0, min(rect.width, rect.maxX - safe.maxX)),
+                        bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
+                        left: max(0, min(rect.width, safe.minX - rect.minX)))
+                    if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
+                }
+            }
+        }
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }
         for id in covers.keys where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         covers = wanted

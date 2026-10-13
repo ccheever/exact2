@@ -968,6 +968,17 @@ gesture recognizer, set a navigation bar's look, draw into a view. It configures
 what Exact made; it never replaces a route's authored tree. (LLP 1075.003,
 1075.003.000, 1075.003.000.001; its §13 is the as-built record.)
 
+A route's `header` or navigation root's `tablist` with `appearance="none"`
+keeps its authored bar on iOS, including layout and type; a header button with
+it keeps that button and its contents authored in place; the rest of the header
+still projects. An authored Back replaces UIKit’s Back. Search and a header
+tablist can opt out on their own element too. Tab/tabpanel navigation and retained stacks
+remain intact. An opted-out root tablist also stays authored on the Mac and in wide
+web windows instead of becoming a sidebar, and either stays the page's on Android
+(the shared rule, `kernel/src/bars.rs`). On the Mac a header button with it keeps
+the whole header painted: the window's bar shows a header whole or not at all.
+See [tabs](recipes/tabs.md).
+
 ```sh
 bun scripts/exact.mjs hatch avatar <app>     # in an app `exact new` made: bun exact.mjs hatch avatar
 bun scripts/exact.mjs hatch --app <app>      # the app scope; --window for the window's

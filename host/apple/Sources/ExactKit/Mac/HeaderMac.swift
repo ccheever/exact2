@@ -104,6 +104,11 @@ struct WindowHeader {
                 if items.contains(ObjectIdentifier(child)) {
                     // The stack's Back control: the bar's own Back is its face.
                     if backs.contains(where: { $0 === child }) { continue }
+                    // One its author keeps (LLP 1075.003 §9.10): the window's
+                    // bar shows a header whole or not at all, so it all paints.
+                    if child.wrote("appearance"), child.style["appearance"]?.string == "none" {
+                        return "button #\(child.id) writes `appearance: none`, and the window's bar shows a header whole or not at all"
+                    }
                     // A button that opens a menu is the bar's menu item, and one
                     // that asks first opens the window's alert. Any other
                     // popover is placed against its button's box in the page,

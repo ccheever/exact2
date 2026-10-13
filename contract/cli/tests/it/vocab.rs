@@ -67,6 +67,19 @@ fn font_family_vocabulary_describes_runtime_native_lists() {
 }
 
 #[test]
+fn appearance_vocab_explains_authored_bars() {
+    let out = stdout(&vocab(&["appearance"]));
+    assert!(out.contains("root tablist"), "{out}");
+    assert!(out.contains("header button"), "{out}");
+    assert!(out.contains("only that button authored"), "{out}");
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["appearance", "--json"]))).unwrap();
+    assert!(doc["attribute"]["note"]
+        .as_str()
+        .unwrap()
+        .contains("root tablist"));
+}
+
+#[test]
 fn navigation_detent_vocab_names_its_validated_forms() {
     let out = stdout(&vocab(&["navigationDetent"]));
     for form in [

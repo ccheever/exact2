@@ -53,11 +53,14 @@ final class SidebarMacTests: XCTestCase {
                       text "Badge"
                     button press=set("hidden") testId=`hidden-${e.name}`
                       text "Hide"
+                    button press=set("authored") testId=`authored-${e.name}`
+                      text "Authored"
                     button press=set("placed") testId=`placed-${e.name}`
                       text "Place"
                     button press=set("") testId=`plain-${e.name}`
                       text "Plain"
           row role="tablist" testId="tabs" aria-label="Places" display=(mode == "hidden" ? "none" : "flex")
+            appearance=(mode == "authored" ? "none" : "auto")
             button role="tab" aria-controls="panel-today" aria-selected=(nav.tab == "today") press=pick("today") testId="tab-today" flex=1
               image "symbol:calendar"
               text "Today"
@@ -205,6 +208,86 @@ final class SidebarMacTests: XCTestCase {
         try press("plain-today")
         XCTAssertNil(try cell(split, 1).subviews.compactMap { $0 as? NSButton }.first)
         XCTAssertEqual(try cell(split, 1).textField?.isEnabled, true)
+    }
+
+    func testAppearanceNoneRestoresTheAuthoredBarAndKeepsEachTabsStack() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let p = session.presenter, view = ExactView(session: session)
+        let split = compose(view)
+        let tabs = try node("tabs")
+        XCTAssertTrue(p.sidebar.installed)
+        choose(split, 1)
+        try press("open-history")
+        try press("authored-day")
+        XCTAssertFalse(view.wantsWindowSidebar)
+        XCTAssertFalse(p.sidebar.installed)
+        XCTAssertFalse(tabs.isHidden)
+        XCTAssertNil(p.segments.control(of: tabs.id))
+        XCTAssertNil(p.covers.delivered[tabs.id])
+        XCTAssertGreaterThan(tabs.frame.height, 0)
+        try press("tab-today")
+        XCTAssertFalse(try node("route-today").isHiddenOrHasHiddenAncestor)
+        try press("tab-history")
+        XCTAssertFalse(try node("route-day").isHiddenOrHasHiddenAncestor)
+        try press("plain-day")
+        XCTAssertTrue(view.wantsWindowSidebar)
+        XCTAssertTrue(p.sidebar.installed)
+        XCTAssertTrue(tabs.isHidden)
+        XCTAssertEqual(split.table.selectedRowIndexes, [1])
+        XCTAssertFalse(try node("route-day").isHiddenOrHasHiddenAncestor)
+    }
+
+    func testAppearanceToggleRecomposesTheWindowAndSettles() throws {
+        let session = try boot(size: CGSize(width: 700, height: 500))
+        let view = ExactView(session: session)
+        var split: ExactSidebarController? = compose(view, shown: true)
+        let window = try XCTUnwrap(self.window)
+        var compositions = 0
+        view.onViewportFit = { split?.viewportFitChanged() }
+        view.onWindowSidebar = {
+            compositions += 1
+            XCTAssertLessThanOrEqual(compositions, 3, "one composition per appearance change")
+            if view.wantsWindowSidebar {
+                window.contentView = NSView()
+                split = ExactSidebarController(view: view, autosaveName: nil, minimumPageWidth: 320)
+                split?.install(in: window)
+            } else {
+                split?.release()
+                split = nil
+                window.contentViewController = nil
+                window.contentView = view
+                window.styleMask.remove(.fullSizeContentView)
+            }
+            view.attachWindowToolbar(to: window)
+        }
+        defer { view.onWindowSidebar = nil; view.onViewportFit = nil }
+        // From a pushed route, as the fixture's drive does: the toolbar holds
+        // Back, and the view leaving the split view takes the toolbar away
+        // and brings a new one. Its Back is a new item: AppKit asserted
+        // (NSToolbarItemViewer minSize) laying out one item in two toolbars.
+        try press("tab-history")
+        try press("open-history")
+        XCTAssertEqual(window.toolbar?.items.map(\.itemIdentifier).contains(WindowToolbarHost.backIdentifier), true)
+        var backs: [NSToolbarItem] = []
+        for (target, authored) in [("authored-day", true), ("plain-day", false), ("authored-day", true)] {
+            let reply = Agent(session: session).tap(["id": Int(try node(target).id)])
+            XCTAssertNil(reply["error"], "\(reply)")
+            for _ in 0..<12 {
+                window.layoutIfNeeded()
+                RunLoop.main.run(mode: .default, before: Date())
+            }
+            XCTAssertEqual(view.wantsWindowSidebar, !authored)
+            XCTAssertEqual(session.presenter.sidebar.installed, !authored)
+            XCTAssertTrue(view.window === window)
+            XCTAssertFalse(try node("route-day").isHiddenOrHasHiddenAncestor)
+            let toolbar = try XCTUnwrap(window.toolbar)
+            let back = try XCTUnwrap(toolbar.items.first { $0.itemIdentifier == WindowToolbarHost.backIdentifier })
+            XCTAssertTrue(back.isEnabled)
+            XCTAssertFalse(backs.contains { $0 === back }, "each toolbar has its own Back")
+            backs.append(back)
+            XCTAssertEqual(toolbar.items.first?.itemIdentifier == .toggleSidebar, !authored)
+        }
+        XCTAssertEqual(compositions, 3)
     }
 
     func testTheAuthorsHideAndPlacementAndANarrowWindow() throws {

@@ -172,6 +172,13 @@ final class SidebarHost {
             decide("kept as authored: the kernel's root tabs (tablist #\(kernel.tablist): \(names(kernel.tabs)); panels \(names(kernel.panels))) are not this host's (tablist #\(host.tablist.id): \(names(host.tabs.map(\.id))); panels \(names(host.panels.map(\.id))))")
             return
         }
+        // An explicit opt-out keeps the bar authored, including when the
+        // sidebar already stands for it (LLP 1075.003 §9.10).
+        if host.tablist.wrote("appearance"), host.tablist.style["appearance"]?.string == "none" {
+            shown = nil
+            decide("kept as authored: the root tablist #\(host.tablist.id) writes appearance none")
+            return
+        }
         // The web's rule for a bar whose placement the app left unsaid: a
         // direct child of the root, not vertical, in flow in the root's flex
         // column, itself a row. A tablist the app arranged stays the app's.
