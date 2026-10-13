@@ -720,21 +720,26 @@ pub(super) fn svg_props(
     kernel: &Kernel,
     node: &NodeRef<'_>,
     env: &exact_kernel::Env,
+    relative: bool,
     out: &mut SortedMap<String, String>,
 ) {
     svg_props_of(
         &|from, id| kernel.resolve_id(from, id),
         &node.facts(),
         env,
+        relative,
         out,
     )
 }
 
-/// [`svg_props`], from a node's facts and its tree's references.
+/// [`svg_props`], from a node's facts and its tree's references. With
+/// `relative`, the JS target's live binding supplies hairlines; otherwise
+/// the kernel's resolved user-unit numbers are written here.
 pub fn svg_props_of(
     resolve: Resolve<'_>,
     node: &NodeFacts<'_>,
     env: &exact_kernel::Env,
+    relative: bool,
     out: &mut SortedMap<String, String>,
 ) {
     if !node.node_type.is_svg_element() {
@@ -757,12 +762,13 @@ pub fn svg_props_of(
         }
         let text = match node.style.get(*row) {
             exact_kernel::RowValue::Dimension(_)
-                if matches!(
-                    node.style.relative.get(*row),
-                    Some((exact_kernel::style::relative::Unit::Hairline, _))
-                ) =>
+                if relative
+                    && matches!(
+                        node.style.relative.get(*row),
+                        Some((exact_kernel::style::relative::Unit::Hairline, _))
+                    ) =>
             {
-                crate::css::HAIRLINE.into()
+                continue
             }
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
                 exact_num::Shortest(v as f64).to_string()
@@ -808,6 +814,7 @@ impl<D: exact_runner::DataSource> super::Host<D> {
             self.runner.kernel(),
             node,
             &svg_environment(self.runner.viewport().fold),
+            false,
             out,
         );
     }

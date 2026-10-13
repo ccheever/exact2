@@ -149,3 +149,57 @@ fn an_hr_is_one_hairline_the_displays_scale_resolves() {
         assert!(sheet.contains(rule), "the shell's sheet says `{rule}`");
     }
 }
+
+#[test]
+fn svg_hairline_attributes_follow_the_display_scale() {
+    let (mut host, first) = boot(
+        r##"component App
+  state thin = true
+  view
+    svg width=200 height=100
+      defs
+        pattern testId="tile" id="tile" patternUnits="userSpaceOnUse" width=8 height="-exact-hairline"
+          rect width=4 height=1 fill="#e11d48"
+      svg testId="nested" height=(thin ? "-exact-hairline" : "10px")
+        rect width=100 height=1 fill="red"
+"##,
+    );
+    let first: serde_json::Value = serde_json::from_str(&first).unwrap();
+    let views: Vec<_> = ["tile", "nested"]
+        .map(|name| {
+            let op = first["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|op| op["props"]["data-testid"] == name)
+                .unwrap();
+            assert_eq!(op["props"]["height"], "1");
+            op["id"].clone()
+        })
+        .into();
+    for scale in [1.25, 2.0, 3.0, 1.0] {
+        let batch: serde_json::Value =
+            serde_json::from_str(&host.set_display_scale(scale)).unwrap();
+        let document = host.document().unwrap().root;
+        for view in &views {
+            let op = batch["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|op| op["op"] == "props" && &op["id"] == view)
+                .unwrap_or_else(|| panic!("no geometry update for {view}: {batch}"));
+            let height = op["set"]["height"].as_str().unwrap();
+            assert!(
+                (height.parse::<f64>().unwrap() - 1.0 / scale).abs() < 0.000001,
+                "{height}"
+            );
+            assert!(
+                document.contains(&format!("height=\"{height}\"")),
+                "{document}"
+            );
+        }
+        let unchanged: serde_json::Value =
+            serde_json::from_str(&host.set_display_scale(scale)).unwrap();
+        assert!(unchanged["ops"].as_array().unwrap().is_empty());
+    }
+}

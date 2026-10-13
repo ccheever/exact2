@@ -30,6 +30,10 @@ component App
         button "Fallback" press=substitute testId="fallback"
         button "Hairline" press=thicken testId="hairline-toggle"
       svg width=200 height=100
+        defs
+          pattern id="hairline-tile" testId="hairline-pattern" patternUnits="userSpaceOnUse" width=8 height="-exact-hairline"
+            rect width=4 height=1 fill="#e11d48"
+        rect testId="hairline-paint" x=110 y=60 width=80 height=12 fill="url(#hairline-tile)"
         foreignObject testId="hairline" x=100 y=80 width=100 height=(thin ? "-exact-hairline" : "10px")
           view width="100%" height="100%" background-color="#0ea5e9"
         foreignObject testId="hairline-static" x=100 y=95 width=100 height="-exact-hairline"

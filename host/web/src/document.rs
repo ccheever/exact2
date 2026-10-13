@@ -545,7 +545,7 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
-        svg_props_of(&resolve, &node, &self.env, &mut props);
+        svg_props_of(&resolve, &node, &self.env, false, &mut props);
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");

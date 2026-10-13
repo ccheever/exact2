@@ -29,6 +29,11 @@ function observeFold() {
     for (const r of Resources) if (r.source === "exactViewport") R(r);
   }, "viewport");
   onFold(changed);
+  // Moving between displays may change resolution without resizing the window.
+  const resolution = () => matchMedia(`(resolution: ${devicePixelRatio || 1}dppx)`).addEventListener("change", () => {
+    changed(); resolution();
+  }, { once: true });
+  resolution();
   // The agent's substitute and the browser's report refresh the same readers.
   (globalThis.exact ??= {}).fold = { prefer: f => {
     const env = preferFold(f && Object.keys(f).length ? f : null);
@@ -39,14 +44,18 @@ export function svgGeometry(e, name, read) {
   P(e, name, () => {
     const v = cssText(name, "", read());
     if (v == null || /^\s*(auto|initial|unset|revert(-layer)?)\s*$/i.test(v)) return null;
-    if (!/env\(/i.test(v)) return v;
-    // A server render has no environment; the live binding answers at mount.
-    if (globalThis.__exactRender) return null;
+    const hairline = v === "var(--exact-hairline, 1px)";
+    if (!hairline && !/env\(/i.test(v)) return v;
+    // A server render has no display; the live binding answers at mount.
+    if (globalThis.__exactRender) return hairline ? 1 : null;
     if (!svgEnvironment) {
       svgEnvironment = sig(0);
       observeFold();
     }
     svgEnvironment();
+    // SVG attributes cannot use CSS variables in WebKit. SVG and kernel
+    // lengths have single precision; keep one device pixel as a user-unit number.
+    if (hairline) return Math.fround(1 / (devicePixelRatio || 1));
     if (!svgProbe) {
       svgProbe = document.createElement("div");
       svgProbe.style.cssText = "display:none!important;position:fixed!important";
