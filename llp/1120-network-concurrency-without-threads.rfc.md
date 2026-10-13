@@ -1,7 +1,7 @@
 # LLP 1120: Network concurrency without a thread per request
 
 **Type:** RFC
-**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Stage 1 is built behind a switch, off (§4); §5's Apple gate, measured 2026-10-12, failed, so the switch stays off. The October 13 adoption below uses upstream Ibex services without enabling the production switch. Charlie explicitly authorized the remaining correctness and rollout follow-up on October 13 ("ok do all those things"); §4 records the implementation. Independent review and a passing measured §5 gate remain required before default activation.
+**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Stage 1 is built behind a switch, off (§4); §5's Apple gate, measured 2026-10-12, failed, so the switch stays off. The October 13 adoption below uses upstream Ibex services without enabling the production switch. Charlie explicitly authorized the remaining correctness and rollout follow-up on October 13 ("ok do all those things"); §4 records the implementation. Independent Codex and Grok code reviews cleared the stage-1 correctness follow-up and its Ibex pin adoption at Exact `56f107fa4`; the broader stages below remain open. A passing measured §5 gate remains required before default activation.
 **Systems:** the native executor (`host/apple/src/executor_core.rs`, `executor_stream.rs`, `executor_body.rs`), compiled into Apple, Linux and the render host; ibex2's fetch layer (`vendor/ibex/crates/ibex2/src/stdlib/fetch.rs`) and transports (`transport/darwin.rs`, `darwin_http.mm`, `darwin_websocket.*`, `websocket.rs`, `rustls_http.rs`).
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-10, r6 and r7 2026-10-12
@@ -427,7 +427,7 @@ Each line is a test today. The semantic assertions are kept and run against the 
 - **Streams** keep their own threads and transports (stage 3), so the file-backed stream rule of D5 waits for them.
 - **Scoped grants** use the lane's transport with the scope's grants.
 - **A redirect's next hop** waits only for the in-flight cap; it counts toward its origin's HTTP/1.1 count when it starts.
-- **Correctness follow-up (2026-10-13; implementation complete, independent review pending).** This closes the still-listed stage-1b findings from Astra and Grok's October 12 round 4. The production switch remains off; these repairs do not waive §5 or authorize blind retry of writes.
+- **Correctness follow-up (2026-10-13; implemented and independently reviewed).** This closes the still-listed stage-1b findings from Astra and Grok's October 12 round 4. The production switch remains off; these repairs do not waive §5 or authorize blind retry of writes.
   - **Upload progress:** one unsized file per lane is selected until its size is decided or its reader ends. Every successor therefore stays in the queue counted by the park-refusal test. A parked upload reserves its future bytes wherever it is in the queue, including behind an origin-blocked head.
   - **Upload ownership:** the read result becomes the charged `Upload` before its first exchange is queued. A timed-out start awaiting disposal retains that charge until the last buffer owner releases it and the sending hops physically end. Upstream's last-release callback must run after the allocation is freed; the follow-up Ibex pin supplies that ordering fix.
   - **Retirement and panics:** the active reader owns its shared-retirement registration independently of the disposable file job. Reader and starter physical holds have unwind guards; failure to spawn a reader and unwinding sizing/reading or preparation/activation panics publish a terminal outcome and leave the lane usable. The native app profiles use `panic=abort`: an aborting panic terminates that process and cannot be caught by these guards. The tracked sink owns a prepared hop's physical hold even when its transport refuses or unwinds.
@@ -599,8 +599,11 @@ and connection-overlap evidence, and the remaining §5 recordings. Its handoff
 includes the controlled stall's four connections and 6 / 6 / 6 / 1 terminal
 waves, the exact activation-relative deadline semantics, and the prohibition
 on speculative replay of writes. Current included-app device smoke and these
-controlled diagnostics cannot satisfy that gate. The default remains off until
-the external campaign passes it and the independent code reviews are clear.
+controlled diagnostics cannot satisfy that gate. Independent Codex and Grok
+code reviews cleared the current stage-1 implementation and pin adoption at
+Exact `56f107fa4`; their verdicts are retained in the consumer-release run
+ledger. The default remains off until the external campaign passes §5. These
+reviews do not complete the broader Linux/render, thread-cap and stream stages.
 
 ## Ibex consumer adoption, 2026-10-13
 

@@ -27,7 +27,7 @@ the three standalone workspace boundaries, both locks, and Exact's app-facing
 storage declaration were unchanged. The subsequent `e60b3e0` refresh adopts
 the authenticated v5 trust table: eleven target mappings for ten assets,
 including Android aarch64. Its manifests, locks and integration seams are
-unchanged; compiled consumer qualification of that bundle is pending below.
+unchanged. The published bundle was consumed by the qualification below.
 
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
@@ -87,7 +87,7 @@ The source pin also deallocates an upload's bytes before invoking its last-relea
 callback, so the executor cannot refund memory while the allocation is retained.
 The standalone manifests, dependency graph and locks are unchanged by this refresh.
 
-### Native Windows consumer requalification — 2026-10-13
+### Historical v4 Windows consumer qualification — 2026-10-13
 
 The Windows lane started from Exact `dfa6a26344cf238f4b642805492806795e01ddfd`
 and qualified its corrected codec-refusal assertions and native host at
@@ -122,16 +122,36 @@ Windows. Its library still imports Unix-only `UnixStream`, `AsRawFd` and
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.
 
-## 8. Android bundle pin — adopted, consumer qualification pending
+## 8. Android bundle pin — adopted and cross-link qualified
 
 Upstream source now supplies the per-target `HERMES_LEAN_SYS_DIR_<target>`
 override, Android link recipe and release target. The consumer now pins the
 published v5 bundle, including `aarch64-linux-android`. The release's complete
 checksum inventory, archive attestations and paired compiler/VM receipts were
-authenticated before the trust table changed. Row 8 remains pending until
-Exact consumes that released artifact in its Android cross-link qualification.
-Existing `scripts/hermes-android.mjs` local receipt flow remains available;
-source support and an authenticated pin alone are not a consumer link proof.
+authenticated before the trust table changed.
+
+Exact Q `56f107fa44bf65c3df043efd3b784e7dd71484a5` ran
+`bun scripts/agent-android.mjs build duo-lab` from the Exact checkout on the
+Linux builder. That invoked `cargo build --profile host-dev -p duo-lab-linux
+--target aarch64-linux-android` using Rust/Cargo 1.97 and the installed Android
+target. Its v5 tag and all eleven pin mappings matched upstream exactly. The
+legacy Exact Android cache stayed empty: this build consumed the published
+bundle through the normal resolver.
+
+The output `target/aarch64-linux-android/host-dev/duo-lab-linux` is an
+AArch64 ELF PIE executable with interpreter `/system/bin/linker64`,
+78,809,152 bytes, SHA-256
+`dec5e208fe21cb32340f603aa0514409414918f9eafad0e623ba6580cc66d98e`.
+It defines 3,276 Hermes symbols, has no unresolved Hermes symbols, and needs
+no `libc++_shared`. Its dynamic dependencies are Android's `libandroid`,
+`liblog`, `libjnigraphics`, `libdl`, `libm` and `libc`. The build exited zero
+and the Q checkout stayed clean. The consumer-release run retains
+`exact-android.identity`, `exact-android-binary.txt`, `exact-android-build.log`
+and the toolchain/pin comparison under its v5 qualification receipts.
+
+This retires the local pin patch. It qualifies the Android executable link,
+not device execution. Existing `scripts/hermes-android.mjs` local receipt flow
+remains available.
 
 ## Remaining consumer integration seams
 
@@ -210,7 +230,7 @@ existing notebook. All six required Exact checks passed on `6dd91519c`;
 the focused checks, app drive, final checks and production lean phase diagnostic
 retain their individual revisions in the local consumer-adoption run ledger.
 
-### Follow-up evidence and remaining gates
+### Historical v4 follow-up evidence
 
 Exact `4fd19fb4e2d5bdad1311a18a694feff9b6f1efc3`, with vendored source
 `b20dded` and the v4 bundle, passed all six required checks: build, tests,
@@ -225,16 +245,58 @@ observed endpoint pair. This is functional reuse evidence, not a timing result.
 The consumer-release run retains `exact-4fd-six-gates.json`,
 `exact-4fd-conduit-macos-receipt.json` and their command logs.
 
-The physical iPhone fixture built and installed from Exact `32b88bbed4` with
-async enabled, but launch was refused because the device was locked. No
-physical-device interaction or final-revision qualification is claimed.
-Charlie assigned the historical bsky4 rollout campaign to the agent on Tuft;
-LLP 1120 §5 records the original baseline and remaining measured gate. Async
-remains off by default. The controlled TLS setup-stall diagnostic and this Mac
-smoke do not substitute for that campaign.
-
 The rustdoc-only refresh to `bf74e54` passed formatting, caps, both standalone
 locked/offline metadata checks, installer/root lock overlap and the vendor
-comparison. The current `e60b3e0` source pin adds the published v5 trust table.
-Fresh six-gate, native Mac, Windows and Android consumer qualification is
-pending on this new bundle; the v4 results above do not qualify it.
+comparison.
+
+### Published v5 qualification
+
+Exact `56f107fa44bf65c3df043efd3b784e7dd71484a5` (Q) consumes upstream
+`e60b3e0` and the published v5 bundle. Q includes the accepted mainline through
+`e8b90ef40`; all results in this section used that clean source revision.
+The explicit installer acquired the authenticated bundle, and its offline
+`--check` passed before compilation. The macOS archive digest is
+`bc71c7b398f1d41a5390761b75ce72e7be234aa48cb1ddec947224188ed6a4f2`.
+
+All six required Exact checks passed on Q, with 22/22 additional native
+storage tests. The semantic comparison selected 298 corpus cases, 40 generated
+cases and eight lowering cases: no divergence. The eight lowering cases covered
+1,203 agreeing runs; seven bodies were outside the modeled fragment.
+
+The signed Conduit fixture was rebuilt with v5 and `EXACT_HTTP_ASYNC=1`.
+Its native Mac drive again loaded four articles, opened a nonempty article,
+returned home and reached login. It stayed signed out with no pending work or
+public writes. Four lane transactions used h2 on one observed endpoint pair;
+no timing or LTE qualification is inferred. The executable SHA-256 is
+`f7c169d57dd6a35c8ae25cc2d87987aba81d300e33790a1b948cb1be3c645ca6`.
+The native resolver outputs name the v5 cache, and the owned app process exited.
+
+Native x86_64 Windows Q also installed and verified v5 offline. Its archive
+digest is `db9233d08c25a33d7b1cdd2d0eb9428e98020fa6de7ab396b0adfb241b61d1e0`;
+receipt schema `ibex/hermes-upstream-pinned-receipt/2` has SHA-256
+`32c11e970e9783fc8f4b5171700e146c0146a17ad7593a8237c70a3f9b34903e`.
+The locked/offline run passed 25 data-host tests, two JS library tests and
+101 JS integration tests, with one manual startup diagnostic ignored. The
+ordinary TypeScript app rebuilt and its platform-delivered button presses
+changed the Hermes-backed resource 0 → 1 → 2. Its EXE SHA-256 is
+`81d1932eb51ee3e36410370cddf6ece5e272f3837788f54f349b85d0a3d3ac61`.
+No app or build process remained. The Windows render-host HTTP compilation
+boundary recorded above remains open; these results do not qualify that host.
+
+The consumer-release run retains `exact-56f107fa4-six-gates.json`,
+`exact-56f107fa4-conduit-macos-receipt.json`, `windows-v5-ledger.json`, the
+Android receipt named in row 8, and their logs. Codex and Grok independently
+cleared Q's code and pin adoption. Later evidence-only commits preserve Q's
+runtime and native proof attribution; their required gate receipts name their
+own clean revisions.
+
+### Remaining rollout and device boundaries
+
+The physical iPhone fixture built and installed from Exact `32b88bbed4` with
+async enabled, but launch was refused because the device was locked. At the
+v5 check the phone could not supply trusted connectivity/power assertions.
+No Q/v5 physical-device interaction is claimed. Charlie assigned the historical
+bsky4 rollout campaign to the agent on Tuft; LLP 1120 §5 records the original
+baseline and remaining measured gate. Async remains off by default. Independent
+code review is complete, but the controlled TLS setup-stall diagnostic and Mac
+smoke do not substitute for that campaign.
