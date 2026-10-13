@@ -164,7 +164,7 @@ test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "0 items left"
 ```
 
-Every step is on the card, launch lines (`epoch "…"`) too; the recipe `tests` has the rest.
+Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
 
 ## Pitfalls that cost the most
 
