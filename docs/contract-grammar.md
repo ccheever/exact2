@@ -1543,7 +1543,7 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
 `load`, `openURL`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
-`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
 `playSound`, `playSounds`, `stopSounds`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
 `stopPropagation` ([keys](#keys)).
@@ -1592,6 +1592,15 @@ iOS closes no window either: its `close` is journaled as unsupported. On the web
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).
+
+`relaunch()` takes no arguments. In the standalone macOS app it asks the same
+`beforeunload` handlers as Quit, drains pending storage for up to five seconds,
+destroys the sessions, then starts the same executable with the same arguments
+and environment after the old process exits. A cancelled quit cancels the relaunch.
+It works without the development menu. iOS/tvOS and Linux refuse it in the journal;
+the web reloads the page, with the browser's usual storage and unload rules.
+Native agent sessions refuse it explicitly: start another drive on the same
+`--storage` instead. `reload()` and update activation keep their existing lifecycles.
 
 Element-targeted commands use `id`, not `testId`. File pickers publish handles
 through the target's `change` event; cancellation uses `cancel`. Permissions,

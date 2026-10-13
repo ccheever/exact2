@@ -40,6 +40,7 @@ export const commands = say => ({
   // The page's own reload: every web page has one, where a native host
   // needs its dev menu's.
   reload: () => location.reload(),
+  relaunch: () => location.reload(),
   // `window.close()` (studio diary R17): a browser closes only a window a
   // script opened, and says so in its console otherwise.
   // `close(id)` is a dialog's (LLP 1101.001 P5): HTMLDialogElement's.

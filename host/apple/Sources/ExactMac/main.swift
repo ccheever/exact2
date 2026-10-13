@@ -11,6 +11,8 @@ import AppKit
 import ExactKit
 import ExactComposition
 
+ProcessRelaunch.waitIfRequested()
+
 // The process's own start (exec), from the kernel: what happened before
 // `main` — dyld, the Swift runtime, the static library's initializers.
 func processStart() -> Double? {
@@ -67,6 +69,10 @@ final class Adapter: ExactSessionDelegate {
         // `window.close()` (studio diary R17): the window this session
         // shows, without asking its `beforeunload` again.
         case "close": windows.first { $0.session === session }?.close()
+        case "relaunch":
+            guard !delegate.relaunching, delegate.quitting?.holding != true else { return }
+            delegate.relaunching = true
+            ProcessRelaunch.requestQuit(holding: { delegate.quitting?.holding == true }) { app.terminate(nil) }
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }
@@ -509,6 +515,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         // again nor starts a fresh five-second deadline.
         if quitting?.holding == true { return .terminateLater }
         for w in windows where !w.closing && !w.session.beforeUnload() {
+            relaunching = false
             w.front()
             return .terminateCancel
         }
@@ -519,6 +526,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
     var quitting: StorageHold?
+    var relaunching = false
     /// The quit is decided, however it came (⌘Q, the app menu, an Apple
     /// Event, SIGTERM, the last window closing): every session still live goes now,
     /// synchronously, so each native module's `destroy()` runs before the
@@ -528,6 +536,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// once whichever comes first. Nothing is held (LLP 1069.010 Q4).
     func applicationWillTerminate(_ notification: Notification) {
         for session in exact.sessions { session.destroy() }
+        if relaunching {
+            do { try ProcessRelaunch.start() }
+            catch { fputs("exact: relaunch failed: \(error)\n", stderr) }
+        }
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")

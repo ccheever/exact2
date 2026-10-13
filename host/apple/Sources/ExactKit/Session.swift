@@ -1082,6 +1082,7 @@ public final class ExactSession {
                     app.deliver { DevMenu.reload() }
                     continue
                 }
+                if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }

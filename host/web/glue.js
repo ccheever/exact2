@@ -758,7 +758,7 @@ function apply(batch) {
         track(Promise.race([p, opened]), op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
         break;
       }
-      case "command": {
+      case "command": { if (op.name === "relaunch") { location.reload(); break; }
         // A capability an action called (LLP 1005 §3). `setScheme` is the
         // document's colour scheme — what `prefers-color-scheme` would be.
         // `system` is CSS's `light dark`: the page supports both and the

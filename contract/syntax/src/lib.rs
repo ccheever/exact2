@@ -104,6 +104,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     "reload",
+    "relaunch",
     "removeAllRanges",
     "selectText",
     // A field's range, or a reader text's source range (issue #274), by id.

@@ -1514,6 +1514,12 @@ commands have specialized argument checks; some generic commands leave validatio
 to the host. Do not infer that compiler acceptance proves a command's arguments
 work. Use the command's working fixture and inspect its host result.
 
+`relaunch()` restarts the standalone macOS process after its orderly quit,
+including the storage drain; it works with the development menu off. A
+`beforeunload` cancellation cancels the restart. The web reloads the page.
+iOS/tvOS, Linux and native agent sessions journal a refusal; for a scripted
+restart, start another drive on the same `--storage`. See [host commands](contract-grammar.md#host-commands).
+
 ## Routes and web documents
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an

@@ -858,6 +858,9 @@ pub(super) fn check_command(
         };
         return err("type-unknown-command", message, span);
     }
+    if name == "relaunch" && !args.is_empty() {
+        return err("type-relaunch", "`relaunch()` takes no arguments", span);
+    }
     if name == "preventDefault" && !args.is_empty() {
         return err(
             "type-prevent-default",

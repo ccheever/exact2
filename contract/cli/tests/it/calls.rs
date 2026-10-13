@@ -26,6 +26,21 @@ impl DataSource for NoData {
 /// The declarations `items()` needs, ahead of a test's root.
 const ITEMS: &str = "shape Item\n  id: string\n\n";
 
+#[test]
+fn relaunch_is_a_host_command_without_arguments() {
+    let src = "component App\n  action restart\n    relaunch()\n  view\n    button press=restart\n      text \"Restart\"\n";
+    let mut r = boot(src);
+    r.act("restart", vec![]).unwrap();
+    let commands = r.take_commands();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].name, "relaunch");
+    assert!(commands[0].args.is_empty());
+    let error = contract::compile(&src.replace("relaunch()", "relaunch(1)"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("takes no arguments"), "{error}");
+}
+
 fn boot(src: &str) -> Runner<NoData> {
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     Runner::boot(
