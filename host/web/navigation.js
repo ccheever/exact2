@@ -42,15 +42,15 @@ function splitOf([r]) {
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
 const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
   || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
-/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
- * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
- * `unselected`; the agent's `inactive`). Document fields pass `selectedOnly` to exclude that list too. */
-export function unselected(nav, selectedOnly = false) {
+/** Routes and panels excluded from input or document fields. Only input keeps a visible split list live. */
+function unselectedWithin(nav, keepList) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
   const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key)), routes = stacks[at] ?? [], top = routes.find(r => r.getAttribute("navigationKey") === key);
-  const beside = !selectedOnly && routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
+  const beside = keepList && routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
+export function unselected(nav) { return unselectedWithin(nav, true); }
+export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;

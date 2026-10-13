@@ -7,7 +7,7 @@
 // the later in document order; a head inside a route its navigation root has
 // not selected is inactive. A root is an element with `navigationBack` and
 // `navigationKey`; its selected route is in its direct stack or one of its
-// tabpanels (`unselected`, navigation.js). Selection comes from those
+// tabpanels (`unselectedForHead`, navigation.js). Selection comes from those
 // attributes, never from what the projection hides (`projectRoots`).
 // After each commit's tree update, once the page has had a head, the active
 // head is found again, so one that changes, leaves or is covered gives its
@@ -15,7 +15,7 @@
 // host's `documentHead` writes them (document-glue.js). Where no head sets a
 // title it is the selected route's header's heading, else the app's name
 // (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
-import { unselected, pageTitle } from "./navigation.js";
+import { unselected, unselectedForHead, pageTitle } from "./navigation.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
@@ -44,7 +44,7 @@ function publish() {
     const at = [], path = new Set([h.t]);
     let c = h.t;
     for (let p = c.parentNode; p && c !== root; c = p, p = p.parentNode) {
-      if (p.hasAttribute?.("navigationBack") && unselected(p, true).some(off => path.has(off))) break;
+      if (p.hasAttribute?.("navigationBack") && unselectedForHead(p).some(off => path.has(off))) break;
       at.unshift([].indexOf.call(p.childNodes, c));
       path.add(p);
     }
