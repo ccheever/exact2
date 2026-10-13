@@ -7,7 +7,6 @@
 import UIKit
 import CoreText
 import os
-
 package final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
