@@ -247,7 +247,10 @@ fn decorated(s: &StyleProps) -> bool {
 pub(crate) fn kind(arena: &NodeArena, slot: u32) -> Kind {
     let s = arena.style(slot);
     let sized = |d: Dimension| !matches!(d, Dimension::Auto);
-    let floor = |d: Dimension| !matches!(d, Dimension::Auto | Dimension::Points(0.0));
+    // A negative calculated minimum lays out as zero.
+    let floor = |d: Dimension| {
+        !matches!(d, Dimension::Auto) && !matches!(d, Dimension::Points(v) if v <= 0.0)
+    };
     let sized = sized(s.height) || floor(s.min_height) || sized(s.max_height);
     match arena.node_type(slot) {
         NodeType::Text if sized => Kind::Monolithic(Some(FragmentRefusal::Height)),

@@ -1,8 +1,7 @@
-// The UIKit presenter (LLP 1008 §9): the viewport scroll view over a
-// content-sized document, one `NodeView` per kernel node, the host's
-// batches applied, the keyboard's inset and the field it reveals. It
-// belongs to one session (LLP 1031 D1) and reaches the session's canvases,
-// web views, and menus through it.
+// The UIKit presenter (LLP 1008 §9): a viewport scroll view over a content-sized
+// document, one `NodeView` per kernel node, host batches, keyboard insets and
+// field reveal. It belongs to one session (LLP 1031 D1) and reaches that session's
+// canvases, web views and menus.
 #if os(iOS) || os(tvOS)
 import UIKit
 import CoreText

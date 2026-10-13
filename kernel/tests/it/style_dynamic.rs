@@ -690,7 +690,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     for (text, expected) in [
         ("0px", 0.),
         ("12.5PX", 12.5),
-        (" -2e1px ", -20.),
+        // A math function clamps to the row's range (CSS Values 4 §9.1)
+        (" calc(-2e1px) ", 0.),
         ("0", 0.),
         ("10em", 160.),
         ("1.5rem", 24.),
@@ -702,6 +703,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     }
     for text in [
         "NaNpx", "infpx", "1e39px", "1.px", "12 px", "12", "10 em", "1e39em", "0px 1px",
+        // A negative literal height is invalid, as in CSS.
+        " -2e1px ",
     ] {
         let before = style.clone();
         assert!(

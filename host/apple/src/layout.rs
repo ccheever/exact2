@@ -710,4 +710,87 @@ mod tests {
             Some("true")
         );
     }
+
+    /// LLP 1116: a padding that resolves only at layout reaches the
+    /// presenter as the kernel's content box, which a host reading the
+    /// authored rows could not compute: on a bare field, which places its
+    /// editor there, and on a box, whose paragraph or image goes there. A
+    /// resize that moves no frame still republishes it, and a padding back
+    /// in points clears it.
+    #[test]
+    fn padding_resolved_at_layout_publishes_the_content_box() {
+        use exact_kernel::{StyleId, StyleProps, StyleValue};
+        let plan = contract::compile(
+            r#"component App
+  view
+    box testId="holder"
+      box testId="sized" box-sizing="border-box" width=100 height=50 padding-left="10%"
+      input testId="bare" appearance="none" value="abc" padding-top="min(10%, 20px)" border-width=2 border-style="solid"
+      box testId="pct" padding-top="10%"
+        text "inside"
+      box testId="points" padding=5
+"#,
+        )
+        .unwrap()
+        .encode();
+        let (mut host, boot) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.,
+            700.,
+        )
+        .unwrap();
+        let rects = |batch: &str| -> std::collections::HashMap<u64, serde_json::Value> {
+            let json: serde_json::Value = serde_json::from_str(batch).unwrap();
+            json["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|op| op["op"] == "fieldContent")
+                .map(|op| (op["id"].as_u64().unwrap(), op["rect"].clone()))
+                .collect()
+        };
+        let [bare, pct, sized, points] =
+            ["bare", "pct", "sized", "points"].map(|name| u64::from(id(&host, name)));
+        let first = rects(&boot);
+        assert_eq!(first[&bare][1], 22.0, "border 2 + min(40, 20): {boot}");
+        assert_eq!(first[&pct][1], 40.0, "10% of 400: {boot}");
+        assert_eq!(first[&sized][0], 40.0, "10% of 400: {boot}");
+        assert!(!first.contains_key(&points), "points need no box: {boot}");
+
+        let sized_frame = host.mirror[&(sized as ViewId)].frame;
+        let resized = host.resize(300., 700.);
+        let second = rects(&resized);
+        assert_eq!(host.mirror[&(sized as ViewId)].frame, sized_frame);
+        assert_eq!(
+            second[&sized][0], 30.0,
+            "unmoved, still republished: {resized}"
+        );
+        assert_eq!(second[&pct][1], 30.0, "{resized}");
+        assert_eq!(
+            host.mirror[&(bare as ViewId)].field_content.map(|r| r.y),
+            Some(22.0),
+            "min(30, 20) is still 20"
+        );
+
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(StyleId::PaddingTop, &StyleValue::Number(30.))
+            .unwrap();
+        let receipt = host
+            .runner
+            .kernel_mut()
+            .apply(
+                0,
+                99,
+                &[Op::SetStyle {
+                    id: pct as ViewId,
+                    patch: Box::new(patch),
+                }],
+            )
+            .unwrap();
+        let cleared = host.commit(&[Timed { at_ms: 0., receipt }], None);
+        assert!(rects(&cleared)[&pct].is_null(), "back in points: {cleared}");
+    }
 }

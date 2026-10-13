@@ -248,7 +248,11 @@ struct ButtonFaceRows: Equatable {
             if let s = v as? String { return .string(s) }
             if let n = v as? NSNumber { return .number(n.doubleValue) }
             if let a = v as? [Any] { return .array(a.map(value)) }
-            if let o = v as? [String: Any] { return .object(o.mapValues(value)) }
+            if let o = v as? [String: Any] {
+                let values = o.mapValues(value)
+                if let c = CalculatedLength(values) { return .calculation(c) }
+                return .object(values)
+            }
             return .null
         }
         func rows(_ name: String) -> NodeStyle { (object[name] as? [String: Any] ?? [:]).mapValues(value) }

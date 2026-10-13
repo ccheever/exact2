@@ -21,6 +21,7 @@ pub enum StyleDomainError {
     InvalidLineHeight,
     NonFinite(StyleId),
     AutoNotAdmitted(StyleId),
+    PercentNotAdmitted(StyleId),
     TooManyTracks { style: StyleId, count: usize },
     InvalidGridTrack(StyleId),
     InvalidGridSpan(StyleId),
@@ -122,6 +123,9 @@ pub enum DecodeError {
     UnknownEnumValue { style: StyleId, value: u8 },
     /// `auto` was encoded on a row whose grammar does not admit it.
     AutoNotAdmitted { style: StyleId },
+    /// A percentage, alone or in a calculation, was encoded on a row CSS
+    /// gives none.
+    PercentNotAdmitted { style: StyleId },
     /// A dimension kind byte is not auto/points/percent.
     UnknownDimensionKind(u8),
     /// A `min()`/`max()`/`clamp()` length's tree is malformed: an unknown
@@ -265,6 +269,9 @@ pub enum ApplyError {
     NonFiniteStyle { op_index: usize, style: StyleId },
     /// `auto` was supplied for a dimension row whose grammar does not admit it.
     AutoNotAdmitted { op_index: usize, style: StyleId },
+    /// A percentage, alone or in a calculation, was supplied for a row CSS
+    /// gives none.
+    PercentNotAdmitted { op_index: usize, style: StyleId },
     /// A grid template exceeded the closed grammar's track bound.
     TooManyTracks {
         op_index: usize,
@@ -389,6 +396,9 @@ impl From<StyleDomainError> for DecodeError {
             StyleDomainError::InvalidLineHeight => DecodeError::InvalidLineHeight,
             StyleDomainError::NonFinite(style) => DecodeError::NonFinite(style),
             StyleDomainError::AutoNotAdmitted(style) => DecodeError::AutoNotAdmitted { style },
+            StyleDomainError::PercentNotAdmitted(style) => {
+                DecodeError::PercentNotAdmitted { style }
+            }
             StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),
             StyleDomainError::InvalidGridTrack(_) => DecodeError::InvalidGridTrack,
             StyleDomainError::InvalidGridSpan(_) => DecodeError::InvalidGridSpan,

@@ -310,10 +310,6 @@ impl Env {
 /// length (LLP 1078 D10): refused by name at the bake, never silently zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvRefusal {
-    /// `env(safe-area-inset-top, 0px)`: the host always defines the insets
-    /// and the segment variables take the row's initial value when
-    /// undefined; a fallback argument is refused (LLP 1001 §2).
-    Fallback,
     /// `viewport-segment-*` takes exactly two indices, `x` then `y`.
     IndexCount,
     /// An index is a non-negative integer.
@@ -331,7 +327,6 @@ impl EnvRefusal {
     /// The reason, as the bake prints it.
     pub fn reason(self) -> &'static str {
         match self {
-            EnvRefusal::Fallback => "env() takes no fallback argument here: the host defines safe-area-inset-* and an undefined viewport-segment-* takes the row's initial value",
             EnvRefusal::IndexCount => "env(viewport-segment-*) takes exactly two indices, x then y: env(viewport-segment-width 0 0)",
             EnvRefusal::IndexForm => "a viewport segment index is a non-negative integer",
             EnvRefusal::IndexRange => "a viewport segment index is at most 15",
@@ -351,7 +346,7 @@ impl EnvRefusal {
 /// links it when its plan names a segment (`Capability::Segments`).
 struct Hooks {
     term: fn(&str, &[&str]) -> Result<Dimension, EnvRefusal>,
-    resolve: fn(SegmentVar, u8, u8, f32, &Env) -> Dimension,
+    resolve: fn(SegmentVar, u8, u8, &Env) -> Option<f64>,
     css: fn(SegmentVar, u8, u8, f32, &mut String),
     decode: fn(u8, f32, u8, u8) -> Option<Dimension>,
 }
@@ -378,9 +373,14 @@ pub fn linked() -> bool {
 /// undefined — or when the grammar is not linked (the row then takes its
 /// initial value, as it would for an undefined segment).
 pub(crate) fn resolve(var: SegmentVar, x: u8, y: u8, plus: f32, env: &Env) -> Dimension {
-    LINKED
-        .get()
-        .map_or(Dimension::Auto, |h| (h.resolve)(var, x, y, plus, env))
+    resolve_wide(var, x, y, env).map_or(Dimension::Auto, |base| {
+        Dimension::Points(super::calc::narrow(base + f64::from(plus)))
+    })
+}
+
+/// Preserve derived edges through the enclosing calculation.
+pub(crate) fn resolve_wide(var: SegmentVar, x: u8, y: u8, env: &Env) -> Option<f64> {
+    LINKED.get().and_then(|h| (h.resolve)(var, x, y, env))
 }
 
 /// A segment length as CSS-ENV-1's text, for a host whose browser resolves
@@ -397,23 +397,13 @@ pub(crate) fn decode(kind: u8, plus: f32, x: u8, y: u8) -> Option<Dimension> {
     LINKED.get().and_then(|h| (h.decode)(kind, plus, x, y))
 }
 
-fn resolve_segment(var: SegmentVar, x: u8, y: u8, plus: f32, env: &Env) -> Dimension {
-    match env.segment(x, y) {
-        Some(rect) => {
-            // Keep derived edges wide through the offset: x + width can exceed
-            // f32 even when x + width + plus is representable. Narrow only the
-            // completed length (CSS Values 4 §10.9.2 and §10.12).
-            let base = match var {
-                SegmentVar::Right => f64::from(rect.x) + f64::from(rect.width),
-                SegmentVar::Bottom => f64::from(rect.y) + f64::from(rect.height),
-                _ => f64::from(var.of(rect)),
-            };
-            Dimension::Points(
-                (base + f64::from(plus)).clamp(f64::from(f32::MIN), f64::from(f32::MAX)) as f32,
-            )
-        }
-        None => Dimension::Auto,
-    }
+fn resolve_segment(var: SegmentVar, x: u8, y: u8, env: &Env) -> Option<f64> {
+    let rect = env.segment(x, y)?;
+    Some(match var {
+        SegmentVar::Right => f64::from(rect.x) + f64::from(rect.width),
+        SegmentVar::Bottom => f64::from(rect.y) + f64::from(rect.height),
+        _ => f64::from(var.of(rect)),
+    })
 }
 
 fn segment_css(var: SegmentVar, x: u8, y: u8, plus: f32, out: &mut String) {
@@ -474,9 +464,6 @@ pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
         .and_then(|s| s.strip_suffix(')'))
         .ok_or(EnvRefusal::UnknownVariable)?
         .trim();
-    if body.contains(',') {
-        return Err(EnvRefusal::Fallback);
-    }
     let mut words = body.split_whitespace();
     let name = words.next().ok_or(EnvRefusal::UnknownVariable)?;
     if let Some(edge) = name.strip_prefix(ENV_NAMES[0].0) {
@@ -495,84 +482,17 @@ pub(super) fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     (hooks.term)(tail, &indices)
 }
 
-/// An `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,
-/// `env(viewport-segment-<var> <x> <y>)`, or either inside
-/// `calc(env(…) ± <n>px)` or `calc(<n>px + env(…))` (addition commutes;
-/// `<n>px - env(…)` negates the variable, which no row can hold). `Ok(None)` when the text is not an `env()` form
-/// at all (a `calc()` of percent and points, a plain length); `Err` when it
-/// names one of the kernel's variables wrongly (LLP 1078 D10).
+/// A bare `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)` or
+/// `env(viewport-segment-<var> <x> <y>)`. `Ok(None)` when the text is not
+/// one (a math function, or one with a fallback, is [`super::calc`]'s); `Err`
+/// when it names one of the
+/// kernel's variables wrongly (LLP 1078 D10).
 pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     let t = text.trim();
     if t.starts_with("env(") {
         return term(t).map(Some);
     }
-    let Some(body) = t.strip_prefix("calc(").and_then(|s| s.strip_suffix(')')) else {
-        return Ok(None);
-    };
-    let body = body.trim();
-    if !body.starts_with("env(") {
-        return leading_length(body);
-    }
-    // `env(...) ± <n>px`: the operator is the first `+`/`-` after the
-    // closing paren of the `env(...)` term.
-    let Some(close) = body.find(')') else {
-        return Ok(None);
-    };
-    let (env, rest) = body.split_at(close + 1);
-    let dim = term(env)?;
-    let rest = rest.trim();
-    let (sign, number) = match rest.as_bytes().first() {
-        Some(b'+') => (1.0, &rest[1..]),
-        Some(b'-') => (-1.0, &rest[1..]),
-        _ => return Ok(None),
-    };
-    let Some(number) = number.trim().strip_suffix("px") else {
-        return Ok(None);
-    };
-    let Ok(plus) = exact_num::parse_f32(number.trim()) else {
-        return Ok(None);
-    };
-    if !plus.is_finite() {
-        return Ok(None);
-    }
-    Ok(Some(match dim {
-        Dimension::Env(edge, _) => Dimension::Env(edge, sign * plus),
-        Dimension::Segment(var, x, y, _) => Dimension::Segment(var, x, y, sign * plus),
-        other => other,
-    }))
-}
-
-/// `<n>px + env(…)`, a calc body whose length comes first: the same
-/// dimension as `env(…) + <n>px`. By CSS's grammar: whitespace on both
-/// sides of the `+`, none between the number and `px`. `Ok(None)` for
-/// anything else.
-fn leading_length(body: &str) -> Result<Option<Dimension>, EnvRefusal> {
-    let Some(at) = body.find("env(") else {
-        return Ok(None);
-    };
-    let (head, env) = body.split_at(at);
-    let Some(head) = head
-        .strip_suffix(|c: char| c.is_ascii_whitespace())
-        .map(str::trim_end)
-        .and_then(|h| h.strip_suffix('+'))
-        .and_then(|h| h.strip_suffix(|c: char| c.is_ascii_whitespace()))
-    else {
-        return Ok(None);
-    };
-    let Some(number) = head.trim_end().strip_suffix("px") else {
-        return Ok(None);
-    };
-    let Ok(plus) = exact_num::parse_f32(number) else {
-        return Ok(None);
-    };
-    if !plus.is_finite() || env.find(')') != Some(env.len() - 1) {
-        return Ok(None);
-    }
-    Ok(Some(match term(env)? {
-        Dimension::Env(edge, _) => Dimension::Env(edge, plus),
-        Dimension::Segment(var, x, y, _) => Dimension::Segment(var, x, y, plus),
-        other => other,
-    }))
+    Ok(None)
 }
 
 /// Whether a style reads a viewport or environment length.

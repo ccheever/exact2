@@ -234,7 +234,7 @@ struct BatchReader {
         if !hasICC, let hit = StyleCache.shared.get(span) { return hit }
         let end = offset
         offset = start
-        let style = try values()
+        let style = try CalculatedLength.decode(values())
         guard offset == end else { throw Invalid.wire }
         if !hasICC { StyleCache.shared.put(span, style) }
         return style

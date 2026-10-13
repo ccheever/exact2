@@ -38,9 +38,9 @@ Three fields join `runner/src/viewport.rs`'s `FIELDS`: `devicePosture`, `horizon
 
 ### D3 — Segments are `env()` lengths the kernel resolves
 
-`kernel/src/style.rs`'s `parse_env` accepts `env(viewport-segment-<var> <x> <y>)` for the six vars with two non-negative integer indices, alongside `env(safe-area-inset-<edge>)`, and inside the same `calc(env(…) ± <n>px)` form. The dimension is `Dimension::Segment(SegmentVar, u8, u8)` (`x`, `y` ≤ 15 is plenty; refuse beyond). On the wire it is kinds 8–13 (one per var) with two index bytes and no float; the dimension codec's note in `kernel/tables/schema.json` (`_styles`, which today lists only kinds 0–2) names kinds 3–13 so the table stops under-describing the codec. `uses_env` is true for a style holding either kind.
+`kernel/src/style.rs`'s `parse_env` accepts `env(viewport-segment-<var> <x> <y>)` for the six vars with two non-negative integer indices, alongside `env(safe-area-inset-<edge>)`, and inside the same `calc(env(…) ± <n>px)` form. The dimension is `Dimension::Segment(SegmentVar, u8, u8)` (`x`, `y` ≤ 15 is plenty; refuse beyond). On the wire it is kinds 8–13 (one per var) with two index bytes and no float; the dimension codec's note in `kernel/tables/schema.json` (`_styles`, which today lists only kinds 0–2) names kinds 3–13 so the table stops under-describing the codec. `uses_env` is true for a style holding either kind. `calc()`, `min()`, `max()` and `clamp()` take `env()` segments among the kernel's lengths, as CSS Values 4 §10 specifies the math functions (LLP 1001 §2; LLP 1001 §2): one `env()` with coefficient 1, plus pixels, keeps its own form, `Env` or `Segment`, and any other calculation is the interned tree. An undefined segment without a fallback makes the whole value the row's initial value. A column on the second segment inside content that starts after the left safe-area inset is `calc(env(viewport-segment-left 1 0) - env(safe-area-inset-left))`. `em` and `rem` inside a math function are refused.
 
-Resolution reads the arena's `Env`, which grows from four insets to `Env { insets, cols, rows, segments: Vec<Rect> }` (row-major, `cols × rows` rects in layout-viewport points). A segment var whose `(x, y)` names a segment resolves to that rect's width, height, top, left, bottom or right — the segment's edges measured from the viewport's top-left, a `DOMRect`'s, as Chromium resolves them (amended at build; the draft said "distance from the viewport's bottom edge", see §As built). One that names no segment — always, when there is one segment — takes the row's initial value, as an `env()` with no fallback does on the web (invalid at computed-value time): `auto` where the row allows it, otherwise 0. The no-fallback form matches `safe-area-inset-*` here (LLP 1001 §2 refuses the fallback argument; unchanged).
+Resolution reads the arena's `Env`, which grows from four insets to `Env { insets, cols, rows, segments: Vec<Rect> }` (row-major, `cols × rows` rects in layout-viewport points). A segment var whose `(x, y)` names a segment resolves to that rect's width, height, top, left, bottom or right — the segment's edges measured from the viewport's top-left, a `DOMRect`'s, as Chromium resolves them (amended at build; the draft said "distance from the viewport's bottom edge", see §As built). One that names no segment — always, when there is one segment — takes the row's initial value, as an `env()` with no fallback does on the web (invalid at computed-value time): `auto` where the row allows it, otherwise 0. An `env()` may carry a fallback, CSS Environment Variables 1 §3's: where its segment is undefined, the fallback's tokens are substituted into the text in its place and the value is read again (LLP 1001 §2).
 
 `Kernel::set_segments(cols, rows, rects)` is `set_env`'s twin: it refuses non-finite rects and a count that is not `cols × rows`, restyles and dirties only the `uses_env` nodes, and `reset` keeps it. `set_env` keeps its four-float signature.
 
@@ -79,7 +79,7 @@ The same invariants, minus the Duo, run everywhere through `prefer segments 2x1 
 
 ### D10 — What is refused
 
-`env(viewport-segment-* x)` with one index, more than two, a negative one, a non-integer, or an index above 15; a fallback argument (as for `safe-area-inset-*`); `prefer segments 0x1`, `1x0`, or a gap wider than the viewport. Each is refused by name at the bake (the compiler probes the kernel's parser) or by the agent, never silently zero.
+`env(viewport-segment-* x)` with one index, more than two, a negative one, a non-integer, or an index above 15; `prefer segments 0x1`, `1x0`, or a gap wider than the viewport. Each is refused by name at the bake (the compiler probes the kernel's parser) or by the agent, never silently zero.
 
 ## Rulings (Charlie, 2026-10-02)
 
@@ -110,7 +110,7 @@ moved to the new `kernel/src/style/env.rs` (style.rs was 1,439 lines).
 `env::parse` returns `Ok(None)` for text that is not an `env()` form at all
 and `Err(EnvRefusal)` for one that names a kernel variable wrongly, so the
 bake refuses by name (D10) through `StyleValueError::BadEnv` — one index,
-three, a negative or non-integer one, one past 15, a fallback argument, an
+three, a negative or non-integer one, one past 15, an
 unknown variable — and `contract/lower/src/values.rs` prints the reason.
 `Env` grows `cols`, `rows`, `segments: Vec<Rect>` and stops being `Copy`;
 `Env::new(t, r, b, l)` is still the four insets (one segment).

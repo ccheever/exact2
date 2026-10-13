@@ -156,6 +156,8 @@ impl Shape {
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
     radii: [Dimension; 4],
+    /// What a radius that is a calculation with a percentage resolves under.
+    env: exact_kernel::Env,
     /// CSS `background-clip` (LLP 1077 D6).
     clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
@@ -209,6 +211,7 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
+            env: env.clone(),
             corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
@@ -249,12 +252,7 @@ impl BoxPaint {
             outer: Shape::elliptical(
                 rect,
                 self.radii.map(|d| {
-                    let resolve = |basis| match d {
-                        Dimension::Points(x) => x,
-                        Dimension::Percent(p) => basis * p / 100.0,
-                        Dimension::Calc(p, x) => basis * p / 100.0 + x,
-                        _ => 0.0,
-                    };
+                    let resolve = |basis| d.at_basis(&self.env, basis);
                     (resolve(w).max(0.0), resolve(h).max(0.0))
                 }),
             )
@@ -1279,19 +1277,8 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// block containers do not always count end-edge padding), never less than
 /// the box itself.
 pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    let env = kernel.env();
-    let pad = |d: Dimension, against: f32| match d.resolve(&env) {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => against * p / 100.0,
-        Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto
-        | Dimension::Env(..)
-        | Dimension::Segment(..)
-        | Dimension::Viewport(..)
-        | Dimension::Compare(..) => 0.0,
-    };
-    let pad_right = pad(node.style.padding_right, node.frame.width);
-    let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
+    // Read the end padding as layout resolved it
+    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
     let mut w = node.frame.width.max(node.content.0);
     let mut h = node.frame.height.max(node.content.1);
     for child in node.children() {
