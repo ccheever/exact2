@@ -67,6 +67,20 @@ struct Running {
     stream: bool,
     /// An ordered safe read: once complete it holds no effect slot.
     read: bool,
+    /// The asynchronous core's (LLP 1120 D3, D5); workers leave them be.
+    /// The outcome is published.
+    terminal: bool,
+    /// Physical work still running: hops on the wire, a reader.
+    live: usize,
+    /// Its outcome is drained or dropped while `live` held its bytes.
+    drained: bool,
+    /// The ordered lane's one blocking job.
+    blocking: bool,
+    /// Its run's generation (a parked upload starts a new one): events and
+    /// deadlines of another are stale.
+    generation: u64,
+    /// Who claimed the terminal transition: only its outcome settles it.
+    claim: asynch::Claim,
 }
 struct Completed {
     elapsed_ms: u64,
@@ -143,6 +157,8 @@ struct State {
     discard: Vec<OwnedWork>,
     notified: bool,
     wake: Option<Wake>,
+    /// The asynchronous core's bookkeeping (LLP 1120); idle with workers.
+    book: asynch::Book,
 }
 struct Shared {
     state: Mutex<State>,
@@ -195,6 +211,8 @@ pub(super) struct Core {
     grants: String,
     /// A stream's own transport (the platform's; a test's scripted one).
     stream_host: StreamHost,
+    /// The asynchronous core instead of workers (LLP 1120), not yet started.
+    machine: Option<Arc<asynch::Machine>>,
 }
 /// Makes the host (and its transport) an owner, a scoped grant or a stream
 /// fetches through: the platform's, unless the embedder names another.
@@ -208,10 +226,22 @@ fn owners(bindings: Option<ibex2::host::Bindings>) -> Vec<Option<ibex2::host::Bi
 }
 
 impl Core {
+    #[allow(dead_code)] // the Linux host's; Apple's is `start_switched`
     pub(super) fn start(bindings: Option<ibex2::host::Bindings>, grants: &str, wake: Wake) -> Self {
         // Additional transports are constructed on their own threads, not
         // while the presenter is trying to publish its first frame.
-        Self::with_owners(owners(bindings), grants, wake)
+        Self::with_owners_on(
+            owners(bindings),
+            grants,
+            wake,
+            Arc::new(ibex2::host::Host::new),
+        )
+    }
+
+    /// [`Core::start`], or, switched on, the machine (LLP 1120): Apple's.
+    #[allow(dead_code)] // Apple's executor's; Linux's is `start`
+    pub(super) fn start_switched(b: Option<ibex2::host::Bindings>, g: &str, w: Wake) -> Self {
+        Self::with_owners(owners(b), g, w)
     }
 
     /// [`Core::start`] with every transport the other owners, scoped grants
@@ -227,7 +257,9 @@ impl Core {
     }
 
     fn with_owners(owners: Vec<Option<ibex2::host::Bindings>>, grants: &str, wake: Wake) -> Self {
-        Self::with_owners_on(owners, grants, wake, Arc::new(ibex2::host::Host::new))
+        let host: StreamHost = Arc::new(ibex2::host::Host::new);
+        let lanes = asynchronous().then(asynch_lanes);
+        Self::with_owners_lanes(owners, grants, wake, host, lanes)
     }
 
     fn with_owners_on(
@@ -235,6 +267,17 @@ impl Core {
         grants: &str,
         wake: Wake,
         host: StreamHost,
+    ) -> Self {
+        Self::with_owners_lanes(owners, grants, wake, host, None)
+    }
+
+    /// The core, on workers or, given `lanes`, the asynchronous machine.
+    fn with_owners_lanes(
+        owners: Vec<Option<ibex2::host::Bindings>>,
+        grants: &str,
+        wake: Wake,
+        host: StreamHost,
+        lanes: Option<asynch::Lanes>,
     ) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
@@ -248,7 +291,11 @@ impl Core {
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
         });
-        let count = owners.len();
+        let count = if lanes.is_some() {
+            asynch::THREADS
+        } else {
+            owners.len()
+        };
         let reserve = || {
             LIVE_WORKERS
                 .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
@@ -270,8 +317,16 @@ impl Core {
                 reserved = reserve();
             }
         }
+        let machine = lanes.map(|lanes| {
+            asynch::Machine::new(shared.clone(), owners.clone(), grants, host.clone(), &lanes)
+        });
         // Reserved now, so a core past the bound is refused at once; started
         // by the first request ([`Core::start_workers`]).
+        // One slot a thread: the workers', or the machine's base set.
+        let owners = match machine {
+            Some(_) => (0..count).map(|_| None).collect(),
+            None => owners,
+        };
         let idle = reserved.then(|| {
             owners
                 .into_iter()
@@ -286,16 +341,30 @@ impl Core {
             failed: std::sync::atomic::AtomicBool::new(false),
             grants: grants.to_string(),
             stream_host: host,
+            machine,
         }
     }
 
     /// Start the workers, once, when the first request is admitted. False
     /// when a thread could not be made: no job is admitted then, and the
     /// workers that did start retire with the core.
-    fn start_workers(&self) -> bool {
+    fn start_workers(&self, state: &mut State) -> bool {
         let Some(idle) = self.idle.lock().unwrap().take() else {
             return !self.failed.load(Ordering::Acquire);
         };
+        if let Some(machine) = &self.machine {
+            // The base set holds the slots the workers would have.
+            let guards: Vec<_> = idle.into_iter().map(|(_, _, guard)| guard).collect();
+            if !machine.start(guards) {
+                // The threads made exit now, with their slots: this core
+                // takes no work.
+                self.failed.store(true, Ordering::Release);
+                state.retired = true;
+                self.shared.ready.notify_all();
+                machine.stop(state);
+            }
+            return !self.failed.load(Ordering::Acquire);
+        }
         for (index, bindings, guard) in idle {
             let shared = self.shared.clone();
             let grants = self.grants.clone();
@@ -349,7 +418,7 @@ impl Core {
             .timeout_refusal()
             .or(r.request.body_from_refusal())
             .map_or_else(|| reservation(&r.request), Err);
-        if self.disabled || !self.start_workers() {
+        if self.disabled || !self.start_workers(&mut state) {
             return Err(("native executor worker limit reached", work));
         }
         if state.retired {
@@ -411,7 +480,10 @@ impl Core {
                 };
                 (full, charge)
             };
-            if full || charge > BYTES[lane].saturating_sub(state.bytes[lane]) {
+            // A parked upload's outstanding charge counts as taken, so a
+            // later request can't crowd it out (LLP 1120 §6 question 8).
+            let parked = state.book.parked(&state.jobs[lane]);
+            if full || charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
                 return Err("native executor admission limit reached");
             }
             if lane == 0 {
@@ -457,6 +529,12 @@ impl Core {
                 forgotten: false,
                 stream: true,
                 read: false,
+                terminal: false,
+                live: 0,
+                drained: false,
+                blocking: false,
+                generation: 0,
+                claim: asynch::Claim::None,
             });
             drop(state);
             let (shared, grants) = (self.shared.clone(), self.grants.clone());
@@ -512,6 +590,7 @@ impl Core {
         let done = state.completed[lane]
             .remove(index)
             .expect("ready completion");
+        drained(&mut state, done.ticket);
         if lane == 0 {
             state.ordered.pop_front();
         }
@@ -542,6 +621,7 @@ impl Core {
     /// its count and bytes when it ends.
     pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
         let mut aborts = Vec::new();
+        let mut cancels = Vec::new();
         {
             let mut guard = self.shared.state.lock().unwrap();
             let state = &mut *guard;
@@ -563,9 +643,15 @@ impl Core {
                     job.forgotten = true;
                     true
                 });
+                let running = &mut state.running;
                 state.completed[lane].retain(|done| {
                     if held(done.ticket) {
                         return true;
+                    }
+                    // Its bytes held by a job still physically running go
+                    // when that ends (LLP 1120 D5).
+                    if let Some(run) = running.iter_mut().find(|r| r.ticket == done.ticket) {
+                        run.drained = true;
                     }
                     // A forgotten stream's message: the stream itself
                     // releases the reservation when its reader ends.
@@ -583,9 +669,17 @@ impl Core {
                 if !run.forgotten && !held(run.ticket) {
                     run.forgotten = true;
                     aborts.extend(run.abort.clone());
+                    // On the machine, cancelling a safe read claims it now.
+                    if self.machine.is_some() && asynch::cancel(run) {
+                        cancels.push((run.lane, (run.ticket, run.generation)));
+                    }
                 }
             }
             state.ordered.retain(|ticket| held(*ticket));
+            // A parked upload let go unsent takes its size with it.
+            let queued: std::collections::HashSet<u64> =
+                state.jobs.iter().flatten().map(|job| job.ticket).collect();
+            state.book.sized.retain(|ticket, _| queued.contains(ticket));
             // A re-ask let go before it found room: dropped, never settled.
             state.waiting.retain(|ticket| held(*ticket));
             state.waiting_set.retain(|ticket| held(*ticket));
@@ -609,6 +703,11 @@ impl Core {
             }
         }
         // Transport callbacks run outside the lock, as retirement's do.
+        if let Some(machine) = &self.machine {
+            for (lane, run) in cancels {
+                machine.cancelled(lane, run);
+            }
+        }
         for abort in aborts {
             abort.abort();
         }
@@ -728,6 +827,9 @@ impl Core {
             state.waiting_set.clear();
         }
         self.shared.ready.notify_all();
+        if let Some(machine) = &self.machine {
+            machine.retire();
+        }
         self.shared.abort.abort();
         // Never join arbitrary native work on the UI thread. Its WorkerSlot
         // remains charged until return, including across repeated replacement.
@@ -746,6 +848,7 @@ impl Drop for WorkerSlot {
         LIVE_WORKERS.fetch_sub(1, Ordering::AcqRel);
     }
 }
+
 /// Wake the workers when one of them has something to do: a queued job (it
 /// may now fit its bytes) or work to destroy. With neither, nothing a worker
 /// waits for has changed, and none is woken: `forget` runs after every commit
@@ -860,6 +963,12 @@ fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
         forgotten: job.forgotten,
         stream: job.request.stream,
         read: lane == 0 && read(&job.request, job.work.is_some()),
+        terminal: false,
+        live: 0,
+        drained: false,
+        blocking: false,
+        generation: 0,
+        claim: asynch::Claim::None,
     });
     Some((job, abort))
 }
@@ -1176,46 +1285,6 @@ impl Core {
     }
 }
 
-fn bounded_outcome(outcome: Outcome, limit: usize) -> Outcome {
-    if retained(&outcome) > limit {
-        failed(
-            FailureKind::Refused,
-            "native outcome exceeds retention limit",
-        )
-    } else {
-        outcome
-    }
-}
-
-/// The bytes an outcome keeps until the UI takes it.
-fn retained(outcome: &Outcome) -> usize {
-    match outcome {
-        Outcome::Response(r) => r
-            .body
-            .capacity()
-            .saturating_add(
-                r.headers
-                    .capacity()
-                    .saturating_mul(std::mem::size_of::<(String, String)>()),
-            )
-            .saturating_add(
-                r.headers
-                    .iter()
-                    .map(|(k, v)| k.capacity().saturating_add(v.capacity()))
-                    .sum::<usize>(),
-            ),
-        Outcome::Storage(b) => b.capacity(),
-        Outcome::Message(m) => m
-            .data
-            .capacity()
-            .saturating_add(m.event.capacity())
-            .saturating_add(m.id.capacity()),
-        Outcome::Surface(exact_runner::SurfaceOutcome::Captured(b)) => b.capacity(),
-        Outcome::Surface(exact_runner::SurfaceOutcome::Restored) => 0,
-        Outcome::Failed { message, .. } => message.capacity(),
-    }
-}
-
 /// What a body read from an app file needs: where the files are, and the
 /// app's grants (the request's own scope narrows them).
 struct Files<'a> {
@@ -1404,27 +1473,18 @@ fn check_headers(
     Ok(r)
 }
 
-fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortController) -> Outcome {
-    match e {
-        _ if abort.signal().aborted() => failed(FailureKind::Aborted, "native request aborted"),
-        ibex2::boundary::HostError::Denied { capability } => failed(
-            FailureKind::Refused,
-            format!("outside the app's grants ({capability})"),
-        ),
-        // The origin a redirect led to, which the grants lack (podcast F5).
-        ibex2::boundary::HostError::DeniedRedirect { capability, origin } => failed(
-            FailureKind::Refused,
-            format!("outside the app's grants ({capability}): redirected to {origin}"),
-        ),
-        e => failed(
-            FailureKind::Network,
-            e.to_string().chars().take(2048).collect::<String>(),
-        ),
-    }
-}
-
 #[path = "executor_stream.rs"]
 mod stream;
+
+#[cfg(test)]
+#[path = "executor_async_tests.rs"]
+mod async_tests;
+#[path = "executor_async.rs"]
+mod asynch;
+#[path = "executor_outcome.rs"]
+mod outcome;
+use asynch::{asynch_lanes, asynchronous, drained};
+use outcome::{bounded_outcome, fetch_failure, retained};
 
 #[path = "executor_body.rs"]
 mod body;

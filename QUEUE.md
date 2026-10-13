@@ -821,6 +821,11 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Cheap, any time
 
+- **LLP 1120 stage 1b's open review findings: must be fixed and pass both reviewers before
+  `EXACT_HTTP_ASYNC` can default on** (round 4, 2026-10-12; the list is LLP 1120 §4's as-built
+  notes): two blocking upload cases (concurrent sizing deadlock; a disposed upload's charge refunded
+  early), retirement versus a reading reader, unwind in a start or a reader, two drops under the
+  lock, three tests. Only worth doing if §5's gate passes.
 - **Gaps the Bluesky clone's workers hit** (bsky5, b28–b31, 2026-10-12), as reported:
   - **The web JS target refuses `reachend` on a plain `list`** ("the `reachend` event is not in the
     JS target", `host/web-js/src/emit.rs`), and a virtualized list wants exactly one direct `each`,

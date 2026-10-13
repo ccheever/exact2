@@ -392,6 +392,12 @@ impl Fetch {
         fetch::fetch(self.transport.as_ref(), &self.grants, request)
     }
 
+    /// The transport and grants, for an asynchronous fetch over the same
+    /// connection policy (`fetch_async`, exact2 LLP 1120 D4).
+    pub fn parts(&self) -> (Arc<dyn Transport>, Arc<GrantSet>) {
+        (self.transport.clone(), self.grants.clone())
+    }
+
     pub fn get(&self, url: &str) -> Result<Response, HostError> {
         self.send(Request::get(url))
     }

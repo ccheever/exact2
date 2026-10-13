@@ -421,6 +421,19 @@ Each line is a test today. The semantic assertions are kept and run against the 
 
 ## 4. Migration and tests
 
+**As built, stage 1 (2026-10-12).** Stage 1a is ibex2's asynchronous fetch: `fetch_async.rs` (`Sink`, `Flow`, `Upload`, `Exchange` with an explicit activation, `FetchTask`, and a `BlockingAdapter` over any blocking `Transport`) and Apple's `DarwinLane` (`darwin_async.rs`, `darwin_task.mm`). Stage 1b is the core, `host/apple/src/executor_async.rs`, under the existing admission, queues, settlement and fence of `executor_core.rs`. Where it differs from the text above, until the stages that finish it:
+- **A switch.** `EXACT_HTTP_ASYNC=1`, at build or in the process's environment, runs the machine; without it the workers run, unchanged. It stays off until §5's gate passes. Only `Executor::start` (Apple's) takes it; the render host's `start_on` keeps the workers.
+- **Threads.** The base set (six) is reserved at `start` from today's `LIVE_WORKERS` bound and created at the first request, as the workers are; `MAX_THREADS` and the adapter's bounded pool with its stragglers (D4) come with Linux, stage 2. Off Apple, and in tests, the lanes are `BlockingAdapter`s with a thread per exchange.
+- **Streams** keep their own threads and transports (stage 3), so the file-backed stream rule of D5 waits for them.
+- **Scoped grants** use the lane's transport with the scope's grants.
+- **A redirect's next hop** waits only for the in-flight cap; it counts toward its origin's HTTP/1.1 count when it starts.
+- **Open before the switch can default on (round 4 of the code review, 2026-10-12).** Stage 1b landed over Astra's DO NOT LAND because its path is off by default; each of these must be fixed and pass both reviewers before `EXACT_HTTP_ASYNC` can default on:
+  - *Blocking (Astra):* two uploads sizing at once can deadlock: the park refusal counts only queued successors, not one still sizing (count those too, or size one upload a lane at a time). An unstarted upload exchange sent to the disposer has its charge refunded while its closure still owns the bytes (carry the release with the buffer).
+  - *Material:* retirement can destroy a reader's file job before the abort fires, so the reader keeps reading (Astra); a panic in an HTTP start or a reader never releases the start's hold nor settles the run (Grok: `catch_unwind` and guards); a stale redirect hop and a duplicate outcome are dropped under the state lock (both: to the disposer).
+  - *Tests (Grok):* a parked upload behind the head, a reader that fails to spawn, an upload buffer released while a sending hop is up.
+- **The executor's suite** runs again on the machine (`the_suite_passes_on_the_asynchronous_core`), and `executor_async_tests.rs` adds the cap, the per-origin pass-over and its h2 lift, the ordered slot at a timeout, the later-of release, a forgotten write, and question 8's park and refusal.
+
+
 There are no shims; each step deletes what it replaces in the executor.
 
 1. **ibex2.**

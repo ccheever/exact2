@@ -726,3 +726,100 @@ fn a_stopped_fetch_lets_its_upload_go_while_the_task_is_still_held() {
     assert_eq!(released.load(Ordering::SeqCst), 1, "not held by the task");
     drop(task);
 }
+
+/// A blocking transport answering every request with `body`.
+struct Answers(Vec<u8>);
+impl crate::stdlib::fetch::Transport for Answers {
+    fn open(
+        &self,
+        request: &Request,
+        signal: &AbortSignal,
+    ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
+        let mut headers = Headers::new();
+        headers.set_response("content-length", &self.0.len().to_string());
+        Ok(crate::stdlib::fetch::Response {
+            status: 200,
+            status_text: "OK".into(),
+            headers,
+            body: self.0.clone(),
+            url: request.url.clone(),
+            redirected: false,
+        }
+        .into_stream(request.body_limit(), signal.clone()))
+    }
+}
+
+fn adapter(body: &[u8], spawns: bool) -> BlockingAdapter {
+    let spawn: Spawn =
+        Arc::new(move |job| spawns && std::thread::Builder::new().spawn(job).is_ok());
+    BlockingAdapter::new(Arc::new(Answers(body.to_vec())), spawn)
+}
+
+#[test]
+fn a_blocking_transport_runs_as_an_asynchronous_one() {
+    let events = Arc::new(Recorded::default());
+    let abort = AbortController::new();
+    FetchTask::start(
+        Arc::new(adapter(b"hello", true)),
+        granted(&["a.example"]),
+        Request::get("https://a.example/x"),
+        None,
+        abort.signal(),
+        CAPS,
+        events.clone(),
+    );
+    for _ in 0..500 {
+        if !events.none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let done = events.outcome().unwrap();
+    assert_eq!((done.status, &done.body[..]), (200, &b"hello"[..]));
+    assert_eq!(events.ended.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn an_adapter_with_no_thread_ends_the_exchange_at_once() {
+    let events = Arc::new(Recorded::default());
+    let abort = AbortController::new();
+    FetchTask::start(
+        Arc::new(adapter(b"hello", false)),
+        granted(&["a.example"]),
+        Request::get("https://a.example/x"),
+        None,
+        abort.signal(),
+        CAPS,
+        events.clone(),
+    );
+    assert!(events
+        .outcome()
+        .unwrap_err()
+        .to_string()
+        .contains("no thread"));
+    assert_eq!(events.ended.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn an_adapters_declared_length_over_the_ceiling_is_refused() {
+    let events = Arc::new(Recorded::default());
+    let abort = AbortController::new();
+    let mut request = Request::get("https://a.example/x");
+    request.max_body = Some(3);
+    FetchTask::start(
+        Arc::new(adapter(b"hello", true)),
+        granted(&["a.example"]),
+        request,
+        None,
+        abort.signal(),
+        CAPS,
+        events.clone(),
+    );
+    for _ in 0..500 {
+        if !events.none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(events.outcome().unwrap_err(), over_limit(3));
+}

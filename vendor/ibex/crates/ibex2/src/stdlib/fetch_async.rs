@@ -561,6 +561,107 @@ impl Sink for HopSink {
     }
 }
 
+/// Runs a blocking job somewhere: false when it could not.
+pub type Spawn = Arc<dyn Fn(Box<dyn FnOnce() + Send>) -> bool + Send + Sync>;
+
+/// A blocking [`crate::stdlib::fetch::Transport`] as an [`AsyncTransport`]
+/// (exact2 LLP 1120 D4): each exchange runs `open` and reads its body on a
+/// job `spawn` places (an executor's bounded adapter thread), and reports
+/// through the sink from there.
+pub struct BlockingAdapter {
+    transport: Arc<dyn crate::stdlib::fetch::Transport>,
+    spawn: Spawn,
+}
+
+impl BlockingAdapter {
+    pub fn new(transport: Arc<dyn crate::stdlib::fetch::Transport>, spawn: Spawn) -> Self {
+        Self { transport, spawn }
+    }
+}
+
+impl AsyncTransport for BlockingAdapter {
+    fn start(&self, hop: HopRequest, sink: Box<dyn Sink>) -> Exchange {
+        let abort = crate::stdlib::abort::AbortController::new();
+        let signal = abort.signal();
+        let (transport, spawn) = (self.transport.clone(), self.spawn.clone());
+        let sink = Arc::new(Mutex::new(Some(sink)));
+        Exchange::new(
+            move || {
+                let held = sink.clone();
+                let job = Box::new(move || {
+                    if let Some(sink) = held.lock().unwrap().take() {
+                        run_blocking(&*transport, hop, sink, &signal);
+                    }
+                });
+                if !spawn(job) {
+                    // Nowhere to run it: told here, the one exception to
+                    // delivering off the caller's thread, since none exists.
+                    if let Some(mut sink) = sink.lock().unwrap().take() {
+                        sink.end(Err(HostError::Failed(
+                            "TypeError: Failed to fetch — no thread to run it".into(),
+                        )));
+                    }
+                }
+            },
+            move || abort.abort(),
+        )
+    }
+}
+
+/// One blocking exchange, reported through `sink`. Its body, an upload,
+/// is held until its end has been told, as a platform holds what it sends
+/// until the exchange is over; an abort stops the read between chunks.
+fn run_blocking(
+    transport: &dyn crate::stdlib::fetch::Transport,
+    hop: HopRequest,
+    mut sink: Box<dyn Sink>,
+    signal: &AbortSignal,
+) {
+    let mut request = Request::get(&hop.url);
+    request.method = hop.method;
+    request.headers = hop.headers;
+    request.body = hop.body.as_ref().map(|b| b.bytes().to_vec());
+    request.max_body = Some(hop.max_body);
+    request.timeout = hop.timeout;
+    request.redirect = crate::stdlib::fetch::RedirectMode::Manual;
+    let _sending = hop.body;
+    let mut response = match transport.open(&request, signal) {
+        Ok(response) => response,
+        Err(e) => return sink.end(Err(e)),
+    };
+    drop(request);
+    let declared_length = response
+        .headers
+        .get("content-length")
+        .and_then(|n| n.trim().parse().ok());
+    let head = Head {
+        status: response.status,
+        headers: std::mem::take(&mut response.headers),
+        declared_length,
+    };
+    if sink.head(head) != Flow::Continue {
+        drop(response);
+        return sink.end(Err(aborted()));
+    }
+    let mut chunk = vec![0; 64 << 10];
+    loop {
+        if signal.aborted() {
+            drop(response);
+            return sink.end(Err(aborted()));
+        }
+        match response.body.read(&mut chunk) {
+            Ok(0) => return sink.end(Ok(())),
+            Ok(n) => {
+                if sink.data(&chunk[..n]) != Flow::Continue {
+                    drop(response);
+                    return sink.end(Err(aborted()));
+                }
+            }
+            Err(e) => return sink.end(Err(e)),
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "fetch_async_tests.rs"]
 mod tests;
