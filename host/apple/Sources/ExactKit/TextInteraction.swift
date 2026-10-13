@@ -221,10 +221,11 @@ private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
         return rect.isNull ? .zero : window.convertToScreen(owner.convert(rect, to: nil))
     }
     override func accessibilityPerformPress() -> Bool { owner?.activateInline(id) ?? false }
-    // VoiceOver's show menu: the run's own `contextmenu`, offered only when it has one (X84).
+    // VoiceOver's show menu: the `contextmenu` of the run or the nearest run
+    // or node above it, offered only where one answers (X84).
     override func accessibilityPerformShowMenu() -> Bool { owner?.inlineContextMenu(id) ?? false }
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
-        selector == #selector(accessibilityPerformShowMenu) ? owner?.inlineAnswersContextMenu(id) == true : super.isAccessibilitySelectorAllowed(selector)
+        selector == #selector(accessibilityPerformShowMenu) ? owner?.inlineOffersContextMenu(id) == true : super.isAccessibilitySelectorAllowed(selector)
     }
 }
 #else

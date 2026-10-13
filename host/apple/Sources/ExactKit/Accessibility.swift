@@ -321,21 +321,23 @@ extension NodeView {
 extension NodeView {
     /// VoiceOver's show menu (AXShowMenu, VO-⇧-M) is the ContextMenu key's
     /// request at this node (X84), as Chrome sends both through Blink's
-    /// `ShowNonLocatedContextMenu`: its `contextmenu`, then its
-    /// `contextPopover`'s menu, at its drawn middle.
+    /// `ShowNonLocatedContextMenu`: the `contextmenu`, then the
+    /// `contextPopover`'s menu, of the first node from this one up that
+    /// answers (`contextTarget`; the event bubbles), at this one's drawn middle.
     package override func accessibilityPerformShowMenu() -> Bool {
-        guard offersShowMenu, let presenter, let point = presenter.contextPoint(self) else { return false }
-        return presenter.contextMenu(self, at: point)
+        guard let target = showMenuTarget, let presenter, let point = presenter.contextPoint(self) else { return false }
+        return presenter.contextMenu(target, at: point)
     }
     /// AppKit offers every action whose method the class implements; show
     /// menu only where something answers it, as AppKit offers it only on a
     /// view with a `menu` (no node has one).
     package override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
-        selector == #selector(accessibilityPerformShowMenu) ? offersShowMenu : super.isAccessibilitySelectorAllowed(selector)
+        selector == #selector(accessibilityPerformShowMenu) ? showMenuTarget != nil : super.isAccessibilitySelectorAllowed(selector)
     }
-    private var offersShowMenu: Bool {
-        guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil else { return false }
-        return answersContextMenu
+    private var showMenuTarget: NodeView? {
+        guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
+              let target = presenter.contextTarget(self), !target.disabled, !target.inert else { return nil }
+        return target
     }
 }
 
