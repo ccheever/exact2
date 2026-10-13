@@ -1,6 +1,7 @@
-//! The display preferences (LLP 1061 D4; LLP 1069.000 D1) and the date (LLP
-//! 1027.000.000): told to the running host, and kept for the next boot's
-//! first frame.
+//! The display preferences (LLP 1061 D4; LLP 1069.000 D1), told to the
+//! running host and kept for the next boot's first frame; the date (LLP
+//! 1027.000.000), told to the running host, and before each boot for its
+//! first settle (`set_launch_time`).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;

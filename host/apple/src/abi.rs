@@ -107,8 +107,8 @@ pub struct Bridge<D: DataSource> {
     /// boots: a runner booted later lays out its first frame with them, not
     /// with a mouse's defaults and then again.
     preferences: exact_runner::Preferences,
-    /// The date last told (`set_time`), kept across boots like the
-    /// preferences: a runner booted later reads it from its first settle.
+    /// The date last told before a boot (`set_launch_time`): a runner
+    /// booted later reads it from its first settle.
     launch_time: Option<exact_runner::time::WallTime>,
     input: Vec<u8>,
     output: Vec<u8>,

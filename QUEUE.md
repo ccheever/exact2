@@ -820,6 +820,12 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Cheap, any time
 
+- **The date at launch on the other hosts** (2026-10-12; Apple boots under it now,
+  `exact_runner::time::launching`): Linux and the Rust/Wasm web host tell `set_time` after the
+  boot, and the render host, the content-region host and direct `Host::boot_stored` never enter
+  `launching`, so their first settle reads `epochAtZero` and `utcOffset` as 0 and refuses a kept
+  answer keyed on either. On Apple the place facts (locale, zone, `seed`) are still told after the
+  boot batch.
 - **LLP 1120 stage 1b's open review findings: must be fixed and pass both reviewers before
   `EXACT_HTTP_ASYNC` can default on** (round 4, 2026-10-12; the list is LLP 1120 §4's as-built
   notes): two blocking upload cases (concurrent sizing deadlock; a disposed upload's charge refunded
