@@ -121,12 +121,23 @@ export function observe(views, inactive = () => false) {
   };
   const page = document.scrollingElement;
   // Whether a scroller holding `el` could move it out from under `hit` (or, with none, into view): one `hit` does not
-  // move with, with room toward the side the cover is not on (`above`: the cover is above, so scrolling back reveals).
-  const reach = (el, hit, above) => {
+  // move with. The cover is the subtree beside `el` that `hit` is in (the bar, the header, the sheet), and the middle `my`
+  // clears it by landing above it (the content moves up: room toward the end of at least `my - top`) or below it (the
+  // content moves down: room back of at least `bottom - my`), within what the scroller shows of the screen: a bar along
+  // its bottom edge is cleared only upward, a header along its top only downward, and a last row that scrolls only a few
+  // points does not clear a bar taller than that (LLP 1116.012 D3; contacts, round 14: a fold row under an in-flow tab bar,
+  // with the list's whole range to scroll it up by). With no `hit` (`my` unused), `above` says the element lies above
+  // the screen: scrolling back reveals.
+  const reach = (el, hit, above, my) => {
+    let cover = null;
+    if (hit) { let c = hit; while (c.parentElement && !c.parentElement.contains(el)) c = c.parentElement; cover = c.getBoundingClientRect(); }
     for (let s = el.parentElement; s; s = s.parentElement) {
       const scroller = s === page || s === document.body ? page : scrolls(s) ? s : null;
       if (!scroller || (hit && ((scroller !== page && scroller.contains(hit) && !fixed(hit, scroller)) || (scroller === page && !fixed(hit))))) continue;
-      if (above ? scroller.scrollTop > 0.5 : scroller.scrollTop < scroller.scrollHeight - scroller.clientHeight - 0.5) return true;
+      const back = scroller.scrollTop, end = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+      if (!cover) { if (above ? back > 0.5 : end > 0.5) return true; continue; }
+      const shown = scroller === page ? { top: 0, bottom: H } : scroller.getBoundingClientRect(), top = Math.max(0, shown.top), bottom = Math.min(H, shown.bottom);
+      if ((cover.top > top + 1 && end > my - cover.top + 0.5) || (cover.bottom < bottom - 1 && back > cover.bottom - my + 0.5)) return true;
     }
     return false;
   };
@@ -235,8 +246,7 @@ export function observe(views, inactive = () => false) {
       else {
         const cx = Math.min(Math.max(b.left + b.width / 2, 1), W - 1), hit = document.elementFromPoint(cx, my);
         if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
-          const hb = hit.getBoundingClientRect();
-          if (!reach(el, hit, hb.top + hb.height / 2 < my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
+          if (!reach(el, hit, false, my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
         }
       }
       if (text && !item.cut && b.bottom - H >= 2 && b.top < H && !reach(el, null, false)) item.cut = { edge: 'bottom', dx: 0, dy: r2(b.bottom - H) };

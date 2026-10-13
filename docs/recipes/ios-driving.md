@@ -24,7 +24,7 @@ bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock set
 | --- | --- |
 | `check`, `check dark`, `check both` | What is wrong with the screen, one line each: clipped text, a control covered (a bar, the keyboard, a sheet) or overlapping, a target under 44 pt, a view past the screen's side, low contrast, a card that does not show. |
 | `--chrome platform` | UIKit's navigation bar, tab bar and sheets, as a person sees them. Without it the authored header and tablist paint instead; a `tap` or `expect` on a node the bar would not show fails. |
-| `screenshot <file> window` | The whole screen, bars included. Without `window` a sheet is captured alone, at full width. |
+| `screenshot <file> window` | The whole screen, bars included; a plain one is the window's too while an alert or sheet is up. |
 | `clock settle` | Ends a push's, sheet's or alert's transition: after opening or closing one, and before tapping inside an alert. |
 | `--timing platform`, `--touch platform` | UIKit's own transition timing (default: frozen); every tap and drag a real touch through XCTest, aimed where UIKit draws the target. |
 | `--sim <udid\|name>` (`EXACT_SIM`), `--device`, `--phone <udid\|name>` | Which simulator (several booted iPhones are refused), or a connected iPhone after `bun exact.mjs ios --device`. |
