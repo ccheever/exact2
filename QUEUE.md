@@ -788,6 +788,14 @@ sits on that list carries the trade it would take.
 
 ## Cheap, any time
 
+- **scrollend gaps on the hosts that have it** (2026-10-13; LLP 1005):
+  - Apple unbracketed moves use a 100 ms `DispatchWorkItem`; known instant commands and discrete wheel notches should complete without that quiet delay.
+  - Apple visible layout clamps can arm an end through `scrollEndMoved`; classify clamps separately from scroll operations.
+  - Apple hidden-scroller completion differs from Chrome: `take()` precedes `hasScrollLayoutBox`, so a hidden callback consumes an owed end, while hide/show before the callback can retain unfinished work; distinguish unfinished scrolling from an already queued end.
+  - Apple settlement must include unfinished scrolling and queued completions: `Agent.nativeInFlight()` does not count `ScrollEnd.owed` or its quiet work item.
+  - Web `clock settle` can return `settled: true` during smooth scrolling and before a `scrollend` handler's jump chain finishes, as measured by LLP 1005's runtime probes.
+  - Verify web lifetime parity: `rt.js` suppresses `scrollend` for a disconnected element or a gone owner but still delivers `scroll`; the `glue.js` end listener has no equivalent guard.
+  - Physical macOS momentum completion remains unqualified; verify one end after the coast with a real trackpad, as in the existing momentum entry below.
 - **`scrollend` on the Linux and Android host** (2026-10-13; web and Apple have it, LLP 1005): a
   move there ends once still for 100 ms, but the presenter's clock is not fresh when a scroll
   arrives (a wheel and the Android reader's moves carry no time), and the loops wake on the host's
