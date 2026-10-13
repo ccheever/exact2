@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 
 mod counts;
 mod miswiring;
+mod parts;
 mod roles;
 mod screens;
 mod title;
@@ -108,6 +109,8 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     }
     out.extend(screens::screen_by_state(checked));
     out.extend(counts::count_plural(checked));
+    // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
+    out.extend(parts::round_button_label(checked));
     performance_now(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     out.extend(

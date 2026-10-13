@@ -1292,3 +1292,97 @@ fn a_grouped_lists_rows_are_not_named_for_width_and_padding() {
     );
     assert_eq!(warned(&src), []);
 }
+
+const ROUND_BUTTON: &str = "lower-round-button-label";
+
+/// The warnings of an app that uses `exact:content`'s `RoundButton`, as a build prints them:
+/// `body` is the view's lines, indented, from line 8.
+fn warned_circles(name: &str, body: &str) -> Vec<(String, u32, String)> {
+    let src = format!(
+        "use RoundButton from \"exact:content\"\ncomponent App\n  state n = 0\n  state title = \"Start quiz\"\n  action go\n    n = n + 1\n  view\n    column\n{body}"
+    );
+    let dir = std::env::temp_dir().join(format!("exact-circles-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, &src).unwrap();
+    let (result, warnings) = contract::compile_path_all_warned(&path, false);
+    let _ = std::fs::remove_dir_all(&dir);
+    if let Err(e) = result {
+        panic!("a warning never fails a build: {e:?}\n{src}");
+    }
+    warnings
+        .into_iter()
+        .map(|w| (w.id.clone(), w.span.line, w.message))
+        .collect()
+}
+
+#[test]
+fn a_round_button_label_longer_than_the_circle_holds_is_named_with_its_repair() {
+    // trivia, round 13: `RoundButton(label="Start quiz")` drew "Start q…" in the 80-point
+    // circle; the warning points at the label and names the prominent button.
+    let call = |label: &str| {
+        format!(
+            "      RoundButton(label={label}, tint=none, press=go, disabled=false, testId=\"start\")\n"
+        )
+    };
+    let got = warned_circles("long", &call("\"Start quiz\""));
+    assert_eq!(
+        got.iter()
+            .map(|(id, line, _)| (id.as_str(), *line))
+            .collect::<Vec<_>>(),
+        [(ROUND_BUTTON, 9)],
+        "{got:?}"
+    );
+    assert!(
+        got[0].2.contains("the Clock's circle for a word")
+            && got[0]
+                .2
+                .contains("\"Start quiz\" is 10 characters and the 80-point circle holds about 7")
+            && got[0].2.contains("`button` with `buttonStyle=\"filled\"`"),
+        "{got:?}"
+    );
+    // One word too long for the circle: eight characters is past the seven it holds.
+    let got = warned_circles("word", &call("\"Continue\""));
+    assert!(
+        got.len() == 1
+            && got[0]
+                .2
+                .contains("\"Continue\" is 8 characters and the 80-point circle holds about 7"),
+        "{got:?}"
+    );
+    // The Clock's words, the one-screen pattern's "500 ml" (two words, six characters) and a
+    // label the app computes are the circle's to hold.
+    for label in [
+        "\"Start\"",
+        "\"Stop\"",
+        "\"Lap\"",
+        "\"Reset\"",
+        "\"Resume\"",
+        "\"Restart\"",
+        "title",
+        "`Go ${n}`",
+    ] {
+        assert_eq!(warned_circles("fine", &call(label)), [], "{label}");
+    }
+    // Every written call is named once, in a choice or a loop, at its own line.
+    let body = format!(
+        "{}      each t in [\"a\", \"b\"] key=t\n        RoundButton(label=\"Next question\", tint=none, press=go, disabled=false, testId=t)\n",
+        call("\"Play again\"")
+    );
+    let got = warned_circles("sites", &body);
+    assert_eq!(
+        got.iter()
+            .map(|(id, line, _)| (id.as_str(), *line))
+            .collect::<Vec<_>>(),
+        [(ROUND_BUTTON, 9), (ROUND_BUTTON, 11)],
+        "{got:?}"
+    );
+}
+
+#[test]
+fn an_authors_own_round_button_is_not_the_circle() {
+    // A component of the name that takes other props is not `exact:content`'s part.
+    let src = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      RoundButton(label=\"Start the quiz now\", press=go)\ncomponent RoundButton\n  props\n    label: string\n    press: action\n  view\n    button press=press\n      text label\n";
+    assert_eq!(warned(src), []);
+}

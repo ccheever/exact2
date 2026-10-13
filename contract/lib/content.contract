@@ -191,7 +191,9 @@ component Badge
 
 // A large round button, as the Clock's Start, Stop and Lap: the platform's
 // own button drawn as an 80-point circle, so its press, focus and disabled
-// look are the platform's. `tint` is its fill: `none` the neutral grey with
+// look are the platform's. It is for a word (about 7 characters fit; the
+// compiler warns past that, `lower-round-button-label`): a screen's main
+// action of more words is a `button buttonStyle="filled"`. `tint` is its fill: `none` the neutral grey with
 // the label's ink (Lap, Reset), or a colour role: the accent
 // (`some("AccentColor")`) or a state (`-exact-system-red` to stop), whose
 // white ink the platform chooses, as on any filled button. The light system

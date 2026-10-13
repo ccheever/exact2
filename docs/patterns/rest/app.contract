@@ -7,6 +7,9 @@
 // (`viewport`, `wide`, the `when wide` column), the delete (`askRemove`, `remove`, the
 // dialog, the server's DELETE), the notes (the shape's field, the sections, the server's column),
 // or the lock (the shape's `locked`, `setLock`, the badge, the switch, the server's PATCH).
+// Compose as the platform does, and keep its detail route and add sheet when trimming: a row
+// pushes its detail, create and edit are sheets, a phone gets one column and a wide window two
+// (`responsive-columns`); not a form above one long list.
 use Badge from "exact:content"
 
 routes nav

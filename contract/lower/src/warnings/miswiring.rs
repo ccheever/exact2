@@ -18,7 +18,7 @@ use crate::LowerError;
 use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
 
 /// The children of a node, through choices.
-fn arms(node: &Node) -> Vec<&[Node]> {
+pub(super) fn arms(node: &Node) -> Vec<&[Node]> {
     match node {
         Node::Element { children, .. } | Node::Use { children, .. } => vec![children],
         Node::When {
