@@ -1,5 +1,4 @@
-import {parseFlags, chromium} from '../scripts/agent-launch.mjs';
-import {layoutArgs} from '../scripts/agent-inspect.mjs';
+import {chromium} from '../scripts/agent-launch.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {createHash} from 'node:crypto';
@@ -12,7 +11,7 @@ import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan, main} from '../scripts/agent.mjs';
 
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
@@ -806,13 +805,20 @@ test('refusal advice executes as real driver CLI operations with a global JSON f
   const refusal=await tapRefusal(s,'sign',Error('no view matches sign'));
   const advised=[...refusal.message.matchAll(/`([^`]+)`/g)].map(m=>m[1]);
   expect(advised).toEqual(['layout world:sign']);
-  const source=readFileSync(new URL('../scripts/agent.mjs',import.meta.url),'utf8');
-  const body=source.slice(source.indexOf('async function main(argv)'),source.lastIndexOf('\nif (process.argv[1]'));
   const calls=[], output=[];
-  // main's free names: what agent.mjs imports and this test stands in for.
-  const cli=new Function('parseFlags','layoutArgs','open','resolve','render','console',`${body}; return main;`)(parseFlags,layoutArgs,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
-  for(const op of [...advised,'state']) expect(await cli(['web','--json',op])).toBe(0);
-  expect(calls).toEqual([['layout','world:sign'],['state']]);
+  // The real CLI (`main`), with a fake session and no app server. Captured
+  // output must parse as JSON: if `--json` were ignored, `render`'s text
+  // would reach `JSON.parse` and throw here. `driveNotes` also reads
+  // `state`, so only the layout call and the replies are pinned exactly.
+  const fakeOpen=async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}});
+  const realLog=console.log, realError=console.error;
+  console.log=x=>output.push(JSON.parse(x)); console.error=()=>{};
+  try {
+    for(const op of [...advised,'state']) expect(await main(['web','--json',op],{open:fakeOpen,driveServer:async()=>null})).toBe(0);
+  } finally { console.log=realLog; console.error=realError; }
+  expect(calls[0]).toEqual(['layout','world:sign']);
+  expect(calls).toContainEqual(['state']);
+  expect(output).toHaveLength(2);
   expect(output[1].world[0].loading).toEqual(['crate.model']);
 });
 
