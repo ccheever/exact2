@@ -222,8 +222,7 @@ public final class ExactSidebarController: NSSplitViewController {
         }
         guard on else { return }
         // The person's width, kept from a drag of the divider, over the author's and the rule's.
-        let kept = chosen ?? widthKey.flatMap { UserDefaults.standard.object(forKey: $0) as? Double }.map { CGFloat($0) }
-        let want = max(Self.listMinimum, kept ?? width ?? Self.listWidth)
+        let want = max(Self.listMinimum, chosen ?? width ?? Self.listWidth)
         guard placed != want, view.window != nil, splitView.bounds.width > 0 else { return }
         placed = want
         placing = true
@@ -233,8 +232,9 @@ public final class ExactSidebarController: NSSplitViewController {
         splitView.setPosition(start + want, ofDividerAt: listDivider)
         splitView.layoutSubtreeIfNeeded()
     }
-    /// The width the person gave the list's column in this window.
-    private var chosen: CGFloat?
+    /// The width the person gave the list's column: in this window, or
+    /// before it in the defaults, read once.
+    private lazy var chosen: CGFloat? = widthKey.flatMap { UserDefaults.standard.object(forKey: $0) as? Double }.map { CGFloat($0) }
 
     /// The person moved the divider between the list and its detail: the
     /// list's column keeps that width, here and at the next launch.

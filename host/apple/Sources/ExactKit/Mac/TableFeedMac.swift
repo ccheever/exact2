@@ -758,16 +758,18 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// The split's word on the selection (SplitMac.swift): the row whose
     /// press shows the detail beside the list is the selected one, and with
     /// no detail none is. A row that is not mounted leaves what is selected.
-    func show(selected press: UInt32?) {
+    /// True when the table shows it.
+    @discardableResult func show(selected press: UInt32?) -> Bool {
         let index = press.flatMap { id in rows.first { pressing($0)?.id == id }?.index }
-        guard press == nil || index != nil else { return }
+        guard press == nil || index != nil else { return false }
         let want = index.map { IndexSet(integer: $0) } ?? IndexSet()
-        guard table.selectedRowIndexes != want else { return }
+        guard table.selectedRowIndexes != want else { return true }
         let was = syncing
         syncing = true
         defer { syncing = was }
         table.selectRowIndexes(want, byExtendingSelection: false)
         remember(index.flatMap { row(at: $0) })
+        return true
     }
     /// A click on a row, when the mouse comes up in it: the table's action.
     /// In a hand-built table on macOS 27.0, key window, nothing a delegate

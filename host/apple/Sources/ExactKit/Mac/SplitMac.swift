@@ -181,7 +181,7 @@ final class SplitHost {
     func reset() {
         for entry in held.values { entry.route.removeFromSuperview() }
         held.removeAll(); rowOf.removeAll(); seen.removeAll(); kept.removeAll(); ended.removeAll()
-        asked = nil; shown = nil; pressing = nil; lastDetail = nil
+        asked = nil; shown = nil; pressing = nil; lastDetail = nil; selected = nil
         controller?.split(false, width: nil, empty: false)
     }
 
@@ -298,8 +298,14 @@ final class SplitHost {
         guard let table = shown.table, let feed = presenter.tables.feeds[table] else { return }
         if shown.detail == nil {
             if lastDetail != nil { feed.show(selected: nil) }
-        } else if let row = shown.row { feed.show(selected: row) }
+            selected = nil
+        } else if let row = shown.row, selected?.detail != shown.detail?.id || selected?.row != row {
+            // Told once for a detail and its row, and again until the row is mounted: not on every batch of a scroll.
+            if feed.show(selected: row) { selected = (shown.detail?.id, row) }
+        }
     }
+    /// The detail and the row the table was last told of.
+    private var selected: (detail: UInt32?, row: UInt32)?
 
     /// The person took the selection off the list's row (a Command-click on
     /// it): the pane shows nothing, so its routes go, as the stack goes back.

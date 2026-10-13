@@ -701,6 +701,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
         syncAccessibility()
         if item === backItem { return toolbar != nil && window?.toolbar === toolbar && presenter.navigation.canGoBack }
+        // An item of a toolbar that went is no node's: its Back, which each
+        // toolbar makes again, carries AppKit's own tag, and AppKit may still
+        // ask of it once (the run loop of a test's next step did).
         guard let id = UInt32(exactly: item.tag), let node = presenter.views[id], items[node.id] === item else { return false }
         return available(node)
     }
