@@ -84,8 +84,10 @@ struct SheetHeader {
         guard let rule = HeaderRule(route: route, back: back, backIsPlatforms: false, projected: true) else { return .none }
         if let tap = rule.tap { return .kept("its heading is inside a pressable (#\(tap.id)), and a sheet's title is not pressed") }
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
-        // A push button says words and presses: one that opens a menu, or shows no word, is not one.
-        let button = { (node: NodeView) in node.pressable && node.props["popovertarget"] == nil && !words(of: node).isEmpty }
+        // A push button says words and presses: one that opens a menu, shows no word or is not shown is not one.
+        let button = { (node: NodeView) in
+            node.pressable && node.props["popovertarget"] == nil && node.style["display"]?.string != "none" && !words(of: node).isEmpty
+        }
         let cancel = back.flatMap { name in rule.items.first { $0.props["id"] == name && button($0) } }
         let accented = rule.items.filter { $0 !== cancel && prominent.contains($0.face?.style ?? "") && $0.props["destructive"] != "true" }
         let confirm = accented.count == 1 && button(accented[0]) ? accented[0] : nil
@@ -346,6 +348,9 @@ extension DialogHost {
         for node in next where !node.isHidden { node.isHidden = true }
         entry.stoodFor = next
         reportRouteCovers()
+        // The sheet's window is named as its title row says, for whoever asks AppKit (VoiceOver, the Window menu).
+        let name = header?.title ?? ""
+        if sheet.window.title != name { sheet.window.title = name }
         let row = { (node: NodeView?) in node.map { (SheetHeader.words(of: $0), $0.id, !$0.disabled) } }
         let changed = chrome.show(title: header?.title, cancel: row(header?.cancel), confirm: row(header?.confirm),
                                   escapes: entry.dialog.props["closedby"] != "none")
