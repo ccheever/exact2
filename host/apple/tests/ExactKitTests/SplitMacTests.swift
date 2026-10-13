@@ -157,8 +157,9 @@ final class SplitMacTests: XCTestCase {
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
 
     private func listeningDetail() throws -> (Presenter, NSWindow, [NodeView]) {
-        let handlers = "focusin=count focusout=count keycapture=count key=count keyup=count"
+        let handlers = "focusin=heardFocus focusout=heardFocus keycapture=heardKey key=heardKey keyup=heardKey"
         let source = app(tabs: true)
+            .replacingOccurrences(of: "  action count\n", with: "  action heardFocus(event: FocusEvent)\n  action heardKey(key: string)\n  action count\n")
             .replacingOccurrences(of: "testId=\"app\"", with: "testId=\"app\" \(handlers)")
             .replacingOccurrences(of: "column role=\"tabpanel\"", with: "column role=\"tabpanel\" testId=`panel-${t.name}` \(handlers)")
             .replacingOccurrences(of: "testId=`route-book-${e.params.id}`", with: "testId=`route-book-${e.params.id}` \(handlers)")
