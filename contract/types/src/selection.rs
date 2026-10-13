@@ -47,10 +47,9 @@ pub(super) fn selection_range_args(
         .iter()
         .map(|a| infer(a, scope, shapes))
         .collect::<Result<_, _>>()?;
-    if matches!(
-        types.as_slice(),
-        [Ty::String, Ty::Number, Ty::Number] | [Ty::String, Ty::Number, Ty::Number, Ty::String]
-    ) {
+    if matches!(types.as_slice(), [id, Ty::Number, Ty::Number] if id.is_string())
+        || matches!(types.as_slice(), [id, Ty::Number, Ty::Number, direction] if id.is_string() && direction.is_string())
+    {
         return Ok(());
     }
     err(

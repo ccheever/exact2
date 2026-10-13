@@ -153,7 +153,7 @@ impl Lowerer<'_> {
         let mut inner = scope.clone();
         inner.push_each(var, index.as_deref(), item);
         match contract_types::infer(key, &inner, shapes) {
-            Ok(t) if t != Ty::String && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
+            Ok(t) if !t.is_string() && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
             _ => Ok(()),
         }
     }

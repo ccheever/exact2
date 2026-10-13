@@ -94,7 +94,9 @@ address the mutation table; no resource/mutation index overloading.
 Finite strings use `enum<"draft", "published">` in parameter and shape type positions.
 Nonempty, distinct quoted members; string values at the seam, string-literal unions
 in generated TypeScript. Literal arguments must belong to the vocabulary; dynamic
-arguments need the declared enum type. Shape answers are checked for membership on
+arguments need the declared enum type. A finite vocabulary is a subtype of string:
+ordinary string consumers accept it, including routes, localization, surface messages,
+string commands and keys; enum destinations still enforce membership. Shape answers are checked for membership on
 native and web runners. Placeholder zero is the first member. The existing plan string
 row carries members in its fields, with primitive-string field types; no new TypeKind.
 The Lean expression backend erases finite strings to strings (evaluation representation),

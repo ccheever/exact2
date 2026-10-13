@@ -169,7 +169,7 @@ pub(crate) fn compile(
                         asm.str(id);
                     }
                     TemplatePart::Expr(x) => {
-                        if compile(l, asm, x, scope, locals)? != Ty::String {
+                        if !compile(l, asm, x, scope, locals)?.is_string() {
                             asm.call(Stdlib::ToString);
                         }
                     }

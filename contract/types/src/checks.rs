@@ -769,7 +769,7 @@ fn into_view_args(
     };
     let Some(key) = key else {
         // Any string names the element, as `focus` takes one.
-        if infer(list, scope, shapes)? != Ty::String {
+        if !infer(list, scope, shapes)?.is_string() {
             return err(
                 "type-scroll-into-view",
                 format!("the element is named by its `id`, a string: {USAGE}"),
@@ -929,7 +929,7 @@ pub(super) fn check_command(
         const USAGE: &str = "`scrollBy(\"element-id\", x, y)`, pixels to move by";
         let ok = match args {
             [id, x, y] => {
-                infer(id, scope, shapes)? == Ty::String
+                infer(id, scope, shapes)?.is_string()
                     && infer(x, scope, shapes)? == Ty::Number
                     && infer(y, scope, shapes)? == Ty::Number
             }
@@ -994,7 +994,7 @@ pub(super) fn check_command(
                 span,
             );
         };
-        if !matches!(infer(text, scope, shapes)?, Ty::String) {
+        if !infer(text, scope, shapes)?.is_string() {
             return err(
                 "type-post-message",
                 format!("the message is a string: {USAGE}"),
@@ -1266,7 +1266,7 @@ fn glass_group_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, Typ
         Expr::Ternary(..) | Expr::Match { .. } => {
             let (ta, tb) = arms(e, scope, shapes, glass_group_value)?;
             let either = |a: &Ty, b: &Ty| {
-                matches!((a, b), (Ty::Number, Ty::String) | (Ty::String, Ty::Number))
+                (a == &Ty::Number && b.is_string()) || (a.is_string() && b == &Ty::Number)
             };
             match ta.unify(&tb) {
                 Some(t) => Ok(t),
@@ -1318,7 +1318,7 @@ fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError
         return infer(e, scope, shapes);
     }
     let (ta, tb) = arms(e, scope, shapes, style_value)?;
-    let dimension = |t: &Ty| matches!(t, Ty::Number | Ty::String);
+    let dimension = |t: &Ty| t == &Ty::Number || t.is_string();
     match ta.unify(&tb) {
         Some(t) => Ok(t),
         None if dimension(&ta) && dimension(&tb) => Ok(Ty::Unknown),
