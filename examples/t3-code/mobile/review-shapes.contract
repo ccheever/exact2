@@ -35,6 +35,7 @@ shape ReviewToken
 
 shape ReviewRow
   id: string
+  markerId: string
   kind: string
   path: string
   filePath: string
