@@ -175,6 +175,14 @@ final class GroupedListHost: GroupedLists {
     lazy var model: (UInt32) -> GroupedListModel? = { [unowned self] id in presenter.session?.runtime.groupedList(id) }
     init(_ presenter: Presenter) { self.presenter = presenter }
 
+    func rows(for id: UInt32) -> [[UInt32]]? {
+        #if os(iOS)
+        return model(id)?.sections.map { $0.rows.map(\.view) }
+        #else
+        return nil
+        #endif
+    }
+
     /// Before a batch: every carried row back where the presenter put it.
     func prepare() { for list in lists.values { list.restore() } }
 

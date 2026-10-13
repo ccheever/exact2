@@ -17,6 +17,8 @@ package protocol GroupedLists: AnyObject {
     func reset()
     /// The collection view a wheel on `id` scrolls.
     func scroller(for id: UInt32) -> UIScrollView?
+    /// The fresh model's rows by section, in document order.
+    func rows(for id: UInt32) -> [[UInt32]]?
     /// Whether a list draws `id` (a row, or a row's toggle or detail button).
     func draws(_ id: UInt32) -> Bool
     /// A route's screen is about to show again (a pop back to it, with the
