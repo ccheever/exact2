@@ -7,6 +7,7 @@ import { buildFileTree, flattenFileTree } from './file-tree-model';
 import { workspaceSvgSnapshot, workspaceSvgRead, workspaceSvgPrepare, workspaceSvgAction, workspaceSvgObserve, workspaceSvgConnection, type SvgVisit } from './workspace-svg';
 import { mobileNative, mobileClient } from './client';
 import { answer } from './app';
+import { filesState } from './shared/r4-surfaces-files';
 
 function fixture() {
   const client = new T3Client(); client.origin = 'https://example.test'; client.environmentId = 'env'; client.projectId = 'p'; client.generation = 1;
@@ -23,6 +24,22 @@ function fixture() {
     return { ok: true, generation: client.generation, value };
   } };
   return { client, calls, native, hook(fn: typeof hook) { hook = fn; } };
+}
+function directoryErrorFixture() {
+  const f = fixture(), entries = new Map<string, Obj[]>([
+    ['', [{ kind: 'directory', path: 'src' }, { kind: 'file', path: 'README.md' }]],
+    ['src', [{ kind: 'directory', path: 'src/nested' }, { kind: 'file', path: 'src/a.ts' }]],
+    ['src/nested', [{ kind: 'file', path: 'src/nested/b.ts' }]],
+  ]), errors = new Map<string, string>(), search = { error: '' };
+  f.hook(request => {
+    if (request.method === 'projects.listEntries') {
+      const path = String(obj(request.payload).directoryPath ?? '');
+      if (errors.has(path)) throw new Error(errors.get(path));
+      return { ok: true, generation: f.client.generation, value: { entries: entries.get(path) ?? [] } };
+    }
+    if (request.method === 'projects.searchEntries' && search.error) throw new Error(search.error);
+  });
+  return { ...f, entries, errors, search };
 }
 describe('mobile workspace files', () => {
   test('source tree expands directories without desktop compacting; path search keeps ancestors', () => {
@@ -76,6 +93,66 @@ describe('mobile workspace files', () => {
     await expect(old).rejects.toMatchObject({ kind: 'superseded' });
     expect(mobileFilesSnapshot('', f.client).query).toBe('needle');
     expect(f.calls.filter(call => call.method === 'projects.searchEntries').map(call => obj(call.payload).query)).toEqual(['needle']);
+  });
+});
+
+describe('Files directory error projection', () => {
+  test.each(['file', 'empty'] as const)('refresh hides removed directory errors with a %s root without discarding the cache', async root => {
+    const f = directoryErrorFixture(), view = await mobileFilesRead('', '', f.native, f.client);
+    await mobileFilesAction(view.owner, 'toggle', 'src', '', f.native, f.client);
+    const state = filesState(f.client), cached = state.dirs.get('src');
+    f.entries.set('', root === 'file' ? [{ kind: 'file', path: 'README.md' }] : []);
+    f.errors.set('src', 'Removed src could not reload'); f.calls.length = 0;
+    const refreshed = await mobileFilesAction(view.owner, 'refresh', '', '', f.native, f.client);
+    expect(f.calls.filter(call => call.method === 'projects.listEntries').map(call => obj(call.payload).directoryPath)).toEqual(['', 'src']);
+    expect(filesState(f.client)).toBe(state); expect(state.dirs.get('src')).toBe(cached);
+    expect(state.errors.get('src')).toBe('Removed src could not reload'); expect(state.requested.has('src')).toBe(true);
+    expect(state.expanded.has('src')).toBe(true); expect(refreshed.message).toBe('');
+    expect(refreshed.data.rows.map(row => row.path)).toEqual(root === 'file' ? ['README.md'] : []);
+    const count = f.calls.length;
+    expect(mobileFilesSnapshot('', f.client)).toEqual(refreshed.data); expect(f.calls).toHaveLength(count);
+    expect(refreshed.data.error).toBe('');
+    if (root === 'empty') expect(refreshed.data.emptyDetail).toBe('The workspace is empty.');
+  });
+  test('a loaded descendant error remains visible under a collapsed reachable ancestor', async () => {
+    const f = directoryErrorFixture(), view = await mobileFilesRead('', '', f.native, f.client);
+    await mobileFilesAction(view.owner, 'toggle', 'src', '', f.native, f.client);
+    await mobileFilesAction(view.owner, 'toggle', 'src/nested', '', f.native, f.client);
+    await mobileFilesAction(view.owner, 'toggle', 'src', '', f.native, f.client);
+    f.errors.set('src/nested', 'Nested directory unavailable');
+    const refreshed = await mobileFilesAction(view.owner, 'refresh', '', '', f.native, f.client);
+    expect(refreshed.data.rows.map(row => row.path)).toEqual(['src', 'README.md']);
+    expect(refreshed.data.rows[0]).toMatchObject({ expanded: false, loaded: true });
+    expect(refreshed.data.error).toBe('Nested directory unavailable');
+    expect(filesState(f.client).errors.get('src/nested')).toBe('Nested directory unavailable');
+  });
+  test('root and active search failures keep priority over reachable directory errors', async () => {
+    const f = directoryErrorFixture(), view = await mobileFilesRead('', '', f.native, f.client);
+    await mobileFilesAction(view.owner, 'toggle', 'src', '', f.native, f.client);
+    f.errors.set('src', 'Directory unavailable');
+    expect((await mobileFilesAction(view.owner, 'refresh', '', '', f.native, f.client)).data.error).toBe('Directory unavailable');
+    f.search.error = 'Search unavailable';
+    expect((await mobileFilesRead('needle', '', f.native, f.client)).error).toBe('Search unavailable');
+    f.errors.set('', 'Root unavailable');
+    const failed = await mobileFilesAction(view.owner, 'refresh', '', '', f.native, f.client);
+    expect(filesState(f.client).search?.error).toBe('Search unavailable');
+    expect(filesState(f.client).errors.get('src')).toBe('Directory unavailable'); expect(failed.data.error).toBe('Root unavailable');
+    const rejected = await mobileFilesAction(view.owner, 'toggle', 'missing', '', f.native, f.client);
+    expect(rejected.data.error).toBe('That directory is no longer available.');
+  });
+  test('a removed directory failure becomes visible again when its root entry reappears', async () => {
+    const f = directoryErrorFixture(), view = await mobileFilesRead('', '', f.native, f.client);
+    await mobileFilesAction(view.owner, 'toggle', 'src', '', f.native, f.client);
+    f.errors.set('src', 'src unavailable'); f.entries.set('', [{ kind: 'file', path: 'README.md' }]);
+    const removed = await mobileFilesAction(view.owner, 'refresh', '', '', f.native, f.client);
+    expect(filesState(f.client).errors.get('src')).toBe('src unavailable');
+    f.entries.set('', [{ kind: 'directory', path: 'src' }, { kind: 'file', path: 'README.md' }]);
+    const reappeared = await mobileFilesAction(view.owner, 'refresh', '', '', f.native, f.client);
+    expect(reappeared.data.rows.map(row => row.path)).toEqual(['src', 'src/nested', 'src/a.ts', 'README.md']);
+    expect(reappeared.data.error).toBe('src unavailable');
+    f.errors.delete('src');
+    expect((await mobileFilesAction(view.owner, 'refresh', '', '', f.native, f.client)).data.error).toBe('');
+    expect(removed.data.error).toBe('');
   });
 });
 
