@@ -1,85 +1,33 @@
-// @ref LLP 1115.002 D5 — stage 3a, the gate: a vertical list's rows in a
-// real, view-based `NSTableView`, fed by the runner. The runner still owns
-// which rows are mounted and layout still owns every size; the table owns
-// its cells, its selection and its keys. A cell holds the runner's own row
-// while that row is mounted and the table has a cell for it, and is empty
-// otherwise; a mounted row the table has no cell for stays where the
-// presenter put it, in the list's document under the table, at the same
-// place on the page. The table has one row for every item, mounted or not:
-// a mounted row is as tall as layout made it, and the rows between two
-// mounted ones share the room layout left for them. The table is a view
-// in the list's document, never the document itself: AppKit asks a delegate
-// for the heights of a few hundred rows around what shows and estimates the
-// rest (measured on macOS 27.0: 301 of 10,000), so a table's own length and
-// its far rows' places are AppKit's guesses. The list's extent and offset
-// stay the runner's, and the table is put where its rows that show are
-// where layout has them.
-// Nothing in an app uses this yet: `TableFeedMacTests` drives it, and stage
-// 3b (a `list` as a table) is built on what it holds.
+// @ref LLP 1115.002 D5 — a vertical list's rows in a real, view-based
+// `NSTableView`, fed by the runner. The runner still owns which rows are
+// mounted and layout still owns every size; the table owns its cells, its
+// selection and its keys. The table has one row for every item, mounted or
+// not, and is a view in the list's document, never the document itself:
+// AppKit asks a delegate for the heights of a few hundred rows around what
+// shows and estimates the rest (measured on macOS 27.0: 301 of 10,000), so
+// a table's own length and its far rows' places are AppKit's guesses. The
+// list's extent and offset stay the runner's, and the table is put where
+// its rows that show are where layout has them.
+//
+// What the feed costs a frame is what stage 3b cut (measured, D5):
+// - A mounted row goes straight into its cell and stays there until the
+//   runner destroys it. The table keeps a row view for every row of the
+//   mounted run the port is in, not only for the rows the port shows
+//   (`RunnerTableView.visibleRect`), so a row built ahead of the port is
+//   mounted once, in the slice that built it, and nothing moves when it
+//   scrolls into sight. A mounted row the table has no cell for all the same
+//   (one pinned far from the port) is in the list's document, where layout
+//   has it; correctness never rests on the table having made a view.
+// - AppKit is told a row's height when layout's differs from what the table
+//   has for that row, and at no other time. A row that is not mounted is the
+//   estimate tall, one height for the whole list, so a row that comes or
+//   goes changes no other row's height, and a list of equal rows tells
+//   AppKit nothing as it scrolls. No height is kept here for a row that is
+//   not mounted (the height index is the runner's).
+// - A row's place in its cell is arithmetic on frames, and where its text
+//   begins is read when the row or something in it moved.
 #if os(macOS)
 import AppKit
-
-/// Each item's row height in a table. Proportional to the mounted rows:
-/// no height is kept for a row that is not mounted.
-struct TableRowHeights: Equatable {
-    /// `count` rows from `first`, each `height` tall.
-    struct Run: Equatable { var first: Int, count: Int; var height: CGFloat }
-    private(set) var runs: [Run] = []
-    private(set) var count = 0
-    /// AppKit refuses a row with no height; a row layout gave none takes this.
-    static let least: CGFloat = 1
-
-    init() {}
-    /// `mounted`: each mounted row's index, its start from the first item's
-    /// start and its size, as layout has them. `extent`: every item's,
-    /// mounted or estimated. `pixel`: a device pixel, in points. The rows
-    /// between two mounted ones share the room layout left for them in
-    /// whole pixels (the first of them a pixel taller where it does not
-    /// divide), so the table's rows start on pixels as layout's do: AppKit
-    /// puts a row's view on a whole pixel whatever its row's start is.
-    init(count: Int, extent: CGFloat, pixel: CGFloat = 1, mounted: [(index: Int, start: CGFloat, size: CGFloat)]) {
-        self.count = max(0, count)
-        var next = 0, at: CGFloat = 0
-        for row in mounted.sorted(by: { $0.index < $1.index }) where row.index >= next && row.index < self.count {
-            share(first: next, count: row.index - next, room: row.start - at, pixel)
-            runs.append(Run(first: row.index, count: 1, height: max(Self.least, row.size)))
-            next = row.index + 1
-            at = row.start + row.size
-        }
-        share(first: next, count: self.count - next, room: extent - at, pixel)
-    }
-    private mutating func share(first: Int, count: Int, room: CGFloat, _ pixel: CGFloat) {
-        guard count > 0 else { return }
-        let each = max(Self.least, (room / CGFloat(count) / pixel).rounded(.down) * pixel)
-        let taller = max(0, min(count, Int(((room - each * CGFloat(count)) / pixel).rounded())))
-        if taller > 0 { runs.append(Run(first: first, count: taller, height: each + pixel)) }
-        if taller < count { runs.append(Run(first: first + taller, count: count - taller, height: each)) }
-    }
-    private func run(_ row: Int) -> Run? {
-        guard !runs.isEmpty, row >= 0, row < count else { return nil }
-        var low = 0, high = runs.count - 1
-        while low < high {
-            let middle = (low + high + 1) / 2
-            if runs[middle].first <= row { low = middle } else { high = middle - 1 }
-        }
-        return runs[low]
-    }
-    func height(_ row: Int) -> CGFloat { run(row)?.height ?? Self.least }
-    /// The rows whose height is not what `old` has for them.
-    func changed(from old: TableRowHeights) -> IndexSet {
-        guard old.count == count else { return IndexSet(integersIn: 0..<count) }
-        var out = IndexSet(), i = 0, j = 0, row = 0
-        while row < count, i < runs.count, j < old.runs.count {
-            let a = runs[i], b = old.runs[j]
-            let end = min(a.first + a.count, b.first + b.count)
-            if a.height != b.height { out.insert(integersIn: row..<end) }
-            row = end
-            if a.first + a.count == end { i += 1 }
-            if b.first + b.count == end { j += 1 }
-        }
-        return out
-    }
-}
 
 /// The table's own view for one row: around the runner's row while that row
 /// is mounted, empty otherwise.
@@ -88,6 +36,8 @@ final class TableRowCell: NSTableCellView {
     private(set) weak var row: NodeView?
     /// Where layout has the row, in the list's document.
     private(set) var kernel = NSRect.zero
+    /// The row, or something in it, moved since its text's start was read.
+    fileprivate var textMoved = true
     /// Where the row's text begins, said as a table's cell says it: AppKit
     /// starts a row's separator at the text of its cell's text field, and
     /// failing one at whatever text field it finds in the cell (measured on
@@ -104,32 +54,38 @@ final class TableRowCell: NSTableCellView {
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
 
-    /// Take `node` in, at the place layout gave it.
-    func adopt(_ node: NodeView, cell frame: NSRect) {
-        if row !== node { sendHome() }
+    /// Take `node` in. It is placed when the cell is in its row's view
+    /// (`place`): a cell the table is still making has no place yet.
+    func adopt(_ node: NodeView) {
+        if row !== node { sendHome(); textMoved = true }
         row = node
         if node.superview !== self {
             // Where the presenter has it: layout's frame, in the document.
             kernel = (node.superview as? TableRowCell)?.kernel ?? node.frame
             node.prepareToMount()
             addSubview(node)
-            feed?.moved(node)
+            feed?.moved()
+            textMoved = true
         }
-        place(cell: frame)
+        place()
     }
-    /// Layout moved or resized the row (`TableHost.frame`).
+    /// Layout moved or resized the row (`TableHost.frame`). Its size is
+    /// layout's at once, for whatever reads its bounds in the same batch;
+    /// its place in the cell waits for the feed, which knows where the
+    /// cell will be.
     func place(_ node: NodeView, kernel frame: NSRect) {
         guard node === row else { return }
         kernel = frame
-        place(cell: nil)
+        textMoved = true
+        if node.frame.size != frame.size { node.setFrameSize(frame.size) }
     }
-    /// The row where layout has it, in this cell's space. `cell`: the cell's
-    /// frame in the table, when it is not yet this view's.
-    func place(cell frame: NSRect?) {
-        guard let row, let feed, row.superview === self else { return }
-        let origin = feed.documentOrigin(ofCell: frame ?? self.frame, in: superview)
+    /// The row where layout has it, in this cell's space.
+    func place() {
+        guard let row, let feed, row.superview === self, let origin = feed.documentOrigin(of: self) else { return }
         let wanted = kernel.offsetBy(dx: -origin.x, dy: -origin.y)
-        if row.frame != wanted { row.frame = wanted }
+        if row.frame != wanted { row.frame = wanted; textMoved = true }
+        guard textMoved else { return }
+        textMoved = false
         // A label's text starts 2 points inside its frame, and the separator starts at the text.
         let text = feed.textStart(of: row).map { convert(NSPoint(x: $0.bounds.minX, y: 0), from: $0).x } ?? wanted.minX
         let said = NSRect(x: text - 2, y: 0, width: 1, height: 1)
@@ -143,7 +99,7 @@ final class TableRowCell: NSTableCellView {
         guard let feed, let home = feed.home, feed.holds(row) else { row.removeFromSuperview(); return }
         home.addSubview(row)
         row.frame = kernel
-        feed.moved(row)
+        feed.moved()
     }
 
     /// A control in the row keeps its clicks. The rest of the row is the
@@ -161,11 +117,25 @@ final class TableRowCell: NSTableCellView {
 /// down, where a stock table and SwiftUI's list select as it comes up.
 final class RunnerTableView: NSTableView {
     fileprivate weak var feed: TableFeed?
+    /// What the table keeps row views for: what shows, and with it the run
+    /// of mounted rows the port is in (`TableFeed.cover`). AppKit reads this
+    /// to decide which rows have views (measured on macOS 27.0, and in
+    /// `TableFeedMacTests`); where it does not, a mounted row with no view
+    /// is in the list's document, as before.
+    override var visibleRect: NSRect {
+        let seen = super.visibleRect
+        return feed?.cover(seen) ?? seen
+    }
     /// The table moved its rows (new rows near what shows, a new guess for
     /// the rows that do not): it goes back where layout has them.
     override func layout() {
         super.layout()
         feed?.tableLaidOut()
+    }
+    /// A row the keyboard reached is shown in the port, which is the
+    /// list's: the table's own idea of what shows is wider (`visibleRect`).
+    override func scrollRowToVisible(_ row: Int) {
+        if let feed { feed.show(row: row) } else { super.scrollRowToVisible(row) }
     }
     /// Home and End are the list's: the table's own ends are estimates.
     override func scrollToBeginningOfDocument(_ sender: Any?) { feed?.scroll(toEnd: false) }
@@ -181,15 +151,41 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// moves the selection, as SwiftUI's list of navigation links pushes.
     enum Press { case action, selection }
 
+    /// A mounted row: its item's index, the runner's view for it and that
+    /// view's authored root, where layout has it in the document, and the
+    /// table's row for it there (`top`, `height`: layout's box, with half
+    /// of any room layout left between it and a mounted neighbour).
+    struct Row {
+        let index: Int
+        let node: NodeView
+        let root: UInt32
+        var kernel = NSRect.zero
+        var top: CGFloat = 0, height: CGFloat = 0
+    }
+
     let table = RunnerTableView()
     let id: UInt32
     private weak var presenter: Presenter?
     private weak var list: NodeView?
-    private(set) var heights = TableRowHeights()
-    /// The mounted rows by item index, and each one's authored root.
-    private var mounted: [Int: NodeView] = [:]
-    private var roots: [UInt32: UInt32] = [:]
+    /// The mounted rows, by index.
+    private(set) var rows: [Row] = []
+    private var count = 0
+    /// How tall the table has a row that is not mounted: the commonest
+    /// height among the rows mounted when the table was last loaded.
+    private(set) var estimate: CGFloat = 1
+    /// AppKit refuses a row with no height; a row layout gave none takes this.
+    static let least: CGFloat = 1
+    /// For each mounted row's view, the index and height the table was last
+    /// seen to have for it: a row is looked at again only when either moved.
+    private var told: [UInt32: (index: Int, height: CGFloat)] = [:]
     private var held = Set<UInt32>()
+    /// The run of mounted rows the port is in, from its first row's top to
+    /// its last row's end in the document: the table keeps a view for each.
+    private var covered: ClosedRange<CGFloat>?
+    /// What the last sync read: nothing is done again for a batch that
+    /// changed none of it.
+    private var stamp: [UInt64] = []
+    fileprivate var dirty = true
     /// The selected item's key while its row is mounted: the selection
     /// follows the item when rows before it come and go.
     private(set) var selectedKey: String?
@@ -199,8 +195,8 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var reveal: Int?
     private var syncing = false, aligning = false
     var press = Press.action
-    /// Rows moved between the document and a cell, and the table's rows
-    /// told of a new height, since the feed began (the tests, the measures).
+    /// Rows moved into a cell or out of one, and the table's rows told of a
+    /// new height, since the feed began (the tests, the measures).
     private(set) var moves = 0, noted = 0
     private static let column = NSUserInterfaceItemIdentifier("exact.row")
 
@@ -235,13 +231,22 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// The list's document: where the presenter keeps the rows.
     var home: NSView? { list?.scroll?.documentView }
     func holds(_ node: NodeView) -> Bool { presenter?.views[node.id] === node && held.contains(node.id) }
-    fileprivate func moved(_ node: NodeView) { moves += 1 }
+    fileprivate func moved() { moves += 1 }
+    /// The table's row views now (the tests, the measures).
+    var rowViews: Int {
+        var n = 0
+        table.enumerateAvailableRowViews { _, _ in n += 1 }
+        return n
+    }
 
-    /// A cell's origin in the document, from its frame in `parent` (its row
-    /// view; the table itself for a cell not yet in one).
-    fileprivate func documentOrigin(ofCell frame: NSRect, in parent: NSView?) -> NSPoint {
-        guard let home else { return frame.origin }
-        return home.convert(frame.origin, from: parent ?? table)
+    /// A cell's origin in the document. A row's view is the table's own
+    /// subview and the table the document's, none of them scaled or
+    /// scrolled, so it is their origins added; nil for a cell in no row yet.
+    fileprivate func documentOrigin(of cell: TableRowCell) -> NSPoint? {
+        guard let rowView = cell.superview, let home else { return nil }
+        guard rowView.superview === table, table.superview === home else { return home.convert(cell.frame.origin, from: rowView) }
+        let at = table.frame.origin, row = rowView.frame.origin, own = cell.frame.origin
+        return NSPoint(x: at.x + row.x + own.x, y: at.y + row.y + own.y)
     }
 
     /// The row's first paragraph, in the order it is written.
@@ -259,7 +264,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// root's own press is the row's, and so the table's.
     fileprivate func keepsClick(_ hit: NSView, in cell: TableRowCell) -> Bool {
         guard let row = cell.row else { return false }
-        let root = roots[row.id]
+        let root = self.row(of: row)?.root
         var view: NSView? = hit
         while let current = view, current !== cell {
             if let node = current as? NodeView {
@@ -275,87 +280,179 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: The runner's rows
 
+    /// The mounted row for an item, if it has one.
+    func row(at index: Int) -> Row? {
+        var low = 0, high = rows.count - 1
+        while low <= high {
+            let middle = (low + high) / 2
+            if rows[middle].index == index { return rows[middle] }
+            if rows[middle].index < index { low = middle + 1 } else { high = middle - 1 }
+        }
+        return nil
+    }
+    private func row(of node: NodeView) -> Row? { rows.first { $0.node === node } }
+    /// Whether `node` is one of this list's rows as the runner has them in
+    /// the batch being applied: the feed mounts it, not the presenter.
+    fileprivate func expects(_ node: NodeView) -> Bool {
+        presenter?.collections.entries[id]?.snapshot.rows.contains { $0.view == node.id } == true
+    }
+    private func kernel(_ node: NodeView) -> NSRect { (node.superview as? TableRowCell)?.kernel ?? node.frame }
+
     /// After a batch's ops and before the list's offset is corrected: the
     /// table's row count and heights from layout, the table where layout
     /// has the rows, and each mounted row in the cell the table has for it.
     func sync() {
         guard let presenter, let list, presenter.views[id] === list, let entry = presenter.collections.entries[id] else { return }
-        let snapshot = entry.snapshot, content = list.contentBox()
-        var rows: [(index: Int, start: CGFloat, size: CGFloat)] = []
-        var mounted: [Int: NodeView] = [:], roots: [UInt32: UInt32] = [:]
-        for row in snapshot.rows where row.index >= 0 {
+        let snapshot = entry.snapshot
+        let pixel = 1 / (table.window?.backingScaleFactor ?? 1)
+        let port = list.scroll?.contentView.bounds ?? .zero
+        // A batch that changed no row, no frame of one and nothing of the port's width leaves the table as it is.
+        let now = [snapshot.revision, UInt64(snapshot.count), UInt64(snapshot.rows.count), snapshot.extent.bitPattern, Double(port.width).bitPattern, Double(pixel).bitPattern]
+        guard dirty || now != stamp || table.superview !== home else { return }
+        stamp = now
+        dirty = false
+
+        var next: [Row] = []
+        next.reserveCapacity(snapshot.rows.count)
+        var ordered = true
+        for row in snapshot.rows where row.index >= 0 && row.index < snapshot.count {
             guard let node = presenter.views[row.view] else { continue }
-            let frame = (node.superview as? TableRowCell)?.kernel ?? node.frame
-            rows.append((row.index, frame.minY - content.minY, frame.height))
-            mounted[row.index] = node
-            roots[row.view] = row.root
+            if let last = next.last, last.index >= row.index { ordered = false }
+            next.append(Row(index: row.index, node: node, root: row.root, kernel: kernel(node)))
         }
-        let next = TableRowHeights(count: snapshot.count, extent: CGFloat(snapshot.extent), pixel: 1 / (table.window?.backingScaleFactor ?? 1), mounted: rows)
-        let recount = next.count != heights.count
-        let changed = recount ? IndexSet() : next.changed(from: heights)
+        if !ordered { next.sort { $0.index < $1.index } }
+        // The table's row for each: layout's box, and half the room layout
+        // left between two mounted neighbours (a gap, a margin) in whole
+        // pixels, so a list with room between its rows still tiles.
+        for i in next.indices {
+            var top = next[i].kernel.minY, end = next[i].kernel.maxY
+            if i > 0, next[i - 1].index == next[i].index - 1 { top = next[i - 1].top + next[i - 1].height }
+            if i + 1 < next.count, next[i + 1].index == next[i].index + 1 {
+                let room = next[i + 1].kernel.minY - end
+                end += room > 0 ? (room / 2 / pixel).rounded(.down) * pixel : room
+            }
+            next[i].top = top
+            next[i].height = max(Self.least, end - top)
+        }
+        rows = next
+        held = Set(next.map(\.node.id))
+
+        let recount = snapshot.count != count
+        if recount {
+            // The items changed: every row is asked again, and the estimate is the commonest height now.
+            count = snapshot.count
+            var seen: [CGFloat: Int] = [:]
+            for row in next { seen[row.height, default: 0] += 1 }
+            estimate = seen.max { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) }?.key
+                ?? max(Self.least, (CGFloat(snapshot.extent) / CGFloat(max(1, snapshot.count)) / pixel).rounded() * pixel)
+            told.removeAll(keepingCapacity: true)
+        }
         // A row selected before it was made is its item's from now on.
-        if selectedKey == nil, let node = mounted[table.selectedRow] { selectedKey = node.props["listItemKey"] }
+        if selectedKey == nil, let row = row(at: table.selectedRow) { selectedKey = row.node.props["listItemKey"] }
         // The selected item, wherever its row is now.
-        let selected = selectedKey.flatMap { key in mounted.first { $0.value.props["listItemKey"] == key }?.key }
-        heights = next
-        self.mounted = mounted
-        self.roots = roots
-        held = Set(mounted.values.map(\.id))
+        let selected = selectedKey.flatMap { key in next.first { $0.node.props["listItemKey"] == key }?.index }
+
         syncing = true
         defer { syncing = false }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            context.allowsImplicitAnimation = false
-            if recount {
-                table.reloadData()
-                noted += next.count
-            } else if !changed.isEmpty {
-                table.noteHeightOfRows(withIndexesChanged: changed)
-                noted += changed.count
-            }
-            if let selected, table.selectedRow != selected { table.selectRowIndexes([selected], byExtendingSelection: false) }
-            align()
-            table.layoutSubtreeIfNeeded()
-            fill()
+        if recount {
+            still { table.reloadData() }
+            noted += count
         }
+        // The rows whose height the table does not have as layout does.
+        var changed = IndexSet(), seenNow: [UInt32: (index: Int, height: CGFloat)] = [:]
+        seenNow.reserveCapacity(next.count)
+        for row in next {
+            if let was = told[row.node.id], was.index == row.index, was.height == row.height { seenNow[row.node.id] = was; continue }
+            if table.rect(ofRow: row.index).height != row.height { changed.insert(row.index) }
+            seenNow[row.node.id] = (row.index, row.height)
+        }
+        told = seenNow
+        if !changed.isEmpty {
+            still { table.noteHeightOfRows(withIndexesChanged: changed) }
+            noted += changed.count
+        }
+        if let selected, table.selectedRow != selected { table.selectRowIndexes([selected], byExtendingSelection: false) }
+        // The run of mounted rows the port is in: the table keeps a view for each of them.
+        let anchor = anchor(port)
+        var cover: ClosedRange<CGFloat>?
+        if let anchor {
+            var first = anchor, last = anchor
+            while first > 0, next[first - 1].index == next[first].index - 1 { first -= 1 }
+            while last + 1 < next.count, next[last + 1].index == next[last].index + 1 { last += 1 }
+            cover = next[first].top...max(next[first].top, next[last].top + next[last].height)
+        }
+        if cover != covered { covered = cover; table.needsLayout = true }
+        align(port, anchor)
+        table.layoutSubtreeIfNeeded()
+        // AppKit's layout may have guessed the far rows again and moved the near ones with them.
+        align(port, anchor)
+        fill()
         // After the batch, never inside it: moving the port tells the runner.
-        if let row = reveal, mounted[row] != nil {
+        if let row = reveal, self.row(at: row) != nil {
             reveal = nil
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.table.selectedRow == row, self.mounted[row] != nil else { return }
-                self.table.scrollRowToVisible(row)
+                guard let self, self.table.selectedRow == row, self.row(at: row) != nil else { return }
+                self.show(row: row)
             }
         }
     }
 
+    /// AppKit animates a table's rows to a new height or count inside
+    /// whatever animation is running; the feed's changes are layout's, at once.
+    private func still(_ body: () -> Void) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            body()
+        }
+    }
+
+    /// The first mounted row that shows, else any: float error in a long
+    /// list's offsets then lands in rows nobody sees.
+    private func anchor(_ port: NSRect) -> Int? {
+        guard !rows.isEmpty else { return nil }
+        var low = 0, high = rows.count - 1
+        // Rows are in index order, and a vertical list's rows go down it.
+        while low < high {
+            let middle = (low + high) / 2
+            if rows[middle].top + rows[middle].height > port.minY { high = middle } else { low = middle + 1 }
+        }
+        return rows[low].top + rows[low].height > port.minY ? low : 0
+    }
+
     /// The table where its rows are where layout has them: a mounted row's
     /// place in the table, under the table's own insets, is layout's.
-    private func align() {
+    private func align(_ port: NSRect, _ anchor: Int?) {
         guard let list, let home, !aligning else { return }
         aligning = true
         defer { aligning = false }
         if table.superview !== home { home.addSubview(table, positioned: .below, relativeTo: nil) }
         // As wide as the port: a row that overflows widens the document, not the table.
-        let port = list.scroll?.contentView.bounds ?? .zero
         if table.frame.width != port.width {
             table.setFrameSize(NSSize(width: port.width, height: table.frame.height))
             // The one column fills it: a row is hit only inside its cell.
             table.sizeLastColumnToFit()
         }
-        // The first mounted row that shows, else any: float error in a long
-        // list's offsets then lands in rows nobody sees.
-        let shown = mounted.filter { kernel($0.value).maxY > port.minY }.min { $0.key < $1.key } ?? mounted.min { $0.key < $1.key }
         let y: CGFloat
         // Its view's place where it has one: AppKit rounds that to a pixel.
-        if let shown { y = kernel(shown.value).minY - (table.rowView(atRow: shown.key, makeIfNecessary: false)?.frame.minY ?? table.rect(ofRow: shown.key).minY) }
-        else { y = list.contentBox().minY - (table.numberOfRows > 0 ? table.rect(ofRow: 0).minY : 0) }
+        if let anchor, anchor < rows.count {
+            let row = rows[anchor]
+            y = row.top - (table.rowView(atRow: row.index, makeIfNecessary: false)?.frame.minY ?? table.rect(ofRow: row.index).minY)
+        } else { y = list.contentBox().minY - (table.numberOfRows > 0 ? table.rect(ofRow: 0).minY : 0) }
         if table.frame.origin != NSPoint(x: 0, y: y) { table.setFrameOrigin(NSPoint(x: 0, y: y)) }
     }
-    private func kernel(_ node: NodeView) -> NSRect { (node.superview as? TableRowCell)?.kernel ?? node.frame }
     fileprivate func tableLaidOut() {
         guard !syncing, !aligning else { return }
-        align()
-        table.enumerateAvailableRowViews { view, _ in (view.view(atColumn: 0) as? TableRowCell)?.place(cell: nil) }
+        let port = list?.scroll?.contentView.bounds ?? .zero
+        align(port, anchor(port))
+        table.enumerateAvailableRowViews { view, _ in (view.view(atColumn: 0) as? TableRowCell)?.place() }
+    }
+    /// What the table is to keep row views for, given what shows of it:
+    /// that, and the mounted run the port is in when it reaches what shows.
+    fileprivate func cover(_ seen: NSRect) -> NSRect {
+        guard let covered, !seen.isEmpty, table.superview != nil else { return seen }
+        let run = NSRect(x: seen.minX, y: covered.lowerBound - table.frame.minY, width: seen.width, height: covered.upperBound - covered.lowerBound)
+        return run.intersects(seen) ? run.union(seen) : seen
     }
     /// The list's start or its end, as the runner has them.
     fileprivate func scroll(toEnd: Bool) {
@@ -364,25 +461,64 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: toEnd ? max(0, home.frame.height - clip.bounds.height) : 0))
         scroll.reflectScrolledClipView(clip)
     }
+    /// The port moved the least that shows `row` whole; the list's first
+    /// row with the padding before it, its last with the padding after.
+    fileprivate func show(row: Int) {
+        guard row >= 0, row < count, let scroll = list?.scroll, let home else { return }
+        let clip = scroll.contentView, port = clip.bounds
+        let span = span(ofRow: row)
+        let end = max(0, home.frame.height - port.height)
+        var y = port.minY
+        if row == 0 { y = 0 } else if row == count - 1 { y = end }
+        else if span.lowerBound < port.minY { y = span.lowerBound } else if span.upperBound > port.maxY { y = span.upperBound - port.height }
+        y = max(0, min(end, y))
+        guard y != port.minY else { return }
+        clip.scroll(to: NSPoint(x: port.minX, y: y))
+        scroll.reflectScrolledClipView(clip)
+    }
+    /// Where a row is down the document: layout's place for a mounted row.
+    /// For any other, its share of the room the runner's extent leaves
+    /// around the mounted rows, which is where the list's own scroller has
+    /// it; the table's place for such a row is AppKit's guess from the
+    /// estimate, and the table is no longer than its rows' estimates.
+    private func span(ofRow row: Int) -> ClosedRange<CGFloat> {
+        if let mounted = self.row(at: row) { return mounted.top...(mounted.top + mounted.height) }
+        let content = list?.contentBox().minY ?? 0
+        let extent = content + CGFloat(presenter?.collections.entries[id]?.snapshot.extent ?? 0)
+        var before: Row?, after: Row?
+        for mounted in rows { if mounted.index < row { before = mounted } else { after = mounted; break } }
+        let from = before.map { $0.top + $0.height } ?? content, first = (before?.index ?? -1) + 1
+        let to = after?.top ?? extent, last = after?.index ?? count
+        let each = max(0, to - from) / CGFloat(max(1, last - first))
+        let top = from + CGFloat(row - first) * each
+        return top...(top + each)
+    }
 
-    /// Each cell the table has holds the row mounted for its item, or nothing.
+    /// Each cell the table has holds the row mounted for its item, or
+    /// nothing; a mounted row the table has no cell for is in the document.
     private func fill() {
-        table.enumerateAvailableRowViews { view, row in
+        table.enumerateAvailableRowViews { view, index in
             guard let cell = view.view(atColumn: 0) as? TableRowCell else { return }
-            if let node = mounted[row] { cell.adopt(node, cell: cell.frame) } else { cell.sendHome() }
+            if let row = self.row(at: index) { cell.adopt(row.node) } else { cell.sendHome() }
+        }
+        guard let home else { return }
+        for row in rows where !(row.node.superview is TableRowCell) && row.node.superview !== home {
+            row.node.prepareToMount()
+            home.addSubview(row.node)
+            moves += 1
         }
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { heights.count }
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { heights.height(row) }
+    func numberOfRows(in tableView: NSTableView) -> Int { count }
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { self.row(at: row)?.height ?? estimate }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: Self.column, owner: nil) as? TableRowCell ?? TableRowCell(feed: self)
         cell.identifier = Self.column
-        if let node = mounted[row] { cell.adopt(node, cell: tableView.frameOfCell(atColumn: 0, row: row)) } else { cell.sendHome() }
+        if let mounted = self.row(at: row) { cell.adopt(mounted.node) } else { cell.sendHome() }
         return cell
     }
     func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
-        (rowView.view(atColumn: 0) as? TableRowCell)?.place(cell: nil)
+        (rowView.view(atColumn: 0) as? TableRowCell)?.place()
     }
     /// The table let a row's view go: the runner's row, if it is still
     /// mounted, stays in the document.
@@ -395,25 +531,26 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// A mounted row's text, for the table's type-select. A row that is not
     /// mounted has none here: the runner has its item, not the host.
     func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
-        mounted[row].map(\.accessibleName).flatMap { $0.isEmpty ? nil : $0 }
+        self.row(at: row).map(\.node.accessibleName).flatMap { $0.isEmpty ? nil : $0 }
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !syncing else { return }
-        let row = table.selectedRow
-        selectedKey = mounted[row]?.props["listItemKey"]
-        reveal = row >= 0 && mounted[row] == nil ? row : nil
+        let row = table.selectedRow, mounted = self.row(at: row)
+        selectedKey = mounted?.node.props["listItemKey"]
+        reveal = row >= 0 && mounted == nil ? row : nil
         if press == .selection, NSApp.currentEvent?.type == .keyDown { pressRow(row) }
     }
     @objc private func clicked() { pressRow(table.clickedRow) }
     /// The press of the row's authored root, as a click on it was.
     func pressRow(_ row: Int) {
-        guard let node = mounted[row], let root = roots[node.id], let target = presenter?.views[root], target.pressable, !target.disabled, !target.inert else { return }
+        guard let root = self.row(at: row)?.root, let target = presenter?.views[root], target.pressable, !target.disabled, !target.inert else { return }
         presenter?.press(root)
     }
 
     /// The table leaves the list: every row back in the document.
     func remove() {
         table.enumerateAvailableRowViews { view, _ in (view.view(atColumn: 0) as? TableRowCell)?.sendHome() }
+        if let home { for row in rows where row.node.superview == nil && holds(row.node) { home.addSubview(row.node) } }
         table.dataSource = nil
         table.delegate = nil
         table.removeFromSuperview()
@@ -439,14 +576,35 @@ final class TableHost {
     /// Give the list back its rows as the presenter lays them out.
     func release(_ list: NodeView) { feeds.removeValue(forKey: list.id)?.remove() }
 
-    /// Whether `node` is a row in a table's cell: a `children` op of its
-    /// list leaves it there.
-    func owns(_ node: NodeView) -> Bool { node.superview is TableRowCell }
-    /// A row in a cell takes layout's frame in the cell's space.
-    func frame(_ node: NodeView, _ frame: NSRect) -> Bool {
-        guard let cell = node.superview as? TableRowCell else { return false }
-        cell.place(node, kernel: frame)
+    /// Whether the feed mounts `node`, a child the list's `children` op
+    /// names: a row already in a table's cell stays there, and a row the
+    /// runner has just made, in no view yet, goes straight into the cell the
+    /// table has for it when the batch's ops are done (`sync`).
+    func owns(_ node: NodeView, in list: UInt32) -> Bool {
+        if node.superview is TableRowCell { return true }
+        guard node.superview == nil, let feed = feeds[list], feed.expects(node) else { return false }
+        feed.dirty = true
         return true
+    }
+    /// A row in a cell takes layout's frame in the cell's space. Any other
+    /// frame while a table shows may be a row's the presenter has, or of
+    /// something in a row (where its text begins may have moved).
+    func frame(_ node: NodeView, _ frame: NSRect) -> Bool {
+        guard !feeds.isEmpty else { return false }
+        if let cell = node.superview as? TableRowCell {
+            cell.place(node, kernel: frame)
+            for feed in feeds.values { feed.dirty = true }
+            return true
+        }
+        var above = node.superview, hops = 0
+        while let view = above, hops < 24 {
+            if let cell = view as? TableRowCell { cell.textMoved = true; break }
+            if view is NSTableView { break }
+            above = view.superview
+            hops += 1
+        }
+        for feed in feeds.values { feed.dirty = true }
+        return false
     }
     /// After a batch's ops (`Presenter.apply`).
     func sync() {
