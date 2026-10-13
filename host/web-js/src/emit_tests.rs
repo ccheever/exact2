@@ -2,6 +2,29 @@
 use exact_runner::{DataError, DataSource, Value};
 
 #[test]
+fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization() {
+    for event in ["reachstart", "reachend"] {
+        let source = format!("component App\n  state disabled = false\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 {event}=more\n      for x in [1, 2] key=x\n        text `${{x}}`\n");
+        let mut plan = contract::compile(&source).unwrap();
+        crate::emit::emit(&plan, false, false).unwrap();
+        let disabled = plan.slots[0].init;
+        let binding = plan
+            .bindings
+            .iter_mut()
+            .find(|b| {
+                b.kind == exact_plan::BindingKind::Prop
+                    && b.id == exact_kernel::PropId::Virtualized as u16
+            })
+            .unwrap();
+        binding.expr = disabled;
+        let error = crate::emit::emit(&plan, false, false)
+            .err()
+            .expect("non-collection edge");
+        assert_eq!(error, contract::collection_edge_refusal(event));
+    }
+}
+
+#[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(
         "component App\n  view\n    iframe src=\"app:/data/doc.pdf\" sandbox=\"allow-scripts\"\n",

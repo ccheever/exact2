@@ -33,14 +33,40 @@ test "they stack on a phone"
   expect tree has "column-done"
 ```
 
-- `flex="1 1 280px"` on each column of a `flex-wrap="wrap"` row: as many 280-point
-  columns as fit share the width, and a phone shows one per line. A grid does the same:
-  `display="grid" grid-template-columns="repeat(auto-fill, minmax(280px, 1fr))"`.
-- To choose a different layout, not just a different wrap, read the window:
-  `resource viewport = exactViewport() as shape Viewport` (`width: number`) and
-  `if viewport.width >= 720`. A list and its detail side by side when wide, pushed on
-  a phone, needs none of this: its rows draw the `forward-chevron` (`pattern list-detail`).
+- `flex="1 1 280px"`: as many 280-point columns as fit share the width; a phone
+  shows one per line. For a different layout, read the `exactViewport` resource's `width`.
+- A list beside its detail when wide, pushed on a phone: `pattern list-detail`.
 - A horizontal board on a phone is a `scroll overflow-x="scroll"` of fixed-width
   columns instead; never three columns squeezed into a third of a phone each.
 - Look at both sizes: `agent web --size 390x844 "screenshot .exact/phone.png"` and
   `--size 1000x700`. A test's `size` line does the same.
+
+## Paging columns
+
+A masonry has no virtualized collection edges: `reachstart` and `reachend` are
+refused. Put one `intersect=` marker after the columns, inside their scroller:
+
+```contract
+component Feed
+  state cards = [0, 1, 2]
+  action loadMore(entry: IntersectionObserverEntry)
+    if entry.isIntersecting and length(cards) < 12
+      let next = length(cards)
+      cards = concat(cards, [next, next + 1, next + 2])
+  view
+    scroll height="100%" testId="feed"
+      row align-items="flex-start" gap=16
+        for col in [0, 1, 2] key=col
+          column flex=1 min-width=0 gap=8
+            for card in filter(cards, n => n % 3 == col) key=card
+              text `Card ${card + 1}` padding=16 testId=`card-${card}`
+      if length(cards) < 12
+        for boundary in [length(cards)] key=boundary
+          view intersect=loadMore intersect-margin="0px 0px 800px 0px"
+            height=1 testId="load-more"
+```
+
+Ignore leave notifications; remount the keyed marker after appending to fill a
+short page. Remove it at the end. A server feed also guards against a pending
+request and changes the key only after appending its answer.
+[Delivery rules](../reference.md#intersection-visibility).

@@ -934,13 +934,6 @@ impl<'a> Lowerer<'a> {
                 );
             }
         }
-        if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
-            return err(
-                "lower-attr-tag",
-                format!("`{}` belongs to `list`", a.name),
-                a.span,
-            );
-        }
         match target {
             tags::AttrTarget::Shorthand => self.bind_shorthand(a, scope, locals, font, bindings)?,
             tags::AttrTarget::Flex => {

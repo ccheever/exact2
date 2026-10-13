@@ -1429,6 +1429,26 @@ resizing and Linux headless presenter resizing do not measure physical refresh.
 
 ### Intersection visibility
 
+`reachstart` and `reachend` belong only to `list virtualized=true` with one
+direct `each` (LLP 1010). Only a non-empty collection has edges: its geometric
+window reaches the first or last supplied row. An empty collection fires neither
+event. A plain list lays out all its children and has no collection window;
+the Contract compiler refuses either handler there, on every target.
+
+For a plain feed or masonry, use `intersect=` on a marker at the end of the
+content, after the columns, inside the same scroller:
+
+```text
+view intersect=loadMore intersect-margin="0px 0px 800px 0px"
+  height=1
+```
+
+`loadMore(entry: IntersectionObserverEntry)` should load only when
+`entry.isIntersecting` is true, a next page exists, and no request is pending.
+The bottom margin starts loading up to 800px before the marker enters the
+scrollport. This observes the marker, not the last row of each column.
+See [paging columns](recipes/responsive-columns.md#paging-columns) for a complete example.
+
 `intersect=action` on a node offers a final `IntersectionObserverEntry` record
 (`isIntersecting: bool`, `intersectionRatio: number`) after authored arguments.
 The nearest ancestor scroll container is the root, otherwise the viewport;

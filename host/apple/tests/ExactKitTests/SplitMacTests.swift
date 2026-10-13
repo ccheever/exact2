@@ -156,6 +156,24 @@ final class SplitMacTests: XCTestCase {
     }
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
 
+    func testAnUnsplitStackClosesADetailPaneRestoredByAppKit() throws {
+        let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
+        try press("tab-stats")
+        let view = ExactView(session: session)
+        let columns = compose(view, width: 1100, sidebar: true)
+        let window = try XCTUnwrap(self.window), detail = try XCTUnwrap(columns.splitViewItems.last)
+        XCTAssertFalse(session.presenter.navigation.split.active)
+        XCTAssertFalse(columns.splits)
+        // AppKit can restore a divider after the controller's initial collapse.
+        detail.isCollapsed = false
+        window.layoutIfNeeded()
+        session.presenter.navigation.split.sync()
+        window.layoutIfNeeded()
+        XCTAssertTrue(detail.isCollapsed)
+        XCTAssertFalse(columns.splits)
+        XCTAssertEqual(view.frame.width, window.contentView!.bounds.width - columns.sidebarWidth - columns.splitView.dividerThickness, accuracy: 1)
+    }
+
     private func listeningDetail() throws -> (Presenter, NSWindow, [NodeView]) {
         let handlers = "focusin=heardFocus focusout=heardFocus keycapture=heardKey key=heardKey keyup=heardKey"
         let source = app(tabs: true)
