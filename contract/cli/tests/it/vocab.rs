@@ -529,13 +529,13 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     assert_eq!(json["part"]["props"][1], "status: string");
 }
 
-/// LLP 1116.010 D1: `contract vocab` with no name is the card, at most 8 KB,
+/// LLP 1116.010 D1: `contract vocab` with no name is the card, at most 12 KB (LLP 1116.011 D1 added the how-to),
 /// with every function, the tags, each part's call, the test steps, the agent's
 /// operations and the rules builders grepped for; `--all` is the full listing.
 #[test]
 fn no_name_prints_the_card_and_all_prints_every_table() {
     let card = stdout(&vocab(&[]));
-    assert!(card.len() <= 8 * 1024, "the card is {} bytes", card.len());
+    assert!(card.len() <= 12 * 1024, "the card is {} bytes", card.len());
     for want in [
         "functions: call -> result",
         "parseNumber(text) -> option<number>",
