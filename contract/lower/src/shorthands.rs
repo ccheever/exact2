@@ -175,7 +175,12 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
                 )
                 .is_err()
             {
-                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths, `-exact-hairline` or thin/medium/thick{}", crate::values::role_hint(word).unwrap_or_default()), span);
+                // @ref LLP 1116.014 D1 — a role meant is named first.
+                if let Some(edit) = crate::edits::role_hint(word, true) {
+                    let edit = edit.shifted(text.find(word).unwrap_or(0));
+                    return err("lower-css-shorthand", edit.lead(name, text), span);
+                }
+                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths, `-exact-hairline` or thin/medium/thick"), span);
             }
             if color.replace(word.into()).is_some() {
                 return err(
@@ -399,7 +404,7 @@ fn decoration(text: &str, span: Span) -> Result<String, LowerError> {
             "line-through" if !strike && !none => strike = true,
             "solid" | "currentcolor" | "auto" => {},
             "underline-line-through" => return err("lower-css-shorthand", "`underline-line-through` is spelled `underline line-through`, CSS's two keywords (LLP 1081)", span),
-            _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness{}", crate::values::role_hint(word).unwrap_or_default()), span),
+            _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness{}", crate::edits::role_hint(word, false).map(|e| format!("; {}", e.clause())).unwrap_or_default()), span),
         }
     }
     match (underline, strike) {
