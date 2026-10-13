@@ -40,6 +40,8 @@ final class NavigationHost {
     var keptSheets: [UInt32: String] = [:]
     /// A batch that can have changed a header came since the sheets last showed theirs.
     var sheetsRead = false
+    /// @ref LLP 1115.002 D4 — the selected stack as a list beside its detail (SplitMac.swift).
+    private(set) lazy var split = SplitHost(presenter)
     /// The modal route the root shows painted in the window, on its ground.
     var paintedModal: NodeView? {
         guard let selection, selection.at > 0, selection.stack.indices.contains(selection.at), let route = presenter.views[selection.stack[selection.at]],
@@ -51,10 +53,10 @@ final class NavigationHost {
     /// LLP 1080.001 D3: a modal route's ground is this host's view.
     func inspectionOwns(_ view: NSView) -> Bool { view is ModalGround }
     /// The page's ground changed colour: the grounds are painted again.
-    func groundChanged() { for ground in grounds.values { ground.needsDisplay = true } }
+    func groundChanged() { for ground in grounds.values { ground.needsDisplay = true }; split.groundChanged() }
     func reset() {
         refused.removeAll(); gates.removeAll(); panels.removeAll(); shown.removeAll(); selection = nil; barRoute = false; root = nil
-        sheets = []; keptSheets.removeAll()
+        sheets = []; keptSheets.removeAll(); split.reset()
         for ground in grounds.values { ground.removeFromSuperview() }
         grounds.removeAll()
     }
@@ -82,6 +84,8 @@ final class NavigationHost {
     func sync(_ batch: Batch, reparented: Set<UInt32> = [], concerned: Bool? = nil) {
         var touched = Set<UInt32>()
         var subtrees = reparented
+        // Read again with no batch (`resync`): the split's rule is asked again too.
+        let resynced = concerned != nil
         // Whether a header can have changed: what the window's bar reads again for.
         let concerned = concerned ?? presenter.toolbar.concerns(batch)
         if concerned { sheetsRead = true }
@@ -136,9 +140,10 @@ final class NavigationHost {
             }
             if nav === roots.first {
                 if let at = found, stacks.indices.contains(at) {
-                    let routes = stacks[at]
-                    sheeted = sheetRoutes(routes, selected: routes.firstIndex { $0.props["navigationKey"] == key } ?? 0, root: nav, concerned: concerned)
-                }
+                    let routes = stacks[at], selected = routes.firstIndex { $0.props["navigationKey"] == key } ?? 0
+                    sheeted = sheetRoutes(routes, selected: selected, root: nav, concerned: concerned)
+                    split.read(root: nav, routes: routes, selected: selected, batch: resynced ? nil : batch)
+                } else { split.readNone() }
                 sheets = sheeted
             }
             for routes in stacks { ground(routes, grounded: &grounded) }
@@ -161,15 +166,22 @@ final class NavigationHost {
                 let modal = routes.indices.contains(selected) && routes[selected].props["navigationPresentation"] == "modal"
                 // The lowest route in a sheet: it and the sheets on it are shown, and the route they stand over.
                 let lowest = stack == at && nav === roots.first ? sheeted.first.flatMap { low in routes.firstIndex { $0 === low.route } } : nil
+                // A stack that splits (D4) shows its list and the route its pane shows, and the list stays live beside its detail.
+                let splits = stack == at && nav === roots.first && split.active, beside = splits ? split.shown?.detail : nil
+                let covered = routes.indices.contains(selected) && ["modal", "fullscreen"].contains(routes[selected].props["navigationPresentation"] ?? "")
                 for (index, route) in routes.enumerated() {
                     let under = lowest.map { index >= $0 - 1 && index <= selected } ?? false
                     // A route still in its sheet is shown until the sheet has gone (`DialogHost.syncRoutes`).
                     let leaving = presenter.dialogs.owns(route) && !sheeted.contains { $0.route === route }
-                    gate(route, hidden: leaving ? route.isHidden : index != selected && !(modal && index == selected - 1) && !under, inert: index != selected)
+                    let column = splits && (index == 0 || route === beside)
+                    // In the detail's pane, out of its hidden panel's views: hidden and inert by name.
+                    let away = stack != at && split.holds(route)
+                    gate(route, hidden: leaving ? route.isHidden : away || (index != selected && !(modal && index == selected - 1) && !under && !column),
+                         inert: away || (index != selected && !(splits && index == 0 && !covered)))
                 }
             }
         }
-        if roots.isEmpty { sheets = [] }
+        if roots.isEmpty { sheets = []; split.readNone() }
         // A sheet arrives and leaves after the batch: AppKit turns the main queue while it does.
         if !sheets.isEmpty || presenter.dialogs.entries.contains(where: \.route) { presenter.afterBatch { [weak presenter] in presenter?.dialogs.syncRoutes() } }
         for id in panels.subtracting(managed) {

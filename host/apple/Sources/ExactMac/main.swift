@@ -275,29 +275,34 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// goes. A script's window is the size asked for, so it has a minimum
     /// only where the script names one.
     private func compose() {
-        let wanted = view.wantsWindowSidebar
+        // A sidebar for the root tab bar, a pane for a list's detail (LLP
+        // 1115.002 D4), or both: one split view holds them.
+        let rail = view.wantsWindowSidebar, wanted = rail || view.wantsWindowSplit
         if !wanted, sidebar == nil {
-            // No sidebar, before or now: the view is the window's content.
+            // Neither, before or now: the view is the window's content.
             guard window.contentView !== view else { return }
             window.contentView = view
             view.attachWindowToolbar(to: window)
             return
         }
-        guard wanted != (sidebar != nil) else { return }
+        // The same columns as before: nothing to compose.
+        if let sidebar, wanted, sidebar.hasSidebar == rail { return }
         let was = window.frame, under = window.contentLayoutRect.height
+        if let old = sidebar {
+            old.release()
+            sidebar = nil
+            window.contentViewController = nil
+        }
         if wanted {
             // Out of the window's content before the split view takes it.
-            if window.contentView === view { window.contentView = NSView() }
+            if window.contentView === view || window.contentView == nil { window.contentView = NSView() }
             let minimum = scripted && ExactEnv.environment["EXACT_WINDOW_MINWIDTH"] == nil ? 0 : minimumSize.width
-            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum)
+            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum, sidebar: rail)
             sidebar = split
             // Full-size content, then the split view: the order AppKit
             // places a source list's first row by.
             split.install(in: window)
         } else {
-            sidebar?.release()
-            sidebar = nil
-            window.contentViewController = nil
             window.contentView = view
         }
         coverChrome()

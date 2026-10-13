@@ -26,12 +26,25 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// or the route's header (`header`).
     private weak var owner: NodeView?
     /// LLP 1080.001 D3: the authored rendering hidden while the window's toolbar shows it.
-    func hides(_ node: NodeView) -> Bool { projected && node === owner }
+    func hides(_ node: NodeView) -> Bool { (projected && node === owner) || besideParts.contains { $0.node === node } }
     private weak var heading: NodeView?
     /// The route's header this bar shows, with no toolbar declared (LLP
     /// 1115.002 D2), and what was last said of it in the session's log.
     private(set) var header: WindowHeader?
     private var headerDecision: String?
+    /// In a window that shows a list beside its detail (LLP 1115.002 D4,
+    /// §5 Q10), the header of the route beside the one that owns the
+    /// window: its heading stays the first line of its pane, and its
+    /// buttons are the bar's items over its own column. What the bar took
+    /// of it is hidden in the page, each with what VoiceOver was told of it.
+    private(set) var beside: WindowHeader?
+    private var besideParts: [(node: NodeView, accessibilityHidden: Bool)] = []
+    private var besideDecision: String?
+    /// The headers the bar shows: the window's, and the one beside it.
+    private var headers: [WindowHeader] { [header, beside].compactMap { $0 } }
+    /// The divider between the list's column and the detail's pane: the
+    /// separator the bar's items stop at and begin after.
+    static let listSeparatorIdentifier = NSToolbarItem.Identifier("exact.split.separator")
     /// Why the selected route's header stays painted, when the bar cannot
     /// show it whole (`state.window.toolbar.headerKept`); nil otherwise.
     private(set) var headerKept: String?
@@ -43,14 +56,14 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     }()
     /// Whether the bar shows this tablist's tabs as its segments: the page's
     /// own segmented control is not made of it (SegmentsMac.swift).
-    func adopts(_ tablist: NodeView) -> Bool { toolbar != nil && header?.segments === tablist }
+    func adopts(_ tablist: NodeView) -> Bool { toolbar != nil && segments.tablist == tablist.id && headers.contains { $0.segments === tablist } }
     /// The header's search input as the bar's search item, holding the
     /// input's own field (HeaderMac.swift).
     let search = HeaderSearch()
     /// The caret to the bar's field for `node`, the search input it hosts
     /// (an action's `focus()`, an `autofocus`, the driver's `tap`).
     func focusSearch(_ node: NodeView) -> Bool {
-        projected && node === header?.search && search.node === node && usable(node) && search.focus()
+        search.node === node && headers.contains { $0.search === node } && usable(node) && search.focus()
     }
     private var order: [NSToolbarItem.Identifier] = []
     /// Back (BackMac.swift): the way back from the pushed route, pressing
@@ -169,7 +182,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// back in the step in which it stopped. Never from inside a pass:
     /// telling the kernel can apply a batch, whose own pass must run whole.
     private func reportCover() {
-        presenter.covers.report("header", projected ? header.map { [$0.header.id: .whole] } ?? [:] : [:])
+        var covers: [UInt32: HostCover] = projected ? header.map { [$0.header.id: .whole] } ?? [:] : [:]
+        for part in besideParts { covers[part.node.id] = .whole }
+        presenter.covers.report("header", covers)
     }
 
     private func refuse(_ reason: String) {
@@ -194,6 +209,11 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             owner?.setAccessibilityHidden(savedAccessibilityHidden)
             projected = false
         }
+        for part in besideParts where presenter.views[part.node.id] === part.node {
+            part.node.isHidden = false
+            part.node.setAccessibilityHidden(part.accessibilityHidden)
+        }
+        besideParts = []
     }
 
     func reset() {
@@ -213,7 +233,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if window.title == appliedTitle { window.title = savedTitle }
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
-        header = nil; decide(nil)
+        header = nil; decide(nil); beside = nil; decideBeside(nil)
         _ = segments.update(nil, enabled: false)
         search.release()
         if hadToolbar { backItem = makeBackItem() }
@@ -292,7 +312,17 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private var headerSummary: [String: Any]? {
         guard let header, projected, let toolbar else { return nil }
         let shown = Set((toolbar.visibleItems ?? []).map(\.itemIdentifier))
-        return ["route": Int(header.route.id), "node": Int(header.header.id), "title": header.title, "back": header.backs.map { Int($0.id) },
+        // The header beside the window's (a split's other column): its heading stays in its pane, and these are the bar's.
+        let other: Any = beside.map { beside -> [String: Any] in
+            ["route": Int(beside.route.id), "node": Int(beside.header.id), "heading": beside.title, "back": beside.backs.map { Int($0.id) },
+             "separator": toolbar.items.contains { $0.itemIdentifier == Self.listSeparatorIdentifier },
+             "items": beside.buttons.map { node -> [String: Any] in
+                 let item = items[node.id]
+                 return ["id": Int(node.id), "testId": node.props["testId"] ?? NSNull(), "label": item?.label ?? "", "menu": item is NSMenuToolbarItem,
+                         "enabled": available(node), "overflow": item.map { !shown.contains($0.itemIdentifier) } ?? false]
+             }]
+        } ?? NSNull()
+        return ["route": Int(header.route.id), "node": Int(header.header.id), "title": header.title, "back": header.backs.map { Int($0.id) }, "beside": other,
                 "segments": segments.summary(overflow: segments.item.map { !shown.contains($0.itemIdentifier) } ?? false) ?? NSNull(),
                 "search": header.search.flatMap { node -> [String: Any]? in
                     guard let item = search.item, search.node === node else { return nil }
@@ -346,17 +376,19 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         var ancestor: NSView? = node
         while let view = ancestor {
             if let node = view as? NodeView, node.style["display"]?.string == "none" { return false }
-            if view.isHidden && !(projected && view === owner) { return false }
+            if view.isHidden && !(projected && view === owner) && !besideParts.contains(where: { $0.node === view }) { return false }
             ancestor = view.superview
         }
         return node.window != nil
     }
 
     func contains(_ node: NodeView) -> Bool {
-        toolbar != nil && (items[node.id] != nil || node === owner || node === heading || (projected && header?.places(node) == true))
+        toolbar != nil && (items[node.id] != nil || node === owner || node === heading || (projected && header?.places(node) == true)
+            || besideParts.contains { $0.node === node })
     }
 
     func suppresses(_ node: NodeView) -> Bool {
+        if besideParts.contains(where: { node === $0.node || node.isDescendant(of: $0.node) }) { return true }
         guard projected, let owner else { return false }
         return node === owner || node.isDescendant(of: owner)
     }
@@ -386,7 +418,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// item's own.
     func anchor(of node: NodeView, in view: NSView) -> NSRect? {
         // Asked inside a batch too, between `prepare` and the pass that hides the header again.
-        guard toolbar != nil, let header, header.buttons.contains(where: { $0 === node }) else { return nil }
+        guard toolbar != nil, let header = headers.first(where: { $0.buttons.contains { $0 === node } }) else { return nil }
         let bounds = view.convert(presenter.viewport.bounds, from: presenter.viewport)
         return NSRect(x: header.leading.contains { $0 === node } ? bounds.minX : bounds.maxX, y: bounds.minY, width: 0, height: 0)
     }
@@ -448,6 +480,36 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         }
     }
 
+    /// The header beside the window's own, in a window that shows a list
+    /// beside its detail: read as the window's is, and kept as authored,
+    /// buttons and all, where the bar cannot show the whole of it.
+    private func readBeside(in window: NSWindow) -> WindowHeader? {
+        guard !ExactEnv.authoredChrome, let routes = presenter.navigation.splitHeaderRoutes, let route = routes.beside,
+              route.window === window, visible(route) else {
+            decideBeside(nil)
+            return nil
+        }
+        let back = routes.root.props["navigationBack"].flatMap { $0.isEmpty ? nil : $0 }
+        // The bar's own Back stands for its stack's Back control, enabled or not.
+        switch WindowHeader.read(route: route, back: back, pushed: true, shown: visible) {
+        case .none:
+            decideBeside(nil)
+            return nil
+        case .kept(let why):
+            decideBeside("route #\(route.id)'s header, beside the window's, is kept as authored: \(why)")
+            return nil
+        case .shown(let header):
+            decideBeside("route #\(route.id)'s header #\(header.header.id) keeps its heading in its pane, and its \(header.buttons.count) buttons are the bar's, over its column")
+            return header
+        }
+    }
+
+    private func decideBeside(_ said: String?) {
+        guard besideDecision != said else { return }
+        besideDecision = said
+        if let said { presenter.session?.log("window header: \(said)") }
+    }
+
     func sync() {
         guard !syncing else { return }
         let adopted = header?.segments
@@ -462,7 +524,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         guard let window, presenter.root.window === window else { reset(); return }
         let declared = declaration(in: window)
         let header = declared == nil ? readHeader(in: window) : nil
-        if declared != nil { decide(nil) }
+        let beside = declared == nil ? readBeside(in: window) : nil
+        if declared != nil { decide(nil); decideBeside(nil) }
         // Back for an app with a stack, the author's toolbar or not: the
         // toolbar from the first route that shows a bar, the item on every
         // route that does not ask for none (`navigationBar="none"`). AppKit
@@ -478,13 +541,20 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // hiding the tab bar on a screen takes the two away with the
         // sidebar; the toolbar stays, as it stays for a stack.
         let sidebar = presenter.sidebar.installed(in: window), sidebarItems = sidebar && presenter.sidebar.inToolbar(of: window)
-        guard declared != nil || header != nil || held || sidebar else { reset(); return }
+        guard declared != nil || header != nil || beside != nil || held || sidebar else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }
-        if declared == nil, header == nil { items.removeAll(); symbols.removeAll() }
+        if declared == nil, header == nil, beside == nil { items.removeAll(); symbols.removeAll() }
         owner = declared?.owner ?? header?.header; heading = declared?.heading
         self.header = header
-        let declarations = declared?.shown ?? [], buttons = declared?.buttons ?? header?.buttons ?? []
+        self.beside = beside
+        let declarations = declared?.shown ?? [], buttons = declared?.buttons ?? (header?.buttons ?? []) + (beside?.buttons ?? [])
+        // A list beside its detail (LLP 1115.002 D4): the bar's items stop
+        // at the divider between them and begin again after it, so each
+        // header's buttons are over its own column.
+        let split = presenter.navigation.split, columns = declared == nil && split.active && split.controller?.view.window === window
+        let listIsOwner = header == nil || header?.route === split.shown?.list
+        let (over, after): (WindowHeader?, WindowHeader?) = !columns ? (header, nil) : listIsOwner ? (header, beside) : (beside, header)
         let installing = toolbar == nil
         if installing {
             savedTitle = window.title
@@ -508,7 +578,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             // A header's button that opens a menu is AppKit's menu item
             // (LLP 1115.002 D2): it pops the menu up itself, so it has no
             // action.
-            let menu = header != nil && presenter.menus.toolbarPopover(of: node) != nil
+            let menu = declared == nil && presenter.menus.toolbarPopover(of: node) != nil
             if let old = items[node.id], (old is NSMenuToolbarItem) != menu { items.removeValue(forKey: node.id); symbols.removeValue(forKey: node.id) }
             let item = items[node.id] ?? (menu ? NSMenuToolbarItem(itemIdentifier: .init("exact.menu.\(node.id)")) : NSToolbarItem(itemIdentifier: .init("exact.command.\(node.id)")))
             items[node.id] = item
@@ -537,7 +607,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             }
             item.isBordered = true
             // A header's buttons before its heading lead the bar, ahead of the title, as Back does.
-            let navigational = node.props["toolbarPlacement"] == "navigation" || header?.leading.contains { $0 === node } == true
+            let navigational = node.props["toolbarPlacement"] == "navigation" || over?.leading.contains { $0 === node } == true
             if item.isNavigational != navigational { item.isNavigational = navigational }
             prominence(item, node, face)
             // Text-bearing authored buttons remain labeled in icon-only mode.
@@ -551,18 +621,22 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // centred group, then a flexible space; its trailing buttons, which
         // the title's own stretch puts at the bar's end; then a flexible
         // space and its search field, last.
-        let group = segments.update(header, enabled: window.attachedSheet == nil)
+        // One centred group and one search field (AppKit refuses a second):
+        // the window's own header's, else those of the one beside it.
+        let grouped = headers.first { $0.segments != nil }, searched = headers.first { $0.search != nil }
+        let group = segments.update(grouped, enabled: window.attachedSheet == nil)
         let centered: Set<NSToolbarItem.Identifier> = group.map { [$0.itemIdentifier] } ?? []
         if toolbar.centeredItemIdentifiers != centered { toolbar.centeredItemIdentifiers = centered }
-        let field = search.update(header, enabled: window.attachedSheet == nil)
+        let field = search.update(searched, enabled: window.attachedSheet == nil)
         let identifiers = { (nodes: [NodeView]) in nodes.compactMap { self.items[$0.id]?.itemIdentifier } }
-        let nextOrder = header.map {
-            identifiers($0.leading) + (group.map { [$0.itemIdentifier, .flexibleSpace] } ?? []) + identifiers($0.trailing)
+        let nextOrder = header != nil || beside != nil
+            ? identifiers(over?.leading ?? []) + (group.map { [$0.itemIdentifier, .flexibleSpace] } ?? []) + identifiers(over?.trailing ?? [])
+                + (columns ? [Self.listSeparatorIdentifier] : []) + identifiers(after?.buttons ?? [])
                 + (field.map { [.flexibleSpace, $0.itemIdentifier] } ?? [])
-        } ?? declarations.compactMap { node -> NSToolbarItem.Identifier? in
-            if node === heading { return .flexibleSpace }
-            return items[node.id]?.itemIdentifier
-        }
+            : declarations.compactMap { node -> NSToolbarItem.Identifier? in
+                if node === heading { return .flexibleSpace }
+                return items[node.id]?.itemIdentifier
+            }
         order = (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
             + nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
@@ -589,6 +663,17 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         if attaching { keepContent(content) }
         hatchToolbar()
         syncAccessibility()
+        // Of the header beside the window's, what the bar shows or stands
+        // for leaves the page; its heading and the rest stay in its pane.
+        if let beside {
+            let taken = beside.buttons.filter { items[$0.id] != nil } + beside.backs
+                + (grouped?.header === beside.header && group != nil ? [beside.segments].compactMap { $0 } : [])
+                + (searched?.header === beside.header && field != nil ? [beside.search].compactMap { $0 } : [])
+            for node in taken {
+                besideParts.append((node, node.isAccessibilityHidden()))
+                node.isHidden = true; node.setAccessibilityHidden(true)
+            }
+        }
         // Hide only the authored rendering. Its logical nodes/actions survive.
         guard let next = declared?.owner ?? header?.header else { return }
         savedAccessibilityHidden = next.isAccessibilityHidden()
@@ -604,6 +689,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // are placed before the toolbar has one.
         if identifier == .sidebarTrackingSeparator, let split = presenter.sidebar.splitView {
             return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: split, dividerIndex: 0)
+        }
+        // The same for the divider between a list and its detail (LLP 1115.002 D4).
+        if identifier == Self.listSeparatorIdentifier, let controller = presenter.navigation.split.controller {
+            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: controller.splitView, dividerIndex: controller.listDivider)
         }
         if let group = segments.item, group.itemIdentifier == identifier { return group }
         if let field = search.item, field.itemIdentifier == identifier { return field }
@@ -623,7 +712,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         guard let window, let toolbar,
               let bar = window.accessibilityChildren()?.compactMap({ $0 as? NSAccessibilityProtocol })
                 .first(where: { $0.accessibilityRole() == .toolbar }) else { return }
-        let spaces: Set<NSToolbarItem.Identifier> = [.space, .flexibleSpace, .sidebarTrackingSeparator]
+        let spaces: Set<NSToolbarItem.Identifier> = [.space, .flexibleSpace, .sidebarTrackingSeparator, Self.listSeparatorIdentifier]
         let visible = (toolbar.visibleItems ?? toolbar.items).filter { !spaces.contains($0.itemIdentifier) }
         let children = (bar.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityProtocol }
         guard children.count == visible.count else { return }
@@ -648,14 +737,14 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func activate(_ node: NodeView) -> Bool? {
         // The stack's Back control in a header the bar shows: the bar's own
         // Back stands for it, and is pressed as a person presses it.
-        if projected, header?.backs.contains(where: { $0 === node }) == true {
+        if headers.contains(where: { $0.backs.contains { $0 === node } }), projected || besideParts.contains(where: { $0.node === node }) {
             guard order.contains(Self.backIdentifier), validateToolbarItem(backItem), let action = backItem.action else { return false }
             return NSApp.sendAction(action, to: backItem.target, from: backItem)
         }
         // The header's search input: the caret goes to its field in the bar.
-        if projected, node === header?.search { return focusSearch(node) }
+        if search.node === node, headers.contains(where: { $0.search === node }) { return focusSearch(node) }
         // A tab of the header's tablist: its segment's press.
-        if projected, let index = header?.tabs.firstIndex(where: { $0 === node }) {
+        if let index = headers.first(where: { $0.segments != nil && $0.segments?.id == segments.tablist })?.tabs.firstIndex(where: { $0 === node }) {
             guard usable(node), let tab = segments.tab(at: index) else { return false }
             presenter.press(tab.id)
             sync()
@@ -680,23 +769,24 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         var result: [String: Any] = ["view": node === owner ? "NSToolbar" : (titled ? "NSWindow.title" : "NSToolbarItem"),
                                    "placement": "window", "title": window?.title ?? "",
                                    "geometry": "system-owned", "attached": window?.toolbar === toolbar]
-        if let item = items[node.id] ?? (header?.backs.contains { $0 === node } == true && order.contains(Self.backIdentifier) ? backItem : nil) {
+        if let item = items[node.id] ?? (headers.contains { $0.backs.contains { $0 === node } } && order.contains(Self.backIdentifier) ? backItem : nil) {
             result["identifier"] = item.itemIdentifier.rawValue
             result["enabled"] = item === backItem ? validateToolbarItem(item) : available(node)
             result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === item })
         }
-        if projected, let field = search.item, node === header?.search {
+        if let field = search.item, search.node === node {
             result["view"] = "NSSearchToolbarItem"
             result["identifier"] = field.itemIdentifier.rawValue
             result["enabled"] = usable(node) && field.isEnabled
             result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === field })
         }
-        if projected, let group = segments.item, node === header?.segments || header?.tabs.contains(where: { $0 === node }) == true {
+        let grouped = headers.first { $0.segments != nil && $0.segments?.id == segments.tablist }
+        if let group = segments.item, let grouped, node === grouped.segments || grouped.tabs.contains(where: { $0 === node }) {
             result["view"] = "NSToolbarItemGroup"
             result["identifier"] = group.itemIdentifier.rawValue
             result["selected"] = group.selectedIndex
             result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === group })
-            if let index = header?.tabs.firstIndex(where: { $0 === node }) {
+            if let index = grouped.tabs.firstIndex(where: { $0 === node }) {
                 result["segment"] = index
                 result["enabled"] = usable(node) && segments.tab(at: index) != nil
             }
