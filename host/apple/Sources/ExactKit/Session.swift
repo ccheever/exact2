@@ -779,7 +779,7 @@ public final class ExactSession {
     public func boot(size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
         primePreferences()
-        primeTime()
+        primeTime()  // `prepare` primes again; the fallback boot reads this
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.
@@ -866,6 +866,7 @@ public final class ExactSession {
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
         installControlText(on: candidate)
         let viewport = size ?? presenter.viewportSize
+        primeTime()
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }

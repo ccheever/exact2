@@ -546,6 +546,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
         }
 
+        /// The date the next boot or candidate settles under, before it.
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch_time(rt: u32, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_time(epoch_at_zero, utc_offset); 0 }, |n| n)
+        }
+
         /// The display preferences: bit 0 reduced motion, bit 1 reduced
         /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 dark.
         #[no_mangle]

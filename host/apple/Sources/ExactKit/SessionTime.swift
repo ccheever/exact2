@@ -40,16 +40,13 @@ extension ExactSession {
         let date = dateNow()
         apply(runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset))
     }
-    /// The date before the first boot: the runner reads it from its first
-    /// settle, so an argument reading the zone's offset (a kept answer's
-    /// identity) is the real one, not zero until `tellTime`.
+    /// The date before each boot or candidate: the runner reads it from its
+    /// first settle, so an argument reading the zone's offset (a kept
+    /// answer's identity) is the real one, not zero (or a reload's stale
+    /// date) until `tellTime`. A running runner is not told.
     func primeTime() {
-        // Before a re-boot too, so it starts from today's date: the running
-        // runner hears it as well, and what that commits is presented, as
-        // the old host stays if the boot fails.
         guard state != .destroyed else { return }
         let date = dateNow()
-        let out = runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset)
-        if booted { apply(out) }
+        runtime.setLaunchTime(epochAtZero: date.epoch, utcOffset: date.offset)
     }
 }

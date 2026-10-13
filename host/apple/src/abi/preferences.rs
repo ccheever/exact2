@@ -20,10 +20,20 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The date changed or became known (LLP 1027.000.000); kept, when
-    /// valid, as the date the next boot's first settle reads
-    /// (`exact_runner::time::launching`), before a boot as after one.
+    /// The date changed (LLP 1027.000.000), told to the running host.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_time(epoch_at_zero, utc_offset));
+        self.emit(out)
+    }
+
+    /// The date the next boot's first settle reads
+    /// (`exact_runner::time::launching`), told before each boot or
+    /// candidate; the running host is not told. A date that does not
+    /// validate leaves the last one.
+    pub fn set_launch_time(&mut self, epoch_at_zero: f64, utc_offset: f64) {
         let time = exact_runner::time::WallTime {
             epoch_at_zero,
             utc_offset,
@@ -31,11 +41,6 @@ impl<D: DataSource> Bridge<D> {
         if time.validate().is_ok() {
             self.launch_time = Some(time);
         }
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_time(epoch_at_zero, utc_offset));
-        self.emit(out)
     }
 
     /// A boot's first viewport: the size, and the preferences last told.

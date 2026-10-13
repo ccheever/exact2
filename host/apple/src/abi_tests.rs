@@ -32,6 +32,19 @@ fn the_first_preboot_launch_location_is_the_boot_fact() {
     assert_eq!(bridge.launch.as_deref(), Some("/first"));
 }
 
+#[test]
+fn the_launch_time_is_the_last_valid_one_told_and_set_time_leaves_it() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.set_launch_time(1_790_000_000_000.0, -420.0);
+    bridge.set_launch_time(f64::NAN, 0.0);
+    bridge.set_time(1_800_000_000_000.0, 60.0);
+    let time = bridge.launch_time.unwrap();
+    assert_eq!(
+        (time.epoch_at_zero, time.utc_offset),
+        (1_790_000_000_000.0, -420.0)
+    );
+}
+
 #[derive(Clone, Default)]
 struct DocumentOwnerSource {
     owner: u64,

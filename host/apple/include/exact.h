@@ -519,6 +519,9 @@ uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
+/* The date the next boot or candidate settles under, told before it; the
+ * running runner is not told. A date that does not validate is ignored. */
+uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
