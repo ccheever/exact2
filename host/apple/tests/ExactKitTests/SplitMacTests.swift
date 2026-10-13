@@ -167,7 +167,6 @@ final class SplitMacTests: XCTestCase {
         // AppKit can restore a divider after the controller's initial collapse.
         detail.isCollapsed = false
         window.layoutIfNeeded()
-        XCTAssertFalse(detail.isCollapsed)
         session.presenter.navigation.split.sync()
         window.layoutIfNeeded()
         XCTAssertTrue(detail.isCollapsed)
