@@ -55,6 +55,12 @@ final class TableRowCell: NSTableCellView {
     }
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
+    /// AppKit says how the row is drawn: emphasized while it is selected,
+    /// its window key and the table first responder. What Exact paints in
+    /// the row takes the selected item's ink then (TableInkMac.swift).
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { if backgroundStyle != oldValue { row?.rowEmphasisChanged(backgroundStyle == .emphasized) } }
+    }
 
     /// Take `node` in. It is placed when the cell is in its row's view
     /// (`place`): a cell the table is still making has no place yet.
@@ -68,6 +74,7 @@ final class TableRowCell: NSTableCellView {
             addSubview(node)
             feed?.moved()
             textMoved = true
+            if backgroundStyle == .emphasized { node.rowEmphasisChanged(true) }
         }
         place()
     }
@@ -102,6 +109,7 @@ final class TableRowCell: NSTableCellView {
         home.addSubview(row)
         row.frame = kernel
         feed.moved()
+        if backgroundStyle == .emphasized { row.rowEmphasisChanged(false) }
     }
 
     /// Hit tests that ask what is under a point, not who takes a click
@@ -149,6 +157,16 @@ final class RunnerTableView: NSTableView {
     /// list's: the table's own idea of what shows is wider (`visibleRect`).
     override func scrollRowToVisible(_ row: Int) {
         if let feed { feed.show(row: row) } else { super.scrollRowToVisible(row) }
+    }
+    /// A secondary click (the right button, or Control and the left) on a
+    /// row is heard by what is under it, as in a list of painted rows:
+    /// AppKit asks the table for a menu, and the nearest node in the row
+    /// with a `contextmenu` or a `contextPopover` answers. The empty menu
+    /// says the click was taken: nothing of the table's own follows, and
+    /// nothing above the table hears it again. With none in the row the
+    /// table has no menu, and AppKit sends the click on up to the list.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        feed?.contextClick(event) == true ? NSMenu() : super.menu(for: event)
     }
     /// Home and End are the list's: the table's own ends are estimates.
     override func scrollToBeginningOfDocument(_ sender: Any?) { feed?.scroll(toEnd: false) }
@@ -242,6 +260,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         table.delegate = self
         table.target = self
         table.action = #selector(clicked)
+        table.doubleAction = #selector(doubleClicked)
         table.feed = self
         // A list the runner does not window: its children are in its document, in order.
         if presenter.collections.entries[id] == nil {
@@ -647,8 +666,59 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
     /// A click on a row, when the mouse comes up in it: the table's action.
     /// In a hand-built table on macOS 27.0, key window, nothing a delegate
-    /// or a target hears happens while the button is down.
-    @objc private func clicked() { pressRow(table.clickedRow) }
+    /// or a target hears happens while the button is down. A click that
+    /// was a context click (Control held, and a node in the row answered)
+    /// presses nothing.
+    @objc private func clicked() {
+        if let taken = contextEvent, NSApp.currentEvent?.eventNumber == taken { return }
+        contextEvent = nil
+        pressRow(table.clickedRow)
+    }
+    /// The second click of two on a row whose root hears `dblclick`. A
+    /// table sends its action for the first click and this for the second
+    /// (measured, `TableFeedKeyMacTests`), so the row was pressed once: a
+    /// row that pushes is not pushed twice, where the DOM sends two
+    /// `click`s before its `dblclick`.
+    @objc private func doubleClicked() {
+        guard let row = row(at: table.clickedRow), selectable(row), let root = presenter?.views[row.root], root.handlers.contains("dblclick") else { return }
+        presenter?.dblclick(root.id)
+    }
+    /// The mouse event a node in a row answered as a context click.
+    private var contextEvent: Int?
+    /// A secondary click at the event's point: the nearest node from what
+    /// is under it up to its row's root that answers a context request
+    /// hears it. False when none does.
+    fileprivate func contextClick(_ event: NSEvent) -> Bool {
+        guard let presenter, let content = table.window?.contentView else { return false }
+        let point = event.locationInWindow
+        var view = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(point, from: nil) ?? point) }
+        while let current = view, !(current is TableRowCell), !(current is NSTableView) {
+            if let node = current as? NodeView, presenter.views[node.id] === node, node.answersContextMenu, !node.disabled, !node.inert {
+                contextEvent = event.eventNumber
+                return presenter.contextMenu(node, at: point)
+            }
+            view = current.superview
+        }
+        return false
+    }
+    /// Who hears a key while the table has the keyboard: the selected
+    /// row's authored root and everything above it, else the list. A
+    /// handler that prevents a key's default keeps it from the table
+    /// (`Presenter.routeKey`). It is the focus the runner is told of too
+    /// (`CollectionHost.focusedView`), and the runner keeps a row that has
+    /// the focus: while the table has the keyboard its selected row stays
+    /// mounted however far the list scrolls, so the selection is its
+    /// item's and not an index's.
+    var keyTarget: NodeView? {
+        guard let presenter else { return nil }
+        return row(at: table.selectedRow).flatMap { presenter.views[$0.root] } ?? list.flatMap { presenter.views[$0.id] === $0 ? $0 : nil }
+    }
+    /// `state.tables` and `layout <list>` (the agent).
+    var summary: [String: Any] {
+        ["view": "NSTableView", "style": "inset", "list": Int(id), "testId": list?.props["testId"] ?? NSNull(), "rows": count, "mounted": rows.count, "rowViews": rowViews,
+         "windowed": children == nil, "selected": table.selectedRow >= 0 ? table.selectedRow : NSNull(), "selectedKey": selectedKey ?? NSNull(),
+         "firstResponder": table.window?.firstResponder === table, "estimate": Double(estimate)]
+    }
     /// The press of the row's authored root, as a click on it was.
     @discardableResult
     func pressRow(_ row: Int) -> Bool {

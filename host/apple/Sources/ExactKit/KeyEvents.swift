@@ -221,6 +221,10 @@ extension Presenter {
         if let run = responder as? InlineKeyView { return run.owner }
         guard let view = responder as? NSView else { return nil }
         var next: NSView? = view
+        #if os(macOS)
+        // A list's table has the keyboard (LLP 1115.002 D5): its selected row hears the keys, else the list.
+        if let table = view as? RunnerTableView { return table.feed?.keyTarget }
+        #endif
         while let v = next {
             // A search input's field in the window's toolbar (LLP 1115.002
             // D2) has no node above it: the input is its delegate.

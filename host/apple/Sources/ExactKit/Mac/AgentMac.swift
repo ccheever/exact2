@@ -171,7 +171,7 @@ extension Agent {
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
-        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "tables": presenter.tables.summary,
                 "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
@@ -341,6 +341,7 @@ extension Agent {
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let sidebar = presenter.sidebar.observation(host) { native["sidebar"] = sidebar }
+        if let table = presenter.tables.observation(host) { native["table"] = table }
         if let control = presenter.controls.observation(host) ?? host.rowBezelObservation { native["control"] = control }
         if let toolbar = presenter.toolbar.observation(host) {
             native["windowToolbar"] = toolbar

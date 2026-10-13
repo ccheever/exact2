@@ -123,6 +123,22 @@ final class TableHost {
         }
         return false
     }
+    // MARK: The agent
+
+    /// What AppKit shows for a list that is a table, and for a row of one
+    /// (its view or its authored root): the agent's `layout <node>`.
+    func observation(_ node: NodeView) -> [String: Any]? {
+        if let feed = feeds[node.id] { return feed.summary }
+        for feed in feeds.values {
+            guard let row = feed.rows.first(where: { $0.node === node || $0.root == node.id }) else { continue }
+            return ["view": "NSTableView", "list": Int(feed.id), "row": row.index, "selected": feed.table.selectedRow == row.index,
+                    "selectable": feed.tableView(feed.table, shouldSelectRow: row.index), "inCell": row.node.superview is TableRowCell]
+        }
+        return nil
+    }
+    /// `state.tables` (the agent): each list that is a table.
+    var summary: [[String: Any]] { feeds.values.sorted { $0.id < $1.id }.map(\.summary) }
+
     /// After a batch's ops (`Presenter.apply`).
     func sync(_ batch: Batch) {
         if !painted || !feeds.isEmpty, batch.ops.contains(where: { Self.deciding.contains($0.op) }) { decide() }

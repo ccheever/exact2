@@ -104,8 +104,22 @@ final class TableFeedKeyMacTests: XCTestCase {
         let first = try XCTUnwrap(f.cells[12]?.row)
         XCTAssertEqual(f.feed.selectedKey, first.props["listItemKey"])
 
-        // Scrolled away: the runner destroys the row and the table lets its
-        // view go. Back: another row for the same item, selected.
+        // Scrolled away while the table has the keyboard: the selected row
+        // is where the keys go, and the runner keeps a row that has the
+        // focus, so the selection stays its item's however far the list
+        // goes. The table has no view for it there: it is in the list's document.
+        f.scroll(to: 20_000)
+        XCTAssertTrue(f.presenter.views[first.id] === first, "the runner kept the selected row")
+        XCTAssertNil(f.table.rowView(atRow: 12, makeIfNecessary: false))
+        XCTAssertTrue(first.superview === f.document)
+        XCTAssertEqual(f.table.selectedRow, 12)
+        f.scroll(to: 0)
+        XCTAssertTrue(f.cells[12]?.row === first, "back: the same row, in its cell again")
+        XCTAssertEqual(f.table.rowView(atRow: 12, makeIfNecessary: false)?.isSelected, true)
+        // With the keyboard elsewhere the row is no one's focus. Scrolled
+        // away: the runner destroys it and the table lets its view go.
+        // Back: another row for the same item, selected.
+        XCTAssertTrue(f.window.makeFirstResponder(nil))
         f.scroll(to: 20_000)
         XCTAssertNil(f.presenter.views[first.id], "the runner destroyed the selected row")
         XCTAssertNil(f.table.rowView(atRow: 12, makeIfNecessary: false))
@@ -116,6 +130,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertEqual(f.item(again), 12)
         XCTAssertEqual(f.table.rowView(atRow: 12, makeIfNecessary: false)?.isSelected, true)
         XCTAssertTrue(f.status.hasPrefix("opened 12 presses 1 "), "coming back pressed nothing: \(f.status)")
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
 
         // The keyboard, a row at a time past everything that was mounted:
         // each row it reaches is mounted, in its cell and in the port.
@@ -327,6 +342,149 @@ final class TableFeedKeyMacTests: XCTestCase {
         pump(0.6) { false }
         f.settle()
         XCTAssertEqual(f.table.selectedRow, 8, "and it is still selected on the way back")
+    }
+
+    /// Twenty rows that press, answer a context click and a double click and
+    /// hear keys, in a list that hears keys too. Each holds a symbol, a
+    /// title in the unsaid colour, a line in the secondary label's and a
+    /// word in a colour of the author's.
+    private static let acting = """
+    component Rows
+      state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      derive rows = concat(seed, map(seed, x => x + 10))
+      state log = ""
+      action open(r: number)
+        log = log + `press ${r};`
+      action aim(r: number)
+        log = log + `menu ${r};`
+      action twice(r: number)
+        log = log + `double ${r};`
+      action rowKey(k: string)
+        log = log + `row ${k};`
+      action listKey(k: string)
+        log = log + `list ${k};`
+      view
+        column width="100%" height="100%"
+          text `log ${log}` testId="status"
+          list virtualized=true estimated-item-height=44 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" key=listKey testId="rows"
+            each r in rows key=`k${r}`
+              row press=open(r) contextmenu=aim(r) dblclick=twice(r) key=rowKey testId=`row-${r}` align-items="center" gap=8 padding="6px 0" width="100%"
+                image "symbol:star" testId=`star-${r}`
+                column flex=1 min-width=0
+                  text `Row ${r}` testId=`title-${r}`
+                  text `The second line of row ${r}` color="-exact-secondary-label" font-size=11 testId=`sub-${r}`
+                text "Fixed" color="#cc2222" testId=`fixed-${r}`
+
+    """
+
+    /// The ink a paragraph resolved: its first run's, else the paragraph's own.
+    private func ink(_ id: String, in f: TableFixture) throws -> [Double] {
+        let spec = try f.node(id).paragraphSpec()
+        return (spec.runs.first?.color ?? spec.color).map { ($0 * 100).rounded() / 100 }
+    }
+
+    func testWhatExactPaintsInASelectedRowTakesTheSelectedItemsInk() throws {
+        let f = try keyed(count: 20, source: Self.acting)
+        f.window.appearance = NSAppearance(named: .aqua)
+        f.settle()
+        let plain = try (title: ink("title-3", in: f), sub: ink("sub-3", in: f), fixed: ink("fixed-3", in: f))
+        XCTAssertEqual(Array(plain.title.prefix(3)), [0, 0, 0], "in a light window an unsaid colour is dark ink")
+        XCTAssertEqual(plain.fixed, [204, 34, 34, 255])
+        XCTAssertEqual(try f.node("star-3").symbolView?.cell?.backgroundStyle, .normal)
+        // Selected, in a key window with the table first responder: AppKit
+        // draws the row emphasized, and a role's ink is the selected item's
+        // text, a label colour at the share a stock table draws it at.
+        click(try f.node("title-3"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 3)
+        let cell = try XCTUnwrap(f.cells[3])
+        XCTAssertEqual(cell.backgroundStyle, .emphasized)
+        XCTAssertEqual(try ink("title-3", in: f), [255, 255, 255, 255], "the unsaid colour is the selected item's text")
+        XCTAssertEqual(try ink("sub-3", in: f), [255, 255, 255, 234.6], "the secondary label's is that at 0.92")
+        XCTAssertEqual(try ink("fixed-3", in: f), plain.fixed, "a colour the author wrote stays the author's")
+        XCTAssertEqual(try f.node("star-3").symbolView?.cell?.backgroundStyle, .emphasized, "a symbol is drawn as a cell's image is")
+        XCTAssertEqual(try ink("title-4", in: f), plain.title, "the row beside it is as it was")
+        // What a person sees: light ink on the accent, where stage 3a's picture had black.
+        /// The lightest and the darkest pixel drawn in a node's box, in its row's own picture.
+        func extremes(_ id: String) throws -> (lightest: CGFloat, darkest: CGFloat) {
+            let view = try XCTUnwrap(f.table.rowView(atRow: 3, makeIfNecessary: false)), node = try f.node(id)
+            view.window?.displayIfNeeded()
+            let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let box = view.convert(node.bounds, from: node)
+            var most: CGFloat = 0, least: CGFloat = 1
+            for y in Int(box.minY)..<Int(box.maxY) {
+                for x in Int(box.minX)..<Int(box.maxX) {
+                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    let luma = (c.redComponent + c.greenComponent + c.blueComponent) / 3
+                    most = max(most, luma); least = min(least, luma)
+                }
+            }
+            return (most, least)
+        }
+        XCTAssertGreaterThan(try extremes("title-3").lightest, 0.9, "the title's glyphs are drawn light on the selection")
+        // Another window takes key: the same row, selected and not
+        // emphasized, in its own colours again, as a stock table's cell is.
+        let other = NSWindow(contentRect: NSRect(x: 700, y: 300, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        self.other = other
+        other.makeKeyAndOrderFront(nil)
+        pump { other.isKeyWindow }
+        f.settle()
+        XCTAssertEqual(cell.backgroundStyle, .normal)
+        XCTAssertEqual(f.table.selectedRow, 3)
+        XCTAssertEqual(try ink("title-3", in: f), plain.title)
+        XCTAssertEqual(try ink("sub-3", in: f), plain.sub)
+        XCTAssertEqual(try f.node("star-3").symbolView?.cell?.backgroundStyle, .normal)
+        XCTAssertLessThan(try extremes("title-3").darkest, 0.2, "and its glyphs are dark again")
+    }
+
+    func testAKeyIsHeardByTheSelectedRowAndTheListWhileTheTableHasTheKeyboard() throws {
+        let f = try keyed(count: 20, source: Self.acting)
+        // Nothing selected: the list hears the key, and what is above it.
+        key(7, "x", in: f)
+        XCTAssertEqual(f.status, "log list x;")
+        // A row selected: its authored root hears first, then the list.
+        click(try f.node("title-3"), in: f)
+        XCTAssertEqual(f.status, "log list x;press 3;")
+        key(7, "x", in: f)
+        XCTAssertEqual(f.status, "log list x;press 3;row x;list x;")
+        // The table's own keys are heard too, and still the table's.
+        down(in: f)
+        XCTAssertEqual(f.table.selectedRow, 4)
+        XCTAssertTrue(f.status.hasSuffix("row ArrowDown;list ArrowDown;"), f.status)
+        XCTAssertFalse(f.status.contains("press 4"), "an arrow selects a row whose press is an action, and presses nothing")
+    }
+
+    func testAContextClickAndADoubleClickOnARowAreTheRowsOwn() throws {
+        let f = try keyed(count: 20, source: Self.acting)
+        /// A press of a mouse button and its release in the middle of `view`, as `click` sends the left one.
+        func press(_ down: NSEvent.EventType, _ up: NSEvent.EventType, _ view: NSView, flags: NSEvent.ModifierFlags = [], clicks: Int = 1, number: Int) {
+            let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+            func event(_ type: NSEvent.EventType) -> NSEvent {
+                NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                                   context: nil, eventNumber: number, clickCount: clicks, pressure: type == down ? 1 : 0)!
+            }
+            var sent = false
+            let timer = Timer(timeInterval: 0.05, repeats: false) { _ in NSApp.postEvent(event(up), atStart: false); sent = true }
+            RunLoop.main.add(timer, forMode: .common)
+            NSApp.sendEvent(event(down))
+            pump { sent }
+            f.settle()
+        }
+        // The right button on a row: its `contextmenu` hears it, and the row is not pressed.
+        press(.rightMouseDown, .rightMouseUp, try f.node("title-5"), number: 11)
+        XCTAssertEqual(f.status, "log menu 5;")
+        // Control and the left button is the Mac's secondary click: the same, and no press follows it.
+        press(.leftMouseDown, .leftMouseUp, try f.node("title-6"), flags: .control, number: 12)
+        XCTAssertEqual(f.status, "log menu 5;menu 6;")
+        // Two clicks: the first presses the row and the second is its
+        // `dblclick`. A table sends its action for the first click of two
+        // and its double action for the second, so the row is pressed
+        // once: a row that pushes is not pushed twice.
+        press(.leftMouseDown, .leftMouseUp, try f.node("title-7"), number: 13)
+        press(.leftMouseDown, .leftMouseUp, try f.node("title-7"), clicks: 2, number: 14)
+        XCTAssertEqual(f.status, "log menu 5;menu 6;press 7;double 7;")
+        XCTAssertEqual(f.table.selectedRow, 7)
     }
 
     /// The window server's picture of the fixture's window, saved where `EXACT_PROOF_SHOTS` says.

@@ -142,10 +142,16 @@ final class TableFeedPerfMacTests: XCTestCase {
             if let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.05), inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
         }
         table.settle(); today.settle()
+        // An app's main thread runs at the user-interactive quality of service. A test's, started from a shell, runs
+        // at the default one, which the scheduler gives the performance cores to less readily when other work wants
+        // them: EXACT_TABLE_PERF_QOS=interactive takes the app's for these frames.
+        let began = qos_class_self().rawValue
+        if ProcessInfo.processInfo.environment["EXACT_TABLE_PERF_QOS"] == "interactive" { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) }
+        let qos = "the main thread's quality of service \(qos_class_self().rawValue) (33 an app's own, user-interactive; 21 the default; it began at \(began))"
         // How ExactKit was compiled, said by whoever built it optimized (`swift build -c release`): a debug build overstates every time here.
         let build = ProcessInfo.processInfo.environment["EXACT_TABLE_PERF_BUILD"] ?? "a debug build of ExactKit"
         say("ten thousand rows, the gate's fixture (mixed heights; a button, a checkbox and a field in every tenth row), two 480 by 600 windows on screen: the table, and the list as the presenter lays it out today")
-        say(String(format: "display %.0f Hz at %.0fx: a frame is %.2f ms; %@; windows visible %@ %@; %@", hz, screen.backingScaleFactor, 1000 / hz, build,
+        say(String(format: "display %.0f Hz at %.0fx: a frame is %.2f ms; %@; %@; windows visible %@ %@; %@", hz, screen.backingScaleFactor, 1000 / hz, build, qos,
                    "\(table.window.occlusionState.contains(.visible))", "\(today.window.occlusionState.contains(.visible))", Self.load()))
         // `EXACT_TABLE_PERF_ONLY=table` (or `today`): that arrangement alone, for a profile of it. `EXACT_TABLE_PERF_REPEAT=<n>`: each travel
         // that many times over. `EXACT_TABLE_PERF_RAW=<file>`: every frame's main-thread time, a line a frame, for a distribution over
