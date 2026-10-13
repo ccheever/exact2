@@ -18,8 +18,10 @@ struct Started {
 }
 
 #[derive(Default)]
-struct Script {
+pub(super) struct Script {
     refuse_next: std::sync::atomic::AtomicBool,
+    panic_next: std::sync::atomic::AtomicBool,
+    panic_activate: std::sync::atomic::AtomicBool,
     started: Mutex<Vec<Started>>,
     changed: Condvar,
 }
@@ -71,6 +73,10 @@ impl ibex2::stdlib::fetch_async::AsyncTransport for Scripted {
         sink: Box<dyn Sink>,
     ) -> Result<Exchange, ibex2::boundary::HostError> {
         let script = self.0.clone();
+        assert!(
+            !script.panic_next.swap(false, Ordering::SeqCst),
+            "injected transport start panic"
+        );
         if script.refuse_next.swap(false, Ordering::SeqCst) {
             return Err(ibex2::boundary::HostError::Failed(
                 "transport capacity refused".into(),
@@ -92,6 +98,10 @@ impl ibex2::stdlib::fetch_async::AsyncTransport for Scripted {
                     });
                     return;
                 }
+                assert!(
+                    !script.panic_activate.swap(false, Ordering::SeqCst),
+                    "injected transport activation panic"
+                );
                 let url = request.url.clone();
                 script.started.lock().unwrap().push(Started {
                     url,
@@ -105,7 +115,7 @@ impl ibex2::stdlib::fetch_async::AsyncTransport for Scripted {
     }
 }
 
-fn core(script: &Arc<Script>, grants: &str) -> (Core, Receiver<()>) {
+pub(super) fn core(script: &Arc<Script>, grants: &str) -> (Core, Receiver<()>) {
     core_with_upload_copy(script, grants, false)
 }
 
@@ -732,4 +742,363 @@ fn portable_upload_reserves_the_blocking_workers_additional_copy() {
         }
         eventually(|| bytes(&core) == [0, 0]);
     }
+}
+
+#[test]
+fn a_panicking_transport_releases_its_physical_hold_and_the_lane_survives() {
+    for (independent, activate) in [(false, false), (true, false), (false, true), (true, true)] {
+        let script = Arc::new(Script::default());
+        let (core, woke) = core(&script, ORIGINS);
+        let request = || {
+            let request = Request::get("https://panic.example.test/");
+            if independent {
+                request.independent_http(1024)
+            } else {
+                request
+            }
+        };
+        if activate {
+            script.panic_activate.store(true, Ordering::SeqCst);
+        } else {
+            script.panic_next.store(true, Ordering::SeqCst);
+        }
+        core.run(job(1, request()), None).unwrap();
+        assert!(matches!(&collect(&core, &woke, 1)[0].1,
+            Outcome::Failed {kind: FailureKind::Aborted, message} if message.contains("start panicked")));
+        eventually(|| bytes(&core) == [0, 0]);
+        core.run(job(2, request()), None).unwrap();
+        assert_eq!(script.wait(1), 1);
+        script.answer("https://panic.example.test/", b"alive");
+        assert!(
+            matches!(&collect(&core, &woke, 1)[0].1, Outcome::Response(r) if r.body == b"alive")
+        );
+        eventually(|| bytes(&core) == [0, 0]);
+    }
+}
+
+#[test]
+fn reader_spawn_failure_and_panics_settle_and_release_the_lane() {
+    use asynch::ReaderPhase;
+    let files = Files::new();
+    std::fs::write(files.0.join("tmp/file"), b"upload").unwrap();
+    for phase in [ReaderPhase::Spawn, ReaderPhase::Size, ReaderPhase::Read] {
+        let script = Arc::new(Script::default());
+        let (core, woke) = core(
+            &script,
+            "net.fetch https://*.example.test\nfs.read app:/tmp",
+        );
+        core.set_app_roots(files.roots());
+        let machine = core.machine.as_ref().unwrap();
+        *machine.reader_hook.lock().unwrap() = Some(Arc::new(move |at, _| {
+            if at == phase {
+                if at == ReaderPhase::Spawn {
+                    return Err(failed(
+                        FailureKind::Refused,
+                        "injected reader spawn failure",
+                    ));
+                }
+                panic!("injected file reader panic");
+            }
+            Ok(())
+        }));
+        core.run(
+            job(1, upload("https://a.example.test/", "app:/tmp/file", 1024)),
+            None,
+        )
+        .unwrap();
+        assert!(matches!(
+            &collect(&core, &woke, 1)[0].1,
+            Outcome::Failed { .. }
+        ));
+        eventually(|| bytes(&core) == [0, 0]);
+        *machine.reader_hook.lock().unwrap() = None;
+        core.run(
+            job(2, upload("https://a.example.test/", "app:/tmp/file", 1024)),
+            None,
+        )
+        .unwrap();
+        assert_eq!(script.wait(1), 1);
+        script.answer("https://a.example.test/", b"alive");
+        assert!(matches!(
+            &collect(&core, &woke, 1)[0].1,
+            Outcome::Response(_)
+        ));
+        eventually(|| bytes(&core) == [0, 0]);
+    }
+}
+
+#[test]
+fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
+    use asynch::ReaderPhase;
+    let files = Files::new();
+    std::fs::write(files.0.join("tmp/file"), vec![5; 2 << 20]).unwrap();
+    let script = Arc::new(Script::default());
+    let (core, _) = core(
+        &script,
+        "net.fetch https://*.example.test\nfs.read app:/tmp",
+    );
+    core.set_app_roots(files.roots());
+    let machine = core.machine.as_ref().unwrap().clone();
+    let (at_read, reading) = channel();
+    let (release, released) = channel();
+    let released = Mutex::new(released);
+    let (observed, result) = channel();
+    *machine.reader_hook.lock().unwrap() = Some(Arc::new(move |phase, _| {
+        match phase {
+            ReaderPhase::Read => {
+                at_read.send(()).unwrap();
+                released
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+            }
+            ReaderPhase::Finished(cancelled) => observed.send(cancelled).unwrap(),
+            _ => {}
+        }
+        Ok(())
+    }));
+    core.run(
+        job(1, upload("https://a.example.test/", "app:/tmp/file", 1024)),
+        None,
+    )
+    .unwrap();
+    reading.recv_timeout(Duration::from_secs(5)).unwrap();
+    // Force the bad historical order: cleanup has removed FileJob and its
+    // retirement registration before Core fires the shared abort.
+    core.shared.state.lock().unwrap().retired = true;
+    core.shared.ready.notify_all();
+    eventually(|| machine.queued_uploads().0 == 0);
+    drop(core);
+    release.send(()).unwrap();
+    assert!(result.recv_timeout(Duration::from_secs(5)).unwrap());
+    assert!(script.started.lock().unwrap().is_empty());
+}
+
+struct BlockingDrop {
+    entered: std::sync::mpsc::Sender<()>,
+    release: Receiver<()>,
+}
+impl Drop for BlockingDrop {
+    fn drop(&mut self) {
+        self.entered.send(()).unwrap();
+        let _ = self.release.recv_timeout(Duration::from_secs(10));
+    }
+}
+
+#[test]
+fn an_unstarted_upload_stays_charged_while_its_disposer_is_blocked() {
+    let files = Files::new();
+    std::fs::write(files.0.join("tmp/file"), vec![5; 1 << 20]).unwrap();
+    let script = Arc::new(Script::default());
+    let (core, woke) = core(
+        &script,
+        "net.fetch https://*.example.test\nfs.read app:/tmp",
+    );
+    core.set_app_roots(files.roots());
+    for n in 0..asynch::IN_FLIGHT as u64 {
+        core.run(
+            job(
+                n,
+                Request::get(&format!("https://o{n}.example.test/")).independent_http(1024),
+            ),
+            None,
+        )
+        .unwrap();
+    }
+    assert_eq!(script.wait(asynch::IN_FLIGHT), asynch::IN_FLIGHT);
+    let before = bytes(&core)[1];
+    let (entered, disposing) = channel();
+    let (release, released) = channel();
+    let blocking = BlockingDrop {
+        entered,
+        release: released,
+    };
+    core.shared
+        .state
+        .lock()
+        .unwrap()
+        .discard
+        .push(OwnedWork::Now(Box::new(move || {
+            drop(blocking);
+            failed(FailureKind::Aborted, "unused")
+        })));
+    core.shared.ready.notify_all();
+    disposing.recv_timeout(Duration::from_secs(5)).unwrap();
+    let mut request = upload("https://upload.example.test/", "app:/tmp/file", 1024);
+    request.timeout_ms = Some(1_000);
+    core.run(job(100, request), None).unwrap();
+    eventually(|| core.machine.as_ref().unwrap().queued_uploads().1 == 1);
+    assert!(matches!(
+        &collect(&core, &woke, 1)[0].1,
+        Outcome::Failed {
+            kind: FailureKind::Timeout,
+            ..
+        }
+    ));
+    eventually(|| {
+        core.shared
+            .state
+            .lock()
+            .unwrap()
+            .running
+            .iter()
+            .all(|r| r.ticket != 100)
+    });
+    assert_eq!(
+        bytes(&core)[1],
+        before + (1 << 20),
+        "the disposed closure still owns the upload"
+    );
+    release.send(()).unwrap();
+    eventually(|| bytes(&core)[1] == before);
+}
+
+#[test]
+fn releasing_an_upload_buffer_does_not_refund_its_sending_hop() {
+    let files = Files::new();
+    std::fs::write(files.0.join("tmp/file"), vec![5; 1 << 20]).unwrap();
+    let script = Arc::new(Script::default());
+    let (core, _) = core(
+        &script,
+        "net.fetch https://*.example.test\nfs.read app:/tmp",
+    );
+    core.set_app_roots(files.roots());
+    core.run(
+        job(
+            1,
+            upload("https://upload.example.test/", "app:/tmp/file", 1024),
+        ),
+        None,
+    )
+    .unwrap();
+    assert_eq!(script.wait(1), 1);
+    let mut started = script.take("https://upload.example.test/");
+    let charged = bytes(&core)[1];
+    // Retirement of FetchTask's body reference happens when headers fail;
+    // the transport then releases its reference, but has not sent end yet.
+    started.sink.head(Head {
+        status: 200,
+        headers: Headers::new(),
+        declared_length: Some(2048),
+    });
+    drop(started._request.body.take());
+    eventually(|| {
+        core.shared
+            .state
+            .lock()
+            .unwrap()
+            .running
+            .iter()
+            .any(|r| r.ticket == 1 && r.terminal)
+    });
+    assert_eq!(bytes(&core)[1], charged);
+    core.begin_pump();
+    assert_eq!(core.drain().len(), 1);
+    assert!(bytes(&core)[1] >= 1 << 20);
+    started
+        .sink
+        .end(Err(ibex2::boundary::HostError::Failed("stopped".into())));
+    drop(started);
+    eventually(|| bytes(&core) == [0, 0]);
+}
+
+#[test]
+fn a_parked_upload_behind_an_origin_blocked_head_reserves_its_future_bytes() {
+    let files = Files::new();
+    std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 20 << 20]).unwrap();
+    let script = Arc::new(Script::default());
+    let grants = "net.fetch https://*.example.test\nfs.read app:/tmp";
+    let (core, woke) = core(&script, grants);
+    core.set_app_roots(files.roots());
+    for n in 0..6 {
+        core.run(
+            job(
+                n,
+                Request::get(&format!("https://h.example.test/{n}")).independent_http(1024),
+            ),
+            None,
+        )
+        .unwrap();
+    }
+    core.run(
+        job(
+            6,
+            Request::get("https://x.example.test/").independent_http(22 << 20),
+        ),
+        None,
+    )
+    .unwrap();
+    assert_eq!(script.wait(7), 7);
+    core.run(
+        job(
+            7,
+            Request::get("https://h.example.test/head").independent_http(1024),
+        ),
+        None,
+    )
+    .unwrap();
+    core.run(
+        job(
+            8,
+            upload("https://a.example.test/", "app:/tmp/big.bin", 1 << 20),
+        ),
+        None,
+    )
+    .unwrap();
+    eventually(|| {
+        core.shared
+            .state
+            .lock()
+            .unwrap()
+            .book
+            .sized
+            .contains_key(&8)
+    });
+    {
+        let state = core.shared.state.lock().unwrap();
+        assert_eq!(
+            state.jobs[1]
+                .iter()
+                .map(|job| job.ticket)
+                .collect::<Vec<_>>(),
+            [7, 8]
+        );
+    }
+    let mut crowded = Request::get("https://b.example.test/").independent_http(1024);
+    crowded.method = "POST".into();
+    crowded.body = vec![0; 3 << 20];
+    assert_eq!(
+        core.run(job(9, crowded), None),
+        Err("native executor admission limit reached")
+    );
+    script.answer("https://x.example.test/", b"x");
+    assert_eq!(collect(&core, &woke, 1)[0].0, 6);
+    eventually(|| {
+        script
+            .started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.url == "https://a.example.test/")
+    });
+    script.answer("https://a.example.test/", b"a");
+    assert_eq!(collect(&core, &woke, 1)[0].0, 8);
+    script.answer("https://h.example.test/0", b"h");
+    assert_eq!(collect(&core, &woke, 1)[0].0, 0);
+    eventually(|| {
+        script
+            .started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.url == "https://h.example.test/head")
+    });
+    script.answer("https://h.example.test/head", b"head");
+    assert_eq!(collect(&core, &woke, 1)[0].0, 7);
+    for n in 1..6 {
+        script.answer(&format!("https://h.example.test/{n}"), b"h");
+    }
+    assert_eq!(collect(&core, &woke, 5).len(), 5);
+    eventually(|| bytes(&core) == [0, 0]);
 }
