@@ -1261,6 +1261,7 @@ public final class ExactSession {
         primeControlText()
         _ = runtime.setPreferences(preferenceBits())
     }
+    var displayModeOverride: UInt32?
     private func preferenceBits() -> UInt32 {
         #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
@@ -1271,7 +1272,8 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        return DisplayPreferences.bits(systemDark: dark, view: view)
+        let bits = DisplayPreferences.bits(systemDark: dark, view: view)
+        return displayModeOverride.map { (bits & ~(7 << 11)) | ($0 << 11) } ?? bits
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground

@@ -1993,7 +1993,12 @@ stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
-not have. `exactPage` answers `visibilityState`, `onLine`, `canShare`,
+not have. `exactViewport().displayMode` is a string: the current CSS display
+mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
+native hosts. Declare it on the resource's shape; `state.device.displayMode`
+reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
+browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
+`exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
 choose an in-window message over a system notification). A reminder that should

@@ -1465,7 +1465,10 @@ inventing platform-specific Contract files. Safe-area lengths use CSS `env()`;
 viewport metadata uses the root element's `viewport-fit` and `interactive-widget`
 attributes. `exactViewport` also carries `prefersReducedMotion`,
 `prefersReducedTransparency`, `prefersContrast` and `prefersColorScheme`: facts
-for the app to honor, not automatic engine policy. Available fields are documented beside their source validation and
+for the app to honor, not automatic engine policy. `displayMode: string` reads
+CSS's current `display-mode`: the browser's media query on the web,
+`fullscreen` or `standalone` for the window on macOS, and `standalone` on
+other native hosts. Available fields are documented beside their source validation and
 [the viewport design](../llp/1039-viewport-facts.rfc.md); start with [the viewport corpus](../contract/corpus/viewport.contract).
 
 Localized strings live in the app's `strings/<locale>.json` files. Author calls
