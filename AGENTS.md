@@ -38,19 +38,21 @@ writing apps should therefore say less — structure (a header's heading and but
 
 ## Writing
 
-For all prose: comments, commit messages, guides, LLPs, issues and PR text.
+For all prose: communicate with great clarity of mind. Writing must be easy to understand
+and not create confusion nor ambiguity.
 
-- Write with clarity of mind. A reader should understand it on first reading and find
-  nothing ambiguous.
-- Say what the reader needs to know about the topic and nothing more. Do not recount
-  history or keep a diary; an alternative not chosen earns a line when it explains the
-  choice.
-- Cite sources where they help: standard specifications, and host platform API
-  documentation and guidelines.
-- A comment communicates what cannot easily be inferred from the code. Judiciously omit or
-  remove comments, or parts of comments, that do not clearly explain anything the code
-  does not already communicate, but take care not to delete comments with meaningful
-  marginal value.
+Do not recant history. Say only what needs to be said to clearly communicate the topic at
+hand. It can be useful to mention alternatives we did not choose, but do not record a
+meandering diary. Focus on what the reader needs to know.
+
+It can be helpful to reference sources like standard specifications and host platform API
+documentation and guidelines.
+
+Code comments should follow the above writing guidelines. Comments should communicate
+information that cannot be easily inferred from the code. Judiciously omit or remove
+comments or parts of comments that do not clearly explain anything that is not already
+communicated by the code, though take care not to delete comments with meaningful marginal
+value.
 
 ## Working here
 
