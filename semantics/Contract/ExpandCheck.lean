@@ -7,10 +7,12 @@ semantics against the flat semantics, by observation.
 Structure is compared declaration by declaration and node by node, through
 `repr`. Types are compared apart: a child's states and parameters carry
 the types the checker gave the child standalone, the flat embedding the
-types it inferred in the expansion, which may be more precise.
+types it inferred in the expansion, which may be more precise; only a flat
+type that is not at least the expansion's (`Ty.le`) is a difference.
 -/
 import Contract.Expand
 import Contract.CompSem
+import Contract.ValTy
 
 namespace Contract.ExpandCheck
 
@@ -24,16 +26,21 @@ def ActionDecl.untyped (a : ActionDecl) : ActionDecl :=
 def oneLine (s : String) : String :=
   " ".intercalate ((s.splitOn "\n").map fun l => l.trimAscii.toString)
 
-/-- The first index where two lists' `repr`s differ, with both. -/
-def firstDiff {α} [Repr α] (what : String) (xs ys : List α) : Option String :=
+/-- The first index where two lists' items are not `same`, with both. -/
+def firstDiffBy {α} [Repr α] (same : α → α → Bool) (what : String) (xs ys : List α) :
+    Option String :=
   let rec go : Nat → List α → List α → Option String
     | _, [], [] => .none
     | i, x :: _, [] => .some s!"{what}[{i}]: lean has {oneLine (reprStr x)}, rust has nothing"
     | i, [], y :: _ => .some s!"{what}[{i}]: rust has {oneLine (reprStr y)}, lean has nothing"
     | i, x :: xs, y :: ys =>
-      if reprStr x == reprStr y then go (i + 1) xs ys
+      if same x y then go (i + 1) xs ys
       else .some s!"{what}[{i}]: lean {oneLine (reprStr x)} ≠ rust {oneLine (reprStr y)}"
   go 0 xs ys
+
+/-- The first index where two lists' `repr`s differ, with both. -/
+def firstDiff {α} [Repr α] (what : String) (xs ys : List α) : Option String :=
+  firstDiffBy (fun x y => reprStr x == reprStr y) what xs ys
 
 /-- The first structural difference between the Lean expansion `l` and the
 Rust one `r`, types aside. -/
@@ -49,11 +56,27 @@ def structDiff (l r : Program) : Option String :=
   firstDiff "routes" l.routes r.routes <|>
   (if reprStr l.router == reprStr r.router then .none else .some "router")
 
-/-- The first difference in a lifted declaration's type. -/
+/-- One action's flat parameter types are at least the expansion's, one by
+one: what the expansion leaves `?`, the checker may have typed. -/
+def paramsLe (l r : List Ty) : Bool :=
+  l.length == r.length && (l.zip r).all fun (a, b) => Ty.le a b
+
+/-- The first lifted declaration whose flat type is not at least its type in
+the Lean expansion. A curried argument's hidden parameter
+(`@capture:n:aI:J`) is `?` in both expansions, as inline.rs gives it no
+type; the checker types it from the handler that binds its action
+(`press=go#1(3)`: `number`), as it does any untyped parameter. -/
 def typeDiff (l r : Program) : Option String :=
-  firstDiff "state types" (l.states.map (·.ty)) (r.states.map (·.ty)) <|>
-  firstDiff "parameter types" (l.actions.map fun a => a.params.map (·.2))
+  firstDiffBy Ty.le "state types" (l.states.map (·.ty)) (r.states.map (·.ty)) <|>
+  firstDiffBy paramsLe "parameter types" (l.actions.map fun a => a.params.map (·.2))
     (r.actions.map fun a => a.params.map (·.2))
+
+-- A typed curried capture is no difference (corpus/actions/calls/prop-row);
+-- a conflict, or a type the flat embedding lost, is.
+example : paramsLe [.number, .string, .unknown] [.number, .string, .string] = true := by decide
+example : paramsLe [.number] [.string] = false := by decide
+example : paramsLe [.number] [.unknown] = false := by decide
+example : paramsLe [.unknown] [] = false := by decide
 
 /-- Both checks for one case, as lines: `#expand-error`, `#struct`, `#types`
 (each with what differs, or `ok`), then the flat observation after
