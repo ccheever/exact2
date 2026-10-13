@@ -163,7 +163,13 @@ pub fn mime_for(name: &str) -> &'static str {
         "webm" => "video/webm",
         "json" => "application/json",
         "md" | "markdown" => "text/markdown",
-        "txt" => "text/plain",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "tsv" => "text/tab-separated-values",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "xml" => "application/xml",
+        "yaml" | "yml" => "application/yaml",
         _ => "application/octet-stream",
     }
 }
@@ -355,5 +361,25 @@ mod tests {
             delivered_type("image/heic", &["image/jpeg".into()]),
             "image/jpeg"
         );
+    }
+}
+
+#[cfg(test)]
+mod text_types {
+    #[test]
+    fn text_files_have_their_mime_type_and_unknown_files_stay_binary() {
+        for (name, mime) in [
+            ("diary.CSV", "text/csv"),
+            ("data.tsv", "text/tab-separated-values"),
+            ("notes.txt", "text/plain"),
+            ("notes.md", "text/markdown"),
+            ("index.html", "text/html"),
+            ("data.xml", "application/xml"),
+            ("config.yml", "application/yaml"),
+            ("opaque.bin", "application/octet-stream"),
+        ] {
+            assert_eq!(super::mime_for(name), mime, "{name}");
+            assert!(super::accepts(&[mime.into()], name, mime));
+        }
     }
 }

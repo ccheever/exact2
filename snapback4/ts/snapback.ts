@@ -145,7 +145,7 @@ export type Uploaded = { ok: true; asset: Asset } | { ok: false; why: Refusal };
  * row's read rule; `E_ASSET_VIEWED`; `E_OFFLINE`). */
 export type Downloaded = { ok: true; path: string; type: string; bytes: number; name?: string } | { ok: false; why: Refusal };
 
-const EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4' };
+const EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4', 'text/csv': 'csv', 'text/tab-separated-values': 'tsv', 'text/plain': 'txt', 'text/markdown': 'md', 'text/html': 'html', 'application/json': 'json', 'application/xml': 'xml', 'application/yaml': 'yaml' };
 
 /** A fetch that rejected: unreached is `E_OFFLINE`; Exact's own refusal
  * before sending (`exactBodyFrom` naming a missing or ungranted file) is
