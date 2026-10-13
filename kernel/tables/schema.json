@@ -3829,7 +3829,7 @@
       "rare": true,
       "codec": "dimension",
       "default": 0,
-      "_comment": "@ref LLP 1010 §6.9: CSS `scroll-padding-*`, the scrollport inset that `scrollIntoView` aligns within. Read by a virtualized list's `scrollIntoView` (the runner, the JS target) and written as CSS on the web; nothing else reads it."
+      "_comment": "@ref LLP 1010 §6.9: CSS `scroll-padding-*`, the scrollport inset that `scrollIntoView` aligns within. Read by element and virtualized-list `scrollIntoView` on every GUI host."
     },
     {
       "bit": 195,
@@ -3920,6 +3920,38 @@
       "codec": "position-try-fallbacks",
       "cold": true,
       "_comment": "@ref LLP 1021 D2: ordered comma-separated flip-block/flip-inline attempts on invoker popovers; none by default. Each attempt transforms the base area and margins. flip-start and named rules remain refused in this slice."
+    },
+    {
+      "bit": 207,
+      "field": "scroll_margin_top",
+      "rare": true,
+      "refuses_percent": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 208,
+      "field": "scroll_margin_right",
+      "rare": true,
+      "refuses_percent": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 209,
+      "field": "scroll_margin_bottom",
+      "rare": true,
+      "refuses_percent": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 210,
+      "field": "scroll_margin_left",
+      "rare": true,
+      "refuses_percent": true,
+      "codec": "dimension",
+      "default": 0
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

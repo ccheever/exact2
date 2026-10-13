@@ -107,11 +107,13 @@ impl<D: DataSource> Runner<D> {
         let mut tree = self.tree.take().expect("booted");
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
+            let scroll_margin = |view| scroll_margin(&self.kernel, view);
             let scroll_padding = |view| scroll_padding(&self.kernel, view);
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             update.fonts = Some(self.fonts.clone());
             update.reuse = self.reuse;
             update.scroll_padding = Some(&scroll_padding);
+            update.scroll_margin = Some(&scroll_margin);
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
                     (
@@ -436,4 +438,19 @@ pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f6
         exact_kernel::Dimension::Points(n) => n as f64,
         _ => 0.0,
     })
+}
+
+/// The expanded target box used by a keyed list jump.
+pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let r = &node.style.rare;
+    [
+        r.scroll_margin_top,
+        r.scroll_margin_right,
+        r.scroll_margin_bottom,
+        r.scroll_margin_left,
+    ]
+    .map(|d| f64::from(d.at_basis(kernel.arena().env(), 0.0)))
 }

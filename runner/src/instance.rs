@@ -439,12 +439,11 @@ pub struct Update<'a> {
     scratch: vm::Scratch,
     /// Empty lexical-frame buffers, reused within this update only.
     frame_buffers: Vec<Vec<Frame>>,
-    /// A list's `scroll-padding`, top, right, bottom, left, as its style
-    /// resolves it now; asked only while a `scrollIntoView` aligns (LLP 1010
-    /// §6.9). `None` without a kernel to ask.
+    /// Resolved CSS alignment insets, top/right/bottom/left (LLP 1010 §6.9).
     pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
+    /// Resolved CSS target outsets, top/right/bottom/left.
+    pub scroll_margin: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
 }
-
 impl<'a> Update<'a> {
     /// A context over `env` with no ops yet.
     pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
@@ -472,6 +471,7 @@ impl<'a> Update<'a> {
             scratch: vm::Scratch::default(),
             frame_buffers: Vec::new(),
             scroll_padding: None,
+            scroll_margin: None,
         }
     }
 

@@ -45,14 +45,6 @@ impl Lowerer<'_> {
             }
         }
         self.check_group(virtualized, attrs, children, scope)?;
-        // @ref LLP 1010 §6.9 — `scroll-padding` is read by a virtualized
-        // list's `scrollIntoView` alone; a native host aligns nothing else by
-        // it, where the browser would.
-        if let Some(a) = attrs.iter().find(|a| a.name.starts_with("scroll-padding")) {
-            if !virtualized {
-                return err("lower-scroll-padding", format!("`{}` insets where a virtualized list's `scrollIntoView` aligns a row; native hosts read it nowhere else, so on {} the web alone would follow it: put it on a `list virtualized=true`, or leave it out", a.name, if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), a.span);
-            }
-        }
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };

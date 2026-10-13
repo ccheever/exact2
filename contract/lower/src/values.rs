@@ -181,7 +181,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
 /// order — `border-radius`'s corners in top-left, top-right, bottom-right,
 /// bottom-left order, which CSS fills from fewer values the same way
 /// (ledger2 Rough 5).
-const FOUR_SIDED: [[StyleId; 4]; 8] = [
+const FOUR_SIDED: [[StyleId; 4]; 9] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -218,6 +218,12 @@ const FOUR_SIDED: [[StyleId; 4]; 8] = [
         StyleId::ScrollPaddingRight,
         StyleId::ScrollPaddingBottom,
         StyleId::ScrollPaddingLeft,
+    ],
+    [
+        StyleId::ScrollMarginTop,
+        StyleId::ScrollMarginRight,
+        StyleId::ScrollMarginBottom,
+        StyleId::ScrollMarginLeft,
     ],
     [
         StyleId::BorderRadiusTopLeft,

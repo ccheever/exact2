@@ -6,6 +6,16 @@
 import AppKit
 
 extension NodeView {
+    /// Replacing an animation owes its end even if the new request or wheel
+    /// moves nothing. A following animation or live gesture holds it again.
+    func cancelElementScroll() {
+        guard let end = scrollEnd, end.elementAnimation != nil, let clip = scroll?.contentView else { return }
+        end.elementAnimation = nil
+        let at = clip.bounds.origin
+        NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(at) })
+        end.settle { [weak self] in if self?.scrollEnd?.live == false { self?.endScroll() } }
+    }
+
     /// The scroll view's live scrolls, start and end; `nil` drops the old
     /// one's, and what it owed, when the scroll view goes.
     func observeLiveScroll(_ sv: NSScrollView?, replacing old: NSScrollView? = nil) {
@@ -41,12 +51,12 @@ extension NodeView {
         let end = scrollEnd ?? ScrollEnd()
         scrollEnd = end
         guard end.moved(to: [o.x, o.y, 0]) else { return }
-        if end.live { end.hold() } else { end.settle { [weak self] in if self?.scrollEnd?.live == false { self?.endScroll() } } }
+        if end.live || end.elementAnimation != nil { end.hold() } else { end.settle { [weak self] in if self?.scrollEnd?.live == false { self?.endScroll() } } }
     }
 
     /// The scroll is over: its last `scroll` first, then `scrollend`, once.
     func endScroll() {
-        guard handlers.contains("scrollend"), presenter?.views[id] === self, let end = scrollEnd, end.take(), hasScrollLayoutBox else { return }
+        guard handlers.contains("scrollend"), presenter?.views[id] === self, let end = scrollEnd, end.elementAnimation == nil, end.take(), hasScrollLayoutBox else { return }
         // The last `scroll` may run its handler at once; this view may be gone after.
         sendScrollEvent()
         guard presenter?.views[id] === self else { return }

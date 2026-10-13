@@ -241,11 +241,10 @@ fn the_flex_shorthand_text_bounds_as_its_longhands_do() {
     assert_eq!(e.id, "lower-scroll-unbounded", "{e}");
 }
 
-/// `scroll-padding` (LLP 1010 §6.9) takes padding's forms on a virtualized
-/// list, where `scrollIntoView` aligns by it, and is refused elsewhere: a
-/// native host reads it nowhere else.
+/// Scroll padding applies to every scroller; virtual lists still require
+/// resolvable main-axis lengths.
 #[test]
-fn scroll_padding_is_a_virtualized_lists_and_takes_lengths() {
+fn scroll_padding_applies_to_any_scroller_and_takes_lengths() {
     for attrs in [
         "scroll-padding-top=92",
         "scroll-padding-bottom=\"calc(env(safe-area-inset-bottom) + 49px)\"",
@@ -269,12 +268,9 @@ fn scroll_padding_is_a_virtualized_lists_and_takes_lengths() {
         "virtualized=false height=200 scroll-padding-top=92",
         "height=200 scroll-padding=8",
     ] {
-        let e = contract::compile(&source(attrs)).unwrap_err();
-        assert_eq!(e.id, "lower-scroll-padding", "{attrs}: {e}");
+        contract::compile(&source(attrs)).unwrap();
     }
-    let e = contract::compile(
-        "component App\n  view\n    scroll height=200 scroll-padding-top=92\n      box height=1000\n",
-    )
-    .unwrap_err();
-    assert_eq!(e.id, "lower-scroll-padding", "{e}");
+    contract::compile(
+        "component App\n  view\n    scroll height=200 scroll-padding-top=92\n      box height=1000 scroll-margin=\"8 12 16 20\"\n",
+    ).unwrap();
 }

@@ -891,3 +891,16 @@ fn native_scroll_anchors_subtract_the_resolved_content_origin_on_both_axes() {
         assert_eq!(r.slot("within"), Some(&Value::Number(61.0)));
     }
 }
+
+#[test]
+fn scroll_into_view_expands_the_row_by_its_scroll_margins() {
+    let mut r = boot(&SNAP.replace(
+        "text `${x}` height=100",
+        "text `${x}` scroll-margin=\"8px 0 6px\" height=100",
+    ));
+    host(&mut r, 0.0);
+    let top = into(&mut r, "start", 50.0, 0.0);
+    assert_eq!(top, 4992.0);
+    let top = into(&mut r, "end", 50.0, top);
+    assert_eq!(top, TOP + 5100.0 + 6.0 - (PORT - END));
+}
