@@ -84,5 +84,5 @@ export function mobileScheduledHeader(args: unknown[]) {
   const preferences = normalizeMobilePreferences(serialized);
   const scope = settingsScope(rows, selectionJSON, preferences.projectGroupingMode);
   return { configuration: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(routeKey), false, scope))),
-    addActionID: 'scheduled-new', addEnabled: canCreate === true }) };
+    back: false, addActionID: 'scheduled-new', addEnabled: canCreate === true }) };
 }
