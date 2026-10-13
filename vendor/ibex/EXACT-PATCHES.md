@@ -3,11 +3,11 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `bf74e54c14ab80bdb4935411ed3a2bf77c2d86dc` (2026-10-13).
+  `e60b3e0570315f31710744c1187f3cec5574fedf` (2026-10-13).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
-- Hermes bundle remains `hermes-vanilla-d412d3bd8512-v4`, source
+- Hermes bundle is `hermes-vanilla-d412d3bd8512-v5`, source
   `d412d3bd…` / Hermes `260318099.0.4`. Repository engine-output directories
   remain absent; builds validate the paired compiler and VM in the bundle cache.
 - The two standalone `Cargo.lock` files under `ibex2` and
@@ -20,11 +20,14 @@ and the new upstream tree before replacing any source. The old local delta
 included 40 changed/added files. Reusable changes now come from upstream;
 Exact's explicit stub configuration and standalone locks are replayed below.
 
-The follow-up refresh from `b20dded` to the source pin above changes only
+The follow-up refresh from `b20dded` to `bf74e54` changed only
 `fs_image.rs` rustdoc within the vendored inputs: opaque native codec workspace
 is a measured admission estimate, not an allocator ceiling. Both stub seams,
 the three standalone workspace boundaries, both locks, and Exact's app-facing
-storage declaration are unchanged. The Hermes bundle stays on v4.
+storage declaration were unchanged. The subsequent `e60b3e0` refresh adopts
+the authenticated v5 trust table: eleven target mappings for ten assets,
+including Android aarch64. Its manifests, locks and integration seams are
+unchanged; compiled consumer qualification of that bundle is pending below.
 
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
@@ -119,14 +122,16 @@ Windows. Its library still imports Unix-only `UnixStream`, `AsRawFd` and
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.
 
-## 8. Android bundle pin — still pending
+## 8. Android bundle pin — adopted, consumer qualification pending
 
 Upstream source now supplies the per-target `HERMES_LEAN_SYS_DIR_<target>`
-override, Android link recipe and release target. The consumer stays on the
-published v4 bundle. An Android-capable v5 publication and reviewed pin update
-have not happened in this local delivery, so row 8 is not retired. Existing
-`scripts/hermes-android.mjs` local receipt flow remains available. Source support
-is not evidence that a released Android artifact was consumed.
+override, Android link recipe and release target. The consumer now pins the
+published v5 bundle, including `aarch64-linux-android`. The release's complete
+checksum inventory, archive attestations and paired compiler/VM receipts were
+authenticated before the trust table changed. Row 8 remains pending until
+Exact consumes that released artifact in its Android cross-link qualification.
+Existing `scripts/hermes-android.mjs` local receipt flow remains available;
+source support and an authenticated pin alone are not a consumer link proof.
 
 ## Remaining consumer integration seams
 
@@ -228,6 +233,8 @@ LLP 1120 §5 records the original baseline and remaining measured gate. Async
 remains off by default. The controlled TLS setup-stall diagnostic and this Mac
 smoke do not substitute for that campaign.
 
-The current source refresh is rustdoc-only relative to `b20dded`; formatting,
-caps and the vendor comparison qualify this delta. A published v5 bundle and
-its consumer pin require fresh compiled qualification before row 8 can retire.
+The rustdoc-only refresh to `bf74e54` passed formatting, caps, both standalone
+locked/offline metadata checks, installer/root lock overlap and the vendor
+comparison. The current `e60b3e0` source pin adds the published v5 trust table.
+Fresh six-gate, native Mac, Windows and Android consumer qualification is
+pending on this new bundle; the v4 results above do not qualify it.
