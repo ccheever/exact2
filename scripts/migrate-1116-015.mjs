@@ -5,6 +5,8 @@
 //   D2  a roster call on its subject is a method call (`trim(toLowerCase(s))` is `s.toLowerCase().trim()`,
 //       `length(xs)` is `xs.length`), and `list<T>` is `T[]`.
 //   bun scripts/migrate-1116-015.mjs [--root <dir>] [--dry] [--phase d1|d2]
+// On a branch, run it before merging main: main's tests and docs quote the old spelling on purpose
+// (the refusals' own cases), and a second pass would rewrite them.
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
