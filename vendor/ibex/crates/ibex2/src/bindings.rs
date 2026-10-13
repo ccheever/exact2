@@ -539,12 +539,34 @@ impl Context {
         self.endowment.state.set_app_directories(directories)
     }
 
-    /// The table `doc:` paths resolve through (Exact patch 5).
+    pub fn set_storage_limits(
+        &self,
+        limits: crate::stdlib::fs::ResultLimits,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_storage_limits(limits)
+    }
     pub fn set_documents(
         &self,
         documents: Arc<crate::stdlib::fs::Documents>,
     ) -> Result<(), crate::boundary::HostError> {
         self.endowment.state.set_documents(documents)
+    }
+    pub fn set_image_codec(
+        &self,
+        codec: Arc<dyn crate::stdlib::fs_image::ImageCodec>,
+        limits: crate::stdlib::fs_image::WorkLimits,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_image_codec(codec, limits)
+    }
+    /// Handles belong to this Context generation; retain individual handles before retiring a waiter.
+    pub fn image_work(&self) -> &crate::stdlib::fs_image::ImageWork {
+        self.endowment.state.image_work()
+    }
+    pub fn image_work_handle(&self, task_id: u64) -> Option<crate::stdlib::fs_image::WorkHandle> {
+        self.endowment.state.image_work_handle(task_id)
+    }
+    pub fn in_flight(&self) -> usize {
+        self.endowment.state.in_flight()
     }
 
     pub fn set_sqlite_provider(
@@ -552,30 +574,6 @@ impl Context {
         provider: Arc<dyn crate::stdlib::sqlite::Provider>,
     ) -> Result<(), crate::boundary::HostError> {
         self.endowment.state.set_sqlite_provider(provider)
-    }
-
-    /// The codec `fs.compressImage` runs (Exact patch 9). Without one the
-    /// operation refuses as unsupported.
-    pub fn set_image_codec(
-        &self,
-        codec: Arc<crate::stdlib::fs::ImageCodec>,
-    ) -> Result<(), crate::boundary::HostError> {
-        self.endowment.state.set_image_codec(codec)
-    }
-
-    /// Call when giving up on a storage wait (Exact patch 9): no
-    /// `fs.compressImage` still in flight will write after this returns
-    /// `Abandoned`; `Written` means one finished its write and its
-    /// completion is coming, so keep waiting for it.
-    pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
-        self.endowment.state.abandon_image_work()
-    }
-
-    /// [`Context::abandon_image_work`] for a waiter that may be retired:
-    /// `live` is asked under the registry's lock, so set the retirement
-    /// flag before issuing work and no call issued after is abandoned.
-    pub fn abandon_image_work_if(&self, live: &dyn Fn() -> bool) -> crate::stdlib::fs::Abandoned {
-        self.endowment.state.abandon_image_work_if(live)
     }
 
     /// Worker-safe, edge-triggered notification that schedules the embedder's
@@ -600,11 +598,31 @@ impl Context {
         self.endowment.state.is_idle()
     }
 
-    /// Host operations started and not yet returned, a let-go
-    /// `fs.compressImage` among them, its completion queued or not
-    /// (Exact patch 11).
-    pub fn in_flight(&self) -> usize {
-        self.endowment.state.in_flight()
+    /// Make `clock` this runtime's time source, in milliseconds: the timer
+    /// wheel and `performance.now` read it (LLP 0071 D3). Ibex calls it with
+    /// no Ibex lock held, on the thread reading time; it must return promptly
+    /// and must not call into this `Context` or its adapter. A reading that is
+    /// not finite, is negative or exceeds 2^53 ms, or a panic, repeats the last
+    /// sample, and time never runs backward. Refused once anything has read
+    /// time: call it right after creating the `Context`.
+    pub fn set_clock(
+        &self,
+        clock: Arc<dyn Fn() -> f64 + Send + Sync>,
+    ) -> Result<(), crate::task::ClockSealed> {
+        self.endowment.state.set_clock(clock)
+    }
+
+    /// Move every timer due on this runtime's clock into the task FIFO, and
+    /// report how many (LLP 0071 D2). Admission wakes, as every admission
+    /// does: do not hold across it a lock the wake callback takes.
+    pub fn admit_due_timers(&self) -> usize {
+        self.endowment.state.admit_due_timers()
+    }
+
+    /// Milliseconds on this runtime's clock until the next timer is due;
+    /// `Some(0.0)` exactly when one is (LLP 0071 D2, D3).
+    pub fn millis_until_next_timer(&self) -> Option<f64> {
+        self.endowment.state.millis_until_next_timer()
     }
 
     /// Borrowed Arc-backed pointer for the JSI adapter. The context must

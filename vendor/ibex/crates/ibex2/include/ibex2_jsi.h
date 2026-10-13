@@ -339,6 +339,15 @@ public:
   jsi::Object storage(const void* grants, const jsi::Function& sqlite_factory);
   // Takes/releases the ABI payload even if no promise is awaiting this id.
   void settle(uint64_t task_id, Ibex2AbiValue&, bool is_error);
+  // Invoke the private JavaScript timer callback for a host task the owning
+  // driver already admitted and reserved. The dispatcher is captured from
+  // timers.js during installation and is never published to application code.
+  void fire_timer(uint64_t task_id);
+#if defined(IBEX2_TEST_SUPPORT)
+  // Native-only test assertion. The dispatcher identity never crosses into
+  // JavaScript or a production build.
+  void assert_timer_dispatch_unreachable_for_test() const;
+#endif
   // Register a JS callback for a future host-event source. The returned
   // identity is the one Rust carries in HostTask::Event.
   uint64_t subscribe(jsi::Function callback);
@@ -350,11 +359,26 @@ public:
   // without EVENTS these fall back to the host console reporter.
   void report_error(const jsi::Value& error);
   void report_error(const char* message);
-  // Takes at most one storage settlement or subscribed event. No timers or
-  // microtask checkpoints. Callback failures are reported through the EVENTS
-  // error path and do not escape. Returns true if a task was delivered; throws
-  // for a timer task, which belongs to an owning runtime's driver.
+  // Takes at most one storage settlement, subscribed event or admitted timer
+  // (LLP 0071 D1). It admits no timers and runs no microtask checkpoint.
+  // Callback failures are reported through the EVENTS error path and do not
+  // escape. It holds the runtime's drive flag while it runs and throws
+  // std::logic_error, taking nothing, when the flag is already held: by a
+  // delivery in progress, a cycle, or an owning pump (LLP 0071 D5).
   bool deliver_one();
+  // What cycle() did.
+  enum class Cycle { Delivered, Idle, Nested };
+  // One LLP 0058.000.000 §8 cycle for a borrowed runtime, under the drive flag
+  // (LLP 0071 D5): drain microtasks, admit due timers, deliver at most one
+  // task, drain microtasks. Idle -- nothing was ready -- is "settled at this
+  // clock". A cycle requested while the flag is held (a microtask or callback
+  // of this cycle, or an owning pump) runs nothing and returns Nested, as the
+  // owning pump returns for a nested drive. A job that throws out of a
+  // checkpoint is reported through the EVENTS error path and the drain resumes,
+  // as the owning pump's checkpoint does. A callback or microtask that detaches
+  // the adapter ends the cycle once the entrance it ran in returns (the engine
+  // finishes that drain or dispatch); the cycle then starts no other JavaScript.
+  Cycle cycle();
   // Release WebSocket keepalive roots whose listener/queued-data condition
   // ended before an embedder explicitly requests collection.
   void prepare_garbage_collection();
@@ -362,8 +386,14 @@ public:
   // before the pre-collection reconciliation above has a chance to help.
   size_t websocket_keepalive_count_for_test() const;
 private:
+  friend struct AdapterTestAccess;
   jsi::Object websocket_hooks(const void* grants);
   void refresh_websocket_keepalives();
+  // deliver_one()'s body, under a drive flag its caller holds.
+  bool deliver_next();
+  // cycle()'s checkpoint: drain, reporting and resuming past a job that throws
+  // out of the queue. False when the adapter was detached meanwhile.
+  bool checkpoint();
   struct State;
   jsi::Runtime* runtime_;
   std::shared_ptr<State> state_;

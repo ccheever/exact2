@@ -417,7 +417,8 @@ impl Core {
             .request
             .timeout_refusal()
             .or(r.request.body_from_refusal())
-            .map_or_else(|| reservation(&r.request), Err);
+            .map_or_else(|| reservation(&r.request), Err)
+            .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
         if self.disabled || !self.start_workers(&mut state) {
             return Err(("native executor worker limit reached", work));
         }
@@ -482,7 +483,7 @@ impl Core {
             };
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
-            let parked = state.book.parked(&state.jobs[lane]);
+            let parked = state.book.parked(lane, &state.jobs[lane]);
             if full || charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
                 return Err("native executor admission limit reached");
             }

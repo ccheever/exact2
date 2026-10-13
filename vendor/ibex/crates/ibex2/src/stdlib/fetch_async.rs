@@ -1,6 +1,6 @@
-//! Asynchronous fetch (exact2 LLP 1120 D1): a transport starts one exchange
+//! Asynchronous fetch (LLP 0068.000 §2): a transport starts one exchange
 //! and reports it through a [`Sink`]; [`FetchTask`] is `fetch_stream`'s
-//! redirect loop as a state machine over it, so a caller holds no thread
+//! redirect loop as a state machine over it, so a native async caller holds no thread
 //! while an exchange is on the wire.
 //!
 //! The semantics are `fetch.rs`'s, shared rather than copied: the grant
@@ -10,7 +10,17 @@
 //! serial context per exchange; the task decides at `head` whether the body
 //! is wanted, and reports its outcome once, through [`FetchEvents`].
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
+
+// @ref LLP 0068.000#3-ownership-callbacks-and-cancellation — callback and resource lifetime contract
+// @ref LLP 0068.000#4-limits-flow-and-deadlines — bounded collection; deadlines belong to consumers
+
+/// Contain an external callback panic without skipping retirement. Native FFI
+/// adapters apply the same boundary to arbitrary low-level sinks.
+pub(crate) fn contain(f: impl FnOnce()) {
+    let _ = catch_unwind(AssertUnwindSafe(f));
+}
 
 use crate::boundary::HostError;
 use crate::grant::GrantSet;
@@ -58,7 +68,8 @@ pub struct HopMetrics {
 }
 
 /// One exchange's events, on one serial context, never concurrently, and
-/// never before `start` has returned.
+/// never inline inside `start` or activation. Delivery on another context may
+/// overlap activation returning. Cancellation can trigger retirement before activation.
 pub trait Sink: Send {
     /// The response's head. A stop decided here sends no body byte.
     fn head(&mut self, head: Head) -> Flow;
@@ -95,7 +106,7 @@ impl Upload {
 impl Drop for Upload {
     fn drop(&mut self) {
         if let Some(released) = self.released.get_mut().ok().and_then(Option::take) {
-            released();
+            contain(released);
         }
     }
 }
@@ -125,6 +136,7 @@ pub struct HopRequest {
 pub struct Exchange {
     activate: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     cancel: Box<dyn Fn() + Send + Sync>,
+    cancelled: std::sync::atomic::AtomicBool,
 }
 
 impl Exchange {
@@ -136,12 +148,13 @@ impl Exchange {
         Self {
             activate: Mutex::new(Some(Box::new(activate))),
             cancel: Box::new(cancel),
+            cancelled: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     /// Let the transport deliver: the caller has recorded the exchange.
-    /// Every exchange must be activated, a cancelled one included, so that
-    /// its sink gets its `end`. Only the first call does anything.
+    /// Only the first call does anything. Capacity was reserved at preparation;
+    /// activation cannot refuse it. Call outside the consumer state lock.
     pub fn activate(&self) {
         let activate = self.activate.lock().ok().and_then(|mut a| a.take());
         if let Some(activate) = activate {
@@ -149,10 +162,16 @@ impl Exchange {
         }
     }
 
-    /// Stop the exchange. Its sink still gets `end` once activated; one
-    /// cancelled before activation sends nothing.
+    /// Stop the exchange and schedule retirement even if never activated. A
+    /// preactivation cancellation sends nothing. Both operations are idempotent.
     pub fn cancel(&self) {
-        (self.cancel)()
+        if !self
+            .cancelled
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            (self.cancel)();
+        }
+        self.activate();
     }
 }
 
@@ -162,7 +181,9 @@ pub trait AsyncTransport: Send + Sync {
     /// activates it (`Exchange::activate`), so a caller can record it first,
     /// and never on the caller's thread inside `start` or `activate`: a
     /// failure known at once is delivered later, as `end`.
-    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange;
+    /// Reserve capacity before returning `Ok`. Refusal returns `Err` without
+    /// an accepted exchange or sink callback.
+    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Result<Exchange, HostError>;
 }
 
 /// A fetch's final response, collected within its ceiling.
@@ -175,7 +196,7 @@ pub struct Collected {
     pub redirected: bool,
 }
 
-/// The caps every hop's headers are held to (exact2 LLP 1120 D1).
+/// The caps every hop's headers are held to (LLP 0068.000 §2).
 #[derive(Debug, Clone, Copy)]
 pub struct HeaderCaps {
     pub bytes: usize,
@@ -198,7 +219,7 @@ pub trait FetchEvents: Send + Sync {
     }
 }
 
-/// `fetch_stream`'s loop as a state machine (exact2 LLP 1120 D1).
+/// `fetch_stream`'s loop as a state machine (LLP 0068.000 §2).
 pub struct FetchTask {
     state: Mutex<TaskState>,
     transport: Arc<dyn AsyncTransport>,
@@ -247,7 +268,16 @@ impl FetchTask {
         caps: HeaderCaps,
         events: Arc<dyn FetchEvents>,
     ) -> Arc<FetchTask> {
-        let prepared = prepare_body(request);
+        let prepared = if request.body_limit() > isize::MAX as usize
+            || caps.bytes > isize::MAX as usize
+            || caps.entries > isize::MAX as usize
+        {
+            Err(HostError::InvalidArgument(
+                "asynchronous fetch requires finite allocation limits".into(),
+            ))
+        } else {
+            prepare_body(request)
+        };
         let failure = prepared.as_ref().err().cloned();
         let mut current = prepared.unwrap_or_else(|_| Request::get(""));
         let upload = upload.or_else(|| current.body.take().map(|b| Upload::new(b, None)));
@@ -290,7 +320,7 @@ impl FetchTask {
 
     /// Abort: the outcome is Aborted now, reported, then the exchange is
     /// cancelled, so the report comes before the hop's physical end.
-    fn abort(&self) {
+    pub fn abort(&self) {
         let released = {
             let mut state = self.state.lock().unwrap();
             let Some(mut released) = state.decide() else {
@@ -305,7 +335,7 @@ impl FetchTask {
             body,
         } = released;
         drop((upload, body));
-        self.events.outcome(Err(aborted()));
+        contain(|| self.events.outcome(Err(aborted())));
         if let Some(exchange) = exchange {
             exchange.cancel();
         }
@@ -317,7 +347,7 @@ impl FetchTask {
         let released = self.state.lock().unwrap().decide();
         if let Some(released) = released {
             drop(released);
-            self.events.outcome(result);
+            contain(|| self.events.outcome(result));
         }
     }
 
@@ -353,11 +383,15 @@ impl FetchTask {
             (request, state.hop)
         };
         let sink = Box::new(HopSink {
-            task: self.clone(),
+            task: Some(self.clone()),
+            events: self.events.clone(),
             hop,
             url: request.url.clone(),
         });
-        let exchange = Arc::new(self.transport.start(request, sink));
+        let exchange = match self.transport.start(request, sink) {
+            Ok(exchange) => Arc::new(exchange),
+            Err(error) => return self.finish(Err(error)),
+        };
         // Recorded before it may deliver; activated whatever happened since,
         // so that its sink gets an end.
         let wanted = {
@@ -412,7 +446,10 @@ impl TaskState {
 }
 
 struct HopSink {
-    task: Arc<FetchTask>,
+    // Released at physical end; late metrics retain only bounded hop metadata
+    // and the consumer observer, never the fetch body/upload or transport.
+    task: Option<Arc<FetchTask>>,
+    events: Arc<dyn FetchEvents>,
     hop: u64,
     /// The URL this hop sent, for its metrics.
     url: String,
@@ -421,14 +458,19 @@ struct HopSink {
 impl HopSink {
     /// Record a stop's outcome; the transport stops the exchange.
     fn stop(&self, failure: HostError) -> Flow {
-        self.task.finish(Err(failure));
+        if let Some(task) = &self.task {
+            task.finish(Err(failure));
+        }
         Flow::Stop
     }
 }
 
 impl Sink for HopSink {
     fn head(&mut self, head: Head) -> Flow {
-        let mut state = self.task.state.lock().unwrap();
+        let Some(task) = &self.task else {
+            return Flow::Stop;
+        };
+        let mut state = task.state.lock().unwrap();
         if state.done || state.hop != self.hop {
             return Flow::Stop;
         }
@@ -447,8 +489,7 @@ impl Sink for HopSink {
         let bytes = entries.iter().try_fold(0usize, |n, (k, v)| {
             n.checked_add(k.len())?.checked_add(v.len())
         });
-        if bytes.is_none_or(|n| n > self.task.caps.bytes) || entries.len() > self.task.caps.entries
-        {
+        if bytes.is_none_or(|n| n > task.caps.bytes) || entries.len() > task.caps.entries {
             drop(state);
             return self.stop(HostError::Failed("HTTP headers exceed limit".into()));
         }
@@ -470,7 +511,10 @@ impl Sink for HopSink {
     }
 
     fn data(&mut self, bytes: &[u8]) -> Flow {
-        let mut state = self.task.state.lock().unwrap();
+        let Some(task) = &self.task else {
+            return Flow::Stop;
+        };
+        let mut state = task.state.lock().unwrap();
         if state.done || state.hop != self.hop || state.response.is_none() {
             return Flow::Stop;
         }
@@ -479,18 +523,33 @@ impl Sink for HopSink {
             drop(state);
             return self.stop(over_limit(limit));
         }
+        let required = state.body.len() + bytes.len();
+        if required > state.body.capacity() {
+            // Grow geometrically without requesting capacity beyond the ceiling.
+            let capacity = required
+                .max(state.body.capacity().saturating_mul(2))
+                .min(limit);
+            let additional = capacity - state.body.len();
+            if state.body.try_reserve_exact(additional).is_err() {
+                drop(state);
+                return self.stop(HostError::Failed("HTTP response allocation failed".into()));
+            }
+        }
         state.body.extend_from_slice(bytes);
         Flow::Continue
     }
 
     fn end(&mut self, result: Result<(), HostError>) {
+        let Some(task) = self.task.take() else {
+            return;
+        };
         enum Then {
             Nothing,
             Next(crate::stdlib::fetch::RedirectStep),
             Outcome(Result<Collected, HostError>),
         }
         let (released, then) = {
-            let mut state = self.task.state.lock().unwrap();
+            let mut state = task.state.lock().unwrap();
             let current = state.hop == self.hop;
             let mut released = Released::default();
             if current {
@@ -545,66 +604,166 @@ impl Sink for HopSink {
         drop(released);
         // The physical end first: a caller's in-flight slot is free before
         // the next hop asks for one.
-        self.task.events.hop_ended();
+        contain(|| self.events.hop_ended());
         match then {
             Then::Nothing => {}
             Then::Next(_) => {
-                let task = self.task.clone();
-                self.task.events.next_hop(Box::new(move || task.hop()));
+                let next = task.clone();
+                if catch_unwind(AssertUnwindSafe(|| {
+                    self.events.next_hop(Box::new(move || next.hop()))
+                }))
+                .is_err()
+                {
+                    task.finish(Err(HostError::Failed(
+                        "fetch continuation callback panicked".into(),
+                    )));
+                }
             }
-            Then::Outcome(outcome) => self.task.events.outcome(outcome),
+            Then::Outcome(outcome) => contain(|| self.events.outcome(outcome)),
         }
     }
 
     fn metrics(&mut self, metrics: HopMetrics) {
-        self.task.events.metrics(&self.url, metrics);
+        contain(|| self.events.metrics(&self.url, metrics));
     }
 }
 
-/// Runs a blocking job somewhere: false when it could not.
-pub type Spawn = Arc<dyn Fn(Box<dyn FnOnce() + Send>) -> bool + Send + Sync>;
+/// A bounded worker-service job.
+pub type Job = Box<dyn FnOnce() + Send>;
 
-/// A blocking [`crate::stdlib::fetch::Transport`] as an [`AsyncTransport`]
-/// (exact2 LLP 1120 D4): each exchange runs `open` and reads its body on a
-/// job `spawn` places (an executor's bounded adapter thread), and reports
-/// through the sink from there.
+/// A reservation whose dispatch cannot refuse or run the job inline. Holding
+/// it consumes capacity; dropping it without dispatch releases that capacity.
+pub trait ReservedWorker: Send {
+    fn dispatch(self: Box<Self>, job: Job);
+}
+
+/// Consumer-supplied execution mechanism, without a runtime or queue policy.
+/// @ref LLP 0068.000#5-platform-adapters-and-compatibility — reserve before acceptance
+pub trait WorkerService: Send + Sync {
+    fn reserve(&self) -> Result<Box<dyn ReservedWorker>, HostError>;
+}
+
+/// Fixed workers and a finite pending capacity. At most `capacity` prepared
+/// or queued jobs plus `threads` executing jobs exist. A queue reservation is
+/// released when its worker starts, so an end callback can prepare a redirect
+/// even on a one-worker, one-pending-slot service.
+/// Dropping the service does not interrupt accepted jobs; reservations retain
+/// the queue until dispatched or dropped. Blocking DNS can retain a worker.
+pub struct BoundedWorkerPool {
+    sender: std::sync::mpsc::Sender<Job>,
+    occupied: Arc<std::sync::atomic::AtomicUsize>,
+    capacity: usize,
+}
+
+impl BoundedWorkerPool {
+    pub fn new(threads: usize, capacity: usize) -> std::io::Result<Self> {
+        if threads == 0 || capacity == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "worker count and capacity must be positive",
+            ));
+        }
+        let (sender, receiver) = std::sync::mpsc::channel::<Job>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        for index in 0..threads {
+            let receiver = receiver.clone();
+            std::thread::Builder::new()
+                .name(format!("ibex-http-{index}"))
+                .spawn(move || loop {
+                    let job = receiver.lock().unwrap().recv();
+                    match job {
+                        Ok(job) => contain(job),
+                        Err(_) => break,
+                    }
+                })?;
+        }
+        Ok(Self {
+            sender,
+            occupied: Arc::default(),
+            capacity,
+        })
+    }
+}
+
+struct WorkerPermit(Arc<std::sync::atomic::AtomicUsize>);
+impl Drop for WorkerPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+struct PoolReservation {
+    sender: std::sync::mpsc::Sender<Job>,
+    permit: WorkerPermit,
+}
+impl ReservedWorker for PoolReservation {
+    fn dispatch(self: Box<Self>, job: Job) {
+        let Self { sender, permit } = *self;
+        // A reservation retains the sender; workers live while any sender
+        // exists and contain job panics. Thus this send cannot be refused.
+        assert!(
+            sender
+                .send(Box::new(move || {
+                    drop(permit);
+                    job();
+                }))
+                .is_ok(),
+            "reserved worker service stopped"
+        );
+    }
+}
+impl WorkerService for BoundedWorkerPool {
+    fn reserve(&self) -> Result<Box<dyn ReservedWorker>, HostError> {
+        use std::sync::atomic::Ordering;
+        self.occupied
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < self.capacity).then_some(n + 1)
+            })
+            .map_err(|_| HostError::Failed("HTTP worker capacity exhausted".into()))?;
+        Ok(Box::new(PoolReservation {
+            sender: self.sender.clone(),
+            permit: WorkerPermit(self.occupied.clone()),
+        }))
+    }
+}
+
+/// A blocking transport using explicitly reserved bounded worker capacity.
+/// This is a worker adapter, not thread-free networking. The blocking request
+/// currently makes one temporary copy of its upload: budget another upload-sized
+/// buffer for every running worker. `Upload`'s release callback observes only
+/// the shared original; worker physical retirement bounds the temporary copy.
 pub struct BlockingAdapter {
     transport: Arc<dyn crate::stdlib::fetch::Transport>,
-    spawn: Spawn,
+    workers: Arc<dyn WorkerService>,
 }
-
 impl BlockingAdapter {
-    pub fn new(transport: Arc<dyn crate::stdlib::fetch::Transport>, spawn: Spawn) -> Self {
-        Self { transport, spawn }
+    pub fn new(
+        transport: Arc<dyn crate::stdlib::fetch::Transport>,
+        workers: Arc<dyn WorkerService>,
+    ) -> Self {
+        Self { transport, workers }
     }
 }
-
 impl AsyncTransport for BlockingAdapter {
-    fn start(&self, hop: HopRequest, sink: Box<dyn Sink>) -> Exchange {
+    fn start(&self, hop: HopRequest, mut sink: Box<dyn Sink>) -> Result<Exchange, HostError> {
+        let worker = self.workers.reserve()?;
         let abort = crate::stdlib::abort::AbortController::new();
         let signal = abort.signal();
-        let (transport, spawn) = (self.transport.clone(), self.spawn.clone());
-        let sink = Arc::new(Mutex::new(Some(sink)));
-        Exchange::new(
+        let transport = self.transport.clone();
+        Ok(Exchange::new(
             move || {
-                let held = sink.clone();
-                let job = Box::new(move || {
-                    if let Some(sink) = held.lock().unwrap().take() {
-                        run_blocking(&*transport, hop, sink, &signal);
-                    }
-                });
-                if !spawn(job) {
-                    // Nowhere to run it: told here, the one exception to
-                    // delivering off the caller's thread, since none exists.
-                    if let Some(mut sink) = sink.lock().unwrap().take() {
-                        sink.end(Err(HostError::Failed(
-                            "TypeError: Failed to fetch — no thread to run it".into(),
-                        )));
-                    }
-                }
+                worker.dispatch(Box::new(move || {
+                    let result = catch_unwind(AssertUnwindSafe(|| {
+                        run_blocking(&*transport, hop, &mut *sink, &signal)
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(HostError::Failed("HTTP transport callback panicked".into()))
+                    });
+                    contain(|| sink.end(result));
+                    contain(|| drop(sink));
+                }))
             },
             move || abort.abort(),
-        )
+        ))
     }
 }
 
@@ -614,9 +773,10 @@ impl AsyncTransport for BlockingAdapter {
 fn run_blocking(
     transport: &dyn crate::stdlib::fetch::Transport,
     hop: HopRequest,
-    mut sink: Box<dyn Sink>,
+    sink: &mut dyn Sink,
     signal: &AbortSignal,
-) {
+) -> Result<(), HostError> {
+    signal.check()?;
     let mut request = Request::get(&hop.url);
     request.method = hop.method;
     request.headers = hop.headers;
@@ -625,10 +785,7 @@ fn run_blocking(
     request.timeout = hop.timeout;
     request.redirect = crate::stdlib::fetch::RedirectMode::Manual;
     let _sending = hop.body;
-    let mut response = match transport.open(&request, signal) {
-        Ok(response) => response,
-        Err(e) => return sink.end(Err(e)),
-    };
+    let mut response = transport.open(&request, signal)?;
     drop(request);
     let declared_length = response
         .headers
@@ -641,23 +798,23 @@ fn run_blocking(
     };
     if sink.head(head) != Flow::Continue {
         drop(response);
-        return sink.end(Err(aborted()));
+        return Err(aborted());
     }
     let mut chunk = vec![0; 64 << 10];
     loop {
         if signal.aborted() {
             drop(response);
-            return sink.end(Err(aborted()));
+            return Err(aborted());
         }
         match response.body.read(&mut chunk) {
-            Ok(0) => return sink.end(Ok(())),
+            Ok(0) => return Ok(()),
             Ok(n) => {
                 if sink.data(&chunk[..n]) != Flow::Continue {
                     drop(response);
-                    return sink.end(Err(aborted()));
+                    return Err(aborted());
                 }
             }
-            Err(e) => return sink.end(Err(e)),
+            Err(e) => return Err(e),
         }
     }
 }

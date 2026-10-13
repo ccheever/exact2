@@ -19,6 +19,7 @@ struct Started {
 
 #[derive(Default)]
 struct Script {
+    refuse_next: std::sync::atomic::AtomicBool,
     started: Mutex<Vec<Started>>,
     changed: Condvar,
 }
@@ -64,12 +65,21 @@ impl Script {
 
 struct Scripted(Arc<Script>);
 impl ibex2::stdlib::fetch_async::AsyncTransport for Scripted {
-    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange {
+    fn start(
+        &self,
+        request: HopRequest,
+        sink: Box<dyn Sink>,
+    ) -> Result<Exchange, ibex2::boundary::HostError> {
         let script = self.0.clone();
+        if script.refuse_next.swap(false, Ordering::SeqCst) {
+            return Err(ibex2::boundary::HostError::Failed(
+                "transport capacity refused".into(),
+            ));
+        }
         let held = Arc::new(Mutex::new(Some((request, sink))));
         let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (on, flag) = (held.clone(), cancelled.clone());
-        Exchange::new(
+        Ok(Exchange::new(
             move || {
                 let Some((request, mut sink)) = on.lock().unwrap().take() else {
                     return;
@@ -91,11 +101,19 @@ impl ibex2::stdlib::fetch_async::AsyncTransport for Scripted {
                 script.changed.notify_all();
             },
             move || cancelled.store(true, Ordering::SeqCst),
-        )
+        ))
     }
 }
 
 fn core(script: &Arc<Script>, grants: &str) -> (Core, Receiver<()>) {
+    core_with_upload_copy(script, grants, false)
+}
+
+fn core_with_upload_copy(
+    script: &Arc<Script>,
+    grants: &str,
+    portable: bool,
+) -> (Core, Receiver<()>) {
     let owners =
         (0..2)
             .map(|_| {
@@ -106,7 +124,7 @@ fn core(script: &Arc<Script>, grants: &str) -> (Core, Receiver<()>) {
             .collect();
     let (wake, woke) = channel();
     let script = script.clone();
-    let lanes: asynch::Lanes = Arc::new(move |_, _| Arc::new(Scripted(script.clone())));
+    let lanes: asynch::Lanes = Arc::new(move |_, _| (Arc::new(Scripted(script.clone())), portable));
     let core = Core::with_owners_lanes(
         owners,
         grants,
@@ -651,4 +669,66 @@ fn an_upload_that_times_out_before_its_exchange_starts_returns_its_charge() {
         "{outcome:?}"
     );
     eventually(|| bytes(&core)[1] == before);
+}
+
+#[test]
+fn transport_admission_refusal_releases_the_lane_and_its_accounting() {
+    let script = Arc::new(Script::default());
+    script.refuse_next.store(true, Ordering::SeqCst);
+    let (core, woke) = core(&script, ORIGINS);
+    let url = "https://admission.example.test/";
+    core.run(job(800, Request::get(url).independent_http(1024)), None)
+        .unwrap();
+    let refused = collect(&core, &woke, 1);
+    assert!(matches!(&refused[0].1, Outcome::Failed { message, .. }
+        if message.contains("transport capacity refused")));
+    assert!(script.started.lock().unwrap().is_empty());
+    eventually(|| bytes(&core) == [0, 0]);
+    core.run(job(801, Request::get(url).independent_http(1024)), None)
+        .unwrap();
+    assert_eq!(script.wait(1), 1);
+    script.answer(url, b"accepted");
+    assert!(matches!(&collect(&core, &woke, 1)[0].1,
+        Outcome::Response(response) if response.body == b"accepted"));
+    eventually(|| bytes(&core) == [0, 0]);
+}
+
+#[test]
+fn portable_upload_reserves_the_blocking_workers_additional_copy() {
+    let files = Files::new();
+    std::fs::write(files.0.join("tmp/large.bin"), vec![7u8; 40 << 20]).unwrap();
+    let grants = "net.fetch https://*.example.test\nfs.read app:/tmp";
+    for portable in [false, true] {
+        let script = Arc::new(Script::default());
+        let (core, woke) = core_with_upload_copy(&script, grants, portable);
+        core.set_app_roots(files.roots());
+        core.run(
+            job(
+                1,
+                upload("https://a.example.test/", "app:/tmp/large.bin", 1024),
+            ),
+            None,
+        )
+        .unwrap();
+        if portable {
+            let outcomes = collect(&core, &woke, 1);
+            assert!(
+                matches!(&outcomes[0].1, Outcome::Failed { kind: FailureKind::Refused, message } if message.contains("byte budget")),
+                "{outcomes:?}"
+            );
+            assert_eq!(
+                script.settle(),
+                0,
+                "refused before reading or transport activation"
+            );
+        } else {
+            script.wait(1);
+            script.answer("https://a.example.test/", b"ok");
+            assert!(matches!(
+                &collect(&core, &woke, 1)[0].1,
+                Outcome::Response(_)
+            ));
+        }
+        eventually(|| bytes(&core) == [0, 0]);
+    }
 }

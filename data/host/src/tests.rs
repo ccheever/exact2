@@ -632,7 +632,7 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     assert!(refused.unwrap_err().starts_with("denied: "));
     let write = serde_json::json!({"path": doc, "text": "# B"});
     let refused = run("fs.read doc:/", "fs.atomicWriteFile", write.clone());
-    assert!(refused.unwrap_err().contains("fs.write doc:/"));
+    assert_eq!(refused.unwrap_err(), "denied: fs.write");
     run("fs.read doc:/\nfs.write doc:/", "fs.atomicWriteFile", write).unwrap();
     assert_eq!(std::fs::read_to_string(folder.join("a.md")).unwrap(), "# B");
     let escape = format!("{folder_doc}/../secret");
@@ -648,7 +648,7 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
         "fs.readFile",
         serde_json::json!({"path": doc}),
     );
-    assert!(gone.unwrap_err().contains("no such document"));
+    assert!(gone.unwrap_err().contains("document ENOENT:"));
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -713,7 +713,9 @@ fn chosen_folders_refuse_symlinks_for_every_document_operation() {
         call("fs.readFile", "sub/deep/note").unwrap()["base64"],
         exact_runner::agent::base64(b"insideinside")
     );
-    assert!(call("fs.rm", "sub/deep").unwrap_err().contains("not empty"));
+    assert!(call("fs.rm", "sub/deep")
+        .unwrap_err()
+        .contains("document ENOTEMPTY:"));
     call("fs.atomicWriteFile", "sub/deep/note").unwrap();
     call("fs.rm", "sub/deep/note").unwrap();
     call("fs.rm", "sub/deep").unwrap();
@@ -797,14 +799,14 @@ fn queued_document_work_uses_its_sessions_owner() {
     );
     assert!(run(&mut other, request)
         .unwrap_err()
-        .contains("no such document"));
+        .contains("document ENOENT:"));
     let root_path = format!("doc:/{}", doc["doc:/".len()..].split('/').next().unwrap());
     assert!(run(
         &mut other,
         storage::request("fs.readdir", json!({"path":root_path}))
     )
     .unwrap_err()
-    .contains("no such document"));
+    .contains("document ENOENT:"));
     exact_data::documents::forget(9011);
     assert_eq!(
         run(
@@ -819,7 +821,7 @@ fn queued_document_work_uses_its_sessions_owner() {
     exact_data::documents::forget(9010);
     assert!(storage::response(queued())
         .unwrap_err()
-        .contains("no such document"));
+        .contains("document ENOENT:"));
 }
 
 #[test]
@@ -1072,4 +1074,111 @@ fn a_rust_sources_body_from_passes_to_the_host_as_its_path() {
         panic!("an upload is a request")
     };
     assert_eq!(request, upload);
+}
+
+/// A losing cancellation is not an abandoned upload. Consume the successful
+/// output only after the pinned-parent publication returns its real result.
+#[test]
+fn image_cancellation_orders_publication_and_the_consumer_reads_only_success() {
+    use ibex2::stdlib::{app_fs::AppDirectories, fs_image::*};
+    use std::sync::{mpsc, Arc};
+    let paths = Paths::new();
+    let roots = paths.directories();
+    for path in [&roots.data, &roots.cache, &roots.temporary] {
+        std::fs::create_dir_all(path).unwrap();
+    }
+    std::fs::write(roots.data.join("source"), b"source").unwrap();
+    std::fs::write(roots.data.join("out.jpg"), b"old").unwrap();
+    let directories =
+        Arc::new(AppDirectories::new(&roots.data, &roots.cache, &roots.temporary).unwrap());
+    let grants = Arc::new(ibex2::grant::GrantSet::parse(GRANTS).unwrap());
+    struct Codec;
+    impl ImageCodec for Codec {
+        fn limits(&self) -> CodecLimits {
+            CodecLimits {
+                max_pixels: 1,
+                max_scratch_bytes: 1,
+            }
+        }
+        fn encode(
+            &self,
+            source: &[u8],
+            _: ImageRequest,
+            control: &WorkControl,
+        ) -> Result<CompressedImage, ibex2::boundary::HostError> {
+            control.check()?;
+            assert_eq!(source, b"source");
+            Ok(CompressedImage {
+                bytes: b"published".to_vec(),
+                width: 1,
+                height: 1,
+            })
+        }
+    }
+    let limits = WorkLimits::default();
+    let work = ImageWork::new(limits);
+    let service = ImageService::new(Arc::new(Codec), limits).unwrap();
+    let prepare = || {
+        ImageJob::prepare(
+            &work,
+            Some(&service),
+            Some(directories.clone()),
+            grants.clone(),
+            "app:/data/source",
+            "app:/data/out.jpg",
+            ImageRequest {
+                max_dimension: 1,
+                max_bytes: 100,
+            },
+        )
+        .unwrap()
+    };
+    let abandoned = prepare();
+    let first = abandoned.handle();
+    assert_eq!(first.cancel(), CancelResult::Abandoned);
+    assert!(abandoned.execute().is_err());
+    assert_eq!(std::fs::read(roots.data.join("out.jpg")).unwrap(), b"old");
+    assert!(first.take_outcome().unwrap().is_err());
+
+    let job = prepare();
+    let second = job.handle();
+    assert_ne!(first.id(), second.id());
+    let (entered, observed) = mpsc::sync_channel(1);
+    let (release, proceed) = mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        job.execute_with_commit_observer(move |_| {
+            entered.send(()).unwrap();
+            proceed
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .unwrap();
+        })
+    });
+    observed
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .unwrap();
+    assert_eq!(second.cancel(), CancelResult::CommitStarted);
+    assert_eq!(
+        first.cancel(),
+        CancelResult::Abandoned,
+        "an old handle cannot cancel new work"
+    );
+    assert_eq!(std::fs::read(roots.data.join("out.jpg")).unwrap(), b"old");
+    release.send(()).unwrap();
+    let result = worker.join().unwrap().unwrap();
+    assert_eq!(second.take_outcome(), Some(Ok(result)));
+    let outcome = super::native::run(
+        Some(&roots),
+        GRANTS,
+        br#"{"version":1,"op":"fs.readFile","args":{"path":"app:/data/out.jpg"}}"#,
+        0,
+    );
+    let Outcome::Storage(bytes) = outcome else {
+        panic!("the committed output is consumable")
+    };
+    assert_eq!(
+        serde_json::from_slice::<Json>(&bytes).unwrap()["base64"],
+        exact_runner::agent::base64(b"published")
+    );
+    assert_eq!(work.outstanding_workers(), 0);
+    assert_eq!(work.pending_completions(), 0);
 }

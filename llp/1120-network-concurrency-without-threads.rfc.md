@@ -569,3 +569,35 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
 
 - Opaque Rust closure captures remain count-bounded only (§8.4).
 - A handed-off outcome can retain more than the lane's budget when it completes, as LLP 1041 already records (`llp/1041-graceful-overload.rfc.md:689`).
+
+## Ibex consumer adoption, 2026-10-13
+
+The transport interface now comes from upstream Ibex's asynchronous fetch
+implementation. A transport reserves capacity before accepting an exchange;
+a refusal releases Exact's origin, upload and lane accounting without waiting
+for a callback from work never accepted. The first accepted activation arms
+Exact's one real-time deadline. Upload sizing and parking still precede it,
+and redirects reuse it. Logical outcome, physical hop retirement and final
+upload-buffer release retain their separate accounting.
+
+The portable fallback uses Ibex's bounded worker service instead of spawning
+one thread per exchange. Exact still owns lane policy and its numerical
+budgets. The render host explicitly selects `portable-http`; Apple's native
+transport stays the default. This adoption does not select asynchronous mode
+by default or replace this RFC's production comparison.
+
+The vendor refresh also imports Ibex's borrowed clock/cycle primitives.
+Exact's modules still expose neither ambient timers nor sockets: the runner
+owns application clocks and stream handles (LLP 1027.000 and 1016.000).
+
+The portable worker materializes one additional upload buffer. Its lane therefore
+reserves twice a file upload's length (and the extra inline body length) before
+starting it, with checked size arithmetic. Native Apple uploads retain the shared
+buffer once. Both charges stay until physical retirement and the last buffer
+release; the portable worker queue also has an explicit capacity.
+
+The old vendored process-wide metric-file hook is now Exact's optional
+`executor_metrics.rs` observer of asynchronous hop callbacks. It preserves the
+`IBEX2_HTTP_METRICS` file selection for that lane. Blocking/native comparisons
+use Ibex's explicit diagnostic; a file from only the async observer is not a
+qualified two-arm comparison. The production async switch stays opt-in.

@@ -97,18 +97,28 @@ fn plan_and_module_reloads_keep_the_document_owner() {
     let reply = bridge.host.as_mut().unwrap().answer_hold(&request).unwrap();
     let doc = exact_runner::agent::field_str(&reply, "doc").unwrap();
     let resolves = |bridge: &mut Bridge<DocumentOwnerSource>| {
-        use ibex2::stdlib::fs::{Document, FsOp, FsResult};
+        use ibex2::stdlib::fs::{DocumentError, DocumentLease, FsOp, FsResult};
         let owner = bridge.host.as_mut().unwrap().runner_mut().data().owner;
         let grants = ibex2::grant::GrantSet::parse("fs.read doc:/").unwrap();
         let result = ibex2::stdlib::fs::run_document(
             &grants,
-            Some(&move |path| {
-                Ok(match exact_data::documents::resolve(path, owner)? {
-                    exact_data::documents::Resolved::Root(name) => Document::Root(name),
-                    exact_data::documents::Resolved::Real { directory, path } => {
-                        Document::Real { directory, path }
-                    }
-                })
+            Some(&move |path, _access| {
+                let resolved =
+                    exact_data::documents::resolve(path, owner).map_err(DocumentError::from)?;
+                let guard = std::sync::Arc::new(());
+                match resolved {
+                    exact_data::documents::Resolved::Root(name) => DocumentLease::root(name, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: true,
+                    } => DocumentLease::selected_file(directory, path, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: false,
+                    } => DocumentLease::directory(directory, path, guard),
+                }
             }),
             FsOp::ReadFile,
             &doc,
