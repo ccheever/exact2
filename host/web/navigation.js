@@ -9,12 +9,14 @@ const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
+// Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
 const tabsOf = nav => {
-  for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
-    if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
+  const all = [...(nav?.getElementsByTagName("*") ?? [])];
+  const owns = el => { for (let p = el.parentElement; p; p = p.parentElement) if (p.hasAttribute("navigationKey")) return p === nav; return false; };
+  for (const list of all.filter(el => el.getAttribute("role") === "tablist" && owns(el))) {
     const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
-      .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
-      .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
+      .map(tab => all.find(panel => panel.getAttribute("id") === tab.getAttribute("aria-controls")))
+      .filter(panel => panel?.getAttribute("role") === "tabpanel" && owns(panel));
     if (panels.length) return [list, panels];
   }
   return [null, []];

@@ -41,11 +41,12 @@ function publish() {
   // among its siblings, from the root's children down (the order without
   // `compareDocumentPosition`, which a render's DOM, dom.js, lacks).
   for (const h of Heads) {
-    const at = [];
+    const at = [], path = new Set([h.t]);
     let c = h.t;
     for (let p = c.parentNode; p && c !== root; c = p, p = p.parentNode) {
-      if (p.hasAttribute?.("navigationBack") && unselected(p, true).some(off => off.contains(h.t))) break;
+      if (p.hasAttribute?.("navigationBack") && unselected(p, true).some(off => path.has(off))) break;
       at.unshift([].indexOf.call(p.childNodes, c));
+      path.add(p);
     }
     if (c === root) live.push([at, h.f]);
   }
