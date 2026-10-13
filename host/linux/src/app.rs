@@ -315,6 +315,22 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     };
     let place = crate::zone::launch_place(|key| std::env::var(key).ok())?;
     let agent_time = crate::zone::agent_time(|key| std::env::var(key).ok(), &place.time_zone)?;
+    // What the host knows at launch, read from the first settle; `delivered`
+    // tells the same facts after, which then commit nothing.
+    let (epoch_at_zero, utc_offset) = agent_time.unwrap_or_else(|| {
+        let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        (
+            wall.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
+            crate::zone::local_offset_minutes(),
+        )
+    });
+    let launch_facts = exact_runner::time::Launch {
+        time: Some(exact_runner::time::WallTime {
+            epoch_at_zero,
+            utc_offset,
+        }),
+        place: Some(place.clone()),
+    };
     let dev_url = config.dev_url.clone();
     let dev_identity = config.dev_identity.clone();
     let hatches = config.hatches;
@@ -382,21 +398,23 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     let booted = source
         .map_err(crate::host::HostError::Asset)
         .and_then(|data| {
-            Presenter::boot_selected(
-                match &config.plan {
-                    std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
-                    std::borrow::Cow::Owned(plan) => PlanBytes::Copied(plan),
-                },
-                data,
-                viewport,
-                config.scale,
-                config.assets.clone(),
-                config.selected_assets.clone(),
-                (&compat, facts(&updates)),
-                &config.launch,
-                config.content_region,
-                painter,
-            )
+            exact_runner::time::launching_with(launch_facts.clone(), || {
+                Presenter::boot_selected(
+                    match &config.plan {
+                        std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
+                        std::borrow::Cow::Owned(plan) => PlanBytes::Copied(plan),
+                    },
+                    data,
+                    viewport,
+                    config.scale,
+                    config.assets.clone(),
+                    config.selected_assets.clone(),
+                    (&compat, facts(&updates)),
+                    &config.launch,
+                    config.content_region,
+                    painter,
+                )
+            })
         });
     match booted {
         Ok(mut value) => {
@@ -422,18 +440,20 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             }
             config.entry = None;
             config.selected_assets = None;
-            Presenter::boot_selected(
-                PlanBytes::Copied(baked),
-                D::default(),
-                viewport,
-                config.scale,
-                config.assets.clone(),
-                None,
-                (&compat, facts(&updates)),
-                &config.launch,
-                config.content_region,
-                painter,
-            )
+            exact_runner::time::launching_with(launch_facts, || {
+                Presenter::boot_selected(
+                    PlanBytes::Copied(baked),
+                    D::default(),
+                    viewport,
+                    config.scale,
+                    config.assets.clone(),
+                    None,
+                    (&compat, facts(&updates)),
+                    &config.launch,
+                    config.content_region,
+                    painter,
+                )
+            })
             .map(|v| delivered(v, updates))
             .map_err(|baked_error| {
                 format!("fetched plan refused: {fetched_error}; baked plan refused: {baked_error}")

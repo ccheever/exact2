@@ -37,6 +37,9 @@ pub struct Bridge<D: DataSource> {
     preferences: exact_runner::Preferences,
     /// The fold the page last reported (LLP 1078 D6), beside the preferences.
     fold: exact_runner::Fold,
+    /// The date and place the page told before a boot (`set_launch_time`,
+    /// `set_launch_place`): a runner booted after reads them from its first settle.
+    launch_facts: exact_runner::time::Launch,
     /// What the artifact links that is generic over `D` (LLP 1047 D3), from
     /// the `host!` invocation; the core alone until it says.
     links: crate::HostLinks<D>,
@@ -56,6 +59,7 @@ impl<D: DataSource> Bridge<D> {
             checkpoint: None,
             preferences: exact_runner::Preferences::NONE,
             fold: exact_runner::Fold::FLAT,
+            launch_facts: exact_runner::time::Launch::NONE,
             links: crate::HostLinks::CORE,
             pan: crate::pan_velocity::PanVelocity::new(),
             input: Vec::new(),
@@ -282,7 +286,8 @@ impl<D: DataSource> Bridge<D> {
             preferences: self.preferences,
             fold: self.fold,
         };
-        let booted = match self.checkpoint.take() {
+        let (checkpoint, launch_facts) = (self.checkpoint.take(), self.launch_facts.clone());
+        let booted = exact_runner::time::launching_with(launch_facts, || match checkpoint {
             Some((digest, page)) => Host::boot_checkpoint_linked(
                 self.links,
                 plan,
@@ -304,7 +309,7 @@ impl<D: DataSource> Bridge<D> {
                 viewport,
                 launch,
             ),
-        };
+        });
         match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
@@ -324,21 +329,25 @@ impl<D: DataSource> Bridge<D> {
     pub fn boot_plan(&mut self, len: usize, data: D, width: f64, height: f64, launch: &str) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.as_ref().map(Host::carry);
-        match Host::boot_linked(
-            self.links,
-            &plan,
-            data,
-            carried.as_ref(),
-            Vec::new(),
-            self.compat,
-            exact_runner::Viewport {
-                width,
-                height,
-                preferences: self.preferences,
-                fold: self.fold,
-            },
-            launch,
-        ) {
+        let viewport = exact_runner::Viewport {
+            width,
+            height,
+            preferences: self.preferences,
+            fold: self.fold,
+        };
+        let booted = exact_runner::time::launching_with(self.launch_facts.clone(), || {
+            Host::boot_linked(
+                self.links,
+                &plan,
+                data,
+                carried.as_ref(),
+                Vec::new(),
+                self.compat,
+                viewport,
+                launch,
+            )
+        });
+        match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -736,6 +745,27 @@ impl<D: DataSource> Bridge<D> {
             |h| h.changed(&topic),
         );
         self.emit(out)
+    }
+
+    /// The date the next boot's first settle reads; the running host is
+    /// not told. A date that does not validate leaves the last one.
+    pub fn set_launch_time(&mut self, epoch_at_zero: f64, utc_offset: f64) {
+        let time = exact_runner::time::WallTime {
+            epoch_at_zero,
+            utc_offset,
+        };
+        if time.validate().is_ok() {
+            self.launch_facts.time = Some(time);
+        }
+    }
+
+    /// Where the viewer is, for the next boot's first settle
+    /// (`locale NUL timeZone NUL seed`); the running host is not told.
+    pub fn set_launch_place(&mut self, len: usize) {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        if let Some(place) = exact_runner::time::Place::launched(text) {
+            self.launch_facts.place = Some(place);
+        }
     }
 
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
@@ -1261,6 +1291,19 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_place(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_place(len as usize))
+        }
+
+        /// The date and the place (`locale NUL timeZone NUL seed` in the
+        /// input buffer, `place_len` 0 for none) the next boot reads first.
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch(epoch_at_zero: f64, utc_offset: f64, place_len: u32) {
+            EXACT_BRIDGE.with(|b| {
+                let mut b = b.borrow_mut();
+                b.set_launch_time(epoch_at_zero, utc_offset);
+                if place_len > 0 {
+                    b.set_launch_place(place_len as usize);
+                }
+            })
         }
 
         /// Advance the runner clock; `mode` as [`Bridge::advance`] (the

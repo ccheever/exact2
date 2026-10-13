@@ -823,12 +823,11 @@ sits on that list carries the trade it would take.
   and `RasterColorTests.testEveryFixtureDecodesToItsClassStorageAndColors`: all HDR or colour
   storage (the result bundle: RGBA8 against RGBAh, rec2100-hlg against display-p3, HDR stored
   as SDR, an HDR photo still HDR as JPEG), cause unconfirmed; xcodebuild's log names no assertion.
-- **The date at launch on the other hosts** (2026-10-12; Apple boots under it now,
-  `exact_runner::time::launching`): Linux and the Rust/Wasm web host tell `set_time` after the
-  boot, and the render host, the content-region host and direct `Host::boot_stored` never enter
-  `launching`, so their first settle reads `epochAtZero` and `utcOffset` as 0 and refuses a kept
-  answer keyed on either. On Apple the place facts (locale, zone, `seed`) are still told after the
-  boot batch.
+- **The date and place at launch on the remaining hosts** (2026-10-13; Apple, the Rust/Wasm web
+  host and the Linux family's app boot boot under them, `exact_runner::time::launching_with`, and
+  the JS target answers `exactTime` from the page): the render host, the content-region host,
+  direct `Host::boot_stored`, and the Linux presenter's candidate reload (`restore_time` after the
+  boot) never enter it, so their first settle reads the defaults (0, `en-US`, `UTC`, seed 0).
 - **LLP 1120 stage 1b's open review findings: must be fixed and pass both reviewers before
   `EXACT_HTTP_ASYNC` can default on** (round 4, 2026-10-12; the list is LLP 1120 §4's as-built
   notes): two blocking upload cases (concurrent sizing deadlock; a disposed upload's charge refunded
