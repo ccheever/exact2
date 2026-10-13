@@ -1876,6 +1876,21 @@ the whole menu; write no `press` on the row that opens it (a native menu never
 runs it); and draw the web's `›` as an `aria-hidden` text, since the native
 menus draw their own arrow ([LLP 1021](../llp/1021-menus.rfc.md) §5.2).
 
+For the Mac menu bar, put `-exact-menu="app"` on an ordinary button to add
+an item without a shortcut. Literal destinations are `app`, `file`, `edit`,
+`view`, `go`, `window`, `help`; explicit placement overrides the usual
+`aria-keyshortcuts` chord filing. Its accessible label or text titles it,
+and `disabled` disables it. Keep the button reachable: the agent taps it,
+and other hosts show that ordinary button, with no application menu.
+On the root, `-exact-menu-remove="show-tab-bar autofill close-all"` removes
+selected standard items. Its whitespace-separated list must be literal; unknown
+ids and non-root use are refused. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
+`minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
+`move-tab-to-new-window`, `merge-all-windows`.
+Other standard items and the development Develop menu remain; other hosts
+ignore removal. See the grammar’s “The Mac’s menu bar”.
+
+
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
 where the viewer sees it, as `getBoundingClientRect` does: in the viewport, through

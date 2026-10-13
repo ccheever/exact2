@@ -6,7 +6,7 @@
 /// were a fifth of its long frames (LLP 1044 F4). They visit what this names.
 struct ChromeIndex {
     static let keys = ["navigationBack", "inert", "popover", "popovertarget",
-                       "contextTarget", "contextPopover", "toolbarPlacement", "accessibilityKeyShortcuts",
+                       "contextTarget", "contextPopover", "toolbarPlacement", "accessibilityKeyShortcuts", "menuPlacement",
                        "commandfor", "swipeContent", "id", "accessibilityLive", "autofocus", "listStyle",
                        "accessibilityModal", "accessibilityDescribedBy", "accessibilityLabelledBy", "focusGuide", "statusBarStyle"]
     /// Props a pass reads for one value. Every list row has a role and every

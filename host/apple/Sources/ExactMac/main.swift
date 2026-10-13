@@ -346,7 +346,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        DevMenu.session = session
+        DevMenu.select(session: session)
         if !stamped, label == "main" { stamped = true; ExactEnv.stamp("windowDidBecomeKey") }
         agentReady()
     }
@@ -361,7 +361,10 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         // After AppKit has finished closing the window this holds.
         DispatchQueue.main.async { [self] in
             windows.removeAll { $0 === self }
-            if DevMenu.session === session { DevMenu.session = windows.last?.session }
+            if DevMenu.session === session {
+                if let next = windows.last { DevMenu.select(session: next.session) }
+                else { DevMenu.session = nil }
+            }
             session.destroy()
         }
     }

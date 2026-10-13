@@ -1,6 +1,7 @@
 # macOS: let an app declare its menu bar items (context-menu submenus landed in #223)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Added explicit menu placement and fixed root removal ids; review fixes consume web menu hints and reinstall menus for the selected document session. Rust host suites, browser fixture, 19 focused AppKit tests, Help-ordering test and macOS agent drive pass; foreground AppKit focus verification remains blocked (review notes below).
 **Systems:** Contract, host/apple macOS, menus
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -12,6 +13,93 @@
 Add selected Contract menu extensions: chordless items, placement and stable removal identifiers; preserve standard menus/Develop in development. Check localization/Help/enabled state/agent reachability without a new operation. Submenus/Paste-as-Text/Speech already landed.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
+
+## Implementation slice (2026-10-12)
+
+The menubar lane implements `-exact-menu="app|file|edit|view|go|window|help"`
+on buttons: chordless items, placement independent of localized menu titles,
+Help integration, and the existing button's enabled state and agent tap.
+LLP 1021 §5.3 records the authoring contract and the other hosts' ordinary
+button fallback. Standard host menus and the development Develop menu remain.
+
+The continuation implements root `-exact-menu-remove` with the 12 fixed ids
+in LLP 1021 §5.3, literal/root validation, and AppKit suppression by command
+selector or item identifier. It covers later AppKit insertions, translated
+titles, root replacement, and session menu switching while preserving Develop.
+Compiler and AppKit regressions cover this contract, including restoration
+after root replacement. The native fixture checks the installed menu and
+button actions through the agent.
+
+Baseline comparison on `origin/main` **fd58d005f** (2026-10-12, macOS 27.0.1;
+base production code, only the new removal regression added to the test bundle):
+- Border: reproduces — `BorderParityMacTests.swift:92` nil unwrap, SIGTRAP.
+- Context-click: reproduces — segmented control sends `press 42` instead of `contextmenu 30` (`ContextMenuMacTests`, lines 485–486).
+- Surface-control: reproduces — replacement-loss retry delivery/count assertions (`SurfaceControlTests`, lines 348–349).
+- Text-metrics: reproduces — reader keeps the first raster and fails publication/viewport assertions (`TextMetricsTests`, lines 161–167).
+
+Each class ran separately with the `ONLY_CLASSES` filter; none of these four
+failures is changed by this lane.
+
+## Review fix round 1 (2026-10-12)
+
+- Web dataset collision: real. `every_data_name_the_host_writes_is_a_reserved_word`
+  failed for both new props. `menu_hints_write_no_dom_attributes` covers their
+  omission; the host now consumes them without writing DOM attributes. The full
+  exact-web suite and the browser fixture pass.
+- Window selection: real. `DocumentWindow.windowDidBecomeKey` only changed the
+  session used by development commands. It now reinstalls the menu for that
+  session, including the root removal policy; closing the selected window uses
+  the same selection path. The manual per-window menu installation was removed
+  from the old test. `host/apple/tests/menubar.test.mjs` compiles the actual adapter
+  against built Swift products and drives its two DocumentWindows, asserting
+  real key-window identity, menu ownership, validation, dispatch and removals.
+  This desktop did not grant the test process foreground activation (regular
+  activation policy, visible/key-capable windows, `isActive == false`,
+  `NSApp.keyWindow == nil`), including a Launch Services launch and a UI click.
+  The actual focus regression is therefore **not verified green** here.
+- Help ordering: not real on macOS 27.0.1. An opened Help menu exposes AppKit's
+  search header before Documentation and the host Help command through its
+  accessibility children. The search header is outside `NSMenu.items`, so
+  insertion at item index zero leaves Search first. The native integration test
+  checks this after three syncs; those assertions pass on the unchanged ordering
+  code. No ordering fix was made.
+
+Verification for this review round (all commands run in this worktree):
+
+```sh
+S="$PWD/target/clients/90351795a05fe56a8f56b035/com.exact.caltrain/macos/aarch64-apple-darwin/embedded/development/tests"
+# Expected pre-fix failure: the two unreserved data-* names.
+CARGO_BUILD_JOBS=2 cargo test -p exact-web every_data_name_the_host_writes_is_a_reserved_word
+# PASS after the fix: 64 unit + 189 integration tests (7 ignored).
+CARGO_BUILD_JOBS=2 cargo test -p exact-web --lib --tests --no-fail-fast
+# PASS: 273 unit + 133 integration tests (16 ignored).
+CARGO_BUILD_JOBS=2 cargo test -p exact-apple --lib --tests --no-fail-fast
+# Both PASS; the pre-existing ibex2 dependency warning remains.
+CARGO_BUILD_JOBS=2 cargo clippy -p exact-web --all-targets -- -D warnings
+CARGO_BUILD_JOBS=2 cargo clippy -p exact-apple --all-targets -- -D warnings
+# PASS.
+cargo fmt --all -- --check
+EXACT_TESTS=1 EXACT_LIB_DIR="$PWD/target/host-dev" EXACT_LIB=caltrain_apple EXACT_APP_COMPOSITION=embedded MACOSX_DEPLOYMENT_TARGET=14.0 swift build --package-path host/apple --build-tests --jobs 2 --scratch-path "$S"
+EXACT_CONTRACT="$PWD/target/debug/contract" xcrun xctest -XCTest ExactKitTests.AgentAppearanceMacTests,ExactKitTests.MacShortcutTests "$S/debug/ExactKitTests.xctest"
+EXACT_TESTS=0 EXACT_LIB_DIR="$PWD/target/host-dev" EXACT_LIB=caltrain_apple EXACT_APP_COMPOSITION=embedded MACOSX_DEPLOYMENT_TARGET=14.0 swift build --package-path host/apple --product ExactMac --jobs 2 --scratch-path "$S"
+# PASS: actual Help accessibility order, after three syncs.
+EXACT_MENU_HELP_ONLY=1 EXACT_MAC_TEST_PRODUCTS="$S/out/Products/Debug" bun test host/apple/tests/menubar.test.mjs
+# FAIL/BLOCKED: visible windows never become key; no green focus claim.
+EXACT_MAC_TEST_PRODUCTS="$S/out/Products/Debug" bun test host/apple/tests/menubar.test.mjs
+# PASS: one browser test; rebuilt JS target has zero warnings.
+CARGO_BUILD_JOBS=2 bun target/menubar/fixture/exact.mjs test web
+# PASS: rebuilt macOS fixture; assertions checked both menus, actions and disabled state.
+EXACT_MAC_BIN="$S/debug/ExactMac" bun scripts/agent.mjs macos --locale fr --plan target/menubar/app.plan --json tree "state menus" "tap updates" "tap help" "type paste key Shift+Meta+v" "state log" "tap toggle" "state blocked" "tree updates" "tap toggle" "tap updates" "state log" "state menus"
+# PASS.
+git add -A && bun scripts/caps.mjs && bun scripts/issue.mjs check && git diff --cached --check
+```
+
+The focus test also ran against `git show HEAD:host/apple/Sources/ExactMac/main.swift`
+from before the review fix, selected with `EXACT_MAC_TEST_SOURCE`; activation was
+blocked there too. The native test records this explicitly rather than treating
+manual menu installation or a non-key window as successful focus verification.
+Detailed logs are under ignored `target/menubar/review-*.log`. No workspace build,
+UIKit run, full AppKit-suite pass, remote command or push is claimed.
 
 ## Original report
 

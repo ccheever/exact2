@@ -313,6 +313,14 @@ access hatches, and the code word is `hatch` (`hatch="word"`, `app.json`
 `hatches`; LLP 1075.003.000.001 §Rulings). The entries above use the new
 word; nothing is admitted or taken by the rename.
 
+**Expanded (Charlie, 2026-10-12 menubar lane ruling, confirming 2026-10-08):**
+"menu bar: -exact-menu="app|file|edit|view|go|window|help" on button; root
+-exact-menu-remove="…" fixed ids; enabled follows disabled; agent taps button —
+OK for now". The coding-agent desktop app (#141) is the consumer (LLP 1021
+§5.3). Take: none named; Charlie's approval admits this bounded extension.
+Built 2026-10-12: placement and root removal of the fixed standard-item ids
+in LLP 1021 §5.3. Develop remains in development builds.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

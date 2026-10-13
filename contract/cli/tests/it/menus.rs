@@ -419,3 +419,44 @@ fn one_cancel_component_on_both_arms_of_a_when_is_one_cancel() {
     assert_eq!(e.id, "lower-alertdialog", "{}", e.message);
     assert!(e.message.contains("a second cancel"), "{}", e.message);
 }
+
+#[test]
+fn menu_bar_placement_is_a_button_hint_with_fixed_literal_destinations() {
+    for menu in ["app", "file", "edit", "view", "go", "window", "help"] {
+        let r = boot(&app(&format!(
+            "button \"Check for Updates…\" -exact-menu=\"{menu}\" press=go testId=\"updates\""
+        )));
+        let prop = PropId::from_name("menuPlacement").expect("menu placement prop");
+        assert_eq!(node(&r, "updates").props.str(prop), Some(menu));
+    }
+    for body in [
+        "button \"Update\" -exact-menu=\"Develop\" press=go",
+        "button \"Update\" -exact-menu=(busy ? \"app\" : \"file\") press=go",
+        "column -exact-menu=\"app\"",
+    ] {
+        assert_eq!(refused(body).0, "lower-menu-placement", "{body}");
+    }
+}
+
+#[test]
+fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
+    let ids = "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows";
+    for value in [ids, "", "show-tab-bar show-tab-bar"] {
+        let source = format!(
+            "component App\n  view\n    column -exact-menu-remove=\"{value}\" testId=\"root\"\n"
+        );
+        let r = boot(&source);
+        let prop = PropId::from_name("menuRemove").expect("menu removal prop");
+        assert_eq!(node(&r, "root").props.str(prop), Some(value));
+    }
+    for source in [
+        "component App\n  view\n    column -exact-menu-remove=\"develop\"\n".to_owned(),
+        "component App\n  state removal = \"show-tab-bar\"\n  view\n    column -exact-menu-remove=removal\n".to_owned(),
+        app("column -exact-menu-remove=\"show-tab-bar\""),
+        app("when busy\n  column -exact-menu-remove=\"autofill\""),
+    ] {
+        let e = contract::compile(&source).unwrap_err();
+        assert_eq!(e.id, "lower-menu-remove", "{source}: {e}");
+        for id in ids.split_whitespace() { assert!(e.message.contains(id), "{e}"); }
+    }
+}

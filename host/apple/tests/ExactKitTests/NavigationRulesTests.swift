@@ -374,6 +374,66 @@ final class MacShortcutTests: XCTestCase {
         return node
     }
 
+    func testStandardMenuRemovalTracksRootsAndAppKitUpdates() throws {
+        let p = Presenter(), w = window(p)
+        let previous = (NSApp.mainMenu, NSApp.windowsMenu, NSApp.helpMenu, NSApp.servicesMenu)
+        defer {
+            NSApp.mainMenu = previous.0; NSApp.windowsMenu = previous.1
+            NSApp.helpMenu = previous.2; NSApp.servicesMenu = previous.3; w.close()
+        }
+        let root = NodeView(id: 900, kind: "view", presenter: p)
+        root.props = ["menuRemove": "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows"]
+        p.views[root.id] = root; p.root.addSubview(root)
+        let bar = DevMenu.makeMenu(shortcuts: p.shortcuts, documents: false, develop: true)
+        NSApp.mainMenu = bar
+        NSApp.finishLaunching()
+        let file = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "File" })
+        let edit = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "Edit" })
+        let view = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "View" })
+        let windows = try XCTUnwrap(bar.items.compactMap(\.submenu).first { $0.title == "Window" })
+        // AppKit's own inserted items, not facsimiles, retain their identifiers.
+        file.update(); edit.update()
+        let closeAll = try XCTUnwrap(file.items.first { $0.action == Selector(("closeAll:")) })
+        let autofill = try XCTUnwrap(edit.items.first { $0.identifier?.rawValue == "_NSMenuItemAutoFillIdentifier" })
+        XCTAssertTrue(closeAll.isHidden); XCTAssertTrue(autofill.isHidden)
+        XCTAssertFalse(closeAll.allowsKeyEquivalentWhenHidden)
+        // A later AppKit insertion is filtered too, without an app batch or English title.
+        view.title = "Présentation"; windows.title = "Fenêtre"
+        let tab = view.addItem(withTitle: "Afficher la barre d’onglets", action: #selector(NSWindow.toggleTabBar(_:)), keyEquivalent: "")
+        let next = windows.addItem(withTitle: "Onglet suivant", action: #selector(NSWindow.selectNextTab(_:)), keyEquivalent: "")
+        view.update(); windows.update()
+        XCTAssertTrue(tab.isHidden); XCTAssertTrue(next.isHidden)
+        XCTAssertTrue(view.items.first { $0.action == #selector(NSWindow.toggleFullScreen(_:)) }!.isHidden)
+        XCTAssertTrue(windows.items.first { $0.action == #selector(NSWindow.performMiniaturize(_:)) }!.isHidden)
+        XCTAssertTrue(windows.items.first { $0.action == #selector(NSWindow.performZoom(_:)) }!.isHidden)
+        XCTAssertTrue(windows.items.first { $0.action == #selector(NSApplication.arrangeInFront(_:)) }!.isHidden)
+        for (menu, action) in [(view, #selector(NSWindow.toggleTabOverview(_:))),
+                               (windows, #selector(NSWindow.selectPreviousTab(_:))),
+                               (windows, #selector(NSWindow.moveTabToNewWindow(_:))),
+                               (windows, #selector(NSWindow.mergeAllWindows(_:)))] {
+            let item = menu.addItem(withTitle: "Commande traduite", action: action, keyEquivalent: "")
+            menu.update()
+            XCTAssertTrue(item.isHidden, NSStringFromSelector(action))
+        }
+        XCTAssertNotNil(bar.items.first { $0.submenu?.title == "Develop" })
+        // Releasing an app's claim on a removed standard chord must not unhide it.
+        let fullScreen = try XCTUnwrap(view.items.first { $0.action == #selector(NSWindow.toggleFullScreen(_:)) })
+        let command = button(901, "Presentation", "Control+Meta+f", in: p, parent: root)
+        p.shortcuts.sync()
+        XCTAssertEqual(view.items.filter { $0.target is ShortcutHost }.map(\.keyEquivalent), ["f"])
+        command.removeFromSuperview(); p.views.removeValue(forKey: command.id)
+        p.shortcuts.sync()
+        XCTAssertEqual(fullScreen.keyEquivalent, "f")
+        XCTAssertTrue(fullScreen.isHidden)
+        // Root replacement restores the same objects; no commands accumulate.
+        root.removeFromSuperview(); p.shortcuts.sync()
+        file.update(); edit.update(); view.update(); windows.update()
+        XCTAssertFalse(closeAll.isHidden); XCTAssertFalse(autofill.isHidden)
+        XCTAssertFalse(tab.isHidden); XCTAssertFalse(next.isHidden)
+        p.root.addSubview(root); p.shortcuts.sync(); view.update()
+        XCTAssertTrue(tab.isHidden)
+    }
+
     private func event(_ key: String, window: NSWindow, modifiers: NSEvent.ModifierFlags = .command,
                        code: UInt16 = 0, ignoring: String? = nil, repeat repeating: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
@@ -421,6 +481,67 @@ final class MacShortcutTests: XCTestCase {
             node.props["accessibilityKeyShortcuts"] = invalid
             XCTAssertFalse(presenter.shortcuts.perform(event("c", window: window)), invalid)
         }
+    }
+
+    // LLP 1021 §5.3: ids place items even when the displayed menu is localized.
+    func testExplicitMenuPlacementWithoutChordsAndLocalizedTitles() {
+        let presenter = Presenter(), window = window(presenter)
+        let oldMain = NSApp.mainMenu, oldHelp = NSApp.helpMenu
+        let oldServices = NSApp.servicesMenu, oldWindows = NSApp.windowsMenu
+        defer {
+            NSApp.mainMenu = oldMain; NSApp.helpMenu = oldHelp
+            NSApp.servicesMenu = oldServices; NSApp.windowsMenu = oldWindows
+            window.close()
+        }
+        let destinations = ["app", "file", "edit", "view", "go", "window", "help"]
+        let titles = ["Updates…", "Export", "Paste as Text", "Appearance", "Destination", "Workspace", "Documentation"]
+        for (index, destination) in destinations.enumerated() {
+            let node = button(UInt32(index + 1), titles[index], index == 2 ? "Shift+Meta+v" : "", in: presenter)
+            node.props.removeValue(forKey: "accessibilityKeyShortcuts")
+            if index == 2 { node.props["accessibilityKeyShortcuts"] = "Shift+Meta+v" }
+            node.props["menuPlacement"] = destination
+        }
+        // Explicit placement wins over the Settings chord, including its label.
+        let custom = button(8, "Préférences", "Meta+,", in: presenter)
+        custom.props["menuPlacement"] = "help"
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
+        let menus = bar.items.prefix(6).compactMap(\.submenu)
+        guard menus.count == 6, let help = NSApp.helpMenu else {
+            XCTFail("the standard menus and Help must exist"); return
+        }
+        // Develop is between Window and Help.
+        let placed = menus + [help]
+        NSApp.mainMenu = bar
+        for (index, menu) in placed.enumerated() { menu.title = "Traduit \(index)" }
+        for _ in 0..<3 { presenter.shortcuts.sync() }
+        for (index, menu) in placed.enumerated() {
+            let items = menu.items.filter { ($0.representedObject as? NSNumber)?.intValue == index + 1 }
+            XCTAssertEqual(items.count, 1)
+            XCTAssertEqual(items.first?.title, titles[index])
+            XCTAssertEqual(items.first?.keyEquivalent, index == 2 ? "v" : "")
+        }
+        XCTAssertTrue(help === NSApp.helpMenu)
+        XCTAssertTrue(bar.items.contains { $0.submenu?.title == "Develop" })
+        XCTAssertEqual(help.items.first { ($0.representedObject as? NSNumber)?.intValue == 8 }?.title, "Préférences")
+        guard let updates = placed[0].items.first(where: { ($0.representedObject as? NSNumber)?.intValue == 1 }) else {
+            XCTFail("missing chordless application item"); return
+        }
+        // XCTest has no key application window; the app drive checks dispatch.
+        XCTAssertTrue(updates.target === presenter.shortcuts)
+        XCTAssertEqual(updates.action, NSSelectorFromString("activate:"))
+        XCTAssertTrue(updates.isEnabled)
+        presenter.views[1]?.props["disabled"] = "true"
+        presenter.shortcuts.sync()
+        XCTAssertFalse(updates.isEnabled)
+        XCTAssertFalse(presenter.shortcuts.validateMenuItem(updates))
+        presenter.views[1]?.props["disabled"] = "false"
+        presenter.views[1]?.props["inert"] = "true"
+        presenter.shortcuts.sync()
+        XCTAssertFalse(updates.isEnabled)
+        presenter.views[1]?.removeFromSuperview()
+        presenter.views.removeValue(forKey: 1)
+        presenter.shortcuts.sync()
+        XCTAssertFalse(placed[0].items.contains { $0 === updates })
     }
 
     func testNamedMenuEquivalentsAreAppKitCharacters() {

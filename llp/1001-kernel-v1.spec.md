@@ -457,6 +457,18 @@ the web emits `data-destructive` and retains authored CSS. AppKit and Linux do
 not yet map the role to native presentation. A red colour or action label never
 implies the flag.
 
+`menuRemove` (262, string) carries root `-exact-menu-remove`: a literal list of
+the standard AppKit item ids in LLP 1021 §5.3. AppKit suppresses those items
+and their menu equivalents; all other hosts ignore this non-CSS presentation
+hint. It changes no layout or window capability.
+
+`menuPlacement` (261, string) is `-exact-menu` on a button (LLP 1021 §5.3,
+Charlie, 2026-10-12): a literal `app`, `file`, `edit`, `view`, `go`, `window`
+or `help`. AppKit adds the button to that menu even without a shortcut.
+Declared deviation: HTML has no application menu; web, UIKit, Linux,
+Windows, Android and terminal hosts retain the ordinary button and ignore
+this hint. Dispatch and layout are unchanged.
+
 `commandfor` (69) and `command` (70) are HTML string attributes. A `dialog`
 semantic tag defaults to absolute positioning; `show-modal` and `close` name
 browser-owned presentation commands, not runner state. UIKit supports the narrow

@@ -758,7 +758,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
     for name in [
         "scroll", "loading", "plural", "choice", "screen", "modal", "confirm", "date", "persist",
         "swipe", "task", "mutation", "resource", "match", "each", "when", "let", "fn", "shape",
-        "props", "derive", "action", "stepper",
+        "props", "derive", "action", "stepper", "menubar",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();
@@ -777,4 +777,19 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn menu_bar_attributes_explain_the_fixed_removal_ids() {
+    for name in ["-exact-menu", "-exact-menu-remove"] {
+        let out = stdout(&vocab(&[name]));
+        for part in [
+            "menubar (a concept)",
+            "close-all",
+            "merge-all-windows",
+            "lower-menu-remove",
+        ] {
+            assert!(out.contains(part), "{name}: {out}");
+        }
+    }
 }

@@ -790,6 +790,18 @@ impl<'a> Lowerer<'a> {
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
+        // @ref LLP 1021 §5.3 — stable menu ids, never localized titles.
+        if a.name == "-exact-menu"
+            && (tag != "button"
+                || !matches!(&a.value, Expr::Str(value, _) if matches!(value.as_str(),
+                    "app" | "file" | "edit" | "view" | "go" | "window" | "help")))
+        {
+            return err(
+                "lower-menu-placement",
+                "`-exact-menu` belongs to a button and takes a literal app, file, edit, view, go, window or help",
+                a.span,
+            );
+        }
         // HTML's global `title` on any element but `head`: advisory text, the
         // platform's tooltip (studio diary R24); `head`'s is the document's.
         if a.name == "title" && tag != "head" {

@@ -9,6 +9,35 @@ use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
+/// LLP 1021 §5.3: a root's bounded opt-out from the Mac's standard items.
+pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerError> {
+    const IDS: &[&str] = &[
+        "close-all",
+        "autofill",
+        "show-tab-bar",
+        "show-all-tabs",
+        "enter-full-screen",
+        "minimize",
+        "zoom",
+        "bring-all-to-front",
+        "show-previous-tab",
+        "show-next-tab",
+        "move-tab-to-new-window",
+        "merge-all-windows",
+    ];
+    for attr in attrs.iter().filter(|a| a.name == "-exact-menu-remove") {
+        if !root
+            || !matches!(&attr.value, Expr::Str(value, _) if value.split_whitespace().all(|id| IDS.contains(&id)))
+        {
+            return err("lower-menu-remove", format!(
+                "`-exact-menu-remove` belongs to a root and takes a literal whitespace-separated list from: {}",
+                IDS.join(", ")
+            ), attr.span);
+        }
+    }
+    Ok(())
+}
+
 /// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1; LLP
 /// 1115.000 D10.3): one hairline, a single solid top edge one device pixel
 /// thick (`-exact-hairline`) in the separator role (`-exact-separator`:

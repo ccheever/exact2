@@ -75,6 +75,7 @@ impl Lowerer<'_> {
             }
             None => attrs.as_slice(),
         };
+        menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
         let composed = self.compose_animation(expanded)?;

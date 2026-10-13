@@ -1361,6 +1361,26 @@ the virtual clock).
   diary R16). Edit also holds Speech ▸ Start Speaking and Stop Speaking, which
   read the selected text aloud, in a field or out of one (#141).
 
+  Explicit placement: `button "Check for Updates…" -exact-menu="app"
+  press=checkUpdates` also becomes a menu item without a shortcut. The literal
+  ids are `app`, `file`, `edit`, `view`, `go`, `window`, `help`; they are
+  independent of localized menu titles and override chord filing. The label
+  remains the button's `aria-label` or text. `disabled`/inert disable the item;
+  hidden or removed buttons leave the menu. The agent uses `tap` on that same
+  button. Help retains the system search field; standard menus and Develop in
+  development builds remain. Other hosts keep the ordinary button and ignore
+  this Mac presentation hint. On a top-level root,
+  `-exact-menu-remove="show-tab-bar autofill close-all"` suppresses the named
+  standard items and their menu equivalents. The literal whitespace-separated
+  ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
+  `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
+  `move-tab-to-new-window`, `merge-all-windows`.
+  Empty removes nothing; duplicates are harmless. Unknown ids, expressions and
+  non-root use fail with `lower-menu-remove`, which names the accepted set.
+  Removing the root declaration restores the items; the policy follows the
+  active window. It never removes an app button or Develop;
+  other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
+
 ### Focus order: `tabindex`
 
 HTML's `tabindex` (no `tabIndex` alias; [LLP 1088](../llp/1088-what-the-app-diaries-ask-of-contract.rfc.md)

@@ -830,6 +830,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropValue::Float(f) => crate::css::num(*f as f32),
         };
         let name = match id {
+            // macOS menu hints have no DOM representation.
+            PropId::MenuPlacement | PropId::MenuRemove => continue,
             PropId::Text => "text",
             PropId::Markup => "markup",
             PropId::TestId => "data-testid",

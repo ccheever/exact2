@@ -734,3 +734,32 @@ The period is the distance between the first and last fixed-up stops, measured
 along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 `local` remains deferred. Each row paints its own background, so a repeated
 hatch on separate rows does not establish one pattern across the list.
+
+## menubar: adding commands to the Mac menu bar
+names: -exact-menu, -exact-menu-remove
+
+On a button, `-exact-menu` is a literal `app`, `file`, `edit`, `view`, `go`,
+`window` or `help`. It adds an item even without a chord and overrides
+`aria-keyshortcuts` chord filing. The item's label is the button's accessible
+label or text; `disabled` disables it. Hidden/removed buttons leave the menu.
+Other hosts keep the ordinary button and ignore the hint. The agent taps the
+button. A root `-exact-menu-remove="show-tab-bar autofill close-all"` removes
+selected standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
+`minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
+`move-tab-to-new-window`, `merge-all-windows`.
+The whitespace-separated list must be literal; unknown ids and nested use fail
+with `lower-menu-remove`, naming the set. Empty removes nothing; duplicates
+are harmless. The view’s root is a node, not a conditional. Root replacement and
+window switching restore the appropriate menu. App buttons, other standard
+items and development Develop remain. Other hosts ignore removal (LLP 1021 §5.3).
+
+```contract
+component App
+  state message = ""
+  action checkUpdates
+    message = "Checking…"
+  view
+    column -exact-menu-remove="show-tab-bar autofill close-all"
+      button "Check for Updates…" -exact-menu="app" press=checkUpdates testId="updates"
+      text message
+```
