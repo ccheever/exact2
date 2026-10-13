@@ -619,6 +619,13 @@ package final class Runtime {
             return RootTabs(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
+    /// Whether the stack whose root route is `view` splits, by the runner's rule (LLP 1115.002 D4); nil for one that pushes.
+    func stackSplit(_ view: UInt32) -> StackSplit? {
+        return on(busy: nil) {
+            let len = exact_stack_split(rt, view)
+            return StackSplit(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
     /// Host intrinsic sizes (nil clears one), under one layout.
     func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
         return on {

@@ -108,6 +108,7 @@ mod sound;
 mod source_locations;
 mod source_map;
 mod spelling;
+mod stack_split;
 mod status_bar;
 mod strings;
 mod styles;
