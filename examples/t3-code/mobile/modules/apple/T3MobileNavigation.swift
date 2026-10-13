@@ -27,6 +27,12 @@ enum T3MobileNavigation {
         if route.isLive, route.element("workspace-home-header") != nil {
             item.hidesBackButton = true
         }
+        if route.isLive, route.data[.mobileFormSheet] == "new-task",
+           route.element("new-task-project-search") != nil, item.hidesBackButton {
+            item.leftBarButtonItems = item.leftBarButtonItems?.filter {
+                $0.accessibilityIdentifier != "back-newTask"
+            }
+        }
         // NewTaskRouteScreen lets UIKit integrate its project search beside the title.
         // Keep Exact's search owner and input delegates; only adapt this route's placement.
         if route.isLive, route.element("new-task-project-search") != nil,
