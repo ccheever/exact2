@@ -819,6 +819,18 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Cheap, any time
 
+- **Mac Swift host tests failing on main** (2026-10-13, `bun host/apple/build.mjs --test` on
+  4387e37b5 and again on ae01efb63, the same tests failing on both; macOS 27.0, M5 Pro, run at background QoS):
+  - `TextSelectionMacTests.testTheSelectionIsAppKitsColourForTheWindowsFocus`: the selection is
+    0.345 grey, not AppKit's 0.275 (an `hdrm(1)` colour space).
+  - `PressFeedbackMacTests.testAPressableThatDeclaresNoFeedbackShowsThePlatformsPressedLook`: the
+    pressed look is `[1.0, 0.18]`, expected `[0.0, 0.16]` (light: black).
+  - `TextMetricsTests.testOffscreenButtonLabelsArePublishedByThePump`: labels 20–22 never show
+    their pixels.
+  - `HatchDiagnosticsTests.testACallsTimeIsItsOwn`: the outer call's time is not under 20 ms (176
+    on 4387e37b5, 131 on ae01efb63); it passed in an unthrottled run, so likely timing.
+  - `BackSessionMacTests` crashed ("Negative value is not representable") on a tree at 7c5499a7d
+    and passes on 4387e37b5 and after.
 - **The date at launch on the other hosts** (2026-10-12; Apple boots under it now,
   `exact_runner::time::launching`): Linux and the Rust/Wasm web host tell `set_time` after the
   boot, and the render host, the content-region host and direct `Host::boot_stored` never enter
