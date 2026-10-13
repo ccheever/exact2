@@ -47,8 +47,10 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   choice.
 - Cite sources where they help: standard specifications, and host platform API
   documentation and guidelines.
-- A comment says what the code does not. Omit or remove a comment that tells the reader
-  nothing the code does not already, but take care not to drop one that does.
+- A comment communicates what cannot easily be inferred from the code. Judiciously omit or
+  remove comments, or parts of comments, that do not clearly explain anything the code
+  does not already communicate, but take care not to delete comments with meaningful
+  marginal value.
 
 ## Working here
 
