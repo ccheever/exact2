@@ -8,6 +8,7 @@ import { arr, obj, str, type Activity, type Obj } from './shared/domain';
 import { toolCallLines, turnItemNeedsDetailFetch, turnItemOutputText } from './shared/timeline-item-detail';
 import { turnItemDetailView, turnItemIsOpen } from './shared/timeline-item-fetch';
 import { projectedWorkEntry, groupAction, collectToolFilePaths, formatReadToolLabel, formatSearchToolLabel } from './shared/timeline-worklog';
+import { t3ToolDefinition } from './shared/timeline-t3tools';
 import { preparationFailureRunId, workspacePreparationRetryRunIds } from './shared/r11-upstream-retry';
 
 export interface ThreadAnswerFile { id: string; name: string; image: boolean; url: string }
@@ -115,8 +116,9 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
     activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Searched the web', Array.isArray(original.patterns) ? original.patterns.join(', ') : '',
       JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
         item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
-  const readCopy = original.type === 'dynamic_tool' && isRead && !title && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
-    activity.label, [formatReadToolLabel(collectToolFilePaths({ input: original.input })[0] ?? ''), collectToolFilePaths(original).join('\n')],
+  const readCopy = original.type === 'dynamic_tool' && isRead && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+    activity.label, [title ? (t3ToolDefinition(str(original.toolName)) ?? t3ToolDefinition(title))?.displayName
+      ?? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : formatReadToolLabel(collectToolFilePaths({ input: original.input })[0] ?? ''), collectToolFilePaths(original).join('\n')],
     dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
   return {
     id: activity.id, nativeWorkRow: prominentError && row ? nativeWorkConfiguration(client, activity.id, routeKey, false,
