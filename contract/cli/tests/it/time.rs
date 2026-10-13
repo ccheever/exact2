@@ -79,8 +79,23 @@ fn a_date_known_at_launch_is_read_from_the_first_frame() {
         utc_offset: 0.0,
     };
     assert_eq!(text(&boot(Some(bad))), "0/0");
-    // Outside `launching`, nothing is left behind.
-    assert_eq!(text(&boot(None)), "0/0");
+    // Outside `launching`, nothing is left behind, a panic inside included.
+    let outside = || {
+        Runner::boot(
+            plan.clone(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    assert_eq!(text(&outside()), "0/0");
+    let unwound = std::panic::catch_unwind(|| {
+        exact_runner::time::launching(Some(at), || panic!("a boot that fails"))
+    });
+    assert!(unwound.is_err());
+    assert_eq!(text(&outside()), "0/0");
 }
 
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";

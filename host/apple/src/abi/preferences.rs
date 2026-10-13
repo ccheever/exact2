@@ -1,5 +1,6 @@
-//! The display preferences (LLP 1061 D4; LLP 1069.000 D1): told to the
-//! running host, and kept for the next boot's first viewport.
+//! The display preferences (LLP 1061 D4; LLP 1069.000 D1) and the date (LLP
+//! 1027.000.000): told to the running host, and kept for the next boot's
+//! first frame.
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
@@ -16,6 +17,24 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_preferences(preferences));
+        self.emit(out)
+    }
+
+    /// The date changed or became known (LLP 1027.000.000); kept, when
+    /// valid, as the date the next boot's first settle reads
+    /// (`exact_runner::time::launching`), before a boot as after one.
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+        let time = exact_runner::time::WallTime {
+            epoch_at_zero,
+            utc_offset,
+        };
+        if time.validate().is_ok() {
+            self.launch_time = Some(time);
+        }
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_time(epoch_at_zero, utc_offset));
         self.emit(out)
     }
 

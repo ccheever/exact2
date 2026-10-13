@@ -47,11 +47,16 @@ std::thread_local! {
 /// with the real one, not with zero until the host's first `set_time`.
 /// `None`, or a fact that does not validate, boots on zero as before.
 pub fn launching<T>(time: Option<WallTime>, boot: impl FnOnce() -> T) -> T {
+    /// Puts the outer date back however `boot` leaves, an unwind too.
+    struct Restore(Option<WallTime>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LAUNCH.with(|l| l.set(self.0));
+        }
+    }
     let time = time.filter(|t| t.validate().is_ok());
-    let previous = LAUNCH.with(|l| l.replace(time));
-    let out = boot();
-    LAUNCH.with(|l| l.set(previous));
-    out
+    let _restore = Restore(LAUNCH.with(|l| l.replace(time)));
+    boot()
 }
 
 /// The date a boot under [`launching`] reads first.

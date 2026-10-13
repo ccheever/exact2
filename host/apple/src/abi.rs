@@ -1306,20 +1306,6 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The date changed or became known (LLP 1027.000.000); before a boot,
-    /// the date its first frame reads (`exact_runner::time::launching`).
-    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
-        self.launch_time = Some(exact_runner::time::WallTime {
-            epoch_at_zero,
-            utc_offset,
-        });
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_time(epoch_at_zero, utc_offset));
-        self.emit(out)
-    }
-
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
     pub fn set_place(&mut self, len: usize) -> u32 {
         // `locale NUL timeZone`, then `NUL seed` at launch.
