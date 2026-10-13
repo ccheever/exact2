@@ -622,7 +622,7 @@ cargo build --workspace
 cargo test --workspace --no-fail-fast
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
-bun test ./proof.test.mjs
+bun test ./proof*.test.mjs
 bun app/shells.mjs --test
 ```
 

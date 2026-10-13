@@ -1,6 +1,6 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -201,7 +201,8 @@ export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
   if (digest && existsSync(receipt) && readFileSync(receipt, 'utf8') === stamp()) return false;
   await build();
   // A bake may rewrite generated inputs; bind them to the product from that same build.
-  currentInputs = readInputs();
+  try { currentInputs = readInputs(); }
+  catch (error) { rmSync(receipt, {force:true}); throw error; }
   digest = artifact();
   if (!digest) throw new Error('build produced no complete proof artifact');
   writeFileSync(receipt, stamp());
@@ -386,7 +387,10 @@ export function proofInputs(root, app, cachePath) {
   }
   const dirty=new Set((status.stdout??'').split('\0').filter(row=>row && row[1]!==' ').map(row=>row.slice(3)));
   let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
-  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[]}; let reads=0;
+  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}; let reads=0;
+  const manifest = resolve(app, '.baked-assets.json');
+  const generated = new Set(existsSync(manifest)
+    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : []);
   const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
   for(const file of files) {
     const path=resolve(root,file), key=statKey(path); let digest=blobs.get(file);
@@ -399,6 +403,7 @@ export function proofInputs(root, app, cachePath) {
   }
   for(const row of rows) {
     const [file]=row; groups.all.push(row);
+    if (file !== prefix + '.baked-assets.json' && !generated.has(file)) groups.authored.push(row);
     // Host bake depends on the declaration, not the game's implementation.
     // Shared compiler crates remain conservative inputs of both graphs.
     const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
@@ -409,6 +414,17 @@ export function proofInputs(root, app, cachePath) {
   }
   if(cachePath) {mkdirSync(resolve(cachePath,'..'),{recursive:true});writeFileSync(cachePath,JSON.stringify(next));}
   return {...Object.fromEntries(Object.entries(groups).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads};
+}
+// One reader per proof: only bake-owned outputs may change while its products build.
+export function proofInputReader(root, app, cachePath) {
+  let previous;
+  return () => {
+    const inputs = proofInputs(root, app, cachePath);
+    if (previous && previous.authored !== inputs.authored)
+      throw new Error('authored proof inputs changed during build; rerun the proof');
+    previous = inputs;
+    return inputs;
+  };
 }
 export async function ensureLinuxReceipts({directory,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
   const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact:gpuArtifact,build:()=>build('gpu')});
@@ -589,7 +605,8 @@ export async function proof(meta, script) {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
     let inputs;
-    const readInputs = () => inputs = proofInputs(root, app, resolve(buildOut, 'input-digests.json'));
+    const scanInputs = proofInputReader(root, app, resolve(buildOut, 'input-digests.json'));
+    const readInputs = () => inputs = scanInputs();
     const inputHash = value => buildInputHash(destination, appInfo.target, process.env.EXACT_GAME_PARANOID ?? '0').update(value).digest('hex');
     const receipt = resolve(buildOut, `build-${destination}.sha256`);
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
