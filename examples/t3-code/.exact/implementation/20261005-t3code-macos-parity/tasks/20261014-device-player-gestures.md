@@ -1,13 +1,13 @@
 ---
 name: 20261014-device-player-gestures
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: pending
-delivery: none
+implementation: implemented
+verification: partial
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-device-player-gestures
-pr_url:
+pr_url: https://github.com/ccheever/exact2/pull/539
 verified_commit:
 ---
 
@@ -193,6 +193,29 @@ B9 lane (the fixture hub, the Pixel, as `realinput-1011c` B9): the docked card o
   buttons over it, ten pans in the player; the 56 × 32 pill and the dot on the close button's edge; DP-10, a draft at
   840×620 keeps 240×520 at 380,36 and a thread equals the canvas layout with the docked composer. Against the base's
   `r6-device.contract` 9 of the 17 fail (DP-2, S/W/SW zones, the W numbers, DPC, DP-3).
+
+## Checks
+
+Run once on `6d2785d46` (the app code of `eae68d2e8`; `origin/feat(example)/t3-code` still `609f392d5`, nothing to merge):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4873 pass, 1 skip, 0 fail (329 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,453 lines (unchanged) |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust or Swift changed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,353 passed, 0 failed, 46 ignored |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | twice: the base for the before drive, this branch once before the after drive |
+
+## Next action
+
+The coordinator: review draft PR #539, then the real-input batch steps above (B5 with a simulator, B9 with the
+fixture hub); DP-7's rest half and DP-4's cursors (DP-4b, the main fix) re-run in the same batch.
 
 ## Not done / not verified
 
