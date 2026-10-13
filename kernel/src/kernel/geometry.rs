@@ -258,19 +258,27 @@ impl Kernel {
         (height.is_finite() && height >= 0.0).then_some(height)
     }
 
-    /// The padding the last layout resolved, in points: left, top, right,
-    /// bottom. A percentage is of the containing block's width, which in a
-    /// multi-column container is the column's (CSS Multi-column §3.4).
-    /// Whichever engine laid the node out publishes it, a content region's
-    /// own included: zero for a hidden node, `None` before any layout or for
-    /// a node the document's engine has no node for.
+    /// The CSS padding the last layout resolved, in points: left, top,
+    /// right, bottom. A percentage is of the containing block's width, which
+    /// in a multi-column container is the column's (CSS Multi-column §3.4).
+    /// A host cover's part is not in it (`layout_padding`). Whichever engine
+    /// laid the node out publishes it, a content region's own included;
+    /// `None` before any layout or for a node it gave no box (an inline run).
     pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
         let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.padding;
         Some((left, top, right, bottom))
     }
 
+    /// The padding the engine laid the box out with: `resolved_padding` and
+    /// what a host cover added to it (LLP 1075.003 §3.5).
+    pub fn layout_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
+        let inset = self.arena.inset(self.arena.resolve(key)?)?;
+        let [left, top, right, bottom] = std::array::from_fn(|i| inset.padding[i] + inset.cover[i]);
+        Some((left, top, right, bottom))
+    }
+
     /// The border the last layout resolved, in points: left, top, right,
-    /// bottom, published as [`Kernel::resolved_padding`] is.
+    /// bottom, the engine's, which holds a native field's chrome too.
     pub fn resolved_border(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
         let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.border;
         Some((left, top, right, bottom))

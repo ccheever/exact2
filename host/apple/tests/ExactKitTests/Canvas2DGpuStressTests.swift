@@ -37,7 +37,7 @@ final class Canvas2DGpuStressTests: XCTestCase {
 
     private func payload(_ lifetime: UInt64, generation: UInt32, fresh: Bool, lists: [Data]) -> [String: Any] {
         ["lifetime": lifetime, "generation": generation, "fresh": fresh, "w": 180, "h": 120, "scale": 3.0,
-         "lists": lists, "box": [0, 0, 60, 40], "animating": true]
+         "lists": lists, "animating": true]
     }
 
     private func corner(_ surface: IOSurface) -> [UInt8] {

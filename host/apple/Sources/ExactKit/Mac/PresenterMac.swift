@@ -1176,6 +1176,7 @@ package final class Presenter {
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
+                v.layoutContent()
             case .fieldContent:
                 views[id]?.applyFieldContent(op.payload)
             case .content:

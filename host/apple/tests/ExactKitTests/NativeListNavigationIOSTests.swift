@@ -306,6 +306,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
             ["op": "children", "id": route.node.id, "ids": children],
             ["op": "frame", "id": listID, "x": Double(frame.minX), "y": Double(frame.minY), "w": Double(frame.width), "h": Double(frame.height)],
         ]
+        if paddingTop != 0 { ops.append(contentOp(Int(listID), Double(frame.width), Double(frame.height), padding: [paddingTop, 0, 0, 0])) }
         if let laterAuthoredTop {
             ops.append(["op": "props", "id": listID, "set": ["scrollTop": String(laterAuthoredTop)]])
         }

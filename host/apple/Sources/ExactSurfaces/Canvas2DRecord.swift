@@ -207,11 +207,12 @@ final class Canvas2DRecordLayer: CALayer {
 
     override func action(forKey event: String) -> CAAction? { NSNull() }
 
-    /// Show `f`, recorded at the next display (main thread).
-    func show(_ f: Frame) {
+    /// Show `f`, recorded at the next display (main thread), scaled into
+    /// `size`, its canvas's placed content box.
+    func show(_ f: Frame, in size: CGSize) {
         frame_ = f
         contentsScale = CGFloat(f.scale)
-        bounds = CGRect(x: 0, y: 0, width: CGFloat(f.width) / CGFloat(f.scale), height: CGFloat(f.height) / CGFloat(f.scale))
+        bounds = CGRect(origin: .zero, size: size)
         isHidden = false
         setNeedsDisplay()
     }
