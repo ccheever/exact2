@@ -44,8 +44,10 @@ component MarkdownMedia
     urls: list<AttachmentUrl>
     local: action
     standalone: bool
-    // G4-05: the document the image belongs to (its chips' owner), whose images the expanded preview steps through.
+    // G4-05: the document the image belongs to (its chips' owner), whose images the expanded preview steps through, and the
+    // occurrence's node id (owner, block, run).
     owner: string
+    nodeId: string
   derive url = access == "direct" ? target : join(map(filter(urls, (entry) => entry.id == target and entry.url != ""), (entry) => entry.url), "")
   derive refused = access == "environment" and length(filter(urls, (entry) => entry.id == `media-failed:${slice(target, 6)}`)) > 0
   view
@@ -66,7 +68,7 @@ component MarkdownMedia
     when access != "blocked" and not refused and url == ""
       box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
     when access != "blocked" and not refused and url != ""
-      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (startsWith(target, "http:") or startsWith(target, "https:"))), local=local, standalone=standalone, open=local("image-md-open", target, owner))
+      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (startsWith(target, "http:") or startsWith(target, "https:"))), local=local, standalone=standalone, open=local("image-md-open", target, `${owner}\n${nodeId}`), nodeId=nodeId)
 
 // ChatMarkdownImage / ChatMarkdownVideo once the URL is known. A video that fails shows
 // MediaVideoPlayer's slot: Retry video loads it again; the open link is "Open original" for an
@@ -81,8 +83,9 @@ component MarkdownMediaBody
     original: bool
     local: action
     standalone: bool
-    // G4-05: opens the expanded image dialog on this image (timeline-attachments.ts `image-md-open`).
+    // G4-05: opens the expanded image dialog on this image (timeline-attachments.ts `image-md-open`), and the button's id.
     open: action
+    nodeId: string
   state failed = false
   action broke(reason: string)
     let ignored = reason
@@ -95,9 +98,9 @@ component MarkdownMediaBody
     let ignored = reason
     brokenUrl = url
   view
-    when kind == "video"
-      MediaActions(source=source, tip=tip, local=local, elementId="", testId="markdown-video-actions")
-        when failed
+    when kind == "video" or (brokenUrl != "" and brokenUrl == url)
+      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
+        when kind == "video" and failed
           column role="alert" width="100%" max-width="40rem" aspect-ratio="16 / 9" min-height="7rem" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" testId="markdown-video-failed"
             row gap="0.375rem" align-items="center" max-width="100%"
               ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
@@ -108,15 +111,13 @@ component MarkdownMediaBody
                   path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"
                 text "Retry video" font-size="0.8125rem" line-height="1.125rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
               MediaOpenLink(url=(startsWith(url, "http:") or startsWith(url, "https:") or startsWith(url, "blob:") ? url : ""), label=(original ? "Open original" : startsWith(url, "blob:") ? "Download video" : "Open in browser"), icon=(startsWith(url, "blob:") ? "download" : "external-link"), dark=false, testId="markdown-video-open")
-        else
+        when kind == "video" and not failed
           video url controls=true playsinline=true preload="metadata" aria-label=(alt != "" ? alt : "Video preview") error=broke width="100%" max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="#000000" object-fit="contain" testId="markdown-media-video"
-    when kind != "video" and (brokenUrl != "" and brokenUrl == url)
-      MediaActions(source=source, tip=tip, local=local, elementId="", testId="markdown-image-actions")
-        when standalone
+        when kind != "video" and standalone
           MediaFailedFrame(alt=alt)
-        else
+        when kind != "video" and not standalone
           MediaUnavailableLabel(alt=alt, video=false)
     // G4-05: the settled image is the button "Preview <alt>" (ChatMarkdownImage's <img> with expandableMarkdownImageProps).
     when kind != "video" and not (brokenUrl != "" and brokenUrl == url)
-      MediaPreviewActions(source=source, tip=tip, label=`Preview ${trim(alt) != "" ? trim(alt) : "image"}`, open=open, local=local, testId="markdown-image-actions")
+      MediaPreviewActions(source=source, tip=tip, label=`Preview ${trim(alt) != "" ? trim(alt) : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)
         image url aria-label=alt error=imageBroke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"

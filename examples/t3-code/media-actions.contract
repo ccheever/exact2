@@ -9,6 +9,7 @@
 // (`chatlocal:media-menu`, media-actions.ts): at the pointer, or at the node's bottom-left corner
 // for a key. The source is the JSON a view built (media-views.ts) or `attachment:<id>`.
 use ShellIcon from "./shell-icons.contract"
+use hoverTipAtFrame from "./hover-layer.contract" // MSU-1: the Markdown image's tooltip in the window's hover layer
 
 // A media slot (media-views.ts MediaView): kind "image" / "video" / "" (none); state "loading",
 // "ready" or "failed"; the open link ("" for none) and the Retry key ("" for no Retry).
@@ -56,8 +57,13 @@ component MediaActions
 
 // G4-05 (chat-markdown-media-and-code): a Markdown image once it has loaded (ChatMarkdown expandableMarkdownImageProps): the
 // image is a button "Preview <alt>" (a click, Enter or Space) that opens the expanded image dialog over its document's images
-// (markdownImageGallery), with the zoom-in cursor, and keeps MediaActions' menu, keys and tooltip.
+// (markdownImageGallery), with the zoom-in cursor, and keeps MediaActions' menu and keys. A secondary click focuses it, as the
+// reference's mousedown does. MSU-1: its tooltip is drawn by the window's hover layer (kind "code", hover-layer.contract), as
+// the reference portals TooltipPopup, so the Files column or the transcript does not cut it and it flips below near the top.
 component MediaPreviewActions
+  inject
+    rem: number
+    hoverTipAt: action
   props
     source: string
     tip: string
@@ -65,26 +71,29 @@ component MediaPreviewActions
     open: action
     local: action
     testId: string
-  state over = false
-  action hover(value: bool)
-    over = value
+    // The occurrence's node id (the document's owner, its block and run): the hover layer finds it by it, and the dialog
+    // gives the focus back to it.
+    nodeId: string
+  action hover(inside: bool)
+    if tip != ""
+      hoverTipAt(hoverTipAtFrame(nodeId, "code", tip, [], "top", "center", frame(nodeId), (floor(length(tip) / 68) + 1) * 1.1171875 * rem + 0.625 * rem, "media-tooltip"), "trigger", inside)
   action pointerMenu
-    over = false
+    hover(false)
+    focus(nodeId)
     local("media-menu", source, "pointer")
   action menuKey(k: string, e: KeyboardEvent)
     if k == "ContextMenu" or (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10")
       preventDefault()
       stopPropagation()
-      over = false
+      hover(false)
       local("media-menu", source, "key")
   action press
-    over = false
+    hover(false)
     open()
   slot
   view
-    button press=press hover=hover contextmenu=pointerMenu key=menuKey tabindex=0 aria-label=label title="" cursor="zoom-in" hatch="t3-media" data-media-kind="actions" position="relative" max-width="100%" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" testId=testId
+    button id=nodeId press=press hover=hover contextmenu=pointerMenu key=menuKey tabindex=0 aria-label=label title="" cursor="zoom-in" hatch="t3-media" data-media-kind="actions" position="relative" max-width="100%" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" testId=testId
       children
-      MediaTip(label=tip, shown=over)
 
 // MediaActions' TooltipPopup (ui/tooltip.tsx, variant "code": monospace 11px, relaxed leading, up to 30rem wide, breaking
 // anywhere): above the media, centred, after Base UI's 600 ms open delay; it takes no hits.

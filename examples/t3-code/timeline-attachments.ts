@@ -106,7 +106,7 @@ interface Preview { threadId: string; messageId: string; imageId: string }
 const previews = new WeakMap<T3Client, Preview | null>();
 /** G4-05 (chat-markdown-media-and-code): a Markdown image's expanded preview (ChatMarkdown expandableMarkdownImageProps and
  *  markdownImageGallery): its document's images in order, the one shown, and the thread its host paths sign through. */
-type Gallery = { threadId: string; signThread: string; text: string; root: string; scope: MediaScope; items: GalleryImage[]; index: number };
+type Gallery = { threadId: string; signThread: string; text: string; root: string; scope: MediaScope; items: GalleryImage[]; index: number; opener: string };
 const galleries = new WeakMap<T3Client, Gallery | null>();
 const activeGallery = (client: T3Client): Gallery | null => {
   const gallery = galleries.get(client);
@@ -129,12 +129,14 @@ export function imagePreviewAction(client: T3Client, op: string, id: string, val
     galleries.set(client, null);
     return '';
   }
-  // G4-05: a Markdown image's press: `id` its media key, `value` its document's owner.
+  // G4-05: a Markdown image's press: `id` its media key, `value` its document's owner and, after a line break, its node id.
   if (op === 'image-md-open') {
-    const document = markdownDocument(value), items = document ? markdownGallery(document) : [], index = items.findIndex(item => item.key === id);
+    const cut = value.indexOf('\n'), owner = cut < 0 ? value : value.slice(0, cut), opener = cut < 0 ? '' : value.slice(cut + 1);
+    const document = markdownDocument(owner), items = document ? markdownGallery(document) : [], index = items.findIndex(item => item.key === id);
     if (!document || index < 0) throw new ClientError('That image is no longer available.');
     previews.set(client, null); mediaPreviews.set(client, null);
-    galleries.set(client, { threadId: client.threadId, signThread: client.threadId || draftThreadId(client), text: document.text, root: document.root, scope: document.scope, items, index });
+    galleries.set(client, { threadId: client.threadId, signThread: client.threadId || draftThreadId(client), text: document.text, root: document.root, scope: document.scope, items, index,
+      opener });
     return '';
   }
   const gallery = activeGallery(client);
@@ -192,13 +194,14 @@ export function imagePreviewView(client: T3Client) {
   if (media) {
     const source = markdownMedia(media.name, media.path, '', media.root).source;
     return { imagePreviewId: media.key, imagePreviewName: media.name, imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false,
-      imagePreviewVideo: media.video, imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '', imagePreviewTip: source ? mediaTooltip({ ...source, name: media.name }) : media.name };
+      imagePreviewVideo: media.video, imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '', imagePreviewTip: source ? mediaTooltip({ ...source, name: media.name }) : media.name, imagePreviewReturn: '' };
   }
   const gallery = activeGallery(client);
   if (gallery) {
     const item = gallery.items[gallery.index]!, many = gallery.items.length > 1;
     return { imagePreviewId: item.key, imagePreviewName: item.name, imagePreviewPosition: many ? `(${gallery.index + 1}/${gallery.items.length})` : '', imagePreviewPrevious: many,
-      imagePreviewNext: many, imagePreviewVideo: false, imagePreviewSource: encodeMediaSource(item.source), imagePreviewTip: mediaTooltip(item.source) };
+      imagePreviewNext: many, imagePreviewVideo: false, imagePreviewSource: encodeMediaSource(item.source), imagePreviewTip: mediaTooltip(item.source),
+      imagePreviewReturn: gallery.opener };
   }
   const current = previews.get(client);
   const images = current && current.threadId === client.threadId ? messageImages(client, current.messageId, current.imageId) : [];
@@ -206,7 +209,7 @@ export function imagePreviewView(client: T3Client) {
   const image = index >= 0 ? images[index]! : null;
   return { imagePreviewId: image?.id ?? '', imagePreviewName: image?.name ?? '', imagePreviewPosition: image && images.length > 1 ? `(${index + 1}/${images.length})` : '',
     imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video, imagePreviewSource: image ? `attachment:${image.id}` : '',
-    imagePreviewTip: image?.name ?? '' };
+    imagePreviewTip: image?.name ?? '', imagePreviewReturn: '' };
 }
 
 // ImageChipButton tints its chip with the picture's average colour (lane r4-timeline).
