@@ -875,6 +875,77 @@ fn reserved_capacity_refuses_without_callback_and_cancel_retires_without_activat
 }
 
 #[test]
+fn worker_guards_live_through_pool_retirement_and_job_panics() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    struct Guard(mpsc::Sender<std::thread::ThreadId>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.send(std::thread::current().id()).unwrap();
+        }
+    }
+    let (retired_tx, retired_rx) = mpsc::channel();
+    let pool = BoundedWorkerPool::with_worker_guards(vec![Guard(retired_tx)], 2).unwrap();
+    let pending = pool.reserve().unwrap();
+    let running = pool.reserve().unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    running.dispatch(Box::new(move || {
+        started_tx.send(std::thread::current().id()).unwrap();
+        release_rx.recv().unwrap();
+        panic!("a panicking job must not release the worker guard");
+    }));
+    let worker = started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    drop(pool);
+    assert!(
+        retired_rx.try_recv().is_err(),
+        "running worker still owns its guard"
+    );
+    release_tx.send(()).unwrap();
+    let (drained_tx, drained_rx) = mpsc::channel();
+    pending.dispatch(Box::new(move || {
+        assert!(
+            retired_rx.try_recv().is_err(),
+            "guard outlives accepted jobs"
+        );
+        drained_tx.send(retired_rx).unwrap();
+    }));
+    let retired_rx = drained_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(
+        retired_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        worker
+    );
+    assert_ne!(worker, std::thread::current().id());
+}
+
+#[test]
+fn idle_worker_guards_retire_on_the_workers() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    struct Guard(mpsc::Sender<std::thread::ThreadId>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.send(std::thread::current().id()).unwrap();
+        }
+    }
+    let (tx, rx) = mpsc::channel();
+    let pool =
+        BoundedWorkerPool::with_worker_guards(vec![Guard(tx.clone()), Guard(tx)], 1).unwrap();
+    let pending = pool.reserve().unwrap();
+    drop(pool);
+    assert!(
+        rx.try_recv().is_err(),
+        "reservation retains both idle workers"
+    );
+    drop(pending);
+    let first = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let second = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_ne!(first, second);
+    assert_ne!(first, std::thread::current().id());
+    assert_ne!(second, std::thread::current().id());
+}
+
+#[test]
 fn callback_can_overlap_activation_return_and_duplicate_end_is_ignored() {
     struct Overlap;
     impl AsyncTransport for Overlap {

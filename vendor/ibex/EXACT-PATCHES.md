@@ -3,7 +3,7 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `30b0db076246f66ed7eee5ac5e62b54bab6e830a` (2026-10-13).
+  `de115401e79843c0e6458718e9651ca3bcb755fd` (2026-10-13).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.

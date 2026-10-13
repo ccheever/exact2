@@ -657,7 +657,19 @@ pub struct BoundedWorkerPool {
 
 impl BoundedWorkerPool {
     pub fn new(threads: usize, capacity: usize) -> std::io::Result<Self> {
-        if threads == 0 || capacity == 0 {
+        Self::with_worker_guards(vec![(); threads], capacity)
+    }
+
+    /// Starts one worker per guard. Each thread owns its guard until it exits,
+    /// including while idle after the pool is dropped or draining accepted
+    /// work. Use this to retain consumer process-wide worker reservations.
+    /// If spawning fails, started threads retain their guards until exit;
+    /// unstarted guards are dropped by this call. No thread is joined here.
+    pub fn with_worker_guards<G: Send + 'static>(
+        guards: Vec<G>,
+        capacity: usize,
+    ) -> std::io::Result<Self> {
+        if guards.is_empty() || capacity == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "worker count and capacity must be positive",
@@ -665,15 +677,18 @@ impl BoundedWorkerPool {
         }
         let (sender, receiver) = std::sync::mpsc::channel::<Job>();
         let receiver = Arc::new(Mutex::new(receiver));
-        for index in 0..threads {
+        for (index, guard) in guards.into_iter().enumerate() {
             let receiver = receiver.clone();
             std::thread::Builder::new()
                 .name(format!("ibex-http-{index}"))
-                .spawn(move || loop {
-                    let job = receiver.lock().unwrap().recv();
-                    match job {
-                        Ok(job) => contain(job),
-                        Err(_) => break,
+                .spawn(move || {
+                    let _guard = guard;
+                    loop {
+                        let job = receiver.lock().unwrap().recv();
+                        match job {
+                            Ok(job) => contain(job),
+                            Err(_) => break,
+                        }
                     }
                 })?;
         }
