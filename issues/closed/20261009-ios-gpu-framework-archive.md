@@ -1,6 +1,7 @@
 # iOS App Store archive: an app's GPU module ships as a loose dylib, and App Store Connect fails it (ITMS-90426)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Primary and named GPU archives are framework-wrapped and signed before bake hashing; scripts/exact.test.mjs verifies install names, captured digests, warm reuse, archive/embed staging and deep codesign seals; --archive --embed retains the signed frameworks and continues to IPA assembly.
 **Systems:** host/apple, GPU delivery
 **Severity:** P1
 **Author:** SchroederNathan (GitHub report); Codex (filesystem transfer)
@@ -10,6 +11,30 @@
 ## Current scope
 
 Framework-wrap and sign app GPU and gpu.modules artifacts before bake hashing. Load framework binaries on iOS; keep development dylibs. Verify shipped digest, no loose dylibs, codesign, device rendering and store processing. The supplied patch/TestFlight evidence is reported, not newly verified.
+
+## Implementation, 2026-10-12
+
+The build wraps and signs primary and named GPU products before the bake hashes
+them, captures their verified binaries with the framework metadata, and preserves
+their signatures through archive assembly. UIKit resolves the framework binary
+before the development dylib. The archive refuses loose dylibs.
+
+`scripts/exact.test.mjs` builds real simulator Mach-O libraries for both forms,
+checks their install names and bundle identifiers, captures and packages them,
+and verifies the final app with `codesign --verify --deep --strict`. It also
+checks warm digest stability, separate products sharing an output directory,
+and unchanged development packaging. The regression failed before the fix.
+Review round 1 reproduced an `ENOENT` in `--archive --embed`: capture held
+frameworks while embed staging requested loose dylibs. The shared GPU staging
+function now copies signed frameworks for both products, and `--archive`
+prevents the embed-only early return. Tests first failed on the missing dylib
+and premature return, then passed for primary and named frameworks, development
+dylibs, and GPU digests after the final app seal. The combined command produces
+both the embed directory (static library, header, assets, shaders, metadata and
+signed GPU frameworks) and the IPA.
+
+Physical-device rendering and App Store Connect processing have not been rerun
+by this lane; the original reporter's TestFlight result above is prior evidence.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 

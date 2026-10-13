@@ -112,6 +112,16 @@ check('an arrangement the app wrote stays its own on a wide window', async () =>
   }
 }, 60000);
 
+check('appearance none keeps authored root tabs across selection and restores the sidebar with auto', () => inChrome(page(tabs(BAR.replace('id="bar"', 'id="bar" class="authored-tabs"'))) + '<style>.authored-tabs { appearance: none; }</style>', async (evaluate) => {
+  await evaluate(`select(10)`);
+  expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar')[2], shown('t1'), shown('r2')]`))
+    .toEqual([false, 1280, true, false]);
+  await evaluate(`document.getElementById('bar').style.appearance = 'auto'; select(2)`);
+  expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2')]`)).toEqual([true, true]);
+  await evaluate(`document.getElementById('bar').style.appearance = 'none'; select(10)`);
+  expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
+}), 30000);
+
 check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
   // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is the
   // platform's placeholder (LLP 1116.006 D2), one line in the secondary label's colour (the look's, which its sheet carries).

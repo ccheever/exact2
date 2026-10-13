@@ -119,6 +119,12 @@ children land in the document at the coordinates the kernel gave them.
 Scrollers are overlay; content insets are zero; `scrollbar_width` is 0 in
 the kernel to match.
 
+A press on the container's empty document or clip area starts at the scroll node,
+so its pointer handlers or the nearest listening ancestor hear it. The held pointer's
+moves and release and the ordinary press use the same path as a child node's click;
+the native scrollers and wheel routing keep their own paths. This includes empty
+virtualized lists and horizontal containers.
+
 **The page's extent** is `max(viewport, union of the roots' frames)`
 (`fitDocument`), not the kernel's `content`: a root's frame is its layout
 height, the in-flow page; descendants overflowing a root's frame

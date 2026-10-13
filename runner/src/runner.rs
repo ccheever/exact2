@@ -867,7 +867,7 @@ impl<D: DataSource> Runner<D> {
             delivery,
             viewport,
             page: Default::default(),
-            time: Default::default(),
+            time: crate::time::launch_time(),
             place: Default::default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),

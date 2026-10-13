@@ -53,9 +53,12 @@ test('present means shown in the app; missing is the tree\'s', () => {
 
 // LLP 1116.010 D3 (chat-rooms and password-generator, round 12): a disabled control is asserted, and pressing one fails the step.
 test('expect disabled and enabled read the prop every host\'s tree carries; a press on a disabled control is refused, a hover is not', async () => {
-  const tree = [{ id: 1, props: { testId: 'send', disabled: true } }, { id: 2, props: { testId: 'arm' } }, { id: 3, props: { testId: 'native', disabled: 'true' } }];
+  const tree = [{ id: 1, props: { testId: 'send', disabled: true } }, { id: 2, props: { testId: 'arm' } }, { id: 3, props: { testId: 'native', disabled: 'true' } }, { id: 4, props: { testId: 'update', accessibilityDisabled: true } }];
   expect(disabledExpectation(tree, 'send', true)).toBeNull();
   expect(disabledExpectation(tree, 'native', true)).toBeNull();
+  // `aria-disabled` reads as disabled for the expectation…
+  expect(disabledExpectation(tree, 'update', true)).toBeNull();
+  expect(disabledExpectation(tree, 'update', false).message).toBe('expected "update" enabled, it was disabled');
   expect(disabledExpectation(tree, 'arm', false)).toBeNull();
   expect(disabledExpectation(tree, 'send', false).message).toBe('expected "send" enabled, it was disabled');
   expect(disabledExpectation(tree, 'arm', true).message).toBe('expected "arm" disabled, it was enabled');
@@ -64,6 +67,8 @@ test('expect disabled and enabled read the prop every host\'s tree carries; a pr
   await expect(refuseDisabled(s, { id: 1 }, 'send', {})).rejects.toThrow('send is disabled: a press does nothing');
   await expect(refuseDisabled(s, { id: 3 }, 'native', { dblclick: true })).rejects.toThrow('native is disabled');
   await refuseDisabled(s, { id: 2 }, 'arm', {});
+  // …but its press still dispatches, so the tap is not refused.
+  await refuseDisabled(s, { id: 4 }, 'update', {});
   await refuseDisabled(s, { id: 1 }, 'send', { hover: true });
   await refuseDisabled(s, { id: 1, entity: 'unit' }, 'send', {});
 });

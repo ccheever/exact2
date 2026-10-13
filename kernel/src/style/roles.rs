@@ -89,11 +89,13 @@ static NEUTRAL: AtomicBool = AtomicBool::new(false);
 /// before it presents (LLP 1115.000 D4 part B for the web, D17 for a host
 /// that paints its own controls). Every fallback follows: what the kernel
 /// resolves itself, the pair an Exact role carries to the browser
-/// (`var(--exact-<role>, …)`), what a painter reads. A reported colour
-/// still wins over either column. The web calls it, for a page in the
-/// neutral look, which every web build draws since 2026-10-12
-/// (host/web/look.mjs); every other host shows Apple's pairs, in which a
-/// process starts.
+/// (`var(--exact-<role>, …)`), what a painter reads. The look's metrics
+/// follow too (`style::metrics::column`), so this is the look's one switch.
+/// A reported colour still wins over either column. The web calls it, for a
+/// page in the neutral look, which every web build draws since 2026-10-12
+/// (host/web/look.mjs), and so do the Linux desktop and Windows, which have
+/// no platform toolkit under their painter; every other host shows Apple's
+/// pairs, in which a process starts.
 pub fn set_column(column: Column) {
     NEUTRAL.store(column == Column::Neutral, Ordering::Release);
 }

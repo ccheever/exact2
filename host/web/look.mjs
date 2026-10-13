@@ -7,8 +7,9 @@ import { readFileSync } from 'node:fs';
 
 // The switch, thrown on 2026-10-12 (Charlie, on seeing the two side by side:
 // "switch to the neutral look"). `EXACT_WEB_LOOK=apple` still builds the look
-// it replaced, byte for byte, while the hosts that paint their own controls
-// draw that one (LLP 1115.000 D17; QUEUE.md says when it goes).
+// it replaced, byte for byte. No host draws that one since the hosts that
+// paint their own controls took the neutral look (LLP 1115.000 D17), so it
+// can go: QUEUE.md says what goes with it.
 export const DEFAULT_LOOK = 'neutral';
 export const LOOK = process.env.EXACT_WEB_LOOK || DEFAULT_LOOK;
 if (!['apple', 'neutral'].includes(LOOK)) throw new Error(`EXACT_WEB_LOOK=${LOOK}: the looks are apple and neutral`);

@@ -199,6 +199,10 @@ extension NodeView {
 /// the ARIA states AppKit has no property for (`NodeView.ariaAttribute`),
 /// read from the node that holds the field.
 final class FieldCell: NSTextFieldCell {
+    private var numberField: Field? {
+        guard let field = controlView as? Field, field.accessibilityRole() == .incrementor else { return nil }
+        return field
+    }
     /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
         (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
@@ -211,9 +215,28 @@ final class FieldCell: NSTextFieldCell {
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+            + (numberField != nil ? [.minValue, .maxValue] : [])
     }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+        if let field = numberField {
+            switch attribute {
+            case .role: return NSAccessibility.Role.incrementor.rawValue
+            case .minValue: return field.accessibilityMinValue()
+            case .maxValue: return field.accessibilityMaxValue()
+            default: break
+            }
+        }
+        return (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+    override func accessibilityActionNames() -> [NSAccessibility.Action] {
+        super.accessibilityActionNames() + (numberField != nil ? [.increment, .decrement] : [])
+    }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
+        if let field = numberField {
+            if action == .increment { _ = field.accessibilityPerformIncrement(); return }
+            if action == .decrement { _ = field.accessibilityPerformDecrement(); return }
+        }
+        super.accessibilityPerformAction(action)
     }
 }
 /// A password field's, as `FieldCell`.

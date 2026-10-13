@@ -1,7 +1,6 @@
 # Recipe: tabs
 
-A tab bar is for an app with at least two top-level sections; a one-tab bar is a tell. Each tab
-keeps its own stack of routes, nested under it in the routes table.
+Use tabs for at least two top-level sections, each with its own route stack. A one-tab bar is a tell.
 
 ```contract
 routes nav
@@ -53,14 +52,17 @@ test "each tab keeps its own stack"
   expect tree has "day-2026-10-09"
 ```
 
-- The root `tablist` (each tab a symbol over a label, naming its panel with `aria-controls`) is the
-  iOS tab bar. A value chosen from two to five is a `row role="radiogroup"` of `button
-  role="radio" aria-checked=…` instead, the segmented control ([persisted-setting](persisted-setting.md)).
-- Every tab's stack stays mounted: a pushed screen, a draft and a scroll offset survive a visit to
-  another tab; selecting the shown tab again pops it to its root.
-- A row that only navigates is a `link`, which the root's `navigate` handler (`follow`) pushes
-  onto the selected tab's stack; the browser's Back, Forward and a deep link arrive there too.
-- Hide the bar on one screen with `display="none"` on the tablist, never `when`: the panels'
-  routes are then found by no host.
-- A wide window (900 px up on the web) and a Mac window draw the bar, placed as above (the root
-  column's last child), as a sidebar; a tablist you arrange yourself stays yours.
+- The root `tablist` (each tab a symbol over a label, naming its panel with `aria-controls`)
+  is the iOS tab bar. For a segmented value picker, use a `radiogroup`
+  ([persisted-setting](persisted-setting.md)).
+- Stacks stay mounted: pushed screens, drafts and scroll offsets survive tab switches.
+  Selecting the shown tab again pops it to its root.
+- A `link` uses the root's `navigate` handler to push onto the selected stack; browser
+  Back, Forward and deep links arrive there too.
+- Hide the bar with `display="none"`, never `when`: removing the tablist loses the panels' routes.
+- A Mac window, or a web window 900 px up, draws the root column's last-child tablist as a
+  sidebar; a tablist you arrange yourself stays yours.
+
+`appearance="none"` on a `header` or root `tablist` keeps the authored bar on every host.
+On a header button it keeps only that button authored (the Mac keeps the whole header).
+Styling alone does not opt out. See [the reference](../reference.md).

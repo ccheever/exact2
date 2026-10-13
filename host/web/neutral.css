@@ -19,8 +19,13 @@
        pressed a stronger one, keyboard focus the browser's own ring, disabled the grey ink (`GrayText`'s), invalid
        the red line, selected the accent or a raised chip.
 
-     The page's mark, the roles this sheet and the shell's name (the neutral column's pairs, which
-     host/web/tests/neutral-look.test.mjs holds to the table), and the look's own few values. */
+     Every length and ratio below is a row of the schema's `metrics`, in its neutral column: the kernel sizes a control
+     by those rows, and a host that paints its own controls (the Linux desktop, Windows) draws from them (LLP 1115.000
+     D17). host/web/tests/neutral-look.test.mjs holds this sheet to the table, so a number changes there and here
+     together.
+
+     The page's mark, the roles this sheet and the shell's name (the neutral column's pairs, which the same test holds
+     to the table), and the look's own few values. */
   :root { --exact-look: neutral; --exact-label: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
     --exact-gray-text: light-dark(#707070ff, #929292ff); --exact-line: color-mix(in srgb, var(--exact-label) 45%, transparent); --exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / .12); --exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / .24); --exact-scrim: rgb(0 0 0 / .4); }
   /* The accent: the browser's own (`AccentColor`), kept to a lightness at which it reads at 4.5:1 as text on the page

@@ -412,6 +412,21 @@ extension NSTextView {
 /// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
 /// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
+    private var numberOwner: NodeView? {
+        guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
+        return node
+    }
+    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : super.accessibilityRole() }
+    override func accessibilityMinValue() -> Any? {
+        guard let owner = numberOwner else { return super.accessibilityMinValue() }
+        return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }
+    }
+    override func accessibilityMaxValue() -> Any? {
+        guard let owner = numberOwner else { return super.accessibilityMaxValue() }
+        return NumberStepping(owner.props).max.map { NSDecimalNumber(decimal: $0) }
+    }
+    override func accessibilityPerformIncrement() -> Bool { numberOwner?.step(up: true) ?? super.accessibilityPerformIncrement() }
+    override func accessibilityPerformDecrement() -> Bool { numberOwner?.step(up: false) ?? super.accessibilityPerformDecrement() }
     override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
@@ -432,6 +447,25 @@ final class FieldEditor: NSTextView {
         return editor
     }
     var owner: NodeView? { (delegate as? NSTextField)?.delegate as? NodeView }
+    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard owner?.props["type"]?.lowercased() == "number" else {
+            return super.readSelection(from: pasteboard, type: type)
+        }
+        let rich = pasteboard.readObjects(forClasses: [NSAttributedString.self], options: nil)?.first as? NSAttributedString
+        guard let text = pasteboard.string(forType: .string) ?? rich?.string else { return false }
+        insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        return true
+    }
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard owner?.props["type"]?.lowercased() == "number",
+              let text = (string as? NSAttributedString)?.string ?? string as? String else {
+            super.insertText(string, replacementRange: replacementRange); return
+        }
+        let range = replacementRange.location == NSNotFound ? (hasMarkedText() ? markedRange() : selectedRange()) : replacementRange
+        let filtered = NumberStepping.insertion(text, in: self.string, range: range)
+        if !text.isEmpty, filtered.isEmpty, !hasMarkedText() { return }
+        super.insertText(filtered, replacementRange: replacementRange)
+    }
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         owner?.markedTextChanged(self)

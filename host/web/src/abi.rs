@@ -101,7 +101,8 @@ impl<D: DataSource> Bridge<D> {
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
     /// three `exactViewport` fields. Bit 25 is the page's look (LLP 1115.000
     /// D4 part B): set where its stylesheet is the neutral one, and every
-    /// role then falls back to the table's neutral column.
+    /// role then falls back to the table's neutral column and every metric
+    /// reads its neutral cell.
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences = exact_runner::Preferences::from_bits(bits);
         self.fold = fold_bits(bits);

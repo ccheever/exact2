@@ -171,6 +171,7 @@ extension HeaderShape {
     /// header, or one the web does not show either (`display: none`), is
     /// not the bar's to judge.
     func presents(_ node: NodeView) -> Bool {
+        if authored.contains(where: { node === $0 || node.isDescendant(of: $0) }) { return true }
         guard node === header || node.isDescendant(of: header) else { return true }
         var at: UIView? = node
         while let view = at, view !== header.superview {
@@ -334,8 +335,9 @@ extension NavigationHost {
     /// (`NavigationRules.bar`, LLP 1115.000 D5.2): its header, the system
     /// Back alone, or nothing.
     func bar(of route: NodeView, pushed: Bool) -> NavigationRules.Bar {
-        NavigationRules.bar(asked: route.props["navigationBar"], header: HeaderShape.bar(of: route) != nil,
-                            pushed: pushed, backButton: Self.barHasBackButton)
+        if HeaderRule.keepsAuthoredHeader(route) { return .hidden }
+        return NavigationRules.bar(asked: route.props["navigationBar"], header: HeaderShape.bar(of: route) != nil,
+                                   pushed: pushed, backButton: Self.barHasBackButton)
     }
 
     /// Whether a route shows the bar: its stack's routes may, and the route

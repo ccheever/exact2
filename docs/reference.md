@@ -339,6 +339,18 @@ with its release identity. Resource changes require a new binary, not an asset
 update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
 module. This field applies only to macOS bundles.
 
+Mach-O code in content-addressed `assets/`, `deck/` or `shaders/` is refused
+when assembling a Mac bundle: place helpers in `host.macos.resources` instead.
+The release signs GPU modules before baking their digests and preserves those
+signatures through packaging. iOS archives package primary and named GPU modules
+as signed frameworks; development builds keep their loose dylibs.
+Combining `--device --archive out.ipa --embed` produces both the IPA and the
+embed directory without a connected phone. The embed directory contains the
+static library, C header, assets, shaders, compatibility and capability metadata,
+receipt, and signed GPU frameworks (primary and named modules). Copy those
+frameworks intact into the embedding app's `Frameworks/`; their binaries must
+retain the baked digests.
+
 ## Open the same development URL on Apple hosts
 
 Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build
@@ -955,6 +967,17 @@ a node, at defined moments, so the app can do what only that object can: add a
 gesture recognizer, set a navigation bar's look, draw into a view. It configures
 what Exact made; it never replaces a route's authored tree. (LLP 1075.003,
 1075.003.000, 1075.003.000.001; its §13 is the as-built record.)
+
+A route's `header` or navigation root's `tablist` with `appearance="none"`
+keeps its authored bar on iOS, including layout and type; a header button with
+it keeps that button and its contents authored in place; the rest of the header
+still projects. An authored Back replaces UIKit’s Back. Search and a header
+tablist can opt out on their own element too. Tab/tabpanel navigation and retained stacks
+remain intact. An opted-out root tablist also stays authored on the Mac and in wide
+web windows instead of becoming a sidebar, and either stays the page's on Android
+(the shared rule, `kernel/src/bars.rs`). On the Mac a header button with it keeps
+the whole header painted: the window's bar shows a header whole or not at all.
+See [tabs](recipes/tabs.md).
 
 ```sh
 bun scripts/exact.mjs hatch avatar <app>     # in an app `exact new` made: bun exact.mjs hatch avatar

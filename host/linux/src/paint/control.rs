@@ -1,11 +1,14 @@
-//! Form controls, painted (LLP 1069.001 D7): Linux has no platform
-//! controls, so a checkbox is Chrome's rounded square, a radio its circle
-//! and a switch a pill with a thumb, filled with `accent-color`, else the
-//! platform's accent where the host reported one ([`accents`]).
-//! `appearance: none` draws nothing here: the author's box is the whole
-//! look (D6).
+//! Form controls, painted (LLP 1069.001 D7): this host has no platform
+//! controls to show. Where it has no platform at all (the Linux desktop,
+//! Windows) each is the web's neutral look's (`neutral.rs`; LLP 1115.000
+//! D17). Else, which is Android's reader until its controls are Material's,
+//! a checkbox is Chrome's rounded square, a radio its circle and a switch a
+//! pill with a thumb, filled with `accent-color`, else the platform's accent
+//! where the host reported one ([`accents`]). `appearance: none` draws
+//! nothing here: the author's box is the whole look (D6).
 
-use super::{rgba, Backend, Rect4, Shape};
+use super::{look, neutral, rgba, Backend, Rect4, Shape};
+use exact_kernel::generated::metric;
 use exact_kernel::{Appearance, FieldChrome, NodeRef, PropId, StyleMask};
 use tiny_skia::Transform;
 
@@ -21,6 +24,9 @@ const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
 /// `AccentColor` with its `AccentColorText`, where the host reported the
 /// device's colours; else this painter's own blue, with white.
 pub(crate) fn accents(authored: Option<[u8; 4]>, dark: bool) -> ([u8; 4], [u8; 4]) {
+    if look::neutral() {
+        return look::accents(authored, dark);
+    }
     match authored {
         Some(accent) => (accent, [0xff; 4]),
         None => crate::presenter::reported_accent(dark).unwrap_or((ACCENT, [0xff; 4])),
@@ -78,7 +84,23 @@ pub(crate) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
     ink
 }
 
-pub(crate) fn field_chrome() -> FieldChrome {
+/// What a field has round its text. Under the neutral look (LLP 1115.000
+/// D17) that is the control's line and the look's padding, of the field's
+/// font size, as the page's sheet has them; else this painter's own.
+pub(crate) fn field_chrome(font_size: f32) -> FieldChrome {
+    if look::neutral() {
+        let line = look::px(metric::CONTROL_LINE, font_size);
+        let block = line + look::px(metric::FIELD_PADDING_BLOCK, font_size);
+        let inline = line + look::px(metric::FIELD_PADDING_INLINE, font_size);
+        return FieldChrome {
+            top: block,
+            right: inline,
+            bottom: block,
+            left: inline,
+            minimum_height: 0.0,
+            provisional: false,
+        };
+    }
     FieldChrome {
         top: FIELD_BORDER + FIELD_PADDING.0,
         right: FIELD_BORDER + FIELD_PADDING.1,
@@ -167,10 +189,14 @@ impl super::Painter {
     /// Native text field chrome; text uses the kernel's published content rect.
     pub(super) fn text_field_chrome(
         &mut self,
+        node: &NodeRef<'_>,
         rect: Rect4,
         disabled: bool,
         ts: Transform,
     ) -> Shape {
+        if look::neutral() {
+            return neutral::field(self.backend.as_mut(), node, rect, ts, self.dark);
+        }
         let shape = Shape::new(rect, [FIELD_RADIUS; 4]);
         let fill = field_fill(self.dark);
         let mut line = if self.dark {
@@ -200,6 +226,42 @@ impl super::Painter {
             return;
         }
         let dark = self.dark;
+        if look::neutral() {
+            // The look's field: its ground and line, the text a field's
+            // padding in, on the middle line, and a select's caret.
+            neutral::field(self.backend.as_mut(), node, content, ts, dark);
+            let style = node.computed_style(StyleMask::INHERITED);
+            let spec = super::text_spec(&style, text);
+            let paragraph = self.text.borrow_mut().paragraph(&spec, None);
+            let (x, y, w, h) = content;
+            let em = neutral::em(node);
+            let inset =
+                look::px(metric::CONTROL_LINE, em) + look::px(metric::FIELD_PADDING_INLINE, em);
+            let rtl = style.direction == exact_kernel::Direction::Rtl;
+            let ox = if rtl {
+                x + w - inset - paragraph.width
+            } else {
+                x + inset
+            };
+            let oy = y + ((h - paragraph.height) / 2.0).max(0.0);
+            let palette = [crate::text::RunPaint {
+                color: neutral::field_ink(node, dark),
+                source: node.id,
+            }];
+            self.backend.push_clip(&Shape::rect(content), ts);
+            self.backend.text(
+                &mut self.text.borrow_mut(),
+                &paragraph,
+                &palette,
+                (ox, oy),
+                ts,
+            );
+            self.backend.pop_clip();
+            if chevron {
+                neutral::caret(self.backend.as_mut(), node, content, ts, dark);
+            }
+            return;
+        }
         let disabled = node.props.bool(PropId::Disabled) == Some(true);
         let alpha = |mut c: [u8; 4]| {
             if disabled {
@@ -270,6 +332,10 @@ impl super::Painter {
         } else {
             0.0
         };
+        if look::neutral() {
+            neutral::range(self.backend.as_mut(), node, content, ts, dark, t);
+            return;
+        }
         let (x, y, w, h) = content;
         let d = 16f32.min(h).min(w);
         let cy = y + h / 2.0;
@@ -300,6 +366,11 @@ impl super::Painter {
             exact_kernel::ColorScheme::Normal => self.dark,
         };
         let previous = std::mem::replace(&mut self.dark, dark);
+        if look::neutral() {
+            self.neutral_menu(menu, dark);
+            self.dark = previous;
+            return;
+        }
         let panel = Shape::new(menu.rect, [6.0; 4]);
         self.backend.fill(&panel, [0, 0, 0, 0x40], ts);
         let bg = if dark {
@@ -343,7 +414,8 @@ impl super::Painter {
 }
 
 /// Paint `node`'s control in its content box; `held` is an unbound
-/// checkbox's own state, which the host keeps as a browser does.
+/// checkbox's own state, which the host keeps as a browser does, and
+/// `hovered` whether a pointer that hovers is over it.
 pub(super) fn paint(
     backend: &mut dyn Backend,
     node: &NodeRef<'_>,
@@ -351,11 +423,20 @@ pub(super) fn paint(
     ts: Transform,
     dark: bool,
     held: Option<bool>,
+    hovered: bool,
 ) {
     if node.style.appearance == Appearance::None {
         return;
     }
     let on = node.props.bool(PropId::Checked).or(held).unwrap_or(false);
+    if look::neutral() {
+        if node.props.str(PropId::AccessibilityRole) == Some("switch") {
+            neutral::switch(backend, node, content, ts, dark, on);
+        } else {
+            neutral::mark(backend, node, content, ts, dark, on, hovered);
+        }
+        return;
+    }
     let disabled = node.props.bool(PropId::Disabled) == Some(true);
     let (accent, on_accent) = accents(accent(node, dark), dark);
     let dim = |mut c: [u8; 4]| {
@@ -436,6 +517,9 @@ pub(super) fn progress(
     ts: Transform,
     dark: bool,
 ) {
+    if look::neutral() {
+        return neutral::spinner(backend, node, content, ts, dark);
+    }
     let (x, y, w, h) = content;
     let s = w.min(h);
     if s <= 0.0 {
@@ -466,6 +550,9 @@ pub(super) fn progress_bar(
     ts: Transform,
     dark: bool,
 ) {
+    if look::neutral() {
+        return neutral::progress_bar(backend, node, content, ts, dark);
+    }
     let (x, y, w, h) = content;
     let t = 4f32.min(h);
     if w <= 0.0 || t <= 0.0 {

@@ -47,6 +47,100 @@ test('the neutral sheet\'s colours are the role table\'s neutral column', () => 
   expect(body.match(/#[0-9a-f]{3,8}\b/gi)?.filter((hex) => !['#0000', '#fff'].includes(hex)) ?? []).toEqual([]);
 });
 
+// LLP 1115.000 D17: the look's metrics are rows of the schema (`metrics`, the neutral column), which the kernel sizes
+// a control by and a host that paints its own controls draws from. The sheet stays CSS a person reads, so this holds
+// it to the table both ways: every length it writes is a row's, on a property that row is written on, and every row
+// is written. A length that follows from rows (a pill's radius, a thumb's travel) is named beside its reason.
+test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral column', () => {
+  const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics.filter(([, kind]) => kind !== 'style');
+  const value = new Map(rows.map((row) => [row[0], row.at(-1)]));
+  const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
+  // The properties each length is written on.
+  const WHERE = {
+    'control-height': ['min-height', 'min-width', 'height'], 'control-height-coarse': ['min-height', 'min-width', 'height'],
+    'control-radius': ['border-radius'], 'surface-radius': ['border-radius'], 'mark-radius': ['border-radius'], 'segment-radius': ['border-radius'],
+    'control-line': ['border', 'border-top', 'border-bottom', 'border-inline-end', '--exact-raised', '--exact-modal'],
+    'focus-ring-offset': ['outline-offset'],
+    'mark-size': ['width', 'height', 'background'], 'mark-size-coarse': ['width', 'height'],
+    'switch-width': ['width'], 'switch-height': ['height'], 'range-height': ['height'], 'range-track': ['height'], 'range-thumb-line': ['border'],
+    'button-padding-block': ['padding'], 'button-padding-inline': ['padding'], 'button-padding-inline-symbol': ['padding-inline'],
+    'field-padding-block': ['padding'], 'field-padding-block-coarse': ['padding-block'], 'field-padding-inline': ['padding'],
+    'file-padding-block': ['padding'], 'file-gap': ['margin-inline-end'],
+    'segmented-padding': ['padding'], 'segment-padding-block': ['padding'], 'segment-padding-inline': ['padding'], 'segment-height-coarse': ['min-height'],
+    'segment-shadow-y': ['box-shadow'], 'segment-shadow-blur': ['box-shadow'],
+    'tabbar-height': ['min-height'], 'tabbar-padding-block': ['padding'], 'tabbar-padding-inline': ['padding'], 'tabbar-font': ['font-size'],
+    'tabbar-symbol': ['width', 'height'], 'tabbar-gap': ['--exact-button-space-height'],
+    'sidebar-row-height': ['min-height'], 'sidebar-symbol': ['width', 'height'], 'sidebar-gap': ['--exact-button-space-width'],
+    'back-padding-start': ['padding'], 'back-padding-end': ['padding'],
+    'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
+    'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom'],
+    'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
+    'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
+    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-max-height': ['max-height'], 'sheet-margin': ['width', 'max-height'],
+    'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
+  };
+  // The look keeps this one from the shell's sheet, which is where it is written.
+  const SHELL = { 'select-padding-end': ['padding-inline'] };
+  // What follows from rows, or is no metric.
+  const half = (name, unit) => `${value.get(name) / 2}${unit}`.replace(/^0\./, '.');
+  const DERIVED = {
+    'min-height': [`${2 * value.get('segmented-padding')}px`], // a segment is the control's height less the track's padding either side
+    'border-radius': ['1em', half('range-track', 'px')], // the switch is a pill (any radius of half its height or more); the track's ends are round
+    'margin-top': [half('range-track', 'px'), '.625em'], // a range's thumb is centred on its track: half the track less half the thumb
+    'background-position': ['1em'], // the thumb travels the track's width less its height
+    'box-shadow': ['64px'], // a hovered row's wash reaches the card's edge, past any inset a row has
+    'font-size': ['1em'], // an alert's message is the body size
+  };
+  const lengths = (text) => [...text.matchAll(/(?<![\w.#])(\d*\.?\d+)(px|rem|em)\b/g)].map((m) => m[0]).filter((token) => parseFloat(token) !== 0);
+  const declarations = (css) => [...css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("[^"]*"\)/g, '').matchAll(/\{([^{}]*)\}/g)]
+    .flatMap((body) => [...body[1].matchAll(/(?:^|;)\s*([-\w]+)\s*:\s*([^;]+)/g)].map((m) => [m[1], m[2]]))
+    .concat([...css.matchAll(/@media \(([^)]*)\)/g)].map((m) => ['@media', m[1]]));
+  const census = (css, where) => {
+    const allowed = new Map(), written = new Set(), stray = [];
+    for (const [name, properties] of Object.entries(where)) for (const p of properties) allowed.set(p, [...(allowed.get(p) ?? []), [name, length(name)]]);
+    for (const [property, text] of declarations(css)) for (const token of lengths(text)) {
+      const of = (allowed.get(property) ?? []).filter(([, v]) => v === token);
+      for (const [name] of of) written.add(name);
+      if (!of.length && !(where === WHERE && DERIVED[property]?.includes(token))) stray.push(`${property}: ${token}`);
+    }
+    return { written, stray: [...new Set(stray)] };
+  };
+  const sheetCensus = census(neutral, WHERE);
+  expect(sheetCensus.stray).toEqual([]);
+  expect(Object.keys(WHERE).filter((name) => !sheetCensus.written.has(name))).toEqual([]);
+  expect(Object.keys(SHELL).filter((name) => !census(shell, SHELL).written.has(name))).toEqual([]);
+  // Every length row is one a sheet writes.
+  expect(rows.filter(([name, kind]) => kind === 'length' && !WHERE[name] && !SHELL[name]).map(([name]) => name)).toEqual([]);
+
+  // The ratios: how each is spelled where the sheet writes it (the shell's sheet for a select's own line).
+  const percent = (name) => `${Math.round(value.get(name) * 100)}%`, alpha = (name) => String(value.get(name)).replace(/^0\./, '.');
+  const RATIO = {
+    'control-line-alpha': `--exact-line: color-mix(in srgb, var(--exact-label) ${percent('control-line-alpha')}, transparent)`,
+    'mark-dot': `radial-gradient(circle closest-side, currentColor ${percent('mark-dot')},`,
+    'mark-disabled-alpha': `:disabled { opacity: ${alpha('mark-disabled-alpha')}; }`,
+    'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
+    'button-hover-tinted': `:hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-tinted')}, transparent) 0 0); }`,
+    'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
+    'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
+    'button-pressed-filled': `[data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-filled')}, transparent) 0 0); }`,
+    'select-line-height-coarse': `select:not([multiple]) { line-height: ${value.get('select-line-height-coarse')}; }`,
+    'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
+    'segment-shadow-alpha': `box-shadow: 0 1px 2px rgb(0 0 0 / ${alpha('segment-shadow-alpha')});`,
+    'raised-shadow-alpha': `--exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / ${alpha('raised-shadow-alpha')});`,
+    'modal-shadow-alpha': `--exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / ${alpha('modal-shadow-alpha')});`,
+    'scrim-alpha': `--exact-scrim: rgb(0 0 0 / ${alpha('scrim-alpha')});`,
+  };
+  for (const [name, spelled] of Object.entries(RATIO)) expect([name, neutral.includes(spelled)]).toEqual([name, true]);
+  expect(shell.includes(`select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: ${value.get('select-line-height')};`)).toBe(true);
+  // A control's line is one height and its title one weight, wherever the sheets write them: a select's own line
+  // aside, and a menu's rows, which are regular.
+  const all = (css, property) => [...new Set(declarations(css).filter(([p]) => p === property).map(([, v]) => v.trim()))];
+  expect(all(neutral, 'line-height').sort()).toEqual([String(value.get('control-line-height')), String(value.get('select-line-height-coarse'))]);
+  expect(all(neutral, 'font-weight').sort()).toEqual(['400', String(value.get('control-weight'))]);
+  expect(shell.includes(`font-weight: ${value.get('control-weight')}; border: none; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
+  expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
+});
+
 // The page both browser tests draw: one of each control the looks differ on.
 const fixture = `
 <div id="exact-root">

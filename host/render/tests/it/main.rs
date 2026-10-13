@@ -466,9 +466,42 @@ fn a_page_is_the_shell_around_the_document() {
     let rest = html
         .replace(exact_render::capture(), "")
         .replace(" data-wasm=\"./app.wasm\"", "");
-    assert!(!rest.contains("app.wasm"));
-    assert!(!rest.contains("navigation.js"));
+    // Comments are prose, not fetches: a shell comment may name a module
+    // (this assertion once read them, and three comment rewordings followed).
+    let rest = strip_comments(&rest);
+    assert!(
+        !rest.contains("app.wasm"),
+        "an interaction page names app.wasm outside a comment, so something fetches it before intent"
+    );
+    assert!(
+        !rest.contains("navigation.js"),
+        "an interaction page names navigation.js outside a comment, so something fetches it before intent"
+    );
     a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(interaction);
+}
+
+/// The shell with its CSS (`/* … */`) and HTML (`<!-- … -->`) comments cut:
+/// what a name in prose must not be judged as.
+fn strip_comments(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while !rest.is_empty() {
+        let css = rest.find("/*");
+        let web = rest.find("<!--");
+        let (at, close) = match (css, web) {
+            (Some(c), Some(w)) if w < c => (w, "-->"),
+            (Some(c), _) => (c, "*/"),
+            (None, Some(w)) => (w, "-->"),
+            (None, None) => break,
+        };
+        out.push_str(&rest[..at]);
+        let after = &rest[at..];
+        rest = after
+            .find(close)
+            .map_or("", |end| &after[end + close.len()..]);
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The same document over the JavaScript runtime's shell (one render for

@@ -14,6 +14,11 @@ extension NodeView {
     /// and a key the app prevented never came at all: its `key` handlers
     /// heard every key before the editor did (`Presenter.keyDown`).
     @objc package func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if props["type"]?.lowercased() == "number", !textView.hasMarkedText(),
+           selector == #selector(NSResponder.moveUp(_:)) || selector == #selector(NSResponder.moveDown(_:)) {
+            step(up: selector == #selector(NSResponder.moveUp(_:)))
+            return true
+        }
         guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
         presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
         if handlers.contains("submit") { presenter?.submit(id) }

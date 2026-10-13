@@ -25,6 +25,16 @@ struct HeaderRule {
     let leading: [NodeView], trailing: [NodeView], items: [NodeView]
     let search: NodeView?, segments: NodeView?, tap: NodeView?
 
+    /// The route's first child is a shown `header` whose author wrote
+    /// `appearance: none` (LLP 1075.003 §9.10): the rule makes no bar of it
+    /// (`fact::AUTHORED`), and on iOS a pushed route with one gets no bar
+    /// of the system Back alone either, since the author drew their own.
+    static func keepsAuthoredHeader(_ route: NodeView) -> Bool {
+        guard let header = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
+              header.props["semanticTag"] == "header", header.style["display"]?.string != "none" else { return false }
+        return header.wrote("appearance") && header.style["appearance"]?.string == "none"
+    }
+
     /// What the rule asks of a node (`exact_kernel::bars::fact`).
     static func facts(_ node: NodeView, back: String?) -> UInt32 {
         var facts: UInt32 = 0
@@ -36,6 +46,8 @@ struct HeaderRule {
         if back != nil, node.props["id"] == back { facts |= 32 }
         if node.props["semanticTag"] == "header" { facts |= 64 }
         if node.style["display"]?.string == "none" { facts |= 128 }
+        // Written, never implied (LLP 1075.003 §9.10): a header that says it keeps its authored bar.
+        if node.wrote("appearance"), node.style["appearance"]?.string == "none" { facts |= 512 }
         return facts
     }
 

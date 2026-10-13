@@ -1600,7 +1600,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - Each route starts with a `header` (its heading, and on a pushed route the
   `id="back"` control), which iOS makes the navigation bar. Leave the tablist's and the
   routes' backgrounds, heights and colours unsaid: the platform draws the bars and the
-  page.
+  page. For an authored design, put `appearance="none"` on the `header` or root
+  `tablist` to keep that bar's layout, colours and type on iOS too. A header
+  button with `appearance="none"` stays authored in place while the rest
+  of the header still projects. A title button keeps its contents; an authored Back
+  replaces UIKit’s Back. Search or a header tablist can opt out on that element
+  (a tab button alone does not opt its parent out of segments). Tabs retain their
+  panels and stacks; other styling alone does not opt a header out.
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
@@ -2726,6 +2732,9 @@ literal keywords and `px` of `column-count` and `column-rule-width` compile to
 their numbers). `max-width` and `max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
 `none` for either. A number field's (`input type="number"`, written so)
 `min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
+On the Mac, Up/Down and accessibility increment/decrement step the number even with
+`appearance="textfield"`. Apple number fields filter typing and paste while keeping signs,
+fractions, exponents and input-method composition; `inputmode` alone does not filter text.
 
 `autocomplete` on an `input` or `textarea` is HTML's attribute, written as
 HTML writes it (`autocomplete="username"`, `"section-login current-password"`,

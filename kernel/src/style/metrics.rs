@@ -1,66 +1,87 @@
-//! The looks Exact draws itself, as data (LLP 1115.002 D6, D8.4): the
-//! schema's `metrics`, each a name and its value a platform. A sheet the
-//! compiler writes (the grouped list's, `contract/lower/src/grouped.rs`)
-//! names a metric, `-exact-<name>`, where it used to hold a number, and the
-//! kernel reads the name as its value in this process's column when the row
-//! is set: a number, a keyword, a text style or a colour role by its own
-//! name, or `unset`, which leaves the row unset. So every reader and the
-//! wire see the value, as they see the pixels of a `rem`, and a platform
-//! does not change while a process runs, so nothing is resolved again.
+//! The looks Exact draws itself, as data (LLP 1115.002 D6, D8.4; LLP
+//! 1115.000 D17): the schema's `metrics`, each a name, a kind and its value
+//! in each column.
 //!
-//! The column is the host's to say, once, before it boots a plan
-//! ([`set_column`]), as the colour roles' is (`roles::set_column`). Until a
-//! host says, it is the web's: what a browser shows, and what a host that
-//! paints its own controls shows (LLP 1115.000 D17).
-//!
-//! No author writes a metric's name: lowering refuses it in an authored
+//! A `style` row is one a sheet the compiler writes (the grouped list's,
+//! `contract/lower/src/grouped.rs`) names, `-exact-<name>`, where it used to
+//! hold a number. The kernel reads the name as its value in this process's
+//! column when the row is set: a number, a keyword, a text style or a colour
+//! role by its own name, or `unset`, which leaves the row unset. So every
+//! reader and the wire see the value, as they see the pixels of a `rem`, and
+//! a column does not change while a process runs, so nothing is resolved
+//! again. No author writes such a name: lowering refuses it in an authored
 //! value, and the runner refuses it on a row its author wrote, whatever
 //! built the value (`exact_runner::bridge::set_binding_style`).
+//!
+//! A `length` or `number` row is one code reads ([`length`], [`number`]): the
+//! size of a control no host measured (`ControlKind::default_size`), and the
+//! shapes a host paints where it has no platform control to show.
+//!
+//! The column is the host's to say, once, before it boots a plan. An Apple
+//! host says its platform ([`set_column`]). A process that shows the neutral
+//! look says so with the role table's switch (`roles::set_column`), the one
+//! switch for that look's colours and its metrics: the web, and a host that
+//! paints its own controls (D17). Any other process reads the web's first
+//! look, as Android's reader does.
 //! @ref LLP 1115.002 D6, D8.4
+//! @ref LLP 1115.000 D17
 
-use crate::generated::{Metric, MetricValue, StyleCodec, StyleId, METRICS};
-use crate::style::StyleValue;
+use crate::generated::{Metric, MetricKind, MetricValue, StyleCodec, StyleId, METRICS};
+use crate::style::{roles, StyleValue};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// The metric table's columns: one a platform whose look Exact draws.
+/// The metric table's columns: a platform or a look whose shapes Exact draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
-    /// The web's, and a host's that paints its own controls (D17).
+    /// The web's first look (LLP 1116 D1): what a process reads until its
+    /// host says otherwise.
     Web,
     /// iOS's (and tvOS's and visionOS's, which draw as it does).
     Ios,
     /// The Mac's.
     Mac,
+    /// The neutral look's (LLP 1115.000 D4 part B, D17): the web's, and a
+    /// host's that paints its own controls.
+    Neutral,
 }
 
-/// The column this process shows. One platform a process, so one switch.
+/// The column this process said. One platform a process, so one switch.
 static COLUMN: AtomicU8 = AtomicU8::new(0);
 
-/// Say which column this process shows: a host's, once, before it boots a
-/// plan. A row set before it keeps the value it was read as.
+/// Say which column this process shows: an Apple host's platform, once,
+/// before it boots a plan. A row set before it keeps the value it was read
+/// as.
 pub fn set_column(column: Column) {
     let index = match column {
         Column::Web => 0,
         Column::Ios => 1,
         Column::Mac => 2,
+        Column::Neutral => 3,
     };
     COLUMN.store(index, Ordering::Release);
 }
 
-/// The column this process shows ([`set_column`]).
+/// The column this process shows: the one it said ([`set_column`]), and
+/// where it said none, the neutral look's when its colours are that look's
+/// (`roles::set_column`).
 pub fn column() -> Column {
     match COLUMN.load(Ordering::Acquire) {
         1 => Column::Ios,
         2 => Column::Mac,
+        3 => Column::Neutral,
+        _ if roles::column() == roles::Column::Neutral => Column::Neutral,
         _ => Column::Web,
     }
 }
 
 /// The metric `text` names, written `-exact-<name>` exactly: a compiler
-/// wrote it, so it has no other spelling.
+/// wrote it, so it has no other spelling. Only a `style` row has a name a
+/// sheet can write.
 pub fn named(text: &str) -> Option<&'static Metric> {
     let name = text.strip_prefix("-exact-")?;
-    METRICS.iter().find(|m| m.name == name)
+    METRICS
+        .iter()
+        .find(|m| m.kind == MetricKind::Style && m.name == name)
 }
 
 /// A metric's value in a column.
@@ -69,6 +90,38 @@ pub fn value(metric: &Metric, column: Column) -> MetricValue {
         Column::Web => metric.web,
         Column::Ios => metric.ios,
         Column::Mac => metric.macos,
+        Column::Neutral => metric.neutral,
+    }
+}
+
+/// A `length` metric in this process's column, in pixels: `index` is its
+/// place in the table (`generated::metric`), `em` the font size of the
+/// control it is read for and `rem` the root's. `None` where the column has
+/// no value: a look that leaves the size to its host.
+pub fn length(index: usize, em: f32, rem: f32) -> Option<f32> {
+    length_in(index, column(), em, rem)
+}
+
+/// [`length`] in a column.
+pub fn length_in(index: usize, column: Column, em: f32, rem: f32) -> Option<f32> {
+    let metric = &METRICS[index];
+    debug_assert_eq!(metric.kind, MetricKind::Length, "{}", metric.name);
+    match value(metric, column) {
+        MetricValue::Number(px) => Some(px as f32),
+        MetricValue::Em(n) => Some(n as f32 * em),
+        MetricValue::Rem(n) => Some(n as f32 * rem),
+        MetricValue::Text(_) => None,
+    }
+}
+
+/// A `number` metric in this process's column: a ratio, a weight or an
+/// opacity. `None` where the column has no value.
+pub fn number(index: usize) -> Option<f32> {
+    let metric = &METRICS[index];
+    debug_assert_eq!(metric.kind, MetricKind::Number, "{}", metric.name);
+    match value(metric, column()) {
+        MetricValue::Number(n) => Some(n as f32),
+        _ => None,
     }
 }
 
@@ -77,7 +130,7 @@ pub fn value(metric: &Metric, column: Column) -> MetricValue {
 pub fn text(text: &str) -> Option<&'static str> {
     match value(named(text)?, column()) {
         MetricValue::Text(t) => Some(t),
-        MetricValue::Number(_) => None,
+        _ => None,
     }
 }
 
@@ -92,9 +145,9 @@ pub fn of(id: StyleId, value: &StyleValue) -> Option<Option<StyleValue<'static>>
     Some(as_written(id, self::value(metric, column())))
 }
 
-/// A metric's value as the value a producer hands a row (the runner's
-/// bridge, the compiler): `auto` on a dimension row and a lone percentage
-/// are their own kinds; `unset` is no row.
+/// A `style` metric's value as the value a producer hands a row (the
+/// runner's bridge, the compiler): `auto` on a dimension row and a lone
+/// percentage are their own kinds; `unset` is no row.
 pub fn as_written(id: StyleId, value: MetricValue) -> Option<StyleValue<'static>> {
     Some(match value {
         MetricValue::Number(n) => StyleValue::Number(n),
@@ -104,6 +157,8 @@ pub fn as_written(id: StyleId, value: MetricValue) -> Option<StyleValue<'static>
             Some(percent) => StyleValue::Percent(percent),
             None => StyleValue::Text(t.into()),
         },
+        // A `length` row's, and no sheet names a `length` row.
+        MetricValue::Em(_) | MetricValue::Rem(_) => return None,
     })
 }
 
@@ -173,13 +228,75 @@ mod tests {
             assert_eq!(value(m, Column::Web), ios, "{name} on the web");
             assert_eq!(value(m, Column::Mac), mac, "{name} on the Mac");
         }
-        // Until the web's look is its own, its column is iOS's whole: the
-        // surfaces too, which stay the sheet's pairs there. As roles the
-        // ground would be a device's palette on Android, which reads this
-        // column, under cards that stayed iOS's.
+        // The web's first look is iOS's whole: the surfaces too, which stay
+        // the sheet's pairs there. As roles the ground would be a device's
+        // palette on Android, which reads this column, under cards that
+        // stayed iOS's.
         for m in METRICS {
             assert_eq!(m.web, m.ios, "{}", m.name);
         }
+        // The neutral look's grouped list is that one on the neutral
+        // grounds, with a surface's corners (LLP 1115.000 D4 part B): what
+        // the page's sheet draws (host/web/neutral.css).
+        for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
+            let neutral = match m.name {
+                "grouped-ground" => Text("-exact-grouped-background"),
+                "grouped-ground-plain" => Text("-exact-background"),
+                "grouped-card-radius" => Number(12.0),
+                _ => m.web,
+            };
+            assert_eq!(m.neutral, neutral, "{}", m.name);
+        }
+    }
+
+    /// A row code reads (LLP 1115.000 D17). The neutral look sizes a mark by
+    /// its control's font size; every other column holds the sizes the
+    /// kernel had before they were rows, so no host that is not neutral
+    /// moves. A row of the neutral look alone has no value elsewhere.
+    #[test]
+    fn a_length_is_read_in_a_column_at_a_font_size() {
+        use crate::generated::metric;
+        for (index, old, neutral) in [
+            (metric::MARK_SIZE, 13.0, 20.0),
+            (metric::SWITCH_WIDTH, 38.0, 36.0),
+            (metric::SWITCH_HEIGHT, 22.0, 20.0),
+            (metric::RANGE_HEIGHT, 16.0, 20.0),
+        ] {
+            for column in [Column::Web, Column::Ios, Column::Mac] {
+                assert_eq!(length_in(index, column, 16.0, 16.0), Some(old));
+                assert_eq!(length_in(index, column, 32.0, 16.0), Some(old));
+            }
+            assert_eq!(length_in(index, Column::Neutral, 16.0, 16.0), Some(neutral));
+            assert_eq!(
+                length_in(index, Column::Neutral, 32.0, 16.0),
+                Some(neutral * 2.0)
+            );
+        }
+        assert_eq!(
+            length_in(metric::CONTROL_HEIGHT, Column::Neutral, 16.0, 20.0),
+            Some(36.0)
+        );
+        assert_eq!(
+            length_in(metric::TABBAR_HEIGHT, Column::Neutral, 12.0, 20.0),
+            Some(70.0),
+            "a rem follows the root"
+        );
+        assert_eq!(
+            length_in(metric::CONTROL_HEIGHT, Column::Web, 16.0, 16.0),
+            None
+        );
+        // This process shows the web's first look, where the neutral look's
+        // own rows have no value and the kernel's sizes are the old ones.
+        assert_eq!(column(), Column::Web);
+        assert_eq!(length(metric::MARK_SIZE, 16.0, 16.0), Some(13.0));
+        assert_eq!(number(metric::CONTROL_LINE_ALPHA), None);
+        assert_eq!(
+            METRICS[metric::CONTROL_LINE_ALPHA].neutral,
+            MetricValue::Number(0.45)
+        );
+        // No sheet names a row code reads.
+        assert!(named("-exact-mark-size").is_none());
+        assert!(named("-exact-control-height").is_none());
     }
 
     /// Every value of every column is one its kind of row takes: a metric
@@ -215,8 +332,13 @@ mod tests {
                 _ => &[MarginTop, MarginLeft],
             }
         };
-        for m in METRICS {
-            for (column, cell) in [("iOS", m.ios), ("the Mac", m.macos), ("the web", m.web)] {
+        for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
+            for (column, cell) in [
+                ("iOS", m.ios),
+                ("the Mac", m.macos),
+                ("the web", m.web),
+                ("the neutral look", m.neutral),
+            ] {
                 for &row in rows(m.name) {
                     let Some(written) = as_written(row, cell) else {
                         continue;

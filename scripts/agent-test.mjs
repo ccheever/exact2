@@ -45,15 +45,18 @@ export function treeExpectation(nodes, target, present) {
   return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
 }
 
-/** Whether a tree node is a disabled control: every host's tree reports the prop as `true` (the runner's, and the web page's from its
- * `disabled` or `aria-disabled`). */
-const isDisabled = (n) => n?.props?.disabled === true || n?.props?.disabled === 'true';
+/** Whether a tree node is a disabled control: every host's tree reports the prop as `true`. `aria-disabled`
+ * (`accessibilityDisabled`) reads as disabled for an expectation, but its press still dispatches, so only
+ * a truly disabled control has its press refused (`refuseDisabled`). */
+const propTrue = (n, key) => n?.props?.[key] === true || n?.props?.[key] === 'true';
+const isDisabled = (n) => propTrue(n, 'disabled');
+const readsDisabled = (n) => isDisabled(n) || propTrue(n, 'accessibilityDisabled');
 
 /** `expect disabled|enabled <target>` (LLP 1116.010 D3): null when the control the target names is as asked, else `{ message }`. */
 export function disabledExpectation(nodes, target, disabled) {
   const n = targetNode(nodes, target), word = disabled ? 'disabled' : 'enabled';
   if (!n) return { message: `expected "${target}" ${word}, no view carries that testId` };
-  return isDisabled(n) === disabled ? null : { message: `expected "${target}" ${word}, it was ${disabled ? 'enabled' : 'disabled'}` };
+  return readsDisabled(n) === disabled ? null : { message: `expected "${target}" ${word}, it was ${disabled ? 'enabled' : 'disabled'}` };
 }
 
 /** A press on a disabled control does nothing, and each host said so its own way (the web's silently, a native one in the words of the view

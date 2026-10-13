@@ -43,7 +43,7 @@ extension NavigationHost {
 
     /// Whether Exact's tab bar shows: not under the agent's own chrome,
     /// which sees the authored tablist (LLP 1021 D4's one presentation).
-    var tabBarShows: Bool { tabController != nil && tabOwner === tabController && !ExactEnv.authoredChrome }
+    var tabBarShows: Bool { tabController != nil && tabOwner === tabController && !ExactEnv.authoredChrome && !tablistAppearanceNone }
 
     /// What a tab other than the selected one holds: its stack up to its
     /// first presentation. A sheet is presented only over the selected tab;
@@ -79,7 +79,8 @@ extension NavigationHost {
             container.delegate = tabProxy
             container.setViewControllers(navs, animated: false)
             container.selectedIndex = p.at
-            if ExactEnv.authoredChrome { hideTabBar(container) }
+            tablistAppearanceNone = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
+            if ExactEnv.authoredChrome || tablistAppearanceNone { hideTabBar(container) }
             tabController = container
             return container
         }()
@@ -174,6 +175,19 @@ extension NavigationHost {
     /// Each batch: every other tab's stack, the selected tab, its items.
     func syncTabs(_ p: Projection) {
         guard tabOwner != nil, let tabs = p.tabs else { return }
+        let authored = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
+        if authored != tablistAppearanceNone {
+            tablistAppearanceNone = authored
+            presenter.session?.view?.setNeedsLayout()
+            tablistRoot = nil
+            tablistHidBar = false
+            if let container = tabController, tabOwner === container, !ExactEnv.authoredChrome {
+                let hidden = authored || tabs.tablist.style["display"]?.string == "none"
+                if #available(iOS 18.0, tvOS 18.0, *) { container.setTabBarHidden(hidden, animated: false) }
+                else { container.tabBar.isHidden = hidden }
+                tablistHidBar = hidden && !authored
+            }
+        }
         let navs = tabs.panels.compactMap { tabNavigations[$0.id] }
         guard navs.count == tabs.panels.count else { return }
         for (index, nav) in navs.enumerated() where index != p.at {
@@ -235,9 +249,14 @@ extension NavigationHost {
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
         guard wanted != tabTint else { return }
         tabTint = wanted
+        // Never `.tintColor` in its place: that is the bar's own tint, this
+        // colour, and a tablist whose accent went before the next sync (a
+        // style that drops it) resolved it until the stack ran out. The
+        // bar's container has the tint the bar would inherit.
         bar.tintColor = source.map { source in
-            UIColor { [weak source] traits in
-                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .tintColor
+            UIColor { [weak source, weak bar] traits in
+                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) }
+                    ?? bar?.superview?.tintColor ?? .systemBlue
             }
         }
     }
@@ -309,9 +328,32 @@ extension NavigationHost {
         tabItems = []
         tabTint = nil
         adoptedTablist = nil
+        tablistAppearanceNone = false
+        measuredTablist = nil
+    }
+
+    /// After a batch: the projection, unless the batch only moved a list's
+    /// rows and nothing is owed; then the authored tablist's covers.
+    func batchApplied(_ batch: Batch, rowsOnly: Bool) {
+        if !rowsOnly || syncOwed { sync(batch) }
+        followAuthoredTablist()
+    }
+
+    /// The authored tablist moved or changed size since its covers were
+    /// measured: measure again. Its own cover's change (the bar's `whole`
+    /// given back, an edge's padding) moves it in a batch that projects
+    /// nothing, after the sync that measured it, so the covers settle only
+    /// when they are measured where it now is.
+    func followAuthoredTablist() {
+        guard tablistAppearanceNone, !syncing, let view = presenter.session?.view,
+              let list = adoptedTablist.flatMap({ presenter.views[$0] }) else { return }
+        if list.convert(list.bounds, to: view) != measuredTablist { reportCovers() }
     }
 
     /// Whether a tab container takes this tablist's place.
-    func adopts(tablist: NodeView) -> Bool { adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome }
+    func adopts(tablist: NodeView) -> Bool {
+        adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome &&
+            !(tablist.wrote("appearance") && tablist.style["appearance"]?.string == "none")
+    }
 }
 #endif

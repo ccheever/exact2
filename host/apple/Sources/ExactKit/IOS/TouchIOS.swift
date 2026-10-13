@@ -91,12 +91,14 @@ extension Agent {
         // Under `--chrome platform` UIKit's bars draw these: a finger aims
         // at a node, and the node is not where the bar item is.
         let shown = ExactEnv.authoredChrome ? "the agent shows in place of" : "drawn by (--chrome platform; tap it without --touch platform)"
-        if nav.tabController != nil, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
+        if nav.tabController != nil, !nav.tablistAppearanceNone, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
             return "is in the authored tablist \(shown) UIKit's tab bar"
         }
         for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
             for case let route as RouteController in controller.viewControllers {
-                if let header = HeaderShape.bar(of: route.node)?.header, v === header || v.isDescendant(of: header) {
+                guard let shape = HeaderShape.bar(of: route.node) else { continue }
+                let replaced = shape.authored.isEmpty ? [shape.header] : shape.placed
+                if replaced.contains(where: { v === $0 || v.isDescendant(of: $0) }) {
                     return "is in the authored header \(shown) UIKit's navigation bar"
                 }
             }

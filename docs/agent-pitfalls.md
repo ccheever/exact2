@@ -1071,8 +1071,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **"I opened it in a terminal" is not "it is running".** `open -na
   Ghostty.app --args -e …` can return success while the window reports "The
   terminal failed to initialize". Before telling a person the app is up,
-  confirm its process (`pgrep -f <binary>`) and kill a failed window's
-  instance before retrying (LLP 1101.002 §0 P16).
+  confirm the process you launched is alive (the PID recorded at launch:
+  launch the binary directly and keep `$!`, then `kill -0 $pid`), and kill
+  that recorded PID before retrying — never a PID found by name or pattern
+  (`pgrep -f`, `pkill`), which on a shared machine is another lane's
+  process as often as yours (LLP 1101.002 §0 P16; `rules/RULES.md`, Fleet).
 
 - **An external native app rebuilds on every unchanged direct Cargo invocation.**
   Cargo treats a missing optional `assets`/`deck` input as perpetually dirty;

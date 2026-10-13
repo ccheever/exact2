@@ -72,6 +72,42 @@ fn projected(mut style: StyleProps) -> StyleProps {
 static WEB_PROJECTED_BUTTON_START: std::sync::LazyLock<StyleProps> =
     std::sync::LazyLock::new(|| projected(WEB_BUTTON_START.clone()));
 
+/// The neutral look's sheet says more on a platform field or button than the
+/// reset does (LLP 1115.000 D4 part B; `host/web/neutral.css`), and what it
+/// says stops at the control as the reset's rows do: its text sits on a line
+/// of the look's height (1.25 of its size, so a control is 36 px in every
+/// engine), a field's ink is the label's whatever the page's `color`, and a
+/// button's title is the look's weight. Each is a row of the schema's
+/// `metrics`, so a kernel that lays the control out (a host that paints its
+/// own, D17) sizes the box the page draws. `[field, button, projected]`.
+static NEUTRAL_STARTS: std::sync::LazyLock<[StyleProps; 3]> = std::sync::LazyLock::new(|| {
+    use crate::generated::{metric, MetricValue, METRICS};
+    let number = |index: usize| match METRICS[index].neutral {
+        MetricValue::Number(n) => n as f32,
+        _ => unreachable!("the neutral look has this row"),
+    };
+    let on_line = |mut start: StyleProps| {
+        start.line_height = crate::LineHeight::Number(number(metric::CONTROL_LINE_HEIGHT));
+        start.mask.set(StyleId::LineHeight);
+        start
+    };
+    let mut field = on_line(WEB_START.clone());
+    field.text_color =
+        crate::ColorValue::Role(crate::style::roles::role("-exact-label").expect("schema role"));
+    field.mask.set(StyleId::TextColor);
+    let titled = |start: &StyleProps| {
+        let mut start = on_line(start.clone());
+        start.font_weight = number(metric::CONTROL_WEIGHT) as u16;
+        start.mask.set(StyleId::FontWeight);
+        start
+    };
+    [
+        field,
+        titled(&WEB_BUTTON_START),
+        titled(&WEB_PROJECTED_BUTTON_START),
+    ]
+});
+
 impl NodeArena {
     /// Native text controls have exactly this predicate (LLP 1104 D1). A
     /// `textfield` is the platform's field too, without a number field's
@@ -149,12 +185,21 @@ impl NodeArena {
         };
         Some(self.control_styles.as_ref().map_or_else(
             || {
-                if index >= 6 {
-                    &*WEB_PROJECTED_BUTTON_START
+                let kind = if index >= 6 {
+                    2
                 } else if index >= 2 {
-                    &*WEB_BUTTON_START
+                    1
                 } else {
-                    &*WEB_START
+                    0
+                };
+                if crate::style::metrics::column() == crate::style::metrics::Column::Neutral {
+                    &NEUTRAL_STARTS[kind]
+                } else {
+                    [
+                        &*WEB_START,
+                        &*WEB_BUTTON_START,
+                        &*WEB_PROJECTED_BUTTON_START,
+                    ][kind]
                 }
             },
             |s| &s[index],

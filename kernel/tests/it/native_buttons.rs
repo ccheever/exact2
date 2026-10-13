@@ -192,7 +192,7 @@ fn unknown_keeps_default_then_host_intrinsic_size() {
     let frame = layout(&mut k);
     assert_eq!(
         (frame.width, frame.height),
-        ControlKind::Button.default_size()
+        ControlKind::Button.default_size(16.0)
     );
     k.set_intrinsic_size(2, Some((99.0, 44.0))).unwrap();
     let frame = layout(&mut k);

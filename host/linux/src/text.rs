@@ -1066,9 +1066,9 @@ impl TextMeasurer for Measurer {
 
     fn field_chrome(
         &mut self,
-        _request: &exact_kernel::FieldChromeRequest,
+        request: &exact_kernel::FieldChromeRequest,
     ) -> exact_kernel::FieldChrome {
-        crate::paint::control::field_chrome()
+        crate::paint::control::field_chrome(request.font.size)
     }
 
     /// The shell's own field measures a field it hosts (LLP 1115.001 D8).

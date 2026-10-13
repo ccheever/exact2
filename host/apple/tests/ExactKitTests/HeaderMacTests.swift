@@ -209,6 +209,29 @@ final class HeaderMacTests: XCTestCase {
         q.toolbar.detach()
     }
 
+    /// `appearance: none` written on the header keeps it the page's (LLP
+    /// 1075.003 §9.10, the shared rule's `AUTHORED`); on one of its buttons
+    /// the whole header paints, since the window's bar shows a header whole
+    /// or not at all. Implied (not written), it is no opt-out.
+    func testAHeaderOrAButtonThatWritesAppearanceNoneStaysPainted() throws {
+        for (id, written) in [(10, true), (13, true), (13, false)] {
+            let style: [String: Any] = written ? ["appearance": "none", "written": ["appearance"]] : ["appearance": "none"]
+            let p = fixture(extra: [["op": "style", "id": id, "style": style]])
+            XCTAssertTrue(p.toolbar.attach(to: window))
+            let what = "#\(id) \(written ? "written" : "implied")"
+            if written {
+                XCTAssertEqual(window.title, "Shelf", what)
+                XCTAssertFalse(try node(p, 10).isHidden, "\(what): the header paints")
+                XCTAssertNil(p.toolbar.activate(try node(p, 13)), "\(what): its buttons are the page's to press")
+            } else {
+                XCTAssertEqual(window.title, "Library", what)
+                XCTAssertTrue(try node(p, 10).isHidden, what)
+            }
+            p.toolbar.detach()
+            window.close()
+        }
+    }
+
     /// A route that says it has no bar keeps its header in the page, and a
     /// route with no header leaves the window the app's name.
     func testARouteThatAsksForNoBarOrHasNoHeaderProjectsNothing() throws {

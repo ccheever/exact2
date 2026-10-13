@@ -5,6 +5,8 @@ use super::*;
 mod identity;
 #[path = "kept_secrets_tests.rs"]
 mod secrets;
+#[path = "kept_time_tests.rs"]
+mod time;
 use crate::{Answer, Outcome, Request, Store};
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, Plan, TypeKind, Value};

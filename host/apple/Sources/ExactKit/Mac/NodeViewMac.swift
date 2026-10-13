@@ -683,7 +683,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl, !cssVisibilityHidden, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point)
-            let hit = found != nil && found === overlay ? self : found
+            // Empty scroll chrome keeps the scroll view's wheel route. Its
+            // mouse contact forwards to this node; children and native
+            // scrollers keep their own hits.
+            let emptyScroll = found != nil && (found === scroll || found === scroll?.contentView || found === scroll?.documentView)
+            let hit: NSView? = emptyScroll ? scroll : (found != nil && found === overlay ? self : found)
             // `pointer-events: none`, and this box's own hit when it is
             // `visibility: hidden` (`CssVisibility.swift`). A descendant
             // node that computes `visible` still takes the click.
@@ -1051,6 +1055,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let ox = paragraph ? "visible" : s["overflow_x"]?.string ?? "visible", oy = paragraph ? "visible" : s["overflow_y"]?.string ?? "visible"
         if ((ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")) && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
+            sv.pointerOwner = self
             sv.collectionWillScroll = { [weak self] in
                 guard let self else { return }
                 // The reader's own scroll ends a smooth correction's animation.

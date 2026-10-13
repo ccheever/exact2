@@ -51,6 +51,10 @@ private final class ExactSegmentedControl: NSSegmentedControl {
         trackingMode = .selectOne
     }
     required init?(coder: NSCoder) { nil }
+    // As the other native controls (X85): a Control-click a `contextmenu`
+    // above answers never starts this control's tracking, so no segment is
+    // chosen. AppKit's own right-click route does not fire in every window.
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
     func nativeSegment(at index: Int) -> NSAccessibilityElement? {
         exposingNativeChildren = true
         defer { exposingNativeChildren = false }
@@ -163,7 +167,8 @@ final class SegmentHost {
         // The root tablist the window's sidebar shows is no segmented control (LLP 1115.002 D3),
         // nor a header's that the window's toolbar shows as its own group (D2).
         let owners = (presenter.carrying("role:tablist") + presenter.carrying("role:radiogroup")).filter {
-            $0.props["accessibilityOrientation"] != "vertical" && !presenter.sidebar.adopts($0) && !presenter.toolbar.adopts($0)
+            $0.props["accessibilityOrientation"] != "vertical" && !presenter.sidebar.adopts($0) && !presenter.toolbar.adopts($0) &&
+                !($0.props["accessibilityRole"] == "tablist" && $0.wrote("appearance") && $0.style["appearance"]?.string == "none")
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }

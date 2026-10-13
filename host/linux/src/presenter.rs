@@ -48,6 +48,7 @@ mod delivery;
 mod device;
 mod display_frame;
 mod events;
+mod feedback;
 mod field;
 #[cfg(test)]
 mod field_tests;

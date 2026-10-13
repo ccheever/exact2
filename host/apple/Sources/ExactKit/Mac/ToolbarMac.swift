@@ -57,7 +57,13 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// what iOS's Back button presses. A standard item, so its size, glass
     /// and place at the leading edge are AppKit's.
     static let backIdentifier = NSToolbarItem.Identifier("exact.navigation.back")
-    private(set) lazy var backItem: NSToolbarItem = {
+    /// Each toolbar's own: a toolbar that goes and comes back (the view
+    /// moving between the window and a sidebar's pane) gets a new one, as
+    /// it gets new command items. AppKit lays an item out in one toolbar
+    /// only, and one carried over from the toolbar that went threw in
+    /// `-[NSToolbarItemViewer minSize]`.
+    private(set) lazy var backItem = makeBackItem()
+    private func makeBackItem() -> NSToolbarItem {
         let item = NSToolbarItem(itemIdentifier: Self.backIdentifier)
         item.label = "Back"; item.paletteLabel = "Back"; item.toolTip = "Back"
         item.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
@@ -66,7 +72,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         item.target = self; item.action = #selector(performBack(_:))
         item.autovalidates = true
         return item
-    }()
+    }
     /// The toolbar is installed for the stack's Back: kept through routes
     /// that ask for no bar, until the stack or the toolbar goes.
     private var heldForBack = false
@@ -210,6 +216,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         header = nil; decide(nil)
         _ = segments.update(nil, enabled: false)
         search.release()
+        if hadToolbar { backItem = makeBackItem() }
         heldForBack = false
         // The app's items and delegate were for that toolbar; the next one's
         // hatch says its own.
@@ -484,7 +491,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             // An identifier of its own: AppKit keeps every toolbar of one
             // identifier in a process the same, item for item, and each
             // window's bar is its own route's (an insertion in one window
-            // put the item in another's, found as two tests in one process).
+            // put the item in another's, found as two tests in one process;
+            // and the toolbar the window had until the view moved to or
+            // from a sidebar's pane, #393).
             let value = NSToolbar(identifier: "Exact.window.commands." + UUID().uuidString)
             value.delegate = self
             value.displayMode = .iconOnly

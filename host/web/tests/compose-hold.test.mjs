@@ -56,8 +56,14 @@ const STUBS = {
   'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'],
   'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'], 'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'],
 };
+// A module the runtime came to import after this list was written (observers.js did, with `intersect=`) is stood in
+// for by the names the real modules take from it, so a new import does not leave the page unable to load.
+const taken = name => [...new Set(REAL.flatMap(real => [...readFileSync(resolve(WEB_JS, real), 'utf8').matchAll(/(?:import|export)\s*\{([^}]*)\}\s*from\s*['"]\.\/([\w-]+\.js)['"]/g)]
+  .filter(m => m[2] === name).flatMap(m => m[1].split(',').map(n => n.trim().split(/\s+as\s+/)[0]).filter(Boolean))))];
+const stand = names => names.map(n => `export const ${n} = () => {};`).join('\n');
 const module = name => REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
-  : STUBS[name] ? STUBS[name].map(n => `export const ${n} = () => {};`).join('\n') + (name === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : '')
+  : STUBS[name] ? stand(STUBS[name]) + (name === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : '')
+  : taken(name).length ? stand(taken(name))
   : null;
 
 /** The stand-in page in headless Chrome: `drive(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */

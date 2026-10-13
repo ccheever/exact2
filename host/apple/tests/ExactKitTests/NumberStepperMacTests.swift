@@ -26,6 +26,112 @@ final class NumberStepperMacTests: XCTestCase {
         return (node, { heard }, session)
     }
 
+    func testArrowKeysStepTheNumberEvenWithoutVisibleSpinButtons() throws {
+        let (node, heard, session) = fixture(["value": "443", "max": "65535"])
+        defer { session.destroy() }
+        node.applyStyle(["appearance": .string("textfield")])
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        defer { window.close() }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
+        XCTAssertEqual(editor.string, "444")
+        XCTAssertEqual(heard(), ["input 444", "change 444"])
+        editor.insertText("4a4", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        XCTAssertEqual(editor.string, "44")
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.setString("4a4", forType: .string)
+        editor.selectAll(nil)
+        XCTAssertTrue(editor.readSelection(from: pasteboard, type: .string))
+        XCTAssertEqual(editor.string, "44", "the paste path filters the same way as typing")
+        editor.insertText("-1.5e+2", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        XCTAssertEqual(editor.string, "-1.5e+2")
+        for (typed, expected) in [("1e2.3", "1e23"), ("1e-+2", "1e-2"), ("1..5", "1.5")] {
+            editor.insertText(typed, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+            XCTAssertEqual(editor.string, expected)
+        }
+        XCTAssertEqual(field.accessibilityRole(), .incrementor)
+        let accessible = try XCTUnwrap(NSAccessibility.unignoredDescendant(of: field) as? NSObject)
+        XCTAssertEqual(Presenter.axFacts(accessible)?.role, NSAccessibility.Role.incrementor.rawValue)
+        XCTAssertEqual(accessible.accessibilityAttributeValue(.minValue) as? NSNumber, 1)
+        XCTAssertEqual(accessible.accessibilityAttributeValue(.maxValue) as? NSNumber, 65535)
+        XCTAssertTrue(accessible.accessibilityActionNames().contains(.increment))
+        XCTAssertTrue(accessible.accessibilityActionNames().contains(.decrement))
+        XCTAssertEqual(field.accessibilityMinValue() as? NSNumber, 1)
+        XCTAssertEqual(field.accessibilityMaxValue() as? NSNumber, 65535)
+        editor.insertText("443", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        accessible.accessibilityPerformAction(.increment)
+        XCTAssertEqual(editor.string, "444")
+        XCTAssertEqual(Presenter.axFacts(accessible)?.value as? String, "444")
+        accessible.accessibilityPerformAction(.decrement)
+        XCTAssertEqual(editor.string, "443")
+        for (value, key, expected) in [("65535", "up", "65535"), ("1", "down", "1"), ("", "up", "1"), ("", "down", "1"), ("1e", "up", "1")] {
+            editor.insertText(value, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+            editor.doCommand(by: key == "up" ? #selector(NSResponder.moveUp(_:)) : #selector(NSResponder.moveDown(_:)))
+            XCTAssertEqual(editor.string, expected, "\(value) \(key)")
+        }
+        node.applyProps(set: ["min": "0", "max": "10", "step": "0.2"], clear: [])
+        editor.insertText("1.1", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
+        XCTAssertEqual(editor.string, "1.2")
+        editor.setMarkedText("１２", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        XCTAssertTrue(editor.hasMarkedText())
+        XCTAssertEqual(editor.string, "１２", "an input method keeps its marked text")
+        editor.insertText("12", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(editor.string, "12")
+    }
+
+    func testNumericSignsFollowChromesEditorIncludingIncompleteValues() throws {
+        let (node, _, session) = fixture(["value": ""])
+        defer { session.destroy() }
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        defer { window.close() }
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(node.field)))
+        let editor = try XCTUnwrap(node.field?.currentEditor() as? NSTextView)
+        // Chrome 155's visible editor keeps the first two, with an empty DOM value.
+        for (typed, expected) in [("12-", "12-"), ("--1", "--1"), ("1e2-", "1e2"), ("1e2+", "1e2"), ("1e-+2", "1e-2"), ("-1.5e+2", "-1.5e+2")] {
+            editor.insertText("", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            for char in typed { editor.insertText(String(char), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+            XCTAssertEqual(editor.string, expected, "typing \(typed)")
+            editor.insertText(typed, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            XCTAssertEqual(editor.string, expected, "inserting \(typed)")
+        }
+    }
+
+    func testRejectedIMECommitEndsCompositionAndAppliesTheHeldValue() throws {
+        let (node, _, session) = fixture(["value": "12"])
+        defer { session.destroy() }
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        defer { window.close() }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        for held in [false, true] {
+            editor.insertText("12", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 2, length: 0))
+            XCTAssertTrue(editor.hasMarkedText())
+            if held {
+                node.applyProps(set: ["value": "42"], clear: [])
+                XCTAssertEqual(node.pendingValue, "42")
+            }
+            editor.insertText("あ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            XCTAssertFalse(editor.hasMarkedText())
+            XCTAssertEqual(editor.string, held ? "42" : "12")
+            XCTAssertNil(node.pendingValue)
+            editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
+            XCTAssertEqual(editor.string, held ? "43" : "13", "stepping resumes after a rejected commit")
+        }
+    }
+
     /// One click of the up or the down arrow: the stepper's value moves a step and it sends its action.
     private func press(_ stepper: NSStepper, up: Bool) {
         stepper.doubleValue += up ? stepper.increment : -stepper.increment

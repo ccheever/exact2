@@ -239,8 +239,13 @@ impl<D: DataSource> Host<D> {
         exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let mut kernel = Kernel::new(measurer);
+        // Under the neutral look a field and a button take the page's
+        // type, as they do on the web (LLP 1104 D4; LLP 1115.000 D17), so
+        // the host names no font of its own for them.
+        let control_text_styles =
+            (!crate::paint::look::neutral()).then(crate::paint::control::control_text_styles);
         let env = exact_kernel::Env {
-            control_text_styles: Some(crate::paint::control::control_text_styles()),
+            control_text_styles,
             ..kernel.env().clone()
         };
         kernel

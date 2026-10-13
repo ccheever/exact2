@@ -26,6 +26,37 @@ final class NumberStepperIOSTests: XCTestCase {
         return (node, { heard }, session)
     }
 
+    func testNumberInsertionFiltersLettersAndKeepsFractionAndExponentCharacters() throws {
+        let (node, _, session) = fixture(["value": ""])
+        defer { session.destroy() }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertFalse(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 0), replacementString: "a"))
+        XCTAssertFalse(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 0), replacementString: "4a4"))
+        XCTAssertEqual(field.text, "44")
+        XCTAssertTrue(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 2), replacementString: "-1.5e+2"))
+        XCTAssertEqual(field.keyboardType, .decimalPad)
+    }
+
+    func testNumericSignsFollowChromesEditorIncludingIncompleteValues() throws {
+        let (node, _, session) = fixture(["value": ""])
+        defer { session.destroy() }
+        let field = try XCTUnwrap(node.field)
+        for (typed, expected) in [("12-", "12-"), ("--1", "--1"), ("1e2-", "1e2"), ("1e2+", "1e2"), ("1e-+2", "1e-2"), ("-1.5e+2", "-1.5e+2")] {
+            field.text = ""
+            for char in typed {
+                let text = field.text ?? ""
+                if node.textField(field, shouldChangeCharactersIn: NSRange(location: text.utf16.count, length: 0), replacementString: String(char)) {
+                    field.text = text + String(char)
+                }
+            }
+            XCTAssertEqual(field.text, expected, "typing \(typed)")
+            let range = NSRange(location: 0, length: (field.text ?? "").utf16.count)
+            if node.textField(field, shouldChangeCharactersIn: range, replacementString: typed) { field.text = typed }
+            XCTAssertEqual(field.text, expected, "inserting \(typed)")
+        }
+        XCTAssertEqual(field.keyboardType, .decimalPad)
+    }
+
     /// The plus or the minus: the stepper's value moves a step, as UIKit's
     /// does when a finger lifts on either half, and its `valueChanged` action
     /// runs (a test bundle has no application to send it, so it is called, as
