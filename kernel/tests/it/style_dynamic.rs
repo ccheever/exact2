@@ -42,6 +42,24 @@ fn borrowed_css_parses_like_owned_css_and_retains_no_source_borrow() {
 }
 
 #[test]
+fn bound_column_rule_refuses_patterns_without_changing_the_solid_rule() {
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text("solid".into()))
+        .unwrap();
+    for value in ["dotted", "dashed"] {
+        let before = style.clone();
+        assert!(
+            style
+                .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text(value.into()))
+                .is_err(),
+            "{value}"
+        );
+        assert_eq!(style, before, "{value} changed the column rule");
+    }
+}
+
+#[test]
 fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
     let mut s = StyleProps::default();
     for (text, x, y) in [
@@ -150,9 +168,16 @@ fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_w
     assert!(style
         .set_dynamic(StyleId::BorderColorTop, &StyleValue::Auto)
         .is_err());
-    assert!(style
+    style
         .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dashed".into()))
-        .is_err());
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderStyleRight,
+            &StyleValue::Text("dotted".into()),
+        )
+        .unwrap();
+    assert_eq!(style.border_widths(), [8.0, 3.0, 0.0, 0.0]);
     let mut k = Kernel::with_monospace();
     k.apply_frame(&wire::encode(
         0,
@@ -665,7 +690,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     for (text, expected) in [
         ("0px", 0.),
         ("12.5PX", 12.5),
-        (" -2e1px ", -20.),
+        // A math function clamps to the row's range (CSS Values 4 §9.1)
+        (" calc(-2e1px) ", 0.),
         ("0", 0.),
         ("10em", 160.),
         ("1.5rem", 24.),
@@ -677,6 +703,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     }
     for text in [
         "NaNpx", "infpx", "1e39px", "1.px", "12 px", "12", "10 em", "1e39em", "0px 1px",
+        // A negative literal height is invalid, as in CSS.
+        " -2e1px ",
     ] {
         let before = style.clone();
         assert!(
@@ -716,6 +744,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("1px 2px #000".into()),
         StyleValue::Text("y 30deg".into()),
         StyleValue::Text("blur(12px) saturate(1.14)".into()),
+        StyleValue::Text("flip-block, flip-inline".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

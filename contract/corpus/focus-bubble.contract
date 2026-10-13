@@ -1,0 +1,32 @@
+// data: caltrain
+// DOM focusin/focusout: both bubble, including a move within a wrapper and
+// removal of the focused child. The wrapper is not a Tab stop.
+component FocusBubble
+  state showA = true
+  state log = ""
+  action entered(e: FocusEvent)
+    log = `${log}in:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
+  action left(e: FocusEvent)
+    log = `${log}out:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
+  action stopped(e: FocusEvent)
+    stopPropagation()
+    log = `${log}stopped:${e.target};`
+  action toB
+    focus("b")
+  action removeA(k: string)
+    if k == "Enter"
+      showA = false
+  view
+    column testId="root" gap=8 padding=8
+      input id="before" testId="before"
+      column id="wrapper" focusin=entered focusout=left testId="wrapper"
+        when showA
+          input id="a" key=removeA testId="a"
+        input id="b" testId="b"
+      input id="after" testId="after"
+      button "Focus B" press=toB testId="programmatic"
+      text log testId="log"
+      column focusin=entered focusout=left
+        column focusin=stopped focusout=stopped
+          input id="stopA" testId="stopA"
+          input id="stopB" testId="stopB"

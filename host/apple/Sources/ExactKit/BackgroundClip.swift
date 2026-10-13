@@ -24,7 +24,7 @@ extension NodeView {
         let uniform = number("border_width")
         var inset = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
         if clip == "content-box" {
-            inset = zip(inset, ["top", "right", "bottom", "left"].map { number("padding_" + $0) }).map { $0 + $1 }
+            inset = zip(inset, ["top", "right", "bottom", "left"].map { padding($0) }).map { $0 + $1 }
         }
         let inner = CGRect(x: inset[3], y: inset[0], width: max(0, bounds.width - inset[1] - inset[3]),
                            height: max(0, bounds.height - inset[0] - inset[2]))

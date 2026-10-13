@@ -48,7 +48,7 @@ enum ButtonConfigurationMac {
             : (face.rows.button["control_corner_style"]?.string == "capsule" ? .capsule : .automatic)
     }
     @discardableResult
-    static func apply(_ face: ButtonFace, to button: NSButton, appearance: NSAppearance, accent: NSColor?) -> (look: String, glass: Bool) {
+    static func apply(_ face: ButtonFace, to button: NSButton, appearance: NSAppearance, accent: NSColor?, destructive: Bool = false, red: Bool = false) -> (look: String, glass: Bool) {
         let rows = face.rows
         var look = ButtonFace.drawn(face.macos).name
         var glass = false
@@ -76,11 +76,17 @@ enum ButtonConfigurationMac {
         let platformFont = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: button.controlSize))
         let titleFont = font(platformFont, rows: rows.title)
         button.font = titleFont
-        button.bezelColor = look.hasSuffix("-accent") ? (accent ?? .controlAccentColor) : nil
-        let foreground = color(rows.title["text_color"], appearance: appearance, accent: accent)
+        // The destructive role (LLP 1116.008): AppKit's own flag, which is all it draws on a plain push button of
+        // the system's, and the platform's red where the author painted no accent: the accent look's bezel (AppKit's
+        // white title on it), else the ink.
+        button.hasDestructiveAction = destructive
+        button.bezelColor = look.hasSuffix("-accent") ? (red ? .systemRed : accent ?? .controlAccentColor) : nil
+        let authored = color(rows.title["text_color"], appearance: appearance, accent: accent)
+        let foreground = authored ?? (red && !look.hasSuffix("-accent") ? NSColor.systemRed : nil)
         // SwiftUI's `.plain` draws in the label colour, `.borderless` in the
         // accent; the table draws both borderless, so the name tells them
         // apart (LLP 1115 wave 1). An authored colour wins over either.
+        // (The destructive red is `foreground` above, where the author painted no title.)
         let platformInk: NSColor? = look != "borderless" ? nil : face.style == "plain" ? .labelColor : (accent ?? .controlAccentColor)
         button.contentTintColor = foreground ?? platformInk
         button.title = face.title ?? ""

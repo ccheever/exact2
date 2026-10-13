@@ -14,6 +14,7 @@ import UIKit
 /// change projects it again.
 struct BarSource: Equatable {
     let bar: NavigationRules.Bar
+    let authored: [UInt32], placed: [UInt32]
     let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
 }
 
@@ -31,7 +32,7 @@ struct HatchSource: Equatable {
 /// the header; the web and the agent do (LLP 1021 D4's one presentation).
 struct HeaderShape: Equatable {
     struct Item: Equatable {
-        let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool
+        let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool, accessibilityDisabled: Bool
         /// The button's `testId`: the item's `accessibilityIdentifier`, so
         /// XCUITest and Maestro address it as any other node (LLP 1116 D2).
         let testId: String?
@@ -76,6 +77,7 @@ struct HeaderShape: Equatable {
             title = text
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
+            accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
             // The platform's tint unless the author said otherwise (LLP
             // 1115.000 D2): a tint written on the symbol, else a `color`
@@ -90,7 +92,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -110,26 +112,41 @@ struct HeaderShape: Equatable {
     /// tablist when it has tabs for the segmented title, and what the title
     /// shows of the heading's group.
     let placed: [NodeView]
+    /// Explicit opt-outs stay in the authored header with their descendants.
+    let authored: [NodeView]
+    let authoredBack: Bool
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
     /// has none, so there it is an item like the others.
     init?(route: NodeView, back: String?, backIsUIKits: Bool = true, projected: Bool = false) {
         // What is header-shaped is the kernel's rule, read over this route's views (`HeaderRule`, LLP 1115.001 D11).
-        guard let rule = HeaderRule(route: route, back: back, backIsUIKits: backIsUIKits, projected: projected) else { return nil }
-        let header = rule.header, headings = [rule.heading], before = rule.leading.map { Item($0) }, after = rule.trailing.map { Item($0) }
-        let search = rule.search, segments = rule.segments, tap = rule.tap, items = rule.items
-        self.header = header
-        title = headings[0].accessibleText
-        level = rule.level
-        leading = before
-        trailing = after
+        guard let rule = HeaderRule(route: route, back: back, backIsPlatforms: backIsUIKits, projected: projected) else { return nil }
+        // Every role the header rule assigns can remain authored. In
+        // particular the title's tap target is not one of its bar items.
+        let roles = rule.items + [rule.heading, rule.tap, rule.search, rule.segments].compactMap { $0 }
+        let authored = projected ? roles.filter { $0.wrote("appearance") && $0.style["appearance"]?.string == "none" } : []
+        self.authored = authored
+        let projects = { (node: NodeView) in !authored.contains { node === $0 || node.isDescendant(of: $0) } }
+        authoredBack = back != nil && roles.contains { $0.props["id"] == back && !projects($0) }
+        let heading = rule.heading, titleProjects = projects(heading)
+        let search = rule.search.flatMap { projects($0) ? $0 : nil }
+        let segments = rule.segments.flatMap { projects($0) ? $0 : nil }
+        let tap = rule.tap.flatMap { projects($0) ? $0 : nil }
+        header = rule.header
+        title = titleProjects ? heading.accessibleText : ""
+        level = titleProjects ? rule.level : 0
+        leading = rule.leading.filter(projects).map { Item($0) }
+        trailing = rule.trailing.filter(projects).map { Item($0) }
         self.search = search
         self.segments = segments
-        let group = HeaderTitle(header: header, heading: headings[0], tap: tap, apart: items + [search, segments].compactMap { $0 })
+        let group = titleProjects ? HeaderTitle(header: header, heading: heading, tap: tap, apart: rule.items + [rule.search, rule.segments].compactMap { $0 }) : nil
         self.group = group
         let tablist = segments.flatMap { HeaderShape.titleTabs($0).isEmpty ? nil : $0 }
-        placed = [headings[0]] + items + [search, tablist].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])
+        // The title's pressable wrapper goes with the title it holds, unless
+        // it holds an opted-out node, which stays where it is.
+        let wrapper = titleProjects ? tap.flatMap { tap in authored.contains { $0.isDescendant(of: tap) } ? nil : tap } : nil
+        placed = ([heading] + rule.items + [search, tablist, wrapper].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])).filter(projects)
     }
 
     /// The tabs of a header's tablist the segmented title shows (§9.8).
@@ -140,7 +157,7 @@ struct HeaderShape: Equatable {
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
-        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search && a.segments === b.segments && a.group == b.group
+        a.header === b.header && a.authoredBack == b.authoredBack && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search && a.segments === b.segments && a.group == b.group && a.authored.map(\.id) == b.authored.map(\.id)
     }
 }
 
@@ -238,7 +255,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // Restoring a hidden bar changes the route's safe area. Lay out its
         // container before reporting that cover to the kernel.
         nav.view.setNeedsLayout()
-        nav.view.layoutIfNeeded()
+        if nav.viewIfLoaded?.window != nil { nav.view.layoutIfNeeded() }
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }
@@ -275,7 +292,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         presenter.typed(field.id, text, input: field.handlers.contains("input"))
     }
     func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
-        guard let field, field.handlers.contains("focus") else { return }
+        guard let field else { return }
         host?.presenter.focus(field.id)
     }
     /// The keyboard's Search key is this field's Return (LLP 1115.000 D9.2):
@@ -291,7 +308,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
         guard let field else { return }
         host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
-        if field.handlers.contains("blur") { host?.presenter.blur(field.id) }
+        host?.presenter.blur(field.id)
     }
 }
 
@@ -479,13 +496,12 @@ extension NavigationHost {
             // where the route says so or has nothing to go back to.
             c.pushed = index > 0
             let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
-            let bar = stackShows ? NavigationRules.bar(asked: c.node.props["navigationBar"], header: shape != nil, pushed: index > 0,
-                                                       backButton: Self.barHasBackButton) : .hidden
+            let bar = stackShows ? self.bar(of: c.node, pushed: index > 0) : .hidden
             let shows = bar != .hidden
-            let canGoBack = index > 0 && canInvokeBack
-            let scroller = contentScroller(of: c), scroll = scroller?.scroll
+            let canGoBack = index > 0 && canInvokeBack && shape?.authoredBack != true
+            let scroller = contentScroller(of: c), scroll = scroller?.scrollView
             let dataset = c.node.props["dataset"]
-            let source = BarSource(bar: bar, header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
+            let source = BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
                                    trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
@@ -499,7 +515,9 @@ extension NavigationHost {
             collapse(c, shape: shape, shows: shows, scroller: scroller)
             reachBottom(c)
             c.paintBackdrop()
-            if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
+            searchField(shows ? shape?.search : nil, in: c)
+            segmentedTitle(shows ? shape?.segments : nil, in: c)
+            richTitle(shows ? shape : nil, in: c)
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
             guard presenter.session?.natives.hatchesConnected == true else { continue }
@@ -528,9 +546,10 @@ extension NavigationHost {
     private func coverLifted(_ routes: [RouteController]) {
         var lifted = false
         for c in routes {
-            guard let header = c.lifted, covers[header.id] != .whole else { continue }
-            covers[header.id] = .whole
-            lifted = true
+            for node in c.lifted.map({ [$0] }) ?? c.barNodes where covers[node.id] != .whole {
+                covers[node.id] = .whole
+                lifted = true
+            }
         }
         guard lifted else { return }
         presenter.afterBatch { [weak self] in self?.deliverCovers() }
@@ -543,11 +562,21 @@ extension NavigationHost {
     /// button's title read from the route beneath, as UIKit reads it.
     private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
         let item = c.navigationItem
-        if let lifted = c.lifted, lifted !== shape?.header {
+        // The host's hiding goes; CSS's `display` decides (`NodeView.isHidden`
+        // keeps the host's word apart: writing CSS's answer kept it hidden).
+        for node in c.barNodes { node.isHidden = false }
+        c.barNodes = []
+        if let lifted = c.lifted, lifted !== shape?.header || shape?.authored.isEmpty == false {
             lifted.isHidden = false
             c.lifted = nil
         }
-        guard shows else { return }
+        guard shows else {
+            // No stale items: the agent aims at a bar item by its press.
+            c.barPresses = []
+            item.leftBarButtonItems = nil
+            item.rightBarButtonItems = nil
+            return
+        }
         item.title = shape?.title
         // tvOS has no large titles or back button.
         #if !os(tvOS)
@@ -558,9 +587,14 @@ extension NavigationHost {
         c.barPresses = []
         item.leftBarButtonItems = shape?.leading.map { barItem($0, c) }
         item.rightBarButtonItems = shape?.trailing.reversed().map { barItem($0, c) }
-        if let header = shape?.header {
-            header.isHidden = true
-            c.lifted = header
+        if let shape {
+            if shape.authored.isEmpty {
+                shape.header.isHidden = true
+                c.lifted = shape.header
+            } else {
+                c.barNodes = shape.placed
+                for node in c.barNodes { node.isHidden = true }
+            }
         }
     }
 
@@ -601,6 +635,8 @@ extension NavigationHost {
         control.accessibilityIdentifier = list?.props["testId"]
         control.segmentLabels = tabs.map(SegmentHost.segmentLabel)
         control.segmentIDs = tabs.map { $0.props["testId"] }
+        control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
+        for (index, tab) in tabs.enumerated() { control.setEnabled(!tab.disabled, forSegmentAt: index) }
         segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
     }
@@ -615,7 +651,20 @@ extension NavigationHost {
         // tvOS navigation items carry no search controller.
         #if !os(tvOS)
         guard let field else {
-            if c.search != nil { c.navigationItem.searchController = nil; c.search = nil }
+            if let search = c.search {
+                search.controller.searchBar.resignFirstResponder()
+                search.controller.isActive = false
+                c.navigationItem.searchController = nil
+                c.search = nil
+                // UIKit restores its bar at the end of search dismissal.
+                // Reapply the route's choice after that transition too.
+                let transition = search.controller.transitionCoordinator ?? c.navigationController?.transitionCoordinator
+                transition?.animate(alongsideTransition: nil) { [weak self, weak c] _ in
+                    guard let self, let c, let nav = c.navigationController else { return }
+                    self.showBar(nav, animated: false)
+                    self.coversChanged()
+                }
+            }
             return
         }
         let search = c.search ?? HeaderSearch(host: self)
@@ -628,6 +677,8 @@ extension NavigationHost {
         let bar = search.controller.searchBar
         let placeholder = field.props["placeholder"] ?? ""
         if bar.placeholder != placeholder { bar.placeholder = placeholder }
+        // The same font, colour and clearing rules as an ordinary field (LLP 1104 D3).
+        field.applyPlaceholder(bar.searchTextField)
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
@@ -687,36 +738,50 @@ extension NavigationHost {
         }
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil } }
             ?? (shows ? kids.first(where: flowing) : nil)
-        let target = node?.scroll != nil && node === scroller ? node : nil
-        guard c.collapseScroll !== target else { return }
-        if let old = c.collapseScroll, let sv = old.scroll {
+        let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
+        let physical = target?.scrollView
+        guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
+        if let old = c.collapseScroll, let sv = c.collapseScrollView {
+            old.retainScrollPosition(from: sv)
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
             // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
-            if old !== c.edgeScroll { sv.contentInsetAdjustmentBehavior = .never }
+            if old !== c.edgeScroll || sv !== old.scrollView { sv.contentInsetAdjustmentBehavior = .never }
             old.scrollOrigin = 0
             old.scrollCollapsed = 0
-            sv.contentOffset.y = top
+            sv.contentOffset.y = top - old.scrollTopInset(sv)
         }
         c.collapseScroll = target
+        c.collapseScrollView = physical
         // A scroller at its start (CSS scrollTop 0) stays there as UIKit
         // begins to inset it: UIKit keeps the offset it had, a new
         // scroller's 0, which left its content's top under the bar.
-        let attach = { [weak self, weak c, weak target] in
-            guard let self, let c, c.collapseScroll === target else { return }
-            let shown = shownScroll(target)
-            let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-            for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always }
-            // …and is there before UIKit is handed it: a bar handed a
-            // scroller that far from its top closes an open large title.
-            if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
-            let left = c.contentScrollView(for: .top)
-            c.setContentScrollView(shown, for: .top)
-            if let left, left !== shown, left.window != nil { retitle(c) }
-            if atStart, let sv = shown { rest(sv, in: c) }
-        }
-        if unmountedList(target) { presenter.afterBatch(attach) } else { attach() }
+        let shown = shownScroll(target)
+        let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
+        shown?.contentInsetAdjustmentBehavior = .always
+        // …and is there before UIKit is handed it: a bar handed a
+        // scroller that far from its top closes an open large title.
+        if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
+        let left = c.contentScrollView(for: .top)
+        c.setContentScrollView(shown, for: .top)
+        if let left, left !== shown, left.window != nil { retitle(c) }
+        if atStart, let sv = shown { rest(sv, in: c) }
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    /// Register a replacement before its first native layout. Resolve only
+    /// the containing route, preserving that stack's Back relationships.
+    func scrollBackendChanged(_ node: NodeView) {
+        var responder: UIResponder? = node
+        while let current = responder {
+            if let route = current as? RouteController, route.host === self,
+               let nav = route.navigationController {
+                guard route.collapseScroll === node || route.edgeScroll === node || (node.scrollView != nil && contentScroller(of: route) === node) else { return }
+                prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+                return
+            }
+            responder = current.next
+        }
     }
 
     /// UIKit moves a large title into the content scroll view it follows and
@@ -802,41 +867,23 @@ extension NavigationHost {
         // One that scrolls vertically: UIKit's bottom inset would let a
         // sideways carousel scroll up and down.
         let vertical = ["scroll", "auto"].contains(last?.style["overflow_y"]?.string ?? "")
-        let target = presenter.viewportFit != "cover" && last?.scroll != nil && vertical ? last : nil
-        guard c.edgeScroll !== target else { return }
-        if let old = c.edgeScroll, let sv = old.scroll, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
+        let target = presenter.viewportFit != "cover" && last?.scrollView != nil && vertical ? last : nil
+        guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== target?.scrollView else { return }
+        if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
+        if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
+           previous !== c.collapseScrollView { previous.contentInsetAdjustmentBehavior = .never }
         c.edgeScroll = target
-        let attach = { [weak self, weak c, weak target] in
-            guard let self, let c, c.edgeScroll === target else { return }
-            let shown = shownScroll(target)
-            for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always }
-            // tvOS has no bottom bar whose edge follows a scroller.
-            #if !os(tvOS)
-            c.setContentScrollView(shown, for: .bottom)
-            #endif
-        }
-        if unmountedList(target) { presenter.afterBatch(attach) } else { attach() }
+        let shown = shownScroll(target)
+        shown?.contentInsetAdjustmentBehavior = .always
+        // tvOS has no bottom bar whose edge follows a scroller.
+        #if !os(tvOS)
+        c.setContentScrollView(shown, for: .bottom)
+        #endif
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its content above the bottom edge" : "scrolls its content to the bottom edge")")
     }
 
-    /// The scroller UIKit shows for a route's content node: a grouped list's
-    /// collection view, drawn in place of its hidden authored scroll (LLP
-    /// 1084 D8), else the node's own. A bar that followed the hidden one
-    /// drew no large title: workout-log's title vanished when its empty
-    /// state's `scroll` gave way to a grouped list in place (LLP 1116.003 D2.2).
-    func shownScroll(_ node: NodeView?) -> UIScrollView? {
-        guard let node else { return nil }
-        if node.kind == "list", let list = presenter.groupedLists?.scroller(for: node.id) { return list }
-        return node.scroll
-    }
-
-    /// A grouped list whose collection view this batch has not made yet
-    /// (the grouped lists sync after the routes): UIKit is handed it once it
-    /// is, never the hidden scroll beneath, which left a large title blank.
-    private func unmountedList(_ target: NodeView?) -> Bool {
-        guard let target, target.kind == "list", target.props["listStyle"] != nil, presenter.applying else { return false }
-        return shownScroll(target) === target.scroll
-    }
+    /// The physical backend owned by a content node.
+    func shownScroll(_ node: NodeView?) -> UIScrollView? { node?.scrollView }
 
     /// Whether UIKit insets this scroller (`.always`): a route's collapse or
     /// bottom-edge scroller.
@@ -872,6 +919,8 @@ extension NavigationHost {
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.accessibilityIdentifier = i.testId
         item.isEnabled = !i.disabled
+        if i.disabled || i.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
+        else { item.accessibilityTraits.remove(.notEnabled) }
         // The authored `color` of a plain item's face; a prominent item's
         // tint is its fill, which `color` is not.
         if let tint = i.tint, !i.prominent, i.badge == nil {
@@ -897,7 +946,7 @@ extension NavigationHost {
     /// tab's (`ScrollsToTopIOS`), and the scroll view a route hatch is given.
     func contentScroller(of c: RouteController) -> NodeView? {
         if let name = c.node.props["navigationScroll"], !name.isEmpty {
-            return element(named: name, in: c.node).flatMap { $0.scroll == nil ? nil : $0 }
+            return element(named: name, in: c.node).flatMap { $0.scrollView == nil ? nil : $0 }
         }
         return Presenter.firstVerticalScroller(under: c.node)
     }
@@ -984,7 +1033,7 @@ extension NavigationHost {
         let whole = wantsWholeView && presenter.viewportFit != "cover"
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
-            if let header = c.lifted { wanted[header.id] = .whole }
+            for node in c.lifted.map({ [$0] }) ?? c.barNodes { wanted[node.id] = .whole }
             guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
             let shows = barShows(nav)
             guard shows || whole else { continue }
@@ -997,7 +1046,7 @@ extension NavigationHost {
             // UIKit's own does, but a title's insets are not sampled.
             let search = searching(c)
             let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
-            if settled, !search, let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
+            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 {
                 let inset = sv.adjustedContentInset.top
                 // tvOS has no large titles: every title is inline.
                 #if os(tvOS)
@@ -1019,8 +1068,8 @@ extension NavigationHost {
             // under the bar and above the home indicator, and scrolling
             // content still passes under both. A large title's inset is its
             // widest, at rest (CSS scrollTop 0).
-            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scroll != nil {
-                if settled, c.viewIfLoaded?.window != nil, let safe = node.scroll?.safeAreaInsets {
+            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
+                if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
                     let top = max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0)
                     if top > 0 || safe.bottom > 0 { wanted[node.id] = .inset(top: top, bottom: safe.bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
@@ -1041,7 +1090,29 @@ extension NavigationHost {
             if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
         }
         // The tablist whose place the tab bar takes takes no room.
-        if let list = adoptedTablist, tabOwner != nil, !ExactEnv.authoredChrome { wanted[list] = .whole }
+        if let list = adoptedTablist.flatMap({ presenter.views[$0] }) {
+            measuredTablist = presenter.session?.view.map { list.convert(list.bounds, to: $0) }
+            if adopts(tablist: list) { wanted[list.id] = .whole }
+            else if tablistAppearanceNone, list.style["display"]?.string != "none",
+                    rootWantsWholeView, presenter.viewportFit != "cover",
+                    let view = presenter.session?.view, view.window != nil {
+                // Authored tabs are page content outside the routes. Protect
+                // only the edges they reach; leave the viewport and bar
+                // backgrounds full-size. A sheet never measures these covers.
+                if presenter.modals.coordinateView != nil {
+                    if case .edges? = covers[list.id] { wanted[list.id] = covers[list.id] }
+                } else {
+                    let rect = list.convert(list.bounds, to: view)
+                    let safe = view.bounds.inset(by: view.safeAreaInsets)
+                    let edges = HostCover.Edges(
+                        top: max(0, min(rect.height, safe.minY - rect.minY)),
+                        right: max(0, min(rect.width, rect.maxX - safe.maxX)),
+                        bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
+                        left: max(0, min(rect.width, safe.minX - rect.minX)))
+                    if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
+                }
+            }
+        }
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }
         for id in covers.keys where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         covers = wanted
@@ -1119,7 +1190,7 @@ extension NavigationHost {
         }
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
-            guard let node = c.ownedScroll, let scroll = node.scroll else { continue }
+            guard let node = c.ownedScroll, let scroll = node.scrollView else { continue }
             for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node) { say("route \(c.key)", property) }
         }
     }
@@ -1127,19 +1198,23 @@ extension NavigationHost {
     /// What Exact sets on a node's scroll view and nothing else may (LLP
     /// 1075.003 §3.5) and differs from what Exact writes: no inset (a
     /// refresh control insets it while it spins), no automatic adjustment
-    /// but a route's collapse or bottom-edge scroller's, the node as its delegate, the node's keyboard dismissal (authored, or
+    /// but a route's collapse or bottom-edge scroller's, the backend's Exact-owned delegate, the node's keyboard dismissal (authored, or
     /// the platform's for what it scrolls, LLP 1115.000 D9.1). The offset
     /// and the content size are Exact's too but are not checked: they move
     /// with the user and with layout, so no last write predicts them.
     static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool) -> [String] {
         var out: [String] = []
-        #if os(tvOS)
-        if s.contentInset != .zero { out.append("contentInset") }
-        #else
-        if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
-        #endif
+        // A native backend owns layout/footer insets, composed with the
+        // refresh control and keyboard; zero is only the plain-scroll baseline.
+        if s === node.scroll {
+            #if os(tvOS)
+            if s.contentInset != .zero { out.append("contentInset") }
+            #else
+            if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
+            #endif
+        }
         if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
-        if s.delegate !== node { out.append("delegate") }
+        if s !== node.scrollView || !node.ownsScrollDelegate { out.append("delegate") }
         if s.keyboardDismissMode != node.keyboardDismissal { out.append("keyboardDismissMode") }
         return out
     }

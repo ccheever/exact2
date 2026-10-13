@@ -6,14 +6,74 @@
 #if os(macOS)
 import AppKit
 
+private final class SegmentAccessibility: NSAccessibilityElement {
+    weak var control: ExactSegmentedControl?
+    let index: Int
+    init(_ control: ExactSegmentedControl, _ index: Int) {
+        self.control = control
+        self.index = index
+        super.init()
+    }
+    private var native: NSAccessibilityElement? { control?.nativeSegment(at: index) }
+    private var enabled: Bool {
+        guard let control, index < control.segmentCount else { return false }
+        return control.isEnabled(forSegment: index)
+            && !(control.accessibilityDisabledSegments.indices.contains(index) && control.accessibilityDisabledSegments[index])
+    }
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] { native?.accessibilityAttributeNames() ?? [] }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled { return enabled }
+        if attribute == .parent { return control }
+        return native?.accessibilityAttributeValue(attribute)
+    }
+    override func accessibilityActionNames() -> [NSAccessibility.Action] { native?.accessibilityActionNames() ?? [] }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) { native?.accessibilityPerformAction(action) }
+    override func accessibilityRole() -> NSAccessibility.Role? { native?.accessibilityRole() }
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? { native?.accessibilitySubrole() }
+    override func accessibilityLabel() -> String? { native?.accessibilityLabel() }
+    override func accessibilityHelp() -> String? { native?.accessibilityHelp() }
+    override func accessibilityValue() -> Any? { native?.accessibilityValue() }
+    override func accessibilityFrame() -> NSRect { native?.accessibilityFrame() ?? .zero }
+    override func isAccessibilitySelected() -> Bool { native?.isAccessibilitySelected() ?? false }
+    override func isAccessibilityEnabled() -> Bool { enabled }
+    override func accessibilityParent() -> Any? { control }
+    override func accessibilityPerformPress() -> Bool { native?.accessibilityPerformPress() ?? false }
+}
+
 private final class ExactSegmentedControl: NSSegmentedControl {
     let ownerID: UInt32
+    var accessibilityDisabledSegments: [Bool] = []
+    private var segmentElements: [SegmentAccessibility] = []
+    private var exposingNativeChildren = false
     init(ownerID: UInt32) {
         self.ownerID = ownerID
         super.init(frame: .zero)
         trackingMode = .selectOne
     }
     required init?(coder: NSCoder) { nil }
+    // As the other native controls (X85): a Control-click a `contextmenu`
+    // above answers never starts this control's tracking, so no segment is
+    // chosen. AppKit's own right-click route does not fire in every window.
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    func nativeSegment(at index: Int) -> NSAccessibilityElement? {
+        exposingNativeChildren = true
+        defer { exposingNativeChildren = false }
+        guard let cell = super.accessibilityChildren()?.first as? NSObject,
+              let segments = cell.accessibilityAttributeValue(.children) as? [NSAccessibilityElement],
+              segments.indices.contains(index) else { return nil }
+        return segments[index]
+    }
+    override func accessibilityChildren() -> [Any]? {
+        if exposingNativeChildren { return super.accessibilityChildren() }
+        if segmentElements.count != segmentCount { segmentElements = (0..<segmentCount).map { SegmentAccessibility(self, $0) } }
+        return segmentElements
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if exposingNativeChildren { return super.accessibilityAttributeValue(attribute) }
+        if attribute == .children { return accessibilityChildren() }
+        return super.accessibilityAttributeValue(attribute)
+    }
+    override func accessibilityRole() -> NSAccessibility.Role? { .radioGroup }
 }
 
 final class SegmentHost {
@@ -78,8 +138,8 @@ final class SegmentHost {
         var size = CGSize(width: max(natural.width, 1), height: natural.height)
         if owner.style["box_sizing"]?.string == "border-box" {
             let border = owner.number("border_width")
-            size.height += owner.number("border_width_top", border) + owner.number("padding_top")
-                + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
+            size.height += owner.number("border_width_top", border) + owner.padding("top")
+                + owner.number("border_width_bottom", border) + owner.padding("bottom")
         }
         guard size.width.isFinite, size.height.isFinite, size.height > 0, sizes[owner.id] != size else { return }
         sizes[owner.id] = size
@@ -104,8 +164,11 @@ final class SegmentHost {
 
     func sync() {
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
+        // The root tablist the window's sidebar shows is no segmented control (LLP 1115.002 D3),
+        // nor a header's that the window's toolbar shows as its own group (D2).
         let owners = (presenter.carrying("role:tablist") + presenter.carrying("role:radiogroup")).filter {
-            $0.props["accessibilityOrientation"] != "vertical"
+            $0.props["accessibilityOrientation"] != "vertical" && !presenter.sidebar.adopts($0) && !presenter.toolbar.adopts($0) &&
+                !($0.props["accessibilityRole"] == "tablist" && $0.wrote("appearance") && $0.style["appearance"]?.string == "none")
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }
@@ -148,6 +211,7 @@ final class SegmentHost {
             control.frame = owner.contentBox()
             control.setAccessibilityLabel(owner.props["accessibilityLabel"])
             control.segmentCount = tabs.count
+            control.accessibilityDisabledSegments = tabs.map(\.ariaUnavailable)
             for (index, tab) in tabs.enumerated() {
                 if case .image(let icon)? = tab.segmentFace {
                     // Keep the native accessibility description even with no glyph.

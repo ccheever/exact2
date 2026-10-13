@@ -101,14 +101,43 @@ export function observe(views, inactive = () => false) {
   };
   const fixed = (el, upTo) => { for (let e = el; e && e !== upTo; e = e.parentElement) if (/^(fixed|sticky)$/.test(getComputedStyle(e).position)) return true; return false; };
   const scrolls = (e) => /^(auto|scroll)$/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1;
+  // A box whose written percentage width fits its parent, and whose own padding and border (content-box sizing) push it past
+  // the parent's content edge (LLP 1116.009 D5; focus-timer and recipe-finder, round 11: `width="100%"` with padding clipped
+  // the phone's right side while `check` said nothing, the scroller around it holding the overflow). The cause is judged, not
+  // where it lands: only a written percentage, only content-box, only a parent that takes the percentage of its own content
+  // (a block, or a column: a row's items shrink to fit, a grid's resolve against a cell) and does not scroll sideways on purpose
+  // (an authored `overflow-x`). A wider percentage, a fixed width, a bar's or sheet's own chrome (border-box) are none of it.
+  const widerThanParent = (el, cs) => {
+    const parent = el.parentElement;
+    if (!parent || parent.id === 'exact-root' || cs.boxSizing !== 'content-box' || /^(absolute|fixed)$/.test(cs.position) || cs.transform !== 'none') return null;
+    const written = authored(el, 'width').trim();
+    if (!/^\d+(\.\d+)?%$/.test(written)) return null;
+    const ps = getComputedStyle(parent);
+    if (!(/^(block|flow-root|list-item)$/.test(ps.display) || (/^(inline-)?flex$/.test(ps.display) && ps.flexDirection.startsWith('column')))) return null;
+    if (/^(auto|scroll)$/.test(authored(parent, 'overflow-x').trim()) || /^(auto|scroll)(\s|$)/.test(authored(parent, 'overflow').trim())) return null;
+    const content = parseFloat(cs.width), pad = ['Left', 'Right'].reduce((n, side) => n + parseFloat(cs[`padding${side}`]) + parseFloat(cs[`border${side}Width`]), 0);
+    const room = parent.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight), past = content + pad - room;
+    return pad > 0.5 && past > 1.5 && content <= room + 1.5 ? { by: viewOf(parent), dx: r2(past), pad: r2(pad), width: written } : null;
+  };
   const page = document.scrollingElement;
   // Whether a scroller holding `el` could move it out from under `hit` (or, with none, into view): one `hit` does not
-  // move with, with room toward the side the cover is not on (`above`: the cover is above, so scrolling back reveals).
-  const reach = (el, hit, above) => {
+  // move with. The cover is the subtree beside `el` that `hit` is in (the bar, the header, the sheet), and the middle `my`
+  // clears it by landing above it (the content moves up: room toward the end of at least `my - top`) or below it (the
+  // content moves down: room back of at least `bottom - my`), within what the scroller shows of the screen: a bar along
+  // its bottom edge is cleared only upward, a header along its top only downward, and a last row that scrolls only a few
+  // points does not clear a bar taller than that (LLP 1116.012 D3; contacts, round 14: a fold row under an in-flow tab bar,
+  // with the list's whole range to scroll it up by). With no `hit` (`my` unused), `above` says the element lies above
+  // the screen: scrolling back reveals.
+  const reach = (el, hit, above, my) => {
+    let cover = null;
+    if (hit) { let c = hit; while (c.parentElement && !c.parentElement.contains(el)) c = c.parentElement; cover = c.getBoundingClientRect(); }
     for (let s = el.parentElement; s; s = s.parentElement) {
       const scroller = s === page || s === document.body ? page : scrolls(s) ? s : null;
       if (!scroller || (hit && ((scroller !== page && scroller.contains(hit) && !fixed(hit, scroller)) || (scroller === page && !fixed(hit))))) continue;
-      if (above ? scroller.scrollTop > 0.5 : scroller.scrollTop < scroller.scrollHeight - scroller.clientHeight - 0.5) return true;
+      const back = scroller.scrollTop, end = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+      if (!cover) { if (above ? back > 0.5 : end > 0.5) return true; continue; }
+      const shown = scroller === page ? { top: 0, bottom: H } : scroller.getBoundingClientRect(), top = Math.max(0, shown.top), bottom = Math.min(H, shown.bottom);
+      if ((cover.top > top + 1 && end > my - cover.top + 0.5) || (cover.bottom < bottom - 1 && back > cover.bottom - my + 0.5)) return true;
     }
     return false;
   };
@@ -121,11 +150,14 @@ export function observe(views, inactive = () => false) {
     const b = el.getBoundingClientRect();
     if (!shown(el, b)) continue;
     const cs = getComputedStyle(el), item = { id: ids.get(el), x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) };
+    // A padded percentage width wider than its parent is a finding wherever the box lies, below the fold too.
+    const padded = widerThanParent(el, cs);
+    if (padded) item.padded = padded;
     // Off the screen: only a control out of reach (past its top or bottom, and nothing scrolls to it) is anything.
     if (!(b.right > 0 && b.bottom > 0 && b.left < W && b.top < H)) {
       if (b.right > 0 && b.left < W && el.matches(CONTROL) && !el.parentElement?.closest('button, a[href]') && !reach(el, null, b.bottom <= 0)) {
         items.push({ ...item, control: el.localName, sized: 'platform', cover: { kind: 'offscreen', name: b.bottom <= 0 ? 'the top of the screen' : 'the bottom of the screen' } });
-      }
+      } else if (padded) items.push(item);
       continue;
     }
     const o = opacity(el);
@@ -138,6 +170,19 @@ export function observe(views, inactive = () => false) {
     }
     const past = Math.max(b.right - W, -b.left);
     if (!held && past > 1 && !fixed(el)) { item.outX = r2(past); out.add(el); }
+    // A flex or grid item past its container's sides, within the viewport (LLP 1116.007 D3: tip-splitter's fifth radio at 320 px,
+    // an option wider than its row, poking out of its card): the container neither scrolling nor clipping it, nor any ancestor
+    // it lies beyond, nor transformed or placed out of flow. Past the viewport it is the finding above.
+    const parent = el.parentElement, ps = parent && parent.id !== 'exact-root' ? getComputedStyle(parent) : null;
+    if (!item.outX && ps && /^(inline-)?(flex|grid)$/.test(ps.display) && ps.overflowX === 'visible' && !/^(absolute|fixed)$/.test(cs.position) && cs.transform === 'none') {
+      const pb = parent.getBoundingClientRect(), left = pb.left + parent.clientLeft, spill = Math.max(b.right - (left + parent.clientWidth), left - b.left);
+      let beyond = false;
+      for (let e = parent.parentElement; e && e.id !== 'exact-root' && !beyond; e = e.parentElement) {
+        if (out.has(e)) beyond = true;
+        else if (getComputedStyle(e).overflowX !== 'visible') { const a = e.getBoundingClientRect(), l = a.left + e.clientLeft; beyond = b.right > l + e.clientWidth + 0.5 || b.left < l - 0.5; }
+      }
+      if (spill > 1.5 && !beyond && !fixed(el)) { item.spill = { by: viewOf(parent), dx: r2(spill) }; out.add(el); }
+    }
     const text = el.hasAttribute('data-exact-text') ? (el.textContent ?? '').replace(/\s+/g, ' ').trim() : '';
     if (text) {
       item.text = text.length > 40 ? text.slice(0, 39) + '…' : text;
@@ -201,8 +246,7 @@ export function observe(views, inactive = () => false) {
       else {
         const cx = Math.min(Math.max(b.left + b.width / 2, 1), W - 1), hit = document.elementFromPoint(cx, my);
         if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
-          const hb = hit.getBoundingClientRect();
-          if (!reach(el, hit, hb.top + hb.height / 2 < my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
+          if (!reach(el, hit, false, my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
         }
       }
       if (text && !item.cut && b.bottom - H >= 2 && b.top < H && !reach(el, null, false)) item.cut = { edge: 'bottom', dx: 0, dy: r2(b.bottom - H) };
@@ -222,11 +266,11 @@ export function observe(views, inactive = () => false) {
         if (border || cs.boxShadow !== 'none' || (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0)) item.edge = true;
       }
     }
-    if (item.text || item.control) {
+    if (item.text || item.control || item.fill) {
       const v = visible(el, b);
       if (Math.abs(v.x - item.x) > 0.5 || Math.abs(v.y - item.y) > 0.5 || Math.abs(v.w - item.w) > 0.5 || Math.abs(v.h - item.h) > 0.5) item.vis = v;
     }
-    if (item.text || item.control || item.fill || item.outX) items.push(item);
+    if (item.text || item.control || item.fill || item.outX || item.spill || item.padded) items.push(item);
   }
   // LLP 1116.004 D1.3: a phone's layout at a desktop width, as advice (never a finding): a root tab bar stretched along
   // the window's bottom, and a stack the projection did not split whose root route's list pushed the detail shown. A
@@ -245,6 +289,9 @@ export function observe(views, inactive = () => false) {
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
   const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
+  // The look the page draws, where its stylesheet says one (LLP 1115.000 D4 part B: the neutral sheet's mark on the root,
+  // which the wasm glue reads too): the judge reads a role's drawn colours in that look's column of the table.
+  const look = getComputedStyle(document.documentElement).getPropertyValue('--exact-look').trim();
   const coarse = matchMedia('(pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
-  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
+  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, ...(look ? { look } : {}), target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }

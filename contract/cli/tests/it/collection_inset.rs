@@ -1,9 +1,8 @@
 //! LLP 1010 §6.9: a virtualized list's main-axis padding is CSS's room
 //! before the first row and after the last, inside the scroll content. The
-//! host reports offsets from the first row's start; the runner reads the
-//! padding after the last row from the list's layout, so its end (the
-//! window, `reachend`, a followed end, `scroll-start: end`, a clamped
-//! `scrollIntoView`) is the true one.
+//! host reports offsets from the first row's start and the padding it laid
+//! out, so the runner's end (the window, `reachend`, a followed end,
+//! `scroll-start: end`, a clamped `scrollIntoView`) is the true one.
 use exact_kernel::{Env, Kernel, Offer};
 use exact_plan::Value;
 use exact_runner::{
@@ -95,10 +94,10 @@ fn max_top_now(r: &Runner<Data>) -> f64 {
 }
 /// A host: its `scrollTop` (`top`, `scrollLeft` on a row list) counts from
 /// the padding's top, as a browser's does; it reports the offset from the
-/// first row's start (negative in the padding before it), moves where a
-/// correction says (plus the padding), clamped to its range, and measures
-/// every mounted row, until the list asks for nothing more. The `scrollTop`
-/// it ends at.
+/// first row's start (negative in the padding before it) and the padding it
+/// laid out, moves where a correction says (plus the padding), clamped to
+/// its range, and measures every mounted row, until the list asks for
+/// nothing more. The `scrollTop` it ends at.
 fn host(r: &mut Runner<Data>, top: f64) -> f64 {
     host_by(r, top, |_| ROW)
 }
@@ -108,7 +107,7 @@ fn host_by(r: &mut Runner<Data>, mut top: f64, size: impl Fn(usize) -> f64) -> f
     for _ in 0..12 {
         layout(r);
         let c = list(r);
-        let lead = pads(r).0;
+        let (lead, end) = pads(r);
         if let Some(correction) = c.correction {
             top = correction.offset + lead;
         }
@@ -124,6 +123,7 @@ fn host_by(r: &mut Runner<Data>, mut top: f64, size: impl Fn(usize) -> f64) -> f
                 port_main: PORT,
                 port_cross: 400.0,
                 cross: 400.0,
+                padding: [lead, end],
                 measurements: c
                     .rows
                     .iter()
@@ -511,5 +511,383 @@ fn a_followed_end_follows_the_padding_before_the_rows_as_it_grows() {
         let top = host(&mut r, 5000.0);
         r.act("grow", vec![]).unwrap();
         assert_eq!(host(&mut r, top), top + 26.0, "{axis:?}: the rows stay put");
+    }
+}
+
+/// The padding a list scrolls in is the one its host laid out and reported
+/// with its offset, not its style's: a host still showing the old padding
+/// after a commit changed it reports offsets against what it shows.
+#[test]
+fn the_list_scrolls_in_the_padding_its_host_reported() {
+    for axis in AXES {
+        let mut r = boot(&padded(100, axis, "lead", ""));
+        host(&mut r, 0.0);
+        // The style's padding grows to 118; the host has not laid it out yet
+        r.act("grow", vec![]).unwrap();
+        let c = list(&r);
+        r.collection_feedback(CollectionFeedback {
+            view: c.view,
+            revision: c.revision,
+            scroll_sequence: c.scroll_sequence + 1,
+            offset: 0.0,
+            port_main: PORT,
+            port_cross: 400.0,
+            cross: 400.0,
+            padding: [TOP, 83.0],
+            measurements: vec![],
+            focus_view: None,
+            interaction_view: None,
+        })
+        .unwrap();
+        // Row 0 centred in the snapport clamps at the padding before it
+        r.act("center", vec![Value::Number(0.0)]).unwrap();
+        let correction = list(&r).correction.expect("a correction");
+        assert_eq!(
+            correction.offset, -TOP,
+            "the reported padding, not the style's"
+        );
+    }
+}
+
+/// `scroll-padding` is read when `scrollIntoView` runs, as CSSOM View reads
+/// it: one changed since the list's last report is the one it aligns in.
+#[test]
+fn scroll_into_view_reads_the_scroll_padding_it_runs_with() {
+    let app = SNAP
+        .replace(
+            "  state count = 100\n",
+            "  state count = 100\n  state header = 0\n  action tall\n    header = 50\n",
+        )
+        .replace(
+            "scroll-padding=\"92 0 calc(env(safe-area-inset-bottom) + 49px)\"",
+            "scroll-padding-top=header",
+        );
+    let mut r = boot(&app);
+    host(&mut r, 0.0);
+    r.act("tall", vec![]).unwrap();
+    r.act("start", vec![Value::Number(50.0)]).unwrap();
+    let correction = list(&r).correction.expect("a correction");
+    assert_eq!(correction.offset, 50.0 * ROW - 50.0, "below the new header");
+}
+
+/// The action's computed scroll padding applies before the first correction,
+/// including font-relative lengths. Hosts receive only the final commit.
+#[test]
+fn a_request_uses_its_actions_computed_scroll_padding_immediately() {
+    for (inset, ends) in [
+        ("(collapsed ? 0 : 100)", 0.0),
+        ("(collapsed ? \"4em\" : \"10em\")", 40.0),
+    ] {
+        let app = format!(
+            r#"component App
+  state collapsed = false
+  resource rows = rows(100) as shape list<number>
+  action collapse(n: number)
+    collapsed = true
+    scrollIntoView("feed", n, block="start")
+  view
+    column testId="root"
+      list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 font-size=10 scroll-padding-top={inset}
+        each x in rows key=x
+          text `${{x}}` height=100 width="100%"
+"#
+        );
+        let mut r = boot(&app);
+        assert_eq!(host(&mut r, 0.0), 0.0);
+        r.act("collapse", vec![Value::Number(50.0)]).unwrap();
+        let begun = list(&r).correction.expect("a correction").offset;
+        assert_eq!(
+            begun,
+            50.0 * ROW - ends,
+            "{inset}: within the new computed style"
+        );
+        let top = host(&mut r, begun);
+        assert_eq!(top, 50.0 * ROW - ends, "{inset}: within the new one");
+        assert!(exact_runner::agent::state(&r).contains("\"status\":\"done\""));
+    }
+}
+
+#[test]
+fn collapsing_scroll_padding_preserves_an_already_visible_nearest_target() {
+    for horizontal in [false, true] {
+        for (inset, font) in [
+            ("(collapsed ? 0 : 100)", "10"),
+            ("(collapsed ? \"4em\" : \"10em\")", "10"),
+            ("\"10em\"", "(collapsed ? 4 : 10)"),
+        ] {
+            let style = if horizontal {
+                "display=\"flex\" width=600 height=400 overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100"
+            } else {
+                "height=600 width=400 overflow-x=\"hidden\" estimated-item-height=100"
+            };
+            let padding = if horizontal { "left" } else { "top" };
+            let align = if horizontal { "inline" } else { "block" };
+            let row = if horizontal {
+                "width=100 height=400"
+            } else {
+                "height=100 width=\"100%\""
+            };
+            let app = format!(
+                r#"component App
+  state collapsed = false
+  resource rows = rows(100) as shape list<number>
+  action collapse
+    collapsed = true
+    scrollIntoView("feed", 1, {align}="nearest")
+  view
+    column testId="root" font-size={font}
+      list id="feed" virtualized=true {style} scroll-padding-{padding}={inset}
+        each x in rows key=x
+          text `${{x}}` {row}
+"#
+            );
+            let mut r = boot(&app);
+            assert_eq!(host(&mut r, 50.0), 50.0);
+            r.act("collapse", vec![]).unwrap();
+            assert_eq!(
+                list(&r).correction.unwrap().offset,
+                50.0,
+                "{horizontal}/{inset}/{font}: no initial movement"
+            );
+            assert_eq!(
+                host(&mut r, 50.0),
+                50.0,
+                "row 1 is already visible after collapse"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_seek_computes_new_list_styles_before_aligning_and_publishes_once() {
+    for nested in [false, true] {
+        let view = if nested {
+            r#"      list id="feed" virtualized=true height=600 width=400 estimated-item-height=100
+        each x in rows key=x
+          list id="strip" virtualized=true display="flex" width=600 height=100 overflow-x="scroll" overflow-y="hidden" estimated-item-width=100 scroll-padding-left="4em"
+            each y in rows key=y
+              text `${y}` width=100 height=100"#
+        } else {
+            r#"      when shown
+        list id="strip" virtualized=true display="flex" width=600 height=100 overflow-x="scroll" overflow-y="hidden" estimated-item-width=100 scroll-padding-left="4em"
+          each y in rows key=y
+            text `${y}` width=100 height=100"#
+        };
+        let row = if nested { ", row=50" } else { "" };
+        let app = format!(
+            r#"component App
+  state shown = false
+  resource rows = rows(100) as shape list<number>
+  action go
+    shown = true
+    scrollIntoView("strip", 20, block="start", inline="start"{row})
+  view
+    column testId="root" font-size=10
+{view}
+"#
+        );
+        let mut r = boot(&app);
+        if nested {
+            host(&mut r, 0.0);
+            assert!(!list(&r).rows.iter().any(|row| row.index == 50));
+        } else {
+            assert!(r.collections().is_empty());
+        }
+        let epoch = r.kernel().epoch();
+        let history = r.kernel().receipts().count();
+        let receipt = r.act("go", vec![]).unwrap();
+        let inner = r
+            .collections()
+            .into_iter()
+            .find(|c| c.axis == ListAxis::Horizontal && c.correction.is_some())
+            .unwrap();
+        assert_eq!(
+            inner.correction.unwrap().offset,
+            20.0 * ROW - 40.0,
+            "new list computed its em inset"
+        );
+        assert_eq!(receipt.epoch, epoch + 1);
+        assert_eq!(r.kernel().receipts().count(), history + 1);
+        assert!(receipt
+            .created
+            .iter()
+            .all(|key| r.kernel().node_by_key(*key).is_some()));
+        assert!(receipt
+            .touched
+            .iter()
+            .all(|key| r.kernel().node_by_key(*key).is_some() && !receipt.created.contains(key)));
+    }
+}
+
+#[test]
+fn ordered_seeks_keep_retained_rows_held_until_the_host_shows_them() {
+    for (first, last, smooth, feedback) in [
+        (50, 56, false, false),
+        (50, 56, true, false),
+        (56, 50, false, false),
+        (56, 50, true, false),
+        (50, 56, false, true),
+        (50, 56, true, true),
+        (56, 50, false, true),
+        (56, 50, true, true),
+    ] {
+        let behavior = if smooth { ", behavior=\"smooth\"" } else { "" };
+        let actions = format!("  action twice\n    scrollIntoView(\"feed\", {first}, block=\"start\")\n    scrollIntoView(\"feed\", {last}, block=\"start\"{behavior})\n  action go(n: number)");
+        let app = format!(
+            "keyframes appear\n  from opacity=0\n  to opacity=1\n\n{}",
+            APP
+        )
+        .replace("  action go(n: number)", &actions)
+        .replace(
+            "text `${x}` height=100",
+            "text `${x}` animation=\"appear 600ms\" height=100",
+        );
+        let mut r = boot(&app);
+        host(&mut r, 0.0);
+        r.act("go", vec![Value::Number(50.0)]).unwrap();
+        host(&mut r, 50.0 * ROW);
+        let wrapper = list(&r)
+            .rows
+            .iter()
+            .find(|row| row.index == 56)
+            .unwrap()
+            .view;
+        assert!(r.kernel().is_awaiting(wrapper));
+        let epoch = r.kernel().epoch();
+        let receipt = r.act("twice", vec![]).unwrap();
+        let c = list(&r);
+        let wrapper = c.rows.iter().find(|row| row.index == 56).unwrap().view;
+        let key = r.kernel().node(wrapper).unwrap().key;
+        assert!(r.kernel().is_awaiting(wrapper));
+        assert!(!receipt.revealed.contains(&key));
+        assert_eq!(receipt.epoch, epoch + 1);
+        assert_eq!(c.correction.unwrap().offset, last as f64 * ROW);
+        assert_eq!(c.correction.unwrap().smooth, smooth);
+        assert!(receipt
+            .created
+            .iter()
+            .all(|key| r.kernel().node_by_key(*key).is_some()));
+        let report = |r: &mut Runner<Data>, offset| {
+            let c = list(r);
+            if feedback {
+                let (lead, end) = pads(r);
+                r.collection_feedback(CollectionFeedback {
+                    view: c.view,
+                    revision: c.revision,
+                    scroll_sequence: c.scroll_sequence + 1,
+                    offset,
+                    port_main: PORT,
+                    port_cross: 400.0,
+                    cross: 400.0,
+                    padding: [lead, end],
+                    measurements: Vec::new(),
+                    focus_view: None,
+                    interaction_view: None,
+                })
+                .unwrap()
+            } else {
+                r.collection_shown(c.view, offset).unwrap()
+            }
+        };
+        if last == 50 {
+            let shown = report(&mut r, 50.0 * ROW);
+            assert!(r.kernel().is_awaiting(wrapper));
+            assert!(!shown
+                .receipts
+                .iter()
+                .any(|r| r.receipt.revealed.contains(&key)));
+        }
+        if feedback && last == 50 {
+            r.act("go", vec![Value::Number(56.0)]).unwrap();
+        }
+        let shown = report(&mut r, 56.0 * ROW);
+        assert!(
+            !r.kernel().is_awaiting(wrapper),
+            "{first}->{last}, smooth={smooth}, feedback={feedback}"
+        );
+        assert!(shown
+            .receipts
+            .iter()
+            .any(|r| r.receipt.revealed.contains(&key)));
+    }
+}
+
+#[test]
+fn scroll_anchor_snapshots_use_the_event_axis_and_padding_and_restore_signed_offsets() {
+    for horizontal in [false, true] {
+        let mut source = APP.replace("  view\n", "  state first = none\n  state within = 0\n  action moved(x: number, y: number, e: ScrollEvent)\n    first = e.firstVisibleKey\n    within = e.firstVisibleOffset\n  view\n")
+            .replace("reachend=onEnd", "reachend=onEnd scroll=moved scroll-padding-top=24 scroll-padding-left=24")
+            .replace("scrollIntoView(\"feed\", n, block=\"start\")", "scrollIntoView(\"feed\", 0, offset=n)");
+        if horizontal {
+            source = source.replace("height=600 width=400 overflow-x=\"hidden\" estimated-item-height=100 padding-top=92 padding-bottom=", "height=400 width=600 display=\"flex\" flex-direction=\"row\" overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100 padding-left=92 padding-right=")
+                .replace("height=100 width=\"100%\"", "width=100 height=\"100%\"");
+        }
+        let mut r = boot(&source);
+        host(&mut r, 0.0);
+        let view = list(&r).view;
+        let report = |r: &mut Runner<Data>, at: f64, port: f64| {
+            let event = exact_runner::ScrollEvent {
+                left: if horizontal { at } else { 0.0 },
+                top: if horizontal { 0.0 } else { at },
+                width: 20000.0,
+                height: 20000.0,
+                client_width: if horizontal { port } else { 400.0 },
+                client_height: if horizontal { 400.0 } else { port },
+            };
+            r.dispatch(view, exact_runner::Event::Scroll(event))
+                .unwrap();
+        };
+        // Before any new collection report, the event's offset wins.
+        report(&mut r, TOP + 161.0, PORT);
+        assert_eq!(r.slot("first"), Some(&Value::some(Value::str("1"))));
+        assert_eq!(r.slot("within"), Some(&Value::Number(61.0)));
+        report(&mut r, 50.0, PORT);
+        assert_eq!(r.slot("first"), Some(&Value::some(Value::str("0"))));
+        assert_eq!(r.slot("within"), Some(&Value::Number(-42.0)));
+        r.act("go", vec![Value::Number(-42.0)]).unwrap();
+        assert!((host(&mut r, 0.0) - 50.0).abs() <= 0.5);
+        r.act("go", vec![Value::Number(0.0)]).unwrap();
+        assert!((host(&mut r, 0.0) - TOP).abs() <= 0.5);
+        // offset=0 overrides scroll-padding and the horizontal nearest default.
+        report(&mut r, 0.0, 20.0);
+        assert_eq!(
+            r.slot("first"),
+            Some(&Value::NONE),
+            "only padding is visible"
+        );
+        assert_eq!(r.slot("within"), Some(&Value::Number(0.0)));
+        r.act("more", vec![Value::Number(-100.0)]).unwrap();
+        report(&mut r, 0.0, PORT);
+        assert_eq!(r.slot("first"), Some(&Value::NONE), "empty list");
+    }
+}
+
+#[test]
+fn native_scroll_anchors_subtract_the_resolved_content_origin_on_both_axes() {
+    for horizontal in [false, true] {
+        let mut source = APP.replace("  view\n", "  state first = none\n  state within = 0\n  action moved(x: number, y: number, e: ScrollEvent)\n    first = e.firstVisibleKey\n    within = e.firstVisibleOffset\n  view\n")
+            .replace("reachend=onEnd", "reachend=onEnd scroll=moved border-top=\"10px solid black\" border-left=\"10px solid black\"");
+        if horizontal {
+            source = source.replace("height=600 width=400 overflow-x=\"hidden\" estimated-item-height=100 padding-top=92 padding-bottom=", "height=400 width=600 display=\"flex\" flex-direction=\"row\" overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100 padding-left=92 padding-right=")
+                .replace("height=100 width=\"100%\"", "width=100 height=\"100%\"");
+        }
+        let mut r = boot(&source);
+        host(&mut r, 0.0);
+        let view = list(&r).view;
+        let at = TOP + 10.0 + 161.0;
+        r.dispatch(
+            view,
+            exact_runner::Event::Scroll(exact_runner::ScrollEvent {
+                left: if horizontal { at } else { 0.0 },
+                top: if horizontal { 0.0 } else { at },
+                width: 20000.0,
+                height: 20000.0,
+                client_width: 400.0,
+                client_height: 400.0,
+            }),
+        )
+        .unwrap();
+        assert_eq!(r.slot("first"), Some(&Value::some(Value::str("1"))));
+        assert_eq!(r.slot("within"), Some(&Value::Number(61.0)));
     }
 }

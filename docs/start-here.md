@@ -4,52 +4,53 @@ The only required reading; the rest is lookup.
 
 ## The idea
 
-1. **Write the web.** Layout is CSS (flex, gap, padding, `position`); names are HTML's
-   and CSS's (`role`, `aria-*`, `inputmode`, `text-overflow`).
-2. **Ship the platform.** Say what a thing *is* (a `header` with a heading and buttons,
-   a `tablist`, a `dialog role="alertdialog"`) and each host draws its own control: on
-   iOS the navigation bar, tab bar, system alert.
-3. **Leave the rest unsaid:** controls, bars, the type ramp, control colours and dark
-   mode are the platform's. A colour or size names a role (`-exact-secondary-label`,
-   `font="-exact-footnote"`, `-exact-system-red`); a lookalike of a system control is a
-   bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
-   is the accent, on the root: any system colour (`accent-color="-exact-system-teal"`) or
-   one `light-dark(light, dark)` pair, which controls, tabs, progress, links and
-   `exact:content` follow. A card on a plain page is `-exact-secondary-background`, on a
-   `-exact-grouped-background` page `-exact-secondary-grouped-background`; a surface
-   inside a card is the tertiary role.
-4. **Design your content:** the screen's purpose gets a focal point (big type, a fill,
-   a shape), rows a hierarchy, an empty state what to do, a wide window two columns;
-   inset-grouped is for settings and forms. `exact:content` draws these
-   ([content-design](recipes/content-design.md)).
+1. **Write the web, ship the platform.** Layout and names are CSS's and HTML's (flex, gap,
+   `role`, `aria-*`). Say what a thing *is* (a `header` with a heading and
+   buttons, a `tablist`, a `dialog role="alertdialog"`); each host draws its own control.
+2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's, and so
+   are a `list`'s rows: its children are rows, so draw no separator and no press. A
+   colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
+   <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write is the
+   accent, on the root: a system colour (`accent-color="-exact-system-teal"`) or a
+   `light-dark(light, dark)` pair. A card is `-exact-secondary-background`
+   (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
+   button fails on green, mint, teal, cyan, yellow, orange (`check` refuses it;
+   `RoundButton` tints them).
+3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
+   rows, an empty state with its next step; inset-grouped is for settings and forms.
+   `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
+   - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
+     `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
+   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark`; `EmptyState` over your `button`
+4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
+   phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
+   list whose rows push (beside its detail) need no code; one number and its buttons: a
+   centred column (`max-width=420`).
 
 ## The workflow
 
 ```sh
 bun <exact2>/scripts/exact.mjs new ~/groceries && cd ~/groceries
-bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writes one
+bun exact.mjs pattern      # lists the starters; `pattern <name>` writes one
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
-Start from the nearest pattern.
+|`bun exact.mjs …`|What it does|
+|---|---|
+|`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
+|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
+|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--storage` keeps data.|
+|`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
-| `bun exact.mjs …` | What it does |
-| --- | --- |
-| `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print warnings. |
-| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), `check`s the first screen and where each test ends light and dark at phone and desktop widths, relaunches once on real time: one report. A clean `verify` on the app's platform is done (`verify ios` for iPhone). |
-| `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app by hand, to see why something fails. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
-| `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
-
-Run `verify` after each edit, `verify ios` at milestones; look at its screenshots
-(`.exact/verify/`). Drive by `testId`; keep scratch files in `.exact/` (any other new
-file makes the build stale).
+`verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
+want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
+Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 ## One screen: the view, its data, its test
 
-`app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests.
-`one-screen` holds the screen: a route, its `header` the iOS navigation bar, over the
-`scroll` its `navigationScroll` names. A second screen is a route too (`contract vocab
-screen`), which gives the web Back and links and a wide window its split. This list
+`app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests. A
+screen is a route: its `header` the iOS navigation bar (the Mac window's title and toolbar) over the `scroll` its
+`navigationScroll` names (`one-screen`; more screens: `contract vocab screen`). This list
 takes the scroll's place:
 
 ```contract
@@ -89,10 +90,10 @@ component Groceries
         row gap=8 align-items="center"
           column flex=1 min-width=0 gap=4
             input value=draft input=edit submit=add placeholder="Add an item"
-              aria-label="New item" enterkeyhint="done" testId="draft"
+              aria-label="New item" testId="draft"
             when addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
-          button press=add disabled=(trim(draft) == "") testId="add"
+          button press=add disabled=(trim(draft) == "") buttonStyle="filled" testId="add"
             text "Add"
       section
         each i in groceries key=i.id
@@ -103,24 +104,19 @@ component Groceries
           text (length(groceries) == 0 ? "Nothing on the list." : leftText(left)) testId="left"
 ```
 
-- **Syntax.** Indent with spaces; attributes continue on deeper lines. Quote units
-  (`width="50%"`); a bare number is pixels. Subtract with spaces (`a - b`): names hold
-  hyphens. A view chooses with `when`/`else`, never `if`; no `form` (a field's Enter is
-  its `submit`).
-- **Expressions** are free functions (`length(xs)`, `trim(s)`, `map`, `first`); `match`
-  takes an option apart; no truthiness. A record copy is `Shape(old, field=value)`.
-  Events pass captured arguments, then the payload (`toggle(i.id)` gets the bool).
+- **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
+  Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `when`/`else`,
+  never `if`; no `form` (a field's Enter is its `submit`).
+- **Expressions.** No truthiness. A record copy is `Shape(old, field=value)`. An event
+  passes its captured arguments, then the payload (`toggle(i.id)` gets the bool).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
-  write, which `queue` keeps in order, `refreshes` follows with a read and `then` with
-  an action. Only the root declares them; children take `props`.
-- **After a write**, `then` clears the field only on an ok reply; a refusal keeps the
-  text and says what to do, in red under it ([after-a-write](recipes/after-a-write.md)).
-  A form of more fields is a sheet.
+  write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
+  the field only on an ok reply, as `afterAdd` does). Only the root declares them;
+  children take `props`.
 
 **The data module** answers each source with exactly its declared shape (an extra field
-fails it), reaches only what its `grants` name, and answers a failed fetch as data
-([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
-refused there; time comes as an argument.
+fails it), reaches only what its `grants` name, and answers a failed fetch as data. The
+clock and randomness are refused there; time is an argument.
 
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
@@ -132,7 +128,7 @@ type Item = Result<'loadItems'>[number];
 const FILE = 'app:/data/items.json';
 const load = (storage: Storage): Promise<Item[]> => storage.fs.readFile(FILE).then(
   (bytes) => JSON.parse(new TextDecoder().decode(bytes)),
-  (e) => { if (e.code === 'ENOENT') return []; throw e; }); // no file yet ('bake', the build, passes through)
+  (e) => { if (e.code === 'ENOENT') return []; throw e; }); // no file yet ('bake', the build, passes)
 const save = async (storage: Storage, items: Item[]) => {
   await storage.fs.atomicWriteFile(FILE, new TextEncoder().encode(JSON.stringify(items)));
   return { ok: true, error: '' };
@@ -170,39 +166,46 @@ test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "0 items left"
 ```
 
-`clock data` lands replies the next `expect` reads; `clock settle` ends transitions;
-`reload` relaunches on the same storage. Every step: [tests](recipes/tests.md).
+Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
 
 ## Pitfalls that cost the most
 
-1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`,
-   `height`) on a `button`, field or bar makes it your box. Emphasis is a part
-   (`RoundButton`, `AnswerTile`, `SummaryCard`: `content-design`) or
-   `buttonStyle="bordered-prominent"`.
-2. **`width="100%"` with padding overflows**, as in CSS. Drop the width;
-   give a `flex=1` field `min-width=0`.
-3. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
-   (or a search field, a `tablist`); anything else isn't in the iOS bar.
-4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
-5. **A screen no test ends on** is one `verify` never checks or captures: end a test
-   there instead of driving it by hand.
+1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`)
+   on a `button`, field or bar makes it your box. Emphasis is a part (above) or
+   `buttonStyle="filled"` on the screen's main action. A `button` with no
+   `buttonStyle` is the platform's: tinted text on iOS, so one that must read as a
+   button there says `"bordered"`, and Cancel or Edit says nothing.
+2. **A `header` holds a heading, one text after it (the subtitle) and buttons** (or a
+   search field, a `tablist`); anything else isn't in the iOS bar. A control fixed under
+   the bar goes with an inline title (`aria-level=2`); one that may scroll away, in the
+   list's first section.
+3. **`width="100%"` with padding overflows**, as in CSS: drop the width; a `flex=1` field
+   takes `min-width=0`.
 
 ## Look it up
 
-**A pattern** replaces the recipe beside it. A list, its pushed
-detail, a create sheet, a delete alert: `pattern list-detail` (in an app you
-have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
-`pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
+Start from the nearest pattern, a tested app with what the recipes teach. Open a recipe
+(`recipes/<name>.md`) only when writing what the pattern lacks.
 
-**A recipe**, [`recipes/<name>.md`](recipes/): `grouped-form`, `after-a-write`,
-`keyboard-and-focus`, `number-field` (`inputmode="decimal"`), `numeric-readout`,
-`money` (`formatNumber`), `dates-and-days`, `timers`, `timer-that-survives-relaunch`,
-`random-and-shuffle`, `symbols`, `chat-thread`, `persisted-setting` (`persist`),
-`files-and-grants` (SQLite too), `fetch-loading-error`, `responsive-columns`,
-`web-look` (wide screens), `tests`, `ios-driving`, `functions`.
+|Pattern|Already has|
+|---|---|
+|`one-screen`|a tracker: a total, buttons, a dated log in a file, a centred column|
+|`dashboard`|a summary, bars, dated rows, an add sheet that validates, two columns|
+|`list-detail`|a detail, an add sheet, a delete alert, a missing record, a file; split when wide|
+|`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
+|`rest`|its own server, polled; a signed-in person (`rest-backend`)|
 
-**Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property,
-function, part or how-to (`screen`, `scroll`, `plural`, `modal`);
-[contract-for-agents](contract-for-agents.md) and
-[agent-pitfalls](agent-pitfalls.md) by section; [reference](reference.md) for the data
-module's globals and native hatches; `<exact2>/apps/shelf`, a whole app with tests.
+|Not in a pattern|Read|
+|---|---|
+|a settings form|`grouped-form`|
+|a write that may be refused|`after-a-write`|
+|a count 1–99|`contract vocab stepper`|
+|SQLite, grants|`files-and-grants`|
+|another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
+
+The others are named for their topic (`timers`, `money`…).
+
+**A name in question:** `bun exact.mjs contract vocab` prints the card, or read `docs/card.md` (the same
+text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
+data, test. A lookup is for a name the card lacks (`contract vocab <name> …`) or a compile error;
+`docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.

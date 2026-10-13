@@ -113,6 +113,55 @@ private struct Shortcut {
 /// Filter only while looking up a shortcut: labels and ordinary menu selection
 /// (including Return on the highlighted item) retain AppKit's usual behavior.
 final class ShortcutMenu: NSMenu {
+    // LLP 1021 §5.3: AppKit can insert these after the app installs its bar.
+    // Keep its objects for restoration, suppressing presentation and equivalents.
+    private var removalIDs = Set<String>()
+    fileprivate func removeStandardItems(_ ids: Set<String>) {
+        removalIDs = ids
+        applyRemovals()
+    }
+    private var removed: [(NSMenuItem, Bool)] = []
+    override func update() {
+        super.update()
+        applyRemovals()
+    }
+    override func insertItem(_ newItem: NSMenuItem, at index: Int) {
+        super.insertItem(newItem, at: index)
+        applyRemovals()
+    }
+    private func applyRemovals() {
+        guard !removalIDs.isEmpty || !removed.isEmpty else { return }
+        for (item, hiddenEquivalent) in removed {
+            item.isHidden = false
+            item.allowsKeyEquivalentWhenHidden = hiddenEquivalent
+        }
+        removed.removeAll(keepingCapacity: true)
+        for item in items where !item.isHidden && !(item.target is ShortcutHost) {
+            guard let id = Self.standardID(item), removalIDs.contains(id) else { continue }
+            removed.append((item, item.allowsKeyEquivalentWhenHidden))
+            item.allowsKeyEquivalentWhenHidden = false
+            item.isHidden = true
+        }
+    }
+    private static func standardID(_ item: NSMenuItem) -> String? {
+        // AutoFill has no command of its own: AppKit identifies the submenu.
+        if item.identifier?.rawValue == "_NSMenuItemAutoFillIdentifier" { return "autofill" }
+        switch item.action.map(NSStringFromSelector) {
+        case "closeAll:": return "close-all"
+        case "toggleTabBar:": return "show-tab-bar"
+        case "toggleTabOverview:": return "show-all-tabs"
+        case "toggleFullScreen:": return "enter-full-screen"
+        case "performMiniaturize:": return "minimize"
+        case "performZoom:": return "zoom"
+        case "arrangeInFront:": return "bring-all-to-front"
+        case "selectPreviousTab:": return "show-previous-tab"
+        case "selectNextTab:": return "show-next-tab"
+        case "moveTabToNewWindow:": return "move-tab-to-new-window"
+        case "mergeAllWindows:": return "merge-all-windows"
+        default: return nil
+        }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // AppKit compares the typed character with the item's, so a key that
         // types no Latin one (ㅠ under Korean 2-Set) misses ⌘B: the item its
@@ -146,6 +195,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private weak var navigationMenu: NSMenu?
     private weak var editMenu: NSMenu?
     private weak var viewMenu: NSMenu?
+    private weak var windowMenu: NSMenu?
+    private weak var helpMenu: NSMenu?
     private var items: [UInt32: NSMenuItem] = [:]
     private let fileSeparator = NSMenuItem.separator()
     private let settingsSeparator = NSMenuItem.separator()
@@ -158,7 +209,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private var unbound: [(NSMenuItem, String, NSEvent.ModifierFlags)] = []
     init(presenter: Presenter) { self.presenter = presenter }
     func attach(_ file: ShortcutMenu, application: ShortcutMenu? = nil, navigation: ShortcutMenu? = nil,
-                edit: ShortcutMenu? = nil, view: ShortcutMenu? = nil) {
+                edit: ShortcutMenu? = nil, view: ShortcutMenu? = nil, window: ShortcutMenu? = nil, help: ShortcutMenu? = nil) {
         for item in Array(items.values) + [fileSeparator, settingsSeparator, editSeparator, viewSeparator] { item.menu?.removeItem(item) }
         replaced = []
         unbound = []
@@ -167,6 +218,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         navigationMenu = navigation
         editMenu = edit
         viewMenu = view
+        windowMenu = window
+        helpMenu = help
         sync()
     }
 
@@ -175,12 +228,12 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     }
     private func nodes() -> [NodeView] {
         guard let presenter else { return [] }
-        // Buttons that declare a chord, and the window toolbar's own.
-        let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.toolbar.items.keys)
+        // Buttons that declare a chord or menu, and the window toolbar's own.
+        let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.chrome.ids("menuPlacement")).union(presenter.toolbar.commands)
         // A tab a segment shows is shown, though its view is hidden (astra's code review).
         return ids.sorted().compactMap { presenter.views[$0] }.filter {
-            $0.isButton && $0.pressable && (presenter.segments.shown($0) ?? presenter.toolbar.visible($0))
-                && ($0.props["accessibilityKeyShortcuts"] != nil || presenter.toolbar.contains($0))
+            $0.isButton && $0.pressable && (presenter.segments.shown($0) ?? presenter.sidebar.shows($0) ?? presenter.toolbar.visible($0))
+                && ($0.props["accessibilityKeyShortcuts"] != nil || $0.props["menuPlacement"] != nil || presenter.toolbar.contains($0))
         }
     }
     func perform(_ event: NSEvent) -> Bool {
@@ -212,15 +265,19 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         var editItems: [NSMenuItem] = []
         var pastes: [NSMenuItem] = []
         var viewItems: [NSMenuItem] = []
+        var windowItems: [NSMenuItem] = []
+        var helpItems: [NSMenuItem] = []
         var live: Set<UInt32> = []
         var chords: [(NSMenuItem, Shortcut?)] = []
         for view in nodes() {
             // A platform alternative does not create a second menu item.
             let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
-            guard shortcut != nil || presenter?.toolbar.contains(view) == true else { continue }
+            let placement = view.props["menuPlacement"]
+            guard shortcut != nil || placement != nil || presenter?.toolbar.contains(view) == true else { continue }
             live.insert(view.id)
-            let item = items[view.id] ?? NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
+            let item = items[view.id] ?? AccessibleMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
             items[view.id] = item
+            (item as? AccessibleMenuItem)?.owner = view
             item.title = title(view)
             // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
             item.image = view.isButton ? view.face?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } : nil
@@ -231,7 +288,19 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             item.state = view.props["accessibilitySelected"] == "true" ? .on : .off
             // Placement follows declared semantics and standard chords, never
             // app names, test ids, or a second registry of commands.
-            if shortcut?.key == ",", shortcut?.modifiers == .command, applicationMenu != nil {
+            if let placement {
+                switch placement {
+                case "app": application.append(item)
+                case "edit":
+                    if shortcut?.isPasteVariant == true { pastes.append(item) }
+                    else { editItems.append(item) }
+                case "view": viewItems.append(item)
+                case "go": navigation.append(item)
+                case "window": windowItems.append(item)
+                case "help": helpItems.append(item)
+                default: file.append(item)
+                }
+            } else if shortcut?.key == ",", shortcut?.modifiers == .command, applicationMenu != nil {
                 item.title = "Settings…"
                 application.append(item)
             } else if navigationMenu != nil, let shortcut, isNavigation(view, shortcut: shortcut) {
@@ -260,10 +329,16 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             item.keyEquivalent = shortcut?.keyEquivalent ?? ""
             item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
         }
+        if let windowMenu { place(windowItems, in: windowMenu, at: 0) }
+        if let helpMenu { place(helpItems, in: helpMenu, at: 0) }
         if let editMenu { placeEdit(editItems, pastes: pastes, in: editMenu) }
         if let viewMenu {
             if !viewItems.isEmpty { viewItems.append(viewSeparator) } else { viewSeparator.menu?.removeItem(viewSeparator) }
             place(viewItems, in: viewMenu, at: 0)
+            // Show Sidebar is a window with a sidebar's (LLP 1115.002 D3).
+            for item in viewMenu.items where item.action == #selector(NSSplitViewController.toggleSidebar(_:)) {
+                item.isHidden = presenter?.sidebar.installed != true
+            }
         }
         // Reconcile only our own items. In particular, Open… and Close must
         // survive the next plan batch. Existing command objects stay stable.
@@ -288,6 +363,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                 + navigation.filter { item in !history.contains(where: { $0 === item }) }
             place(navigation, in: navigationMenu, at: own.count)
             navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigation.isEmpty && own.allSatisfy(\.isHidden)
+        }
+        let removals = Set((presenter?.root.subviews ?? []).compactMap { ($0 as? NodeView)?.props["menuRemove"] }
+            .flatMap { $0.split(whereSeparator: \.isWhitespace).map(String.init) })
+        for menu in [fileMenu, applicationMenu, navigationMenu, editMenu, viewMenu, windowMenu, helpMenu] {
+            (menu as? ShortcutMenu)?.removeStandardItems(removals)
         }
     }
     /// Edit's commands (studio diary R16), where Apple's HIG puts them: one

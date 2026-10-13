@@ -42,11 +42,11 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
     for role in [
         "",
-        "chevron.backward",
         "Search",
         "serach",
-        "bookmark.fill",
-        "checkmark-circle",
+        "bookmark.filled",
+        "trash.slash",
+        "checkmark-circle-slash",
     ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    image \"symbol:{role}\"\n"
@@ -393,6 +393,32 @@ fn a_button_is_chromes_button_whose_rows_an_author_overrides() {
 fn every_handler_kind_types_and_untyped_payloads_are_inferred() {
     let src = "component App\n  state textValue = \"\"\n  state boolValue = false\n  action noPayload\n  action stringPayload(value)\n    textValue = value\n  action boolPayload(value)\n    boolValue = value\n  view\n    column\n      button \"press\" press=noPayload\n      input change=stringPayload key=stringPayload hover=boolPayload focus=noPayload blur=noPayload submit=noPayload\n      iframe \"/guest\" load=noPayload message=stringPayload\n";
     contract::compile(src).unwrap();
+}
+
+#[test]
+fn bubbling_focus_handlers_accept_a_focus_event_without_making_a_wrapper_focusable() {
+    let src = "component App\n  action entered(e: FocusEvent)\n  view\n    column focusin=entered focusout=entered testId=\"wrapper\"\n      link href=\"https://example.com\" testId=\"inner\"\n        text \"Inside\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = r.kernel();
+    let wrapper = kernel
+        .node_by_key(kernel.find_by_test_id("wrapper")[0])
+        .unwrap();
+    assert_eq!(wrapper.props.get(exact_kernel::PropId::TabIndex), None);
+    assert_eq!(
+        r.handlers_of(wrapper.id)
+            .iter()
+            .map(|k| k.name())
+            .collect::<Vec<_>>(),
+        vec!["focusin", "focusout"]
+    );
 }
 
 #[test]
@@ -930,7 +956,11 @@ fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
     let src = r#"component App
   state away = 0
   state wide = 0
+  state first = some("old")
+  state within = 9
   action moved(x: number, y: number, e: ScrollEvent)
+    first = e.firstVisibleKey
+    within = e.firstVisibleOffset
     away = e.scrollHeight - e.scrollTop - e.clientHeight
     wide = e.scrollWidth - e.clientWidth + e.scrollLeft
   view
@@ -951,6 +981,8 @@ fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
         .unwrap();
     assert_eq!(r.slot("away"), Some(&Value::Number(120.0)));
     assert_eq!(r.slot("wide"), Some(&Value::Number(202.0)));
+    assert_eq!(r.slot("first"), Some(&Value::NONE));
+    assert_eq!(r.slot("within"), Some(&Value::Number(0.0)));
     r.dispatch(id, Event::scroll_payload("2,500,600,600,400,100").unwrap())
         .unwrap();
     assert_eq!(r.slot("away"), Some(&Value::Number(0.0)));

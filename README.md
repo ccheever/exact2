@@ -305,9 +305,9 @@ bun exact.mjs ios --run                     # an iOS Simulator
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
 `app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
 `apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
-[`docs/start-here.md`](docs/start-here.md), the one guide it must read, and lists the
-app's commands, including `bun exact.mjs contract …` for the compiler and `contract
-vocab` for every tag and property Contract accepts. Before any of
+[`docs/start-here.md`](docs/start-here.md), the one guide it must read, and at `bun
+exact.mjs help` for the commands, including `bun exact.mjs contract …` for the compiler
+and `contract vocab` for the card of what an app writes (`--all`: every tag and property Contract accepts). Before any of
 it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
 is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
@@ -373,7 +373,7 @@ component Todos
           text `${left} left` role="heading" testId="count"
         row
           input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 min-width=0
-          button press=add testId="add"
+          button press=add buttonStyle="filled" testId="add"
             text "Add"
       section
         each t in todos key=t.id
@@ -630,7 +630,10 @@ else here was admitted because a real app needed it.
   scroll- or drag-linked timelines ([LLP 1002](llp/1002-motion-v1.rfc.md),
   [LLP 1063](llp/1063-presence-and-layout-motion.rfc.md)).
 - **Lists.** Virtualized lists, vertical or horizontal, one level deep
-  ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)).
+  ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)). The rows of a vertical
+  `list` are its platform's: UIKit's separators and highlight, a table on the Mac, one
+  line between rows on the web, with nothing drawn by the app
+  ([LLP 1115.000](llp/1115.000-no-tells-on-every-host.rfc.md), D16).
 - **Controls and media.** Inputs, `select`, a WYSIWYG Markdown editor on the web, macOS,
   and iOS ([LLP 1045](llp/1045-markdown-editor.rfc.md)), images including animated
   ones, video ([LLP 1042](llp/1042-video.spec.md)), pickers for an app's declared file

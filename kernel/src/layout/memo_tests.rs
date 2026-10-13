@@ -514,3 +514,97 @@ fn a_replayed_row_s_columns_are_cut_by_its_recorded_height_bounds() {
         assert_eq!((third.x, third.y), (200.0, row as f32 * 80.0), "row {row}");
     }
 }
+
+/// A row replayed after the environment changes lays out under the new one:
+/// a percentage tree's handle names the tree, so its style is unchanged, and
+/// the replay would otherwise keep what it resolved to before.
+#[test]
+fn rows_follow_an_environment_their_calculations_read() {
+    crate::style::link_segments();
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::CreateView {
+            id: LIST,
+            node_type: NodeType::List,
+        },
+        style(
+            1,
+            &[(StyleId::Width, n(400.0)), (StyleId::Height, n(600.0))],
+        ),
+        style(
+            LIST,
+            &[(StyleId::Width, n(400.0)), (StyleId::Height, n(600.0))],
+        ),
+    ];
+    let mut rows = Vec::new();
+    for i in 0..3 {
+        let (row, inner) = (10 + 2 * i, 11 + 2 * i);
+        ops.push(Op::CreateView {
+            id: row,
+            node_type: NodeType::View,
+        });
+        ops.push(Op::CreateView {
+            id: inner,
+            node_type: NodeType::View,
+        });
+        ops.push(style(
+            row,
+            &[
+                (StyleId::Display, t("flex")),
+                (StyleId::FlexDirection, t("column")),
+                (
+                    StyleId::PaddingTop,
+                    t("min(10%, calc(0.1 * env(viewport-segment-width 1 0)))"),
+                ),
+            ],
+        ));
+        ops.push(style(inner, &[(StyleId::Height, n(20.0))]));
+        ops.push(Op::SetChildren {
+            id: row,
+            children: vec![inner],
+        });
+        rows.push(row);
+    }
+    ops.push(Op::SetChildren {
+        id: LIST,
+        children: rows.clone(),
+    });
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![LIST],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    let gap = |k: &mut Kernel, gap: f32| {
+        let half = (420.0 - gap) / 2.0;
+        k.set_segments(
+            2,
+            1,
+            vec![
+                crate::style::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: half,
+                    height: 800.0,
+                },
+                crate::style::Rect {
+                    x: half + gap,
+                    y: 0.0,
+                    width: half,
+                    height: 800.0,
+                },
+            ],
+        )
+        .unwrap();
+        k.compute_layout(1, OFFER).unwrap();
+        rows.iter()
+            .map(|&row| k.node(row + 1).unwrap().frame.y - k.node(row).unwrap().frame.y)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(gap(&mut k, 20.0), [20.0; 3], "min(40, 20)");
+    assert_eq!(gap(&mut k, 100.0), [16.0; 3], "min(40, 16)");
+}

@@ -93,6 +93,9 @@ pub struct Bar<'a> {
     pub frame: [f32; 4],
     /// What can be touched, each box in the bar's own points.
     pub targets: &'a [Target],
+    /// Each text it shows, by the node it stands for, with its box in the
+    /// bar's own points.
+    pub texts: Vec<(ViewId, Rect4)>,
 }
 
 /// Whether a node scrolls up and down by its own saying: its `overflow-y`,
@@ -376,12 +379,20 @@ impl<D: DataSource> Presenter<D> {
         let top = self.bars.top.as_ref().map(|s| Bar {
             frame: s.frame,
             targets: &s.layout.targets,
+            texts: s.layout.texts(),
         });
         let bottom = self.bars.bottom.as_ref().map(|s| Bar {
             frame: s.frame,
             targets: &s.layout.targets,
+            texts: s.layout.texts(),
         });
         (top, bottom)
+    }
+
+    /// Moved on whenever a bar's picture or frame changes.
+    pub(super) fn bars_revision(&mut self) -> u32 {
+        self.sync_bars();
+        self.bars.revision
     }
 
     /// What the top bar says, and the navigation bar.

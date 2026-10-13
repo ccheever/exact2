@@ -71,6 +71,9 @@ impl<D: DataSource> Runner<D> {
             ..self.env(&[], &[])
         };
         let mut u = Update::new(env, &self.sites, &mut ids);
+        u.fonts = Some(std::rc::Rc::new(std::cell::RefCell::new(
+            self.fonts.borrow().clone(),
+        )));
         let mounts = tree.foresee(&mut u).ok()?;
         (!mounts.is_empty()).then(|| Foreseen {
             mounts,

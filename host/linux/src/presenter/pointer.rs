@@ -91,8 +91,8 @@ impl<D: DataSource> Presenter<D> {
         buttons: u8,
     ) -> Option<PointerEvent> {
         let (ox, oy, _, _) = self.rect_of(view)?;
-        let (left, top, _, _) =
-            exact_kernel::svg::scene::content_box(&self.host.kernel().node(view)?);
+        let kernel = self.host.kernel();
+        let (left, top, _, _) = exact_kernel::svg::scene::content_box(kernel, &kernel.node(view)?);
         let (kind, id) = self.pointer_kind.wire();
         let mut record = PointerEvent::parse(&format!(
             "{},{},{},{},{kind},{id},{x},{y}",

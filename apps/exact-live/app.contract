@@ -585,7 +585,7 @@ component RundownPanel
               ActionButton(id="move-later", label="Later", op="later", target="", n=gallery.dragToken, shortcut="", command=command)
               ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="", command=command)
               ActionButton(id="cancel-move", label="Cancel", op="cancel", target="", n=gallery.dragToken, shortcut="Escape", command=command)
-        list id="rundown-arrange" reorderdrop=reorder virtualized=true testId="rundown-list" flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain"
+        list id="rundown-arrange" appearance="none" reorderdrop=reorder virtualized=true testId="rundown-list" flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain"
           each photo in rows key=photo.id
             column padding-left=16 padding-right=16 padding-top=6 padding-bottom=6 width="100%" box-sizing="border-box" gap=6
               button press=command("open", photo.id, 0) testId=`open-${photo.id}` width="100%" height=190 border-width=0 padding=0 border-radius=10 overflow="hidden" aria-label=`Open ${photo.title}`
@@ -615,7 +615,7 @@ component CrewPanel
           text "Crew notes" font-size=(18 * k) font-weight=600 color=theme.ink flex=1
           text (stress ? "SYNTHETIC LIVE" : "LOCAL SCENE") font-size=(9 * k) letter-spacing=1 color=theme.accent
         text (stress ? `${history.materialized} supplied · revision ${history.revision}` : "Maya, Jules, Ari, Noor & you") font-size=(11 * k) color=theme.muted
-      list virtualized=true scrollFollowEnd=true testId="crew-transcript" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color=theme.page
+      list appearance="none" virtualized=true scrollFollowEnd=true testId="crew-transcript" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color=theme.page
         each m in history.rows key=m.id
           column width="100%" box-sizing="border-box" padding-left=12 padding-right=12 padding-top=7 padding-bottom=7
             box swiperight=reply(m.id) testId=`crew-swipe-${m.id}` touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"

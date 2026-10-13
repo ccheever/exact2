@@ -114,17 +114,25 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
         "top span-all",
         "center",
         "right span-bottom",
+        "bottom span-left",
+        "top span-left",
+        "left",
+        "right",
+        "left span-top",
+        "left span-bottom",
+        "left span-all",
+        "right span-top",
+        "right span-all",
+        "top left",
+        "top right",
+        "bottom left",
+        "bottom right",
     ] {
         contract::compile(&popover(value)).unwrap_or_else(|e| panic!("{value}: {e}"));
     }
     for value in [
-        "left",
-        "right",
-        "right span-top",
         "span-bottom right",
-        "top left",
         "span-all top",
-        "top span-left",
         "block-start",
         "nonsense",
     ] {
@@ -140,6 +148,45 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
     assert!(error.contains("on a `popover` only"), "{error}");
 }
 
+#[test]
+fn popover_flip_fallbacks_compile_in_authored_order() {
+    let source = "component App\n  view\n    column popover=\"auto\" position-area=\"bottom span-right\" position-try-fallbacks=\"flip-block, flip-inline, flip-block flip-inline\"\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = runner.kernel().node(runner.roots()[0]).unwrap();
+    assert_eq!(
+        node.style.position_try_fallbacks.css(),
+        "flip-block, flip-inline, flip-block flip-inline"
+    );
+    for invalid in [
+        "flip-start",
+        "flip-block flip-block",
+        "flip-inline,",
+        "none, flip-block",
+        "--custom",
+    ] {
+        let bad = source.replace("flip-block, flip-inline, flip-block flip-inline", invalid);
+        let error = contract::compile(&bad).unwrap_err().to_string();
+        assert!(
+            error.contains("flip-block/flip-inline"),
+            "{invalid}: {error}"
+        );
+    }
+    let error = contract::compile(
+        &source.replace("popover=\"auto\" position-area=\"bottom span-right\" ", ""),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("on a `popover` only"), "{error}");
+}
+
 /// LLP 1115.000 D2: "written" is a fact each row carries, from where the
 /// compiler emits it to the node the kernel keeps. An attribute and a
 /// class's row are the author's; a tag's fixed row, a heading's style, a
@@ -148,8 +195,8 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
 #[test]
 fn a_node_knows_which_of_its_rows_its_author_wrote() {
     use exact_kernel::StyleId::{
-        Appearance, BackgroundColor, Display, FontSize, FontWeight, MarginBottom, MarginTop,
-        MinHeight, PaddingTop, TextColor, TintColor, Width,
+        Appearance, BackgroundColor, BorderWidthTop, Display, FontSize, FontWeight, MarginBottom,
+        MarginTop, MinHeight, PaddingTop, TextColor, TintColor, Width,
     };
     let src = r##"style Loud
   color="#ff0000"
@@ -229,9 +276,15 @@ component A
         ("link", TextColor, implied, "a link run's colour"),
         ("link-red", TextColor, written, "its author's colour"),
         ("rule", TextColor, implied, "`hr`'s separator colour"),
-        ("rule", MarginTop, implied, "and its margins"),
+        ("rule", BorderWidthTop, implied, "and its hairline edge"),
+        ("rule", MarginTop, unset, "no margin of its own"),
         ("rule-red", TextColor, written, "the author's on an `hr`"),
-        ("rule-red", MarginTop, implied, "keeps the tag's other rows"),
+        (
+            "rule-red",
+            BorderWidthTop,
+            implied,
+            "keeps the tag's other rows",
+        ),
         ("row", Display, implied, "a tag's fixed row"),
         ("editor", Appearance, implied, "a field never native"),
         ("editor-none", Appearance, written, "the same, written"),
@@ -254,4 +307,39 @@ component A
     r.act("flip", vec![]).unwrap();
     assert_eq!(row(&r, "choice", PaddingTop), written);
     assert_eq!(row(&r, "bound", Width), written);
+}
+
+/// CSS `user-select` (LLP 1115.000 D11.6): `text` is honoured where a host
+/// has text selection (the web, macOS, iOS) and is on the node that says
+/// it, not inherited on the wire, since each host resolves `auto` from what
+/// is above. The two values no native presenter has are refused by name.
+#[test]
+fn user_select_text_compiles_and_all_and_contain_are_refused_by_name() {
+    let source = "component App\n  view\n    column\n      column user-select=\"text\" testId=\"prose\"\n        text \"x\" testId=\"said\"\n      text \"y\" testId=\"unsaid\"\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let select = |id: &str| {
+        let key = runner.kernel().find_by_test_id(id)[0];
+        runner.kernel().node_by_key(key).unwrap().style.user_select
+    };
+    assert_eq!(select("prose"), exact_kernel::UserSelect::Text);
+    assert_eq!(select("said"), exact_kernel::UserSelect::Auto);
+    assert_eq!(select("unsaid"), exact_kernel::UserSelect::Auto);
+    for value in ["all", "contain"] {
+        let source = format!("component App\n  view\n    text \"x\" user-select=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("`user-select=\"{value}\"`")),
+            "{error}"
+        );
+        assert!(error.contains("auto, none and text"), "{error}");
+        assert!(!error.contains("unknown attribute"), "{error}");
+    }
 }

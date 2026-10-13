@@ -8,9 +8,7 @@ let echo = null, pop = null, draining = false;
 const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
-// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own tablist's tabs name with
-// aria-controls, in tab order (a tablist inside a route is that route's). Each tab's stack is its panel's
-// route rows, kept mounted; without tabs the stack is the root's own rows.
+// @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
 const tabsOf = nav => {
   for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
     if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
@@ -23,14 +21,9 @@ const tabsOf = nav => {
 };
 const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
-// @ref LLP 1116.004 D1 — a wide window adapts what the app left unsaid, in the projection alone (the router, the history
-// and each route's state are unchanged; a resize across WIDE projects again). A root tablist placed as the tabs recipe
-// writes it (a horizontal bar, a direct child of the root's flex column, in flow) is a sidebar (`data-exact-sidebar`; the
-// shell's rules draw it); one the app arranged (vertical, positioned, in a route) stays its own. A stack whose root route
-// is a list whose rows push (a pressable row drawing the disclosure, `symbol:forward-chevron`, as the iOS grouped list
-// reads it) shows that route as a column beside its top (`data-exact-split`), as UISplitViewController does, marking the
-// row whose press pushed the detail shown; a sheet stays a sheet. `navigationSplit` on the root route opts out ("none")
-// or names the column's width (320 unsaid), and splits a list the rule does not find.
+// @ref LLP 1116.004 D1, LLP 1116.007 D3.7 — WIDE projects an unsaid root tablist as a sidebar and a root disclosure
+// list beside its pushed detail, without changing routing or state. Authored arrangements stay; sheets stay sheets.
+// `navigationSplit` opts out ("none") or sets the column width (320 unsaid); the compiler opts out rows that push nowhere.
 const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches, splitRoots = new WeakSet(), rowOf = new WeakMap();
 const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
 const DISCLOSURE = ':is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"])';
@@ -45,7 +38,7 @@ function splitOf([r]) {
   splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
 }
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
-const unsaidBar = (nav, list) => list?.parentElement === nav && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
+const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
   || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
 /** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
  * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
@@ -73,7 +66,6 @@ function historyURL(path) {
   return url.href;
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
-
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws UIKit's system Back button
@@ -82,8 +74,8 @@ const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("n
 // `navigationBack` control, and none when that control is disabled. The button is the header's shadow
 // root's, before its slot, so the header's children stay the renderer's. Its words are the control's when
 // one is named elsewhere in the route (a symbol alone: the chevron alone), else the route beneath's title
-// while it is short, else "Back".
-const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
+// while it is short, else "Back" where the page is in English (`<html lang>`, LLP 1115.000 D4.14): the bar has that word in no other language, so there it is the chevron alone, named for assistive technology by the title beneath, and an app gives it words by naming a Back control.
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 // @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
 // (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
@@ -112,8 +104,8 @@ function appBarBack(nav, routes, index, split = false) {
     button = header.shadowRoot.querySelector("button");
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
-  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]);
-  const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
+  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
+  const label = control || (title && title.length <= 14) ? title : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || label || "Back" : !english ? title || "Back" : label === "Back" ? label : `Back to ${label}`;
   button.hidden = false; button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
@@ -141,7 +133,6 @@ function pressBack(nav) {
     return `its id="${control.id}" control is disabled, inert or not shown`;
   control.click();
 }
-
 function go(to, from, finish = () => {}) {
   const index = browserIndex();
   const current = index !== null && originIndex !== null ? index - originIndex : from;
@@ -149,7 +140,6 @@ function go(to, from, finish = () => {}) {
   echo = { index: to, finish };
   history.go(to - current);
 }
-
 function commit(op) {
   for (const id of op.removed) gone.add(id);
   if (first === null) {
@@ -179,7 +169,6 @@ function commit(op) {
     history.pushState(written[cursor], "", historyURL(op.url));
   }
 }
-
 function popped({ j, state, url }) {
   const entry = written[j];
   const owned = entry && state?.exact === j && state.id === entry.id && state.url === entry.url;
@@ -219,21 +208,18 @@ function popped({ j, state, url }) {
     }
   } finally { pop = null; }
 }
-
 function drain() {
   if (draining || echo !== null) return;
   draining = true;
   try { for (let item; queue.length && echo === null;) { item = queue.shift(); if (item.op) commit(item.op); else popped(item); } } finally { draining = false; }
 }
-
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
-
 export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
   connect(hostRoot, dispatch, journal, back = null, goTo = null) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
     // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width). Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
-    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true);
+    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true); document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — and a symbol, or an image in something pressable, is not dragged out as a picture (the shell's rule says so where an engine has the property)
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
@@ -360,10 +346,10 @@ export const navigation = {
       source: selected?.getAttribute("navigationSource") ?? null,
       closedby: selected?.getAttribute("closedby") ?? null,
       transition: { interactive: false, phase: "idle" },
+      popover: popoverObservation(root),
     };
   },
 };
-
 // @ref LLP 1047 D5 — springs, holds and drags (`motion-glue.js`) and virtualized collections
 // (`collection-glue.js`) are after-paint pieces, fetched when a batch first needs one. Until they arrive
 // their calls wait in order and replay then; before any use, a call with nothing to reconcile is dropped,
@@ -434,7 +420,6 @@ export function afterPaintPieces(load, o) {
     return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
   } };
 }
-
 // @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
 // `presence-glue.js`, fetched when a batch first carries either row. A batch
 // with an exit that arrives before the module does waits for it, and every
@@ -460,7 +445,6 @@ export function presenceLoader(load, root, apply, log) {
     },
   };
 }
-
 // The agent's browser clock (LLP 1012): author-paused animations keep their
 // own time (LLP 1055 D10); every other animation follows the runner's clock.
 export function animationClock(now, settled, synced) {
@@ -495,7 +479,6 @@ export function animationClock(now, settled, synced) {
     },
   };
 }
-
 // Synced animations (LLP 1055.002): a node whose `animation-timeline` is
 // `clock(Name)` carries `--exact-animation-clock:Name` (css.rs), and each CSS
 // animation on it joins that clock. A clock is one origin, set when an
@@ -556,7 +539,6 @@ export function animationClocks(root) {
     },
   };
 }
-
 // The eager scrollFollowEnd projection also belongs to this DOM controller.
 export function scrollFollowers(positionContexts) {
 // An explicit chat/log policy, not CSS overflow anchoring: keep the end
@@ -598,7 +580,6 @@ function followScroll(el, enabled) {
 }
   return { followedScrolls, followScroll, settleFollow, rememberScroll };
 }
-
 // A `markup="markdown"` text node's pieces, as the wasm emitted them
 // (`[text, scale, weight, flags, href, indent]`; flags italic 1, mono 2, strike 4,
 // link 8, quiet 16, hanging marker 32), built into spans with textContent — never HTML. Lives here because it
@@ -661,7 +642,6 @@ export function renderMarkup(el, json) {
     });
   }
 }
-
 // @ref LLP 1007 §6 — a page the dev server serves names its current generation, and its first boot is that one, not
 // app.wasm's older baked plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked (glue.js asks
 // when the wasm is up); without it, or with none in 5 s, the page boots the baked plan.
@@ -674,7 +654,6 @@ export function devFirst() {
     if (slot.provide) ask(); else slot.ready = ask;
   });
 }
-
 // Refusals and malformed request bodies are known while their enclosing batch is still applying. Deliver them on the
 // next microtask so their commits cannot re-enter `apply` halfway through that batch; in flight until then, so a wait
 // sees what their parse asks for next.
@@ -723,9 +702,7 @@ export function focusController({ready, elements, inert}) {
     } finally {pointerTarget = previous;}
   }};
 }
-
-// The focus, blur, selectText and setSelectionRange commands a batch carried, run once every
-// node and value in it is committed (a focus handler may dispatch an action).
+// Field and focus commands run after the batch's nodes and values commit; their handlers may dispatch an action.
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
     if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
@@ -738,7 +715,9 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
       continue;
     }
+    if (name === "removeAllRanges") { getSelection()?.removeAllRanges(); continue; }
     if (name === "setSelectionRange") { setFieldSelection([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
+    if (name === "setRangeText") { setFieldRangeText([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     const selectText = name === "selectText";
     if (args?.length !== 1 || typeof args[0] !== "string" || !ready) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
@@ -751,7 +730,6 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
     if (selectText && document.activeElement === el) el.select();
   }
 }
-
 // The nearest inert ancestor (a modal dialog ends the search: its subtree is live).
 export function inertAncestor(el) {
   for (let node = el; node; node = node.parentElement) {
@@ -760,7 +738,6 @@ export function inertAncestor(el) {
   }
   return null;
 }
-
 // The page's environment: the safe-area insets from a hidden probe's padding, and the
 // keyboard's height as the visual viewport reports it.
 let probe;
@@ -805,12 +782,12 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
-export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is the page's look (LLP 1115.000 D4 part B): set where its stylesheet is the neutral one, which says so on the root (`--exact-look`, neutral.css), so the wasm page's kernel shows the role table's neutral column. */
+let neutralLook; export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17) | ((neutralLook ??= getComputedStyle(document.documentElement).getPropertyValue("--exact-look").trim() === "neutral") ? 1 << 25 : 0); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
   addEventListener("resize", changed);
-}
+} /** A context menu's popover, opened for the `contextmenu` event `e` (LLP 1021 §5.1): `find` answers `[popover, source]` when there is still one to open. It opens once the press that asked is over: a Mac's `contextmenu` comes with the button still down, and Firefox and WebKit take the release that follows, outside a popover just opened, for its light dismiss, so the menu never showed there. And it opens at the pointer (LLP 1115.000 D4.7): where the press was is left on the popover (`--exact-context-x`, `-y`) until it closes, for the page's sheet to place it by (neutral.css; the shell's own reads neither). A menu key has no point, and its menu opens at its row. */ export function contextAt(e, find) { const open = () => { const [p, source] = find() ?? []; if (!p) return; if (e.clientX || e.clientY) { p.style.setProperty("--exact-context-x", `${e.clientX}px`); p.style.setProperty("--exact-context-y", `${e.clientY}px`); p.exactAt ??= (p.addEventListener("toggle", t => { if (t.newState === "closed") for (const axis of "xy") p.style.removeProperty(`--exact-context-${axis}`); }), true); } try { p.showPopover({ source }); } catch {} }, ends = ["pointerup", "pointercancel", "mouseup"], end = () => { for (const type of ends) removeEventListener(type, end, true); setTimeout(open); }; if (!e.buttons) return void setTimeout(open); for (const type of ends) addEventListener(type, end, true); }
 /** The grid a host without a fold makes for `prefer segments <cols>x<rows> [gap <points>]`: the viewport split evenly, the gap centred on each divider; refused by name. */
 export function evenSegments(width, height, cols, rows, gap = 0) {
   if (!(cols >= 1 && rows >= 1)) throw new Error(`segments ${cols}x${rows}: each count is at least 1`);
@@ -840,28 +817,27 @@ export function preferFold(request) {
   return foldEnv();
 }
 
-// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the page's media queries report them: bit 0
-// `prefers-reduced-motion: reduce`, bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`, bit 3
-// `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the system's, whatever the page's `color-scheme` (a
-// browser that does not know a feature answers no preference, as CSS does) — and the primary input's `pointer: coarse`
-// (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7), zero being a mouse. Told with each boot and resize.
+// @ref LLP 1061 D4, LLP 1069.000 D1: media facts ride each boot and resize.
+// Bits 0–4: motion, transparency, contrast (more|less), dark; 5–7: coarse|none pointer, no hover.
+const DISPLAY_MODES = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"];
 let preferenceQueries;
-// Bits 8–9 `color-gamut` (256 p3; 512 with it, rec2020) and bit 10 `dynamic-range: high` (LLP 1100 D9).
-const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 256], ["(color-gamut: rec2020)", 512], ["(dynamic-range: high)", 1024]].map(([q, bits]) => [matchMedia(q), bits]));
+// Bits 8–25 belong to foldBits(); 26–27 gamut, 28 HDR (LLP 1100 D9), 29–31 display-mode (LLP 1039 D7).
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 1 << 26], ["(color-gamut: rec2020)", 1 << 27], ["(dynamic-range: high)", 1 << 28], ...DISPLAY_MODES.map((v, i) => [`(display-mode: ${v})`, i << 29])].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
+export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7];
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
 // bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
 // showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
 // again at the window's `focus` and `blur`. Under the agent the drive's values stand in (visible, online, a share
-// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
+// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
 export function pageReporter(agent, platform = globalThis) {
   const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
   // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
   // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
   // size (`appRootFontSize`) is set over it and read past.
-  const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16);
+  const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16), displayScale = () => platform.devicePixelRatio > 0 ? platform.devicePixelRatio : 1; // @ref LLP 1115.000 D10.3 — the display's scale is the page's own `devicePixelRatio`, read under the agent too: the drive sets it through the browser's emulation (`prefer display-scale`), never by a substitute, and a zoom fires `resize`, which tells it again
   const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus() };
   const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16); };
   const prefer = (page) => {
@@ -870,14 +846,14 @@ export function pageReporter(agent, platform = globalThis) {
       const value = String(raw);
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
       else if ((name === "online" || name === "can-share" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
-      else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value);
+      else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value); else if (name === "display-scale" && Number(value) > 0 && Number.isFinite(Number(value))) { if (Math.abs(displayScale() - Number(value)) > 0.01) throw new Error(`prefer: display-scale: ${value}: the page's is ${displayScale()}, which the browser sets (its own emulation, or the device)`); }
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
     if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
-  return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
+  return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize(), "display-scale": displayScale() }), prefer, onChange, rootFontSize, displayScale };
 }
 
 // @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
@@ -1109,8 +1085,7 @@ export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInpu
 // A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's.
 export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
 export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
-// Its selection as host kinds 40 to 42 carry it, before its text: `start,end,direction,` in UTF-16 units, the DOM's; a
-// type with none (email, number) has its caret after its text, as the runner assumes.
+// Host kinds 40–42 carry UTF-16 start,end,direction before the field’s text.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
 // A radio's group as committed again (x2apps survey #2): the browser checked the radio and unchecked its group at once;
 // the action decides, and one that refuses snaps the group back. `bound` reads a radio's committed `checked` (undefined
@@ -1120,16 +1095,27 @@ export function settleRadios(el, bound) {
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
   for (const r of group) if (bound(r) === true && !r.checked) r.checked = true;
 }
-// `setSelectionRange("id", start, end[, direction])` (x2apps codeedit #2):
-// the field's own method, by its id, after the batch; it does not focus.
 export function setFieldSelection(el, args, log) {
   const [id, start, end, direction] = args ?? [];
   if (!el) return log(`setSelectionRange "${id}" refused: no live node with that id`);
-  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
+  if (el.matches("[data-exact-text], [data-exact-text] *")) {
+    const size = textSource(el).length, clamp = n => Math.min(size, Number(n) >>> 0), b = clamp(end), a = Math.min(clamp(start), b);
+    const [an, ao] = textPosition(el, a), [bn, bo] = textPosition(el, b);
+    getSelection().setBaseAndExtent(...(direction === "backward" ? [bn, bo, an, ao] : [an, ao, bn, bo])); return;
+  }
+  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field or text`);
   try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
 }
-// The wasm host's `input`, `change` and a text field's `select` (LLP 1069.001 D4; x2apps survey #2, codeedit #2),
-// `dispatch(kind, payload)`: a checkbox's checked state (25, 24), a radio's value (23, 1), a text field's selection
+// @ref LLP 1069.001, 2026-10-12 — HTML's range edit, plus one input to synchronize the app's value; no undo step.
+export function setFieldRangeText(el, args, log) {
+  const [id, text, ...range] = args;
+  if (!el) return log(`setRangeText "${id}" refused: no live node with that id`);
+  if (typeof el.setRangeText !== "function" || el.exactMarkup || el.getAttribute("markup") === "markdown") return log(`setRangeText "${id}" refused: not a plain text field`);
+  try { el.setRangeText(text, ...range); }
+  catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
+  el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
+}
+// LLP 1069.001 D4: `dispatch(kind, payload)` carries a checkbox (25, 24), radio (23, 1), field's selection
 // then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
 // decides, and one that refuses snaps a checkbox or a radio group back.
 export function controlEvent(el, kind, on, dispatch) {
@@ -1147,7 +1133,7 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? 40 : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+    dispatch(textField(el) ? (e.inputType === "insertReplacementText" ? 48 : 40) : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
   });
 }
 // D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
@@ -1251,7 +1237,6 @@ export function grantOrigins(memory) {
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
-
 const grantFNV = text => {
   let hash = 0xcbf29ce484222325n;
   for (const byte of new TextEncoder().encode(text)) {
@@ -1300,7 +1285,6 @@ const grantTupleValid = grant => {
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
   return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
-
 const pathTuple = (kind, target) => {
   const native = target.startsWith('\\\\?\\') ? target.slice(4) : target;
   if (/^[a-z]:[/\\]/i.test(native)) {
@@ -1360,7 +1344,6 @@ const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);
 };
-
 function validateGrantSet(set) {
   if (!set || set.version !== 1 || !Array.isArray(set.entries)
       || (set.error !== null && typeof set.error !== 'string') || !/^[0-9a-f]{16}$/.test(set.seal ?? '')) return false;
@@ -1375,7 +1358,6 @@ function validateGrantSet(set) {
   }
   return (!hasError || set.error !== null) && grantFNV(grantBody(set)) === set.seal;
 }
-
 const freezeGrantSet = set => {
   for (const entry of set.entries) {
     if (entry[2]) Object.freeze(entry[2]);
@@ -1384,30 +1366,24 @@ const freezeGrantSet = set => {
   Object.freeze(set.entries);
   return Object.freeze(set);
 };
-
 // The Rust parser is the only producer. Admission validates an incoming JSON value in full before making its authority
 // immutable; a prior validation is never a reason to trust a mutable or branded object.
 export function createGrantSet(value) {
   if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
   return freezeGrantSet(value);
 }
-
 function makeGrantSet(entries, error) {
   const set = { version: 1, entries, error, seal: '' };
   set.seal = grantFNV(grantBody(set));
   return freezeGrantSet(set);
 }
-
 export function grantError(set) {
   return validateGrantSet(set) ? set.error : INVALID_GRANTS;
 }
-
 export const rawGrantText = set => validateGrantSet(set) ? set.entries.map(entry => entry[1]).join('\n') : '';
 export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && set.entries.some(entry => entry[2]?.[0] === kind);
-
 const normalizedDeclaration = set => validateGrantSet(set)
   ? set.entries.map(([, source, grant, error]) => JSON.stringify([source, grant, error])) : [];
-
 // Module metadata carries the author's spelling while the bake carries the Rust parser's normalized set. Blank lines
 // and indentation have no bearing on activation; the normalized declarations do.
 export function sameGrantDeclaration(set, source) {
@@ -1416,7 +1392,6 @@ export function sameGrantDeclaration(set, source) {
   const parentLines = normalizedDeclaration(set), childLines = normalizedDeclaration(child);
   return parentLines.length === childLines.length && parentLines.every((line, index) => line === childLines[index]);
 }
-
 export function scopedGrantSet(parent, source) {
   if (source == null) return parent;
   if (!validateGrantSet(parent) || typeof source !== 'string') return makeGrantSet([], 'source scope exceeds the app\'s admitted grants');
@@ -1432,7 +1407,6 @@ export function scopedGrantSet(parent, source) {
   }
   return makeGrantSet(entries, errors.length ? `the app's grants did not parse: ${errors.join('; ')}` : null);
 }
-
 export function unionGrantSets(...sets) {
   if (sets.some(set => !validateGrantSet(set))) return makeGrantSet([], INVALID_GRANTS);
   const entries = [], seen = new Set();
@@ -1443,7 +1417,6 @@ export function unionGrantSets(...sets) {
   const error = sets.map(set => set.error).find(Boolean) ?? null;
   return makeGrantSet(entries, error);
 }
-
 const grantPort = url => Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
 export function admitsNetwork(set, value, operation = 'fetch') {
   if (grantError(set)) return false;
@@ -1456,12 +1429,10 @@ export function admitsNetwork(set, value, operation = 'fetch') {
     || kind === 'fetch' && grant[0] === 'fetch-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
   ));
 }
-
 export function admitsSecret(set, name) {
   return !String(name).startsWith('exact.kept.') && !grantError(set)
     && set.entries.some(([, , grant]) => grant?.[0] === 'secret-keep' && grant[1] === String(name));
 }
-
 function grantPathParts(path) {
   if (typeof path !== 'string') return null;
   const at = path.indexOf(':/');
@@ -1471,29 +1442,56 @@ function grantPathParts(path) {
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..' || part.includes('\0')) ? null : [namespace, ...parts];
 }
-
 export function coversPath(set, capability, path) {
   if (grantError(set)) return false;
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
 // grant admission: end
-
-// `selectionchange` on a `text` (the reader diary), on both web targets: its part of the page's selection, reported as
-// the text and its UTF-16 start and end in the element's own text when that part changes; nothing selected there is ""
-// at 0, 0. One document listener serves every such element.
+// Text selections use source UTF-16 offsets; a Markdown <br> represents one newline.
 const selectedTexts = new Map();
+function textSource(e) { return e.nodeType === Node.TEXT_NODE ? e.data : e.nodeName === 'BR' ? "\n" : [...e.childNodes].map(textSource).join(''); }
+function textPosition(e, offset) {
+  const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeType === Node.TEXT_NODE) { if (offset <= n.length) return [n, offset]; offset -= n.length; }
+    else if (n.nodeName === 'BR') { const i = [...n.parentNode.childNodes].indexOf(n); if (offset <= 1) return [n.parentNode, i + offset]; offset--; }
+  }
+  return [e, e.childNodes.length];
+}
+function selectionRects(e, a, b) {
+  if (a === b) return [];
+  const range = document.createRange(); range.setStart(...textPosition(e, a)); range.setEnd(...textPosition(e, b));
+  return [...range.getClientRects()].map(r => [r.x, r.y, r.width, r.height, false, false]);
+}
 export function onSelection(e, report) {
   if (!selectedTexts.size) document.addEventListener("selectionchange", () => {
     const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
     for (const [e, h] of selectedTexts) {
       if (!e.isConnected) { selectedTexts.delete(e); continue; }
-      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : p.toString().length; };
+      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : textSource(p.cloneContents()).length; };
       let a = 0, b = 0;
       if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
       if (a === b) a = b = 0;
-      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(e.textContent.slice(a, b), a, b); }
+      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(textSource(e).slice(a, b), a, b, selectionRects(e, a, b)); }
     }
   });
   selectedTexts.set(e, { report, a: 0, b: 0 });
+}
+// HTML's methods and source, shared by both web targets (LLP 1021 §4).
+export function popoverCommand(method, id, source, say) {
+  const pop = document.getElementById(id), anchor = source == null ? null : document.getElementById(source);
+  if (!pop?.hasAttribute("popover")) return say(`${method} "${id}" refused: no popover has that id`);
+  if (source != null && !anchor) return say(`${method} "${id}" refused: no source has id "${source}"`);
+  try { pop[method](method === "hidePopover" || !anchor ? undefined : { source: anchor }); }
+  catch (e) { say(`${method} "${id}" refused: ${e.name}`); }
+}
+const popoverSources = new WeakMap();
+globalThis.document?.addEventListener?.("beforetoggle", e => {
+  if (e.target.hasAttribute("popover") && e.newState === "open") popoverSources.set(e.target, e.source ?? null);
+}, true);
+function popoverObservation(root) {
+  const pop = [...root.querySelectorAll("[popover]:popover-open")].at(-1), source = pop && popoverSources.get(pop);
+  const id = el => globalThis.exact?.viewId?.(el) ?? Number(el.dataset.view);
+  return pop ? { phase: "open", popover: id(pop), source: source ? id(source) : null } : null;
 }

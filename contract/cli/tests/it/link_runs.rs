@@ -7,7 +7,7 @@
 
 use exact_kernel::style::roles::role;
 use exact_kernel::{Color, ColorValue, Kernel, StyleId, StyleMask};
-use exact_runner::{DataError, DataSource, Runner, Value};
+use exact_runner::{DataError, DataSource, Event, Runner, Value};
 
 struct NoData;
 
@@ -113,6 +113,75 @@ fn a_link_is_link_text_unless_its_author_colours_it() {
         ColorValue::Role(role("-exact-label").unwrap()),
         "a grouped list's row is the sheet's label colour, a link or not"
     );
+}
+
+/// An `href` that turns out empty is no link: the implied colour follows the
+/// value, as the kernel's `Props::link` does for every host. A package that
+/// writes `href=r.href` on every run of a paragraph (`@exact/reading`'s
+/// `Runs`) had all its prose link-blue; a run's colour now comes and goes
+/// with its target, and so does a block link's.
+#[test]
+fn an_href_that_turns_out_empty_is_not_a_link() {
+    let src = "component App
+  state to = \"\"
+  action go
+    to = to == \"\" ? \"/about\" : \"\"
+  view
+    column color=\"#336699\"
+      button press=go testId=\"go\"
+        text \"Go\"
+      text testId=\"p\"
+        text testId=\"run\" href=to \"about\"
+        text testId=\"none\" href=\"\" \" us\"
+        text testId=\"red\" href=to color=\"red\" \" red\"
+        text testId=\"made\" href=`/people/${to}` \" made\"
+      link testId=\"block\" href=to
+        text \"Call\" testId=\"words\"
+      link testId=\"blank\" href=\"\"
+        text \"Blank\"
+";
+    let mut r = boot(contract::compile(src).unwrap_or_else(|e| panic!("{e}")));
+    let link = ColorValue::Role(role("LinkText").unwrap());
+    let page = ColorValue::Fixed(Color::rgba(0x33, 0x66, 0x99, 255));
+    let red = ColorValue::Fixed(Color::rgba(255, 0, 0, 255));
+    let target = |r: &Runner<NoData>, id: &str| node(r, id).props.link().map(str::to_owned);
+    // Empty: the paragraph's colour, and no target for a host to read.
+    for id in ["run", "none", "block", "words", "blank"] {
+        assert_eq!(color(&r, id), page, "{id} is not a link");
+        assert_eq!(target(&r, id), None, "{id}");
+    }
+    assert!(
+        !node(&r, "run").style.mask.has(StyleId::TextColor),
+        "the row is unset, not a colour of its own"
+    );
+    assert_eq!(color(&r, "red"), red, "an authored colour wins");
+    assert_eq!(
+        color(&r, "made"),
+        link,
+        "a template's own words are a target"
+    );
+    // The `href` row is still there: the node is HTML's `<a>` with no
+    // `href`, laid out as one.
+    assert_eq!(
+        node(&r, "block").props.str(exact_kernel::PropId::Href),
+        Some("")
+    );
+    // A target arrives: the link's colour, with no author's row.
+    let go = node(&r, "go").id;
+    r.dispatch(go, Event::Press).unwrap();
+    for id in ["run", "block", "words"] {
+        assert_eq!(color(&r, id), link, "{id} is a link");
+    }
+    assert_eq!(target(&r, "run").as_deref(), Some("/about"));
+    assert!(!node(&r, "run").style.written.has(StyleId::TextColor));
+    assert_eq!(color(&r, "none"), page);
+    assert_eq!(color(&r, "red"), red);
+    // And leaves again.
+    r.dispatch(go, Event::Press).unwrap();
+    for id in ["run", "block", "words"] {
+        assert_eq!(color(&r, id), page, "{id} is no link again");
+    }
+    assert_eq!(color(&r, "red"), red);
 }
 
 /// A terminal entry's block link is as it was: what a terminal shows for a

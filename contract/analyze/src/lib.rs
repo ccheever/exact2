@@ -326,17 +326,22 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 59] = [
+pub const HANDLERS: [&str; 66] = [
     "press",
     "change",
     "input",
     // A file input's picker was dismissed (LLP 1069.002 D2).
     "cancel",
+    "close",
+    "toggle",
     "select",
     "hover",
     "focus",
     "blur",
+    "focusin",
+    "focusout",
     "key",
+    "keycapture",
     // DOM's `keyup`: the key's release, a modifier's included, bubbling as
     // `key` (keydown) does, with the same name and `KeyboardEvent` (#140).
     "keyup",
@@ -372,6 +377,9 @@ pub const HANDLERS: [&str; 59] = [
     "swiperight",
     "refresh",
     "scroll",
+    // DOM's `scrollend`: a scroll finished, its momentum or animation
+    // included; no payload.
+    "scrollend",
     "pan",
     // A pan that began ended (LLP 1057 §10.6 phase 2): release velocity.
     "panrelease",
@@ -408,6 +416,7 @@ pub const HANDLERS: [&str; 59] = [
     // The element resize event, ResizeObserver's: an action given to
     // `resize`, whose string is CSS's property ([`is_handler`]).
     "resize",
+    "intersect",
 ];
 
 /// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
@@ -425,7 +434,9 @@ pub fn is_handler(name: &str, value: &Expr) -> bool {
 /// may then offer its record ([`contract_types::event_record`]).
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "input" | "key" | "keyup" | "message" | "navigate" | "error" => Some("string"),
+        "change" | "input" | "key" | "keycapture" | "keyup" | "message" | "navigate" | "error" => {
+            Some("string")
+        }
         "timeupdate" | "durationchange" => Some("number"),
         "hover" | "fullscreenchange" => Some("bool"),
         "select" => Some("MarkdownSelection"),

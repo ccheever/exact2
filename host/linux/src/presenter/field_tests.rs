@@ -263,3 +263,208 @@ fn an_unbound_radio_group_keeps_its_own_exclusive_state() {
         "a checked radio fires nothing"
     );
 }
+
+#[test]
+fn set_range_text_command_preserves_selection_and_reports_one_input() {
+    let source = r#"component RangeEdit
+  state body = "a😀bc"
+  state count = 0
+  state caret = ""
+  action edited(v: string, e: InputEvent)
+    body = v
+    count = count + 1
+    caret = `${e.selectionStart}-${e.selectionEnd}|${e.inputType}`
+  action replace
+    setSelectionRange("editor", 3, 5)
+    setRangeText("editor", "XY", 1, 3)
+  view
+    column
+      textarea id="editor" testId="editor" value=body input=edited
+      button "Replace" testId="replace" press=replace
+      text `${body}|${count}|${caret}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let button = id(&p, "replace");
+    p.tap(button).unwrap();
+    p.run_commands(NoData::default);
+    assert_eq!(text(&p, "result"), "aXYbc|1|1-5|insertReplacementText");
+    assert_eq!(p.field_text(id(&p, "editor")), "aXYbc");
+    assert_ne!(
+        p.edited,
+        Some(id(&p, "editor")),
+        "a script is no pending user change"
+    );
+}
+
+#[test]
+fn set_range_text_modes_utf16_sanitization_and_refusals() {
+    let mut p = boot();
+    let editor = id(&p, "editor");
+    for (mode, a, b) in [
+        ("preserve", 1, 4),
+        ("select", 1, 2),
+        ("start", 1, 1),
+        ("end", 2, 2),
+    ] {
+        p.type_text(editor, "a😀bc").unwrap();
+        p.set_selection_range(&[Value::str("editor"), Value::Number(3.), Value::Number(5.)]);
+        p.set_range_text(&[
+            Value::str("editor"),
+            Value::str("X"),
+            Value::Number(1.),
+            Value::Number(3.),
+            Value::str(mode),
+        ]);
+        assert_eq!(p.field_text(editor), "aXbc");
+        assert_eq!(
+            p.field_selection(editor),
+            FieldSelection {
+                start: a,
+                end: b,
+                direction: SelectionDirection::None
+            }
+        );
+    }
+    p.type_text(editor, "see @a.ts now").unwrap();
+    p.set_range_text(&[
+        Value::str("editor"),
+        Value::str("a\r\nb"),
+        Value::Number(4.),
+        Value::Number(9.),
+        Value::str("end"),
+    ]);
+    assert_eq!(p.field_text(editor), "see a\nb now");
+    assert_eq!(p.field_selection(editor), FieldSelection::caret(8));
+    let old = p.field_text(editor);
+    for args in [
+        vec![
+            Value::str("editor"),
+            Value::str("bad"),
+            Value::Number(9.),
+            Value::Number(4.),
+        ],
+        vec![
+            Value::str("editor"),
+            Value::str("bad"),
+            Value::Number(0.),
+            Value::Number(1.),
+            Value::str("invalid"),
+        ],
+        vec![Value::str("red"), Value::str("bad")],
+        vec![Value::str("missing"), Value::str("bad")],
+    ] {
+        p.set_range_text(&args);
+    }
+    assert_eq!(p.field_text(editor), old);
+    assert_eq!(
+        p.host()
+            .runner()
+            .journal()
+            .filter(|l| l.contains("setRangeText") && l.contains("refused"))
+            .count(),
+        4
+    );
+    p.set_selection_range(&[Value::str("editor"), Value::Number(0.), Value::Number(3.)]);
+    p.set_range_text(&[Value::str("editor"), Value::str("See")]);
+    assert_eq!(p.field_text(editor), "See a\nb now");
+}
+
+#[test]
+fn range_replacement_url_sanitization_and_select_events_match_chrome() {
+    let source = r#"component RangeEdit
+  state log = ""
+  state heard = ""
+  action edited(v: string, e: InputEvent)
+    heard = `${v}|${e.selectionStart}-${e.selectionEnd}`
+    log = `${log}input `
+  action selected(e: InputEvent)
+    log = `${log}select `
+  view
+    column
+      input type="url" id="url" testId="url" input=edited select=selected
+      text log testId="log"
+      text heard testId="heard"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let url = id(&p, "url");
+    p.set_range_text(&[
+        Value::str("url"),
+        Value::str(" \t\nhttps://example.com\r\u{c} "),
+        Value::Number(0.),
+        Value::Number(0.),
+    ]);
+    assert_eq!(p.field_text(url), "https://example.com");
+    assert_eq!(text(&p, "heard"), "https://example.com|0-0");
+    assert_eq!(text(&p, "log"), "input ", "unchanged caret emits no select");
+    p.set_range_text(&[
+        Value::str("url"),
+        Value::str("!"),
+        Value::Number(2.),
+        Value::Number(2.),
+        Value::str("end"),
+    ]);
+    assert_eq!(text(&p, "log"), "input input ");
+    p.run_commands(NoData::default);
+    assert_eq!(text(&p, "log"), "input input select ");
+    p.set_range_text(&[
+        Value::str("url"),
+        Value::str("\u{a0}x\u{a0}"),
+        Value::Number(0.),
+        Value::Number(999.),
+        Value::str("end"),
+    ]);
+    assert_eq!(p.field_text(url), "\u{a0}x\u{a0}");
+}
+
+#[test]
+fn range_replacement_select_tasks_observe_both_commands() {
+    let source = r#"component RangeEdit
+  state body = ""
+  state log = ""
+  action edited(v: string)
+    body = v
+    log = `${log}input:${v} `
+  action selected(e: InputEvent)
+    log = `${log}select:${e.value} `
+  action replace
+    setRangeText("editor", "A", 0, 0, "end")
+    setRangeText("editor", "B", 1, 1, "end")
+  view
+    column
+      textarea id="editor" testId="editor" value=body input=edited select=selected
+      button "Replace" testId="replace" press=replace
+      text log testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let button = id(&p, "replace");
+    p.tap(button).unwrap();
+    p.run_commands(NoData::default);
+    assert_eq!(text(&p, "log"), "input:A input:AB select:AB select:AB ");
+}

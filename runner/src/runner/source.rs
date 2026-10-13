@@ -656,8 +656,10 @@ pub enum DataError {
     Interface(String),
     /// A failure whose class `failure(x)` names (LLP 1109 D3): a request's
     /// or a storage call's that a TypeScript module let through, or an
-    /// answer its seam found outside its shape. Otherwise `Unavailable`; a
-    /// Rust source's own error crosses its seam as that.
+    /// answer its seam found outside its shape, or a runtime TypeScript
+    /// throw (`error`). The resource fails or the send ends unsent; the
+    /// asking commit stands (LLP 1027.000 D3). Bake and replacement
+    /// validation still refuse it. A Rust source's own error is `Unavailable`.
     Failed(crate::failure::FailureCode, String),
 }
 

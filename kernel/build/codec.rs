@@ -2,7 +2,7 @@ const CODEC_PATHS: [&str; 6] = [
     "../vendor/taffy/src/style/grid.rs",
     "build.rs",
     "build/codec.rs",
-    "src/style/compare.rs",
+    "src/style/calc/wire.rs",
     "src/style/grid.rs",
     "src/wire/codec.rs",
 ];
@@ -220,6 +220,11 @@ fn parse_codec(s: &str) -> Codec {
             path: "crate::timeline::AnimationRange",
             variant: "AnimationRange",
             error: "BadAnimationRange",
+        },
+        "position-try-fallbacks" => Codec::CssValue {
+            path: "crate::position_try::PositionTryFallbacks",
+            variant: "PositionTryFallbacks",
+            error: "BadPositionTryFallbacks",
         },
         "timeline-scope" => Codec::CssValue {
             path: "crate::timeline::TimelineScope",
@@ -576,6 +581,149 @@ pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]
         ));
     }
     w.push_str("];\n");
+}
+/// `lengths` (LLP 1115.000 D10.3): the named lengths, each written
+/// `-exact-<name>`. What one resolves to is `style/relative.rs`'s.
+pub fn write_lengths(w: &mut String, lengths: &[String]) {
+    assert!(
+        lengths.iter().all(|name| !name.is_empty()
+            && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')),
+        "schema: a named length is kebab-case"
+    );
+    w.push_str(&format!(
+        "/// Every named length, without `-exact-` (LLP 1115.000 D10.3).\npub const NAMED_LENGTHS: &[&str] = &{lengths:?};\n"
+    ));
+}
+/// A `metrics` cell: a number (px on a length row), or the CSS text of the
+/// row it is written on.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum MetricCell {
+    Number(f64),
+    Text(String),
+}
+/// A `metrics` row: the name, the kind, then iOS's, the Mac's, the web's and
+/// the neutral look's value; or the name, the kind and the neutral look's
+/// value alone.
+type MetricRow = Vec<MetricCell>;
+/// One cell of a `kind` row as the generated value. A `style` cell is a
+/// number or CSS text; a `length` is px as a number, or `em` or `rem` as
+/// text; a `number` is a number. `unset` is no value in that column.
+fn metric_cell(name: &str, kind: &str, cell: &MetricCell) -> String {
+    match (kind, cell) {
+        (_, MetricCell::Number(n)) => {
+            assert!(n.is_finite(), "schema: metric {name} is a finite number");
+            format!("MetricValue::Number({n:?})")
+        }
+        (_, MetricCell::Text(text)) if text == "unset" => "MetricValue::Text(\"unset\")".into(),
+        ("style", MetricCell::Text(text)) => {
+            assert!(
+                !text.is_empty() && text.trim() == text && text.parse::<f64>().is_err(),
+                "schema: metric {name}: a number is written as one; text is CSS, `unset` for no row"
+            );
+            format!("MetricValue::Text({text:?})")
+        }
+        ("length", MetricCell::Text(text)) => {
+            let (unit, variant) = if text.ends_with("rem") {
+                ("rem", "Rem")
+            } else {
+                ("em", "Em")
+            };
+            let n: f64 = text
+                .strip_suffix(unit)
+                .and_then(|n| n.parse().ok())
+                .filter(|n: &f64| n.is_finite())
+                .unwrap_or_else(|| panic!("schema: metric {name}: a length is px as a number, or `<n>em` or `<n>rem`: {text}"));
+            format!("MetricValue::{variant}({n:?})")
+        }
+        _ => panic!("schema: metric {name}: a {kind} is a number"),
+    }
+}
+/// `metrics` (LLP 1115.002 D6, D8.4; LLP 1115.000 D17): the looks Exact
+/// draws itself, a column a platform or a look. What reads one is
+/// `style/metrics.rs`. `taken` is every other name written `-exact-<name>`,
+/// which a metric's must not be.
+fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
+    w.push_str(concat!(
+        "/// What a metric is in one column (LLP 1115.002 D6; LLP 1115.000 D17).\n",
+        "#[derive(Debug, Clone, Copy, PartialEq)]\n",
+        "pub enum MetricValue {\n",
+        "    /// Pixels, or a row's bare number.\n    Number(f64),\n",
+        "    /// A `style` row's CSS text; `unset` in any kind: no value in this column.\n    Text(&'static str),\n",
+        "    /// A length in `em`: this many of the control's font size.\n    Em(f64),\n",
+        "    /// A length in `rem`: this many of the root font size.\n    Rem(f64),\n",
+        "}\n",
+        "/// What a metric's values are, which says what reads it.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub enum MetricKind {\n",
+        "    /// The CSS value of the style row it is written on: a compiler's sheet names it `-exact-<name>`.\n    Style,\n",
+        "    /// A length code reads (`style::metrics::length`).\n    Length,\n",
+        "    /// A ratio, a weight or an opacity code reads (`style::metrics::number`).\n    Number,\n",
+        "}\n",
+        "/// One metric of a look Exact draws itself: its value in each column.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq)]\n",
+        "pub struct Metric {\n",
+        "    /// The metric's name, without `-exact-`.\n    pub name: &'static str,\n",
+        "    /// What its values are.\n    pub kind: MetricKind,\n",
+        "    /// On iOS.\n    pub ios: MetricValue,\n",
+        "    /// On the Mac.\n    pub macos: MetricValue,\n",
+        "    /// In the web's first look, which a process reads until its host says otherwise.\n    pub web: MetricValue,\n",
+        "    /// In the neutral look: the web's, and a host's that paints its own controls.\n    pub neutral: MetricValue,\n",
+        "}\n",
+    ));
+    let mut names = BTreeSet::new();
+    let mut rows = String::new();
+    let mut ids = String::new();
+    for (index, row) in metrics.iter().enumerate() {
+        let (MetricCell::Text(name), MetricCell::Text(kind)) = (&row[0], &row[1]) else {
+            panic!("schema: a metric row opens with its name and its kind");
+        };
+        assert!(
+            name.starts_with(|c: char| c.is_ascii_lowercase())
+                && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-'),
+            "schema: a metric's name is kebab-case: {name}"
+        );
+        assert!(
+            names.insert(name.as_str()) && !taken.contains(&name.as_str()),
+            "schema: metric {name} is already an `-exact-` name"
+        );
+        let variant = match kind.as_str() {
+            "style" => "Style",
+            "length" => "Length",
+            "number" => "Number",
+            _ => panic!("schema: metric {name}: a kind is style, length or number"),
+        };
+        let unset = MetricCell::Text("unset".into());
+        let [ios, macos, web, neutral] = match &row[2..] {
+            [neutral] => [&unset, &unset, &unset, neutral],
+            [ios, macos, web, neutral] => [ios, macos, web, neutral],
+            _ => panic!("schema: metric {name}: a row is its name, its kind and a value for iOS, the Mac, the web and the neutral look, or for the neutral look alone"),
+        }
+        .map(|cell| metric_cell(name, kind, cell));
+        rows.push_str(&format!(
+            "Metric {{ name: {name:?}, kind: MetricKind::{variant}, ios: {ios}, macos: {macos}, web: {web}, neutral: {neutral} }},\n"
+        ));
+        if kind != "style" {
+            ids.push_str(&format!(
+                "    /// `{name}`.\n    pub const {}: usize = {index};\n",
+                name.replace('-', "_").to_ascii_uppercase()
+            ));
+        }
+    }
+    w.push_str("/// Every metric, in the schema's order.\npub const METRICS: &[Metric] = &[\n");
+    w.push_str(&rows);
+    w.push_str("];\n");
+    w.push_str("/// Where each metric that code reads is in [`METRICS`], by its name.\npub mod metric {\n");
+    w.push_str(&ids);
+    w.push_str("}\n");
+}
+/// Every name the schema has that is written `-exact-<name>` and is no
+/// metric: a named length, a text style, a colour role.
+fn exact_names(schema: &Schema) -> Vec<&str> {
+    let lengths = schema.lengths.iter().map(String::as_str);
+    let styles = schema.text_styles.iter().map(|s| s.0.as_str());
+    let roles = schema.colors.iter().map(|c| c[0].as_str());
+    lengths.chain(styles).chain(roles).collect()
 }
 /// `#rrggbb` or `#rrggbbaa` as RGBA.
 fn hex_rgba(hex: &str) -> [u8; 4] {

@@ -1,0 +1,28 @@
+// Intersection visibility, LLP 1005: threshold zero in the nearest scroller.
+// linux: native observation remains owed in the web-first slice
+component Intersect
+  state calls = 0
+  state seen = "none"
+  state shown = true
+  state offset = 0
+  action observe(name: string, e: IntersectionObserverEntry)
+    calls = calls + 1
+    seen = `${name}:${e.isIntersecting}:${e.intersectionRatio}`
+  action down
+    offset = 150
+  action up
+    offset = 0
+  action toggle
+    shown = not shown
+  view
+    column gap=8 padding=10
+      scroll id="port" testId="port" width=200 height=100 scrollTop=offset
+        column
+          box height=150
+          when shown
+            box testId="target" width=100 height=50 intersect=observe("row") intersect-margin="20px"
+          box height=250
+      button "down" testId="down" press=down
+      button "up" testId="up" press=up
+      button "toggle" testId="toggle" press=toggle
+      text `${calls} ${seen}` testId="seen"

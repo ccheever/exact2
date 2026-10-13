@@ -36,6 +36,7 @@ struct HeaderTitle: Equatable {
     struct Glyph: Equatable { let symbol: String?; let text: String }
     /// The element a tap on the title presses.
     let tap: UInt32?
+    let accessibilityDisabled: Bool
 
     init?(header: NodeView, heading: NodeView, tap: NodeView?, apart: [NodeView]) {
         // The heading's ancestors below the header, innermost first.
@@ -119,6 +120,7 @@ struct HeaderTitle: Equatable {
         self.spoken = spoken ?? subtitle
         self.rtl = rtl
         self.tap = tap?.id
+        accessibilityDisabled = tap?.ariaUnavailable == true
     }
 
     /// Whether the title is a drawn title view rather than UIKit's own
@@ -131,7 +133,7 @@ struct HeaderTitle: Equatable {
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0):\(accessibilityDisabled)" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
@@ -169,6 +171,7 @@ extension HeaderShape {
     /// header, or one the web does not show either (`display: none`), is
     /// not the bar's to judge.
     func presents(_ node: NodeView) -> Bool {
+        if authored.contains(where: { node === $0 || node.isDescendant(of: $0) }) { return true }
         guard node === header || node.isDescendant(of: header) else { return true }
         var at: UIView? = node
         while let view = at, view !== header.superview {
@@ -281,7 +284,7 @@ final class HeaderTitleView: UIControl {
         isEnabled = group.tap != nil
         accessibilityLabel = text
         accessibilityValue = group.subtitle.isEmpty ? nil : group.spoken
-        accessibilityTraits = group.tap == nil ? .header : .button
+        accessibilityTraits = group.tap == nil ? .header : group.accessibilityDisabled ? [.button, .notEnabled] : .button
         accessibilityIdentifier = group.testId
         invalidateIntrinsicContentSize()
     }
@@ -332,8 +335,9 @@ extension NavigationHost {
     /// (`NavigationRules.bar`, LLP 1115.000 D5.2): its header, the system
     /// Back alone, or nothing.
     func bar(of route: NodeView, pushed: Bool) -> NavigationRules.Bar {
-        NavigationRules.bar(asked: route.props["navigationBar"], header: HeaderShape.bar(of: route) != nil,
-                            pushed: pushed, backButton: Self.barHasBackButton)
+        if HeaderRule.keepsAuthoredHeader(route) { return .hidden }
+        return NavigationRules.bar(asked: route.props["navigationBar"], header: HeaderShape.bar(of: route) != nil,
+                                   pushed: pushed, backButton: Self.barHasBackButton)
     }
 
     /// Whether a route shows the bar: its stack's routes may, and the route

@@ -1300,7 +1300,7 @@
       "kind": "str",
       "measure": true,
       "styleable": true,
-      "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`; absent, `bordered`. Only on a `button` whose appearance is `auto`."
+      "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`. Absent, the platform's own default (LLP 1115.000 D15): plain tinted text on iOS, a push button on macOS, `bordered` on the web and the hosts that paint their own. Only on a `button` whose appearance is `auto`."
     },
     {
       "id": 218,
@@ -1512,6 +1512,30 @@
       "name": "navigationBar",
       "kind": "str",
       "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
+    },
+    {
+      "id": 260,
+      "name": "intersectMargin",
+      "kind": "str",
+      "_comment": "LLP 1005 intersection visibility: literal IntersectionObserver rootMargin, default 0px; an observer option, not CSS layout."
+    },
+    {
+      "id": 261,
+      "name": "menuPlacement",
+      "kind": "str",
+      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal app|file|edit|view|go|window|help. AppKit projects the button into that menu, with or without a chord; other hosts retain the ordinary button. No layout effect."
+    },
+    {
+      "id": 263,
+      "name": "menuRemove",
+      "kind": "str",
+      "_comment": "@ref LLP 1021 §5.3: root -exact-menu-remove, a literal whitespace-separated list of standard AppKit menu item ids. Other hosts ignore this presentation hint."
+    },
+    {
+      "id": 264,
+      "name": "listRows",
+      "kind": "bool",
+      "_comment": "@ref LLP 1115.000 D16: the list's rows are cells. Set by Contract, never written by an author, on every `list` whose rows go down the page and whose `appearance` is unsaid (`contract/lower/src/cells.rs` is the rule): each child of the list is then a row its platform draws as its own list's, with the platform's separator and press. Absent on `appearance=\"none\"` (the author's rows), on the grouped form (`listStyle`), and on a list that lays its items out sideways."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1537,7 +1561,20 @@
         "top",
         "top span-all",
         "center",
-        "right span-bottom"
+        "right span-bottom",
+        "bottom span-left",
+        "top span-left",
+        "left",
+        "right",
+        "left span-top",
+        "left span-bottom",
+        "left span-all",
+        "right span-top",
+        "right span-all",
+        "top left",
+        "top right",
+        "bottom left",
+        "bottom right"
       ],
       "default": "none"
     },
@@ -1914,6 +1951,14 @@
       ],
       "default": "normal"
     },
+    "TextWrapStyle": {
+      "_comment": "@ref LLP 1001 §6: CSS text-wrap-style, auto or balance; balance is bounded to six lines by the native breakers.",
+      "values": [
+        "auto",
+        "balance"
+      ],
+      "default": "auto"
+    },
     "FontVariantNumeric": {
       "_comment": "@ref LLP 1053 §0 G4: the keywords of the font_variant_numeric row, not a wire enum. normal is 0; tabular-nums is bit 0 (1), the OpenType tnum feature of the chosen face. Other CSS values are refused by name.",
       "values": [
@@ -2058,8 +2103,14 @@
         "none",
         "hidden",
         "solid",
-        "inset"
+        "inset",
+        "dotted",
+        "dashed"
       ],
+      "default": "none"
+    },
+    "ColumnRuleStyle": {
+      "values": ["none", "hidden", "solid"],
       "default": "none"
     },
     "WrapFlow": {
@@ -2163,7 +2214,8 @@
     "Appearance": {
       "values": [
         "auto",
-        "none"
+        "none",
+        "textfield"
       ],
       "default": "auto"
     },
@@ -2303,7 +2355,7 @@
       "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> ± <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y — LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a min()/max()/clamp() with a zero f32 and then its tree — style/compare.rs, LLP 1001 §2) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8×16 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 §4) — cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> ± <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y — LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a calculation after a zero f32 (style/calc/wire.rs, LLP 1116 D5): a tree node by node, each a u8 tag (0 a value, 1 env(), 2 a sum, 3 a product, 4 a negation, 5 an inversion, 6 min, 7 max, 8 clamp), then a value’s f64 and u8 unit (0 a number, 1 a percentage, 2 px, 3-12 a viewport unit); an env()’s u8 (0-3 a safe-area-inset edge, 8-13 a viewport-segment variable followed by its two u8 indices); a list’s u8 count and its children; clamp’s three presence bytes, each before its argument; or, for a value whose env() has a fallback, tag 9 and the text as written as a string (u32 length, UTF-8), which the row reads once substituted (CSS Environment Variables 1 §3). A tree is admitted only when it is within CSS Values 4 §10.8’s limits, its own §10.13 text parses back to it and no other kind holds it; a text only when the row reads it as one) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. refusesPercent marks a dimension row CSS gives no percentage (column-width): a percentage there, alone or inside a calculation, is refused when set and a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8×16 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 §4) — cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
   "styles": [
     {
       "bit": 0,
@@ -3374,7 +3426,7 @@
       "bit": 141,
       "field": "background_image",
       "codec": "background-image",
-      "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or one linear-gradient()/radial-gradient(). Painted over background-color, clipped as the background is.",
+      "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or up to four linear/radial/conic/repeating-linear gradients; linear/radial stops take px or %. Painted over background-color, clipped as the background is.",
       "cold": true
     },
     {
@@ -3414,7 +3466,7 @@
       "terminal": "admit",
       "codec": "enum:Appearance",
       "layout": true,
-      "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS."
+      "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS. @ref LLP 1116.007 D4: `textfield` is CSS UI 4's compat keyword on a text field: the platform's field without the stepping control an `input type=\"number\"` draws (the web's spin buttons); on any other text field it is `auto`, and lowering refuses it elsewhere."
     },
     {
       "bit": 147,
@@ -3628,7 +3680,7 @@
       "bit": 176,
       "field": "position_area",
       "codec": "enum:PositionArea",
-      "_comment": "@ref LLP 1021 D2, §5: CSS `position-area` on an invoker-anchored popover (its implicit anchor is the invoker; no anchor-name, position-anchor or position-try). A subset: none (D2's rule, top-left at the invoker's bottom-left), the top and bottom rows spanning right or all, center, and `right span-bottom` (a submenu: top-left at the invoker's top-right); `top` is `top span-all`, as in CSS. Clamped to the viewport; never flipped.",
+      "_comment": "@ref LLP 1021 D2: CSS physical position-area on an invoker-anchored popover. Painted Apple layers align the margin box and apply authored flip fallbacks; centred axes use CSS anchor-center overflow alignment. No anchor-name or position-anchor.",
       "cold": true
     },
     {
@@ -3674,6 +3726,7 @@
       "field": "column_width",
       "codec": "dimension",
       "admitsAuto": true,
+      "refusesPercent": true,
       "layout": true,
       "default": "auto",
       "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 §3.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
@@ -3695,8 +3748,8 @@
     {
       "bit": 184,
       "field": "column_rule_style",
-      "codec": "enum:BorderStyle",
-      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler.",
+      "codec": "enum:ColumnRuleStyle",
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`; only none, hidden and solid are painted by every host, including bound values.",
       "cold": true
     },
     {
@@ -3838,6 +3891,29 @@
       "terminal": "admit",
       "codec": "enum:OutlineStyle",
       "_comment": "@ref LLP 1104 D6: CSS `outline-style` on a text field (`input`, `textarea`). An unset mask is the platform's focus ring, as the UA sheet's `:focus-visible` outline is the browser's: the ring the OS draws for a native field, the one Exact draws for a bare one. `none` takes it off on every host, and Tab order and accessibility stay. A terminal draws no ring. Not inherited, as in CSS."
+    },
+    {
+      "bit": 204,
+      "field": "text_wrap_style",
+      "codec": "enum:TextWrapStyle",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1001 §6: CSS text-wrap-style: balance, also the admitted text-wrap shorthand. Every host balances the lines before the first forced break, up to six, as Chromium does: the web's browser, Apple's and Linux's breakers over their own opportunities (exact_textflow::balanced_width)."
+    },
+    {
+      "bit": 205,
+      "field": "placeholder_color",
+      "codec": "color",
+      "default": 0,
+      "_comment": "@ref LLP 1104 D3: CSS `::placeholder { color }`, written as Contract's `::placeholder` part block on a text field (`input` of a text type, `textarea`). An unset mask (the default, 0, is never read) is the platform's own placeholder colour: UIKit's placeholderText, AppKit's placeholderTextColor, the browser's UA `::placeholder`. Its own alpha is the only opacity. Not inherited (it is the field's own part)."
+    },
+    {
+      "bit": 206,
+      "field": "position_try_fallbacks",
+      "codec": "position-try-fallbacks",
+      "cold": true,
+      "_comment": "@ref LLP 1021 D2: ordered comma-separated flip-block/flip-inline attempts on invoker popovers; none by default. Each attempt transforms the base area and margins. flip-start and named rules remain refused in this slice."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -4259,7 +4335,218 @@
       "M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8ZM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z"
     ]
   ],
+  "symbolAliases": [
+    [
+      "chevron-left",
+      "back"
+    ],
+    [
+      "arrow-back-ios",
+      "back"
+    ],
+    [
+      "navigate-before",
+      "back"
+    ],
+    [
+      "x",
+      "close"
+    ],
+    [
+      "edit-square",
+      "compose"
+    ],
+    [
+      "content-copy",
+      "copy"
+    ],
+    [
+      "more-horiz",
+      "ellipsis"
+    ],
+    [
+      "more-horizontal",
+      "ellipsis"
+    ],
+    [
+      "delete-outline",
+      "delete"
+    ],
+    [
+      "person-add",
+      "follow"
+    ],
+    [
+      "forum",
+      "messages"
+    ],
+    [
+      "notification",
+      "notifications"
+    ],
+    [
+      "gear",
+      "settings"
+    ],
+    [
+      "cog",
+      "settings"
+    ],
+    [
+      "description",
+      "document"
+    ],
+    [
+      "check-circle-outline",
+      "select"
+    ],
+    [
+      "check-circle-fill",
+      "select-fill"
+    ],
+    [
+      "menu",
+      "reorder"
+    ],
+    [
+      "hamburger",
+      "reorder"
+    ],
+    [
+      "tune",
+      "filter"
+    ],
+    [
+      "favorite-border",
+      "heart"
+    ],
+    [
+      "favorite",
+      "heart-fill"
+    ],
+    [
+      "ios-share",
+      "share"
+    ],
+    [
+      "image",
+      "photo"
+    ],
+    [
+      "play-arrow",
+      "play-fill"
+    ],
+    [
+      "volume-up",
+      "speaker"
+    ],
+    [
+      "volume-off",
+      "speaker-mute"
+    ],
+    [
+      "volume-mute",
+      "speaker-mute"
+    ],
+    [
+      "push-pin",
+      "pin"
+    ],
+    [
+      "check",
+      "checkmark"
+    ],
+    [
+      "done",
+      "checkmark"
+    ],
+    [
+      "chevron-right",
+      "forward-chevron"
+    ],
+    [
+      "arrow-forward-ios",
+      "forward-chevron"
+    ],
+    [
+      "navigate-next",
+      "forward-chevron"
+    ],
+    [
+      "alternate-email",
+      "at"
+    ],
+    [
+      "hash",
+      "hashtag"
+    ],
+    [
+      "logout",
+      "sign-out"
+    ],
+    [
+      "log-out",
+      "sign-out"
+    ],
+    [
+      "calendar-today",
+      "calendar"
+    ],
+    [
+      "menu-book",
+      "book"
+    ],
+    [
+      "lock-outline",
+      "lock"
+    ],
+    [
+      "radio-button-unchecked",
+      "circle"
+    ],
+    [
+      "remove-circle-outline",
+      "minus-circle"
+    ],
+    [
+      "edit",
+      "pencil"
+    ],
+    [
+      "graphic-eq",
+      "waveform"
+    ],
+    [
+      "info-outline",
+      "info"
+    ],
+    [
+      "photo-camera",
+      "camera"
+    ],
+    [
+      "star-border",
+      "star"
+    ],
+    [
+      "star-outline",
+      "star"
+    ],
+    [
+      "remove",
+      "minus"
+    ],
+    [
+      "bar-chart",
+      "chart"
+    ],
+    [
+      "auto-awesome",
+      "sparkles"
+    ]
+  ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
+  "_symbolAliases": "[alias, role]. Other spellings a `symbol:` source answers to, beside the role itself and Apple's name for it (dots, dashes and underscores are one: `chevron.right`, `chevron-right`, `chevron_right`): Material's names and the common guesses that mean this role and no other. An alias keeps the distinctions the roles make (filled or outlined, enclosed or bare): a name for a symbol no role draws is no alias and is refused. Never a role, never another spelling's key; `sf/` stays reserved. The lowering rewrites a source to its role, so the plan and every host see the role, and warns (`lower-symbol-alias`) once per use (LLP 1116.007 D3.1).",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
   "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",
   "buttonStyles": [
@@ -5116,6 +5403,156 @@
       "#0b66d6",
       "#68a5fe"
     ]
+  ],
+  "_lengths": "@ref LLP 1115.000 D10.3: the named lengths, written `-exact-<name>` on any length row but a font's size and line height. `hairline` is one device pixel: 1 px over the display's scale, which the host reports as it reports the root font size (`Kernel::set_display_scale`: UIKit's `displayScale`, AppKit's `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a point a Linux, Android or Windows shell draws at) and which is 1 until a host says. The row holds the pixels the kernel resolves at the end of each commit, so every reader and the wire see pixels; the web's JS target, which keeps no kernel, writes `var(--exact-hairline)`, which the page's sheet keeps at one device pixel.",
+  "lengths": [
+    "hairline"
+  ],
+  "_metrics": "@ref LLP 1115.002 D6, D8.4; LLP 1115.000 D17: the looks Exact draws itself, as data. Each row: a name, its kind, then its value in each column: iOS, the Mac, the web's first look (LLP 1116 D1) and the neutral look (LLP 1115.000 D4 part B). A row of three cells (a name, a kind, a value) is the neutral look's own and has no value in the other columns. A process reads one column (`style::metrics::column`): its platform's where an Apple host said it (`set_column`); the neutral look's where the process shows that look's colours (`style::roles::set_column`, the one switch for the look's colours and its metrics), which the web does and a host that paints its own controls with no platform toolkit under it, the Linux desktop and Windows (D17); else the web's first look, which Android's reader reads until LLP 1115.001 gives its controls Material's, and the web under `EXACT_WEB_LOOK=apple`. The kinds say what reads a row. `style`: the CSS value of the style row it is written on: a number of px (or a row's bare number: a weight, a flex factor), a keyword (`auto`, `right`, `mini`, `flex-start`), a percentage, a text style or a colour role by its own name, a `light-dark()` pair, or `unset` for no row at all in that column. A sheet the compiler writes names it as `-exact-<name>` and holds no number of its own; an author never writes one (lowering refuses the name, and the runner refuses it on a row its author wrote). The kernel reads the name as its value in the process's column when the row is set, so every reader and the wire see the value; the web's JS target, which keeps no kernel, reads a bound name in its build's column when it compiles (`host/web-js/src/style.rs`, `metric_map`). `length`: px as a number, or text in `em` (of the control's font size) or `rem` (of the root's). `number`: a ratio, a weight or an opacity. Code reads these two (`style::metrics::length`, `number`, by the row's place in `generated::metric`): the kernel's size for a control no host measured (`ControlKind::default_size`), and the Linux painter's shapes (`host/linux/src/paint/look.rs`). `unset` in any kind is no value in that column. A state is a row of its own, named for it: `-coarse` under a coarse pointer, `-hover`, `-pressed`. The `grouped-` rows are the grouped list's (`list appearance=\"auto\"`, `contract/lower/src/grouped.rs`): iOS's and the web's first look's are the sheet's values as they were (UIKit's measured list, LLP 1084 §2; the three surfaces still its literal pairs), the Mac's are SwiftUI's grouped `Form` measured on macOS 27.0.1 (LLP 1115.002 §1 and stage 4's as-built; `~/audits/exact2-no-tells-2026-10-11/mac-structure/` and `mac-grouped/`; a section is at most 744 wide there: the form's 704 and the card's 20 either side), and the neutral look's are the first look's on the neutral grounds with a surface's corners. The rows after them are the neutral look's metrics, which the web's sheet (`host/web/neutral.css`, and the shell's where the look keeps it) writes as CSS and `host/web/tests/neutral-look.test.mjs` holds to this table: a control is `control-height` tall with `control-radius` corners and a `control-line` edge; a surface that floats or groups has `surface-radius` corners; a mark (a checkbox, a radio, a switch's and a range's height) is `mark-size`; elevation is flat, `raised-` or `modal-`. Four of them have a value in every column, because the kernel sizes a control by them in every look: `mark-size`, `switch-width`, `switch-height` and `range-height` are Chrome's bare controls outside the neutral look (the switch WebKit's box), what an Apple host shows before it reports its own and Android's reader paints.",
+  "metrics": [
+    ["grouped-ground", "style", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background"],
+    ["grouped-ground-plain", "style", "light-dark(#ffffff, #000000)", "-exact-background", "light-dark(#ffffff, #000000)", "-exact-background"],
+    ["grouped-card-fill", "style", "light-dark(#ffffff, #1c1c1e)", "light-dark(#f9f9f9, #272727)", "light-dark(#ffffff, #1c1c1e)", "light-dark(#ffffff, #1c1c1e)"],
+    ["grouped-separator", "style", "-exact-separator", "light-dark(#efefef, #333333)", "-exact-separator", "-exact-separator"],
+    ["grouped-header-color", "style", "-exact-secondary-label", "-exact-label", "-exact-secondary-label", "-exact-secondary-label"],
+    ["grouped-symbol-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
+    ["grouped-checkmark-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
+    ["grouped-destructive-color", "style", "-exact-system-red", "-exact-label", "-exact-system-red", "-exact-system-red"],
+    ["grouped-section-width", "style", "unset", "100%", "unset", "unset"],
+    ["grouped-section-max-width", "style", "unset", 744, "unset", "unset"],
+    ["grouped-section-margin-inline", "style", "unset", "auto", "unset", "unset"],
+    ["grouped-section-top", "style", 17.33, 10, 17.33, 17.33],
+    ["grouped-section-top-first", "style", 35.33, 20, 35.33, 35.33],
+    ["grouped-section-top-header", "style", 0, 30, 0, 0],
+    ["grouped-section-top-header-first", "style", 0, 20, 0, 0],
+    ["grouped-section-bottom", "style", 17.33, 10, 17.33, 17.33],
+    ["grouped-section-bottom-footer", "style", 0, 30, 0, 0],
+    ["grouped-label-inset", "style", 32, 30, 32, 32],
+    ["grouped-label-inset-edge", "style", 16, 30, 16, 16],
+    ["grouped-label-inset-plain", "style", 16, 10, 16, 16],
+    ["grouped-header-padding-top", "style", 10, 0, 10, 10],
+    ["grouped-header-padding-bottom", "style", 10, 10, 10, 10],
+    ["grouped-footer-padding-top", "style", 8, 10, 8, 8],
+    ["grouped-footer-padding-bottom", "style", 6, 1, 6, 6],
+    ["grouped-footer-font", "style", "-exact-footnote", "-exact-subheadline", "-exact-footnote", "-exact-footnote"],
+    ["grouped-header-weight", "style", 600, 700, 600, 600],
+    ["grouped-card-inset", "style", 16, 20, 16, 16],
+    ["grouped-card-radius", "style", 26, 10, 26, 12],
+    ["grouped-edge-inset", "style", "unset", 20, "unset", "unset"],
+    ["grouped-edge-radius", "style", "unset", 10, "unset", "unset"],
+    ["grouped-edge-width", "style", 1, 0, 1, 1],
+    ["grouped-separator-gap", "style", "unset", 1, "unset", "unset"],
+    ["grouped-row-min-height", "style", 52, 16, 52, 52],
+    ["grouped-row-padding-block", "style", "unset", 10, "unset", "unset"],
+    ["grouped-row-inset", "style", 16, 10, 16, 16],
+    ["grouped-row-inset-symbol", "style", 56, 10, 56, 56],
+    ["grouped-row-margin-end", "style", "unset", 10, "unset", "unset"],
+    ["grouped-row-padding-end", "style", 16, 0, 16, 16],
+    ["grouped-row-gap", "style", 8, 8, 8, 8],
+    ["grouped-stack-min-height", "style", 22, 16, 22, 22],
+    ["grouped-stack-padding-block", "style", 15, 10, 15, 15],
+    ["grouped-lines-padding-block", "style", 15, 0, 15, 15],
+    ["grouped-stack-gap", "style", 0, 3, 0, 0],
+    ["grouped-subtitle-gap", "style", "unset", 3, "unset", "unset"],
+    ["grouped-symbol-width", "style", 24, 16, 24, 24],
+    ["grouped-symbol-height", "style", 20, 16, 20, 20],
+    ["grouped-symbol-pull", "style", -40, 0, -40, -40],
+    ["grouped-symbol-gap", "style", 8, 2, 8, 8],
+    ["grouped-chevron-width", "style", 14, 9, 14, 14],
+    ["grouped-chevron-height", "style", 14, 11, 14, 14],
+    ["grouped-checkmark-width", "style", 19, 13, 19, 19],
+    ["grouped-checkmark-height", "style", 17, 13, 17, 17],
+    ["grouped-accessory-weight", "style", 600, 700, 600, 600],
+    ["grouped-switch-size", "style", "unset", "mini", "unset", "unset"],
+    ["grouped-field-align", "style", "unset", "right", "unset", "unset"],
+    ["grouped-button-appearance", "style", "none", "auto", "none", "none"],
+    ["grouped-button-min-height", "style", 52, 24, 52, 52],
+    ["grouped-button-padding-start", "style", "unset", 12, "unset", "unset"],
+    ["grouped-button-title-grow", "style", 1, 0, 1, 1],
+    ["grouped-button-margin-block", "style", "unset", 10, "unset", "unset"],
+    ["grouped-button-align", "style", "unset", "flex-start", "unset", "unset"],
+    ["control-height", "length", "2.25em"],
+    ["control-height-coarse", "length", 44],
+    ["control-radius", "length", 8],
+    ["control-line", "length", 1],
+    ["control-line-alpha", "number", 0.45],
+    ["control-line-height", "number", 1.25],
+    ["control-weight", "number", 500],
+    ["focus-ring-offset", "length", 2],
+    ["surface-radius", "length", 12],
+    ["mark-radius", "length", 4],
+    ["mark-size", "length", 13, 13, 13, "1.25em"],
+    ["mark-size-coarse", "length", "1.5em"],
+    ["mark-dot", "number", 0.38],
+    ["mark-disabled-alpha", "number", 0.5],
+    ["button-padding-block", "length", "0.4375em"],
+    ["button-padding-inline", "length", "1em"],
+    ["button-padding-inline-symbol", "length", "0.5em"],
+    ["button-tint-alpha", "number", 0.12],
+    ["button-hover-tinted", "number", 0.08],
+    ["button-hover-filled", "number", 0.12],
+    ["button-pressed-tinted", "number", 0.16],
+    ["button-pressed-filled", "number", 0.22],
+    ["field-padding-block", "length", "0.4375em"],
+    ["field-padding-block-coarse", "length", "0.6875em"],
+    ["field-padding-inline", "length", "0.75em"],
+    ["select-line-height", "number", 2.125],
+    ["select-line-height-coarse", "number", 2.625],
+    ["select-padding-end", "length", "2em"],
+    ["file-padding-block", "length", "0.375em"],
+    ["file-gap", "length", "0.75em"],
+    ["switch-width", "length", 38, 38, 38, "2.25em"],
+    ["switch-height", "length", 22, 22, 22, "1.25em"],
+    ["switch-thumb", "number", 0.76],
+    ["range-height", "length", 16, 16, 16, "1.25em"],
+    ["range-track", "length", 4],
+    ["range-thumb-line", "length", 2],
+    ["segmented-padding", "length", 3],
+    ["segment-radius", "length", 6],
+    ["segment-padding-block", "length", "0.25em"],
+    ["segment-padding-inline", "length", "0.75em"],
+    ["segment-height-coarse", "length", 38],
+    ["segment-shadow-y", "length", 1],
+    ["segment-shadow-blur", "length", 2],
+    ["segment-shadow-alpha", "number", 0.16],
+    ["tabbar-height", "length", "3.5rem"],
+    ["tabbar-padding-block", "length", "0.375rem"],
+    ["tabbar-padding-inline", "length", "0.5rem"],
+    ["tabbar-font", "length", "0.75rem"],
+    ["tabbar-symbol", "length", "1.375rem"],
+    ["tabbar-gap", "length", 2],
+    ["sidebar-row-height", "length", "2.25rem"],
+    ["sidebar-symbol", "length", "1.125em"],
+    ["sidebar-gap", "length", 10],
+    ["back-padding-start", "length", "0.375em"],
+    ["back-padding-end", "length", "0.625em"],
+    ["alert-width", "length", "26rem"],
+    ["alert-margin", "length", 32],
+    ["alert-padding", "length", 24],
+    ["alert-gap", "length", 8],
+    ["alert-action-gap", "length", 12],
+    ["alert-title", "length", "1.125em"],
+    ["alert-message-gap", "length", 16],
+    ["menu-min-width", "length", "11rem"],
+    ["menu-max-width", "length", "20rem"],
+    ["menu-margin", "length", 16],
+    ["menu-padding", "length", 4],
+    ["menu-offset", "length", 4],
+    ["menu-row-height", "length", "2em"],
+    ["menu-row-padding-block", "length", "0.25em"],
+    ["menu-row-padding-inline", "length", "0.625em"],
+    ["menu-row-gap", "length", "0.5em"],
+    ["sheet-wide", "length", 900],
+    ["sheet-width", "length", "35rem"],
+    ["sheet-max-height", "length", "45rem"],
+    ["sheet-margin", "length", 64],
+    ["raised-shadow-y", "length", 4],
+    ["raised-shadow-blur", "length", 12],
+    ["raised-shadow-alpha", "number", 0.12],
+    ["modal-shadow-y", "length", 16],
+    ["modal-shadow-blur", "length", 48],
+    ["modal-shadow-alpha", "number", 0.24],
+    ["scrim-alpha", "number", 0.4]
   ],
   "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
   "textStyleBodies": [

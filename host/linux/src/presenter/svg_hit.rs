@@ -33,7 +33,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = kernel.node(b.id).filter(|n| n.node_type == NodeType::Svg) else {
             return box_hit();
         };
-        let content = exact_kernel::svg::scene::content_box(&node);
+        let content = exact_kernel::svg::scene::content_box(kernel, &node);
         let scene = crate::paint::resolve_with(
             kernel,
             &node,

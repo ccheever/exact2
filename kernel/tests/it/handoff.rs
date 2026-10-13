@@ -203,3 +203,57 @@ fn two_leavers_of_one_name_pair_nothing() {
     .unwrap();
     assert!(open(&mut k, true).handoffs.is_empty());
 }
+
+#[test]
+fn continuation_pairs_only_final_arrivals_across_phases() {
+    for duplicate in [false, true] {
+        let mut k = kernel(true);
+        let from = k.node(3).unwrap().key;
+        let epoch = k.epoch();
+        let history = k.receipts().count();
+        k.begin_document_commit(9, 2, &[Op::DestroyView { id: 2 }], None)
+            .unwrap();
+        assert_eq!((k.epoch(), k.receipts().count()), (epoch, history));
+        k.continue_document_commit(&[view(4), name(4, "photo")])
+            .unwrap();
+        if duplicate {
+            k.continue_document_commit(&[view(5), name(5, "photo")])
+                .unwrap();
+        }
+        // A late style/prop change is the final arrival, not its first phase.
+        k.continue_document_commit(&[curve(4, "1s linear")])
+            .unwrap();
+        assert_eq!((k.epoch(), k.receipts().count()), (epoch, history));
+        let r = k.finish_document_commit().unwrap();
+        assert_eq!((r.root_id, r.batch, r.epoch), (9, 2, epoch + 1));
+        assert_eq!(k.receipts().count(), history + 1);
+        assert_eq!(k.receipts().last().as_ref(), Some(&r));
+        if duplicate {
+            assert!(r.handoffs.is_empty());
+        } else {
+            assert_eq!(r.handoffs.len(), 1);
+            assert_eq!(r.handoffs[0].from, from);
+            assert_eq!(r.handoffs[0].to, k.node(4).unwrap().key);
+            assert_eq!(r.handoffs[0].transition.duration, 1.0);
+        }
+    }
+}
+
+#[test]
+fn continuation_does_not_hand_off_an_intermediate_creation() {
+    let mut k = kernel(true);
+    k.begin_document_commit(
+        0,
+        2,
+        &[view(7), name(7, "other"), curve(7, "1s linear")],
+        None,
+    )
+    .unwrap();
+    let intermediate = k.node(7).unwrap().key;
+    k.continue_document_commit(&[Op::DestroyView { id: 7 }, view(8), name(8, "other")])
+        .unwrap();
+    let r = k.finish_document_commit().unwrap();
+    assert_eq!(r.created, vec![k.node(8).unwrap().key]);
+    assert_eq!(r.destroyed, vec![intermediate]);
+    assert!(r.handoffs.is_empty());
+}

@@ -11,6 +11,33 @@ impl DataSource for Empty {
     }
 }
 
+#[test]
+fn incoming_notification_locations_use_the_route_corpus_through_the_web_abi() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../route/tests/corpus.json")).unwrap();
+    let mut bridge = exact_web::abi::Bridge::<caltrain_data::Caltrain>::new();
+    for section in ["location_of", "canonical"] {
+        for case in corpus[section].as_array().unwrap() {
+            let input = case["input"].as_str().unwrap();
+            let href = if section == "canonical" {
+                format!(
+                    "https://x{}{input}",
+                    if input.starts_with('/') { "" } else { "/" }
+                )
+            } else {
+                input.to_owned()
+            };
+            let count = bridge.input_write(href.as_bytes());
+            let len = bridge.location_of(count);
+            assert_eq!(
+                std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap(),
+                case["expected"].as_str().unwrap(),
+                "{href}"
+            );
+        }
+    }
+}
+
 /// Real Chrome sweep, run by `bun scripts/smoke.mjs web`: the wasm host.
 #[test]
 #[ignore = "real Chrome sweep: bun scripts/smoke.mjs web"]
@@ -111,6 +138,26 @@ fn sweep(js: bool) {
     )
     .unwrap();
     std::fs::write(dir.join("no-navigate.plan"), no_handler.encode()).unwrap();
+    // No `notfound` route and a navigation root: the compiler writes the route and its screen, so a
+    // location no route matches keeps its URL and says so (LLP 1116.009 D2).
+    let no_notfound = contract::bake(
+        contract::compile(
+            "routes nav\n  home \"/\"\n    item \"/item/:id\"\n\ncomponent App\n  state backPresses = 0\n  state navigatePresses = 0\n  action back\n    backPresses = backPresses + 1\n    nav = back(nav)\n  action follow(url: string)\n    navigatePresses = navigatePresses + 1\n    nav = go(nav, url)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" navigate=follow testId=\"navigation\" width=\"100%\" height=\"100%\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          when e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          when e.name == \"item\"\n            text e.params.id testId=\"item\"\n",
+        )
+        .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-notfound.plan"), no_notfound.encode()).unwrap();
+    // No navigation root either: no screen to draw "Page not found" in, so a launch no route matches opens
+    // the first screen, journaled, on every target.
+    let no_root = contract::bake(
+        contract::compile("routes nav\n  home \"/\"\n  about \"/about\"\n\ncomponent App\n  view\n    text top(nav).url testId=\"url\"\n")
+            .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-root.plan"), no_root.encode()).unwrap();
     let accessibility = contract::compile(include_str!(
         "../../../../contract/corpus/accessibility.contract"
     ))

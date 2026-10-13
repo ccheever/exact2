@@ -45,6 +45,8 @@ mod paint_motion;
 mod presence;
 #[path = "press.rs"]
 mod press;
+#[path = "scale.rs"]
+mod scale;
 #[path = "system_support.rs"]
 mod system;
 #[path = "transform_binding.rs"]
@@ -72,9 +74,8 @@ impl std::fmt::Display for HostError {
     }
 }
 
-/// Plan bytes to boot: a copy of the caller's, or bytes that live as long as
-/// the program (a plan linked into it), whose data pool the decoded plan
-/// then keeps in place.
+/// Plan bytes to boot: a copy of the caller's, or bytes that live as long as the
+/// program (a plan linked into it), whose data pool the decoded plan keeps in place.
 #[derive(Clone, Copy)]
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
@@ -93,6 +94,7 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
     keys: BTreeMap<NodeKey, ViewId>,
     presented: BTreeMap<ViewId, Presented>,
@@ -205,7 +207,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         Self::boot_decoded(
-            plan, data, measurer, width, height, carried, delivery, launch, region,
+            plan, data, measurer, width, height, carried, delivery, launch, region, None,
         )
     }
 
@@ -222,6 +224,7 @@ impl<D: DataSource> Host<D> {
         delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
+        font_sync: Option<crate::text::Shared>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — whether the plan marks nodes for a hatch.
         let hatched = plan.bindings.iter().any(|b| {
@@ -236,8 +239,13 @@ impl<D: DataSource> Host<D> {
         exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let mut kernel = Kernel::new(measurer);
+        // Under the neutral look a field and a button take the page's
+        // type, as they do on the web (LLP 1104 D4; LLP 1115.000 D17), so
+        // the host names no font of its own for them.
+        let control_text_styles =
+            (!crate::paint::look::neutral()).then(crate::paint::control::control_text_styles);
         let env = exact_kernel::Env {
-            control_text_styles: Some(crate::paint::control::control_text_styles()),
+            control_text_styles,
             ..kernel.env().clone()
         };
         kernel
@@ -265,6 +273,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),
@@ -460,8 +469,8 @@ impl<D: DataSource> Host<D> {
         &self.runner
     }
 
-    /// The runner, mutably: a capability arm holds its device requests
-    /// there (LLP 1069.007 D3).
+    /// The runner, mutably: a capability arm holds its device requests there
+    /// (LLP 1069.007 D3).
     pub fn runner_mut(&mut self) -> &mut Runner<D> {
         &mut self.runner
     }
@@ -658,8 +667,7 @@ impl<D: DataSource> Host<D> {
         self.runner.roots()
     }
 
-    /// A node's presentation values: the engine's, else the committed
-    /// style's.
+    /// A node's presentation values: the engine's, else the committed style's.
     pub fn presented(&self, id: ViewId) -> Presented {
         let Some(node) = self.runner.kernel().node(id) else {
             return Presented::IDENTITY;
@@ -1189,8 +1197,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The display preferences (LLP 1061 D5): re-answer `exactViewport()`
-    /// in one commit.
+    /// The display preferences (LLP 1061 D5): re-answer `exactViewport()` in one commit.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
         match self.runner.set_preferences(preferences) {
             Ok(Some(receipt)) => self.commit(
@@ -1218,22 +1225,6 @@ impl<D: DataSource> Host<D> {
             ),
             Ok(None) => None,
             Err(e) => Some(format!("page: {e:?}")),
-        }
-    }
-
-    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in one
-    /// commit, no resource asked again.
-    pub fn set_root_font_size(&mut self, px: f64) -> Option<String> {
-        match self.runner.set_root_font_size(px) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("root font size: {e:?}")),
         }
     }
 
@@ -1405,6 +1396,12 @@ impl<D: DataSource> Host<D> {
     /// @ref LLP 1038 D6 — shared by painting, input, and agent layout.
     pub fn route_visibility(&self, id: ViewId) -> (bool, bool) {
         self.navigation.visibility(self.runner.kernel(), id)
+    }
+
+    /// The first navigation root's stack as its key last named it: its
+    /// routes through the one that shows (`presenter/arrive.rs`).
+    pub(crate) fn shown_stack(&self) -> Option<&[ViewId]> {
+        self.navigation.stack.as_deref()
     }
 
     /// A shell presents the top layer (`presenter/top.rs`), or none does.

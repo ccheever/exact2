@@ -486,13 +486,23 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let kernel = self.host.kernel();
+        let key = matches!(
+            kind,
+            EventKind::Keycapture | EventKind::Key | EventKind::Keyup
+        );
         let mut at = Some(id);
         while let Some(n) = at {
             let node = kernel.node(n)?;
-            if node.props.bool(PropId::Disabled) == Some(true) {
-                return None;
-            }
-            if self.host.runner().handlers_of(n).contains(&kind) {
+            let disabled = if key {
+                disabled_control(&node)
+            } else {
+                node.props.bool(PropId::Disabled) == Some(true)
+            };
+            if disabled {
+                if !key {
+                    return None;
+                }
+            } else if self.host.runner().handlers_of(n).contains(&kind) {
                 return Some(n);
             }
             at = self.display.parent(kernel, n);
@@ -615,6 +625,8 @@ impl<D: DataSource> Presenter<D> {
     /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
     /// did, and so does a focus a key or the app moves there after.
     fn focus_for_press(&mut self, hit: ViewId, now_ms: f64) {
+        // What a route this press pushes came from (`presenter/arrive.rs`).
+        self.note_press(hit, false);
         let mut focus = Some(hit);
         while let Some(id) = focus {
             if self.focusable(id) {
@@ -673,9 +685,6 @@ impl<D: DataSource> Presenter<D> {
         // activation yields focus to commit autofocus; keyboard activation keeps
         // a surviving button focused. Never clear an editor or explicit focus.
         let fallback = (self.focus == Some(target)).then(|| {
-            if pointer {
-                self.focus = None;
-            }
             let node = self.host.kernel().node(target);
             let hud = node.is_some_and(|n| {
                 n.props.str(PropId::AccessibilityRole) == Some("button")
@@ -697,13 +706,27 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
+        let prior_autofocus = self.autofocus_from;
+        if pointer && fallback.is_some() {
+            self.autofocus_from = Some(target);
+        }
         if let Some(e) = self.after_commit() {
             eprintln!("exact: {e}");
         }
-        if self.focus.is_none() {
-            self.focus = fallback.filter(|id| {
-                self.host.kernel().node(*id).is_some() && !self.host.route_visibility(*id).1
-            });
+        self.autofocus_from = prior_autofocus;
+        if self.focus.is_none()
+            || (pointer && self.focus == Some(target) && fallback != Some(target))
+        {
+            self.focus = fallback;
+            // A pressed button its own handler removed: `focusout` at the
+            // ancestors still mounted, as the web's focused node removal.
+            let (sent, mut error) = self.clear_removed_focus();
+            if sent {
+                error = error.or(self.after_commit());
+            }
+            if let Some(e) = error {
+                eprintln!("exact: {e}");
+            }
         }
     }
 }

@@ -156,6 +156,7 @@ public final class ExactApp {
     public var lifecycle: ExactAppLifecycle?
     private(set) var selectedToken: UInt64 = 0
     private var sessionRefs: [WeakSession] = []
+    let notificationProcessID = UUID().uuidString
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
@@ -343,6 +344,7 @@ public final class ExactSession {
     public let app: ExactApp
     /// A host-owned name the agent carrier routes by (D9) and logs carry.
     public let label: String
+    let notificationOwnerID = UUID().uuidString
     public weak var delegate: ExactSessionDelegate?
     public private(set) var state: State = .created {
         didSet { if state != oldValue { let changed = state; app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, didChange: changed) } } }
@@ -675,8 +677,9 @@ public final class ExactSession {
         Owner.shared.sync {}
         landFill()
     }
-
     private func wire() {
+        runtime.topLayer = { [weak self] in self?.presenter.openTopLayerFrames ?? [] }
+        runtime.setInlineGeometry { [weak self] id in self?.presenter.inlineFrame(id) }
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
             runtime.canvasDefer(true)
@@ -693,6 +696,7 @@ public final class ExactSession {
             if changesNothing(batch) && batch.timerDueMs == timerDue { return }
             apply(batch)
         }
+        presenter.onClose = { [unowned self] id in apply(runtime.dialogClose(id, now: now())) }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
         // A text field's `input` and `change` carry the selection the edit
         // left, its `select` the one the person or a script made (x2apps
@@ -704,6 +708,7 @@ public final class ExactSession {
         presenter.onInput = { [unowned self] id, value in
             apply(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
         }
+        presenter.fieldSelections.onReplacement = { [unowned self] id, value, selection in apply(runtime.replacementInput(id, value, selection, now: now())) }
         presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in apply(runtime.fieldSelect(id, value, selection, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.
@@ -721,10 +726,10 @@ public final class ExactSession {
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
-        #if os(iOS) || os(tvOS)
-        // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
-        // as an intrinsic size does; the hatches replay once the module connects.
+        // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
+        // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
+        #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()
             self?.presenter.elements.replay()
@@ -734,11 +739,15 @@ public final class ExactSession {
             self?.presenter.elements.replay()
             self?.presenter.toolbar.hatchToolbar()
         }
+        presenter.rootTabs = { [unowned self] id in runtime.rootTabs(id) }
         #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
         presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
-        presenter.onKey = { [unowned self] id, press in apply(runtime.key(id, press.payload, up: press.up, now: now())) }
+        presenter.onFocusEvent = { [unowned self] id, kind, target, related in
+            apply(runtime.focusEvent(id, entering: kind == "focusin", target: target, related: related, now: now()))
+        }
+        presenter.onKey = { [unowned self] id, press in apply(runtime.key(id, press.payload, up: press.up, capture: press.capture, now: now())) }
         presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
         presenter.onRefresh = { [unowned self] id in apply(runtime.refresh(id, now: now())) }
@@ -747,6 +756,7 @@ public final class ExactSession {
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
         presenter.onScroll = { [unowned self] id, metrics in applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) }
+        presenter.onScrollend = { [unowned self] id in applyUnlessEmpty(runtime.scrollend(id, now: now())) }
         presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
@@ -758,11 +768,9 @@ public final class ExactSession {
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
         presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
-        #if os(macOS)
-        presenter.onSelectionChange = { [unowned self] id, text, start, end in
-            apply(runtime.selectionChange(id, text, start: start, end: end, now: now()))
+        presenter.onSelectionChange = { [unowned self] id, text, start, end, rects in
+            apply(runtime.selectionChange(id, text, start: start, end: end, rects: rects, now: now()))
         }
-        #endif
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
         presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }
@@ -774,6 +782,7 @@ public final class ExactSession {
     public func boot(size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
         primePreferences()
+        primeTime()  // `prepare` primes again; the fallback boot reads this
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.
@@ -800,6 +809,7 @@ public final class ExactSession {
     public func boot(plan bytes: Data, size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
         primePreferences()
+        primeTime()
         let cp = text.checkpoint()
         runtime.setProfileResolver(app.resolver)
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
@@ -859,6 +869,7 @@ public final class ExactSession {
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
         installControlText(on: candidate)
         let viewport = size ?? presenter.viewportSize
+        primeTime()
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
@@ -1072,6 +1083,7 @@ public final class ExactSession {
                     app.deliver { DevMenu.reload() }
                     continue
                 }
+                if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
@@ -1094,11 +1106,20 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }
-                if name == "setSelectionRange" {
-                    app.deliver { [weak self] in self?.presenter.fieldSelections.setSelectionRange(args) }
+                if name == "removeAllRanges" {
+                    #if os(macOS)
+                    app.deliver { [weak self] in self?.presenter.selection.clear() }
+                    #else
+                    log("removeAllRanges refused: reader selection commands are not supported on this platform")
+                    #endif
+                    continue
+                }
+                if name == "setSelectionRange" || name == "setRangeText" {
+                    app.deliver { [weak self] in if name == "setRangeText" { self?.presenter.fieldSelections.setRangeText(args) } else { self?.presenter.fieldSelections.setSelectionRange(args) } }
                     continue
                 }
                 if name == "blur" { app.deliver { [weak self] in self?.presenter.blurElement(args) }; continue }
+                if ["showPopover", "hidePopover", "togglePopover"].contains(name) { app.deliver { [weak self] in self?.presenter.menus.action(name, args) }; continue }
                 if name == "showModal" || (name == "close" && args.first is String) { let id = args.first as? String ?? ""; app.deliver { [weak self] in self?.presenter.dialogCommand(name, id) }; continue } // a dialog's, by id (LLP 1115 D6); bare `close()` is the window's
                 if name == "scrollIntoView" {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
@@ -1216,40 +1237,11 @@ public final class ExactSession {
 
     /// Drawn once per launch; the same across a dev reload's new runner.
     let launchPlace = LaunchPlace()
-    /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
-    func tellTime() {
-        if launchPlace.epoch != nil {
-            tellAgentOffset()
-        } else {
-            toldOffset = nil
-            followOffset()
-        }
-        apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
-        tellPreferences()
-        tellPage()
-    }
     /// The machine zone's offset now, told when it is not the one last told:
     /// at boot and before each advance, so a DST change or a new zone reaches
     /// the timer that fires after it (habits F6). Under the agent, the
     /// drive's zone moves it instead (`tellAgentOffset`).
     var toldOffset: Double?
-    func followOffset() {
-        guard launchPlace.epoch == nil else { return }
-        let offset = Double(TimeZone.autoupdatingCurrent.secondsFromGMT()) / 60
-        guard offset != toldOffset else { return }
-        toldOffset = offset
-        apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
-    }
-    /// Under the agent, the drive's date at the clock's zero and its zone's
-    /// offset at the virtual instant the clock reads: told at boot and after
-    /// every `clock`, so a move across a DST change re-answers it (LLP
-    /// 1069.007 D2). An unchanged offset commits nothing.
-    func tellAgentOffset() {
-        guard let epoch = launchPlace.epoch else { return }
-        let zone = TimeZone(identifier: launchPlace.timeZone) ?? TimeZone(secondsFromGMT: 0)!
-        let offset = Double(zone.secondsFromGMT(for: Date(timeIntervalSince1970: (epoch + now()) / 1000))) / 60
-        apply(runtime.setTime(epochAtZero: epoch, utcOffset: offset))
-    }
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
     /// change: in the same main-thread turn as the boot batch, so the first
     /// frame on screen already reads the user's preferences.
@@ -1270,6 +1262,7 @@ public final class ExactSession {
         primeControlText()
         _ = runtime.setPreferences(preferenceBits())
     }
+    var displayModeOverride: UInt32?
     private func preferenceBits() -> UInt32 {
         #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
@@ -1280,15 +1273,17 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        return DisplayPreferences.bits(systemDark: dark, view: view)
+        let bits = DisplayPreferences.bits(systemDark: dark, view: view)
+        return displayModeOverride.map { (bits & ~(7 << 11)) | ($0 << 11) } ?? bits
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
     /// notification, in the same turn.
     func tellPage() {
         guard booted, state != .destroyed else { return }
-        apply(runtime.setPage(PageFacts.bits(view?.window)))
+        apply(runtime.setPage(PageFacts.bits(pageWindow)))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
+        tellDisplayScale()
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
@@ -1398,10 +1393,7 @@ public final class ExactSession {
     /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
     @discardableResult public func openURL(_ url: URL) -> Bool {
         guard state != .destroyed else { return false }
-        let location = incomingLocation(url)
-        if !booted { if launchLocation == nil { runtime.launch(location); launchLocation = location }
-                     else { pendingLaunchLocations.append(location) }; return true }
-        return navigate(location)
+        return openIncoming(incomingLocation(url))
     }
     /// A link the reader followed — a `link href`, a text run's `href`, a
     /// Markdown link. A path naming one of the app's routes is a location

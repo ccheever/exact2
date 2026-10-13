@@ -6,6 +6,55 @@
 #if os(macOS)
 import AppKit
 
+extension NSControl {
+    var ariaUnavailableFromNode: Bool {
+        var view: NSView? = self
+        while let current = view {
+            if let node = current as? NodeView { return node.ariaUnavailable }
+            view = current.superview
+        }
+        return false
+    }
+}
+
+class AriaButtonCellMac: NSButtonCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class CheckboxMac: NSButton {
+    override class var cellClass: AnyClass? { get { AriaButtonCellMac.self } set {} }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class SwitchMac: NSSwitch {
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class PopupCellMac: NSPopUpButtonCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class SliderCellMac: NSSliderCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
 final class ControlHost: NSObject {
     unowned let presenter: Presenter
     var controls: [UInt32: NSControl] = [:]
@@ -97,6 +146,14 @@ final class ControlHost: NSObject {
             if let b = control as? NativeButtonMac {
                 configureNative(b, owner, accent: accent)
             } else if control is NSSwitch || kinds[owner.id] == "checkbox" || kinds[owner.id] == "radio" {
+                // @ref LLP 1115.002 D6 — a grouped form's switch is the size its
+                // sheet names (`-exact-control-size`, a metric: AppKit's mini).
+                if let s = control as? NSSwitch {
+                    let named: [String: NSControl.ControlSize] = ["mini": .mini, "small": .small, "large": .large]
+                    let size = named[owner.style["control_size"]?.string ?? ""] ?? .regular
+                    // AppKit takes the new size's metrics at its next layout: now, so the size reported below is the one drawn.
+                    if s.controlSize != size { s.controlSize = size; s.layoutSubtreeIfNeeded() }
+                }
                 if let on = owner.props["checked"].map({ $0 == "true" }) { setOn(control, on) }
                 // NSSwitch takes the system accent; AppKit gives it no tint.
                 (control as? NSButton)?.contentTintColor = accent
@@ -202,12 +259,4 @@ final class ControlHost: NSObject {
     }
 }
 
-/// The checkbox and the switch, AppKit's own, but for a Control-click their
-/// node's `contextmenu` answers (X85, `contextClicked`).
-final class CheckboxMac: NSButton {
-    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
-}
-final class SwitchMac: NSSwitch {
-    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
-}
 #endif

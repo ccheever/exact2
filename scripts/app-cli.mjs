@@ -52,12 +52,15 @@ export async function run({ dir, name, game = false, exact2, args }) {
     return 2;
   }
   // Help (LLP 1116 D4): `--help` or `-h` among a verb's arguments, `help [<verb>]` or no verb prints exact2's own
-  // text (its scripts/help.mjs) and starts nothing. An app's own verb gets its arguments as given.
-  const asked = !verb || ['help', '--help', '-h'].includes(verb) ? rest.find((a) => !a.startsWith('-')) ?? '' : verbs[verb] && (rest.includes('--help') || rest.includes('-h')) ? verb : null;
+  // text (its scripts/help.mjs) and starts nothing. An app's own verb gets its arguments as given. `all` anywhere
+  // among them asks for a verb's whole text (`web --help all`, `help web all`, `help all web`); with no verb it is
+  // the index (`--help all`, `help all`), never a verb (LLP 1116.010 D2).
+  const known = (a) => verbs[a] || own[a];
+  const asked = !verb || ['help', '--help', '-h'].includes(verb) ? rest.find(known) ?? rest.find((a) => !a.startsWith('-') && a !== 'all') ?? '' : verbs[verb] && (rest.includes('--help') || rest.includes('-h')) ? verb : null;
   if (asked !== null) {
     const help = await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null);
     if (!help) { console.error(`no exact2 at ${exact2}: EXACT2 names the checkout`); return 1; }
-    return help.printHelp(asked, { verbs: Object.keys(verbs), own });
+    return help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
   }
   if (!verbs[verb] && !own[verb]) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);
@@ -107,16 +110,24 @@ export async function run({ dir, name, game = false, exact2, args }) {
   if (drivesWeb || drivesNative) {
     // A flag the drive does not take is refused before the build, not after it (scripts/help.mjs).
     (await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null))?.guardFlags(verb, rest);
+    // A server entry that does not read DB is refused before the build too, not after it (verify.mjs `withAppServer`, LLP 1116.008 D1).
+    const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
+    if (refusal) { console.error(`test: ${refusal}`); return log(1); }
     const sim = rest.includes('--sim') ? ['--sim', rest[rest.indexOf('--sim') + 1]] : [];
     const built = await script(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', name, ...sim], [], [0, 2, 2]);
     if (built) return log(built);
   }
   if (own[verb]) { const [command, ...args] = own[verb]; return log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', dir)); }
   if (verb !== 'test') return log(await script(verbs[verb], rest));
-  let failed = 0;
-  for (const file of tests.length ? tests : [resolve(dir, 'app.test.contract')]) {
-    if (tests.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
-    failed = (await script(verbs.test, ['--test', file, ...rest])) || failed;
-  }
-  return log(failed);
+  // An app with a server of its own (the rest pattern's) has it run for the tests, where app.ts calls it, on an empty
+  // database kept through them: as verify runs it, by the same code (LLP 1116.007 D2).
+  const { withAppServer } = await import(resolve(exact2, 'scripts/verify.mjs'));
+  return log(await withAppServer(dir, async () => {
+    let failed = 0;
+    for (const file of tests.length ? tests : [resolve(dir, 'app.test.contract')]) {
+      if (tests.length > 1) console.log(`# ${relative(process.cwd(), file)}`);
+      failed = (await script(verbs.test, ['--test', file, ...rest])) || failed;
+    }
+    return failed;
+  }, { verb: 'test', optional: true }));
 }

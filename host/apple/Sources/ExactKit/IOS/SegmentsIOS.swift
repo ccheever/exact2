@@ -18,6 +18,7 @@ import UIKit
 class LabelledSegmentedControl: UISegmentedControl {
     var segmentLabels: [String?] = [] { didSet { if segmentLabels != oldValue { setNeedsLayout() } } }
     var segmentIDs: [String?] = [] { didSet { if segmentIDs != oldValue { setNeedsLayout() } } }
+    var segmentUnavailable: [Bool] = [] { didSet { if segmentUnavailable != oldValue { setNeedsLayout() } } }
     override func layoutSubviews() {
         super.layoutSubviews()
         labelSegments()
@@ -46,6 +47,9 @@ class LabelledSegmentedControl: UISegmentedControl {
             let id = segmentIDs.indices.contains(index) ? segmentIDs[index] : nil
             if view.accessibilityLabel != label { view.accessibilityLabel = label }
             if view.accessibilityIdentifier != id { view.accessibilityIdentifier = id }
+            let unavailable = segmentUnavailable.indices.contains(index) && segmentUnavailable[index]
+            if unavailable { view.accessibilityTraits.insert(.notEnabled) }
+            else { view.accessibilityTraits.remove(.notEnabled) }
         }
     }
 }
@@ -300,8 +304,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             size = CGSize(width: 1, height: natural.height)
             if owner.style["box_sizing"]?.string == "border-box" {
                 let border = owner.number("border_width")
-                size.height += owner.number("border_width_top", border) + owner.number("padding_top")
-                    + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
+                size.height += owner.number("border_width_top", border) + owner.padding("top")
+                    + owner.number("border_width_bottom", border) + owner.padding("bottom")
             }
         } else {
             guard owner.bounds.width > 0 else { return }
@@ -357,6 +361,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
         for ((item, tab), face) in zip(zip(bar.items ?? [], tabs), faces) {
             assign(item, \.isEnabled, !tab.disabled)
+            if tab.disabled || tab.ariaUnavailable { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
             // Its test id is the tab's (LLP 1116 D2).
             if item.accessibilityIdentifier != tab.props["testId"] { item.accessibilityIdentifier = tab.props["testId"] }
             // Its name is the tab's, as the hidden tab's was (astra's code review).
@@ -388,7 +394,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // (LLP 1116.004 D5.2); it is never a tab bar.
         let owners = presenter.carrying("role:tablist").filter {
             $0.props["accessibilityRole"] == "tablist" &&
-                $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0)
+                $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0) &&
+                !($0.wrote("appearance") && $0.style["appearance"]?.string == "none")
         } + presenter.carrying("role:radiogroup").filter {
             $0.props["accessibilityRole"] == "radiogroup" && $0.props["accessibilityOrientation"] != "vertical"
         }
@@ -453,6 +460,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             control.accessibilityIdentifier = owner.props["testId"]
             control.segmentLabels = tabs.map(Self.segmentLabel)
             control.segmentIDs = tabs.map { $0.props["testId"] }
+            control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
             let selected = tabs.firstIndex(where: Self.chosen) ?? UISegmentedControl.noSegment
             // A choice the finger made and the control has not reported yet
             // stays; resetting it would make the report name the old segment.

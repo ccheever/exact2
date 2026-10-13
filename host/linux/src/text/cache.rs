@@ -295,6 +295,39 @@ impl Default for Cache {
     }
 }
 impl Cache {
+    /// A forecast can shape a new stack id before the live catalog has it.
+    /// Retire only identities that used those ids when the catalog catches up.
+    pub fn invalidate_families(&mut self, added: std::ops::Range<u16>) {
+        let mut removed = HashSet::new();
+        self.identities.retain(|_, bucket| {
+            bucket.retain(|entry| {
+                let uses = added.contains(&entry.spec.strut.family)
+                    || entry
+                        .spec
+                        .runs
+                        .iter()
+                        .any(|run| added.contains(&run.family));
+                if uses {
+                    removed.insert(entry.id);
+                }
+                !uses
+            });
+            !bucket.is_empty()
+        });
+        if removed.is_empty() {
+            return;
+        }
+        self.bindings
+            .retain(|_, binding| !removed.contains(&binding.key.1));
+        self.handoffs
+            .retain(|handoff| !removed.contains(&handoff.identity));
+        self.superseded.retain(|_, keys| {
+            keys.retain(|key| !removed.contains(&key.1));
+            !keys.is_empty()
+        });
+        self.walked_bytes = 0;
+    }
+
     /// The catalog owns these specs; shortcut handles never retain them.
     pub fn spec(&self, key: (u64, u64)) -> Option<Arc<Spec>> {
         #[cfg(test)]
@@ -984,6 +1017,7 @@ fn fingerprint(spec: &Spec) -> u64 {
     std::mem::discriminant(&spec.align).hash(&mut h);
     std::mem::discriminant(&spec.overflow_wrap).hash(&mut h);
     std::mem::discriminant(&spec.white_space).hash(&mut h);
+    std::mem::discriminant(&spec.text_wrap_style).hash(&mut h);
     std::mem::discriminant(&spec.direction).hash(&mut h);
     spec.line_clamp.hash(&mut h);
     spec.text_indent.to_bits().hash(&mut h);
@@ -1012,6 +1046,7 @@ fn equal(a: &Spec, b: &Spec) -> bool {
     a.align == b.align
         && a.overflow_wrap == b.overflow_wrap
         && a.white_space == b.white_space
+        && a.text_wrap_style == b.text_wrap_style
         && a.direction == b.direction
         && a.line_clamp == b.line_clamp
         && a.text_box_trim == b.text_box_trim

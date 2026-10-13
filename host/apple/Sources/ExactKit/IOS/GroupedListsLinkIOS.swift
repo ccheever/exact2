@@ -17,6 +17,12 @@ package protocol GroupedLists: AnyObject {
     func reset()
     /// The collection view a wheel on `id` scrolls.
     func scroller(for id: UInt32) -> UIScrollView?
+    /// The fresh model's rows by section, in document order.
+    func rows(for id: UInt32) -> [[UInt32]]?
+    /// Row geometry from the native layout, never the hidden authored boxes.
+    func projectedRect(for node: NodeView, in scroll: UIScrollView) -> CGRect?
+    /// Visible rows in native reading order, for preserving the reading position.
+    func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)]
     /// Whether a list draws `id` (a row, or a row's toggle or detail button).
     func draws(_ id: UInt32) -> Bool
     /// A route's screen is about to show again (a pop back to it, with the
@@ -38,6 +44,8 @@ package protocol GroupedLists: AnyObject {
     func inspectionOwns(_ view: UIView) -> Bool
     func hides(_ node: NodeView) -> Bool
     func projects(_ view: UIView) -> Bool
+    /// The authored parent of a row carried into a cell.
+    func logicalParent(of view: UIView) -> UIView?
 }
 
 /// Where a finger aimed at a row a list draws lands (LLP 1080.000 D4): a
@@ -47,12 +55,6 @@ package enum GroupedAim { case view(UIView, port: UIScrollView), refused(String)
 /// A grouped list's collection view, which scrolls in its list's place
 /// (LLP 1084 D8).
 package protocol GroupedScroller: UIScrollView {}
-
-extension Presenter {
-    /// A grouped list's collection view scrolled (LLP 1116.003 D7): its
-    /// text is scheduled as any scroller's is (`ScrollPump.scrolled`).
-    package func groupedListScrolled() { scrollPump.scrolled(nil) }
-}
 
 /// The grouped lists module's hooks, installed by the composition.
 package enum GroupedListsLink {

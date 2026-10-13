@@ -7,8 +7,10 @@
 //!
 //! A row is invalid once anything in it changes: a commit touching,
 //! creating or destroying a node in it, a presentation value, a press, a
-//! picture arriving. A layout change that moves a node only makes the row
-//! suspect: kept while every node sits where it sat relative to the row.
+//! picture arriving, a layout publishing something new beside a frame that
+//! stayed (a resolved padding, a scroll extent). A layout change that moves
+//! a node only makes the row suspect: kept while every node sits where it
+//! sat relative to the row.
 use super::*;
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::NodeKey;
@@ -31,16 +33,26 @@ impl Dirty {
         self.renewed.extend(&r.renewed);
     }
 
-    /// A layout's moved frames, and paragraphs whose exclusions changed.
+    /// A layout's moved frames; paragraphs whose exclusions changed, and
+    /// nodes it published anew beside a frame that stayed, as changed.
     pub fn layout(&mut self, r: &exact_kernel::LayoutReceipt) {
+        let moved: IdSet<NodeKey> = r.changed.iter().copied().collect();
         self.moved.extend(&r.changed);
         self.hard.extend(&r.flow_changed);
+        self.hard
+            .extend(r.updated.iter().filter(|key| !moved.contains(*key)));
     }
 
     /// A node whose presentation changed.
     pub fn node(&mut self, key: NodeKey) {
         self.hard.push(key);
     }
+}
+
+struct RowFrame {
+    node: NodeKey,
+    frame: exact_kernel::Frame,
+    padding: (f32, f32, f32, f32),
 }
 
 /// One kept row.
@@ -55,8 +67,8 @@ struct Row {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     /// Where each picture kept apart from the row is drawn.
     slots: Vec<Slot>,
-    /// Each node's frame relative to the row's (x, y) and its size.
-    frames: Vec<(NodeKey, [f32; 4])>,
+    /// Each node's frame relative to the row and its resolved padding.
+    frames: Vec<RowFrame>,
     /// The scrollers inside it and their offsets when recorded: one moved
     /// (a swipe) records the row again.
     scrolls: Vec<(ViewId, (f32, f32))>,
@@ -84,7 +96,7 @@ struct Capture {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     slots: Vec<Slot>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
-    frames: Vec<(NodeKey, [f32; 4])>,
+    frames: Vec<RowFrame>,
     scrolls: Vec<(ViewId, (f32, f32))>,
 }
 
@@ -345,9 +357,19 @@ impl Painter {
     }
 
     /// Note a node walked while a row records.
-    pub(super) fn row_node(&mut self, key: NodeKey, f: exact_kernel::Frame, shown: &Presented) {
+    pub(super) fn row_node(
+        &mut self,
+        kernel: &Kernel,
+        key: NodeKey,
+        f: exact_kernel::Frame,
+        shown: &Presented,
+    ) {
         if let Some(c) = &mut self.rows.recording {
-            c.frames.push((key, [f.x, f.y, f.width, f.height]));
+            c.frames.push(RowFrame {
+                node: key,
+                frame: f,
+                padding: kernel.resolved_padding(key).unwrap_or_default(),
+            });
             c.refused |= shown.press != 1.0;
         }
     }
@@ -467,13 +489,15 @@ impl Painter {
                     .iter()
                     .all(|(id, kept)| same_picture(walk.scene.images.get(id), kept)))
             && (!self.rows.suspect.contains(&node.key)
-                || row.frames.iter().all(|(k, f)| {
-                    kernel.node_by_key(*k).is_some_and(|n| {
-                        let g = n.frame;
-                        (g.x - node.frame.x - f[0]).abs() < 0.5
-                            && (g.y - node.frame.y - f[1]).abs() < 0.5
-                            && g.width == f[2]
-                            && g.height == f[3]
+                || row.frames.iter().all(|saved| {
+                    kernel.node_by_key(saved.node).is_some_and(|n| {
+                        let (g, f) = (n.frame, saved.frame);
+                        (g.x - node.frame.x - f.x).abs() < 0.5
+                            && (g.y - node.frame.y - f.y).abs() < 0.5
+                            && g.width == f.width
+                            && g.height == f.height
+                            && kernel.resolved_padding(saved.node).unwrap_or_default()
+                                == saved.padding
                     })
                 }))
     }
@@ -616,7 +640,11 @@ impl Painter {
                 frames: capture
                     .frames
                     .into_iter()
-                    .map(|(k, f)| (k, [f[0] - x0, f[1] - y0, f[2], f[3]]))
+                    .map(|mut saved| {
+                        saved.frame.x -= x0;
+                        saved.frame.y -= y0;
+                        saved
+                    })
                     .collect(),
                 scrolls: capture.scrolls,
                 unsupported: row_unsupported,

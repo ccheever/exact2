@@ -197,6 +197,11 @@ pub(crate) fn visible_exclusions(arena: &NodeArena, root: u32) -> Vec<u32> {
                 if at == root {
                     return true;
                 }
+                // Another layout's: an exclusion shapes no text across a
+                // host's containing block (LLP 1115.002 D8.2).
+                if arena.blocks.holds(at) {
+                    return false;
+                }
                 match arena.parent(at) {
                     Some(p) => at = p,
                     None => return false,
@@ -269,6 +274,7 @@ fn visit(
             if is_exclusion(arena, slot)
                 || !included(slot)
                 || arena.style(slot).display == Display::None
+                || arena.blocks.holds(slot)
             {
                 continue;
             }

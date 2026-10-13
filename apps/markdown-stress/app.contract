@@ -416,7 +416,7 @@ component DocumentBody
             text doc.source markup="markdown" testId="markup-node" width="100%" font-size=16 line-height="26px" color=theme.ink
     else
       when windowed
-        list virtualized=true testId="document" flex=1 min-height=60 width="100%" box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain"
+        list appearance="none" virtualized=true testId="document" flex=1 min-height=60 width="100%" box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain"
           each b in doc.blocks key=b.id
             column width="100%" align-items="center" padding-top=(b.id == "0" ? 16 : 0) padding-bottom=(b.id == `${doc.totalBlocks - 1}` ? 64 : 2)
               column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" testId=`reading-column-${b.id}`

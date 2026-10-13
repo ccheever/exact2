@@ -203,8 +203,8 @@ component ${title.replaceAll(' ', '')}
     main testId="root" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
       each e in stack(nav) key=e.id
         column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
-          header display="flex" align-items="center" justify-content="space-between"
-            text "${title}" role="heading" aria-level=1
+          header display="flex" align-items="center"
+            text "${title}" role="heading" aria-level=1 flex=1
             button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
               image (liked ? "symbol:heart-fill" : "symbol:heart")
           scroll id="content" flex=1 min-height=0 padding=16
@@ -477,8 +477,10 @@ first build resolves it, fetching them once (it needs the network then, not now)
 
 const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
 
-/** What an agent in the app's directory can't discover (LLP 1086 D1): where
- * the guides are, the app's commands, and the loop. Paths are from the app to
+/** What an agent in the app's directory can't discover (LLP 1086 D1): what
+ * its files are, where to start and the one guide, at most 1.5 KB because every step
+ * carries it (LLP 1116.007 D2). It orders no step: builders load this file as
+ * instructions, and each instruction they follow re-sends their context (LLP 1116.012 D1). Paths are from the app to
  * this checkout, so \`update\` follows a checkout that moved. The authoring
  * diary's instructions are \`feedback status\`'s to print, for a project that
  * keeps one (LLP 1116 D3), so a project that doesn't never carries them. */
@@ -489,51 +491,27 @@ function agentNotes(dir, name, {game = false} = {}) {
   return `${BEGIN}
 # ${name}: an Exact app
 
-The view is \`app.contract\` (Contract), its data \`app.ts\` (TypeScript), its tests
-\`app.test.contract\`; \`app.json\` is the manifest (its \`$schema\` gives an editor every
-key). The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
+\`app.contract\` is the view, \`app.ts\` its data module, \`app.test.contract\` its tests, \`app.json\`
+the manifest. The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
 overrides it).
 
-Read before writing code: ${doc('start-here.md')}, the only required reading (LLP 1115
-D7): the idea, the workflow and its commands, the language in one example. Then look
-things up, never reading front to back:
-
-- A pattern to start from: \`bun exact.mjs pattern\` lists them (\`one-screen\`, \`list-detail\`,
-  \`tabs\`, \`dashboard\`, \`rest\`); \`pattern <name>\` writes one, tested.
-- A recipe per question, in ${doc('recipes')} (start-here's last section is the index).
-- \`bun exact.mjs contract vocab <name> <name> …\`: any tag, property or function.
-- \`bun exact.mjs help\`, \`bun exact.mjs <verb> --help\`: the verbs; a verb's flags, whether
-  it stays in the foreground, and an example (\`--help all\`: every flag, its ports). Read
-  these, not exact2's scripts.
-
+This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
+pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
+the only required reading (LLP 1115 D7). When a name is in question, \`bun exact.mjs contract
+vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
+\`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
+app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+\`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
-
-Beyond start-here's commands:
-
-| | |
-|---|---|
-| \`bun exact.mjs mac --run\`, \`linux\`, \`android\` | the Mac app; the Linux host (Android's too), driven headless by \`test linux\` and \`agent linux …\` |
-| \`bun exact.mjs hatch <word>\` | native code for what Contract can't say (${doc('reference.md')}, "Access hatches") |
-| \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` and this block |
-| app.json \`"commands": {"seed": ["bun", "seed.mjs"]}\` | the app's own verbs: \`bun exact.mjs seed web\` runs \`bun seed.mjs web\` here |
-
-Before the first native TypeScript build on a machine, run the one-time installer
-\`bun ${sdk('scripts/exact.mjs')} setup\` (\`setup --check\` only names what is missing).
-Cargo builds are forced offline for Hermes.
-
-Shared server data: your own server (${doc('recipes/rest-backend.md')}) or Snapback 4's
-client (${sdk('snapback4/README.md')}). Contract libraries: \`use Card from "@scope/ui"\`
-after \`bun add\`, or \`use Activity from "exact:motion"\`.
-
-Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
-\`rust-toolchain.toml\`, \`.cargo/config.toml\`, \`exact.mjs\`, and this block.
+Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
+\`Cargo.toml\`'s \`[patch.crates-io]\` and this block.
 ${END}
 `;
 }
 
 /** The one line that stands for the authoring diary (docs/diary.md): \`feedback
  * status\` prints the instructions when the project keeps a diary. */
-const DIARY_LINE = 'Run `bun exact.mjs feedback status` first; it prints what to keep.';
+const DIARY_LINE = 'The authoring diary: `bun exact.mjs feedback status` says whether this project keeps one.';
 
 /** A game's notes: the app's, for a world in Rust under Contract's menus. */
 function gameNotes(dir, name, doc) {

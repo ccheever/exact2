@@ -19,7 +19,9 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     for slot in arena.layout_dirty.iter() {
         let mut at = slot;
         let mut path = Vec::new();
-        while at != root {
+        // A subtree a host gave a containing block is another layout's: the
+        // pass that starts at it publishes it (LLP 1115.002 D8.2).
+        while at != root && !arena.blocks.holds(at) {
             let Some(parent) = arena.parent(at) else {
                 break;
             };
@@ -27,7 +29,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             at = parent;
         }
         if at != root {
-            if !arena.is_root(at) {
+            if !arena.is_root(at) && !arena.blocks.holds(at) {
                 detached.push(slot);
             }
             continue;
@@ -49,6 +51,8 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     // Keep their existing full publication/resolution semantics.
     let full = !arena.exclusion_slots.is_empty() || !arena.flow.is_empty();
     arena.begin_layout_publication(root);
+    // A block's root: hidden with what holds it, whole when it took its block.
+    let (hidden, whole) = crate::kernel::publication_start(arena, root);
     let mut changed = Vec::new();
     let mut updated = Vec::new();
     let mut exclusions = Vec::new();
@@ -57,8 +61,16 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     // relative to the container's own (`base`), or a straddling box's union.
     // `t` is the translation its subtree inherits; (ox, oy) stay flow-thread
     // origins, so a child is placed from its parent's unfragmented box.
-    let mut stack = if full || has_sources {
-        vec![(root, 0.0, 0.0, false, full, false, Shift::default())]
+    let mut stack = if full || has_sources || whole {
+        vec![(
+            root,
+            0.0,
+            0.0,
+            hidden,
+            full || whole,
+            false,
+            Shift::default(),
+        )]
     } else {
         Vec::new()
     };
@@ -66,6 +78,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         #[cfg(test)]
         {
             tree.publication_visits += 1;
+            tree.work.0 += 1;
         }
         let own_hidden = arena.style(slot).display == crate::Display::None;
         let hidden = hidden || own_hidden;
@@ -94,6 +107,13 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             },
             None => shift,
         };
+        // Publish the padding and border with the frame for readers that
+        // must not reach into a tree a content region's nodes are not in
+        let inset = arena
+            .taffy(slot)
+            .map(|node| crate::id::BoxInset::of(tree.layout(node)));
+        let inset_changed = arena.inset(slot) != inset;
+        arena.set_inset(slot, inset);
         let frame = if hidden {
             arena.set_content(slot, (0.0, 0.0));
             arena.field_content.remove(&slot);
@@ -173,12 +193,16 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             && (moved
                 || parent_moved
                 || old_content != arena.content(slot)
-                || old_field_content != arena.field_content_rect(slot))
+                || old_field_content != arena.field_content_rect(slot)
+                || inset_changed)
         {
             updated.push(arena.key(slot));
         }
         if descend_all {
             for &child in arena.children(slot).iter().rev() {
+                if arena.blocks.holds(child) {
+                    continue; // its own layout's, in its own space
+                }
                 let full = full || arena.flags(child).has(NodeFlags::ATTACHED);
                 stack.push((child, fx, fy, hidden, full, origin_moved, shift));
             }

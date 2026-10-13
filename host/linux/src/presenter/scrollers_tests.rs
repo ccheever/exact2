@@ -344,3 +344,57 @@ fn the_fixtures_list_its_strip_and_its_nested_scroller_are_told() {
     let picked = k.node_by_key(k.find_by_test_id("picked")[0]).unwrap();
     assert_eq!(picked.props.str(PropId::Text), Some("Pressed row 150"));
 }
+
+#[test]
+fn native_intersect_mount_and_scroll_without_a_scroll_handler() {
+    let mut p = boot(include_str!(
+        "../../../../scripts/fixtures/intersect.contract"
+    ));
+    let facts = |p: &Presenter<Nothing>| {
+        p.host
+            .runner()
+            .slot("count")
+            .and_then(Value::as_number)
+            .unwrap()
+    };
+    let root = id(&p, "port");
+    assert_eq!(facts(&p), 1.0, "initial offscreen entry");
+    assert_eq!(p.host.runner().slot("inside"), Some(&Value::Bool(false)));
+    assert_eq!(p.scroll_to(root, (0.0, 60.0)), Some((0.0, 60.0)));
+    settle(&mut p);
+    assert_eq!(facts(&p), 2.0);
+    assert_eq!(p.host.runner().slot("inside"), Some(&Value::Bool(true)));
+    assert_eq!(
+        p.host.runner().slot("ratio").and_then(Value::as_number),
+        Some(0.6)
+    );
+    p.scroll_to(root, (0.0, 100.0));
+    settle(&mut p);
+    assert_eq!(facts(&p), 2.0, "ratio-only changes are silent");
+    p.scroll_to(root, (0.0, 211.0));
+    settle(&mut p);
+    assert_eq!(facts(&p), 3.0);
+    assert_eq!(p.host.runner().slot("inside"), Some(&Value::Bool(false)));
+}
+
+#[test]
+fn native_intersect_samples_after_resize_handlers() {
+    let p = boot(
+        r#"component App
+  state gap = 80
+  state count = 0
+  state ratio = 0
+  action resized(width: number, height: number)
+    gap = 0
+  action seen(e: IntersectionObserverEntry)
+    count = count + 1
+    ratio = e.intersectionRatio
+  view
+    column width=200 height=100 overflow="hidden"
+      box height=gap flex-shrink=0 resize=resized
+      box width=100 height=50 flex-shrink=0 intersect=seen
+"#,
+    );
+    assert_eq!(p.host.runner().slot("count"), Some(&Value::Number(1.0)));
+    assert_eq!(p.host.runner().slot("ratio"), Some(&Value::Number(1.0)));
+}

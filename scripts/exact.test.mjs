@@ -4,11 +4,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
-import { signingOrder } from '../host/apple/assets.mjs';
-import { stripForDistribution } from '../host/apple/build.mjs';
+import { signingOrder, signedGpuProduct, assertArchiveFrameworks } from '../host/apple/assets.mjs';
+import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
 
 const plist = (executable) => `<?xml version="1.0" encoding="UTF-8"?>
@@ -31,6 +32,7 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
   put('Contents/Resources/assets/addon.node', word(0xcefaedfe, 7)); // 32-bit
   put('Contents/Resources/assets/Big.class', word(0xcafebabe, 0x00000034)); // Java: the fat magic, a class version
   put('Contents/Resources/assets/notes.dylib', 'not code\n'); // a name is not a format
+  put('Contents/Resources/assets/plain.bundle/note.txt', 'not a code bundle\n');
   put('Contents/Resources/assets/short', Buffer.from([0xcf, 0xfa]));
   put('Contents/Helpers/Inner.app/Contents/Info.plist', plist('Inner'));
   put('Contents/Helpers/Inner.app/Contents/MacOS/Inner', word(0xfeedfacf, 0x0100000c));
@@ -60,6 +62,122 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
 }));
 
 const tools = process.platform === 'darwin' && ['clang', 'codesign'].every((tool) => Bun.which(tool));
+test('release refuses code in content-addressed assets before signing changes its digest', () => inDir(dir => {
+  const app = resolve(dir, 'Fixture.app'), helper = resolve(app, 'Contents/Resources/assets/helper');
+  mkdirSync(dirname(helper), { recursive: true });
+  const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]);
+  writeFileSync(helper, bytes);
+  const compat = { embedded: { assets: [{ name: 'assets/helper', sha256: createHash('sha256').update(bytes).digest('hex') }] } };
+  assert.throws(() => signingOrder(app, compat), /assets\/helper.*host.macos.resources/);
+}));
+
+test.skipIf(!tools)('release preserves baked GPU signatures and rejects changed products', () => inDir(dir => {
+  const app = resolve(dir, 'Fixture.app'), executable = resolve(app, 'Contents/MacOS/Fixture');
+  mkdirSync(dirname(executable), { recursive: true });
+  writeFileSync(resolve(dir, 'main.c'), 'int main(void){return 0;}\n');
+  assert.equal(spawnSync('clang', [resolve(dir, 'main.c'), '-o', executable]).status, 0);
+  writeFileSync(resolve(app, 'Contents/Info.plist'), plist('Fixture'));
+  const product = resolve(dir, 'gpu.dylib');
+  assert.equal(spawnSync('clang', ['-dynamiclib', resolve(dir, 'main.c'), '-o', product]).status, 0);
+  const gpu = resolve(app, 'Contents/MacOS/libexact_gpu.dylib');
+  cpSync(signedGpuProduct(product, { hardened: true }), gpu);
+  const digest = createHash('sha256').update(readFileSync(gpu)).digest('hex');
+  const named = resolve(app, 'Contents/MacOS/libexact_gpu_title_sky.dylib');
+  cpSync(gpu, named);
+  const rust = resolve(app, 'Contents/Resources/rust/module.dylib');
+  mkdirSync(dirname(rust), { recursive: true }); cpSync(gpu, rust);
+  const compat = { embedded: { assets: [{ name: 'rust/module.dylib', sha256: digest }], gpu: { sha256: digest }, gpuModules: { 'title-sky': { sha256: digest } } } };
+  assert.deepEqual(signingOrder(app, compat), [app]);
+  for (const path of signingOrder(app, compat)) assert.equal(spawnSync('codesign', ['--force', '--sign', '-', '--options', 'runtime', '--timestamp=none', path]).status, 0);
+  assert.equal(spawnSync('codesign', ['--verify', '--deep', '--strict', app]).status, 0);
+  assert.equal(createHash('sha256').update(readFileSync(gpu)).digest('hex'), digest);
+  assert.match(spawnSync('codesign', ['-dv', gpu], { encoding: 'utf8' }).stderr, /runtime/);
+  const development = signedGpuProduct(product);
+  assert.doesNotMatch(spawnSync('codesign', ['-dv', development], { encoding: 'utf8' }).stderr, /runtime/);
+  assert.notEqual(createHash('sha256').update(readFileSync(development)).digest('hex'), digest, 'the signing mode invalidates the cached copy');
+  writeFileSync(gpu, Buffer.concat([readFileSync(gpu), Buffer.from('changed')]));
+  assert.throws(() => signingOrder(app, compat), /baked code.*digest/);
+}), 60000);
+
+test('--archive --embed does not stop after embed staging; plain --embed builds no Swift', () => {
+  assert.equal(appleEmbedOnly(['--device', '--embed']), true);
+  for (const extra of [['--archive', 'out.ipa'], ['--run'], ['--host']])
+    assert.equal(appleEmbedOnly(['--device', '--embed', ...extra]), false);
+  assert.equal(appleEmbedOnly(['--device', '--archive', 'out.ipa']), false);
+});
+
+test.skipIf(!tools)('GPU archives hash the signed framework binary, including declared modules', () => inDir(dir => {
+  const app = { id: 'test.gpu', manifest: {} };
+  const digests = new Map();
+  const source = resolve(dir, 'gpu.c');
+  writeFileSync(source, 'int gpu_fixture(void){return 42;}\n');
+  for (const name of ['ExactGpu', 'ExactGpu_title_sky']) {
+    const product = resolve(dir, `${name}.dylib`);
+    const cc = spawnSync('xcrun', ['--sdk', 'iphonesimulator', 'clang', '-target', 'arm64-apple-ios17.0-simulator', '-dynamiclib', source, '-o', product], { encoding: 'utf8' });
+    assert.equal(cc.status, 0, cc.stderr);
+    const options = { app, framework: name, platform: 'iPhoneSimulator' };
+    const signed = signedGpuProduct(product, options);
+    assert.equal(signed, resolve(dir, 'signed/frameworks', `${name}.dylib`, `${name}.framework`, name));
+    const hash = () => createHash('sha256').update(readFileSync(signed)).digest('hex');
+    const digest = hash();
+    digests.set(name, digest);
+    const info = spawnSync('plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', resolve(dirname(signed), 'Info.plist')], { encoding: 'utf8' });
+    assert.equal(info.stdout.trim(), `test.gpu.${name.toLowerCase().replaceAll('_', '-')}`);
+    const installName = spawnSync('otool', ['-D', signed], { encoding: 'utf8' });
+    assert.equal(installName.status, 0, installName.stderr);
+    assert.ok(installName.stdout.includes(`@rpath/${name}.framework/${name}`));
+    const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', dirname(signed)], { encoding: 'utf8' });
+    assert.equal(verify.status, 0, verify.stderr);
+    assert.equal(signedGpuProduct(product, options), signed);
+    assert.equal(hash(), digest, 'a warm build preserves the baked bytes');
+    const otherProduct = resolve(dir, `other-${name}.dylib`);
+    cpSync(product, otherProduct);
+    const other = signedGpuProduct(otherProduct, { ...options, app: { ...app, id: 'test.other' } });
+    assert.notEqual(other, signed, 'apps sharing a Cargo output directory keep separate signed frameworks');
+    assert.equal(hash(), digest);
+    const packaged = resolve(dir, 'Payload', 'Fixture.app', 'Frameworks');
+    mkdirSync(packaged, { recursive: true });
+    const capture = resolve(dir, 'capture');
+    const captured = resolve(capture, `${name}.framework`, name);
+    cpSync(dirname(signed), dirname(captured), { recursive: true });
+    rmSync(captured);
+    captureAppleProduct({ products: [{ path: signed, bytes: statSync(signed).size, sha256: digest }] }, signed, captured);
+    const artifact = { built: `${name}.dylib`, load: name === 'ExactGpu' ? 'libexact_gpu.dylib' : 'libexact_gpu_title_sky.dylib', framework: name };
+    const embed = resolve(dir, 'embed');
+    mkdirSync(embed, { recursive: true });
+    copyAppleGpuProducts(capture, embed, [artifact], true);
+    assert.equal(createHash('sha256').update(readFileSync(resolve(embed, `${name}.framework`, name))).digest('hex'), digest);
+    assert.equal(spawnSync('codesign', ['--verify', '--deep', '--strict', resolve(embed, `${name}.framework`)]).status, 0);
+    assertArchiveFrameworks(embed);
+    copyAppleGpuProducts(capture, packaged, [artifact], true);
+    assertArchiveFrameworks(packaged);
+    assert.equal(createHash('sha256').update(readFileSync(resolve(packaged, `${name}.framework`, name))).digest('hex'), digest);
+    const copied = spawnSync('codesign', ['--verify', '--deep', '--strict', resolve(packaged, `${name}.framework`)], { encoding: 'utf8' });
+    assert.equal(copied.status, 0, copied.stderr);
+    const development = signedGpuProduct(product);
+    assert.equal(development, resolve(dir, 'signed', `${name}.dylib`));
+    assert.notEqual(createHash('sha256').update(readFileSync(development)).digest('hex'), digest);
+    const developmentCapture = resolve(dir, 'development-capture'), developmentEmbed = resolve(dir, 'development-embed');
+    mkdirSync(developmentCapture, { recursive: true }); mkdirSync(developmentEmbed, { recursive: true });
+    cpSync(development, resolve(developmentCapture, artifact.built));
+    copyAppleGpuProducts(developmentCapture, developmentEmbed, [artifact]);
+    assert.deepEqual(readFileSync(resolve(developmentEmbed, artifact.load)), readFileSync(development));
+    cpSync(development, resolve(packaged, 'libexact_gpu.dylib'));
+    assert.throws(() => assertArchiveFrameworks(packaged), /loose libraries.*libexact_gpu.dylib/);
+    rmSync(resolve(packaged, 'libexact_gpu.dylib'));
+  }
+  const bundle = resolve(dir, 'Payload/Fixture.app');
+  writeFileSync(resolve(dir, 'main.c'), 'int main(void){return 0;}\n');
+  const cc = spawnSync('xcrun', ['--sdk', 'iphonesimulator', 'clang', '-target', 'arm64-apple-ios17.0-simulator', resolve(dir, 'main.c'), '-o', resolve(bundle, 'Fixture')], { encoding: 'utf8' });
+  assert.equal(cc.status, 0, cc.stderr);
+  writeFileSync(resolve(bundle, 'Info.plist'), plist('Fixture').replace('</dict>', '<key>CFBundleIdentifier</key><string>test.gpu</string><key>CFBundlePackageType</key><string>APPL</string></dict>'));
+  assert.equal(spawnSync('codesign', ['--force', '--sign', '-', '--timestamp=none', bundle]).status, 0);
+  const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', bundle], { encoding: 'utf8' });
+  assert.equal(verify.status, 0, verify.stderr);
+  for (const [name, digest] of digests)
+    assert.equal(createHash('sha256').update(readFileSync(resolve(bundle, 'Frameworks', `${name}.framework`, name))).digest('hex'), digest, 'the final app seal preserves the baked GPU bytes');
+}), 60000);
+
 test.skipIf(!tools)('signing in that order seals a bundle with an unsigned helper and an unsigned nested app', () => inDir((dir) => {
   const app = resolve(dir, 'Fixture.app');
   const source = resolve(dir, 'main.c');
@@ -272,6 +390,30 @@ test('Apple asset catalogs select platform modules and invalidate native receipt
   symlinkSync(resolve(dir, 'outside'), resolve(dir, 'modules/apple/Linked.xcassets/Contents.json'));
   assert.throws(() => appleAssetCatalogInventory(app, 'ios'), /symlinks/);
 }));
+
+test.skipIf(process.platform !== 'darwin')('the iOS launch screen is the app\'s own ground: its colours, else the grouped grey under a first route that scrolls a grouped list, else the system\'s (LLP 1116.011 D2.3)', () => inDir(dir => {
+  const { useXcode } = require('../host/apple/devices.mjs');
+  const { iosAssets } = require('../host/apple/assets.mjs');
+  useXcode();
+  let n = 0;
+  const made = (manifest, options) => {
+    const out = resolve(dir, `app${n++}.app`); mkdirSync(out);
+    const keys = iosAssets({ dir, name: 'Launch', manifest }, out, false, options);
+    const result = spawnSync('xcrun', ['assetutil', '--info', resolve(out, 'Assets.car')], { encoding: 'utf8' });
+    const colours = keys.UILaunchScreen ? JSON.parse(result.stdout).filter(asset => asset.Name === 'ExactLaunch')
+      .map(asset => [asset.Appearance ?? 'light', asset['Color components'].map(c => Math.round(c * 255))]) : [];
+    return { keys, colours };
+  };
+  // Stopwatch, round 13: a first route on the grouped grey, whose launch screen was the system's white.
+  const grouped = made({}, { launch: 'grouped' });
+  assert.equal(grouped.keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  assert.deepEqual(grouped.colours, [['light', [242, 242, 247, 255]], ['UIAppearanceDark', [0, 0, 0, 255]]]);
+  // A page of the platform's own stays the system's launch screen (`systemBackground`, light and dark).
+  for (const options of [{ launch: 'system' }, {}]) assert.deepEqual(made({}, options).keys, {});
+  // The author's colours name it whatever the first route stands on.
+  const named = made({ background_color: '#ffeedd', background_color_dark: '#102030' }, { launch: 'grouped' });
+  assert.deepEqual(named.colours, [['light', [255, 238, 221, 255]], ['UIAppearanceDark', [16, 32, 48, 255]]]);
+}), 60000);
 
 test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named images and colours, share the iOS icon pass, and reuse unchanged compiles', () => inDir(dir => {
   const { useXcode } = require('../host/apple/devices.mjs');

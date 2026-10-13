@@ -83,6 +83,28 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertNil(node.gestureRecognizers?.first { $0 is PointerRecognizer })
     }
 
+    /// A touch's offsets are from the content box layout sent: a padding the
+    /// style rows cannot resolve (5% of a 400-point containing block) is 20
+    /// points in, as the canvas or paragraph inside it is drawn. A made touch
+    /// is at the box's corner.
+    func testATouchsOffsetsAreFromTheContentBoxLayoutSent() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown"]],
+            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 5], "padding_top": 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "fieldContent", "id": 1, "rect": [20.0, 4.0, 180.0, 96.0]]
+        ])
+        var samples: [PointerSample] = []
+        p.onPointer = { _, _, sample in samples.append(sample) }
+        let node = try XCTUnwrap(p.views[1])
+        let g = try XCTUnwrap(node.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
+        let touch = UITouch()
+        g.touchesBegan([touch], with: UIEvent())
+        XCTAssertEqual(samples.last?.x, -20); XCTAssertEqual(samples.last?.y, -4)
+        g.touchesCancelled([touch], with: UIEvent())
+    }
+
     /// Nested pointer nodes: the innermost enabled one takes the touch, as
     /// on the web and macOS; a disabled inner one passes it out.
     func testTheInnermostEnabledPointerNodeTakesTheTouch() throws {

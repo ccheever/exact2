@@ -632,6 +632,16 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"block","id":…,"w":…,"h":…}` — the used size of the containing
+    /// block a host gave this subtree (LLP 1115.002 D8.2).
+    pub fn block(&mut self, id: u32, w: f32, h: f32) {
+        self.ops.push(format!(
+            "{{\"op\":\"block\",\"id\":{id},\"w\":{},\"h\":{}}}",
+            crate::style::num(w),
+            crate::style::num(h)
+        ));
+    }
+
     /// `{"op":"content","id":…,"w":…,"h":…}` — natural scrollable extent;
     /// the platform presenter applies its client-size minimum.
     pub fn content(&mut self, id: u32, w: f32, h: f32) {

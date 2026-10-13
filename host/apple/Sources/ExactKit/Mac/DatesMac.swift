@@ -73,7 +73,19 @@ extension ControlHost {
 /// `placeholder` in the placeholder colour or, with none, no words at all
 /// (LLP 1115.000 D13.1; it had drawn Chrome's `mm/dd/yyyy`). Editing an
 /// empty one starts at now, and only a change commits it.
+final class DateCellMac: NSDatePickerCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
 final class DateField: NSDatePicker {
+    override class var cellClass: AnyClass? { get { DateCellMac.self } set {} }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
     weak var owner: NodeView?
     override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }

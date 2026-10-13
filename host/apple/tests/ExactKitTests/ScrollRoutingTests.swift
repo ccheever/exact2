@@ -20,6 +20,87 @@ import XCTest
 @testable import ExactKit
 
 final class ScrollRoutingTests: XCTestCase {
+    func testEmptyScrollPortDeliversTheHeldPointerAndPressThroughTheWindow() throws {
+        _ = NSApplication.shared
+        clicksArriveAsInTheKeyWindow()
+        for (kind, axis, width, height) in [("view", "y", 300, 60), ("view", "x", 60, 240), ("view", "y", 300, 240), ("view", "y", 300, 480), ("list", "y", 0, 0)] {
+            let session = ExactApp.shared.makeSession(label: "empty-scroll")
+            defer { session.destroy() }
+            let p = session.presenter
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 240), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = p.viewport
+            defer { window.close() }
+            p.apply(wireBatch([
+                ["op": "collections", "items": kind == "list" ? [["view": 2, "revision": 1, "scrollSequence": 0, "count": 0, "totalExtent": 0, "rows": []]] : []],
+                ["op": "create", "id": 1, "kind": "view"],
+                ["op": "create", "id": 2, "kind": kind, "style": ["overflow_" + axis: "scroll"]],
+                ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 240],
+                ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 300, "h": 240],
+                ["op": "content", "id": 2, "w": width, "h": height]]))
+            let outer = try XCTUnwrap(p.views[1]), port = try XCTUnwrap(p.views[2])
+            if kind == "list" { XCTAssertTrue(p.collections.owns(2)) }
+            window.orderFrontRegardless()
+            var heard: [String] = []
+            p.onPointer = { id, kind, _ in heard.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+            p.onPress = { heard.append("press \($0)") }
+            for target in [outer, port] {
+                outer.handlers = []; port.handlers = []
+                target.handlers = ["pointerdown", "pointermove", "pointerup", "press"]
+                heard = []
+                for (type, y) in [(NSEvent.EventType.leftMouseDown, 150.0), (.leftMouseDragged, 151.0), (.leftMouseUp, 151.0)] {
+                    let point = port.convert(NSPoint(x: 100, y: y), to: nil)
+                    window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)))
+                }
+                XCTAssertEqual(heard, ["down \(target.id)", "move \(target.id)", "up \(target.id)", "press \(target.id)"], "\(kind) \(axis) \(width)x\(height)")
+                XCTAssertNil(p.pointerHeld)
+            }
+            if height > 240 {
+                let hit = try XCTUnwrap(port.hitTest(port.superview!.convert(NSPoint(x: 100, y: 150), from: port)))
+                let wheel = try XCTUnwrap(NSEvent(cgEvent: try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: -1, wheel2: 0, wheel3: 0))))
+                atOnce { hit.scrollWheel(with: wheel) }
+                XCTAssertEqual(port.scroll?.contentView.bounds.minY, 10, "the same empty area still routes the wheel through its scroller")
+            }
+        }
+    }
+
+    func testEmptyScrollPortKeepsTheMouseTargetWhenPointerDownHidesOverflow() throws {
+        _ = NSApplication.shared
+        clicksArriveAsInTheKeyWindow()
+        let session = ExactApp.shared.makeSession(label: "removed-scroll")
+        defer { session.destroy() }
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 240), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.close() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointermove", "pointerup"], "style": ["overflow_y": "scroll"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 240],
+            ["op": "content", "id": 1, "w": 300, "h": 60]]))
+        let port = try XCTUnwrap(p.views[1])
+        weak var removed = port.scroll
+        window.orderFrontRegardless()
+        var heard: [String] = []
+        p.onPointer = { _, kind, _ in
+            heard.append(kind == .down ? "down" : kind == .up ? "up" : "move")
+            if kind == .down { port.applyStyle(["overflow_x": .string("hidden"), "overflow_y": .string("hidden")]) }
+        }
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseDragged, .leftMouseUp] {
+            let point = port.convert(NSPoint(x: 100, y: 150), to: nil)
+            window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+        }
+        XCTAssertNil(port.scroll)
+        XCTAssertEqual(heard, ["down", "move", "up"])
+        XCTAssertNil(p.pointerHeld)
+        XCTAssertNil(p.pointerSource)
+        XCTAssertNil(removed?.superview, "the obsolete mouse target leaves after release")
+    }
+
     /// A person's wheel, which AppKit scrolls; `atOnce` is the agent's.
     override func setUp() { ChainingScrollView.appliesAtOnce = false }
     override func tearDown() { ChainingScrollView.appliesAtOnce = ExactEnv.agentMode }

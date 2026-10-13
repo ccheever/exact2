@@ -87,6 +87,7 @@ fn feedback(h: &Harness, owner: usize, top: f64) -> CollectionFeedback {
         port_cross: 640.0,
         port_main: 320.0,
         cross: 640.0,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -201,7 +202,8 @@ fn rejected_or_stale_feedback_never_transfers_session_pins() {
     );
     let before = h.tree.collections();
     let live = h.kernel.arena().live_count();
-    for variant in 0..8 {
+    let remembered = h.ids.remembered();
+    for variant in 0..12 {
         let mut f = feedback(&h, 1, 16_000.0);
         f.focus_view = Some(right.rows[0].root);
         f.interaction_view = Some(right.rows[1].root);
@@ -227,24 +229,36 @@ fn rejected_or_stale_feedback_never_transfers_session_pins() {
                     })
                     .collect()
             }
+            8..=10 => {
+                f.padding = [f32::MAX as f64 * 0.75; 2];
+                if variant == 9 {
+                    f.cross += 1.0;
+                }
+            }
+            11 => {} // Valid geometry and padding, but build-only cannot transfer pins.
             _ => unreachable!(),
         }
         let sites = crate::instance::SiteIndex::new(&h.plan);
         let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut h.ids);
-        assert!(
-            !matches!(
-                h.tree
-                    .update_collection(&mut u, f, CollectionFill::default()),
-                Ok((true, _))
-            ),
-            "variant {variant}"
-        );
+        let fill = CollectionFill {
+            create_only: variant >= 10,
+            ..Default::default()
+        };
+        let result = h.tree.update_collection(&mut u, f, fill);
+        if variant == 11 {
+            assert!(matches!(
+                result,
+                Err(InstanceError::InvalidCollectionFeedback)
+            ));
+        }
+        assert!(!matches!(result, Ok((true, _))), "variant {variant}");
         assert!(
             u.ops.is_empty(),
             "rejected report emitted operations: {variant}"
         );
         assert_eq!(h.tree.collections(), before, "variant {variant}");
         assert_eq!(h.kernel.arena().live_count(), live);
+        assert_eq!(h.ids.remembered(), remembered);
         assert_eq!(
             collections(&h)[0].geometry.as_ref().unwrap().focus_view,
             Some(left.rows[0].root)

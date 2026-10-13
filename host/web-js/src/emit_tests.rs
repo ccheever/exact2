@@ -1,6 +1,20 @@
 //! What the emitted program says about a plan's resources.
 use exact_runner::{DataError, DataSource, Value};
 
+#[test]
+fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
+    let plan = contract::compile(
+        "component App\n  view\n    iframe src=\"app:/data/doc.pdf\" sandbox=\"allow-scripts\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("\"data-app-src\":\"app:/data/doc.pdf\""),
+        "{js}"
+    );
+    assert!(!js.contains("about:blank"), "{js}");
+}
+
 struct Answers;
 impl DataSource for Answers {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -10,6 +24,39 @@ impl DataSource for Answers {
             _ => Err(DataError::UnknownSource(source.into())),
         }
     }
+}
+
+#[test]
+fn a_state_family_is_applied_as_css_when_it_changes() {
+    let plan = contract::compile(
+        "component App\n  state family = \"Arial\"\n  action pick(name: string)\n    family = name\n  view\n    column\n      button \"Menlo\" press=pick(\"Menlo\")\n      text \"The quick brown fox\" font-family=family testId=\"sample\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("fontFamily"), "{js}");
+    assert!(js.contains("\"font-family\""), "{js}");
+}
+
+#[test]
+fn a_constant_template_family_emits_as_a_literal_stack() {
+    let plan = contract::compile(
+        "component App\n  view\n    text \"x\" font-family=`Arial, ui-monospace`\n",
+    )
+    .unwrap();
+    crate::emit::emit(&plan, false, false).unwrap();
+}
+
+#[test]
+fn bubbling_focus_uses_the_dom_binder_without_a_wrapper_tab_stop() {
+    let plan = contract::compile(
+        "component App\n  state target = \"\"\n  action heard(e: FocusEvent)\n    target = e.target\n  view\n    column focusin=heard focusout=heard testId=\"wrapper\"\n      input id=\"child\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("onFocusWithin"), "{js}");
+    assert!(js.contains("\"focusin\""), "{js}");
+    assert!(js.contains("\"focusout\""), "{js}");
+    assert!(!js.contains("\"tabindex\""), "{js}");
 }
 
 /// Review B4: an `else` row's build-time answer is the bake's for every
@@ -108,6 +155,60 @@ fn outline_none_is_a_fields_own_declaration() {
     );
 }
 
+/// LLP 1116.009 D3: a sheet's unsaid background is a row of its class, the page's
+/// own role with the table's fallback, so the route it covers is not seen through
+/// it; a page is not given one, and a row the author wrote is the only one.
+#[test]
+fn a_modal_route_is_painted_by_its_class() {
+    let app = |page: &str, sheet: &str| {
+        let plan = contract::compile(&format!(
+            "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        when e.name == \"home\"\n          column navigationKey=`${{e.id}}` {page}\n            text \"Home\"\n        when e.name == \"add\"\n          column navigationKey=`${{e.id}}` navigationPresentation=\"modal\" {sheet}\n            text \"New\"\n"
+        ))
+        .unwrap();
+        crate::emit::emit(&plan, false, false).unwrap().css
+    };
+    let css = app("", "");
+    assert_eq!(
+        css.matches("background-color:var(--exact-background,")
+            .count(),
+        1,
+        "{css}"
+    );
+    let css = app(
+        "background-color=\"-exact-secondary-background\"",
+        "background-color=\"#336699\"",
+    );
+    assert_eq!(css.matches("--exact-background,").count(), 0, "{css}");
+    assert_eq!(
+        css.matches("--exact-secondary-background,").count(),
+        1,
+        "{css}"
+    );
+}
+
+/// LLP 1116.009 D4: the shell centres a sheet's title unless the author flows the
+/// bar, so a header whose author wrote `justify-content` is named (from the
+/// plan's own `written` bit, which the template's kernel carries), and one that
+/// did not, or whose row the compiler implied, is not.
+#[test]
+fn a_header_with_its_own_justify_content_is_named() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      header justify-content=\"space-between\"\n        text \"One\" role=\"heading\" aria-level=2\n      header display=\"flex\" align-items=\"center\"\n        text \"Two\" role=\"heading\" aria-level=2\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let headers: Vec<&str> = out.js.split("\"header\",").skip(1).collect();
+    let named = |h: &str| {
+        h.split('}')
+            .next()
+            .unwrap()
+            .contains("\"data-exact-said\":\"justify-content\"")
+    };
+    assert_eq!(headers.len(), 2, "{}", out.js);
+    assert_eq!(headers.iter().filter(|h| named(h)).count(), 1, "{}", out.js);
+    assert!(named(headers[0]), "the first header wrote it: {}", out.js);
+}
+
 /// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
 /// attribute, as a bound one is its property; without it the browser draws
 /// an indeterminate bar.
@@ -173,4 +274,35 @@ fn a_tablist_and_a_menu_load_the_input_piece() {
     }
     let plain = page("");
     assert!(!plain.contains("pressFeedback()"), "{plain}");
+}
+#[test]
+fn aria_disabled_is_an_attribute_for_static_and_bound_values() {
+    let plan = contract::compile(
+        "component App\n  state unavailable = false\n  view\n    column\n      button \"Update\" aria-disabled=\"true\"\n      button \"Other\" aria-disabled=unavailable\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("\"aria-disabled\":\"true\""), "{js}");
+    assert!(
+        js.matches("\"aria-disabled\"").count() >= 2,
+        "the bound value uses the same DOM attribute: {js}"
+    );
+}
+
+#[test]
+fn a_dialog_close_handler_uses_the_dom_event() {
+    let plan = contract::compile(
+        "component App\n  state count = 0\n  action closed\n    count = count + 1\n  view\n    dialog id=\"form\" close=closed\n      text \"Form\"\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("\"close\""), "{js}");
+}
+
+#[test]
+fn a_scrollend_handler_is_the_dom_event_on_a_scroll() {
+    let plan = contract::compile(
+        "component App\n  state ends = 0\n  action ended\n    ends = ends + 1\n  view\n    scroll scrollend=ended height=100\n      text \"a\"\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("\"scrollend\""), "{js}");
 }

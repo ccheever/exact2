@@ -12,16 +12,18 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
 if (unavailable) console.warn(`SKIP: ${unavailable}`);
 const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
 
-// The shell's own stylesheet, with nodes as the host writes them: a card
+// The stylesheet a default build's page has (look.mjs), with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and
 // a disabled button, and a native button with neither (its card's press is its own).
-const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0];
+const page = sheet + `
 <div id="exact-root" style="padding:20px">
   <div id="card" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.9;width:300px;height:300px;padding:20px">
     <button id="button" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:100px">b</button>
@@ -47,7 +49,7 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
 // button, a game's action, a disabled custom button, rows of a list (plain,
 // virtualized, grouped, and a button inside a grouped row), an item of a
 // sideways virtualized list, and a scrim over the window, shown on demand.
-const unsaid = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+const unsaid = sheet + `
 <style>#exact-root > *, #exact-root [role] * { min-height: 24px; } #away { height: 60px; }</style>
 <div id="exact-root" style="padding:20px;width:300px">
   <div id="box" data-exact-on="press" tabindex="0">box</div>
@@ -61,11 +63,17 @@ const unsaid = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\
   <button id="native" type="button" data-button-style="filled" data-native="" data-exact-on="press"><span>native</span></button>
   <button id="action" type="button" data-action="jump">action</button>
   <button id="off" type="button" disabled data-exact-on="press">off</button>
-  <div role="list">
+  <div role="list" data-listrows="true">
     <div id="row" data-exact-on="press" tabindex="0">row</div>
+    <div id="swipe"><div><a id="content" data-view="" href="#book"><span>a row's content</span></a></div></div>
+    <a id="rowlink" data-view="" href="#there"><span data-exact-text="">a row that is a link of text</span></a>
+    <div id="drawnrow" data-exact-on="press pointerdown pointerup">a row that draws its own</div>
   </div>
-  <div role="list" data-estimateditemheight="24">
+  <div role="list" data-listrows="true" data-estimateditemheight="24">
     <div role="listitem" data-listitemkey="a"><div id="windowed" data-exact-on="press">windowed row</div></div>
+  </div>
+  <div role="list">
+    <div id="own" data-exact-on="press" tabindex="0">a row of a list whose author said appearance="none"</div>
   </div>
   <div role="list" data-liststyle="inset-grouped">
     <section><header><div>header</div></header><div>
@@ -180,28 +188,32 @@ check('only the innermost pressable shows the press, and only while inside', asy
     expect(await pressed()).toBe('');
     await mouse('mouseReleased', await centre('off'));
     expect(await vibrations()).toBe('12');
-    // A native button highlights as a UIButton does, with no row or handler
-    // of its own: its face dims, nothing scales, its card is not pressed.
+    // A native button highlights with no row or handler of its own: the
+    // look's wash of its ink over its face (LLP 1116 D1's dimmed the title
+    // instead, as a UIButton does), nothing scales, its card is not pressed.
     // The unsaid dim is not laid over it.
     const face = () => evaluate(`getComputedStyle(document.getElementById('title')).opacity`);
+    const wash = () => evaluate(`getComputedStyle(document.getElementById('native')).backgroundImage !== 'none'`);
+    expect(await wash()).toBe(false);
     await mouse('mousePressed', await centre('native'));
     expect(await pressed()).toBe('native');
-    expect(await face()).toBe('0.5');
+    expect([await wash(), await face()]).toEqual([true, '1']);
     expect(await opacity('native')).toBe('1');
     expect(await scale('native')).toBe(1);
     expect(await scale('card')).toBe(1);
     await mouse('mouseReleased', await centre('native'));
     expect(await pressed()).toBe('');
-    expect(await face()).toBe('1');
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); // off it: a pointer left over it is its hover, a wash too
+    expect([await wash(), await face()]).toEqual([false, '1']);
     // The keyboard shows the same state (LLP 1115.000 D4.14): Space holds a
     // native button's highlight, and a button's `-exact-press-scale`, until
     // its keyup.
     const space = (type) => call('Input.dispatchKeyEvent', { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32, ...(type === 'keyDown' ? { text: ' ' } : {}) });
     await evaluate(`document.getElementById('native').focus()`);
     await space('keyDown');
-    expect([await pressed(), await face(), await opacity('native')]).toEqual(['native', '0.5', '1']);
+    expect([await pressed(), await wash(), await opacity('native')]).toEqual(['native', true, '1']);
     await space('keyUp');
-    expect([await pressed(), await face()]).toEqual(['', '1']);
+    expect([await pressed(), await wash()]).toEqual(['', false]);
     await evaluate(`document.getElementById('button').focus()`);
     await space('keyDown');
     expect([await pressed(), await scale('button'), await scale('card')]).toEqual(['button', 0.5, 1]);
@@ -314,13 +326,34 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await held('action', 'action')).toBe('1');
     expect(await held('off', 'off')).toBe('0.5');
 
-    // A list's row is its cell, whose highlight is D16's: the list's child, a windowed list's row in its wrapper, a
-    // grouped list's row in its section. A button inside a row is not the row; a sideways windowed list is a carousel.
-    expect(await held('row', 'row')).toBe('1');
-    expect(await held('windowed', 'windowed')).toBe('1');
+    // A row of a list whose rows are cells (LLP 1115.000 D16: `data-listrows`, Contract's mark) never dims: what
+    // presses in it shows the look's pressed wash over its own ground, wherever in the row it is (the list's child, a
+    // windowed list's row in its wrapper, the content a swipe container holds, a link of text), and an authored press
+    // still replaces it. A grouped list's row in its section keeps its own. A list that is no cell list (the author's
+    // `appearance="none"`, a sideways windowed list, which is a carousel) holds ordinary pressables, which dim.
+    // Its opacity while held, and whether it then shows a wash that is not the hover's (the pointer is over it too).
+    const washed = async (at, id) => {
+      const image = `getComputedStyle(document.getElementById('${id}')).backgroundImage`;
+      const [x, y] = await centre(at);
+      await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 });
+      const hovered = await evaluate(image);
+      await mouse('mousePressed', await centre(at));
+      const seen = await evaluate(`(() => { const s = getComputedStyle(document.getElementById('${id}')); return [s.opacity, s.backgroundImage.startsWith('linear-gradient') && s.backgroundImage !== ${JSON.stringify(hovered)}].join(); })()`);
+      const away = await centre('away');
+      await mouse('mouseMoved', away);
+      await mouse('mouseReleased', away);
+      return seen;
+    };
+    expect(await washed('row', 'row')).toBe('1,true');
+    expect(await washed('windowed', 'windowed')).toBe('1,true');
+    expect(await washed('content', 'content')).toBe('1,true');
+    expect(await washed('rowlink', 'rowlink')).toBe('1,true');
+    expect(await washed('drawnrow', 'drawnrow')).toBe('1,false');
+    expect(await evaluate(`getComputedStyle(document.getElementById('row')).backgroundImage`)).toBe('none'); // and nothing at rest
     expect(await held('cell', 'cell')).toBe('1');
     expect(await held('accessory', 'accessory')).toBe('0.65');
-    expect(await held('slide', 'slide')).toBe('0.65');
+    expect(await washed('own', 'own')).toBe('0.65,false');
+    expect(await washed('slide', 'slide')).toBe('0.65,false');
 
     // A pressable covering the window is a surface: measured at the press, marked, never dimmed; smaller, it dims again.
     await evaluate(`document.getElementById('scrim').style.display = 'block'`);

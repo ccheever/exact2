@@ -11,7 +11,7 @@
 // under the other, its handle refused by name after. A control file
 // (EXACT_HOST_CONTROL=<path>, one command per appended line) stands in for
 // the native buttons a real host has: `destroy <label>`, `unmount <label>`,
-// `mount <label>`, `apply <plan path>`.
+// `mount <label>`, `apply <plan path>`, `open <label> <url>`.
 import AppKit
 import ExactKit
 import ExactComposition
@@ -68,17 +68,13 @@ split.autoresizingMask = [.width, .height]
 // frames, so each pane starts at the width it should keep.
 tableScroll.frame = NSRect(x: 0, y: 0, width: 180, height: 720)
 split.addArrangedSubview(tableScroll)
-for (i, (label, view)) in [("a", viewA), ("b", viewB)].enumerated() {
+for (i, label) in ["a", "b"].enumerated() {
     let pane = NSView(frame: NSRect(x: 180 + i * 430, y: 0, width: 430, height: 720))
-    view.frame = pane.bounds
-    view.autoresizingMask = [.width, .height]
-    pane.addSubview(view)
     panes[label] = pane
     split.addArrangedSubview(pane)
 }
 split.adjustSubviews()
 window.contentView = split
-window.initialFirstResponder = viewA
 window.autorecalculatesKeyViewLoop = false
 window.center()
 
@@ -142,39 +138,60 @@ b.delegate = delegate
 /// smoke appends.
 var consumed = 0
 var control: DispatchSourceTimer?
-if let path = ExactEnv.environment["EXACT_HOST_CONTROL"] {
+var launched = false
+func readControls() {
+    guard let path = ExactEnv.environment["EXACT_HOST_CONTROL"],
+          let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+    let lines = text.split(separator: "\n").map(String.init)
+    guard lines.count > consumed else { return }
+    for line in lines[consumed...] {
+        let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+        guard let verb = parts.first else { continue }
+        let arg = parts.count > 1 ? parts[1] : ""
+        switch verb {
+        case "open":
+            let target = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            if target.count == 2, let session = sessions.first(where: { $0.0 == target[0] })?.1, let url = URL(string: target[1]) {
+                // The same incoming-location path a notification response uses.
+                session.openURL(url)
+                log("host: opened \(url) in \(session.label)")
+            }
+        case "destroy":
+            if let s = sessions.first(where: { $0.0 == arg })?.1 { s.destroy(); views[arg]?.removeFromSuperview(); log("host: destroyed \(arg)") }
+        case "unmount":
+            if let v = views[arg] { v.removeFromSuperview(); log("host: unmounted \(arg)") }
+        case "mount":
+            if let v = views[arg], let pane = panes[arg] { v.frame = pane.bounds; pane.addSubview(v); log("host: mounted \(arg)") }
+        case "apply":
+            let bytes = FileManager.default.contents(atPath: arg) ?? Data()
+            let ok = exact.apply(bytes, label: String(arg.split(separator: "/").last ?? "plan"))
+            log("host: apply \(arg): \(ok ? "every session took it" : "refused")")
+        default:
+            log("host: unknown control \(line)")
+        }
+    }
+    consumed = lines.count
+}
+if ExactEnv.environment["EXACT_HOST_CONTROL"] != nil {
     let t = DispatchSource.makeTimerSource(queue: .main)
     t.schedule(deadline: .now() + 0.1, repeating: 0.1)
-    t.setEventHandler {
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
-        let lines = text.split(separator: "\n").map(String.init)
-        guard lines.count > consumed else { return }
-        for line in lines[consumed...] {
-            let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
-            guard let verb = parts.first else { continue }
-            let arg = parts.count > 1 ? parts[1] : ""
-            switch verb {
-            case "destroy":
-                if let s = sessions.first(where: { $0.0 == arg })?.1 { s.destroy(); views[arg]?.removeFromSuperview(); log("host: destroyed \(arg)") }
-            case "unmount":
-                if let v = views[arg] { v.removeFromSuperview(); log("host: unmounted \(arg)") }
-            case "mount":
-                if let v = views[arg], let pane = panes[arg] { v.frame = pane.bounds; pane.addSubview(v); log("host: mounted \(arg)") }
-            case "apply":
-                let bytes = FileManager.default.contents(atPath: arg) ?? Data()
-                let ok = exact.apply(bytes, label: String(arg.split(separator: "/").last ?? "plan"))
-                log("host: apply \(arg): \(ok ? "every session took it" : "refused")")
-            default:
-                log("host: unknown control \(line)")
-            }
-        }
-        consumed = lines.count
-    }
+    t.setEventHandler { readControls() }
     t.resume()
     control = t
 }
 
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        exact.installNotificationClicks { _ in
+            guard launched else { return } // finishLaunching presents a cold click.
+            app.windows.first?.makeKeyAndOrderFront(nil)
+            app.activate(ignoringOtherApps: true)
+        }
+    }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        readControls() // A launching notification can arrive after willFinish, before the views boot.
+        finishLaunching()
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     /// A quit with a session's storage still landing waits for it, five
     /// seconds at most (LLP 1097 D10).
@@ -193,22 +210,32 @@ let appDelegate = Delegate()
 app.delegate = appDelegate
 window.delegate = appDelegate
 
-// Both boot at their panes' sizes; EXACT_PLAN boots a file plan into both.
-for (label, view) in [("a", viewA), ("b", viewB)] {
-    let size = view.session.viewportSize
-    if let path = ExactEnv.environment["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
-        view.session.boot(plan: bytes, size: size)
-    } else {
-        view.session.boot(size: size)
+func finishLaunching() {
+    // Sizing or attaching an ExactView can boot it. Keep both until after
+    // launch callbacks, so a notification seeds the only boot's location.
+    for (label, view) in [("a", viewA), ("b", viewB)] {
+        let pane = panes[label]!
+        let size = pane.bounds.size
+        if let path = ExactEnv.environment["EXACT_PLAN"], let bytes = FileManager.default.contents(atPath: path) {
+            view.session.boot(plan: bytes, size: size)
+        } else {
+            view.session.boot(size: size)
+        }
+        view.frame = pane.bounds
+        view.autoresizingMask = [.width, .height]
+        pane.addSubview(view)
+        log("host: \(label) booted in \(String(format: "%.1f", view.session.bootMs)) ms with \(view.session.viewCount) views\(view.session.bootError.map { " — \($0)" } ?? "")")
     }
-    log("host: \(label) booted in \(String(format: "%.1f", view.session.bootMs)) ms with \(view.session.viewCount) views\(view.session.bootError.map { " — \($0)" } ?? "")")
+    window.initialFirstResponder = viewA
+    launched = true
+    window.makeKeyAndOrderFront(nil)
+    if ExactEnv.agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    agentReady()
 }
-window.makeKeyAndOrderFront(nil)
-if ExactEnv.agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
 
 nonisolated(unsafe) var readySent = false
 func agentReady() {
-    guard ExactEnv.agentMode, !readySent else { return }
+    guard ExactEnv.agentMode, launched, !readySent else { return }
     readySent = true
     let error: Any = (a.bootError ?? b.bootError).map { $0 as Any } ?? NSNull()
     Agent.reply(["ready": true, "boot": max(a.bootMs, b.bootMs), "views": a.viewCount + b.viewCount, "sessions": sessions.map(\.0), "error": error])

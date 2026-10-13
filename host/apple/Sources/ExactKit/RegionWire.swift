@@ -86,6 +86,7 @@ extension RegionTextSource {
         spec.textBoxTrim = wire["textBoxTrim"] as? Int ?? 0
         spec.textBoxOver = wire["textBoxOver"] as? Int ?? 0
         spec.textBoxUnder = wire["textBoxUnder"] as? Int ?? 0
+        spec.balance = wire["textWrapStyle"] as? Int == 1
         return capture(spec, engine: engine)
     }
 }

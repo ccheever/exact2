@@ -92,6 +92,10 @@ pub(crate) struct Navigation {
     refused: BTreeMap<ViewId, String>,
     /// Each root's stack as last shown, its keys through its selected route.
     shown: BTreeMap<ViewId, Vec<String>>,
+    /// The first root's stack as its key last named it: its routes through
+    /// the selected one. What the focus follows (`presenter/arrive.rs`; LLP
+    /// 1115.000 D4.2); a key that matches no route leaves it as it was.
+    pub(crate) stack: Option<Vec<ViewId>>,
     popovers: bool,
     /// A shell presents the top layer (LLP 1115.001 D10: Android's reader,
     /// as windows): a press on an invoker is then the presenter's to act on
@@ -164,6 +168,7 @@ impl Navigation {
         let mut logs = Vec::new();
         let before = std::mem::take(&mut self.panels);
         self.popovers = false;
+        let mut first = true;
         for id in order {
             let Some(nav) = kernel.node(*id) else {
                 continue;
@@ -172,6 +177,7 @@ impl Navigation {
             if nav.props.str(PropId::NavigationBack).is_none() {
                 continue;
             }
+            let first = std::mem::take(&mut first);
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let (tabs, stacks) = stacks(kernel, *id);
             let panels = tabs.map_or(Vec::new(), |tabs| tabs.panels);
@@ -188,7 +194,8 @@ impl Navigation {
                     .iter()
                     .any(|routes| routes.iter().any(|r| key(r) == k))
             };
-            let selected = if declared(named) {
+            let matched = declared(named);
+            let selected = if matched {
                 self.refused.remove(id);
                 named.to_string()
             } else {
@@ -226,6 +233,9 @@ impl Navigation {
                     let through = keys.iter().position(|k| *k == shown).map_or(0, |i| i + 1);
                     self.shown
                         .insert(*id, keys[..through].iter().map(|k| k.to_string()).collect());
+                    if first && matched {
+                        self.stack = Some(routes[..through].to_vec());
+                    }
                 }
                 let modal = routes.iter().find(|r| key(r) == shown).is_some_and(|r| {
                     kernel

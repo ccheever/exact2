@@ -1,5 +1,5 @@
 // LLP 1116.004 D5.2 in a real browser: a value chosen from a few is a `radiogroup` of native
-// `radio` buttons, which the shell's stylesheet draws as a segmented control (a track, the
+// `radio` buttons, which a default build's stylesheet (look.mjs) draws as a segmented control (a track, the
 // checked radio raised in it) and the input piece (input-glue.js, which both web targets load)
 // gives one Tab stop and the arrow keys, as WAI-ARIA's radio group has them. The nodes are as
 // the hosts write them; a press checks its radio as the app's commit would.
@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -19,13 +20,14 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 
 const radio = (id, label, checked, extra = '') =>
   `<button type="button" data-button-style="bordered" data-native role="radio" aria-checked="${checked}" id="${id}"${extra}><span data-exact-text>${label}</span></button>`;
-const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">
   <button type="button" data-button-style="bordered" data-native id="before">Before</button>
   <div role="radiogroup" aria-label="Tip" id="tip" style="display:flex">
     ${radio('t15', '15%', false)}${radio('t18', '18%', true)}${radio('t20', '20%', false, ' disabled')}${radio('t25', '25%', false)}
   </div>
   <button type="button" data-button-style="bordered" data-native id="after">After</button>
+  <span id="track" style="background-color:var(--exact-tertiary-fill)"></span><span id="ground" style="background-color:var(--exact-background)"></span>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
@@ -75,11 +77,15 @@ const key = async (call, name, modifiers = 0) => {
 };
 
 check('a radio group is a segmented control with one Tab stop, and the arrows move its choice', () => inChrome(async (evaluate, call) => {
-  // The look: a track, the checked radio raised (white, shadowed), the others on the track.
+  // The look: a track (the look's `-exact-tertiary-fill`, 8 px corners) no wider than its segments, the checked radio
+  // a chip of the page's ground raised in it (shadowed, 6 px corners), the others on the track.
   const look = id => evaluate(`(s => [s.backgroundColor, s.boxShadow !== 'none', s.borderRadius])(getComputedStyle(document.getElementById('${id}')))`);
-  expect(await evaluate(`(s => [s.backgroundColor, s.borderRadius])(getComputedStyle(document.getElementById('tip')))`)).toEqual(['rgba(118, 118, 128, 0.12)', '9px']);
-  expect(await look('t18')).toEqual(['rgb(255, 255, 255)', true, '7px']);
-  expect(await look('t15')).toEqual(['rgba(0, 0, 0, 0)', false, '7px']);
+  const [track, ground] = await evaluate(`['track', 'ground'].map(id => getComputedStyle(document.getElementById(id)).backgroundColor)`);
+  expect([track === 'rgba(0, 0, 0, 0)', /^rgb\(/.test(ground)]).toEqual([false, true]); // the sheet carries both roles (neutral-look.test.mjs holds their values)
+  expect(await evaluate(`(s => [s.backgroundColor, s.borderRadius])(getComputedStyle(document.getElementById('tip')))`)).toEqual([track, '8px']);
+  expect(await evaluate(`document.getElementById('tip').getBoundingClientRect().width < document.getElementById('exact-root').getBoundingClientRect().width / 2`)).toBe(true);
+  expect(await look('t18')).toEqual([ground, true, '6px']);
+  expect(await look('t15')).toEqual(['rgba(0, 0, 0, 0)', false, '6px']);
   // The accessibility tree: a radio group of radios, the checked one checked.
   const { nodes } = await call('Accessibility.getFullAXTree', {});
   const radios = nodes.filter(n => n.role?.value === 'radio').map(n => [n.name?.value, n.properties?.find(p => p.name === 'checked')?.value.value]);
@@ -98,7 +104,7 @@ check('a radio group is a segmented control with one Tab stop, and the arrows mo
   // The arrows: the next radio past the disabled one, focused and pressed; wrapping at either end; Up and Down too.
   await key(call, 'ArrowRight');
   expect(await evaluate(`[document.activeElement.id, pressed.splice(0), document.getElementById('t25').getAttribute('aria-checked')]`)).toEqual(['t25', ['t25'], 'true']);
-  expect(await look('t25')).toEqual(['rgb(255, 255, 255)', true, '7px']);
+  expect(await look('t25')).toEqual([ground, true, '6px']);
   await key(call, 'ArrowRight');
   expect(await evaluate(`[document.activeElement.id, pressed.splice(0)]`)).toEqual(['t15', ['t15']]);
   await key(call, 'ArrowLeft');

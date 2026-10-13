@@ -148,15 +148,16 @@ impl<D: DataSource> Presenter<D> {
     /// Whether `id` has a press of its own: a `press` handler, a link or a
     /// surface control's `action` — disabled or not (a disabled one presses
     /// nothing, and a tap that names it presses nothing inside it).
-    fn presses_itself(&self, id: ViewId) -> bool {
+    pub(super) fn presses_itself(&self, id: ViewId) -> bool {
         let kernel = self.host.kernel();
-        kernel.node(id).is_some_and(|n| {
-            n.props.str(PropId::Action).is_some() || n.props.str(PropId::Href).is_some()
-        }) || self
-            .host
-            .runner()
-            .handlers_of(id)
-            .contains(&EventKind::Press)
+        kernel
+            .node(id)
+            .is_some_and(|n| n.props.str(PropId::Action).is_some() || n.props.link().is_some())
+            || self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Press)
     }
 
     /// Whether a press reaching `id` is taken by `id` itself, as `press_at`

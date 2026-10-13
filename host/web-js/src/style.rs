@@ -165,8 +165,10 @@ pub fn project(
                 }
                 // `unset`, or `inherit` on an inherited row: no row (feed F1).
                 (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
+                // With what the binding says of the row (the author wrote it, or the compiler
+                // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {
-                    bridge::set_plan_style(&mut patch, row.id, &v, plan)
+                    bridge::set_binding_style(&mut patch, row, &v, plan)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
                     styled = true;
                 }
@@ -416,6 +418,42 @@ pub fn color_map(plan: &Plan) -> String {
 
 const PLATFORM: &str = "-exact-platform-color(";
 
+/// A bound row whose code can push a metric's name (LLP 1115.002 D6: a
+/// sheet the compiler wrote, choosing between two by a flag) reads each as
+/// its value in the column of the look this build draws (the neutral
+/// look's, or the web's first under `EXACT_WEB_LOOK=apple`), which is what
+/// the kernel reads a literal one as: a number, the row's own CSS text, or
+/// nothing where the look has no row (`null`: the row unset). `None` when
+/// the code names none.
+pub fn metric_map(plan: &Plan, code: &[u8]) -> Option<String> {
+    use exact_kernel::style::metrics::{column, named, value};
+    let mut pairs: Vec<String> = Vec::new();
+    for i in instructions(code).flatten() {
+        if i.op != Opcode::Str {
+            continue;
+        }
+        let name = plan.str(exact_plan::StrId(i.args[0] as u32));
+        let Some(metric) = named(name) else { continue };
+        let web = match value(metric, column()) {
+            exact_kernel::MetricValue::Number(n) => serde_json::json!(n),
+            exact_kernel::MetricValue::Text("unset") => serde_json::Value::Null,
+            exact_kernel::MetricValue::Text(t) => serde_json::json!(t),
+            // A `length` row's, which no sheet names.
+            exact_kernel::MetricValue::Em(_) | exact_kernel::MetricValue::Rem(_) => continue,
+        };
+        let pair = format!("{}:{web}", serde_json::json!(name));
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+    }
+    (!pairs.is_empty()).then(|| {
+        format!(
+            "(M=>v=>typeof v===\"string\"&&Object.hasOwn(M,v)?M[v]:v)({{{}}})",
+            pairs.join(",")
+        )
+    })
+}
+
 /// A computed `transition`'s entries as an author's (LLP 1081 D5), shared by
 /// the ordinary and the pressed mappers: comments go (CSS removes them, so a
 /// check must too); springs are the engine's; an entry naming the host's
@@ -471,7 +509,7 @@ pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
     use exact_kernel::style::relative::{Unit, MEDIUM};
     let mut pairs = Vec::new();
     for (i, s) in exact_kernel::TEXT_STYLES.iter().enumerate() {
-        let rem = Unit::TextStyle(i as u8).basis(MEDIUM, MEDIUM) / MEDIUM;
+        let rem = Unit::TextStyle(i as u8).basis(MEDIUM, MEDIUM, 1.0) / MEDIUM;
         let css = format!("{rem}rem");
         pairs.push(format!("{:?}:{css:?}", format!("-exact-{}", s.name)));
         if !s.alias.is_empty() {
@@ -582,6 +620,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("accent-color", "v=>v"),
             with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
+        StyleId::PositionTryFallbacks => vec![with(
+            "position-try-fallbacks",
+            r#"v=>v==null||/^\s*(?:none|(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?)(?:\s*,\s*(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?))*)\s*$/i.test(v)?v:"invalid""#,
+        )],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
         // @ref LLP 1055.002 — `-exact-clock(Name)` is css.rs's clock property and
         // leaves the play state alone; a drag timeline pauses.
@@ -645,6 +687,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "color-scheme",
             "v=>v===\"light\"||v===\"dark\"?v:null",
         )],
+        StyleId::TextWrapStyle => one("text-wrap-style", ""),
         // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
         StyleId::TextBoxEdge => vec![with(
             "text-box-edge",
@@ -692,7 +735,8 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     // kernel restates as CSS's) or a marker (a reference, see emit.rs).
     if matches!(
         row.codec(),
-        StyleCodec::ClipPath
+        StyleCodec::PositionTryFallbacks
+            | StyleCodec::ClipPath
             | StyleCodec::ShapeOutside
             | StyleCodec::Paint
             | StyleCodec::DashArray
@@ -757,6 +801,8 @@ fn css_property(id: StyleId) -> String {
     let name = match id {
         StyleId::TextColor => return "color".into(),
         StyleId::TintColor => return "--exact-tint".into(),
+        // @ref LLP 1104 D3 — css.rs's `spell_property`.
+        StyleId::PlaceholderColor => return "--exact-placeholder-color".into(),
         StyleId::PositionType => return "position".into(),
         StyleId::BackdropFilter => return "backdrop-filter".into(),
         StyleId::SvgMask => return "mask".into(),
@@ -805,6 +851,24 @@ pub fn style_marker(id: StyleId) -> (String, String) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn balanced_wrap_writes_the_same_property_for_bound_values() {
+        let writes = style_writes(StyleId::TextWrapStyle as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "text-wrap-style");
+        assert_eq!(writes[0].unit, "");
+        assert_eq!(writes[0].map, None);
+    }
+
+    /// LLP 1104 D3: a bound `::placeholder` colour writes css.rs's
+    /// private property, which index.html's `::placeholder` rule reads.
+    #[test]
+    fn a_bound_placeholder_colour_writes_the_private_property() {
+        let writes = style_writes(StyleId::PlaceholderColor as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "--exact-placeholder-color");
+    }
 
     /// The role's CSS, as the literal path writes it.
     pub(crate) fn role(name: &str) -> String {

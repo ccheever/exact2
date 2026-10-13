@@ -48,6 +48,14 @@ internal class Pane(
     /** When the touch that opened the surface lifted ([SystemClock.uptimeMillis]). */
     var since = 0L
     private var drawn = 0L
+    /** What this pane answers accessibility services with, where it is a surface's window ([Access], LLP 1115.001
+     * D13): the surface's own nodes. A bar's pane has none, and says nothing itself: the reader's root answers for
+     * what is in it. */
+    var access: Access? = null
+
+    override fun getAccessibilityNodeProvider(): android.view.accessibility.AccessibilityNodeProvider? = access?.provider
+
+    override fun dispatchHoverEvent(event: MotionEvent): Boolean = access?.hover(event) == true || super.dispatchHoverEvent(event)
 
     init {
         // Keys reach the window's focused view: a hardware keyboard's Tab, arrows and Enter go to exact2 from here.
@@ -160,6 +168,24 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
     }
 
     private var shown: Shown? = null
+    /** exact2's accessibility tree while it is a surface's ([Access.Told], LLP 1115.001 D13): the one that is open,
+     * or one whose window is about to be made (the tree comes with the stream, the window's request after it). */
+    private var tree: Access.Told? = null
+
+    /** What the open surface's window answers accessibility services with; null while none is open. */
+    val answers: Access? get() = shown?.pane?.access
+
+    /** exact2's statement of the accessibility tree: a surface's ([t] names which), or the page's again (null). The
+     * open surface's pane answers with it, and an alert's window is titled by its headline, as the platform's own
+     * alert is, so TalkBack says it when the window comes. */
+    fun access(t: Access.Told?) {
+        tree = t
+        val s = shown ?: return
+        if (t == null || t.surface != s.serial) return
+        s.pane.access?.told(t)
+        t.headline?.let { s.dialog?.window?.setTitle(it) }
+    }
+
     /** The faces surfaces have drawn with, by what announces each: a surface painted again makes none anew. */
     private val faces = HashMap<List<Int>, Font>()
     /** `x_log_surfaces=1` (exact2's EXACT_LOG_SURFACES): when each surface's window is asked for, made and first
@@ -201,6 +227,9 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
             }
         }
         pane.show(stream)
+        pane.access = Access(pane)
+        val known = tree?.takeIf { it.surface == serial }
+        known?.let { pane.access?.told(it) }
         val made = when (what) {
             ALERT -> {
                 // The framework's dialog window, with the activity's own dialog theme for its dim and its motion.
@@ -215,10 +244,12 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
                     // Material's scrim: 32% over everything behind the dialog, the system bars included.
                     window.setDimAmount(SCRIM)
                 }
-                // An alert has no outside. Back and Escape cancel it where exact2 says they may.
-                dialog.setCanceledOnTouchOutside(false)
+                // An alert has no outside unless its author wrote one (`closedby="any"`, LLP 1115.000 D13.4): exact2
+                // says which, as it does for a menu. Back and Escape cancel it where exact2 says they may.
                 dialog.setCancelable(flags and BACK_DISMISSES != 0)
+                dialog.setCanceledOnTouchOutside(flags and OUTSIDE_DISMISSES != 0)
                 dialog.setOnCancelListener { dismissed(serial) }
+                known?.headline?.let { dialog.window?.setTitle(it) }
                 Shown(serial, pane, dialog, null).also { dialog.show() }
             }
             MENU -> {

@@ -15,8 +15,8 @@ carries the **`popover`** attribute, a `button` names it with
 **`popovertarget`** (by **`id`**, HTML's reference), and the host owns the
 top layer — light dismiss, one auto popover at a time, Escape closes,
 anchored to the invoker. Open state is **host state**, never plan state,
-the way scroll offset is (LLP 1008): opening a menu causes no relayout and
-no commit, and an app declares no `menuOpen` slot.
+the way scroll offset is (LLP 1008): opening a menu causes no relayout.
+An optional `toggle` handler observes it; no `menuOpen` slot controls it.
 
 When a popover's content is **menu-shaped** — `button` rows and `hr`
 separators, nothing else — an Apple host may present it as the platform's
@@ -118,11 +118,43 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
 **D2 — the top layer is the host's; open state never enters the plan.**
 The kernel lays the popover subtree out on every commit regardless of
 visibility — a hidden layer, anchored: top-left at the invoker's
-bottom-left, clamped to the viewport, sized by content. The host shows
-and hides it; opening is **no relayout and no dispatch**, the instant-menu
+bottom-left by default, sized by content. Authored `position-area` and
+`position-try-fallbacks` follow the placement amendment below. The host shows
+and hides it; opening is **no relayout**, the instant-menu
 property, and the same discipline as scroll offset (LLP 1008: host state,
 never plan state). Light dismiss, the one-auto-popover rule, and Escape
 are the host's, per the spec.
+
+**Action commands and observation (issue #319, 2026-10-12).**
+`showPopover(id)`, `hidePopover(id)` and `togglePopover(id)` use that same
+lifetime. The showing methods take optional `source="element-id"`, HTML's
+explicit source; no action target or focused node is inferred. Without a
+source there is no invoker, and a painted Apple popover is centred. Showing
+an open popover or hiding a closed one does nothing. A missing/non-popover
+target or missing named source is refused in the journal. Commands run after
+the action's tree commit, in order, so a following `focus(id)` can enter it.
+For an AppKit menu, `focus` in that opening action selects its initial native
+highlight; once AppKit is tracking, its highlight is keyboard-controlled and
+a later programmatic `focus` is refused in the journal. Windowed Linux selects
+the shell menu's row and returns focus to the invoker when it closes. An
+explicit source need not carry `popovertarget`, including a chooser's source.
+UIKit page pull-downs and context menus share the command lifetime too. The
+navigation bar's separate `UIBarButtonItem.menu` still lacks command visibility,
+dismissal and toggle observation (issue #319, remaining work). A confirmation
+closes logically as soon as `hidePopover` runs; a following show reopens logically
+in that same turn and presents again after UIKit's dismissal completes.
+
+`toggle=action` optionally passes a `ToggleEvent` with `oldState` and
+`newState`, each `"open"` or `"closed"`; host kind 49 carries their
+UTF-8 `oldState,newState` payload. Invokers, commands, Escape and light
+dismiss use the same notification. The host queues it after the visibility
+change; changes in one turn keep the first old state and last new state,
+including a closed-to-closed round trip. A recycled view's next incarnation
+never receives or coalesces with the previous row's queued event (LLP 1068 §4.9).
+Open state remains the host's;
+only a declared handler dispatches. There is no cancelable `beforetoggle`
+action or `interestfor` admission. Desktop/headless Linux still has no
+popover presentation; the windowed host uses LLP 1115.001 D10's shapes.
 
 Declared deviation (LLP 1001's ledger): a bare `[popover]` on the web is
 a *centered* fixed box (`inset:0; margin:auto`). v1's popovers are
@@ -170,6 +202,15 @@ lowers the HTML absolute-position default so it consumes no ordinary flow.
 No application open-state slot or host script reproduces the browser's dialog.
 Root navigation Escape and global authored shortcuts respect its input owner.
 
+`showModal(id)` and `close(id)` use the same presentation as the invoker on the
+web (both targets), macOS and iOS. A dialog's `close` handler is queued after
+closing and restoring focus, once per close, including Escape and invoker
+buttons. An alert dismissal still queues it when its chosen action becomes
+stale; only that press is suppressed. A repeated close and a removed or reset
+dialog fire nothing, including a web dialog whose render scope has ended. Bare
+`close()` remains the window's command. The headless/DRM Linux host names
+`showModal(id)` and `close(id)` as unsupported.
+
 UIKit admits the existing confirmation grammar: direct explanatory text, one
 handled action, and one handlerless closing Cancel, with `closedby="any"`.
 Other dialog content and close policies are unsupported. The same session-owned
@@ -184,6 +225,11 @@ nonmodal browser declaration and native confirmation projection.
 > **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
 > with its title and Cancel kept; `closedby="any"` is implied, not required; macOS and the web
 > show the `dialog`. The Linux host still presents none.
+>
+> **And by LLP 1115.000 D13.4 (2026-10-11).** An alert has no outside: a `dialog` of the
+> alert's shape implies `closedby="closerequest"` (Escape and Back cancel it, a tap outside
+> does nothing), and `any` is implied only for a chooser's shape. `closedby="any"` written on
+> an alert's shape asks for the platform's dismissible form.
 
 Messages removes `confirmDelete` and its authored cancellation overlay. Four
 physical cases on the rebuilt iPhone app cover one/two selections in light/dark:
@@ -476,12 +522,39 @@ to 16 points. Under the agent (D4) every popover stays painted, so the
 agent's taps need no host activation here. `ChooserMacTests` is the
 evidence; `<dialog>` stays the session's modal top layer on macOS.
 
+**Flip fallbacks (Charlie, 2026-10-08; implementation slice: Codex,
+2026-10-13).** This amends D2's unconditional clamp and §5's no-flip scope.
+Invoker popovers may name ordered CSS `position-try-fallbacks`: try the base
+area, then each fallback against the viewport; keep the current option when
+none fits (the base on a fresh opening).
+The author chooses the list. There is no unconditional clamp on an edge-aligned
+area. CSS's `anchor-center` still shifts a centred axis into the viewport.
+The margin box decides fit, and flips exchange the corresponding margins.
+See [CSS Anchor Positioning §6.1 and §6.5](https://drafts.csswg.org/css-anchor-position-1/#position-try-fallbacks).
+
+The first slice implements `none`, `flip-block`, `flip-inline` and their
+combinations in a comma-separated list, on the web and painted Apple layers.
+These native layers use horizontal writing mode; physical top/bottom/left/right
+areas include the opposite-side spans and corners. An authored fallback row on
+a non-menu macOS popover selects the painted layer so AppKit cannot replace
+its order with a screen-based choice. Adding or removing that row while open
+switches presentation without closing the popover or losing its focused control
+and text selection. Native menus and confirmations retain
+the platform's placement. A fitting choice survives resize and invoker movement;
+changing the area, fallback list, margins or size clears it. An overflowing choice tries the list
+again, preserving the current option if none fits. `flip-start`, logical areas,
+area-dependent sizing,
+nonzero insets and non-default self-alignment, full scroll-offset bookkeeping,
+and general Linux popover presentation remain outside this slice. `anchor-name`,
+`position-anchor`, named `@position-try` rules and `position-visibility` are
+not admitted by this work.
+
 **Placement, `position-area` (Claude, 2026-10-04):** the chooser's next
 consumer is an "Open in…" button at the foot of a card, whose chooser must
 sit above it or centred on it: the first popover that cannot live at the
 invoker's bottom-left, which §5 named as the condition. CSS `position-area`
 is admitted on a `popover` only, its anchor the invoker that opens it (the
-implicit anchor; no `anchor-name`, `position-anchor` or `position-try`),
+implicit anchor; no `anchor-name` or `position-anchor`),
 with these values, spelled as CSS spells them:
 
 | `position-area` | CSS meaning (implicit anchor = the invoker) | placed |
@@ -494,14 +567,14 @@ with these values, spelled as CSS spells them:
 | `center` | `center center`, the anchor's own cell; `anchor-center` in both axes | centred over the invoker |
 | `right span-bottom` | the right column, centre and bottom rows; aligned to the anchor's top edge | top-left at the invoker's top-right: a submenu beside its row (§5.2) |
 
-A single keyword names its row and spans every column, so `top` *is* `top
-span-all` (centred), not `top span-right`; `bottom` alike. Any other
-value (a corner, `left`, `right` alone or spanning up, `span-left`, logical
-keywords, `span-all top`) fails the build with `lower-css-position-area`, as does the row on a
-node that is not a popover. Every host clamps the box to the viewport (the
-layer): CSS does the same, as an absolutely positioned box that overflows
-its area but fits its containing block is shifted back into it. Nothing
-flips: a flip is `position-try`, still refused.
+A single keyword names its row and spans every column, so `top` is `top
+span-all` (centred), not `top span-right`; `bottom` alike. The 2026-10-13
+slice also admits `top span-left`, `bottom span-left`, `left`, `right`,
+`left span-top`, `left span-bottom`, `left span-all`, `right span-top`,
+`right span-all`, and the four `top|bottom left|right` corners.
+Logical keywords and reordered spellings remain refused, as does either
+placement row on a node that is not a popover. The flip amendment above
+replaces the unconditional clamp for an authored area.
 
 The row is a schema enum (`PositionArea`, bit 176). The web writes it as
 the CSS declaration on both targets and the browser places the popover
@@ -518,7 +591,7 @@ and macOS's — place by the table, from one function (`PositionArea.swift`),
 and macOS pops a menu up at the point it gives (the menu's size the box).
 As CSS does, it aligns the popover's margin box, not its border box:
 `position-area="top"` with `margin-bottom=12` leaves 12 points between the
-popover and the invoker, and clamping keeps the margins inside the layer.
+popover and the invoker. Fallback fit includes the margins.
 Margins are the kernel's resolved points (`auto` and a percentage are 0):
 the Apple style encoder, which leaves margins out of every other box's
 dictionary (the kernel placed the box), carries the four on a popover
@@ -616,9 +689,10 @@ agent flow and the seeded-book CDP recipe keep working unchanged.
   popover must be driven by something other than toggle/show/hide, take
   the newer names; `popovertarget` is the shipped subset.
 - **CSS anchor positioning rows** (`anchor-name`, `position-anchor`,
-  `position-try`) — a popover placed against something other than its
-  invoker, or one that must flip when it does not fit. **`position-area`
-  — earned back 2026-10-04** by an "Open in…" chooser at the foot of a
+  named `@position-try` rules) — a popover placed against something other
+  than its invoker. Flip fallbacks are admitted by Charlie's 2026-10-08
+  ruling, with the first implementation slice recorded in D2 above.
+  **`position-area` — earned back 2026-10-04** by an "Open in…" chooser at the foot of a
   card that must open above its invoker: a subset, on popovers only, with
   the invoker as the implicit anchor ("Placement", D2).
 - **A destructive row — earned back 2026-09-10:** the original return
@@ -1045,3 +1119,71 @@ host, the CDP recipe for the live web page.
   native arm for a menu-shaped popover (brand styling over platform
   chrome)? If a consumer asks, the web-true dial is
   `appearance: base-select`-adjacent territory — name it then, not now.
+
+## 5.3 Contract extensions to the Mac menu bar (2026-10-12)
+
+Charlie approved the bounded extension on 2026-10-08 and pinned its spelling
+in the menubar lane ruling: `-exact-menu="app|file|edit|view|go|window|help"`
+on a button; root `-exact-menu-remove="…"` with fixed ids; enabled follows
+`disabled`; the agent taps the button. Consumer: the coding-agent desktop
+app of `issues/closed/20261009-contract-menu-bar-extensions.md`.
+Implementer: Codex, 2026-10-12.
+
+`-exact-menu` is a literal standard
+menu id on a `button`, independent of the menu's localized title. It adds
+that button to the named menu even without `aria-keyshortcuts`, and wins
+over chord filing. The item's label is the button's accessible label or
+text, including for an explicitly placed ⌘, item. Without the attribute,
+the existing chord filing and Settings label remain unchanged. A declared
+⌘ chord keeps its existing single-dispatch and host-chord replacement rules.
+Items retain the existing destination ordering: Edit keeps its standard
+replacement and paste-variant positions, Go its history before destinations;
+other commands follow declaration order. App items follow About;
+View, Window and Help items precede the host commands. Go appears while it
+has an item. Help remains `NSApp.helpMenu`, with AppKit's search field above
+the authored items (the field is outside `NSMenu.items`).
+
+This adds a presentation of the existing button, never a new action:
+`disabled`/inert disable it, hidden or removed buttons leave the menu, and
+the existing agent `tap` reaches its button. Standard menus and Develop in
+development builds remain. AppKit menu objects, not their titles, identify
+destinations, so changing the display language does not change placement.
+
+Declared platform deviation: CSS/HTML have no application menu. Web (both
+targets), UIKit (including iPadOS), Linux, Windows, Android and the terminal
+ignore this presentation hint and keep the ordinary button and shortcuts.
+No layout, visibility, keyboard or accessibility defaults change there.
+The web emits no DOM attributes for either menu hint.
+
+`-exact-menu-remove` on a top-level root takes a whitespace-separated literal
+list from this fixed set:
+
+| ID | Standard item |
+|---|---|
+| `close-all` | File → Close All |
+| `autofill` | Edit → AutoFill (the submenu) |
+| `show-tab-bar` | View → Show/Hide Tab Bar |
+| `show-all-tabs` | View → Show All Tabs |
+| `enter-full-screen` | View → Enter/Exit Full Screen |
+| `minimize` | Window → Minimize |
+| `zoom` | Window → Zoom |
+| `bring-all-to-front` | Window → Bring All to Front |
+| `show-previous-tab` | Window → Show Previous Tab |
+| `show-next-tab` | Window → Show Next Tab |
+| `move-tab-to-new-window` | Window → Move Tab to New Window |
+| `merge-all-windows` | Window → Merge All Windows |
+
+An empty list removes nothing; repeated ids are harmless. Unknown ids, dynamic
+values and declarations below a root fail with `lower-menu-remove`, naming the
+whole accepted set. The view has one root node, as elsewhere in Contract. This
+removes menu affordances, not window capabilities or app-declared buttons.
+There is no Format menu in this host's standard bar; no speculative Format ids
+are accepted. The other standard items, Help and development Develop remain.
+
+AppKit identifies commands by their selectors and AutoFill by the installed
+item's identifier (`_NSMenuItemAutoFillIdentifier`, observed on macOS 27.0.1), never
+by localized titles. Selected items are hidden with hidden key equivalents
+disallowed, including items AppKit inserts after installation or on update.
+The host retains the objects so removing the declaration restores them; each
+window installs its own session's menu when it becomes key. Other hosts ignore
+this macOS-only presentation hint, just as they ignore `-exact-menu`.

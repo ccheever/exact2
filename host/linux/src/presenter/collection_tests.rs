@@ -678,6 +678,7 @@ fn feedback_budget_schedules_later_progress_and_stale_rows_do_not_commit() {
         port_cross: 360.,
         port_main: 180.,
         cross: 336.,
+        padding: [0.0; 2],
         measurements: vec![exact_runner::RowMeasurement {
             view: snapshot.rows[0].view,
             epoch: snapshot.rows[0].epoch + 1,

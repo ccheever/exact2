@@ -136,6 +136,46 @@ fn the_release_finds_its_screen_shaped_and_nothing_changed_before_it() {
 }
 
 #[test]
+fn a_new_runtime_family_reshapes_text_opened_on_press_release() {
+    let source = r#"component App
+  state open = false
+  state family = "sans-serif"
+  action show
+    family = "monospace"
+    open = true
+  view
+    column
+      button "Open" press=show testId="open" width=200 height=60
+      when open
+        text "The quick brown fox" font-family=family testId="sample"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Empty,
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let (x, y) = centre(&p, "open");
+    p.pointer_down(x, y, 0.).unwrap();
+    p.foresee_press(x, y, 0.);
+    let cold = work(&p).0;
+    while p.foresee_slice(Duration::from_secs(1)) {}
+    let warm = work(&p).0;
+    assert!(warm > cold, "the new text was shaped ahead");
+    p.pointer_up(x, y, 60.).unwrap();
+    let sample = p.host().kernel().find_by_test_id("sample");
+    assert_eq!(sample.len(), 1);
+    assert!(
+        work(&p).0 > warm,
+        "the fallback shape must be replaced after font registration"
+    );
+}
+
+#[test]
 fn a_slice_stops_at_its_budget_and_the_slices_end() {
     let mut p = boot();
     let (x, y) = centre(&p, "row");

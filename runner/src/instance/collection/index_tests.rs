@@ -646,6 +646,73 @@ fn extent_overflow_is_transactional_and_large_geometry_saturates() {
 }
 
 #[test]
+fn sufficient_padded_bound_includes_boundary_and_bounds_actual_binary_sums() {
+    for count in [0, 1, 2, 3, 257, 25_000] {
+        let mut i = index(&vec![0.0; count]);
+        let bound = (f32::MAX as f64) / (4.0 * i.tree.base as f64);
+        assert!(i.padded_extent_definitely_fits(bound));
+        assert!(!i.padded_extent_definitely_fits(f64::from_bits(bound.to_bits() + 1)));
+        for invalid in [-1.0, f64::NAN, f64::INFINITY] {
+            assert!(!i.padded_extent_definitely_fits(invalid));
+        }
+        for p in 0..count {
+            i.set_measured_height_at(p, i.measurement_token_at(p).unwrap(), bound)
+                .unwrap();
+        }
+        assert!(i.total_height() <= i.tree.base as f64 * bound);
+        // Unequal padding exercises both physical and relative addition orders.
+        for [leading, trailing] in [[bound, bound], [bound / 3.0, bound], [bound, 0.0]] {
+            assert!(i.total_height() + leading + trailing <= f32::MAX as f64);
+            assert!(i.total_height() + trailing + leading <= f32::MAX as f64);
+        }
+    }
+}
+
+#[test]
+fn sparse_height_preview_is_exact_bounded_and_allocation_free_for_equal_samples() {
+    let empty = SizeIndex::new(32.0).unwrap();
+    let preview = empty.preview_heights();
+    assert_eq!(preview.total_height(), 0.0);
+    assert!(preview.sums.is_none());
+    for count in [1, 257, 25_000] {
+        let mut i = index(&vec![58.0; count]);
+        let before = i.fingerprint();
+        let mut preview = i.preview_heights();
+        for p in 0..count.min(32) {
+            preview.set_height(p, i.denoised(p, 58.00003));
+            preview.set_height(p, 58.0);
+        }
+        assert!(
+            preview.sums.is_none(),
+            "equal/noisy samples allocate no overlay"
+        );
+        assert_eq!(preview.total_height().to_bits(), i.total_height().to_bits());
+        let changes = [
+            (0, 1e38),
+            (count / 2, 7.162362434933901e36),
+            (count - 1, 0.0),
+        ];
+        for (p, h) in changes {
+            preview.set_height(p, h);
+        }
+        let nodes = preview.sums.as_ref().unwrap().len();
+        assert!(nodes <= changes.len() * (i.tree.base.ilog2() as usize + 1));
+        let predicted = preview.total_height();
+        drop(preview);
+        assert_eq!(
+            i.fingerprint(),
+            before,
+            "preview never changes the live tree/epochs"
+        );
+        for (p, h) in changes {
+            i.set_measured_height_at(p, i.measurement_token_at(p).unwrap(), h)
+                .unwrap();
+        }
+        assert_eq!(i.total_height().to_bits(), predicted.to_bits());
+    }
+}
+
+#[test]
 fn generation_overflow_does_not_revalidate_ancient_tokens() {
     let mut index = index(&[10.0, 20.0]);
     index.epoch = u64::MAX;

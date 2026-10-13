@@ -21,6 +21,7 @@ pub enum StyleDomainError {
     InvalidLineHeight,
     NonFinite(StyleId),
     AutoNotAdmitted(StyleId),
+    PercentNotAdmitted(StyleId),
     TooManyTracks { style: StyleId, count: usize },
     InvalidGridTrack(StyleId),
     InvalidGridSpan(StyleId),
@@ -71,6 +72,8 @@ pub enum DecodeError {
     BadAnimationRange,
     /// Invalid `timeline-scope` (LLP 1057.003 D4).
     BadTimelineScope,
+    /// Invalid invoker-popover flip fallback list.
+    BadPositionTryFallbacks,
     /// Invalid SVG paint (LLP 1055 D2).
     BadPaint,
     /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
@@ -122,6 +125,9 @@ pub enum DecodeError {
     UnknownEnumValue { style: StyleId, value: u8 },
     /// `auto` was encoded on a row whose grammar does not admit it.
     AutoNotAdmitted { style: StyleId },
+    /// A percentage, alone or in a calculation, was encoded on a row CSS
+    /// gives none.
+    PercentNotAdmitted { style: StyleId },
     /// A dimension kind byte is not auto/points/percent.
     UnknownDimensionKind(u8),
     /// A `min()`/`max()`/`clamp()` length's tree is malformed: an unknown
@@ -265,6 +271,9 @@ pub enum ApplyError {
     NonFiniteStyle { op_index: usize, style: StyleId },
     /// `auto` was supplied for a dimension row whose grammar does not admit it.
     AutoNotAdmitted { op_index: usize, style: StyleId },
+    /// A percentage, alone or in a calculation, was supplied for a row CSS
+    /// gives none.
+    PercentNotAdmitted { op_index: usize, style: StyleId },
     /// A grid template exceeded the closed grammar's track bound.
     TooManyTracks {
         op_index: usize,
@@ -316,6 +325,8 @@ pub enum ApplyError {
 pub enum LayoutError {
     /// Explicit region registration/publication refused; no fake ready metrics.
     ContentRegion(&'static str),
+    /// A host's containing block refused (LLP 1115.002 D8.2).
+    HostBlock(&'static str),
     /// A definite available-space offer is infinite or NaN.
     InvalidOffer,
     /// The id is not live.
@@ -334,6 +345,8 @@ pub enum LayoutError {
     InvalidSegments,
     /// A root font size that is not finite and positive (LLP 1069.000 D3).
     InvalidRootFontSize,
+    /// A display scale that is not finite and positive (LLP 1115.000 D10.3).
+    InvalidDisplayScale,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
     /// A host returned non-finite or negative field chrome.
@@ -363,6 +376,8 @@ pub enum LayoutError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KernelError {
+    /// Invalid document continuation state; no receipt was published.
+    DocumentCommit(&'static str),
     /// Frame or payload decoding.
     Decode(DecodeError),
     /// Batch validation.
@@ -383,6 +398,9 @@ impl From<StyleDomainError> for DecodeError {
             StyleDomainError::InvalidLineHeight => DecodeError::InvalidLineHeight,
             StyleDomainError::NonFinite(style) => DecodeError::NonFinite(style),
             StyleDomainError::AutoNotAdmitted(style) => DecodeError::AutoNotAdmitted { style },
+            StyleDomainError::PercentNotAdmitted(style) => {
+                DecodeError::PercentNotAdmitted { style }
+            }
             StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),
             StyleDomainError::InvalidGridTrack(_) => DecodeError::InvalidGridTrack,
             StyleDomainError::InvalidGridSpan(_) => DecodeError::InvalidGridSpan,
@@ -425,6 +443,7 @@ impl fmt::Display for LayoutError {
 impl fmt::Display for KernelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            KernelError::DocumentCommit(what) => write!(f, "document commit: {what}"),
             KernelError::Decode(e) => e.fmt(f),
             KernelError::Apply(e) => e.fmt(f),
             KernelError::Layout(e) => e.fmt(f),
@@ -525,6 +544,10 @@ pub enum StyleValueError {
     },
     /// Not `none`, `all` or a list of `<dashed-ident>`s.
     BadTimelineScope {
+        style: StyleId,
+    },
+    /// Not none or a list of flip-block/flip-inline combinations.
+    BadPositionTryFallbacks {
         style: StyleId,
     },
     /// Not a CSS `rotate` (LLP 1077 D8).

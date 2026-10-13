@@ -1,19 +1,11 @@
-//! Style rows → CSS declarations.
-//!
-//! @ref LLP 1115 §2 (names stay CSS: a row's CSS name is
-//! the row's name with `-` for `_`, and its value the CSS value; the few rows
-//! that are not one CSS property each are listed here by hand)
-//! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
-//! deviation and is not emitted as CSS)
-//!
-//! Every set row of a node becomes one declaration, read through the
-//! kernel's generated `StyleProps::get`, so a row added to `schema.json`
-//! reaches the page with no change here unless it needs a unit or a name
-//! this table does not know — in which case it is skipped and named in
-//! [`Skipped`], never guessed.
+//! Style rows → CSS declarations (LLP 1115 §2, LLP 1002 D2).
+//! CSS names replace `_` with `-`; exceptions are mapped below. Spring timing
+//! is not emitted as CSS. Each set row is read through `StyleProps::get`, so
+//! new schema rows need no mapping unless their name or unit differs.
+//! Unsupported rows are reported in [`Skipped`].
 
 mod fonts;
-pub use fonts::{font_alias, font_family_names};
+pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
@@ -30,6 +22,10 @@ pub struct Skipped {
     /// Why.
     pub reason: &'static str,
 }
+
+/// A hairline for a page without a kernel: the shell's custom property at
+/// one device pixel (LLP 1115.000 D10.3).
+pub const HAIRLINE: &str = "var(--exact-hairline, 1px)";
 
 /// The `cssText` for a node's set rows, plus what was skipped.
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
@@ -71,9 +67,12 @@ fn css_text_in(
             // `medium`, in `rem`, so it follows the browser's root size.
             Unit::TextStyle(_) => {
                 let medium = exact_kernel::style::relative::MEDIUM;
-                num_into(out, n * unit.basis(medium, medium) / medium);
+                num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");
             }
+            // @ref LLP 1115.000 D10.3 — one device pixel: the page's sheet
+            // keeps `--exact-hairline` at it, whatever the display's scale.
+            Unit::Hairline => out.push_str(HAIRLINE),
         }
         true
     };
@@ -521,7 +520,6 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
     style.rare.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
 }
 
-/// One row → one declaration, by the CSS rule for its name and codec.
 /// Whether a row's value is one CSS declaration here.
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
@@ -591,6 +589,8 @@ fn spell_property(out: &mut String, id: StyleId) {
     let name = match id {
         StyleId::TextColor => return out.push_str("color"),
         StyleId::TintColor => return out.push_str("--exact-tint"),
+        // @ref LLP 1104 D3 — `::placeholder`'s colour, read by index.html.
+        StyleId::PlaceholderColor => return out.push_str("--exact-placeholder-color"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
@@ -632,6 +632,15 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         {
             out.push_str("none")
         }
+        // Only a calculation can be negative here; written as `calc()` the
+        // browser clamps it rather than dropping it (CSS Values 4 §10.12).
+        RowValue::Dimension(
+            d @ (Dimension::Points(v) | Dimension::Percent(v) | Dimension::Viewport(_, v)),
+        ) if *v < 0.0 && exact_kernel::style::calc::nonnegative_row(id) => {
+            out.push_str("calc(");
+            dimension(out, *d);
+            out.push(')');
+        }
         RowValue::Dimension(d) => dimension(out, *d),
         RowValue::Color(c) => rgba_into(out, *c),
         // The browser resolves this one (LLP 1034 D2): handed the function
@@ -654,6 +663,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::PositionTryFallbacks(r) => out.push_str(&r.css()),
         RowValue::DragTimeline(d) => out.push_str(&d.css()),
         RowValue::AnimationTimeline(t) => out.push_str(&t.css()),
         RowValue::AnimationRange(r) => out.push_str(&r.css()),
@@ -1062,6 +1072,16 @@ mod declaration_tests {
         }
         let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
         css_text(&style, &fonts).0
+    }
+
+    /// LLP 1001 §6's balance; LLP 1104 D3's `::placeholder` colour.
+    #[test]
+    fn balance_and_the_placeholder_colour_are_written_for_the_browser() {
+        let text = |id, v: &str| css(&[(id, StyleValue::Text(v.into()))], &[]);
+        let wrap = text(StyleId::TextWrapStyle, "balance");
+        assert_eq!(wrap, "text-wrap-style:balance;");
+        let ink = text(StyleId::PlaceholderColor, "#00800080");
+        assert_eq!(ink, "--exact-placeholder-color:rgba(0,128,0,0.5019608);");
     }
 
     #[test]

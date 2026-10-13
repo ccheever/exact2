@@ -125,7 +125,7 @@ const MODELS: { id: string; name: string; maker: string }[] = [
   { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic' },
   { id: 'anthropic/claude-opus-5.5', name: 'Claude Opus 5.5', maker: 'Anthropic' },
   { id: 'anthropic/claude-fable-5.1', name: 'Claude Fable 5.1', maker: 'Anthropic' },
-  { id: 'openai/gpt-5.6-sol', name: 'GPT-5.6 Sol', maker: 'OpenAI' },
+  { id: 'openai/gpt-6.1-sol', name: 'GPT-6.1 Sol', maker: 'OpenAI' },
   { id: 'google/gemini-3.8-flash', name: 'Gemini 3.8 Flash', maker: 'Google' },
   { id: 'x-ai/grok-4.7', name: 'Grok 4.7', maker: 'xAI' },
 ];

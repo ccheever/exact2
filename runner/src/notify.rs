@@ -1,4 +1,4 @@
-//! `showNotification(title=, body=, tag=, showTrigger=)` and
+//! `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
 //! `closeNotification(tag)`: local notifications by the web's Notification
 //! API names (`ServiceWorkerRegistration.showNotification`'s title and
 //! options; `showTrigger` is the Notification Triggers draft's member, its
@@ -29,6 +29,8 @@ pub struct Notice {
     pub tag: Option<String>,
     /// `showTrigger=`: when to show it, in epoch milliseconds; none is now.
     pub show_trigger: Option<f64>,
+    /// `navigate=`: the route opened by the notification's plain click.
+    pub navigate: Option<String>,
 }
 
 /// What a host's arm does with a `showNotification` or `closeNotification`
@@ -45,14 +47,14 @@ pub enum Arm {
 
 impl Notice {
     /// The command's arguments as the compiler lowers them: `(title, body,
-    /// tag, showTrigger)`, `none` for an absent one.
+    /// tag, showTrigger, navigate)`, `none` for an absent one.
     pub fn from_args(args: &[Value]) -> Result<Notice, String> {
         let text = |i: usize| -> Result<Option<String>, String> {
             match args.get(i) {
                 None | Some(Value::Option(None)) => Ok(None),
                 Some(s @ exact_plan::str_value!()) => Ok(Some(s.text().to_string())),
                 Some(Value::Option(Some(v))) if v.is_str() => Ok(Some(v.text().to_string())),
-                Some(_) => Err("title=, body= and tag= are strings".into()),
+                Some(_) => Err("title=, body=, tag= and navigate= are strings".into()),
             }
         };
         let at = match args.get(3) {
@@ -64,25 +66,27 @@ impl Notice {
             },
             Some(_) => return Err("showTrigger= is a time in epoch milliseconds".into()),
         };
-        if args.len() != 4 {
-            return Err("takes title=, body=, tag= and showTrigger=".into());
+        if args.len() != 5 {
+            return Err("takes title=, body=, tag=, showTrigger= and navigate=".into());
         }
         Notice {
             title: text(0)?.unwrap_or_default(),
             body: text(1)?,
             tag: text(2)?,
             show_trigger: at,
+            navigate: text(4)?,
         }
         .checked()
     }
 
-    /// A host's request, `{"title":…,"body":…,"tag":…,"showTrigger":…}`.
+    /// A host's request, `{"title":…,"body":…,"tag":…,"showTrigger":…,"navigate":…}`.
     pub fn from_json(json: &str) -> Result<Notice, String> {
         Notice {
             title: field_str(json, "title").unwrap_or_default(),
             body: field_str(json, "body"),
             tag: field_str(json, "tag"),
             show_trigger: field_num(json, "showTrigger"),
+            navigate: field_str(json, "navigate"),
         }
         .checked()
     }
@@ -97,7 +101,7 @@ impl Notice {
         Ok(self)
     }
 
-    /// `{"title":…,"body":…,"tag":…,"showTrigger":…}`, `null` for what is
+    /// `{"title":…,"body":…,"tag":…,"showTrigger":…,"navigate":…}`, `null` for what is
     /// absent: an entry of `state.notifications`.
     pub fn summary(&self, s: &mut String) {
         s.push_str("{\"title\":");
@@ -110,9 +114,15 @@ impl Notice {
             }
         }
         match self.show_trigger {
-            Some(t) => s.push_str(&format!(",\"showTrigger\":{}}}", num(t))),
-            None => s.push_str(",\"showTrigger\":null}"),
+            Some(t) => s.push_str(&format!(",\"showTrigger\":{}", num(t))),
+            None => s.push_str(",\"showTrigger\":null"),
         }
+        s.push_str(",\"navigate\":");
+        match &self.navigate {
+            Some(location) => quote(location, s),
+            None => s.push_str("null"),
+        }
+        s.push('}');
     }
 }
 
@@ -214,22 +224,47 @@ mod tests {
     #[test]
     fn data_is_checked_by_one_rule() {
         let none = Value::Option(None);
-        let ok =
-            Notice::from_args(&[s("Stretch"), none.clone(), s("h1"), Value::Number(5e12)]).unwrap();
+        let ok = Notice::from_args(&[
+            s("Stretch"),
+            none.clone(),
+            s("h1"),
+            Value::Number(5e12),
+            s("/stretch"),
+        ])
+        .unwrap();
         assert_eq!(
             (ok.tag.as_deref(), ok.show_trigger),
             (Some("h1"), Some(5e12))
         );
-        assert!(Notice::from_args(&[s(""), none.clone(), none.clone(), none.clone()]).is_err());
-        assert!(
-            Notice::from_args(&[s("T"), none.clone(), none.clone(), Value::Number(-1.0)]).is_err()
-        );
+        assert!(Notice::from_args(&[
+            s(""),
+            none.clone(),
+            none.clone(),
+            none.clone(),
+            none.clone()
+        ])
+        .is_err());
+        assert!(Notice::from_args(&[
+            s("T"),
+            none.clone(),
+            none.clone(),
+            Value::Number(-1.0),
+            none.clone()
+        ])
+        .is_err());
         assert!(Notice::from_json(r#"{"title":"T","body":null,"tag":null}"#).is_ok());
+        assert_eq!(
+            Notice::from_json(r#"{"title":"T","navigate":"/inbox"}"#)
+                .unwrap()
+                .navigate
+                .as_deref(),
+            Some("/inbox")
+        );
         let mut out = String::new();
         ok.summary(&mut out);
         assert_eq!(
             out,
-            r#"{"title":"Stretch","body":null,"tag":"h1","showTrigger":5000000000000}"#
+            r#"{"title":"Stretch","body":null,"tag":"h1","showTrigger":5000000000000,"navigate":"/stretch"}"#
         );
     }
 }

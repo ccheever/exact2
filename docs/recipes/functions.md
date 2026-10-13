@@ -1,14 +1,13 @@
 # Recipe: the standard functions
 
-Every function an expression may call, one line each. For one function's rules and an
-example: `bun exact.mjs contract vocab <name>` (a name Contract lacks, such as `sort`
-or `pow`, prints what to write instead).
+Every function an expression may call; `bun exact.mjs contract vocab <name>` has one's rules (a
+name Contract lacks, such as `sort`, prints what to write).
 
-- **Text:** `length(s) -> number` · `isEmpty(s) -> bool` · `trim(s)` · `toLowerCase(s)` ·
+- **Text:** `trim(s)` · `toLowerCase(s)` ·
   `includes(s, t) -> bool` · `startsWith(s, t)` · `endsWith(s, t)` · `indexOf(s, t) -> number` ·
   `slice(s, start, end?)` · `split(s, sep) -> list<string>` · `replaceAll(s, find, with)` ·
   `toString(x) -> string` · `parseNumber(s) -> option<number>` · `encodeURIComponent(s)`.
-- **Lists:** `length(xs)` · `isEmpty(xs)` · `map(xs, (x, i) => y) -> list<U>` ·
+- **Lists:** `length(x)` and `isEmpty(x)` (text too) · `map(xs, (x, i) => y) -> list<U>` ·
   `filter(xs, x => bool)` · `first(xs) -> option<T>` · `at(xs, i) -> option<T>` (negative
   from the end) · `slice(xs, start, end?)` · `concat(xs, ys)` · `includes(xs, x) -> bool` ·
   `indexOf(xs, x) -> number` · `join(xs, sep) -> string`.
@@ -28,48 +27,18 @@ or `pow`, prints what to write instead).
   `failure(resource) -> option<Failure>`.
 - **Values:** `some(x)`, `none` · `Shape(field=value, …)` · `Shape(base, field=value)` ·
   `empty(field=value)` (a resource's placeholder).
-- **Layout, in actions only:** `frame(id)` · `measure("id")` · `elementFromPoint(x, y)`.
 
 Host commands are action statements, not functions: `focus(id)`, `blur()`, `showModal(id)`,
 `close(id)`, `copyText(s)`, `openURL(url)`, `share(…)`, `haptic(…)`, `scrollIntoView(id)`
-([grammar: host commands](../contract-grammar.md#host-commands)).
+([grammar](../contract-grammar.md#host-commands)); in actions, `frame(id)`, `measure("id")` too.
 
 What the web has and Contract doesn't is a composition, or the data module's job:
 
-```contract
-shape Book
-  id: string
-  title: string
-  done: bool
-
-component Shelf
-  state books = [Book(id="1", title="Middlemarch", done=true), Book(id="2", title="Emma", done=false)]
-  derive found = first(filter(books, b => b.id == "2"))
-  derive anyDone = includes(map(books, b => b.done), true)
-  derive allDone = not includes(map(books, b => b.done), false)
-  derive firstUnread = indexOf(map(books, b => b.done), false)
-  derive unread = length(filter(books, b => not b.done))
-  view
-    column padding=16 gap=8
-      text (match found { case some(b) => b.title, case none => "Not found" }) testId="found"
-      text `${length(filter(books, b => b.done))} of ${length(books)} read` testId="count"
-      text (anyDone and not allDone ? `Next: book ${firstUnread + 1}` : "") testId="next"
-      text `${unread} ${unread == 1 ? "book" : "books"} to go` testId="left"
-```
-
-```contract-test
-test "find, some, every and count are compositions"
-  expect text "found" == "Emma"
-  expect text "count" == "1 of 2 read"
-  expect text "next" == "Next: book 2"
-  expect text "left" == "1 book to go"
-```
-
-- A count chooses its noun by the number, so it never reads "1 books":
-  `${n} ${n == 1 ? "book" : "books"}` (`Intl.PluralRules` is this choice); the
-  compiler warns of a number before a fixed plural (`lower-count-plural`).
-- `find` is `first(filter(…))`, `some` is `includes(map(…), true)`, `every` is
-  `not includes(map(…), false)`, `findIndex` is `indexOf(map(…), true)`.
-- Sorting, grouping, sums and other maths (`sort`, `reduce`, `pow`, `abs`) happen in the
-  data module, which answers the view the result. Upper case is CSS:
-  `text-transform="uppercase"`. An app's own `fn` names a reusable expression.
+- With `p` a predicate `x => …`: `find` is `first(filter(xs, p))`, `some` is
+  `includes(map(xs, p), true)`, `every` is `not includes(map(xs, p), false)`, `findIndex` is
+  `indexOf(map(xs, p), true)`.
+- A count chooses its noun by the number: `${n} ${n == 1 ? "book" : "books"}`, never "1 books"
+  (`lower-count-plural`).
+- Sorting, grouping, sums and other maths (`sort`, `reduce`, `pow`, `abs`) are the data module's:
+  it answers the view the result. Upper case is CSS: `text-transform="uppercase"`. An app's own
+  `fn` names a reusable expression.

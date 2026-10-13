@@ -94,6 +94,81 @@ fn log<D: DataSource>(p: &Presenter<D>) -> String {
 }
 
 #[test]
+fn focus_bubbles_into_within_and_out_of_a_wrapper() {
+    let source = include_str!("../../../../contract/corpus/focus-bubble.contract");
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let before = id(&p, "before");
+    let a = id(&p, "a");
+    let b = id(&p, "b");
+    let after = id(&p, "after");
+    let wrapper = id(&p, "wrapper");
+    assert!(
+        !p.focusable(wrapper),
+        "an ancestor listener is no focus stop"
+    );
+    // The corpus steps (focus-bubble.steps): a click, Tab past the wrapper
+    // onto its first child, moves within and out of it, `focus()`, and the
+    // focused child's removal.
+    p.tap(before).unwrap();
+    p.type_key(before, "Tab", "Tab", true, false).unwrap();
+    assert_eq!(p.focus, Some(a), "Tab skips the listening wrapper");
+    p.tap(b).unwrap();
+    p.tap(a).unwrap();
+    p.tap(after).unwrap();
+    p.tap(id(&p, "programmatic")).unwrap();
+    p.run_commands(|| Keeps);
+    // The button has no `id`: relatedTarget is some(""), as the DOM's.
+    assert_eq!(p.focus, Some(b));
+    p.tap(a).unwrap();
+    p.type_key(a, "Enter", "Enter", true, false).unwrap();
+    assert!(p.host().kernel().node(a).is_none());
+    assert_eq!(
+        log(&p),
+        "in:a:before;out:a:b;in:b:a;out:b:a;in:a:b;out:a:after;\
+         in:b:;out:b:a;in:a:b;out:a:-;"
+    );
+}
+
+#[test]
+fn a_pressed_button_that_removes_itself_sends_focusout_to_its_wrapper() {
+    let source = r#"component App
+  state shown = true
+  state log = ""
+  action left(e: FocusEvent)
+    log = `${log}out:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
+  action hide
+    shown = false
+  view
+    column focusout=left width=200
+      when shown
+        button "Hide" id="hide" press=hide testId="hide" height=32
+      text log testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.tap(id(&p, "hide")).unwrap();
+    assert_eq!(log(&p), "out:hide:-;");
+    assert_eq!(p.focus, None);
+}
+
+#[test]
 fn cursor_resolves_inheritance_hud_override_stationary_changes_and_unmount() {
     let source = r#"component CursorTest
   state armed = false
@@ -187,6 +262,116 @@ fn a_stopped_key_reaches_no_ancestor() {
         "the field heard them all: {}",
         log(&p)
     );
+}
+
+#[test]
+fn capture_precedes_target_and_bubble_and_controls_the_default() {
+    const SOURCE: &str = r#"component App
+  state draft = ""
+  state heard = ""
+  action edit(v: string)
+    draft = v
+  action outerCapture(k: string)
+    heard = `${heard}C`
+    if k == "x"
+      stopPropagation()
+    if k == "z"
+      preventDefault()
+  action innerCapture(k: string)
+    heard = `${heard}T`
+    if k == "y"
+      stopPropagation()
+  action inner(k: string)
+    heard = `${heard}K`
+  action outer(k: string)
+    heard = `${heard}B`
+  view
+    column keycapture=outerCapture testId="root" width=300 height=200
+      column key=outer
+        input value=draft input=edit keycapture=innerCapture key=inner testId="field"
+      text heard testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(SOURCE).unwrap().encode(),
+        Keeps,
+        (300., 200.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(
+        !p.focusable(id(&p, "root")),
+        "capture alone adds no Tab stop"
+    );
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    assert_eq!(log(&p), "CTKB");
+    p.type_key(field, "KeyX", "x", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBC");
+    p.type_key(field, "KeyY", "y", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBCCT");
+    p.type_key(field, "KeyZ", "z", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBCCTCTKB");
+    assert_eq!(
+        p.host()
+            .kernel()
+            .node(field)
+            .unwrap()
+            .props
+            .str(PropId::Value),
+        Some("axy")
+    );
+}
+
+#[test]
+fn keys_skip_disabled_controls_without_cutting_off_ancestors() {
+    const SOURCE: &str = r#"component App
+  state heard = ""
+  action captured(k: string)
+    heard = `${heard}C`
+  action outer(k: string)
+    heard = `${heard}B`
+  action inner(k: string)
+    heard = `${heard}K`
+  action released(k: string)
+    heard = `${heard}U`
+  view
+    column keycapture=captured key=outer keyup=released testId="root"
+      column disabled=true
+        input value="" key=inner testId="field"
+      button disabled=true keycapture=inner key=inner keyup=inner testId="disabled-parent"
+        input value="" key=inner testId="nested-field"
+      input disabled=true keycapture=captured key=inner testId="disabled-field"
+      button "Disabled" disabled=true keycapture=captured key=inner testId="disabled-button"
+      text heard testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(SOURCE).unwrap().encode(),
+        Keeps,
+        (300., 200.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    assert_eq!(log(&p), "CKB");
+    let nested = id(&p, "nested-field");
+    p.type_key(nested, "KeyA", "a", true, false).unwrap();
+    p.type_key(nested, "KeyA", "a", false, false).unwrap();
+    assert_eq!(log(&p), "CKBCKBU");
+    for control in ["disabled-field", "disabled-button", "disabled-parent"] {
+        for kind in [EventKind::Keycapture, EventKind::Key, EventKind::Keyup] {
+            assert_eq!(
+                p.handler_target(id(&p, control), kind),
+                Some(id(&p, "root"))
+            );
+        }
+    }
 }
 
 #[test]
@@ -398,6 +583,37 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
     );
 }
 
+/// An `svg` paints its content where its hits land: inside the padding
+/// layout resolved, a percentage of the containing block's width (CSS Box
+/// Model 3 §4.1), so x 20 here and not 10.
+#[test]
+fn an_svg_paints_its_content_where_it_is_hit() {
+    const ART: &str = r##"component App
+  view
+    column width=400 height=200 background-color="#ffffff"
+      svg width=200 height=100 box-sizing="border-box" padding-left="5%"
+        rect x=0 y=0 width=20 height=20 fill="#ff0000"
+"##;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(ART).unwrap().encode(),
+        Keeps,
+        (400., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let frame = p.frame();
+    let red = |x| frame.pixel(x, 5).map(|c| (c.red(), c.green(), c.blue())) == Some((255, 0, 0));
+    assert_eq!((red(15), red(35)), (false, true));
+    let rect = |p: &mut Presenter<Keeps>, x| {
+        p.hit(x, 5.)
+            .is_some_and(|id| p.host.kernel().node(id).unwrap().node_type == NodeType::SvgRect)
+    };
+    assert_eq!((rect(&mut p, 15.), rect(&mut p, 35.)), (false, true));
+}
+
 /// A `wheel` is heard by a disabled box (it means nothing on a `<div>`, as
 /// in Chrome) and a disabled link (an `<a>`), and not by a disabled button
 /// (review b5-b 4, b5-delta).
@@ -574,6 +790,33 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
     );
     p.focus = None;
     assert_eq!(tab(&mut p, true), "disabled", "and Shift-Tab the last");
+}
+
+#[test]
+fn aria_disabled_keeps_a_linux_button_in_tab_order_and_runs_press() {
+    const APP: &str = "component App\n  state count = 0\n  action tick\n    count = count + 1\n  view\n    column width=200 height=100\n      button \"First\" testId=\"first\" height=20\n      button \"Update\" aria-disabled=true press=tick testId=\"update\" height=20\n      button \"Last\" testId=\"last\" height=20\n      text `${count}` testId=\"count\"\n";
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(APP).unwrap().encode(),
+        Keeps,
+        (200., 100.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.advance(16.);
+    p.tap(id(&p, "first")).unwrap();
+    p.hardware_key("Tab", "Tab", true, false);
+    p.hardware_key("Tab", "Tab", false, false);
+    assert_eq!(p.focus(), Some(id(&p, "update")));
+    p.tap(id(&p, "update")).unwrap();
+    let n = p
+        .host()
+        .kernel()
+        .node_by_key(p.host().kernel().find_by_test_id("count")[0])
+        .unwrap();
+    assert_eq!(n.props.str(PropId::Text), Some("1"));
 }
 
 #[test]

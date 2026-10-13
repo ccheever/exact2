@@ -17,7 +17,8 @@ impl DataSource for Nothing {
 }
 
 /// A page with a field and the buttons that open each surface; an alert, a
-/// three-action alert, a chooser (no text: not an alert) and a menu of
+/// three-action alert, an alert whose author wrote `closedby="any"`, a
+/// chooser (no text: not an alert) and a menu of
 /// four rows, one disabled, with a separator; a row that names the menu as
 /// its context menu; and a second route.
 const APP: &str = r#"routes nav
@@ -25,6 +26,9 @@ const APP: &str = r#"routes nav
     detail "/detail"
 component App
   state said = "nothing"
+  state toggled = ""
+  action toggling(e: ToggleEvent)
+    toggled = `${e.oldState}>${e.newState}`
   state aimed = ""
   state name = ""
   action ask
@@ -33,6 +37,8 @@ component App
     showModal("three")
   action askChooser
     showModal("chooser")
+  action askLight
+    showModal("light")
   action shut
     close("confirm")
   action remove
@@ -67,6 +73,8 @@ component App
               text "Three"
             button press=askChooser testId="ask-chooser" height=30
               text "Chooser"
+            button press=askLight testId="ask-light" height=30
+              text "Light"
             button press=shut testId="shut" height=30
               text "Shut"
             button press=poke testId="poke" height=30
@@ -76,7 +84,7 @@ component App
             row width=400 height=40
               button press=poke contextmenu=aim("row") contextPopover="menu" testId="held" width=300 height=40
                 text "Hold me"
-              button popovertarget="menu" aria-label="More" testId="more" width=40 height=40
+              button popovertarget="menu" aria-label="More" id="trigger" testId="more" width=40 height=40
                 image "symbol:more"
           when e.name == "detail"
             text "Detail" testId="detail"
@@ -99,6 +107,12 @@ component App
           text "Not now"
         button commandfor="three" command="close" testId="three-cancel"
           text "Cancel"
+      dialog id="light" role="alertdialog" closedby="any" aria-label="Archive this?"
+        text "You can bring it back."
+        button press=keep commandfor="light" command="close" testId="light-archive"
+          text "Archive"
+        button commandfor="light" command="close" testId="light-cancel"
+          text "Cancel"
       dialog id="chooser" role="alertdialog"
         button press=keep commandfor="chooser" command="close"
           text "One"
@@ -106,11 +120,11 @@ component App
           text "Two"
         button commandfor="chooser" command="close"
           text "Cancel"
-      column id="menu" popover="auto" role="menu" aria-label="Row"
+      column id="menu" popover="auto" toggle=toggling role="menu" aria-label="Row"
         button press=rename popovertarget="menu" popovertargetaction="hide" testId="menu-rename"
           image "symbol:pencil"
           text "Rename"
-        button press=send popovertarget="menu" popovertargetaction="hide" testId="menu-share"
+        button press=send popovertarget="menu" popovertargetaction="hide" id="second" testId="menu-share"
           text "Share"
         button press=send disabled=true popovertarget="menu" popovertargetaction="hide" testId="menu-off"
           text "Unavailable"
@@ -268,6 +282,7 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
         message,
         rows,
         cancellable,
+        outside,
     }) = plan("confirm")
     else {
         panic!("confirm is an alert");
@@ -279,7 +294,20 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
         .map(|r| (r.title.as_str(), r.cancel, r.destructive))
         .collect();
     assert_eq!(titles, [("Cancel", true, false), ("Delete", false, true)]);
-    assert!(cancellable);
+    // LLP 1115.000 D13.4: lowering implies `closerequest` for the shape, so
+    // Back and Escape cancel it and it has no outside.
+    assert!(cancellable && !outside);
+    assert!(
+        matches!(
+            plan("light"),
+            Some(Plan::Alert {
+                cancellable: true,
+                outside: true,
+                ..
+            })
+        ),
+        "an authored `closedby=\"any\"` is read as it stands"
+    );
     let Some(Plan::Alert {
         title,
         message,
@@ -331,6 +359,33 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
 }
 
 #[test]
+fn process_relaunch_is_refused_in_the_journal() {
+    let src = "component App\n  action restart\n    relaunch()\n  view\n    button press=restart testId=\"restart\"\n      text \"Restart\"\n";
+    for agent in [false, true] {
+        let plan = contract::compile(src).unwrap();
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            Nothing,
+            (400., 400.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.agent = agent;
+        tap(&mut p, "restart").unwrap();
+        let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+        let reason = if agent {
+            "the agent owns this process"
+        } else {
+            "unsupported on Linux"
+        };
+        assert!(journal.contains(reason), "{journal}");
+    }
+}
+
+#[test]
 fn a_host_with_no_shell_has_no_top_layer_and_keeps_what_it_did() {
     let mut p = boot();
     p.serve_requests();
@@ -348,6 +403,15 @@ fn a_host_with_no_shell_has_no_top_layer_and_keeps_what_it_did() {
     );
     tap(&mut p, "ask").unwrap();
     tap(&mut p, "shut").unwrap();
+    let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+    for command in ["showModal", "close"] {
+        assert!(
+            journal.contains(&format!(
+                "{command} refused: dialogs unsupported on the headless/DRM host"
+            )),
+            "{journal}"
+        );
+    }
     assert!(p.surface().is_none());
     assert!(
         !p.long_press(100.0, 290.0, 0.0),
@@ -571,6 +635,58 @@ fn the_page_is_inert_under_an_alert_and_the_focus_moves_in_and_back() {
     assert_eq!(text(&p, "said"), "removed", "a cancel runs nothing");
 }
 
+/// LLP 1115.000 D13.4: an alert has no outside, and its `closedby` is read
+/// as it stands, written or implied. The shape's implied `closerequest`
+/// tells the shell that Back dismisses it and a tap outside does not (flags
+/// 1). An author's `closedby="any"` is Material's dialog left to itself,
+/// which a tap outside dismisses: the shell is told so (flags 3), and a
+/// touch that reaches the page, or the driver's tap on a node under it,
+/// closes it and runs nothing.
+#[test]
+fn an_alerts_outside_is_its_closedby_written_or_implied() {
+    let (mut p, _) = windowed();
+    let flags = |p: &mut Presenter<Nothing>| {
+        p.tell_shell();
+        let words = p.take_requests().unwrap_or_default();
+        let (mut found, mut at) = (None, 0);
+        while at < words.len() {
+            let n = words[at + 2] as usize;
+            if words[at] == 7 && words[at + 4] != 0 {
+                found = Some(words[at + 5]);
+            }
+            at += 3 + n;
+        }
+        found.expect("a surface was told")
+    };
+    let poke = id(&p, "poke");
+    let at = p.rect_of(poke).map(|r| (r.0 + 5.0, r.1 + 5.0)).unwrap();
+    // The alert: no outside.
+    tap(&mut p, "ask").unwrap();
+    assert_eq!(
+        flags(&mut p),
+        1,
+        "Back dismisses it; a tap outside does not"
+    );
+    assert_eq!(p.pointer_down(at.0, at.1, 1.0), Ok(false));
+    assert_eq!(p.pointer_up(at.0, at.1, 2.0), Ok(false));
+    assert!(p.surface().is_some(), "still open");
+    assert!(tap(&mut p, "poke")
+        .unwrap_err()
+        .contains("under the open alert"));
+    p.key_down("Escape", 3.0);
+    assert!(p.surface().is_none(), "Escape cancels it");
+    // The same shape with `closedby="any"`: the dismissible form.
+    tap(&mut p, "ask-light").unwrap();
+    assert_eq!(flags(&mut p), 3, "and a tap outside dismisses it");
+    assert_eq!(p.pointer_down(at.0, at.1, 4.0), Ok(false));
+    assert!(p.surface().is_none(), "a touch on the page closes it");
+    tap(&mut p, "ask-light").unwrap();
+    let dismissed = tap(&mut p, "poke").unwrap();
+    assert!(dismissed.contains("\"dismissed\""), "{dismissed}");
+    assert!(p.surface().is_none());
+    assert_eq!(text(&p, "said"), "nothing", "a dismissal runs nothing");
+}
+
 #[test]
 fn a_menu_hangs_at_its_invoker_and_closes_on_a_tap_outside() {
     let (mut p, pictures) = windowed();
@@ -772,6 +888,7 @@ fn the_dialog_and_the_menu_keep_materials_metrics() {
         message: Some("Message".into()),
         rows,
         cancellable: true,
+        outside: false,
     };
     let two = alert(vec![row("Cancel", true), row("Delete", false)]);
     // 280 to 560 wide, 24 from the window's sides.
@@ -956,4 +1073,61 @@ fn a_menu_grows_from_the_corner_by_its_anchor() {
     let words = p.take_requests().unwrap();
     let at = words.iter().position(|w| *w == 7).unwrap();
     assert_eq!(words[at + 5], 0b0001);
+}
+
+#[test]
+fn popover_commands_use_the_existing_surface_and_report_toggles() {
+    let (mut p, _) = windowed();
+    let args = [exact_plan::Value::str("menu")];
+    p.popover_command("showPopover", &args);
+    p.popover_command("showPopover", &args);
+    p.run_commands(|| Nothing);
+    assert!(p.surface().is_some());
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("closed>open"))
+    );
+    p.popover_command("hidePopover", &args);
+    p.run_commands(|| Nothing);
+    assert!(p.surface().is_none());
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("open>closed"))
+    );
+    p.popover_command("showPopover", &args);
+    p.run_commands(|| Nothing);
+    p.key_down("Escape", 3.0);
+    p.run_commands(|| Nothing);
+    assert!(p.surface().is_none());
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("open>closed"))
+    );
+    p.popover_command("togglePopover", &args);
+    p.popover_command("togglePopover", &args);
+    p.run_commands(|| Nothing);
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("closed>closed"))
+    );
+}
+
+#[test]
+fn focus_after_show_selects_the_shell_menu_row_and_escape_restores_the_trigger() {
+    let (mut p, _) = windowed();
+    let trigger = id(&p, "more");
+    let second = id(&p, "menu-share");
+    p.set_focus(Some(trigger), 0.0);
+    p.popover_command("showPopover", &[Value::str("menu"), Value::str("trigger")]);
+    assert_eq!(p.focus_command(&[Value::str("second")]), Some(second));
+    assert_eq!(p.top.open.as_ref().unwrap().focused, Some(1));
+    assert_eq!(p.focus(), None, "the menu owns focus, not the page");
+    p.key_down("ArrowDown", 1.0);
+    assert_eq!(
+        p.top.open.as_ref().unwrap().focused,
+        Some(3),
+        "advance from the selected row, skipping disabled"
+    );
+    p.key_down("Escape", 2.0);
+    assert_eq!(p.focus(), Some(trigger));
 }

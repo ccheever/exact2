@@ -17,6 +17,7 @@ import UIKit
 /// a checkbox as it reads UIKit's own toggles (`updateAccessibility`).
 class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
+    var ariaUnavailable = false { didSet { if ariaUnavailable != oldValue { updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
     override var isEnabled: Bool { didSet { setNeedsDisplay(); updateAccessibility() } }
     override init(frame: CGRect) {
@@ -70,7 +71,7 @@ class ExactCheckbox: UIControl {
     /// It had been Safari's English words, "checked" and "unchecked", read
     /// out as written in every language.
     func updateAccessibility() {
-        accessibilityTraits = isEnabled ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
+        accessibilityTraits = isEnabled && !ariaUnavailable ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
         accessibilityValue = isOn ? "1" : "0"
     }
     override func draw(_ rect: CGRect) {
@@ -125,6 +126,8 @@ final class ControlHost: NSObject {
     /// A range's bound value last written into it: written again only when
     /// it changes (LLP 1069.001 D4, amended 2026-10-04).
     var appliedRange: [UInt32: String] = [:]
+    /// A range's steps as its ticks were last made for (min, max, step).
+    var appliedTicks: [UInt32: String] = [:]
     /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
     var radioGroup: ((UInt32) -> RadioGroup)?
     /// A select's choice the bound value has not caught up with yet.
@@ -156,6 +159,7 @@ final class ControlHost: NSObject {
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
         menus.removeValue(forKey: node.id)
         appliedRange.removeValue(forKey: node.id)
+        appliedTicks.removeValue(forKey: node.id)
         let made: UIControl
         switch kind {
         #if os(tvOS)
@@ -200,6 +204,7 @@ final class ControlHost: NSObject {
             menus.removeValue(forKey: id)
             lastRange.removeValue(forKey: id)
             appliedRange.removeValue(forKey: id)
+            appliedTicks.removeValue(forKey: id)
             picked.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
@@ -238,6 +243,9 @@ final class ControlHost: NSObject {
                 configureValue(control, owner, accent: accent)
             }
             #endif
+            if let c = control as? ExactCheckbox {
+                c.ariaUnavailable = owner.ariaUnavailable
+            }
             if !(control is NativeButtonIOS) {
                 assign(control, \.isEnabled, !owner.disabled)
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
@@ -356,6 +364,7 @@ final class ControlHost: NSObject {
         menus.removeAll()
         lastRange.removeAll()
         appliedRange.removeAll()
+        appliedTicks.removeAll()
         picked.removeAll()
         faces.removeAll()
     }

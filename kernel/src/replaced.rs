@@ -92,3 +92,24 @@ pub(crate) fn measure(
         height: known.height.unwrap_or(ih),
     })
 }
+
+/// The role an image draws as a system symbol, as written after `symbol:`
+/// (`sf/<name>` or a portable role), or `None` for any other image.
+pub(crate) fn symbol_role(arena: &NodeArena, slot: u32) -> Option<&str> {
+    if arena.node_type(slot) != NodeType::Image {
+        return None;
+    }
+    arena
+        .props(slot)
+        .str(crate::PropId::ImageSource)?
+        .strip_prefix("symbol:")
+}
+
+/// The Apple system symbol a `symbol:` role draws: an `sf/<name>`'s own
+/// name, or a portable role's Apple name; "" for a role with none, which
+/// draws no glyph.
+pub fn apple_symbol_name(role: &str) -> &str {
+    role.strip_prefix("sf/")
+        .or_else(|| crate::generated::symbol(role).map(|s| s.0))
+        .unwrap_or("")
+}

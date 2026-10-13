@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
 import { HOST_DEV, resolveApp, withAppFixture } from './app.mjs';
-import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive } from './smoke-inspect.mjs';
+import { agree, explainNode, hostSections, httpFrameSmoke, poolingDrive, rebooted } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
@@ -376,6 +376,35 @@ if (host === 'host' || host === 'host-ios') {
   const hcheck = (ok, what) => { trace(`${ok ? 'ok' : 'FAIL'} ${what}`); if (!ok) hostFailures.push(what); return ok; };
   const settleHost = async (ms = 300) => { await sleep(ms); };
   try {
+    if (host === 'host') {
+      // A notification uses openURL's path; inject between the launch callbacks in the real embedded host.
+      const source = resolve(dir, 'notification.contract'), plan = resolve(dir, 'notification.plan'), launchControl = resolve(dir, 'launch-control');
+      writeFileSync(source, `routes nav
+  home "/"
+    thread "/thread/:id"
+  notfound
+component App
+  state got = "none"
+  action follow(location: string)
+    got = location
+    nav = open(nav, location)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow testId="root"
+      text top(nav).url testId="location"
+      text got testId="got"
+`);
+      const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+      if (built.status !== 0) throw new Error(built.stderr || built.error?.message || 'notification fixture failed to compile');
+      writeFileSync(launchControl, 'open b app://thread/42\n');
+      const cold = await open({ host, session: 'b', plan, env: { EXACT_HOST_CONTROL: launchControl } }); try {
+        let tree = await cold.tree();
+        hcheck(byTestId(tree, 'location')?.props.text === '/thread/42', `embedded launch location survives view attachment: ${JSON.stringify(byTestId(tree, 'location')?.props)}`);
+        hcheck(byTestId(tree, 'got')?.props.text === 'none', 'a cold notification location does not run the warm navigate action');
+        cold.session = 'a'; hcheck(byTestId(await cold.tree(), 'location')?.props.text === '/', 'the other embedded session keeps its launch route');
+        cold.session = 'b'; await cold.type('root', '/thread/43'); tree = await cold.tree();
+        hcheck(byTestId(tree, 'location')?.props.text === '/thread/43' && byTestId(tree, 'got')?.props.text === '/thread/43', 'a mounted embedded session hears warm navigation');
+      } finally { await cold.close(); }
+    }
     hcheck(Array.isArray(s.sessions) && s.sessions.join(',') === 'a,b', `the host announced sessions ${JSON.stringify(s.sessions)}, not a,b`);
     // 1. Two sessions of one plan, overlapping ids, answering apart.
     const ta = await s.tree();
@@ -802,7 +831,7 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
         check(attrs.lang === lang && attrs.dir === dir, 'the document element carries lang and dir');
         if (jsTargetBuild(selectedWebDist)) { // a JS page (the plan compiled ahead) reloads, its launch facts in its URL
           await f.carrier.evaluate('location.reload()').catch(() => {});
-          for (let i = 0; i < 200 && !(await f.carrier.evaluate("document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled").catch(() => false)); i++) await sleep(25);
+          await rebooted(f.carrier);
           await f.carrier.evaluate('exact.ready'); } else await f.carrier.evaluate('fetch("/__plan").then(r => r.arrayBuffer()).then(b => exact.reload(new Uint8Array(b)))');
         check(byTestId(await f.tree(), 'place')?.props.text === expected, 'web reload retains launch facts');
         const attrsAfter = await f.carrier.evaluate('({lang:document.documentElement.lang,dir:document.documentElement.dir})');

@@ -460,3 +460,64 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
         "a replacement may reuse the same node id but must expose its own plan"
     );
 }
+
+#[test]
+fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize() {
+    let source = "shape Viewport\n  displayMode: string\n  horizontalViewportSegments: number\n  verticalViewportSegments: number\n  devicePosture: string\n  colorGamut: string\n  dynamicRange: string\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    text viewport.displayMode\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData)
+        .unwrap()
+        .encode();
+    let mut bridge = exact_web::abi::Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
+    for (i, (code, expected, cols, rows, folded, gamut, hdr)) in [
+        (1, "browser", 1, 1, false, 0, false),
+        (2, "fullscreen", 4, 1, true, 3, true),
+        (0, "standalone", 4, 2, false, 1, false),
+        (3, "minimal-ui", 2, 4, true, 2, true),
+        (4, "window-controls-overlay", 255, 255, false, 0, true),
+        (5, "picture-in-picture", 1, 1, true, 1, false),
+        (6, "tabbed", 1, 1, false, 3, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let bits = 0xff
+            | ((folded as u32) << 8)
+            | (cols << 9)
+            | (rows << 17)
+            | (1 << 25)
+            | (gamut << 26)
+            | ((hdr as u32) << 28)
+            | (code << 29);
+        if i == 0 {
+            bridge.set_preferences(bits);
+            let len = bridge.boot(&plan, NoData, 600.0, 400.0, "/");
+            let first = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+            assert!(first.contains("\"text\":\"browser\""), "{first}");
+        } else {
+            bridge.resize(600.0, 400.0, bits, 0.0);
+        }
+        let n = bridge.input_write(br#"{"op":"state"}"#);
+        let len = bridge.agent(n);
+        let state: serde_json::Value =
+            serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
+        for facts in [&state["resources"]["viewport"], &state["device"]] {
+            assert_eq!(facts["displayMode"], expected);
+            assert_eq!(facts["horizontalViewportSegments"], cols);
+            assert_eq!(facts["verticalViewportSegments"], rows);
+            assert_eq!(
+                facts["devicePosture"],
+                if folded { "folded" } else { "continuous" }
+            );
+            assert_eq!(
+                facts["colorGamut"],
+                ["srgb", "p3", "rec2020", "rec2020"][gamut as usize]
+            );
+            assert_eq!(facts["dynamicRange"], if hdr { "high" } else { "standard" });
+        }
+        assert_eq!(state["device"]["prefersReducedMotion"], true);
+        assert_eq!(state["device"]["prefersReducedTransparency"], true);
+        assert_eq!(state["device"]["prefersContrast"], "custom");
+        assert_eq!(state["device"]["prefersColorScheme"], "dark");
+    }
+}

@@ -1145,6 +1145,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "contract-syntax",
  "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",
@@ -1645,6 +1646,7 @@ dependencies = [
  "exact-runner",
  "exact-textflow",
  "exact-web-capabilities",
+ "serde_json",
 ]
 
 [[package]]

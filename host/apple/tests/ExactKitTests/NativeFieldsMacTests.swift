@@ -466,5 +466,44 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
     }
 
+
+    /// LLP 1104 D3: an authored `::placeholder` colour is the placeholder's
+    /// ink, its own alpha kept, on a native field, a bare one and a
+    /// textarea; without the row each keeps AppKit's.
+    func testAnAuthoredPlaceholderColourIsThePlaceholdersInk() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "authored-placeholder")
+        defer { session.destroy() }
+        let green: BatchValue = .array([.number(0), .number(128), .number(0), .number(128)])
+        func isGreen(_ color: NSColor?, _ why: String) throws {
+            let c = try XCTUnwrap(color?.usingColorSpace(.sRGB), why)
+            for (got, want) in zip([c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent], [0, 128.0 / 255, 0, 128.0 / 255]) {
+                XCTAssertEqual(got, want, accuracy: 0.01, why)
+            }
+        }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 240, height: 30)
+        node.applyProps(set: ["placeholder": "Search"], clear: [])
+        let field = try XCTUnwrap(node.field)
+        func ink() -> NSColor? { field.placeholderAttributedString?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor }
+        XCTAssertEqual(ink(), .placeholderTextColor)
+        node.applyStyle(["placeholder_color": green])
+        try isGreen(ink(), "a native field")
+        node.applyProps(set: ["disabled": "true"], clear: [])
+        try isGreen(ink(), "a disabled native field")
+        node.applyStyle(["appearance": .string("none"), "placeholder_color": green])
+        try isGreen(ink(), "a bare field")
+        node.applyStyle([:])
+        XCTAssertEqual(ink(), .placeholderTextColor, "no row: AppKit's again")
+        let area = NodeView(id: 2, kind: "textarea", presenter: session.presenter)
+        area.frame = NSRect(x: 0, y: 0, width: 240, height: 80)
+        area.makeTextArea()
+        area.applyProps(set: ["placeholder": "Notes"], clear: [])
+        let text = try XCTUnwrap(area.textArea as? TextArea)
+        area.applyStyle(["placeholder_color": green])
+        try isGreen(text.placeholderColor, "a textarea")
+        area.applyStyle([:])
+        XCTAssertNil(text.placeholderColor, "no row: AppKit's again")
+    }
 }
 #endif

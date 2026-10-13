@@ -98,6 +98,8 @@ extension NodeView {
     func pressChanged() {
         if pressed { pressHaptic() }
         #if os(iOS)
+        // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
+        if platformPressDims, presenter?.rowCells.press(self, pressed) == true { return }
         if platformPressDims { dimPress(pressed); return }
         if !pressed { dimPress(false) }
         #elseif os(macOS)
@@ -111,6 +113,7 @@ extension NodeView {
     func pressFollows(inside: Bool) {
         guard pressed else { return }
         #if os(iOS)
+        if platformPressDims, presenter?.rowCells.press(self, inside) == true { return }
         if platformPressDims { dimPress(inside); return }
         #elseif os(macOS)
         if platformPressTints { tintPress(inside); return }

@@ -141,6 +141,7 @@ pub(super) fn dialog_role(tag: &str, attrs: &[Attr], span: Span) -> Option<Lower
 
 /// `lower-level-without-heading`: an `aria-level` on an element that
 /// writes no `role` (LLP 1115.000 D12.5). A level alone is not a heading:
+/// no host tells assistive technology it is one (`Props::heading`),
 /// lowering gives it no heading style (`heading_style` reads the role), and
 /// the iOS navigation bar does not take it for the route's title, so a
 /// header written `text "Inbox" aria-level=1` is body text under an
@@ -154,7 +155,7 @@ pub(super) fn level_without_heading(tag: &str, attrs: &[Attr], span: Span) -> Op
     Some(LowerError {
         id: "lower-level-without-heading",
         message: format!(
-            "`aria-level` on a `{tag}` with no `role=\"heading\"` does not make a heading: it gets no heading style, and the iOS navigation bar does not take it for the screen's title. Write the role beside it: `text \"Results\" role=\"heading\" aria-level=2`"
+            "`aria-level` on a `{tag}` with no `role=\"heading\"` does not make a heading: a screen reader is not told it is one on any platform, it gets no heading style, and the iOS navigation bar does not take it for the screen's title. Write the role beside it: `text \"Results\" role=\"heading\" aria-level=2`"
         ),
         span,
     })
