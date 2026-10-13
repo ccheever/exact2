@@ -1,6 +1,7 @@
 # Data modules have no timers: `setTimeout` and `Date.now` are refused
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Runtime TypeScript failures preserve input, fail resources, and end direct or queued sends unsent, including nullish throws; unknown sources still refuse. inputs.rs and js-runtime.test.mjs (with Chrome send regressions) prove the behavior; timers remain deferred.
 **Systems:** TypeScript data sources, runner, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

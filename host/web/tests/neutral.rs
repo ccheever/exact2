@@ -51,6 +51,12 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         section
           row
             text "A row"
+      list testId="rows"
+        text "A row" testId="plain-row"
+        text "Its own line" border-bottom="1px solid -exact-separator" testId="lined-row"
+        text "No line above" border-top="none" testId="bare-row"
+      list appearance="none" testId="own-rows"
+        text "A row"
 "##,
     )
     .unwrap()
@@ -128,6 +134,27 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         created(&neutral, "short")
     );
     assert!(!created(&apple, "sized").contains("data-exact-said"));
+    // LLP 1115.000 D16: a list whose rows are cells carries Contract's mark
+    // in both looks, a list whose author opted out does not, and a row is
+    // told which of its edges its author wrote (`none` is written too), so
+    // the sheet draws no separator of its own there.
+    for page in [&neutral, &apple] {
+        let rows = created(page, "rows");
+        assert!(rows.contains("\"data-listrows\":\"true\""), "{rows}");
+        assert!(!created(page, "own-rows").contains("data-listrows"));
+        assert!(!created(page, "list").contains("data-listrows"));
+    }
+    assert!(!created(&neutral, "plain-row").contains("data-exact-said"));
+    assert!(
+        created(&neutral, "lined-row").contains("\"data-exact-said\":\"border-bottom\""),
+        "{}",
+        created(&neutral, "lined-row")
+    );
+    assert!(
+        created(&neutral, "bare-row").contains("\"data-exact-said\":\"border-top\""),
+        "{}",
+        created(&neutral, "bare-row")
+    );
     assert!(!created(&neutral, "list").contains("data-exact-said"));
     assert!(
         created(&neutral, "ground").contains("\"data-exact-said\":\"background-color\""),

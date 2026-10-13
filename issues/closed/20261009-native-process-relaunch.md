@@ -1,6 +1,7 @@
 # A host command that relaunches the app's process (rest of #122)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Added relaunch(): macOS uses cancellable orderly quit and waits for process exit before restarting; RelaunchTests verifies a queued relaunch joins a quit's storage hold, and relaunch.test.mjs proves changed PID, clean state, preserved writes and arguments with the dev menu off in development and release Swift builds.
 **Systems:** host/apple macOS, lifecycle, agent
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -98,3 +99,37 @@ Keep open with the bounded scope below.
 A process restart should not depend on the development menu or overload reload differently in release builds.
 
 Depends on #269 and durable-write teardown. Define each host's behavior and clear agent refusal or process-following; test a changed PID and preserved writes. Keep the default app update path on its existing lifecycle.
+
+## Verification (2026-10-13)
+
+- Review regression: `testRelaunchFromBeforeUnloadJoinsTheQuitStorageHold`
+  failed when a queued quit ran after the original quit took its hold. The
+  callback now rechecks the hold; the test models pending storage and verifies
+  that only the original quit completes after it drains. The companion test
+  checks that relaunch still requests quit when there is no hold.
+- `calls::relaunch_is_a_host_command_without_arguments` failed with
+  `type-unknown-command` before the change and passes after it.
+- `host/apple/relaunch.test.mjs`, with `EXACT_RELAUNCH_APP` naming the built
+  Caltrain executable, passes against both `build.mjs --bundle` and
+  `build.mjs --bundle --distribution` (release Swift, development-trust Rust).
+  It checks a cancelled quit, a subsequent restart requested by `beforeunload`
+  during an ordinary SIGTERM quit, changed PID,
+  one replacement, the arguments, persisted state written just before restart,
+  and reset transient state, with `EXACT_DEV_MENU=0`.
+- `RelaunchTests` and `StorageHoldTests` pass on macOS. `RelaunchTests` also
+  passes under `EXACT_AGENT=1` and on the iOS 27 simulator. Linux's
+  `process_relaunch_is_refused_in_the_journal` passes: this macOS-first
+  implementation explicitly refuses Linux process restart.
+- `bun test host/web-js/commands.test.mjs` passes in Chrome: a new document
+  reads storage committed before the command. Both web executors reload.
+- Tests and Clippy pass for `contract-syntax`, `contract-types`, `contract`,
+  `exact-apple`, `exact-linux`, `exact-web`, and `exact-web-js`. The first
+  compiler suite caught the editor grammar's missing name; after updating
+  that roster, its full rerun passes. Formatting, caps and issue checks pass.
+- `cargo run -p contract-difftest -- quick` could not run the comparisons:
+  `lake build: No such file or directory` (Lean is absent).
+- The normal `scripts/agent.mjs macos --plan …` drive refused a stale
+  signed-GPU receipt, including after the rebuild; the agent-refusal XCTest
+  and the standalone process test above ran successfully. Native UI inspection
+  returned `cgWindowNotFound`; the process fixture verifies clean boot state
+  through persisted observations instead.

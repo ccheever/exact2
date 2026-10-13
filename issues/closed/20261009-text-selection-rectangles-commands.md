@@ -1,6 +1,7 @@
 # Text selection: its rectangles, and clearing or setting it on a text (rest of #132)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Added Selection.rects, removeAllRanges and setSelectionRange on web/macOS text; compiler/ABI, Chrome drag and AppKit range tests cover geometry, column placement, inline IDs, collapsed-whitespace source offsets, hard newlines and clearing (reader-worker rectangles remain documented in QUEUE).
 **Systems:** Contract, host/apple, web text selection
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

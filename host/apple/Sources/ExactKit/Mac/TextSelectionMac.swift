@@ -17,6 +17,8 @@ package final class TextSelection {
     private var painted: [UInt32: NSRange] = [:]
     /// What each `selectionchange` text last heard, in source offsets.
     private var reported: [UInt32: NSRange] = [:]
+    // Collapsing whitespace is not invertible: retain scripted source boundaries.
+    private var requested: (id: UInt32, text: String, range: NSRange)?
     private struct Position {
         var key: String
         var row: Int
@@ -160,24 +162,72 @@ package final class TextSelection {
     private func report(_ next: [UInt32: NSRange]) {
         guard let presenter else { return }
         var seen = Set<UInt32>()
-        for node in paragraphs where node.handlers.contains("selectionchange") {
-            seen.insert(node.id)
+        for node in paragraphs where node.handlers.contains("selectionchange") || node.inlineText.contains(where: { $0.handlers.contains("selectionchange") }) {
+            let text = node.paragraphText as NSString
             var source = NSRange(location: 0, length: 0)
-            if let shaped = next[node.id] {
-                let text = node.paragraphText as NSString
+            if let requested, requested.id == node.id, anchor === node, requested.text == node.paragraphText {
+                source = requested.range
+            } else if let shaped = next[node.id] {
                 let map = { (offset: Int) in min(node.readerParagraph == nil ? node.sourceOffset(offset) : offset, text.length) }
                 let lo = map(shaped.location), hi = map(NSMaxRange(shaped))
                 if hi > lo { source = NSRange(location: lo, length: hi - lo) }
             }
-            guard reported[node.id] ?? NSRange(location: 0, length: 0) != source else { continue }
-            reported[node.id] = source
-            let text = source.length > 0 ? (node.paragraphText as NSString).substring(with: source) : ""
-            presenter.selectionChange(node.id, text, source.location, NSMaxRange(source))
+            var targets: [(UInt32, NSRange)] = []
+            if node.handlers.contains("selectionchange") { targets.append((node.id, NSRange(location: 0, length: text.length))) }
+            targets += node.inlineText.filter { $0.handlers.contains("selectionchange") }.map { ($0.id, $0.range) }
+            for (id, extent) in targets {
+                seen.insert(id)
+                let part = NSIntersectionRange(source, extent)
+                let local = part.length > 0 ? NSRange(location: part.location - extent.location, length: part.length) : NSRange(location: 0, length: 0)
+                guard reported[id] ?? NSRange(location: 0, length: 0) != local else { continue }
+                reported[id] = local
+                let lo = node.readerParagraph == nil ? node.shapedOffset(part.location) : part.location
+                let hi = node.readerParagraph == nil ? node.shapedOffset(NSMaxRange(part)) : NSMaxRange(part)
+                let rects = part.length > 0 ? rectangles(node, range: NSRange(location: lo, length: hi - lo)) : []
+                presenter.selectionChange(id, part.length > 0 ? text.substring(with: part) : "", local.location, NSMaxRange(local), rects: rects)
+            }
         }
         reported = reported.filter { seen.contains($0.key) }
     }
 
+    private func rectangles(_ node: NodeView, range: NSRange?) -> [CGRect] {
+        guard let range, let presenter, let paragraph = node.paragraphLayout() else { return [] }
+        let clip = presenter.viewport.contentView
+        let selected = paragraph.selectedLines(range, align: node.paragraphSpec().align, in: node.paragraphBox(), dirty: .infinite)
+        let local: [CGRect]
+        if let fragments = node.columnRecord?.fragments, !fragments.isEmpty {
+            local = fragments.flatMap { fragment in
+                selected.filter { fragment.lines.contains($0.line) }.compactMap { line in
+                    let rect = line.rect.offsetBy(dx: fragment.dx, dy: fragment.dy).intersection(fragment.rect)
+                    return rect.isEmpty ? nil : rect
+                }
+            }
+        } else { local = selected.map(\.rect) }
+        return local.map { node.drawnRect($0, in: clip).offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY) }
+    }
+
+    func set(_ node: NodeView, _ selection: FieldSelection) {
+        guard selectable(node), !node.inert else { return }
+        leaving = nil; gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
+        list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
+        anchor = node; focus = node
+        requested = (node.id, node.paragraphText, NSRange(location: selection.start, length: selection.end - selection.start))
+        let shaped = { (offset: Int) in node.readerParagraph == nil ? node.shapedOffset(offset) : offset }
+        let lo = shaped(selection.start), hi = shaped(selection.end)
+        anchorIndex = selection.direction == "backward" ? hi : lo
+        focusIndex = selection.direction == "backward" ? lo : hi
+        unit = .character; anchorUnit = NSRange(location: lo, length: hi - lo); dragged = hi > lo
+        if let (owner, start) = position(node, offset: anchorIndex), let (_, end) = position(node, offset: focusIndex) {
+            var a = start, b = end
+            a.offset = selection.direction == "backward" ? selection.end : selection.start
+            b.offset = selection.direction == "backward" ? selection.start : selection.end
+            list = owner; logicalAnchor = a; logicalFocus = b
+        }
+        invalidate()
+    }
+
     package func clear() {
+        requested = nil
         leaving = nil; gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         anchor = nil; focus = nil
         anchorIndex = 0; focusIndex = 0
@@ -233,6 +283,7 @@ package final class TextSelection {
 
     private func selectable(_ node: NodeView) -> Bool { node.textSelectable }
     func begin(_ node: NodeView, event: NSEvent) {
+        requested = nil
         guard selectable(node) else { clear(); return }
         let clicks = event.clickCount
         // A Shift-click extends what is selected, as in an `NSTextView`
@@ -299,6 +350,7 @@ package final class TextSelection {
     /// nearest it. A double click and a secondary click take their word from
     /// both, by the one rule below.
     private func begin(_ node: NodeView, clicks: Int, point: NSPoint, index: Int) {
+        requested = nil
         list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         anchor = node; focus = node
         anchorIndex = index
@@ -349,6 +401,7 @@ package final class TextSelection {
     /// whichever way the focus goes, as an `NSTextView`'s does (LLP 1115.000
     /// D7.9). A giant paragraph's text is its worker's, and grows by character.
     private func extend(_ node: NodeView, event: NSEvent?, index: Int, point: NSPoint? = nil) {
+        requested = nil
         var index = index
         if unit != .character, node.readerParagraph == nil, let anchor, let at = place(node, index),
            let low = place(anchor, anchorUnit.location) {
@@ -526,6 +579,7 @@ package final class TextSelection {
     }
 
     func selectAll() {
+        requested = nil
         gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         let nodes = paragraphs.filter { !$0.inert }
         if let first = nodes.first(where: { position($0, offset: 0) != nil }),

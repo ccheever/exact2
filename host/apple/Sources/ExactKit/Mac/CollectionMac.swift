@@ -135,6 +135,28 @@ final class KnobDrag {
     }
 }
 
+extension Presenter {
+    /// Charge the report (decode, layout and apply) to the
+    /// rows it created. Cheap rows share those fixed costs in the next report.
+    /// Grow at most twofold and retain recent expensive samples conservatively.
+    struct ListFillCost {
+        private(set) var secondsPerRow: TimeInterval?
+        private var lastRows = 1
+        mutating func record(seconds: TimeInterval, rows: Int) {
+            guard rows > 0 else { return }
+            let sample = max(0.000001, seconds / Double(rows))
+            secondsPerRow = max(sample, (secondsPerRow ?? sample) * 0.75 + sample * 0.25)
+            lastRows = rows
+        }
+        func rows(within remaining: TimeInterval) -> UInt32 {
+            guard remaining > 0 else { return 0 }
+            guard let secondsPerRow else { return 1 }
+            let fitting = floor(remaining * 0.9 / secondsPerRow)
+            return UInt32(max(0, min(Double(lastRows) * 2, fitting, Double(UInt32.max - 1))))
+        }
+    }
+}
+
 extension CollectionHost {
     /// AppKit insets no list's port by a bar it runs under (iOS's
     /// `portInsets`): nothing moves it.
@@ -415,7 +437,7 @@ extension CollectionHost {
             switch event.type {
             case .leftMouseDown, .rightMouseDown, .otherMouseDown:
                 let point = presenter.viewport.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-                pointerDown(nodeID(presenter.viewport.hitTest(point)), event: event)
+                pointerDown(nodeID(TableRowCell.whatIsThere { presenter.viewport.hitTest(point) }), event: event)
             case .leftMouseUp, .rightMouseUp, .otherMouseUp:
                 // Release after AppKit delivers this event and any authored
                 // handler. Captured generation is checked by the weak helper.

@@ -95,6 +95,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("resize", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Resize])),
     ("user-select", "css CSS UI 4", AttrTarget::Styles(&[StyleId::UserSelect])),
     // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
+    ("position-try-fallbacks", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionTryFallbacks])),
     ("position-area", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionArea])),
     ("text-decoration-line", "css CSS Text Decoration 3", AttrTarget::Styles(&[StyleId::TextDecorationLine])),
     // @ref LLP 1064 D5

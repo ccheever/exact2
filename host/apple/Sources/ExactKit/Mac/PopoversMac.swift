@@ -81,6 +81,67 @@ final class NativePopover: NSObject, NSPopoverDelegate {
 }
 
 extension MenuHost {
+    func wantsWindow(_ pop: NodeView) -> Bool {
+        pop.style["position_try_fallbacks"] == nil && !painted
+            && !(ExactEnv.agentMode && (isMenuShaped(pop) || isConfirmation(pop)))
+    }
+
+    func paint(_ entry: Entry, in window: NSWindow) {
+        guard let presenter else { return }
+        entry.layer.autoresizingMask = [.width, .height]
+        // The invoker's page or sheet owns the painted layer.
+        (window === presenter.viewport.window ? presenter.viewport : window.contentView ?? presenter.viewport).addSubview(entry.layer)
+        entry.layer.setPaintForeground()
+        entry.layer.addSubview(entry.popover)
+        entry.popover.isHidden = false
+    }
+
+    func restore(_ entry: Entry) {
+        let pop = entry.popover
+        pop.removeFromSuperview()
+        entry.layer.removeFromSuperview()
+        if live(pop), let parent = entry.parent {
+            let siblings = parent.subviews
+            if entry.index < siblings.count { parent.addSubview(pop, positioned: .below, relativeTo: siblings[entry.index]) }
+            else { parent.addSubview(pop) }
+            pop.frame = entry.frame
+        }
+    }
+
+    /// A style change moves the same open subtree between presentations;
+    /// it neither toggles the popover nor gives it a new presentation identity.
+    func syncPresentation(_ entry: Entry) {
+        let pop = entry.popover, hasFallbacks = pop.style["position_try_fallbacks"] != nil
+        guard entry.hasFallbacks != hasFallbacks else { return }
+        entry.hasFallbacks = hasFallbacks
+        guard entry.menu == nil, let presenter, presenter.viewport.window != nil,
+              let source = entry.source, let window = source.window,
+              wantsWindow(pop) != (entry.native != nil) else { return }
+        let oldWindow = pop.window
+        let focused = oldWindow.flatMap(focusOwner)
+        let selection = (oldWindow?.firstResponder as? NSTextView)?.selectedRange()
+        let wasKey = oldWindow?.isKeyWindow == true
+        if let native = entry.native {
+            // Closing only the container must not close the logical popover,
+            // and no outgoing animation may later take its subtree back.
+            entry.native = nil
+            native.popover.animates = false
+            dismiss(native)
+            paint(entry, in: window)
+        } else {
+            // BlockHost must record the authored parent as the subtree's home.
+            restore(entry)
+            if !present(entry, from: source, in: window) { paint(entry, in: window) }
+        }
+        layout()
+        refresh()
+        if let focused, let destination = focused.window {
+            if wasKey { destination.makeKey() }
+            destination.makeFirstResponder(focused)
+            if let selection, let editor = destination.firstResponder as? NSTextView { editor.setSelectedRange(selection) }
+        }
+    }
+
     /// Whether `window` is one of this session's popovers'.
     func hosts(_ window: NSWindow) -> Bool {
         entries.contains { $0.native?.window === window } || leaving.contains { $0.window === window }

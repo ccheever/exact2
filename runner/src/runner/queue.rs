@@ -260,6 +260,7 @@ impl<D: DataSource> Runner<D> {
                 None
             }
             Ok(Asked::Later(request)) => Some(request),
+            Ok(Asked::Failed) => None,
             Err(e) => return Err((e, NextRefusal::Ask)),
         };
         self.sync_pending_flags();
@@ -269,7 +270,7 @@ impl<D: DataSource> Runner<D> {
         // Answered at once, it has landed: what it changes is asked, as an
         // action's or a reply's landing asks it. In flight, its write shows
         // through the overlay.
-        if later.is_none() {
+        if self.landed.contains(&m) {
             for r in self.declared_refreshes(m) {
                 self.force_refresh(r);
             }
@@ -333,6 +334,7 @@ impl<D: DataSource> Runner<D> {
 pub(super) enum Asked {
     Now(usize, Value),
     Later(Request),
+    Failed,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -353,6 +355,11 @@ impl<D: DataSource> Runner<D> {
         // logs whether the answer comes now or the send waited its turn.
         for line in self.data.take_logs() {
             self.log(line);
+        }
+        if let Err(DataError::Failed(_, why)) = &answer {
+            self.log(super::lines::send_failed_now(&name(&self.plan), why));
+            self.end_write(m, None);
+            return Ok(Asked::Failed);
         }
         let answer = answer.map_err(|error| RunnerError::Data {
             resource: name(&self.plan),

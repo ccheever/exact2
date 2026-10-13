@@ -767,8 +767,8 @@ public final class ExactSession {
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
         presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
-        presenter.onSelectionChange = { [unowned self] id, text, start, end in
-            apply(runtime.selectionChange(id, text, start: start, end: end, now: now()))
+        presenter.onSelectionChange = { [unowned self] id, text, start, end, rects in
+            apply(runtime.selectionChange(id, text, start: start, end: end, rects: rects, now: now()))
         }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
@@ -1082,6 +1082,7 @@ public final class ExactSession {
                     app.deliver { DevMenu.reload() }
                     continue
                 }
+                if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
@@ -1102,6 +1103,14 @@ public final class ExactSession {
                 }
                 if name == "focus" || name == "selectText" {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
+                    continue
+                }
+                if name == "removeAllRanges" {
+                    #if os(macOS)
+                    app.deliver { [weak self] in self?.presenter.selection.clear() }
+                    #else
+                    log("removeAllRanges refused: reader selection commands are not supported on this platform")
+                    #endif
                     continue
                 }
                 if name == "setSelectionRange" || name == "setRangeText" {
@@ -1252,6 +1261,7 @@ public final class ExactSession {
         primeControlText()
         _ = runtime.setPreferences(preferenceBits())
     }
+    var displayModeOverride: UInt32?
     private func preferenceBits() -> UInt32 {
         #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
@@ -1262,7 +1272,8 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        return DisplayPreferences.bits(systemDark: dark, view: view)
+        let bits = DisplayPreferences.bits(systemDark: dark, view: view)
+        return displayModeOverride.map { (bits & ~(7 << 11)) | ($0 << 11) } ?? bits
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground

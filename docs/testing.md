@@ -89,6 +89,9 @@ its time counts too.
   `waitForExistence(timeout:)` and its non-existence counterpart poll with a
   delay of about a second. Query the app's state (`tree`, `state`, an
   accessibility read) for the condition instead.
+- **Safe-area tests fill the screen.** Size a UIKit test window to its screen's
+  bounds and boot the session at that size. A fixed phone size may stop above
+  another simulator's home indicator and correctly receive no bottom inset.
 - **A settled UI is a condition.** After a transition or an animation, wait for
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.

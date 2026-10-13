@@ -1236,3 +1236,15 @@ which aligns its end),
 `scroll_padding_is_a_virtualized_lists_and_takes_lengths`; the web host's
 `style_rows_lower_to_css_by_their_names` (the CSS); `CollectionTests`
 (Apple's parser takes a negative correction and `from`).
+
+
+### 6.10 App-owned list restoration (2026-10-13)
+
+LLP 1070.000 §13 implements Charlie's 2026-10-08 ruling for issue #277:
+`ScrollEvent.firstVisibleKey` and `firstVisibleOffset` expose the virtual
+list's first visible row and signed main-axis offset, and the list form of
+`scrollIntoView` accepts `offset=` to restore them after mounting. The runner
+and JS target use the same index and bounded correction path as other row
+jumps. No top-level cache is added. The tests and remaining native GUI
+qualification are recorded there; this does not widen §6.9's scroll-padding
+admission or add scroll-margin, smooth element jumps or authored scrollend.

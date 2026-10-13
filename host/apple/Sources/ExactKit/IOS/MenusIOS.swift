@@ -46,6 +46,7 @@ final class MenuHost {
     /// How many popovers the agent has opened: each one's place in the stack.
     private var opened = 0
     private final class Lifted {
+        var placement = PositionArea.History()
         let source: UInt32?
         weak var popover: NodeView?
         weak var parent: UIView?
@@ -519,7 +520,9 @@ final class MenuHost {
         let anchorView: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
         let anchor = anchorView.convert(anchorView.bounds, to: entry.layer), size = pop.bounds.size
         let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
-                                    margins: PositionArea.margins(of: pop), in: entry.layer.bounds)
+                                    margins: PositionArea.margins(of: pop),
+                                    fallbacks: pop.style["position_try_fallbacks"]?.string ?? "none",
+                                    history: &entry.placement, in: entry.layer.bounds)
         let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
         if pop.center != center { pop.center = center }
     }

@@ -842,6 +842,8 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
+    /// Ordered invoker-popover flip attempts (LLP 1021 D2).
+    PositionTryFallbacks(&'a crate::position_try::PositionTryFallbacks),
     /// `-exact-drag-timeline` (LLP 1057.003).
     DragTimeline(&'a crate::timeline::DragTimeline),
     /// CSS `animation-timeline` (LLP 1057.003).
@@ -929,6 +931,7 @@ impl RowValue<'_> {
             | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
+            | RowValue::PositionTryFallbacks(_)
             | RowValue::DragTimeline(_)
             | RowValue::AnimationTimeline(_)
             | RowValue::TimelineScope(_)

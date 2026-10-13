@@ -583,7 +583,7 @@ export function mut(name, slot, refreshes, type, queue) {
         a = ask(source, args, name);
         if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
         if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
-      } catch (e) { if (own) Sched.own = e; throw e; }
+      } catch (e) { if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; } m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length); say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return; }
       if ("v" in a) {
         m.checked = a.v;
         Ov.land(m, a.v);
@@ -929,7 +929,7 @@ export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.
 // Only from the origin of the src the app committed (glue.js `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is not heard; an opaque sandbox's origin is "null".
 export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
-export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight]); }); };
+export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight, ...(e.$list?.scrollAnchor() ?? [null, 0])]); }); };
 // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
 export const onRefresh = () => {};
 export const onDblclick = (e, kind, f, l) => { return l(kind, ev => { ev.preventDefault(); f(); }); };
@@ -947,7 +947,7 @@ export const onFocus = (e, kind, f, l) => { return l(kind, () => queueMicrotask(
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
-export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b) => f([text, a, b])); };
+export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own

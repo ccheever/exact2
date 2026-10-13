@@ -1132,6 +1132,22 @@ the agent both paint in the page as before; `--chrome platform` on `macos`
 shows them, `tap`, `type` and `tree` reach what is in them, and `screenshot
 "file" window` draws them over the window.
 
+For an invoker popover with an authored CSS area, use
+`position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline"`.
+A fresh opening takes the first fitting attempt, retaining the base if none fits.
+An open popover keeps its chosen option while it fits, including across resize;
+if none fits after movement, the current option may overflow. Commas separate
+attempts; spaces combine flips. `none` disables fallbacks. The web and painted Apple layers implement these flips; an authored
+fallback row selects painted placement on macOS for a non-menu popover, including
+when added while open. Removing the row restores platform presentation; focus
+and text selection survive either change. Native
+menus and confirmations keep platform placement. Physical areas also accept
+`top span-left`, `bottom span-left`, `left`/`right` with `span-top`,
+`span-bottom` or `span-all`, and the four `top|bottom left|right` corners.
+This slice does not implement `flip-start`, logical areas, named rules, or
+area-dependent sizing. Use fixed sizes, zero insets and default self-alignment
+for native parity; percentage margins are not resolved by the native layer.
+
 A route with `navigationPresentation="modal"` is the same sheet on the Mac
 (LLP 1115.002 D7.4), as large as its content (an authored `width` or `height`
 is used; its `inset` is not), under the window's content area. Its `header`
@@ -1184,6 +1200,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | --- | --- |
 | `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
+| `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
 | `input type="range"` (as wide as what holds it; in a `row`, `flex=1 min-width=0` beside its label) | `UISlider` |
@@ -1519,6 +1536,12 @@ Known host commands are statements, not expression-returning functions. Several
 commands have specialized argument checks; some generic commands leave validation
 to the host. Do not infer that compiler acceptance proves a command's arguments
 work. Use the command's working fixture and inspect its host result.
+
+`relaunch()` restarts the standalone macOS process after its orderly quit,
+including the storage drain; it works with the development menu off. A
+`beforeunload` cancellation cancels the restart. The web reloads the page.
+iOS/tvOS, Linux and native agent sessions journal a refusal; for a scripted
+restart, start another drive on the same `--storage`. See [host commands](contract-grammar.md#host-commands).
 
 ## Routes and web documents
 
@@ -1993,7 +2016,12 @@ stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
-not have. `exactPage` answers `visibilityState`, `onLine`, `canShare`,
+not have. `exactViewport().displayMode` is a string: the current CSS display
+mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
+native hosts. Declare it on the resource's shape; `state.device.displayMode`
+reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
+browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
+`exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
 choose an in-window message over a system notification). A reminder that should
@@ -2519,6 +2547,12 @@ select an installed face with the same name; write bundled choices as literals.
 A `text` with `selectionchange=act` hears the reader's real text selection
 on the web, macOS and iOS: `action act(s: Selection)` gets `s.text`, `s.start` and
 `s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
+On web and macOS, `s.rects` is a list of `Geometry` snapshots for the selected
+fragments in viewport space; empty when cleared (and on iOS).
+`removeAllRanges()` clears the reader selection, and
+`setSelectionRange(id, start, end[, direction])` selects a `text` on web and
+macOS using source UTF-16 offsets. Both report changed parts through
+`selectionchange`; see [text selection](contract-grammar.md#text-selection).
 Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`; on iOS, where a
 long press or a double tap selects a word of text its author made selectable
 (`user-select="text"`), with `tap <id> contextmenu [at <x> <y>]` or
@@ -2752,7 +2786,8 @@ device pixel on whatever display the app is on (a third of a point on a phone,
 half on a Retina Mac, a pixel on a 1x screen), where `0.5` is one only at 2x:
 `border-bottom="-exact-hairline solid -exact-separator"`, or `hr`, which is that
 line with no margin of its own (space around it is the `gap` or `margin` you
-write). A row whose value is a number and no text
+write). Between the rows of a `list` write neither: its children are rows, and
+the separator there is the platform's (LLP 1115.000 D16). A row whose value is a number and no text
 (`opacity`, `flex-grow`, `z-index`, `font-weight`, `column-count`,
 `column-rule-width`) takes a number where it is computed: a string-typed
 expression there is refused, since the native hosts read no text on it (the

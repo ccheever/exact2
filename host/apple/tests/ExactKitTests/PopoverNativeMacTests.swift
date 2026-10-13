@@ -47,6 +47,68 @@ final class PopoverNativeMacTests: XCTestCase {
     }
     private func onScreen(_ view: NSView) -> NSRect { view.window!.convertToScreen(view.convert(view.bounds, to: nil)) }
 
+    func testDynamicFallbacksChangePresentationWithoutClosingOrLosingFocus() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state flips = "unset"
+          action enable
+            flips = "flip-block, flip-inline, flip-block flip-inline"
+          action reset
+            flips = "unset"
+          view
+            column width="100%" height="100%" box-sizing="border-box" padding=8 justify-content="flex-end" align-items="flex-end"
+              button testId="open" popovertarget="pop" width=80 height=32 appearance="none"
+                text "Open"
+              column id="pop" testId="pop" popover="auto" position="absolute" position-area="bottom span-right" position-try-fallbacks=flips width=322 height=122 box-sizing="border-box" margin=0 padding=0
+                input testId="field" value="draft text" width=200 height=24
+                button testId="enable" press=enable
+                  text "Use flips"
+                button testId="reset" press=reset
+                  text "Use platform"
+        """, size: CGSize(width: 420, height: 600))
+        fixture = f
+        f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
+        f.window.makeKeyAndOrderFront(nil)
+        f.settle()
+        let p = f.presenter, pop = try f.node("pop"), home = pop.superview
+        try f.press("open")
+        let entry = try XCTUnwrap(p.menus.entries.first)
+        let native = try XCTUnwrap(entry.native)
+        XCTAssertNil(pop.style["position_try_fallbacks"])
+        let field = try XCTUnwrap(try f.node("field").field)
+        XCTAssertTrue(try XCTUnwrap(native.window).makeFirstResponder(field))
+        let selection = NSRange(location: 2, length: 4)
+        try XCTUnwrap(field.currentEditor() as? NSTextView).setSelectedRange(selection)
+        var events: [String] = []
+        pop.handlers.insert("toggle")
+        p.onClipboard = { _, kind, payload in if kind == 50 { events.append(payload) } }
+
+        try f.press("enable")
+        XCTAssertTrue(p.menus.isOpen(pop) && p.menus.entries.first === entry)
+        XCTAssertNil(entry.native, "an authored fallback row must take effect while open")
+        XCTAssertTrue(pop.window === f.window && pop.superview === entry.layer)
+        XCTAssertEqual(pop.frame, NSRect(x: 90, y: 438, width: 322, height: 122))
+        XCTAssertFalse(pop.isHidden)
+        XCTAssertEqual(try XCTUnwrap(field.currentEditor() as? NSTextView).selectedRange(), selection)
+        XCTAssertTrue((f.window.firstResponder as? NSTextView)?.delegate === field)
+        XCTAssertEqual(field.stringValue, "draft text")
+        XCTAssertNil(p.blocks.used[pop.id])
+
+        try f.press("reset")
+        let restored = try XCTUnwrap(entry.native, "removing the row restores platform presentation while open")
+        XCTAssertTrue(restored !== native && restored.popover.isShown)
+        XCTAssertTrue(pop.superview === restored.content && p.menus.isOpen(pop))
+        XCTAssertEqual(try XCTUnwrap(field.currentEditor() as? NSTextView).selectedRange(), selection)
+        XCTAssertTrue((restored.window?.firstResponder as? NSTextView)?.delegate === field)
+        XCTAssertEqual(p.menus.presentation(of: pop), 1)
+        XCTAssertTrue(events.isEmpty, "changing presentation emits no close/open toggle")
+        restored.popover.animates = false
+        try f.press("open")
+        gone(restored)
+        XCTAssertTrue(pop.isHidden && pop.superview === home)
+        XCTAssertTrue(p.menus.windowed.isEmpty && p.menus.leaving.isEmpty)
+    }
+
     /// The subtree in AppKit's popover, at the size layout returns, below
     /// its invoker; the page laid out as it was; and each way it closes.
     func testAPopoverThatIsNoMenuIsAppKitsPopoverAtItsContentsSize() throws {

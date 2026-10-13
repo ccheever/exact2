@@ -104,9 +104,11 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     "reload",
+    "relaunch",
+    "removeAllRanges",
     "selectText",
-    // `el.setSelectionRange(start, end, direction)` on a text field by its
-    // `id` (x2apps codeedit #2): `setSelectionRange("editor", 4, 4)`.
+    // A field's range, or a reader text's source range (issue #274), by id.
+    // `setSelectionRange("editor", 4, 4)`.
     "setSelectionRange",
     "setRangeText",
     "setScheme",

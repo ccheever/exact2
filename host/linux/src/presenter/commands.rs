@@ -20,6 +20,11 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
                 "deliveryActivate" => self.pending_update = true,
+                "relaunch" => self.host.log(if self.agent {
+                    "relaunch refused: the agent owns this process; start a new drive on the same storage"
+                } else {
+                    "relaunch refused: process relaunch is unsupported on Linux"
+                }),
                 // The app's chosen appearance is what a `light-dark()` colour
                 // resolves to here (LLP 1034 D2); `system` is no override.
                 "setScheme" => self.app_scheme(match c.args.first() {

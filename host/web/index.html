@@ -66,17 +66,18 @@
      which replaces it (`-exact-press-scale`, or `pointerdown` or `pointerup`
      handlers, which draw one; a `hover` handler observes and replaces
      nothing); a pressable covering the window, a surface the input glue
-     measures at the press; a row of a `list`, whose press is its cell's
-     highlight (D16): the list's child, through a virtualized list's row
-     wrapper, or a grouped list's row in its section, but not an item of a
-     virtualized list that scrolls sideways, a carousel's. An `opacity` the
-     author wrote on the node wins (inline, or the JS target's classes). */
+     measures at the press; anything in a row of a `list` whose rows are
+     cells (`data-listrows`, LLP 1115.000 D16: the look's own row answers
+     there, neutral.css), or a grouped list's row in its section. A list
+     that is no cell list (`appearance="none"`, a carousel) holds ordinary
+     pressables, which dim. An `opacity` the author wrote on the node wins
+     (inline, or the JS target's classes). */
   #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(
     :disabled,
     [data-button-style], [data-native], input, select, textarea, [data-action],
     [style*="--exact-press:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
     [data-exact-surface],
-    [role="list"]:not([data-estimateditemwidth]) > *, [role="list"]:not([data-estimateditemwidth]) > [data-listitemkey] > *, [data-liststyle] > section > * > *,
+    [data-listrows] *, [data-liststyle] > section > * > *,
     :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { opacity: .65; }
   /* A disabled custom button dims as the drawn switch does, and takes no press. */
   #exact-root button:disabled:not([data-button-style], [data-native]) { opacity: .5; }

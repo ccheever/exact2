@@ -127,11 +127,14 @@ extension NodeView {
         // button was held nothing changed, which is AppKit's rule and not a
         // browser's (LLP 1115.000 D7).
         defer { (holdPresenter ?? presenter)?.followPointer() }
-        guard let presenter = holdPresenter, let held = presenter.pointerHeld else { return }
-        presenter.pointerHeld = nil
+        guard let presenter = holdPresenter else { return }
+        // The view it went down on goes with the button, though a release
+        // took the held node first (LLP 1005: that clears the hold).
         let source = presenter.pointerSource
         presenter.pointerSource = nil
         defer { source?.releaseHold() }
+        guard let held = presenter.pointerHeld else { return }
+        presenter.pointerHeld = nil
         if let node = presenter.views[held], node.handlers.contains("pointerup") { presenter.pointer(held, .up, node.pointerSample(event, lifted: true)) }
     }
     /// A drag of the held pointer: its node's `pointermove`. AppKit
@@ -273,7 +276,8 @@ extension Presenter {
               viewport.bounds.contains(viewport.convert(point, from: nil)) else {
             setHoverPath([]); pointerCursor(over: nil, at: point); return nil
         }
-        let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        // What is under the pointer, a table's row included (the table takes its clicks, not its hover).
+        let hit = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(point, from: nil) ?? point) }
         var path: [NodeView] = []
         var leaf: NodeView?
         var region = false
@@ -342,9 +346,12 @@ extension NodeView {
     /// dropping the piece a board square was pressed on), and the held node
     /// keeps hearing its moves and its up, as on the web (`holdPresenter`).
     /// Removing it then is AppKit's `removeFromSuperview`, the one way the
-    /// presenter takes a view out.
+    /// presenter takes a view out. Only in the window: one already out hears
+    /// nothing, and AppKit also asks here when it frees the parent
+    /// (`-[NSView _finalize]`), which a view that stayed would outlive,
+    /// pointing at it (the T3 Code clone's crash in `releaseHold`).
     package override func removeFromSuperview() {
-        if let presenter = holdPresenter, presenter.pointerHeld != nil, presenter.pointerSource === self, superview != nil {
+        if let presenter = holdPresenter, presenter.pointerHeld != nil, presenter.pointerSource === self, window != nil {
             // Transparent, not hidden: AppKit sends a hidden view no drags either.
             let box = holdBox(presenter)
             if !box.hid { box.hid = true; box.alpha = alphaValue; alphaValue = 0 }

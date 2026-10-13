@@ -68,6 +68,48 @@ impl Collection {
     }
 }
 impl Tree {
+    /// The event's physical offset, not a pending correction's destination.
+    pub(crate) fn collection_scroll_anchor(
+        &self,
+        kernel: &exact_kernel::Kernel,
+        view: ViewId,
+        left: f64,
+        top: f64,
+        width: f64,
+        height: f64,
+    ) -> Option<(Value, f64)> {
+        if !self.has_collections {
+            return None;
+        }
+        let c = find_collection(&self.children, view)?;
+        let (at, port) = match c.axis {
+            ListAxis::Vertical => (top, height),
+            ListAxis::Horizontal => (left, width),
+        };
+        // Native scroll coordinates include the border; browser scroll offsets
+        // already exclude it and have no kernel layout insets.
+        let origin = kernel
+            .node(view)
+            .and_then(|node| {
+                let (left, top, _, _) = kernel.resolved_padding(node.key)?;
+                let (border_left, border_top, _, _) = kernel.resolved_border(node.key)?;
+                Some(match c.axis {
+                    ListAxis::Vertical => f64::from(top + border_top),
+                    ListAxis::Horizontal => f64::from(left + border_left),
+                })
+            })
+            .unwrap_or_else(|| c.index.leading());
+        let offset = (at - origin).max(-c.index.leading());
+        let position = c.index.row_at(offset.max(0.0)).ok()??;
+        let start = c.index.prefix(position)?;
+        if port <= 0.0 || start >= offset + port {
+            return None;
+        }
+        Some((
+            Value::str(&super::super::key_text(c.keys.get(position)?)?[2..]),
+            offset - start,
+        ))
+    }
     /// O(live instances) snapshots. No unmounted record/key serialization.
     pub fn collections(&self) -> Vec<CollectionSnapshot> {
         self.collections_with(usize::MAX)

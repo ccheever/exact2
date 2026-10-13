@@ -755,11 +755,11 @@ fn into_view_args(
         }
         if let Some(Expr::NamedArg(_, _, at)) = args
             .iter()
-            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row" || name == "offset"))
         {
             return err(
                 "type-scroll-into-view",
-                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                "`row=` and `offset=` go with a list's `id` and a row's key",
                 *at,
             );
         }
@@ -798,6 +798,16 @@ fn into_view_options(
         let allowed: &[&str] = match name.as_str() {
             "block" | "inline" => &["start", "center", "end", "nearest"],
             "behavior" => &["auto", "instant", "smooth"],
+            "offset" => {
+                if infer(value, scope, shapes)? != Ty::Number {
+                    return err(
+                        "type-scroll-into-view",
+                        "`offset` is a number of CSS pixels into the row",
+                        *at,
+                    );
+                }
+                continue;
+            }
             "row" => {
                 infer(value, scope, shapes)?;
                 continue;
@@ -847,6 +857,9 @@ pub(super) fn check_command(
             ),
         };
         return err("type-unknown-command", message, span);
+    }
+    if name == "relaunch" && !args.is_empty() {
+        return err("type-relaunch", "`relaunch()` takes no arguments", span);
     }
     if name == "preventDefault" && !args.is_empty() {
         return err(
@@ -910,6 +923,13 @@ pub(super) fn check_command(
     }
     if name == "fastSeek" || name == "load" {
         return super::media::command_args(name, args, scope, shapes, span);
+    }
+    if name == "removeAllRanges" && !args.is_empty() {
+        return err(
+            "type-remove-all-ranges",
+            "`removeAllRanges()` takes no arguments",
+            span,
+        );
     }
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);

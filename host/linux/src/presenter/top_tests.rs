@@ -359,6 +359,33 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
 }
 
 #[test]
+fn process_relaunch_is_refused_in_the_journal() {
+    let src = "component App\n  action restart\n    relaunch()\n  view\n    button press=restart testId=\"restart\"\n      text \"Restart\"\n";
+    for agent in [false, true] {
+        let plan = contract::compile(src).unwrap();
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            Nothing,
+            (400., 400.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.agent = agent;
+        tap(&mut p, "restart").unwrap();
+        let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+        let reason = if agent {
+            "the agent owns this process"
+        } else {
+            "unsupported on Linux"
+        };
+        assert!(journal.contains(reason), "{journal}");
+    }
+}
+
+#[test]
 fn a_host_with_no_shell_has_no_top_layer_and_keeps_what_it_did() {
     let mut p = boot();
     p.serve_requests();

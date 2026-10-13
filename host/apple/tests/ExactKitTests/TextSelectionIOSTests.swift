@@ -100,7 +100,7 @@ final class TextSelectionIOSTests: XCTestCase {
         let p = page()
         let prose = try node(p, 4)
         var heard: [String] = []
-        p.onSelectionChange = { id, text, start, end in heard.append("\(id) \(text) \(start) \(end)") }
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id) \(text) \(start) \(end)") }
         XCTAssertTrue(prose.interactions.isEmpty, "nothing until a finger lands")
         // A finger lands: UIKit's interaction, in its read-only mode, on the paragraph's own view.
         p.textSelection.touched(prose)
@@ -183,7 +183,7 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertEqual(p.textSelection.selection?.text, "quick")
         // Its own text changing drops it.
         var heard: [String] = []
-        p.onSelectionChange = { id, text, start, end in heard.append("\(id) \(text) \(start) \(end)") }
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id) \(text) \(start) \(end)") }
         p.apply(wireBatch([["op": "props", "id": 4, "set": ["text": "Other words stand here now."]]]))
         XCTAssertNil(p.textSelection.selection)
         XCTAssertNil(held.selectedTextRange)

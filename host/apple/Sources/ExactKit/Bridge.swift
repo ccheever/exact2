@@ -378,9 +378,11 @@ package final class Runtime {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }
     /// `selectionchange` (35): a `text`'s part of the selection, its source
-    /// UTF-16 offsets and then its text.
-    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, now: Double) -> Batch {
-        on { read(exact_dispatch(rt, view, 35, write("\(start),\(end),\(text)"), now)) }
+    /// UTF-16 offsets, rectangle count and coordinates, then its text.
+    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, rects: [CGRect], now: Double) -> Batch {
+        let boxes = rects.flatMap { [$0.minX, $0.minY, $0.width, $0.height].map { String(Double($0)) } }
+        let payload = ([String(start), String(end), String(rects.count)] + boxes + [text]).joined(separator: ",")
+        return on { read(exact_dispatch(rt, view, 35, write(payload), now)) }
     }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {

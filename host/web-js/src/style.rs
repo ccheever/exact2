@@ -620,6 +620,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("accent-color", "v=>v"),
             with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
+        StyleId::PositionTryFallbacks => vec![with(
+            "position-try-fallbacks",
+            r#"v=>v==null||/^\s*(?:none|(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?)(?:\s*,\s*(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?))*)\s*$/i.test(v)?v:"invalid""#,
+        )],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
         // @ref LLP 1055.002 — `-exact-clock(Name)` is css.rs's clock property and
         // leaves the play state alone; a drag timeline pauses.
@@ -731,7 +735,8 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     // kernel restates as CSS's) or a marker (a reference, see emit.rs).
     if matches!(
         row.codec(),
-        StyleCodec::ClipPath
+        StyleCodec::PositionTryFallbacks
+            | StyleCodec::ClipPath
             | StyleCodec::ShapeOutside
             | StyleCodec::Paint
             | StyleCodec::DashArray

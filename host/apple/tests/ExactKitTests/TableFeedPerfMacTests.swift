@@ -23,21 +23,34 @@ final class TableFeedPerfMacTests: XCTestCase {
     }
     private static func duration(velocity: CGFloat, tau: Double = 0.5) -> Double { tau * log(Double(velocity) / 20) }
 
-    func testARowMovesIntoACellOnceAndOutOnceWhileTenThousandScroll() throws {
+    func testARowIsMountedOnceInItsCellWhileTenThousandScroll() throws {
         let f = try TableFixture(count: 10_000)
         fixture = f
-        let moved = f.feed.moves
-        var deepest = 0, mounted = 0
+        let moved = f.feed.moves, noted = f.feed.noted, arrived = f.feed.arrivals
+        var deepest = 0, mounted = 0, views = 0, outside = 0
         // A hard fling's travel, a frame at a time at 60 a second.
         let seconds = Self.duration(velocity: 12_000)
         for frame in 1...Int(seconds * 60) {
             f.scroll(to: Self.fling(from: 0, velocity: 12_000, at: Double(frame) / 60))
             deepest = max(deepest, f.cells.keys.max() ?? 0)
             mounted = max(mounted, f.mounted.count)
+            views = max(views, f.feed.rowViews)
+            outside = max(outside, f.mounted.values.filter { !($0.superview is TableRowCell) }.count)
         }
         XCTAssertGreaterThan(deepest, 150, "the fling passed some hundreds of rows")
         XCTAssertLessThan(mounted, 120, "a window of rows was mounted at any time")
-        XCTAssertLessThanOrEqual(f.feed.moves - moved, 2 * (deepest + 1), "each row went into a cell at most once and out at most once")
+        // What stage 3b cut. A row goes into its cell in the batch that
+        // made it and leaves it when the runner destroys it: one move a row
+        // the runner made (it makes some twice, ahead of a fling and again),
+        // where stage 3a's feed moved each in and out as it crossed the port.
+        let made = f.feed.arrivals - arrived
+        XCTAssertGreaterThan(made, deepest - 60, "the runner made the rows the fling passed")
+        XCTAssertEqual(f.feed.moves - moved, made, "each row the runner made went into a cell, once, and none came out to the document")
+        XCTAssertEqual(outside, 0, "every mounted row was in a cell at every frame: the table keeps a view for each")
+        XCTAssertLessThan(views, 2 * mounted, "and it keeps no more views than the rows about the port")
+        // AppKit hears a height only where the table's differs from layout's:
+        // here the rows with a second paragraph or controls, three in ten.
+        XCTAssertLessThan(f.feed.noted - noted, made / 2, "a row of the estimated height told AppKit nothing")
     }
 
     private struct Times {
@@ -55,11 +68,16 @@ final class TableFeedPerfMacTests: XCTestCase {
     /// mostly waiting for a core; the processor's time is the work.
     private struct Frames {
         var wall = Times(), main = Times(), process = Times()
-        mutating func add(_ frame: (wall: Double, main: Double, process: Double)) {
+        /// The main thread's processor time in each step of a frame, summed (`frame`'s five).
+        var steps = [Double](repeating: 0, count: 5)
+        mutating func add(_ frame: (wall: Double, main: Double, process: Double, steps: [Double])) {
             wall.ms.append(frame.wall); main.ms.append(frame.main); process.ms.append(frame.process)
+            for (i, ms) in frame.steps.enumerated() { steps[i] += ms }
         }
         func lines(_ name: String) -> [String] {
-            [main.line("\(name), the main thread's processor time"), process.line("\(name), every thread's processor time"), wall.line("\(name), by the wall")]
+            let each = steps.map { $0 / Double(max(1, main.ms.count)) }
+            return [main.line("\(name), the main thread's processor time"), process.line("\(name), every thread's processor time"), wall.line("\(name), by the wall"),
+                    String(format: "%@, the main thread's mean by step: the port moved %.2f, the turn's queued work %.2f, the pump %.2f, layout and drawing %.2f, the commit %.2f ms", name, each[0], each[1], each[2], each[3], each[4])]
         }
     }
     private static func processor(_ clock: clockid_t) -> Double { Double(clock_gettime_nsec_np(clock)) / 1_000_000 }
@@ -73,15 +91,21 @@ final class TableFeedPerfMacTests: XCTestCase {
     /// the port moves, the turn's queued work runs (the pump's slice, a
     /// report's continuation), the window lays out and draws, the layer
     /// tree is committed.
-    private func frame(_ f: TableFixture, to y: CGFloat) -> (wall: Double, main: Double, process: Double) {
+    private func frame(_ f: TableFixture, to y: CGFloat) -> (wall: Double, main: Double, process: Double, steps: [Double]) {
         let began = CACurrentMediaTime(), main = Self.processor(CLOCK_THREAD_CPUTIME_ID), process = Self.processor(CLOCK_PROCESS_CPUTIME_ID)
+        var marks = [main]
         f.clip.scroll(to: NSPoint(x: 0, y: y))
         f.list.scroll!.reflectScrolledClipView(f.clip)
+        marks.append(Self.processor(CLOCK_THREAD_CPUTIME_ID))
         RunLoop.main.run(mode: .default, before: Date())
+        marks.append(Self.processor(CLOCK_THREAD_CPUTIME_ID))
         f.presenter.pump()
+        marks.append(Self.processor(CLOCK_THREAD_CPUTIME_ID))
         f.window.displayIfNeeded()
+        marks.append(Self.processor(CLOCK_THREAD_CPUTIME_ID))
         CATransaction.flush()
-        return ((CACurrentMediaTime() - began) * 1000, Self.processor(CLOCK_THREAD_CPUTIME_ID) - main, Self.processor(CLOCK_PROCESS_CPUTIME_ID) - process)
+        marks.append(Self.processor(CLOCK_THREAD_CPUTIME_ID))
+        return ((CACurrentMediaTime() - began) * 1000, marks[5] - main, Self.processor(CLOCK_PROCESS_CPUTIME_ID) - process, zip(marks.dropFirst(), marks).map { $0 - $1 })
     }
 
     /// The travels, each a list of offsets a frame apart at `hz`.
@@ -118,24 +142,39 @@ final class TableFeedPerfMacTests: XCTestCase {
             if let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.05), inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
         }
         table.settle(); today.settle()
+        // An app's main thread runs at the user-interactive quality of service. A test's, started from a shell, runs
+        // at the default one, which the scheduler gives the performance cores to less readily when other work wants
+        // them: EXACT_TABLE_PERF_QOS=interactive takes the app's for these frames.
+        let began = qos_class_self().rawValue
+        if ProcessInfo.processInfo.environment["EXACT_TABLE_PERF_QOS"] == "interactive" { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) }
+        let qos = "the main thread's quality of service \(qos_class_self().rawValue) (33 an app's own, user-interactive; 21 the default; it began at \(began))"
         // How ExactKit was compiled, said by whoever built it optimized (`swift build -c release`): a debug build overstates every time here.
         let build = ProcessInfo.processInfo.environment["EXACT_TABLE_PERF_BUILD"] ?? "a debug build of ExactKit"
         say("ten thousand rows, the gate's fixture (mixed heights; a button, a checkbox and a field in every tenth row), two 480 by 600 windows on screen: the table, and the list as the presenter lays it out today")
-        say(String(format: "display %.0f Hz at %.0fx: a frame is %.2f ms; %@; windows visible %@ %@; %@", hz, screen.backingScaleFactor, 1000 / hz, build,
+        say(String(format: "display %.0f Hz at %.0fx: a frame is %.2f ms; %@; %@; windows visible %@ %@; %@", hz, screen.backingScaleFactor, 1000 / hz, build, qos,
                    "\(table.window.occlusionState.contains(.visible))", "\(today.window.occlusionState.contains(.visible))", Self.load()))
-        let both = [("table", table), ("today", today)]
+        // `EXACT_TABLE_PERF_ONLY=table` (or `today`): that arrangement alone, for a profile of it. `EXACT_TABLE_PERF_REPEAT=<n>`: each travel
+        // that many times over. `EXACT_TABLE_PERF_RAW=<file>`: every frame's main-thread time, a line a frame, for a distribution over
+        // several runs. `EXACT_TABLE_PERF_LINK=0`: without the display link's part.
+        let environment = ProcessInfo.processInfo.environment
+        let both = [("table", table), ("today", today)].filter { environment["EXACT_TABLE_PERF_ONLY"] == nil || environment["EXACT_TABLE_PERF_ONLY"] == $0.0 }
+        let names = both.map(\.0), repeats = max(1, environment["EXACT_TABLE_PERF_REPEAT"].flatMap { Int($0) } ?? 1)
+        var raw: [String] = []
 
         // The work of each frame, one after another with no waiting: what the main thread does for a frame.
         say("\n== work per frame on the main thread (the port moved, the turn's queued work, layout, drawing, the commit)")
         for (travel, offsets) in travels(table, hz: hz) {
             var times = ["table": Frames(), "today": Frames()]
-            for (name, f) in both + both.reversed() {
+            for (name, f) in Array(repeating: both + both.reversed(), count: repeats).joined() {
                 f.scroll(to: offsets[0])
                 for y in offsets { times[name]!.add(frame(f, to: y)) }
                 f.settle()
             }
-            say("  \(travel), twice each; \(Self.load())")
-            for name in ["table", "today"] { times[name]!.lines(name).forEach { say("    \($0)") } }
+            say("  \(travel), \(repeats == 1 ? "twice" : "\(2 * repeats) times") each; \(Self.load())")
+            for name in names {
+                times[name]!.lines(name).forEach { say("    \($0)") }
+                raw += times[name]!.main.ms.map { String(format: "%@\t%@\t%.4f", name, travel, $0) }
+            }
         }
         var ends = ["table": Frames(), "today": Frames()], after = ["table": Frames(), "today": Frames()]
         for round in 0..<3 {
@@ -149,15 +188,16 @@ final class TableFeedPerfMacTests: XCTestCase {
             }
         }
         say("  a jump to the end and a jump back, three times; \(Self.load())")
-        for name in ["table", "today"] {
+        for name in names {
             ends[name]!.lines("\(name), the frame of the jump").forEach { say("    \($0)") }
             after[name]!.lines("\(name), the 20 frames after each").forEach { say("    \($0)") }
         }
         say("  the feed, over all of it: \(table.feed.moves) moves of a row between the document and a cell, \(table.feed.noted) row heights told to the table")
+        if let file = environment["EXACT_TABLE_PERF_RAW"] { try raw.joined(separator: "\n").write(toFile: file, atomically: true, encoding: .utf8) }
 
         // In real time, by the display's own link: the frames the repository's sampler counts (`perf frames`).
         say("\n== real time, by the display link: the session's frame sampler (what `agent.mjs macos perf frames` reads)")
-        for (travel, velocity) in [("a fling at 6,000 points a second", CGFloat(6_000)), ("a fling at 12,000 points a second", 12_000), ("a fling at 40,000 points a second", 40_000)] {
+        for (travel, velocity) in [("a fling at 6,000 points a second", CGFloat(6_000)), ("a fling at 12,000 points a second", 12_000), ("a fling at 40,000 points a second", 40_000)] where environment["EXACT_TABLE_PERF_LINK"] != "0" {
             for (name, f) in both + both.reversed() {
                 let sampler = try XCTUnwrap(f.session.sampler)
                 f.scroll(to: 0)

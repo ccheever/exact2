@@ -227,7 +227,7 @@ component InteractionGallery
                 ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="Meta+p Control+p", command=command)
                 ActionButton(id="cancel", label="Cancel", op="cancel", target="", n=gallery.dragToken, shortcut="Escape", command=command)
           when rendering == "windowed"
-            list id="arrange-list" reorderdrop=dropArrange virtualized=true scrollFollowEnd=true testId="reorder-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
+            list id="arrange-list" appearance="none" reorderdrop=dropArrange virtualized=true scrollFollowEnd=true testId="reorder-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
               each photo in rows key=photo.id
                 column width="100%" box-sizing="border-box" padding-left=20 padding-right=20 padding-bottom=10 testId=`arrange-row-${photo.id}`
                   ArrangeCard(photo=photo, gallery=gallery, windowed=true, command=command)
@@ -253,7 +253,7 @@ component InteractionGallery
               SheetButton(name="read", label="Read", px=360, selected=sheetNominal, choose=chooseSheet)
               SheetButton(name="full", label="Full", px=640, selected=sheetNominal, choose=chooseSheet)
             when rendering == "windowed"
-              list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
+              list appearance="none" virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
                 each photo in rows key=photo.id
                   column width="100%" box-sizing="border-box" padding-bottom=12 testId=`read-row-${photo.id}`
                     NoteCard(photo=photo, selected=gallery.selected.id, command=command)

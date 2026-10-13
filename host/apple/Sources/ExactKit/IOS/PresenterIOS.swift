@@ -91,7 +91,7 @@ package final class Presenter {
     lazy var leaves = HeavyLeaves(self)
     lazy var flats = FlatLeaves(self)
     /// The native swipe rows (LLP 1008 §9), a grouped list's included.
-    package lazy var swipeActions = SwipeActionsHost(self)
+    package lazy var swipeActions = SwipeActionsHost(self); lazy var rowCells = RowCells(self)
     lazy var accent = AppAccent(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
@@ -365,7 +365,7 @@ package final class Presenter {
         fieldSelections.reset()
         edited = nil
         menus.reset()
-        swipeActions.reset()
+        swipeActions.reset(); rowCells.reset()
         pool.reset()
         leaves.reset()
         flats.reset()
@@ -569,7 +569,7 @@ package final class Presenter {
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
-    var onSelectionChange: ((UInt32, String, Int, Int) -> Void)? // a `text`'s part of the selection (`TextSelectionIOS`)
+    var onSelectionChange: ((UInt32, String, Int, Int, [CGRect]) -> Void)? // a `text`'s part of the selection (`TextSelectionIOS`)
     /// A touch went down on a node (`true`) or came up (LLP 1005 §3).
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
@@ -681,7 +681,7 @@ package final class Presenter {
     /// A `contextmenu` with its point (studio diary R22): kind 10 and its line.
     func contextmenu(_ id: UInt32, line: String) { send(id) { [self] in onClipboard?(id, 10, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
-    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
+    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int, rects: [CGRect] = []) { send(id) { [self] in onSelectionChange?(id, text, start, end, rects) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
     func refresh(_ id: UInt32) { send(id) { [self] in onRefresh?(id) } }
@@ -980,7 +980,7 @@ package final class Presenter {
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         let changed = touchedAndAbove(touchedIDs)
-        swipeActions.sync(changed: changed)
+        swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed)
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)

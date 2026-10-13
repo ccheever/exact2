@@ -6,6 +6,7 @@ import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize }
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
+  removeAllRanges: () => getSelection()?.removeAllRanges(),
   setSelectionRange: (...args) => setFieldSelection(document.getElementById(args[0]), args, say),
   setRangeText: (...args) => setFieldRangeText(document.getElementById(args[0]), args, say),
   // Focus, then the field's whole text selected, as `select()` does
@@ -39,6 +40,7 @@ export const commands = say => ({
   // The page's own reload: every web page has one, where a native host
   // needs its dev menu's.
   reload: () => location.reload(),
+  relaunch: () => location.reload(),
   // `window.close()` (studio diary R17): a browser closes only a window a
   // script opened, and says so in its console otherwise.
   // `close(id)` is a dialog's (LLP 1101.001 P5): HTMLDialogElement's.

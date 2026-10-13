@@ -97,7 +97,8 @@ public final class ExactView: NSView {
             self?.syncInsets()
             self?.onViewportFit?()
         }
-        var names: [Notification.Name] = [NSWindow.didChangeScreenNotification, NSApplication.didChangeScreenParametersNotification]
+        var names: [Notification.Name] = [NSWindow.didChangeScreenNotification, NSApplication.didChangeScreenParametersNotification,
+                                          NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification]
         if #available(macOS 26, *) {
             names += [.NSApplicationShouldBeginSuppressingHighDynamicRangeContent,
                       .NSApplicationShouldEndSuppressingHighDynamicRangeContent]
@@ -241,6 +242,7 @@ public final class ExactView: NSView {
         super.viewDidMoveToWindow()
         session.natives.scopesChanged()
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
+        session.tellPreferences()
         session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)
         session.canvases.refreshLifecycle()

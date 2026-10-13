@@ -1614,9 +1614,13 @@ for the request, the executor and the reply), and settlement takes it as the
 resource's failure, as it takes a failed reply: the commit stands, the value it
 had stays, `failed(resource)` is true and the journal says `resource <name>
 failed: <why>` (runner/src/runner/settlement.rs; with nothing to keep it still
-refuses). A source's own refusal (unknown source, bad arguments, unavailable)
+refuses). A Rust source's own refusal (unknown source, bad arguments, unavailable)
 still refuses the commit, on both runners: `rust-data.js` now throws those as a
-refusal, where the JS runtime used to take them as failures. Messages Stress asks
+refusal, where the JS runtime used to take them as failures. TypeScript runtime
+answers follow LLP 1027.000 D3's failure-parity amendment (Charlie, 2026-10-08):
+a failed resource keeps its value or placeholder, a failed send ends unsent,
+and the input or action commits. This includes synchronous and queued sends.
+Messages Stress asks
 for the whole history up to 10,000 records (about 2.3 MB of bodies) and, past
 that, its virtualized transcript asks overlapping 200-record windows, as the
 bounded mode does (`derive paged`), saying so in its mode line; a failed

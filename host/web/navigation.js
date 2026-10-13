@@ -715,6 +715,7 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
       continue;
     }
+    if (name === "removeAllRanges") { getSelection()?.removeAllRanges(); continue; }
     if (name === "setSelectionRange") { setFieldSelection([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     if (name === "setRangeText") { setFieldRangeText([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     const selectText = name === "selectText";
@@ -816,15 +817,14 @@ export function preferFold(request) {
   return foldEnv();
 }
 
-// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the page's media queries report them: bit 0
-// `prefers-reduced-motion: reduce`, bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`, bit 3
-// `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the system's, whatever the page's `color-scheme` (a
-// browser that does not know a feature answers no preference, as CSS does) — and the primary input's `pointer: coarse`
-// (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7), zero being a mouse. Told with each boot and resize.
+// @ref LLP 1061 D4, LLP 1069.000 D1: media facts ride each boot and resize.
+// Bits 0–4: motion, transparency, contrast (more|less), dark; 5–7: coarse|none pointer, no hover.
+const DISPLAY_MODES = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"];
 let preferenceQueries;
-// Bits 8–9 `color-gamut` (256 p3; 512 with it, rec2020) and bit 10 `dynamic-range: high` (LLP 1100 D9).
-const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 256], ["(color-gamut: rec2020)", 512], ["(dynamic-range: high)", 1024]].map(([q, bits]) => [matchMedia(q), bits]));
+// Bits 8–25 belong to foldBits(); 26–27 gamut, 28 HDR (LLP 1100 D9), 29–31 display-mode (LLP 1039 D7).
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 1 << 26], ["(color-gamut: rec2020)", 1 << 27], ["(dynamic-range: high)", 1 << 28], ...DISPLAY_MODES.map((v, i) => [`(display-mode: ${v})`, i << 29])].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
+export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7];
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
@@ -1085,8 +1085,7 @@ export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInpu
 // A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's.
 export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
 export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
-// Its selection as host kinds 40 to 42 carry it, before its text: `start,end,direction,` in UTF-16 units, the DOM's; a
-// type with none (email, number) has its caret after its text, as the runner assumes.
+// Host kinds 40–42 carry UTF-16 start,end,direction before the field’s text.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
 // A radio's group as committed again (x2apps survey #2): the browser checked the radio and unchecked its group at once;
 // the action decides, and one that refuses snaps the group back. `bound` reads a radio's committed `checked` (undefined
@@ -1096,11 +1095,15 @@ export function settleRadios(el, bound) {
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
   for (const r of group) if (bound(r) === true && !r.checked) r.checked = true;
 }
-// `setSelectionRange` (x2apps codeedit #2): the field's own method after the batch, without focus.
 export function setFieldSelection(el, args, log) {
   const [id, start, end, direction] = args ?? [];
   if (!el) return log(`setSelectionRange "${id}" refused: no live node with that id`);
-  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
+  if (el.matches("[data-exact-text], [data-exact-text] *")) {
+    const size = textSource(el).length, clamp = n => Math.min(size, Number(n) >>> 0), b = clamp(end), a = Math.min(clamp(start), b);
+    const [an, ao] = textPosition(el, a), [bn, bo] = textPosition(el, b);
+    getSelection().setBaseAndExtent(...(direction === "backward" ? [bn, bo, an, ao] : [an, ao, bn, bo])); return;
+  }
+  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field or text`);
   try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
 }
 // @ref LLP 1069.001, 2026-10-12 — HTML's range edit, plus one input to synchronize the app's value; no undo step.
@@ -1234,7 +1237,6 @@ export function grantOrigins(memory) {
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
-
 const grantFNV = text => {
   let hash = 0xcbf29ce484222325n;
   for (const byte of new TextEncoder().encode(text)) {
@@ -1283,7 +1285,6 @@ const grantTupleValid = grant => {
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
   return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
-
 const pathTuple = (kind, target) => {
   const native = target.startsWith('\\\\?\\') ? target.slice(4) : target;
   if (/^[a-z]:[/\\]/i.test(native)) {
@@ -1343,7 +1344,6 @@ const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);
 };
-
 function validateGrantSet(set) {
   if (!set || set.version !== 1 || !Array.isArray(set.entries)
       || (set.error !== null && typeof set.error !== 'string') || !/^[0-9a-f]{16}$/.test(set.seal ?? '')) return false;
@@ -1358,7 +1358,6 @@ function validateGrantSet(set) {
   }
   return (!hasError || set.error !== null) && grantFNV(grantBody(set)) === set.seal;
 }
-
 const freezeGrantSet = set => {
   for (const entry of set.entries) {
     if (entry[2]) Object.freeze(entry[2]);
@@ -1367,30 +1366,24 @@ const freezeGrantSet = set => {
   Object.freeze(set.entries);
   return Object.freeze(set);
 };
-
 // The Rust parser is the only producer. Admission validates an incoming JSON value in full before making its authority
 // immutable; a prior validation is never a reason to trust a mutable or branded object.
 export function createGrantSet(value) {
   if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
   return freezeGrantSet(value);
 }
-
 function makeGrantSet(entries, error) {
   const set = { version: 1, entries, error, seal: '' };
   set.seal = grantFNV(grantBody(set));
   return freezeGrantSet(set);
 }
-
 export function grantError(set) {
   return validateGrantSet(set) ? set.error : INVALID_GRANTS;
 }
-
 export const rawGrantText = set => validateGrantSet(set) ? set.entries.map(entry => entry[1]).join('\n') : '';
 export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && set.entries.some(entry => entry[2]?.[0] === kind);
-
 const normalizedDeclaration = set => validateGrantSet(set)
   ? set.entries.map(([, source, grant, error]) => JSON.stringify([source, grant, error])) : [];
-
 // Module metadata carries the author's spelling while the bake carries the Rust parser's normalized set. Blank lines
 // and indentation have no bearing on activation; the normalized declarations do.
 export function sameGrantDeclaration(set, source) {
@@ -1399,7 +1392,6 @@ export function sameGrantDeclaration(set, source) {
   const parentLines = normalizedDeclaration(set), childLines = normalizedDeclaration(child);
   return parentLines.length === childLines.length && parentLines.every((line, index) => line === childLines[index]);
 }
-
 export function scopedGrantSet(parent, source) {
   if (source == null) return parent;
   if (!validateGrantSet(parent) || typeof source !== 'string') return makeGrantSet([], 'source scope exceeds the app\'s admitted grants');
@@ -1415,7 +1407,6 @@ export function scopedGrantSet(parent, source) {
   }
   return makeGrantSet(entries, errors.length ? `the app's grants did not parse: ${errors.join('; ')}` : null);
 }
-
 export function unionGrantSets(...sets) {
   if (sets.some(set => !validateGrantSet(set))) return makeGrantSet([], INVALID_GRANTS);
   const entries = [], seen = new Set();
@@ -1426,7 +1417,6 @@ export function unionGrantSets(...sets) {
   const error = sets.map(set => set.error).find(Boolean) ?? null;
   return makeGrantSet(entries, error);
 }
-
 const grantPort = url => Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
 export function admitsNetwork(set, value, operation = 'fetch') {
   if (grantError(set)) return false;
@@ -1439,12 +1429,10 @@ export function admitsNetwork(set, value, operation = 'fetch') {
     || kind === 'fetch' && grant[0] === 'fetch-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
   ));
 }
-
 export function admitsSecret(set, name) {
   return !String(name).startsWith('exact.kept.') && !grantError(set)
     && set.entries.some(([, , grant]) => grant?.[0] === 'secret-keep' && grant[1] === String(name));
 }
-
 function grantPathParts(path) {
   if (typeof path !== 'string') return null;
   const at = path.indexOf(':/');
@@ -1454,28 +1442,38 @@ function grantPathParts(path) {
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..' || part.includes('\0')) ? null : [namespace, ...parts];
 }
-
 export function coversPath(set, capability, path) {
   if (grantError(set)) return false;
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
 // grant admission: end
-
-// `selectionchange` on a `text` (the reader diary), on both web targets: its part of the page's selection, reported as
-// the text and its UTF-16 start and end in the element's own text when that part changes; nothing selected there is ""
-// at 0, 0. One document listener serves every such element.
+// Text selections use source UTF-16 offsets; a Markdown <br> represents one newline.
 const selectedTexts = new Map();
+function textSource(e) { return e.nodeType === Node.TEXT_NODE ? e.data : e.nodeName === 'BR' ? "\n" : [...e.childNodes].map(textSource).join(''); }
+function textPosition(e, offset) {
+  const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeType === Node.TEXT_NODE) { if (offset <= n.length) return [n, offset]; offset -= n.length; }
+    else if (n.nodeName === 'BR') { const i = [...n.parentNode.childNodes].indexOf(n); if (offset <= 1) return [n.parentNode, i + offset]; offset--; }
+  }
+  return [e, e.childNodes.length];
+}
+function selectionRects(e, a, b) {
+  if (a === b) return [];
+  const range = document.createRange(); range.setStart(...textPosition(e, a)); range.setEnd(...textPosition(e, b));
+  return [...range.getClientRects()].map(r => [r.x, r.y, r.width, r.height, false, false]);
+}
 export function onSelection(e, report) {
   if (!selectedTexts.size) document.addEventListener("selectionchange", () => {
     const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
     for (const [e, h] of selectedTexts) {
       if (!e.isConnected) { selectedTexts.delete(e); continue; }
-      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : p.toString().length; };
+      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : textSource(p.cloneContents()).length; };
       let a = 0, b = 0;
       if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
       if (a === b) a = b = 0;
-      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(e.textContent.slice(a, b), a, b); }
+      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(textSource(e).slice(a, b), a, b, selectionRects(e, a, b)); }
     }
   });
   selectedTexts.set(e, { report, a: 0, b: 0 });
