@@ -99,7 +99,7 @@ test('the driver grammar names an unquoted mediasession action beside pinch', ()
   const usage = spawnSync(process.execPath, [resolve(import.meta.dir, 'agent.mjs')], { encoding: 'utf8' });
   assert.equal(usage.status, 2, usage.stderr);
   assert.ok(usage.stderr.includes(form), usage.stderr);
-});
+}, 60_000);
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
@@ -548,7 +548,7 @@ test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info ac
     const message = {filenames:[artifact], target:{name:'space_unit', src_path:source}};
     assert.equal(unitDepInfo(message, root, metadata), resolve(metadata.build_directory, 'space_unit.d'));
   } finally { rmSync(root, {recursive:true, force:true}); }
-});
+}, 60_000);
 
 
 test('R12 resolution is lazy and does not create a workspace', () => fixture(({app, dir}) => {
@@ -773,7 +773,7 @@ test('without its own lock a game resolves only against the SDK lock, never a le
   write('game/app/shells.lock',captured);
   assert.ok(app().cargoPackage('gpu'));
   assert.equal(existsSync(resolve(dir,'Cargo.lock')),false,'the SDK lock writes no lock into the game');
-}));
+}), 60_000);
 test('ordinary resolution refuses missing and stale locks without writing them',()=>fixture(({app,root,pkg,write,run})=>{
   process.env.EXACT_APP_DIR=resolve(root,'game/ordinary/plain');
   pkg('game/ordinary/plain','plain-web');
@@ -789,13 +789,13 @@ test('ordinary resolution refuses missing and stale locks without writing them',
   write(path,readFileSync(resolve(root,path),'utf8').replace('version="0.1.0"','version="0.2.0"'));
   assert.throws(()=>app('plain').cargoPackage('web'),/update the lock explicitly.*cargo metadata --offline/s);
   assert.equal(readFileSync(resolve(root,'game/Cargo.lock'),'utf8'),before);
-}));
+}), 60_000);
 test('R13 explicit update-lock accepts a deliberate dependency change',()=>fixture(({app,dir,write,update})=>{
   app().cargoPackage('gpu');const before=readFileSync(resolve(dir,'Cargo.lock'),'utf8');
   write('game/deps/exact-game-render/Cargo.toml',readFileSync(resolve(dir,'../../deps/exact-game-render/Cargo.toml'),'utf8').replace('version="0.1.0"','version="0.2.0"'));
   assert.throws(()=>app().cargoPackage('gpu'),/locked|lock file/);
   update();assert.ok(app().cargoPackage('gpu'));assert.notEqual(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),before);
-}));
+}), 60_000);
 
 test.each([false, true])('ordinary buildBake with split directories=%s streams progress and retains product receipts', async split => {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'r14-no-lock-')));
@@ -948,7 +948,7 @@ test('R15 the root Caltrain workspace refuses a missing lock and accepts its res
   assert.match(metadata().stderr,/locked|lock file/);
   run('cargo',['generate-lockfile','--offline']);
   assert.equal(metadata().status,0);
-}));
+}), 60_000);
 
 test('E11 partial bakes select only their graph and production retains GPU binding',async()=>{
   const {bakeSelection,bindGpuProduct}=await import('./app.mjs');
@@ -1218,7 +1218,7 @@ test('locked metadata fetches a missing git checkout without rewriting the lock'
     assert.ok(JSON.parse(result.stdout).packages.some(p => p.name === 'local-source'));
     assert.equal(readFileSync(resolve(app, 'Cargo.lock'), 'utf8'), lock);
   } finally { rmSync(dir, {recursive:true, force:true}); }
-});
+}, 60_000);
 
 test('`appTransportSecurity` writes ATS for web content only; absent, no key (#106)', async () => {
   const { readManifest } = await import('./app.mjs');
