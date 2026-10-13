@@ -136,9 +136,12 @@ final class TableRowCell: NSTableCellView {
     }
 }
 
-/// The table: AppKit's. It overrides no mouse method: a table class that
-/// does is tracked in AppKit's older loop, which selects as the mouse goes
-/// down, where a stock table and SwiftUI's list select as it comes up.
+/// The table: AppKit's. It overrides no mouse-button method: a table class
+/// that overrides `mouseDown` is tracked in AppKit's older loop, which
+/// selects as the mouse goes down, where a stock table and SwiftUI's list
+/// select as it comes up. What it does override (a key, a wheel, the
+/// question of a context menu) leaves that as it is, and
+/// `TableFeedKeyMacTests` holds that a click selects when it comes up.
 final class RunnerTableView: NSTableView {
     fileprivate(set) weak var feed: TableFeed?
     /// What the table keeps row views for: what shows, and with it the run
