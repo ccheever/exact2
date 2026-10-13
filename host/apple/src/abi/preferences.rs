@@ -1,7 +1,7 @@
 //! The display preferences (LLP 1061 D4; LLP 1069.000 D1), told to the
 //! running host and kept for the next boot's first frame; the date (LLP
-//! 1027.000.000), told to the running host, and before each boot for its
-//! first settle (`set_launch_time`).
+//! 1027.000.000) and where the viewer is, told to the running host, and
+//! before each boot for its first settle (`set_launch_time`, `set_launch_place`).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
@@ -40,7 +40,18 @@ impl<D: DataSource> Bridge<D> {
             utc_offset,
         };
         if time.validate().is_ok() {
-            self.launch_time = Some(time);
+            self.launch_facts.time = Some(time);
+        }
+    }
+
+    /// Where the viewer is, for the next boot's first settle, as
+    /// `set_place` reads it from the input buffer (`locale NUL timeZone NUL
+    /// seed`); the running host is not told. A fact that does not validate
+    /// (or a missing seed) leaves the last one.
+    pub fn set_launch_place(&mut self, len: usize) {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        if let Some(place) = exact_runner::time::Place::launched(text) {
+            self.launch_facts.place = Some(place);
         }
     }
 

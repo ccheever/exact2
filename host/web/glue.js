@@ -1302,7 +1302,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     }
     if (!current() || request !== bootAttempt) return null;
   }
-  const launch = encoder.encode(launchLocation()); // @ref LLP 1038 D5
+  const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // @ref LLP 1038 D5; then the date and place the boot's first settle reads (LLP 1027.000.000)
   const kept = !fresh && (bytes || module) ? (await loadStage('inspection'), focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view))) : undefined;
   let len;
   if (module) {

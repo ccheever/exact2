@@ -343,3 +343,38 @@ fn resolved_language_is_published_at_boot_and_after_switching() {
     let batch = host.set_place("de", "UTC", None);
     assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
 }
+
+/// What the page knows at launch (`exact_set_launch`): the boot's first
+/// batch already says the place's language and the date's offset, which
+/// the page used to tell only after the boot; a fact that does not validate
+/// leaves the last one, and the running runner is not told.
+#[test]
+fn the_launch_place_and_date_are_the_first_batchs() {
+    let mut plan = contract::compile("shape Time\n  utcOffset: number\n  locale: string\ncomponent App\n  state language = \"en\"\n  state seen = language\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.utcOffset}/${seen}` testId=\"text\"\n").unwrap();
+    plan.locale = Some(exact_plan::SlotsId(0));
+    for rtl in [false, true] {
+        let name = exact_plan::StrId(plan.strings.len() as u32);
+        plan.strings.push(if rtl { "ar" } else { "en" }.into());
+        plan.locales.push(exact_plan::LocalesRow {
+            name,
+            rtl,
+            texts: Default::default(),
+        });
+    }
+    let plan = contract::bake(plan, Says("")).unwrap().encode();
+    let mut bridge = exact_web::abi::Bridge::new();
+    bridge.set_launch_time(1_790_000_000_000.0, 120.0);
+    let n = bridge.input_write(b"ar-EG\0Africa/Cairo\x0042");
+    bridge.set_launch_place(n);
+    bridge.set_launch_time(f64::NAN, 0.0);
+    let n = bridge.input_write(b"\0Africa/Cairo\x0042");
+    bridge.set_launch_place(n);
+    let len = bridge.boot(&plan, Says(""), 390.0, 844.0, "/");
+    let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
+    assert!(
+        batch.contains(r#"{"op":"language","lang":"ar","dir":"rtl"}"#),
+        "{batch}"
+    );
+    // A root initializer reading the locale slot reads the launch's.
+    assert!(batch.contains("ar-EG/120/ar"), "{batch}");
+}
