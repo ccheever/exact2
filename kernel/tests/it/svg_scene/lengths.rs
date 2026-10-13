@@ -116,6 +116,72 @@ fn undefined_radii_copy_the_other_radius() {
     }
 }
 
+#[test]
+fn calculated_radii_clamp_at_zero_as_the_window_resizes() {
+    use exact_kernel::svg::{geometry, Viewport};
+    exact_kernel::link_segments();
+    for kind in [NodeType::SvgRect, NodeType::SvgEllipse] {
+        for (radius, other) in [(StyleId::Rx, StyleId::Ry), (StyleId::Ry, StyleId::Rx)] {
+            for value in [
+                "calc(10vw - 90px)",
+                "min(20px, calc(10vw - 90px))",
+                "max(-20px, calc(10vw - 90px))",
+                "clamp(-20px, calc(10vw - 90px), 20px)",
+            ] {
+                let mut style = StyleProps::default();
+                for (id, value) in [
+                    (StyleId::Width, "100px"),
+                    (StyleId::Height, "100px"),
+                    (other, "10px"),
+                    (radius, value),
+                ] {
+                    style
+                        .set_dynamic(id, &StyleValue::Text(value.into()))
+                        .unwrap();
+                }
+                for width in [800.0, 900.0, 1000.0, 800.0] {
+                    let env = exact_kernel::Env::default().with_screen(Some((width, 600.0)));
+                    let vp = Viewport {
+                        env: &env,
+                        width: 200.0,
+                        height: 400.0,
+                    };
+                    let draw = |s: &StyleProps| geometry(kind, &Default::default(), s, vp);
+                    let mut control = style.clone();
+                    control
+                        .set_dynamic(
+                            radius,
+                            &StyleValue::Number((width * 0.1 - 90.0).max(0.0).into()),
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        draw(&style),
+                        draw(&control),
+                        "{kind:?} {radius:?} {value} at {width}"
+                    );
+                    for literal in [
+                        "-10px",
+                        "-10%",
+                        "-10vw",
+                        "env(viewport-segment-width 1 0, -10px)",
+                    ] {
+                        control
+                            .set_dynamic(radius, &StyleValue::Text(literal.into()))
+                            .unwrap();
+                        let negative = draw(&control);
+                        control.set_dynamic(radius, &StyleValue::Auto).unwrap();
+                        assert_eq!(
+                            negative,
+                            draw(&control),
+                            "a negative literal remains invalid: {literal}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn subregion(units: &str, rows: &[(StyleId, &str)]) -> (f32, f32, f32, f32) {
     exact_kernel::link_segments();
     let mut d = Doc::new();

@@ -56,10 +56,21 @@ pub fn geometry(
     }
 }
 
-/// `rx` and `ry` as authored: `None` for `auto` (or a negative length,
-/// which is an error SVG renders as `auto`).
+/// Negative literals are invalid; calculations clamp to the nonnegative
+/// range at used-value time (CSS Values 4 §10.12).
 fn radii(style: &StyleProps, vp: Viewport) -> (Option<f32>, Option<f32>) {
-    let r = |d, basis| vp.resolve(d, basis).filter(|v| *v >= 0.0);
+    use crate::Dimension::*;
+    let r = |d, basis| {
+        let d = match d {
+            Compare(c) => c.substituted(vp.env)?,
+            d => d,
+        };
+        let v = vp.resolve(d, basis)?;
+        match d {
+            Calc(..) | Compare(..) | Env(..) | Segment(..) => Some(v.max(0.0)),
+            _ => (v >= 0.0).then_some(v),
+        }
+    };
     (r(style.rx, vp.width), r(style.ry, vp.height))
 }
 
