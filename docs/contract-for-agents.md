@@ -2468,9 +2468,14 @@ A runtime choice with a bundled-font literal is refused so it cannot silently
 select an installed face with the same name; write bundled choices as literals.
 
 A `text` with `selectionchange=act` hears the reader's real text selection
-on the web and macOS: `action act(s: Selection)` gets `s.text`, `s.start` and
+on the web, macOS and iOS: `action act(s: Selection)` gets `s.text`, `s.start` and
 `s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
-Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`.
+Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`; on iOS, where a
+long press or a double tap selects a word of text its author made selectable
+(`user-select="text"`), with `tap <id> contextmenu [at <x> <y>]` or
+`tap <id> dblclick [at <x> <y>]`, whose reply's `selection` says what was
+selected (under `--touch platform`, `tap <id> drag 0 0 press 900` is a real
+long press).
 
 Book typography is CSS's on every host. `text-align="justify"` fills all but
 a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
@@ -2560,8 +2565,14 @@ ordinary text selection; `auto` is the default, and on the Mac it is AppKit's:
 a label inside a button, link or other control, or in a `header`, `nav`,
 `footer`, toolbar, tablist or menu, is not selectable, while an `article`'s text
 and other content text is (so put prose a reader copies in `article`, not a
-`header`). Text/all/contain need iOS and Linux selection executors and are
-refused precisely. These rows take literals
+`header`). On iOS `auto` is UIKit's, where a label selects nothing: write
+`user-select="text"` on prose a reader copies (on the text or anything above
+it), and a long press or a double tap there selects a word with the system's
+handles and its Copy, Look Up, Translate and Share menu, one paragraph (one
+`text`) at a time. A label inside a control stays unselectable unless the
+`text` is said on it or inside the control. Linux, Windows, Android and tvOS
+have no text selection, so `text` changes nothing there. `all` and `contain`
+are refused by name: no native host has them. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
 
 **Colours: say a role, not a value.** Leave a colour unsaid where you can (text,

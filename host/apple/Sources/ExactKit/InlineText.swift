@@ -137,6 +137,9 @@ extension Presenter {
     func forgetParagraph(_ node: NodeView) {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
+        #if os(iOS)
+        textSelection.remove(node) // its text interaction and selection go with it
+        #endif
     }
     func applyParagraph(_ id: UInt32, _ runs: [InlineText]) {
         guard let node = views[id] else { return }

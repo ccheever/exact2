@@ -1061,8 +1061,10 @@ selected part, as `Range.toString()` gives it) and its `start` and `end`,
 UTF-16 offsets into the node's own text as written (white space before CSS
 collapses it, a `text`'s inline children joined in order). Nothing selected
 there is `text: ""` with `start == end == 0`; it fires while a drag moves,
-once per change. Web and macOS select text; iOS and Linux have no text
-selection on a `text`, so it never fires there.
+once per change. The web and macOS select text; iOS selects text its author
+made selectable (`user-select="text"`), by a long press, a double tap and the
+selection's handles; Linux has no text selection on a `text`, so it never
+fires there.
 
 ```text
 action mark(para: string, s: Selection)

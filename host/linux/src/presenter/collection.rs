@@ -50,7 +50,7 @@ struct Cursor {
     key: Option<NodeKey>,
     sequence: u64,
     corrected: Option<u64>,
-    dimensions: Option<(f64, f64, f64, f64)>,
+    dimensions: Option<(f64, f64, f64, [f64; 2])>,
     /// The last report.
     sent: Option<CollectionFeedback>,
     queued: bool,
@@ -121,7 +121,7 @@ impl Cursor {
             *offset = target;
         }
     }
-    fn geometry(&mut self, dimensions: (f64, f64, f64, f64)) {
+    fn geometry(&mut self, dimensions: (f64, f64, f64, [f64; 2])) {
         if self.dimensions.is_some_and(|old| old != dimensions) {
             self.advance();
         }
@@ -589,25 +589,22 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node_by_key(facts.list) else {
             return false;
         };
-        let snapshots = self.host.collections();
+        let snapshots = self.host.collections_shallow();
         let Some(snapshot) = snapshots.iter().find(|s| s.view == node.id) else {
             return false;
         };
         let Some(g) = geometry(self.host.kernel(), snapshot, self.viewport.0 as f64) else {
             return false;
         };
-        // Nonzero vertical inset authoring is outside the measured-row policy.
-        // Do not admit a handbuilt plan that bypassed the compiler's rejection.
-        let basis = containing_width(self.host.kernel(), node.id, self.viewport.0 as f64);
+        // Native scroll offsets include leading padding; feedback starts at
+        // the first row. Both padding ends must match the last report.
         g.axis == ListAxis::Vertical
-            && g.origin == 0.
-            && length(self.host.kernel(), node.style.padding_bottom, basis) == 0.
-            && self
-                .collection
-                .cursors
-                .get(&node.id)
-                .is_some_and(|c| c.sequence == facts.scroll_sequence)
-            && facts.scroll_top == self.scroll_of(node.id).1 as f64
+            && facts.revision == snapshot.revision
+            && self.collection.cursors.get(&node.id).is_some_and(|c| {
+                c.sequence == facts.scroll_sequence
+                    && c.dimensions == Some((g.width, g.height, g.cross, g.padding))
+            })
+            && facts.scroll_top == (self.scroll_of(node.id).1 as f64 - g.origin).max(-g.origin)
             && facts.port_width == g.width
             && facts.port_height == g.height
             && facts.row_width == g.cross
@@ -911,7 +908,7 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             };
             let planned = cursor.sequence;
-            cursor.geometry((g.width, g.height, g.cross, g.origin));
+            cursor.geometry((g.width, g.height, g.cross, g.padding));
             let resized_from = (cursor.sequence != planned).then_some(planned);
             // Match the browser's post-layout scrollTop (scrollLeft on a
             // horizontal list) prop write. Consume each changed request once;
@@ -1116,15 +1113,15 @@ mod tests {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((190., 300., 170., 10.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((190., 300., 170., [10., 0.]));
         assert_eq!(cursor.correction(&s, None), None);
         let mut cursor = Cursor {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((200., 300., 180., 20.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((200., 300., 180., [20., 0.]));
         assert_eq!(
             cursor.correction(&s, None),
             None,
@@ -1136,8 +1133,8 @@ mod tests {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((200., 348., 180., 10.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((200., 348., 180., [10., 0.]));
         assert_eq!(cursor.correction(&s, Some(2)), Some(200.));
         let mut cursor = Cursor {
             sequence: u64::MAX,

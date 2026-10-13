@@ -36,6 +36,22 @@ platform's: a `color` a bar button only inherits from the page leaves UIKit's ti
 writing apps should therefore say less — structure (a header's heading and buttons, a
 `tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
 
+## Writing
+
+For all prose: comments, commit messages, guides, LLPs, issues and PR text.
+
+- Write with clarity of mind. A reader should understand it on first reading and find
+  nothing ambiguous.
+- Say what the reader needs to know about the topic and nothing more. Do not recount
+  history or keep a diary; an alternative not chosen earns a line when it explains the
+  choice.
+- Cite sources where they help: standard specifications, and host platform API
+  documentation and guidelines.
+- Comments should communicate information that cannot be easily inferred from the code.
+  Judiciously omit or remove comments or parts of comments that do not clearly explain
+  anything that is not already communicated by the code, though take care not to delete
+  comments with meaningful marginal value.
+
 ## Working here
 
 - Tooling runs on Bun (pinned in `package.json`); `bun install --frozen-lockfile`.

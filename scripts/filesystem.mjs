@@ -2,7 +2,7 @@
 // And the one removal the tooling does itself: a private directory its own run made (`removePrivateTree`).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
@@ -31,15 +31,7 @@ function executable() {
   // This is not the helper's stream lock; stale build claims are never stolen.
   mkdirSync(directory, { recursive: true });
   const claim = resolve(directory, '.bootstrap.lock'), owner = `${process.pid}-${randomBytes(12).toString('hex')}`;
-  const started = Date.now(), wait = new Int32Array(new SharedArrayBuffer(4));
-  for (;;) {
-    try { writeFileSync(claim, owner, { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      if (Date.now() - started >= 60000) throw new Error(`filesystem helper build busy (${claim}); remove a stale claim only after verifying its owner has exited`);
-      Atomics.wait(wait, 0, 0, 25);
-    }
-  }
+  claimBuild(claim, owner);
   let held = true;
   const release = () => {
     if (!held) return;
@@ -64,6 +56,51 @@ function executable() {
     binary = captured;
     return captured;
   } finally { release(); }
+}
+
+/** The wait for the helper's build claim. It ends when the owner releases the claim, and
+ * has no duration while that process runs: callers take the claim in turn, some two hundred
+ * of them in a cold workspace check, and a fixed bound fails everything still in line
+ * together on a loaded Mac. `unowned` bounds only the state with nobody to wait on: a
+ * claim that names no running process, which is never taken (LLP 1030.002 D3) and so
+ * fails. `now` is the clock that bound reads; a test advances it. */
+export const helperBuildWait = { now: () => Date.now(), unowned: 60_000 };
+const readClaim = (path) => {
+  try { return readFileSync(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+};
+const pidRuns = (pid) => {
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
+};
+// A killed builder's pid comes round again: a process that started after the claim was
+// written is not its owner. `lstart` has whole seconds. Where `ps` cannot say (Windows),
+// or the claim has gone, a running pid is believed. So is the pid of a claim seconds
+// old, which no pid has had time to come round to: that spares the line of callers a
+// `ps` each at every turn.
+function pidRecycled(pid, claim) {
+  let written;
+  try { written = statSync(claim).mtimeMs; } catch { return false; }
+  if (Date.now() - written < 10_000) return false;
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+  return Date.parse(ps.stdout?.trim() ?? '') > written + 1000;
+}
+// One condition, the claim is free, and one bound, `unowned`. Nothing notifies, so it polls.
+function claimBuild(claim, owner) {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  let seen, since, recycled;
+  for (;;) {
+    try { writeFileSync(claim, owner, { flag: 'wx' }); return; }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    const text = readClaim(claim);
+    if (text === null) continue; // released between the two calls
+    const now = helperBuildWait.now(), pid = Number(/^(\d+)-[0-9a-f]{24}$/.exec(text)?.[1]);
+    if (text !== seen) { seen = text; since = now; recycled = pid > 0 && pidRuns(pid) && pidRecycled(pid, claim); }
+    const running = pid > 0 && !recycled && pidRuns(pid);
+    if (!running && now - since >= helperBuildWait.unowned) {
+      const why = pid > 0 ? `pid ${pid} ${recycled ? 'is a later process, not its builder' : 'has stopped'}` : `it reads ${JSON.stringify(text)}, which names no process`;
+      throw new Error(`filesystem helper: nothing has been building it for ${Math.round((now - since) / 1000)} s, yet its build claim is held (${claim}: ${why}). This is the tooling's own helper, not the code being built. A stale claim is never taken automatically: remove it only after verifying its owner has exited.`);
+    }
+    Atomics.wait(pause, 0, 0, 25);
+  }
 }
 export function filesystemErrorCode(errno, platform = process.platform) {
   const codes = platform === 'win32'

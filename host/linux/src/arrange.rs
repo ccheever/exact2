@@ -113,11 +113,8 @@ impl<D: DataSource> Host<D> {
         &mut self,
         token: ReorderToken,
         geometry: ReorderGeometry,
-        now: f64,
     ) -> Result<bool, String> {
-        if let Some(error) = self.advance_effects(now).0 {
-            self.log(error);
-        }
+        // The presenter advances effects before certifying native geometry.
         let receipt = self
             .runner
             .drop_reorder(token, geometry)

@@ -102,15 +102,26 @@ extension NodeView {
     #else
     // UIView implements none of the three: forwarding an unheard one to
     // super raised doesNotRecognizeSelector (a field's Cut, empty, crashed).
-    package override func copy(_ sender: Any?) { clipboard(#selector(copy(_:))) }
+    /// Unheard, a copy is the text selection's, as on the Mac: the edit
+    /// menu's Copy over text its author made selectable (`TextSelectionIOS`).
+    package override func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { copySelectedText() } }
     package override func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
     package override func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
-    /// A copy, cut or paste is this node's only while a node hears it;
-    /// UIResponder's default would claim it because the class implements it.
+    /// A copy, cut or paste is this node's only while a node hears it, and
+    /// a copy while text of it is selected; UIResponder's default would
+    /// claim it because the class implements it.
     package override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(copy(_:)), hasSelectedText { return true }
         if [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains(action) { return clipboardTarget(action) != nil }
         return super.canPerformAction(action, withSender: sender)
     }
+    #if os(iOS)
+    private var hasSelectedText: Bool { presenter?.textSelection.text(for: self)?.selected.length ?? 0 > 0 }
+    private func copySelectedText() { presenter?.textSelection.copy(self) }
+    #else
+    private var hasSelectedText: Bool { false } // tvOS has no text selection
+    private func copySelectedText() {}
+    #endif
     #endif
 }
 

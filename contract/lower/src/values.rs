@@ -594,10 +594,11 @@ pub(crate) fn check_style_value(
             {
                 return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
             }
-            if rows.contains(&StyleId::UserSelect)
-                && matches!(v.as_str(), "text" | "all" | "contain")
-            {
-                return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            // @ref LLP 1115.000 D11.6 — `text` is honoured where a host has
+            // text selection (the web, macOS, iOS); the other two name a
+            // selection behaviour no native presenter has.
+            if rows.contains(&StyleId::UserSelect) && matches!(v.as_str(), "all" | "contain") {
+                return err("lower-css-user-select", format!("CSS `user-select=\"{v}\"` is not implemented by the native presenters: `all` selects an element whole on one press and `contain` keeps a selection from leaving its element, and their text selection ownership has neither. Supported values are auto, none and text"), span);
             }
             if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
                 return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, another right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
