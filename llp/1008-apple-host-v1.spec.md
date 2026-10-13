@@ -345,8 +345,11 @@ An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
 `content` size. Child updates use an identity set for membership, mount only
 new children, and sort retained siblings in place without detaching their
-responders. Native decorations stay below the authored children; paint ghosts
-keep their slots. Frames are set from `frame` ops; `present` ops set an
+responders. A flight slot takes its lifted child's place in the authored order.
+Native decorations stay below the authored children, and exit ghosts keep
+their slots among live and flying children. Window overlays live outside
+these child containers.
+Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
 `alphaValue`. A press is a mouse-down and -up inside the bounds on a node
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The
