@@ -2,6 +2,27 @@
 //! @ref LLP 1120#d4-linux-and-the-render-host-the-same-core-over-a-bounded-blocking-adapter — capacity precedes dispatch.
 use super::*;
 
+/// Start one base thread; the job owns its process reservation.
+pub(super) fn spawn(name: String, body: Box<dyn FnOnce() + Send>) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_BASE_SPAWN.with(|remaining| {
+        let position = remaining.get();
+        remaining.set(position.and_then(|n| n.checked_sub(1)));
+        position == Some(0)
+    }) {
+        return Err(std::io::Error::other("injected base worker spawn failure"));
+    }
+    std::thread::Builder::new()
+        .name(name)
+        .spawn(body)
+        .map(|_| ())
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_BASE_SPAWN: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
 #[derive(Default)]
 pub(crate) struct Budget(pub(super) Mutex<Vec<super::super::WorkerSlot>>);
 
@@ -55,7 +76,7 @@ mod portable {
 
     #[cfg(test)]
     mod tests {
-        use super::super::super::super::{WorkerSlot, LIVE_WORKERS};
+        use super::super::super::super::{Core, WorkerSlot, LIVE_WORKERS};
         use super::*;
         use std::sync::{atomic::Ordering, mpsc};
         use std::time::{Duration, Instant};
@@ -74,6 +95,60 @@ mod portable {
                 return;
             }
             assert_eq!(LIVE_WORKERS.load(Ordering::Acquire), 0);
+            let wait_for_exit = || {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while LIVE_WORKERS.load(Ordering::Acquire) != 0 {
+                    assert!(Instant::now() < deadline, "worker slots did not retire");
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            };
+            let core = || {
+                Core::with_owners_lanes(
+                    Vec::new(),
+                    "",
+                    Box::new(|| {}),
+                    Arc::new(ibex2::host::Host::new),
+                    Some(super::super::super::asynch_lanes()),
+                )
+            };
+            let request = || exact_runner::RequestOut {
+                ticket: 1,
+                target: "worker-lifecycle".into(),
+                forced: false,
+                request: exact_runner::Request::get("https://example.test/"),
+            };
+            let unused = core();
+            assert_eq!(
+                LIVE_WORKERS.load(Ordering::Acquire),
+                super::super::super::THREADS
+            );
+            drop(unused);
+            assert_eq!(LIVE_WORKERS.load(Ordering::Acquire), 0);
+            let mut failed = Vec::new();
+            for position in 0..6 {
+                let core = core();
+                super::super::FAIL_BASE_SPAWN.with(|failure| failure.set(Some(position)));
+                assert!(core.run(request(), None).is_err());
+                wait_for_exit();
+                assert!(
+                    core.run(request(), None).is_err(),
+                    "failed base never retries"
+                );
+                failed.push(core); // Failed cores stay owned throughout every attempt.
+            }
+            drop(failed);
+            let started = core();
+            assert!(started
+                .run(
+                    request(),
+                    Some(Box::new(|| exact_runner::Outcome::Failed {
+                        kind: exact_runner::FailureKind::Aborted,
+                        message: "lifecycle fixture".into(),
+                    }))
+                )
+                .is_ok());
+            drop(started);
+            wait_for_exit();
             LIVE_WORKERS.fetch_add(2, Ordering::AcqRel);
             let budget = Arc::new(Budget(Mutex::new(vec![WorkerSlot, WorkerSlot])));
             let workers = Workers::new(2, budget.clone());
@@ -94,7 +169,7 @@ mod portable {
             let deadline = Instant::now() + Duration::from_secs(10);
             while LIVE_WORKERS.load(Ordering::Acquire) != 0 {
                 assert!(Instant::now() < deadline, "worker slots did not retire");
-                std::thread::sleep(Duration::from_millis(10));
+                std::thread::sleep(Duration::from_millis(50));
             }
 
             let budget = Arc::new(Budget::default());

@@ -608,3 +608,9 @@ slots count alongside the six machine threads under Exact's process limit, and
 each actual worker owns its slot until its thread exits, including idle retirement
 and partial pool construction. Failed pool construction is terminal for that lane;
 it cannot retry using slots still held by a previous attempt.
+
+If any base thread cannot start, the failed core releases every unstarted
+portable reservation immediately. Already-started base threads keep their own
+slots until exit. The lifecycle witness injects failure at each of the six
+base positions while retaining the failed cores, then checks lazy startup,
+physical pool retirement and refusal to retry failed pool construction.

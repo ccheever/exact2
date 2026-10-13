@@ -315,13 +315,14 @@ impl Machine {
         let mut ok = true;
         let mut spawn = |name: String, body: Box<dyn FnOnce() + Send>| {
             let slot = slots.next();
-            ok &= std::thread::Builder::new()
-                .name(name)
-                .spawn(move || {
+            ok &= workers::spawn(
+                name,
+                Box::new(move || {
                     let _slot = slot;
                     body()
-                })
-                .is_ok();
+                }),
+            )
+            .is_ok();
         };
         for lane in 0..2 {
             let (send, receive) = mpsc::channel();
@@ -341,7 +342,9 @@ impl Machine {
         spawn("exact-timer".into(), Box::new(move || m.timer()));
         let m = self.clone();
         spawn("exact-dispose".into(), Box::new(move || m.disposer()));
-        *self.worker_budget.0.lock().unwrap() = slots.collect();
+        if ok {
+            *self.worker_budget.0.lock().unwrap() = slots.collect();
+        }
         ok
     }
 
