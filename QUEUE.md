@@ -895,15 +895,14 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
     (x2-perf3, 2026-10-13): the JS target's refusals are spread through `host/web-js` (emit.rs,
     rows.rs, style.rs), and `exact-web-js` depends on the `contract` package, so `contract build`
     cannot run its emitter. Either the `contract` binary moves to a package of its own that depends
-    on both (scripts name `cargo run -p contract --bin contract`), or the refusals become one
+    on both (callers run `cargo run -q -p contract --`), or the refusals become one
     registry in `contract` that the emitter reads. Then the dynamic declaration.
   - **Contract tests:** `back` reports "back refused" on a sheet over a sheet while the route does
     pop; a test can't fake a data source, or open a URL.
   - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
     between nested drags; no single-tap versus double-tap; no "native only" condition; a `text`
     can't hold an inline badge (already in Charlie's asks).
-- **More gaps from the clone's workers** (bsky5, b32–b33, 2026-10-12), as reported; the
-  first three look like small bugs:
+- **More gaps from the clone's workers** (bsky5, b32–b33, 2026-10-12), as reported:
   - **A disabled button on the web is dimmed on top of the app's own disabled colours.** Not a
     bug but LLP 1115.000 D6 on every host: a disabled custom pressable dims to half (the web's
     `index.html` rule; the Mac's `syncDisabledLook`), and an authored `opacity` already wins on the
@@ -920,8 +919,8 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   declared route template. External static hosts need their own rewrite either way.
 - **macOS `scrollend` and trackpad momentum, unverified** (2026-10-13): `ScrollEndMac.swift` ends a
   live scroll at `NSScrollView.didEndLiveScrollNotification`, taken to come after the momentum
-  (Apple's older AppKit release notes say live scrolling covers it); the tests post the notification
-  themselves. Check with a real trackpad fling: one `scrollend`, after the coast.
+  (AppKit's 10.9 notes say it waits for an animation such as rubber banding, and do not name
+  momentum); the tests post the notification themselves. Check with a real trackpad fling: one `scrollend`, after the coast.
 - **iOS long-press on an inline text run** (bsky5): a menu on a run inside a paragraph (a hashtag:
   See #tag posts, Mute #tag) acts as a tap. `NodeViewIOS.updateContextGestures` gives a long-press
   recognizer to node views only; runs get a menu on macOS (X77) and on the web.
