@@ -107,6 +107,8 @@ component ImagePreviewHost
     next: bool
     video: bool
     source: string
+    // MSU-1 / G4-05: the media's tooltip (MediaActions: its full path, URL or name).
+    tip: string
     windowWidth: number
     windowHeight: number
     local: action
@@ -114,9 +116,9 @@ component ImagePreviewHost
   view
     when length(shown) > 0
       each preview in shown key=preview.id
-        ImagePreviewDialog(id=id, url=preview.url, failed=false, name=name, position=position, previous=previous, next=next, video=video, source=source, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+        ImagePreviewDialog(id=id, url=preview.url, failed=false, name=name, position=position, previous=previous, next=next, video=video, source=source, tip=tip, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
     else
-      ImagePreviewDialog(id=id, url="", failed=(length(filter(urls, (entry) => entry.id == `failed:${id}`)) > 0), name=name, position=position, previous=previous, next=next, video=video, source=source, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+      ImagePreviewDialog(id=id, url="", failed=(length(filter(urls, (entry) => entry.id == `failed:${id}`)) > 0), name=name, position=position, previous=previous, next=next, video=video, source=source, tip=tip, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
 
 component ImagePreviewDialog
   inject
@@ -132,6 +134,7 @@ component ImagePreviewDialog
     video: bool
     // context-menu-gaps: the media's actions source (a sent attachment's `attachment:<id>`, or a file link's media JSON).
     source: string
+    tip: string
     windowWidth: number
     windowHeight: number
     local: action
@@ -150,7 +153,7 @@ component ImagePreviewDialog
       button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), elementId="image-preview-previous", testId="image-preview-previous")
-        MediaActions(source=source, tip=name, local=local, elementId="image-preview-actions", testId="image-preview-actions")
+        MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions")
           column min-width=0 align-items="center"
             box position="relative"
               // lane r6-media: ExpandedVideo, the player with native controls, playing (r6-media.contract).

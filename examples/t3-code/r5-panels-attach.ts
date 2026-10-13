@@ -120,7 +120,7 @@ async function renderedAttachment(client: T3Client, native: Native | null | unde
   const diagrams = await filesMermaid(client, native, text);
   return {
     markdownSource: [{ id: `attachment:${meta.id}`, kind: 'attachment', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], '', { thread: false }) },
+    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${meta.id}`, { thread: false }) }, // G4-05: the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: [],
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };

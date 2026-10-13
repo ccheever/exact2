@@ -51,6 +51,19 @@ component T3Code
     after(1, rootFontApply)
   action rootFontApply // the reference's 16 before the data's first answer (the Mac host's own size is 13 since LLP 1115)
     setRootFontSize(data.look.fontSize > 0 ? data.look.fontSize : 16)
+  state codeCopyDone = 0 // X18 (chat-markdown-media-and-code): the copy whose check has run its time (MarkdownCodeBlock and MarkdownTable 1.2 s, CommandBlock 1.5 s); its button morphs back (MorphCopyCheck)
+  state welcomeCopyDone = 0
+  task codeCopyHold when data.codeCopyNonce > 0 key=data.codeCopyNonce
+    after(1200, codeCopyRelease)
+  action codeCopyRelease
+    codeCopyDone = data.codeCopyNonce
+  task welcomeCopyHold when welcome.commandCopied > 0 key=welcome.commandCopied
+    after(1500, welcomeCopyRelease)
+  action welcomeCopyRelease
+    welcomeCopyDone = welcome.commandCopied
+  provide
+    codeCopyDone
+    welcomeCopyDone
   mutation balanceLoaded as shape Change refreshes data // auto-balance (auto-balance.ts; X19, X21): an unresolved Auto draft asks its machines' host resources, at the window's time.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
     after(1, balanceLoadNow)

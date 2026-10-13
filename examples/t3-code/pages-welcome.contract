@@ -5,31 +5,13 @@
 // Code and Codex history to import). T3 Code, MIT (LICENSE-T3):
 // components/onboarding/WelcomeWizard.tsx, components/ui/wizard.tsx.
 use PgIcon from "./pages-icons.contract"
+use MorphCopyCheck from "./shell-morph.contract"
 use ProviderMark from "./icons.contract"
 use DriverMark from "./provider-icons.contract"
 use CodexSetup from "./codex-setup.contract"
 use CodexWelcomeCard from "./codex-setup.contract"
 use FocusGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
-
-// CommandBlock's MorphIcon (f2cc80a7a4): Copy becomes Check for the hook's
-// 1.5s; two names let a second copy restart it.
-keyframes wcShownA
-  from opacity=1
-  99% opacity=1
-  to opacity=0
-keyframes wcShownB
-  from opacity=1
-  99% opacity=1
-  to opacity=0
-keyframes wcHiddenA
-  from opacity=0
-  99% opacity=0
-  to opacity=1
-keyframes wcHiddenB
-  from opacity=0
-  99% opacity=0
-  to opacity=1
 
 shape WelcomeComputer
   key: string
@@ -318,8 +300,12 @@ component WelcomeDisclosure
         text detail font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" flex-shrink=0
       PgIcon(name=(open ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#71717b, #818181)")
 
-// CommandBlock: "$ command" in mono with its copy button.
+// CommandBlock: "$ command" in mono with its copy button: MorphIcon Copy ↔ Check (X18, chat-markdown-media-and-code), the
+// check from a copy until the root clears it 1.5 s later (useCopyToClipboard's timeout; welcomeCopyDone, app.contract).
 component WelcomeCommand
+  inject
+    still: bool
+    welcomeCopyDone: number
   props
     command: string
     copied: number
@@ -333,13 +319,8 @@ component WelcomeCommand
         text "$" margin-right="0.5rem" font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         text command font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
       button id="welcome-copy-command" press=local("copy-command", "", command) hover=hover aria-label="Copy command" testId="welcome-copy-command" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 position="relative" title=""
-        when copied > 0
-          box width="0.875rem" height="0.875rem" animation=(copied % 2 == 0 ? "wcHiddenA 1.5s linear forwards" : "wcHiddenB 1.5s linear forwards")
-            PgIcon(name="copy", size=14, color="light-dark(#71717b, #818181)")
-          box position="absolute" left="0.3125rem" top="0.3125rem" width="0.875rem" height="0.875rem" animation=(copied % 2 == 0 ? "wcShownA 1.5s linear forwards" : "wcShownB 1.5s linear forwards") testId="welcome-copy-command-check"
-            PgIcon(name="check", size=14, color="light-dark(#71717b, #818181)")
-        else
-          PgIcon(name="copy", size=14, color="light-dark(#71717b, #818181)")
+        box testId=(copied > 0 and copied != welcomeCopyDone ? "welcome-copy-command-check" : "welcome-copy-command-icon")
+          MorphCopyCheck(on=(copied > 0 and copied != welcomeCopyDone), size=14, color="light-dark(#71717b, #818181)", weight=2, still=still)
 
 // AgentsStep: one section per computer; Codex accounts first, then Claude.
 component WelcomeAgents
