@@ -35,7 +35,7 @@ final class MouseChain {
         guard let p = presenter else { return [] }
         return [p.mouseDrags.reorder, p.mouseDrags.transform, p.mouseDrags.height, p.mouseLayoutPan, p.mouseSwipe]
     }
-    /// Arms every recognizer once per event (a `super.mouseDown` reaches the
+    /// Arms every recognizer once per event (forwarding reaches the
     /// ancestors' overrides with the same event). The `press` arms too, as on
     /// the web and Linux; a recognizer that engages cancels it (rule 4).
     func down(_ node: NodeView, event: NSEvent) {

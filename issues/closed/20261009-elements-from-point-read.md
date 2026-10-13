@@ -1,6 +1,7 @@
 # `elementsFromPoint(x, y)`: every node at a point, so an inspect layer can take the click and still name what it covers (theme editor Inspect)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** AppKit forwards mouse contacts to ancestors without retrying covered siblings; PointerMannersMacTests.testPositionedOverlayConsumesTheClickAboveAButton passes, and macOS/Chrome Inspect and #281 drives agree.
 **Systems:** Contract, runner geometry, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
