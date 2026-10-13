@@ -57,7 +57,12 @@ struct HeaderRule {
     /// bar is made from, so none for a route that says
     /// `navigationBar="none"` or a header hidden as authored.
     init?(route: NodeView, back: String?, backIsPlatforms: Bool, projected: Bool) {
-        guard let first = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return nil }
+        // The rule makes a bar only of a first child that is a `header`
+        // (`exact_kernel::bars::header_shape`); any other is answered here,
+        // before walking it: a route whose first child is its feed would
+        // hand every row's facts over at each projection, several a batch.
+        guard let first = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
+              first.props["semanticTag"] == "header" else { return nil }
         // The route, then its first child's subtree, in preorder: two words
         // a node, its facts and the count of its children.
         var nodes: [NodeView] = [route], words: [UInt32] = [route.props["navigationBar"] == "none" ? 256 : 0, 1]
