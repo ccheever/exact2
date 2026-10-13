@@ -441,6 +441,15 @@ impl<D: DataSource> Runner<D> {
                                 && s.args
                                     == args[..row.args.len as usize - usize::from(row.context)]
                         });
+                    if let Some(state) = states[i].as_mut().filter(|s| s.kept_seed && !kept_seed) {
+                        // Refused before readiness, not consumed by it: say so.
+                        if !self.data.ready() {
+                            let identity = row.args.len as usize - usize::from(row.context);
+                            let kept = state.args.clone();
+                            let now = (!unknown).then(|| &args[..identity]);
+                            super::kept::refuse(&mut self.keeping, &self.plan, i, &kept, now);
+                        }
+                    }
                     if let Some(state) = &mut states[i] {
                         state.kept_seed = kept_seed;
                     }
