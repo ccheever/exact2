@@ -52,7 +52,7 @@ component App
     nav = back(nav)
 
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
       each e in stack(nav) key=e.id
         when e.name == "notes"
           // the list
@@ -74,8 +74,8 @@ that `follow` pushes.
 <!-- check: route notes -->
 ```contract
 column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute" inset=0
-  header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-    text "Notes" role="heading" aria-level=1
+  header display="flex" align-items="center" padding="8px 16px"
+    text "Notes" role="heading" aria-level=1 flex=1
     button press=openAdd aria-label="Add Note" testId="add-note"
       image "symbol:add"
   list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
@@ -85,8 +85,6 @@ column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute"
           text n.title
           image "symbol:forward-chevron"
 ```
-
-The detail:
 
 <!-- check: route note -->
 ```contract
@@ -102,16 +100,16 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-so the swipe down presses it.
+which the swipe down presses.
 
 <!-- check: route add -->
 ```contract
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
   header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-    button id="back" press=back testId="add-cancel"
+    button id="back" press=back
       text "Cancel"
     text "New Note" role="heading"
-    button press=save testId="add-save"
+    button press=save buttonStyle="filled" testId="add-save"
       text "Save"
   list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
@@ -140,8 +138,8 @@ test "add, open, delete after asking"
 - The alert holds text, closing buttons and one Cancel; any other modal is a sheet (`push`,
   `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
 - Covered routes stay mounted: no two screens share a `testId`. In tests, `clock settle` after a
-  push, sheet or alert, `clock data` before reading a save; `back` cancels the alert, dismisses
-  the sheet, pops the detail.
+  push, sheet or alert; `clock data` before a save's read.
 - A wide window (900 px up) shows the list beside its detail when its rows push (a `link`, or a
-  `press` that writes the router; a chevron alone is decoration); `pattern list-detail`'s
-  `follow` replaces the shown detail; `navigationSplit="none"` keeps it pushed.
+  `press` that writes the router); `follow` replaces it; `navigationSplit="none"` keeps it pushed.
+- A location no route matches keeps its URL and shows not-found with a way home, unless the
+  routes declare `notfound`; a detail whose id names nothing says so.

@@ -1,5 +1,21 @@
 //! CSS names for the plan's font families and stacks.
-use super::{css_string, generic_stack};
+use super::{css_string, generic_stack, is_generic_family};
+
+/// A runtime list as safe CSS family members in authored fallback order.
+pub fn runtime_font_family(list: &str) -> String {
+    exact_runner::bridge::runtime_family_members(list)
+        .iter()
+        .map(|member| {
+            let lower = member.name.to_ascii_lowercase();
+            if !member.quoted && is_generic_family(&lower) {
+                generic_stack(&lower).to_string()
+            } else {
+                css_string(&member.name)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// CSS family aliases for declared fonts; local families keep their CSS names.
 pub fn font_alias(plan: &exact_plan::Plan, family: exact_plan::FamiliesId) -> String {
@@ -39,4 +55,23 @@ pub fn font_family_names(plan: &exact_plan::Plan) -> Vec<String> {
                 .join(", ")
         })
         .collect()
+}
+
+#[cfg(test)]
+mod runtime_font_tests {
+    #[test]
+    fn a_runtime_list_escapes_names_and_expands_ui_generic_fallback() {
+        assert_eq!(
+            super::runtime_font_family("'A, B', ui-monospace"),
+            "\"A, B\", ui-monospace,monospace"
+        );
+    }
+
+    #[test]
+    fn a_quoted_generic_remains_a_family_name() {
+        assert_eq!(
+            super::runtime_font_family("'serif', Arial"),
+            "\"serif\", \"Arial\""
+        );
+    }
 }

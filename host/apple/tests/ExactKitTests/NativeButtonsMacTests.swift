@@ -55,6 +55,95 @@ final class NativeButtonsMacTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]]
     }
 
+    /// LLP 1116.008 (team-kanban: "Delete is not styled as destructive"): an ordinary
+    /// `button destructive=true` is AppKit's destructive role (`hasDestructiveAction`) in the
+    /// platform's red, whatever accent it only inherits: red ink on a push or borderless button,
+    /// a red bezel under AppKit's white on the accent look. What the author wrote wins: an accent
+    /// written on the button, a colour on its title.
+    func testADestructiveButtonIsAppKitsDestructiveRoleInTheSystemsRedUnlessTheAuthorPaintedIt() throws {
+        let indigo: [Int] = [97, 85, 245, 255]
+        let orange: [Int] = [255, 141, 40, 255]
+        func node(_ id: Int, destructive: Bool, accent: [Int], wrote: Bool = false) -> [[String: Any]] {
+            var ops = native(id, destructive ? ["destructive": "true"] : [:])
+            ops[0]["style"] = ["appearance": "auto", "accent_color": accent, "written": wrote ? ["accent_color"] : [String]()]
+            return ops
+        }
+        var green = face("Green", macos: "push", style: "bordered")
+        green.rows.title["text_color"] = .array([.number(0), .number(128), .number(0), .number(255)])
+        let faces: [UInt32: ButtonFace] = [
+            2: face("Delete", macos: "push"), 3: face("Delete", macos: "borderless", style: "plain"),
+            4: face("Delete", macos: "push-accent", style: "filled"), 5: face("Keep", macos: "push"),
+            6: face("Delete", macos: "push"), 7: green,
+        ]
+        let p = presenter(box(1) + node(2, destructive: true, accent: indigo) + node(3, destructive: true, accent: indigo)
+                          + node(4, destructive: true, accent: indigo) + node(5, destructive: false, accent: indigo)
+                          + node(6, destructive: true, accent: orange, wrote: true) + node(7, destructive: true, accent: indigo)
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7]], ["op": "roots", "ids": [1]]], faces: faces)
+        let button = { (id: UInt32) in try XCTUnwrap(p.controls.controls[id] as? NativeButtonMac, "\(id)") }
+        let red = NSColor.systemRed
+        func ink(_ b: NativeButtonMac) -> NSColor? {
+            guard b.attributedTitle.length > 0 else { return nil }
+            return b.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        }
+        let push = try button(2), plain = try button(3), prominent = try button(4)
+        XCTAssertTrue(push.hasDestructiveAction); XCTAssertTrue(plain.hasDestructiveAction); XCTAssertTrue(prominent.hasDestructiveAction)
+        XCTAssertEqual(ink(push), red, "red ink on a push button")
+        XCTAssertEqual(plain.contentTintColor, red, "and on a borderless one")
+        XCTAssertEqual(ink(plain), red)
+        XCTAssertEqual(prominent.bezelColor, red, "a red bezel under AppKit's own white title on the accent look")
+        XCTAssertNotEqual(ink(prominent), red, "AppKit draws its own title on it")
+        // Not destructive: the accent it inherits, AppKit's ink.
+        let keep = try button(5)
+        XCTAssertFalse(keep.hasDestructiveAction)
+        XCTAssertNotEqual(ink(keep), red)
+        // An accent written on the button wins over the role's red; a colour on its title does too.
+        let accented = try button(6)
+        XCTAssertTrue(accented.hasDestructiveAction, "still the role")
+        XCTAssertNotEqual(ink(accented), red, "no red ink over an authored accent")
+        let painted = try button(7)
+        XCTAssertEqual(ink(painted), NSColor(srgbRed: 0, green: 128 / 255, blue: 0, alpha: 1))
+    }
+
+    /// The role has AppKit's manners with it: an `NSButton` takes the click that brings its
+    /// window forward, and one with `hasDestructiveAction` does not (measured on macOS 27.0.1),
+    /// so a person's first click on a window behind never presses Delete. The agent's window is
+    /// never key, so its every click counts (LLP 1115.000 D7.9), a destructive button's too:
+    /// AppKit's answer alone left the driver no way to press one, and Shelf's "Remove…" row,
+    /// painted under the agent, took its tap and did nothing.
+    func testADestructiveButtonTakesTheAgentsClickAndNoOtherThatActivatesItsWindow() throws {
+        let p = presenter(box(1) + native(2, ["destructive": "true"]) + native(3, x: 140)
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Delete"), 3: face("Keep")])
+        p.viewport.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let delete = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac), keep = try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac)
+        XCTAssertTrue(delete.hasDestructiveAction)
+        addTeardownBlock { NodeView.everyClickCounts = ExactEnv.agentMode }
+        NodeView.everyClickCounts = false
+        XCTAssertTrue(keep.acceptsFirstMouse(for: nil), "a button clicks through")
+        XCTAssertFalse(delete.acceptsFirstMouse(for: nil), "a destructive one does not: AppKit's answer, a person's")
+        NodeView.everyClickCounts = true
+        XCTAssertTrue(delete.acceptsFirstMouse(for: nil), "the agent's every click counts")
+        // A click through the application, as the agent's `tap` sends it, the up queued for the button's tracking.
+        func click(_ button: NSButton) {
+            let at = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            func event(_ type: NSEvent.EventType) -> NSEvent {
+                NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+            }
+            let up = event(.leftMouseUp)
+            NSApp.postEvent(up, atStart: true)
+            NSApp.sendEvent(event(.leftMouseDown))
+            if NSApp.nextEvent(matching: [.leftMouseUp], until: nil, inMode: .default, dequeue: true) != nil { NSApp.sendEvent(up) }
+        }
+        click(delete)
+        XCTAssertEqual(pressed, [2], "the agent's click presses a destructive button in a window that is not key")
+        click(keep)
+        XCTAssertEqual(pressed, [2, 3])
+    }
+
     func testItIsAppKitsButtonPressingOnce() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2, ["testId": "go"]) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],

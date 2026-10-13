@@ -16,6 +16,8 @@ extension DialogHost {
     /// button, when it has exactly one. A button the page hides, or one in a
     /// popover of the dialog's, is not among them.
     func defaultButton(of dialog: NodeView) -> NodeView? {
+        // A modal route's confirming action is its sheet's own default button (RouteSheetMac.swift).
+        if let confirm = entry(ofRoute: dialog)?.header?.confirm { return confirm }
         var buttons: [NodeView] = []
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews
@@ -32,7 +34,11 @@ extension DialogHost {
     /// Return is drawn as the default button of a key window. Kept current
     /// as the dialog opens, closes and changes.
     func syncDefaultButton() {
-        let next = active.flatMap(defaultButton).flatMap { presenter?.controls.controls[$0.id] as? NativeButtonMac }
+        // The sheet's own row is drawn as the default, not the authored button it stands for;
+        // it arrives in its sheet without its key equivalent too, so it is given again.
+        let row = entries.last?.header?.confirm
+        if let confirm = entries.last?.sheet?.chrome?.confirm, !confirm.isHidden, confirm.keyEquivalent != "\r" { confirm.keyEquivalent = "\r" }
+        let next = active.flatMap(defaultButton).flatMap { $0 === row ? nil : presenter?.controls.controls[$0.id] as? NativeButtonMac }
         if let old = drawnDefault, old !== next, old.keyEquivalent == "\r" { old.keyEquivalent = "" }
         if let next, next.keyEquivalent != "\r" { next.keyEquivalent = "\r" }
         drawnDefault = next
@@ -59,7 +65,8 @@ extension DialogHost {
         } else if let view = responder as? NSView, view !== presenter.viewport, view !== presenter.session?.view {
             return false
         }
-        if let button = presenter.controls.controls[target.id] as? NativeButtonMac { button.pressAsDefault() }
+        if let entry = entry(ofRoute: dialog), entry.header?.confirm === target, let row = entry.sheet?.chrome?.confirm { row.performClick(nil) }
+        else if let button = presenter.controls.controls[target.id] as? NativeButtonMac { button.pressAsDefault() }
         else if target.pressable { presenter.press(target.id) }
         else { target.activateNative() }
         return true

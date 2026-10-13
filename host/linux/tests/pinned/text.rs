@@ -273,6 +273,7 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                 line_clamp: 0,
                 overflow_wrap: exact_kernel::OverflowWrap::Normal,
                 white_space: exact_kernel::WhiteSpace::Normal,
+                text_wrap_style: exact_kernel::TextWrapStyle::Auto,
                 direction: exact_kernel::Direction::Ltr,
                 text_indent: 0.0,
                 text_box_trim: exact_kernel::TextBoxTrim::None,

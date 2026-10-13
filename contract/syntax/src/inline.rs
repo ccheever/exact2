@@ -15,6 +15,7 @@
 //! with its own state (owned by the arm around that `children`).
 
 use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Param, Stmt, TypeExpr};
+use crate::notfound::{implicit_notfound, implicit_notfound_view};
 use crate::parser::SyntaxError;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -296,7 +297,23 @@ fn expand_with_sites(
         ctx.provides
             .push((b.name.clone(), subst_expr(&b.expr, &mut subst)));
     }
-    let view = inline_nodes(&source.view, &mut subst, &mut ctx).unwrap_or_default();
+    // @ref LLP 1116.009 D2 — an app with no `notfound` route is given one, and
+    // its screen where the app draws a route per stack entry.
+    let screen = implicit_notfound(file)
+        .then(|| {
+            let routes = file.routes.as_ref()?;
+            implicit_notfound_view(routes, &source.view)
+        })
+        .flatten();
+    let written;
+    let source_view = match screen {
+        Some(view) => {
+            written = view;
+            &written
+        }
+        None => &source.view,
+    };
+    let view = inline_nodes(source_view, &mut subst, &mut ctx).unwrap_or_default();
     root.view = view;
     let mut owners = vec![Owner::Root; root.states.len()];
     let mut state_instances = if capture_sites {

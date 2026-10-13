@@ -282,6 +282,25 @@ The rejects, one fixture each in `contract/corpus/rejects.txt`:
 `route-template` (a template literal passed to a verb, D3), and `route-root`
 (the table must match `/` by pattern or declare `notfound`).
 
+**Amended 2026-10-12 (LLP 1116.009 D2).** An app that declares no `notfound`
+and whose view opens on a navigation root that draws a route per stack entry
+(`each e in stack(nav)`, or a tab's `t.stack`) is compiled as if it had
+written one, and its screen. The compiler appends the `notfound` row to the
+table after the `route-root` check (which is of the table as written, so a
+missing `/` is still refused), and wraps each such `each`'s body: `when
+e.name == "notfound"` a route titled "Not Found" that says "Page not found",
+names the location and links "Go Home" to the first tab's root, `else` what the
+author wrote (`contract/syntax/src/notfound.rs`, in Contract as an author
+would write it, so the runner, the JS target and the semantics see an
+ordinary table and view). A location no route matches then keeps its URL: the
+launch, a deep link, a `go` or a `push` of a computed location open the
+not-found entry, over the first tab's root, and the app boots. Back and the
+link are the router's own. An app that writes `notfound` draws its own, as
+before. An app with no navigation root has no screen to draw it in and is
+unchanged: a launch no route matches opens `/` and journals the refusal
+(`RouterContext::launch`, router.js `launch`), a verb's refusal is a journal
+line. A detail whose id names nothing matches its route: the app says so.
+
 The plan gains a `routes` table (`name`, `pattern`, `parent: opt:routes`,
 `tab: bool`, `notfound: bool`) and the header gains `router: opt:slots`,
 the same move as the `sources` table and `app_id` (LLP 1005 §1): the plan

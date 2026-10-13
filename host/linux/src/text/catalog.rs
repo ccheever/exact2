@@ -116,6 +116,43 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
+    pub(super) fn install_runtime(
+        &mut self,
+        compiled: usize,
+        lists: &[String],
+    ) -> std::ops::Range<u16> {
+        let first = self.families.len() as u16;
+        for list in lists
+            .iter()
+            .skip(self.families.len().saturating_sub(compiled))
+        {
+            let mut chosen = FamilyChoice::SansSerif;
+            for member in exact_runner::bridge::runtime_family_members(list) {
+                let name = member.name;
+                let generic = match name.to_ascii_lowercase().as_str() {
+                    "serif" | "ui-serif" => Some(FamilyChoice::Serif),
+                    "monospace" | "ui-monospace" => Some(FamilyChoice::Monospace),
+                    "system-ui" | "ui-sans-serif" | "sans-serif" | "ui-rounded" => {
+                        Some(FamilyChoice::SansSerif)
+                    }
+                    _ => None,
+                };
+                if let Some(generic) = generic.filter(|_| !member.quoted) {
+                    chosen = generic;
+                    break;
+                }
+                if fonts::installed_family(&mut self.fonts.collection, &name) {
+                    chosen = FamilyChoice::Declared(name);
+                    break;
+                }
+            }
+            self.families.push(chosen);
+        }
+        let end = self.families.len() as u16;
+        self.normal
+            .retain(|(family, ..), _| !(*family >= first && *family < end));
+        first..end
+    }
     /// The installed faces, with `sans-serif`, `serif` and `monospace` settled
     /// as the host settles them.
     pub(super) fn new() -> Self {

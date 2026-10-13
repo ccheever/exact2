@@ -250,8 +250,8 @@ async function waitForBuild(app, say) {
  * exit code. A fresh build runs nothing and says nothing; nor does one whose
  * plan-only edit is already baked beside it. A new plan-only edit is baked
  * instead of built, in one line; what its bake refuses fails the command, as
- * the build would have. */
-export async function buildFirst(host, app, { sim, say = line => console.error(line), build = appleBuild, wait = waitForBuild, bake = bakePlan } = {}) {
+ * the build would have. A build another process claims first is waited for and the check made again. */
+export async function buildFirst(host, app, { sim, say = line => console.error(line), build = appleBuild, wait = waitForBuild, bake = bakePlan, retries = 2 } = {}) {
   host = host === 'ios' ? 'ios' : 'macos';
   if (host === 'macos' && process.env.EXACT_MAC_BIN) return 0; // the caller's own binary: the driver says it did not check
   await wait(app, say);
@@ -277,6 +277,8 @@ export async function buildFirst(host, app, { sim, say = line => console.error(l
   const log = resolve(app.dir, '.exact', `${host}-build.log`);
   say(`building for ${label(host)}: ${reason}; its log: ${shown(log)}`);
   const { code, output } = await build(buildArgs(host, app, sim), log);
+  // Another build took the claim between the check and this one (two started together): wait for it, then decide again.
+  if (code && retries > 0 && /Apple build busy for/.test(output)) return buildFirst(host, app, { sim, say, build, wait, bake, retries: retries - 1 });
   if (code) say(failureSummary(output, { host, code, log: shown(log) }));
   // The compiler's warnings, which Cargo said for the bake's build script (LLP 1116.004 D7).
   else for (const warning of compilerWarnings(output)) say(warning);

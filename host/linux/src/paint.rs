@@ -23,8 +23,8 @@ use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
 use exact_kernel::style::{BackdropFilter, BackdropOp};
 use exact_kernel::{
-    Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
-    StyleProps, ViewId,
+    BorderStyle, Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId,
+    StyleId, StyleMask, StyleProps, ViewId,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
@@ -45,7 +45,9 @@ pub(crate) use lift::{Ghost, Lift};
 pub(crate) mod inline;
 mod layer;
 mod lift;
+pub(crate) mod look;
 mod native;
+pub(crate) mod neutral;
 pub use native::NativeKind;
 mod order;
 mod placed;
@@ -154,10 +156,13 @@ impl Shape {
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
     radii: [Dimension; 4],
+    /// What a radius that is a calculation with a percentage resolves under.
+    env: exact_kernel::Env,
     /// CSS `background-clip` (LLP 1077 D6).
     clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
+    styles: [BorderStyle; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     gradients: Vec<gradient::Captured>,
@@ -182,22 +187,15 @@ fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     )
 }
 impl BoxPaint {
-    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
+    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool) -> Self {
         let s = node.style;
         let widths = s.border_widths();
         let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
         let env = kernel.env();
-        let pad = |d: Dimension| match d.resolve(&env) {
-            Dimension::Points(p) => p,
-            Dimension::Percent(p) => w * p / 100.0,
-            Dimension::Calc(p, x) => w * p / 100.0 + x,
-            Dimension::Auto
-            | Dimension::Env(..)
-            | Dimension::Segment(..)
-            | Dimension::Viewport(..)
-            | Dimension::Compare(..) => 0.0,
-        };
+        // The padding layout resolved, which input reads too: a percentage
+        // is of the containing block's width
+        let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
         let material = node.props.str(PropId::BackgroundMaterial).map(|name| {
@@ -213,9 +211,16 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
+            env: env.clone(),
             corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
+            styles: [
+                s.border_style_top,
+                s.border_style_right,
+                s.border_style_bottom,
+                s.border_style_left,
+            ],
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
                 // The material's tint where the author painted no background,
@@ -235,12 +240,7 @@ impl BoxPaint {
                 || s.backdrop_filter.clone(),
                 |m| BackdropFilter(vec![BackdropOp::Blur(m.blur)]),
             ),
-            padding: [
-                pad(s.padding_top),
-                pad(s.padding_right),
-                pad(s.padding_bottom),
-                pad(s.padding_left),
-            ],
+            padding: [top, right, bottom, left],
         }
     }
     fn geometry(&self, rect: Rect4) -> BoxGeometry {
@@ -252,12 +252,7 @@ impl BoxPaint {
             outer: Shape::elliptical(
                 rect,
                 self.radii.map(|d| {
-                    let resolve = |basis| match d {
-                        Dimension::Points(x) => x,
-                        Dimension::Percent(p) => basis * p / 100.0,
-                        Dimension::Calc(p, x) => basis * p / 100.0 + x,
-                        _ => 0.0,
-                    };
+                    let resolve = |basis| d.at_basis(&self.env, basis);
                     (resolve(w).max(0.0), resolve(h).max(0.0))
                 }),
             )
@@ -363,7 +358,15 @@ impl BoxPaint {
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(&geometry.outer, self.widths, self.colors)
+        let mut fills =
+            border::border_fills_styled(&geometry.outer, self.widths, self.colors, self.styles);
+        fills.extend(border::pattern_fills(
+            &geometry.outer,
+            self.widths,
+            self.colors,
+            self.styles,
+        ));
+        fills
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
@@ -524,6 +527,9 @@ pub struct Painter {
     /// The control a finger's press focused: it is the focus and shows no
     /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
     pub(crate) ringless: Option<ViewId>,
+    /// The control under a pointer that hovers, and the one a contact holds
+    /// down (`presenter/feedback.rs`), which the neutral look washes.
+    pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
     /// Each hosted text field's content box in its own border box (x, y,
     /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
     pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
@@ -625,6 +631,7 @@ impl Painter {
             cpu_ms: None,
             flatten: None,
             ringless: None,
+            feedback: (None, None),
             field_content: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
@@ -885,7 +892,7 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
-        self.row_node(node.key, f, &p);
+        self.row_node(walk.scene.kernel, node.key, f, &p);
         // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
         if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
             self.row_refuse();
@@ -999,8 +1006,7 @@ impl Painter {
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
-        let paint =
-            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&shown.colors);
+        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark).presented(&shown.colors);
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
@@ -1092,6 +1098,11 @@ impl Painter {
                     walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
                 );
             }
+            NodeType::Control
+                if look::neutral() && node.props.str(PropId::Type) == Some("file") =>
+            {
+                self.file_control(node, content, ts);
+            }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
                 node,
@@ -1099,6 +1110,7 @@ impl Painter {
                 ts,
                 self.dark,
                 walk.scene.controls.get(&node.id).copied(),
+                self.feedback.0 == Some(node.id),
             ),
             _ => {}
         }
@@ -1226,6 +1238,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         line_clamp: s.line_clamp,
         overflow_wrap: s.overflow_wrap,
         white_space: s.white_space,
+        text_wrap_style: s.text_wrap_style,
         direction: s.direction,
         text_indent: s.text_indent,
         text_box_trim: s.text_box_trim,
@@ -1264,19 +1277,8 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// block containers do not always count end-edge padding), never less than
 /// the box itself.
 pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    let env = kernel.env();
-    let pad = |d: Dimension, against: f32| match d.resolve(&env) {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => against * p / 100.0,
-        Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto
-        | Dimension::Env(..)
-        | Dimension::Segment(..)
-        | Dimension::Viewport(..)
-        | Dimension::Compare(..) => 0.0,
-    };
-    let pad_right = pad(node.style.padding_right, node.frame.width);
-    let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
+    // Read the end padding as layout resolved it
+    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
     let mut w = node.frame.width.max(node.content.0);
     let mut h = node.frame.height.max(node.content.1);
     for child in node.children() {

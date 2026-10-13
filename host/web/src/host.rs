@@ -25,8 +25,9 @@ mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 pub mod fonts;
+mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
-use fonts::{font_catalog, font_faces, font_names};
+use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
 #[path = "document.rs"]
 pub mod document;
 #[path = "element.rs"]
@@ -455,7 +456,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
         runner.set_device_links(links.device);
-        let font_names = font_names(runner.plan());
+        let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
             runner,
@@ -890,6 +891,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
+        self.sync_runtime_font_names();
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
     }

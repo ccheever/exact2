@@ -33,7 +33,7 @@ component Habit
         text "Done yesterday" testId="status"
       else
         text "Not done yet" testId="status"
-      button press=markDone disabled=includes(doneDays, today) testId="done"
+      button press=markDone disabled=includes(doneDays, today) buttonStyle="filled" testId="done"
         text "Mark Done"
 ```
 

@@ -4,10 +4,40 @@
 // the field's text steps, in decimal as the web's does (0.1 and 0.2 make
 // 0.3), by `step` (1 when unsaid, `any` or unreadable), from the step base
 // (`min`, else 0), bounded by `min` and `max`. A whole step gives a whole
-// number: the text is the shortest decimal, `3`, never `3.0`.
+// number: the text is the shortest decimal, `3`, never `3.0`. A value typed
+// past `min` or `max` is brought to the bound it passed when the edit
+// commits (LLP 1116.008 D5).
 import Foundation
 
 struct NumberStepping {
+    /// Keep numeric editing characters, including incomplete signs and exponents.
+    /// A paste follows the same rule as typing; marked text is left to the IME.
+    static func insertion(_ replacement: String, in text: String, range: NSRange) -> String {
+        let source = text as NSString
+        guard range.location <= source.length, range.length <= source.length - range.location else { return replacement }
+        let remainder = source.replacingCharacters(in: range, with: "")
+        var point = remainder.contains("."), exponent = remainder.lowercased().contains("e")
+        var prefix = source.substring(to: range.location).lowercased()
+        let suffix = source.substring(from: range.location + range.length).lowercased()
+        var result = ""
+        for char in replacement.precomposedStringWithCompatibilityMapping {
+            let char = char == "\u{2212}" ? "-" : char
+            if "0123456789".contains(char) {}
+            else if char == "+" || char == "-" {
+                if let e = prefix.firstIndex(of: "e") {
+                    guard prefix.last == "e" else { continue }
+                    let tail = prefix[prefix.index(after: e)...] + suffix
+                    if tail.contains("+") || tail.contains("-") { continue }
+                }
+            } else if char == ".", !point, !prefix.contains("e") { point = true }
+            else if char == "e" || char == "E", !exponent { exponent = true }
+            else { continue }
+            result.append(char)
+            prefix.append(contentsOf: char.lowercased())
+        }
+        return result
+    }
+
     /// The bounds the author wrote, if they read as numbers; `max` is never
     /// below `min` (a field with no value above its floor has just that one).
     var min: Decimal?, max: Decimal?
@@ -62,7 +92,7 @@ struct NumberStepping {
         }
         if let lo = min, value < lo { value = base + Self.round((lo - base) / step, .up) * step }
         if let hi = max, value > hi { value = base + Self.round((hi - base) / step, .down) * step }
-        if up ? value < before : value > before { return nil }
+        if Self.decimal(text) != nil, up ? value < before : value > before { return nil }
         // The same number again, already shown: nothing happened.
         if value == before, Self.decimal(text) != nil { return nil }
         return Self.text(value)
@@ -75,6 +105,18 @@ struct NumberStepping {
         if let lo = min, v < lo { v = lo }
         if let hi = max, v > hi { v = hi }
         return v
+    }
+
+    /// A typed value as the edit commits it (LLP 1116.008 D5): the bound it
+    /// passed, as the stepper holds its own to `min` and `max`, the bounds
+    /// the web leaves to the browser's validation. Nil when there is nothing
+    /// to change: a number within the bounds, or text that reads as no
+    /// number (left alone, as the web's field keeps what it was given).
+    func clamped(_ text: String) -> String? {
+        guard let typed = Self.decimal(text) else { return nil }
+        if let lo = min, typed < lo { return Self.text(lo) }
+        if let hi = max, typed > hi { return Self.text(hi) }
+        return nil
     }
 
     private static func round(_ d: Decimal, _ mode: NSDecimalNumber.RoundingMode) -> Decimal {

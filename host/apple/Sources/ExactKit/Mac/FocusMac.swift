@@ -43,14 +43,14 @@ extension NodeView {
         focusVisible = !isNativeButton && nativeValueControl == nil && presenter?.focusByPointer != true
         presenter?.collections.pinsChanged()
         presenter?.selection.focusEntered(self)
-        if handlers.contains("focus") { presenter?.focus(id) }
+        presenter?.focus(id)
     }
     func focusLeft() {
         focusVisible = false
         presenter?.selection.focusLeft()
         presenter?.collections.pinsChanged()
         if !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
     /// Dates and selects have the same single native focus owner as a field.
     /// An appearance:none control falls back to its authored node.
@@ -98,7 +98,9 @@ extension NodeView {
     /// Whether a click on this node in a window that is not key is also a
     /// press (LLP 1115.000 D7.9). Every node used to answer true, a
     /// browser's rule. AppKit's answer, measured on macOS 27.0
-    /// (`acceptsFirstMouse(for:)` of each): true for an `NSButton`, an
+    /// (`acceptsFirstMouse(for:)` of each): true for an `NSButton` (false
+    /// once it has `hasDestructiveAction`, which a native `destructive`
+    /// button keeps: `NativeButtonMac.acceptsFirstMouse`), an
     /// `NSSegmentedControl`, an `NSSwitch`, an `NSSlider`, an
     /// `NSPopUpButton`, an `NSTextField`, and for an `NSTableView`, an
     /// `NSOutlineView` and an `NSCollectionView`; false for an `NSView`, an

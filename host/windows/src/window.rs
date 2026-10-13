@@ -83,6 +83,9 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         std::env::set_var("EXACT_GPU_RENDER", "1");
     }
     let started = Instant::now();
+    // Windows has no toolkit under this painter, so it shows the web's
+    // neutral look (LLP 1115.000 D17), in a window as in a headless run.
+    app::show_neutral_look();
     let mut config = Config::from_env(plan, compat);
     // The presenter makes the hatches' value after its first frame is shown.
     config.hatches = hatches;

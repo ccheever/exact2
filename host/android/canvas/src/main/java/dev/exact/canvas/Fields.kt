@@ -39,6 +39,19 @@ internal class FieldText(context: Context) : EditText(context) {
     /** `x_log_fields=1`: what the keyboard asks of the field's input connection, to the log. Its composition is
      * between it and the field, and shows nowhere else. */
     var heard: ((String) -> Unit)? = null
+    /** The keyboard changed the field through its input connection. Its composition may have begun or ended with no
+     * change of text or selection (the keyboard marking a word the caret entered, or finishing what is marked as it
+     * stands), which no listener of the class tells. */
+    var asked: (() -> Unit)? = null
+    /** Where the field stands in the accessibility tree the reader answers with ([Access], LLP 1115.001 D13), and
+     * what its author named it; null while that tree does not have it. The field reports itself, as any `EditText`
+     * does: this only says where, and by what name. */
+    var stand: Access.Stand? = null
+
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        stand?.place(info)
+    }
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
@@ -47,13 +60,14 @@ internal class FieldText(context: Context) : EditText(context) {
 
     override fun onCreateInputConnection(info: EditorInfo): InputConnection? {
         val own = super.onCreateInputConnection(info) ?: return null
-        val say = heard ?: return own
+        val say = { what: String -> heard?.invoke(what) }
+        val done = { did: Boolean -> asked?.invoke(); did }
         return object : InputConnectionWrapper(own, false) {
-            override fun setComposingText(text: CharSequence?, at: Int): Boolean { say("setComposingText \"$text\""); return super.setComposingText(text, at) }
-            override fun setComposingRegion(start: Int, end: Int): Boolean { say("setComposingRegion $start..$end"); return super.setComposingRegion(start, end) }
-            override fun commitText(text: CharSequence?, at: Int): Boolean { say("commitText \"$text\""); return super.commitText(text, at) }
-            override fun finishComposingText(): Boolean { say("finishComposingText"); return super.finishComposingText() }
-            override fun deleteSurroundingText(before: Int, after: Int): Boolean { say("deleteSurroundingText $before, $after"); return super.deleteSurroundingText(before, after) }
+            override fun setComposingText(text: CharSequence?, at: Int): Boolean { say("setComposingText \"$text\""); return done(super.setComposingText(text, at)) }
+            override fun setComposingRegion(start: Int, end: Int): Boolean { say("setComposingRegion $start..$end"); return done(super.setComposingRegion(start, end)) }
+            override fun commitText(text: CharSequence?, at: Int): Boolean { say("commitText \"$text\""); return done(super.commitText(text, at)) }
+            override fun finishComposingText(): Boolean { say("finishComposingText"); return done(super.finishComposingText()) }
+            override fun deleteSurroundingText(before: Int, after: Int): Boolean { say("deleteSurroundingText $before, $after"); return done(super.deleteSurroundingText(before, after)) }
         }
     }
 }
@@ -84,6 +98,13 @@ internal class FieldText(context: Context) : EditText(context) {
  * [Native.fieldEdited]); exact2 says back the count it has reached beside the value the app shows. A value told is
  * taken only when it answers the newest edit and differs from what the field holds: then the text is replaced, in
  * place, and the keyboard starts over. A value that is the field's own changes nothing, so a composition stands.
+ *
+ * **The app's value never ends a composition** (LLP 1115.000 §5, ruling 6; LLP 1115.001 D8 as corrected). The field
+ * says when its text begins to compose and when that ends ([flush], [Native.fieldComposing]), before the edit that
+ * began or ended it. While it composes exact2 holds a value the app writes and tells the field its own text, so
+ * nothing here is replaced; when the composition ends, committed or cancelled, exact2 tells the value it held, the
+ * last one, after the app has heard the text. The action key commits what is composing first, as a person means by
+ * it. Not seen on a phone (`QUEUE.md`): the rule is held at exact2's side (`presenter/hosted_tests.rs`).
  */
 internal class Fields(context: Context) : FrameLayout(context) {
     /** What a field shows through: its clip, in the reader's view. A drawing-less layout the size of the clip, so
@@ -111,6 +132,8 @@ internal class Fields(context: Context) : FrameLayout(context) {
         var edits = 0
         var edited = false
         var moved = false
+        /** Whether its text composes, as exact2 was last told. */
+        var composing = false
         /** The revision of the last selection a command set, as applied. */
         var select = 0
         /** What the action key says it does ([Native.fieldAction]'s numbers), and whether Enter breaks a line. */
@@ -182,6 +205,9 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     /** The node op 28 draws for field [id] (main thread). */
     fun node(id: Int): RenderNode? = fields[id]?.node
+
+    /** Field [id]'s own view, where the accessibility tree has the field ([Access], LLP 1115.001 D13). */
+    fun text(id: Int): FieldText? = fields[id]?.text
 
     /** A stream draws field [id] (op 28, seen while the stream is ingested, before anything of it is drawn). Android
      * frees the drawing of a node that left the render tree, as a field's does when a paint leaves its row out (it
@@ -296,6 +322,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
             }
         })
         text.selected = { _, _ -> if (!quiet) { f.moved = true; later() } }
+        text.asked = { later() }
         text.setOnFocusChangeListener { _, has ->
             if (has) {
                 focused = f
@@ -321,6 +348,12 @@ internal class Fields(context: Context) : FrameLayout(context) {
                 // Enter with no action named (a hardware keyboard's): what the field's own key does.
                 else -> f.action
             }
+            // The key commits what is composing, so a value the app writes for it (a field cleared as it submits)
+            // is not held behind a word the keyboard still has marked.
+            if (BaseInputConnection.getComposingSpanStart(text.editableText) >= 0) {
+                BaseInputConnection.removeComposingSpans(text.editableText)
+                imm.restartInput(text)
+            }
             flush()
             Exact.fieldAction(f.id, f.generation, action)
             true
@@ -344,14 +377,21 @@ internal class Fields(context: Context) : FrameLayout(context) {
         post { flush() }
     }
 
-    /** Tell exact2 each field's edit, or its selection where only that moved, as they stand now. */
+    /** Tell exact2 each field's edit, or its selection where only that moved, as they stand now; and first, that
+     * its text began to compose or stopped, so that exact2 holds the app's value while it composes and tells it
+     * once that ends (an edit that ended it is heard by the app before). */
     private fun flush() {
         flushing = false
         for (f in fields.values) {
+            val e = f.text.text
+            val composing = BaseInputConnection.getComposingSpanStart(e) >= 0
+            if (composing != f.composing) {
+                f.composing = composing
+                Exact.fieldComposing(f.id, f.generation, composing, e.toString())
+            }
             if (!f.edited && !f.moved) continue
             val start = max(0, f.text.selectionStart); val end = max(start, f.text.selectionEnd)
             if (f.edited) {
-                val e = f.text.text
                 if (log) Log.i(TAG, "field ${f.id} edit ${f.edits}: ${e.length} units, selection $start..$end, composing " +
                     "${BaseInputConnection.getComposingSpanStart(e)}..${BaseInputConnection.getComposingSpanEnd(e)}")
                 Exact.fieldEdited(f.id, f.generation, f.edits, e.toString(), start, end)
@@ -362,7 +402,9 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     /** A value of the app's that is not the field's: the text is replaced where it stands, so the field keeps its
      * undo, and the caret stays where it was among the text after it, or else as far from the start. The keyboard
-     * starts over: a composition does not outlive the text it was composing. The field's filters are the person's
+     * starts over: a composition does not outlive the text it was composing. exact2 tells no such value while the
+     * field composes (it holds the app's until the composition ends), so this ends one only where a value crossed
+     * the field's word that it had begun. The field's filters are the person's
      * limits, not the app's: its `maxlength`, and the characters its keyboard's kind admits (a number field's key
      * listener drops a "." the app sets, and the caret was then put past the end of what was left: a crash, seen on
      * a Pixel with Shelf's own test of its pages field). */
@@ -401,7 +443,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     private fun renew(f: Field, generation: Int) {
         f.generation = generation
-        f.edits = 0; f.edited = false; f.moved = false; f.select = 0
+        f.edits = 0; f.edited = false; f.moved = false; f.select = 0; f.composing = false
         quiet = true
         // A new text and a new history: nothing of the last item's is undone into this one.
         try { f.text.setText("") } finally { quiet = false }

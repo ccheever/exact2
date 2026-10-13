@@ -332,6 +332,7 @@ component App
                 port_cross: 390.0,
                 port_main: 844.0,
                 cross: 390.0,
+                padding: [0.0; 2],
                 measurements: snapshot
                     .rows
                     .iter()
@@ -713,6 +714,7 @@ impl CollectionDriver {
                     port_cross: port.width as f64,
                     port_main: port.height as f64,
                     cross: port.width as f64,
+                    padding: [0.0; 2],
                     measurements,
                     focus_view: None,
                     interaction_view: None,

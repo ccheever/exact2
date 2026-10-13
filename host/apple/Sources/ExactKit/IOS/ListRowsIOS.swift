@@ -31,10 +31,17 @@ extension Presenter {
                 || (node.props["accessibilityRole"] == "radio" && node.props["type"] != "radio")
                 || (back != nil && node.props["id"] == back)
         }
-        var placed: [UInt32: UInt32] = [:], created: [UInt32: BatchOp] = [:]
+        // The nodes the batch creates, and those of them the projection
+        // reads, decided once: a fill's children ops name every row they
+        // place, each asked again below.
+        var placed: [UInt32: UInt32] = [:], created = Set<UInt32>(), createdProjected = Set<UInt32>()
         for op in batch.ops {
             if op.op == .children { for child in op.ids { placed[child] = op.id } }
-            if op.op == .create { created[op.id] = op }
+            if op.op == .create {
+                created.insert(op.id)
+                // The last create of an id is the one read, as before.
+                if projected(op.props, kind: op.kind) { createdProjected.insert(op.id) } else { createdProjected.remove(op.id) }
+            }
         }
         // What the projection reads by name or role, wherever it is: tab
         // lists (their tint comes from their ancestors), the Back control,
@@ -73,9 +80,8 @@ extension Presenter {
                     up = u.superview
                 }
             } else if depth < 64, let parent = placed[id] ?? flats.parent(of: id) {
-                let own = created[id].map { projected($0.props, kind: $0.kind) } ?? false
-                if !own { result = views[parent].map { $0.kind == "list" ? rowsList($0) : inRows(parent, depth + 1) } ?? inRows(parent, depth + 1) }
-            } else if created[id] == nil, !flats.isFlat(id), leaving[id] == nil {
+                if !createdProjected.contains(id) { result = views[parent].map { $0.kind == "list" ? rowsList($0) : inRows(parent, depth + 1) } ?? inRows(parent, depth + 1) }
+            } else if !created.contains(id), !flats.isFlat(id), leaving[id] == nil {
                 // A node with no view (a layout box the presenter never
                 // makes): an op on it does nothing here.
                 result = true
@@ -87,7 +93,7 @@ extension Presenter {
             switch op.op {
             case .collections:
                 return true
-            case .children where op.ids.contains { read.contains($0) || (created[$0].map { projected($0.props, kind: $0.kind) } ?? false) }:
+            case .children where op.ids.contains { read.contains($0) || createdProjected.contains($0) }:
                 // It places something the projection reads (a named scroller, a tablist).
                 return false
             case .children, .content, .frame, .rank:

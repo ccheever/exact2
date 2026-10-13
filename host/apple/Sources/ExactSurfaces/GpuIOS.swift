@@ -222,7 +222,7 @@ final class CanvasesHost {
     /// Where an artifact lives: the bundle's Frameworks; the primary's may be
     /// EXACT_GPU_DYLIB in a development build.
     static func modulePath(_ artifact: String = "") -> String {
-        let path = (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/" + GpuModule.loadName(artifact: artifact)
+        let path = GpuModule.embeddedPath(directory: Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath, artifact: artifact)
         return artifact.isEmpty ? GpuModule.modulePath(defaultPath:path, compat:GpuModule.bakedCompatibility, environment:ProcessInfo.processInfo.environment) : path
     }
 

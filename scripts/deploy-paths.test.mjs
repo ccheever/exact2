@@ -67,13 +67,13 @@ test('async iOS schedules every non-documentation change in the coalesced range'
   for (const [paths, scheduled] of [['docs/reference.md', false], ['docs/reference.md\nscripts/app.mjs', true]]) {
     const apple = appleTouched('new', 'old', () => paths);
     expect(apple).toBe(scheduled);
-    const steps = asyncLane.checks('new', 'old', {lane: [], apple, glue: []});
+    const steps = asyncLane.checks('new', 'old', {lane: [], apple, contract: false, glue: []});
     for (const name of ['ios', 'ios-touch', 'tvos']) expect(steps.some(([step]) => step === name)).toBe(scheduled);
   }
 });
 
 test('async compiles tvOS per commit with no simulator, and tier 2 installs it', () => {
-  const steps = asyncLane.checks('new', 'old', {lane: [], apple: true, glue: []});
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: true, contract: false, glue: []});
   expect(steps.find(([name]) => name === 'tvos')).toEqual(['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']]);
   expect(steps.filter(([name]) => name === 'tvos').length).toBe(1);
   expect(asyncLane.tierTwoChecks().find(([name]) => name === 'tvos')).toEqual(['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']]);
@@ -100,12 +100,48 @@ test('tier 2 checks platform host and app crates for their actual target', () =>
 });
 
 test('async game step checks the separate workspace with its lockfile', () => {
-  const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, glue: []});
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, contract: false, glue: []});
   expect(steps.find(([name]) => name === 'game')).toEqual(['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']]);
 });
 
+test('async runs semantics when the checked program or its dependencies change', () => {
+  const language = [
+    'semantics/Contract/Eval.lean',
+    'contract/types/src/lib.rs',
+    'contract/corpus/lists.contract',
+    'apps/caltrain/app.contract',
+    'runner/src/machine.rs',
+    'plan/tables/format.json',
+    'route/src/lib.rs',
+    'num/src/lib.rs',
+    'host/web-js/runtime.js',
+    'kernel/tables/schema.json', 'kernel/src/transaction/apply.rs',
+    'canvas/src/lib.rs', 'color/src/lib.rs', 'grants/src/lib.rs', 'motion/src/lib.rs',
+    'svg-filter/src/lib.rs', 'textflow/src/lib.rs', 'vendor/taffy/src/lib.rs',
+    'host/web/faults.js', 'scripts/async.mjs', '.cargo/config.toml',
+    'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'package.json', 'bun.lock',
+  ];
+  for (const path of language) {
+    expect(asyncLane.contractTouched('new', 'old', () => `docs/reference.md\n${path}`)).toBe(true);
+  }
+  const other = ['host/apple/Sources/ExactKit/View.swift', 'host/linux/src/paint.rs', 'apps/caltrain/data/src/lib.rs', 'docs/reference.md'].join('\n');
+  expect(asyncLane.contractTouched('new', 'old', () => other)).toBe(false);
+  expect(asyncLane.contractTouched('new', 'old', () => '')).toBe(false);
+  const calls = [];
+  asyncLane.contractTouched('new', null, args => { calls.push(args); return ''; });
+  expect(calls[0]).toEqual(['diff', '--name-only', 'new^', 'new']);
+  for (const contract of [true, false]) {
+    const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, contract, glue: []});
+    expect(steps.some(([name]) => name === 'semantics')).toBe(contract);
+  }
+  // Skipped, the step keeps its last failure until it runs again.
+  const skipped = {checks: {}, failures: []};
+  retainSkippedFailures(['semantics: DIVERGE lists'], skipped);
+  expect(skipped.failures).toEqual(['semantics: DIVERGE lists']);
+});
+
 test('async builds, tests and lints the T3 Code clone, whose workspace the six checks leave out', () => {
-  const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, glue: []});
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, contract: false, glue: []});
   const t3 = ['--manifest-path', 'examples/t3-code/Cargo.toml', '--target-dir', 'target', '--workspace', '--locked'];
   expect(steps.find(([name]) => name === 't3-code')).toEqual(['t3-code', 'cargo', ['test', ...t3, '--lib', '--bins', '--tests', '--no-fail-fast']]);
   expect(steps.find(([name]) => name === 't3-code-clippy')).toEqual(['t3-code-clippy', 'cargo', ['clippy', ...t3, '--all-targets', '--keep-going', '--', '-D', 'warnings']]);

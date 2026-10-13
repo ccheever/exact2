@@ -379,6 +379,13 @@ final class Canvas2DHost: Canvas2DEnv {
         while pending > 0 && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.002)) }
     }
 
+    func move(_ id: UInt32, to origin: CGPoint) {
+        guard let layer = layers[id], layer.frame.origin != origin else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        layer.frame.origin = origin
+        CATransaction.commit()
+    }
+
     func forget(_ id: UInt32) {
         // Every retired view is forgotten here; only a canvas has a replayer.
         guard sequence.removeValue(forKey: id) != nil else { return }

@@ -187,7 +187,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                        "`request` takes a method (GET, POST, PUT, PATCH or DELETE), then a path in quotes, as `request POST \"/items\" {{\"title\": \"Bread\"}} as grace`; found {}",
+                        "`request` takes a method (GET, POST, PUT, PATCH or DELETE), then a path in quotes, as `request POST \"/items\" {{\"title\": \"Bread\"}} as grace`, then optionally `expect 409`; found {}",
                         describe(&other)
                     ),
                 )
@@ -225,11 +225,33 @@ impl Parser {
         } else {
             None
         };
+        // LLP 1116.010 D3: `expect 409`, the status a refusal answers.
+        let status = if self.at_ident("expect") {
+            self.next();
+            match self.peek_kind().clone() {
+                TokenKind::Number(n) if n.fract() == 0.0 && (100.0..=599.0).contains(&n) => {
+                    self.next();
+                    Some(n as u16)
+                }
+                other => {
+                    return self.err(
+                        "syntax-expected-step",
+                        format!(
+                            "`expect` takes the status the server must answer, as `expect 409`, found {}",
+                            describe(&other)
+                        ),
+                    )
+                }
+            }
+        } else {
+            None
+        };
         Ok(Step::Request {
             method,
             path,
             body,
             persona,
+            status,
             span,
         })
     }
@@ -703,7 +725,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, `state`, `sound`, or `mediasession`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -727,6 +749,15 @@ impl Parser {
                         Step::ExpectTree {
                             target,
                             present,
+                            span,
+                        }
+                    }
+                    // LLP 1116.010 D3: a control's `disabled`, asserted rather than tapped.
+                    "disabled" | "enabled" => {
+                        let target = self.str_lit("a testId")?;
+                        Step::ExpectDisabled {
+                            target,
+                            disabled: what == "disabled",
                             span,
                         }
                     }
@@ -799,7 +830,7 @@ impl Parser {
                         };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, `state`, `sound`, or `mediasession`, not `{other}`{hint}"),
+                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `sound`, or `mediasession`, not `{other}`{hint}"),
                         );
                     }
                 }

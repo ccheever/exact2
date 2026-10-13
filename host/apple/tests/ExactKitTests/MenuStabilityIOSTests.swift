@@ -38,6 +38,23 @@ final class MenuStabilityIOSTests: XCTestCase {
         return try XCTUnwrap(button.menu)
     }
 
+    func testCommandsCloseANativePullDownBeforeItsEndCallback() throws {
+        let p = presenter()
+        defer { p.menus.reset() }
+        let pop = try XCTUnwrap(p.views[3])
+        let button = try XCTUnwrap(p.views[2]?.subviews.compactMap { $0 as? MenuButton }.first)
+        let interaction = try XCTUnwrap(button.contextMenuInteraction)
+        let configuration = UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in button.menu }
+        for command in ["hidePopover", "togglePopover"] {
+            button.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: nil)
+            XCTAssertTrue(p.menus.isOpen(pop))
+            p.menus.action(command, ["more"])
+            XCTAssertFalse(p.menus.isOpen(pop), command)
+            XCTAssertTrue(pop.isHidden, "toggle must not open a painted duplicate")
+            button.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        }
+    }
+
     func testABatchThatChangesNothingKeepsTheMenu() throws {
         let p = presenter()
         let before = try menu(p)

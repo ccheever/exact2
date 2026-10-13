@@ -275,6 +275,7 @@ fn report(h: &mut Host<Board>, pin: Option<ViewId>, b_top: f64) {
                 port_cross: 100.,
                 port_main: 100.,
                 cross: 100.,
+                padding: [0.0; 2],
                 focus_view: None,
                 interaction_view: pinned,
                 measurements: c

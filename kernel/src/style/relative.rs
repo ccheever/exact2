@@ -1,5 +1,6 @@
-//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1), and a
-//! platform text style as a `font-size` (`-exact-title1`, LLP 1115 D3).
+//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1), a
+//! platform text style as a `font-size` (`-exact-title1`, LLP 1115 D3), and
+//! the hairline, one device pixel (`-exact-hairline`, LLP 1115.000 D10.3).
 //!
 //! A row authored as `1.5rem` or `0.8em` keeps what was written here, beside
 //! the row, and the row itself always holds the pixels it resolves to — what
@@ -13,8 +14,13 @@
 //! computed `font-size` — and, for `font-size` itself, against the parent's,
 //! as CSS says. `px` never scales. A text style is the platform's size for it
 //! at the root font size (the platform's body size): the schema's ramp,
-//! [`text_style_size`].
+//! [`text_style_size`]. A hairline is 1 px over the display's scale, which
+//! the host sets as it sets the root font size
+//! ([`crate::Kernel::set_display_scale`]) and which is 1 until it does: a
+//! layout input, so a hairline border is one device pixel in layout and in
+//! paint on every host, where an authored `0.5` is one only at 2x.
 //! @ref LLP 1069.000 D3
+//! @ref LLP 1115.000 D10.3
 
 use crate::error::StyleValueError;
 use crate::generated::{StyleCodec, StyleId, StyleProps};
@@ -33,18 +39,43 @@ pub enum Unit {
     /// A platform text style's size at the root font size, by its id in
     /// [`crate::TEXT_STYLES`]; only a `font-size` is one.
     TextStyle(u8),
+    /// One device pixel (`-exact-hairline`): 1 px over the display's scale.
+    Hairline,
 }
 
 impl Unit {
     /// The pixels one of this unit is, given the root's and the
-    /// reference (the parent's or the element's) font size.
-    pub fn basis(self, root: f32, reference: f32) -> f32 {
+    /// reference (the parent's or the element's) font size, and the pixels
+    /// one device pixel is ([`device_pixel`]).
+    pub fn basis(self, root: f32, reference: f32, device: f32) -> f32 {
         match self {
             Unit::Rem => root,
             Unit::Em => reference,
             Unit::TextStyle(id) => text_style_size(id, root),
+            Unit::Hairline => device,
         }
     }
+}
+
+/// The pixels one device pixel is on a display of `scale` device pixels a
+/// px: what a hairline resolves to.
+pub fn device_pixel(scale: f32) -> f32 {
+    1.0 / scale
+}
+
+/// A named length's unit by its written name, `-exact-<name>` of the
+/// schema's `lengths`, ASCII case-insensitively, as CSS matches keywords.
+/// @ref LLP 1115.000 D10.3
+pub fn named_length(name: &str) -> Option<Unit> {
+    let name = name.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
+    let exact = name
+        .get(..7)
+        .filter(|p| p.eq_ignore_ascii_case("-exact-"))
+        .map(|_| &name[7..])?;
+    crate::NAMED_LENGTHS
+        .iter()
+        .find(|n| exact.eq_ignore_ascii_case(n))
+        .map(|_| Unit::Hairline)
 }
 
 /// A text style's id by its written name: `-exact-<name>` or its WebKit
@@ -162,6 +193,7 @@ impl Relative {
                 Unit::Rem => out.push(0),
                 Unit::Em => out.push(1),
                 Unit::TextStyle(id) => out.extend_from_slice(&[2, *id]),
+                Unit::Hairline => out.push(3),
             }
             out.extend_from_slice(&n.to_bits().to_le_bytes());
         }
@@ -204,6 +236,9 @@ pub fn parse(text: &str) -> Option<(Unit, f32)> {
     if let Some(id) = text_style(text) {
         return Some((Unit::TextStyle(id), 1.0));
     }
+    if let Some(unit) = named_length(text) {
+        return Some((unit, 1.0));
+    }
     let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
     let suffix = t.get(t.len().saturating_sub(3)..)?;
     let (unit, number) = if suffix.eq_ignore_ascii_case("rem") {
@@ -234,6 +269,12 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a length: a text style is a `font-size`",
+        });
+    }
+    if unit == Unit::Hairline && matches!(id, StyleId::FontSize | StyleId::LineHeight) {
+        return Err(StyleValueError::WrongKind {
+            style: id,
+            expected: "a size of text: `-exact-hairline` is a width",
         });
     }
     if !admits_relative(id) {
@@ -298,7 +339,7 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
         let dashed = text
             .trim_start_matches(['\t', '\n', '\u{c}', '\r', ' '])
             .starts_with('-');
-        if dashed && text_style(text).is_some() {
+        if dashed && (text_style(text).is_some() || named_length(text).is_some()) {
             let relative = of(id, value)?;
             return Ok((relative, relative.map(|r| provisional(id, r))));
         }
@@ -325,7 +366,7 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
 /// What the row holds until the kernel resolves it: the length at CSS's
 /// initial font size, in the form the row's codec reads as pixels.
 pub(crate) fn provisional(id: StyleId, (unit, n): (Unit, f32)) -> StyleValue<'static> {
-    pixels(id, n * unit.basis(MEDIUM, MEDIUM))
+    pixels(id, n * unit.basis(MEDIUM, MEDIUM, 1.0))
 }
 
 fn pixels(id: StyleId, px: f32) -> StyleValue<'static> {

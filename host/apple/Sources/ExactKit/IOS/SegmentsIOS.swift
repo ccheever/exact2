@@ -304,8 +304,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             size = CGSize(width: 1, height: natural.height)
             if owner.style["box_sizing"]?.string == "border-box" {
                 let border = owner.number("border_width")
-                size.height += owner.number("border_width_top", border) + owner.number("padding_top")
-                    + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
+                size.height += owner.number("border_width_top", border) + owner.padding("top")
+                    + owner.number("border_width_bottom", border) + owner.padding("bottom")
             }
         } else {
             guard owner.bounds.width > 0 else { return }
@@ -394,7 +394,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // (LLP 1116.004 D5.2); it is never a tab bar.
         let owners = presenter.carrying("role:tablist").filter {
             $0.props["accessibilityRole"] == "tablist" &&
-                $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0)
+                $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0) &&
+                !($0.wrote("appearance") && $0.style["appearance"]?.string == "none")
         } + presenter.carrying("role:radiogroup").filter {
             $0.props["accessibilityRole"] == "radiogroup" && $0.props["accessibilityOrientation"] != "vertical"
         }

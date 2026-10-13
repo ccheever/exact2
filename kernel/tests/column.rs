@@ -67,6 +67,41 @@ fn a_host_that_throws_the_switch_shows_the_neutral_column() {
     assert_eq!(separator.resolve(false), Color(0x0000_001f), "unreported");
     roles::set_reported([]);
 
+    // The switch is the look's whole (LLP 1115.000 D17): the metrics follow
+    // the colours. The kernel sizes a control nobody measured as the page's
+    // sheet does, by its font size, and a sheet's metric reads its neutral
+    // cell.
+    use exact_kernel::style::{metrics, StyleValue};
+    use exact_kernel::{ControlKind, Dimension, StyleId, StyleProps};
+    assert_eq!(metrics::column(), metrics::Column::Neutral);
+    assert_eq!(ControlKind::Checkbox.default_size(16.0), (20.0, 20.0));
+    assert_eq!(ControlKind::Radio.default_size(20.0), (25.0, 25.0));
+    assert_eq!(ControlKind::Switch.default_size(16.0), (36.0, 20.0));
+    assert_eq!(ControlKind::Range.default_size(16.0), (129.0, 20.0));
+    let read = |row, name: &str| {
+        let mut style = StyleProps::default();
+        let name = StyleValue::Text(format!("-exact-grouped-{name}").into());
+        style.set_dynamic(row, &name).unwrap();
+        style
+    };
+    assert_eq!(
+        read(StyleId::BackgroundColor, "ground").background_color,
+        Some(role("-exact-grouped-background"))
+    );
+    let radius = |style: StyleProps| style.border_radius_top_left;
+    assert_eq!(
+        radius(read(StyleId::BorderRadiusTopLeft, "card-radius")),
+        Dimension::Points(12.0)
+    );
+
     roles::set_column(Column::Apple);
     assert_eq!(separator.resolve(false), Color(0x3c3c_431f));
+    assert_eq!(metrics::column(), metrics::Column::Web);
+    assert_eq!(ControlKind::Checkbox.default_size(16.0), (13.0, 13.0));
+    assert_eq!(ControlKind::Switch.default_size(16.0), (38.0, 22.0));
+    assert_eq!(ControlKind::Range.default_size(16.0), (129.0, 16.0));
+    assert_eq!(
+        radius(read(StyleId::BorderRadiusTopLeft, "card-radius")),
+        Dimension::Points(26.0)
+    );
 }

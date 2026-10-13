@@ -93,6 +93,19 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// A store reader whose build-time answer, the bake's empty store's,
+    /// is passed over for its declared placeholder: before its source is
+    /// ready, at a launch whose store held granted secrets the bake never
+    /// saw (LLP 1027 D4, approved 2026-10-10). Without an `else` it stands.
+    fn secrets_unseen(&self, i: usize, row: &ResourcesRow, resources: &[Option<Held>]) -> bool {
+        !self.data.ready()
+            && self.store_readers[i]
+            && row.placeholder.map_or(row.placeholder_value.len > 0, |p| {
+                resources[p.0 as usize].is_some()
+            })
+            && self.store.opened_with_secrets()
+    }
+
     /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
     fn is_placeholder_row(&self, i: usize) -> bool {
         self.plan
@@ -415,11 +428,28 @@ impl<D: DataSource> Runner<D> {
                     // Consume the mark on mismatch or activation even when
                     // the old value stands during an asynchronous request.
                     // `states` is tentative, so a refused pass restores both.
-                    let kept_seed = states[i].as_ref().is_some_and(|s| {
-                        s.kept_seed
-                            && !self.data.ready()
-                            && s.args == args[..row.args.len as usize - usize::from(row.context)]
-                    });
+                    // A seed whose identity reads a resource still on its
+                    // fallback is not this launch's answer yet: it is
+                    // neither admitted nor reused (LLP 1027.005 D3, 2026-10-10).
+                    let unknown = states[i].as_ref().is_some_and(|s| s.kept_seed)
+                        && !self.data.ready()
+                        && self.identity_unknown(i, &states);
+                    let kept_seed = !unknown
+                        && states[i].as_ref().is_some_and(|s| {
+                            s.kept_seed
+                                && !self.data.ready()
+                                && s.args
+                                    == args[..row.args.len as usize - usize::from(row.context)]
+                        });
+                    if let Some(state) = states[i].as_mut().filter(|s| s.kept_seed && !kept_seed) {
+                        // Refused before readiness, not consumed by it: say so.
+                        if !self.data.ready() {
+                            let identity = row.args.len as usize - usize::from(row.context);
+                            let kept = state.args.clone();
+                            let now = (!unknown).then(|| &args[..identity]);
+                            super::kept::refuse(&mut self.keeping, &self.plan, i, &kept, now);
+                        }
+                    }
                     if let Some(state) = &mut states[i] {
                         state.kept_seed = kept_seed;
                     }
@@ -430,6 +460,7 @@ impl<D: DataSource> Runner<D> {
                     // or carried delivery answer (LLP 1030 D7).
                     let reuse = states[i]
                         .as_ref()
+                        .filter(|_| !unknown)
                         .filter(|s| {
                             kept_seed
                                 || failed
@@ -445,6 +476,13 @@ impl<D: DataSource> Runner<D> {
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
+                        })
+                        // A compiled answer a launch holding secrets passes
+                        // over (LLP 1027 D4) is never reused, failed or not,
+                        // even one that came to read the store at equal
+                        // arguments.
+                        .filter(|s| {
+                            !(s.value.is_compiled() && self.secrets_unseen(i, &row, &resources))
                         })
                         .map(|s| s.value.clone());
                     let mut value_args = if reuse.is_some() {
@@ -482,6 +520,7 @@ impl<D: DataSource> Runner<D> {
                             && self.plan.str(row.source) != crate::page::SOURCE
                             && self.plan.str(row.source) != crate::surface_record::SOURCE
                             && row.initial.len > 0
+                            && !self.secrets_unseen(i, &row, &resources)
                             && (!self.data.ready()
                                 || (Value::from_bytes(self.plan.bytes(row.initial_args))
                                     .map_err(RunnerError::Plan)?
@@ -517,8 +556,10 @@ impl<D: DataSource> Runner<D> {
                             )
                         }
                         // @ref LLP 1048.003 D6 — the source can't answer yet
-                        // (its module isn't loaded) and nothing is compiled:
-                        // the placeholder shows, pending; `data_ready` asks.
+                        // (its module isn't loaded) and nothing is compiled,
+                        // or what is was passed over (`secrets_unseen`, LLP
+                        // 1027 D4): the placeholder shows, pending;
+                        // `data_ready` asks.
                         None if !self.data.ready()
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && self.placeholder(i, &row, &resources).is_some() =>
@@ -703,9 +744,19 @@ impl<D: DataSource> Runner<D> {
                         if !checked {
                             self.check_shape(i, value.get(&self.plan))?;
                         }
-                        // A fresh answer equal to the last keeps its object.
+                        // A fresh answer equal to the last keeps its object,
+                        // unless that would lose the compiled mark (a refused
+                        // kept seed equal to the compiled fallback is still a
+                        // fallback to an identity that reads it, kept.rs), or
+                        // give a placeholder one (`secrets_unseen`).
                         match &states[i] {
-                            Some(s) if Held::equivalent(&s.value, &value) => s.value.clone(),
+                            Some(s)
+                                if Held::equivalent(&s.value, &value)
+                                    && (s.value.is_compiled() || !value.is_compiled())
+                                    && !(placeholder && s.value.is_compiled()) =>
+                            {
+                                s.value.clone()
+                            }
                             _ => value,
                         }
                     };

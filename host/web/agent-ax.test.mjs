@@ -47,3 +47,21 @@ test('tree --ax: each platform has its row, AppKit\'s its own forms, and a platf
   expect(axParity(web, reply([], 'uikit')).unjoined).toEqual(['milk']);
   expect(() => axParity(web, reply([], 'gtk'))).toThrow(/no platform table for gtk/);
 });
+
+test('tree --ax: Android says a control by its class, a heading by a flag and a link and a tab by a role description', () => {
+  // LLP 1115.001 D13: the reader's nodes, as `Access.kt` makes them and `tree --ax` reads them back on a phone.
+  const droid = (role, name, id, native, states = {}) => reply([el(role, name, id, { states, native })], 'android');
+  const web = (role, name, id, states = {}) => reply([el(role, name, id, { states })]);
+  expect(details(web('checkbox', 'Milk', 'milk', { checked: true }), droid('checkbox', 'Milk', 'milk', { class: 'android.widget.CheckBox' }, { checked: true }))).toEqual([]);
+  expect(details(web('switch', 'Wi-Fi', 'wifi', { checked: false }), droid('switch', 'Wi-Fi', 'wifi', { class: 'android.widget.Switch' }, { checked: false }))).toEqual([]);
+  expect(details(web('button', 'Save', 'save'), droid('button', 'Save', 'save', { class: 'android.widget.Button' }))).toEqual([]);
+  // A heading has no class of its own and no level on Android: the flag says it, and the level is not compared.
+  expect(details(web('heading', 'Library', 'title', { level: 1 }), droid('heading', 'Library', 'title', { class: 'android.widget.TextView', heading: true }))).toEqual([]);
+  expect(details(web('heading', 'Library', 'title', { level: 1 }), droid('StaticText', 'Library', 'title', { class: 'android.widget.TextView' }))).toEqual(['role heading (web) vs StaticText (android)']);
+  // A tab and a link are a role description over a plain class.
+  expect(details(web('tab', 'Stats', 'tab'), droid('tab', 'Stats', 'tab', { class: 'android.view.View', role: 'Tab' }, { selected: true }))).toEqual([]);
+  expect(details(web('link', 'Read more', 'more'), droid('link', 'Read more', 'more', { class: 'android.widget.TextView', role: 'link' }))).toEqual([]);
+  // The class is what is read, whatever the reply calls the element; a missing checked state is a finding.
+  expect(details(web('checkbox', 'Milk', 'milk', { checked: true }), droid('checkbox', 'Milk', 'milk', { class: 'android.widget.Button' }, {}))).toEqual(['role checkbox (web) vs button (android)']);
+  expect(details(web('checkbox', 'Milk', 'milk', { checked: true }), droid('checkbox', 'Milk', 'milk', { class: 'android.widget.CheckBox' }, {}))).toEqual(['checked missing on android (true vs —)']);
+});

@@ -539,6 +539,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let mut preferences = p.host().runner().viewport().preferences;
     let mut page = p.host().runner().page();
     let mut root_font_size = None;
+    let mut display_scale = None;
     let mut dark = p.scheme.1;
     for (name, value) in media {
         match (name.as_str(), value.as_str().unwrap_or_default()) {
@@ -585,6 +586,10 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
+            // @ref LLP 1115.000 D10.3 — the pixels a point this host draws at.
+            ("display-scale", v) if v.parse::<f32>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
+                display_scale = v.parse::<f32>().ok()
+            }
             _ => {
                 return error(&format!(
                     "prefer: {name}: {value} is not a page fact this host sets"
@@ -601,6 +606,12 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     if let Some(px) = root_font_size {
         if let Some(e) = p.set_root_font_size(px) {
+            return error(&e);
+        }
+    }
+    if let Some(scale) = display_scale {
+        let (width, height) = p.viewport();
+        if let Some(e) = p.resize_scaled(width, height, scale) {
             return error(&e);
         }
     }
@@ -627,6 +638,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "can-open-files": page.can_open_files,
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
+        "display-scale": p.host().runner().display_scale(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
         "horizontal-viewport-segments": fold.cols,

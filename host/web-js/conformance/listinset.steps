@@ -4,6 +4,23 @@
 # end as lines come, and as its padding-bottom alone grows. Requests on the
 # long list align within its scroll padding: the first row's start is the
 # very top, row 30's end sits above the tab bar.
+# Change scroll padding without travel, then content padding, then change
+# scroll padding and request alignment in the same action.
+tap taller
+tap startof
+tap inset
+tap startof
+tap top
+tap collapse
+tap top
+
+# Row 30 is visible below 40 points, then covered by a taller scroll padding.
+# Collapsing and requesting nearest together must retain the original offset.
+tap collapse
+tap taller
+tap near
+tap top
+
 wheel long 1500
 wheel long 9000
 wheel long -40000

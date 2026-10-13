@@ -36,6 +36,9 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         }
         return out;
     }
+    if matches!(name, "showPopover" | "togglePopover") {
+        return vec![args.first(), named("source")];
+    }
     // `saveFile(id, text=, suggestedName=)` lowers as `(id, none,
     // suggestedName, text)`: four, where the copy of a file is three.
     if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
@@ -54,7 +57,7 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     // author gave none.
     let order: &[&str] = match name {
         "share" => &["title", "text", "url"],
-        "showNotification" => &["title", "body", "tag", "showTrigger"],
+        "showNotification" => &["title", "body", "tag", "showTrigger", "navigate"],
         "stopSounds" => &["group"],
         _ => return args.iter().map(Some).collect(),
     };

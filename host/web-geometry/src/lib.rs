@@ -15,7 +15,28 @@ use exact_kernel::{Kernel, ViewId};
 use exact_runner::geometry::{GeometryAnswer, GeometryLinks, Scrolled};
 
 /// The page's answers, for [`exact_runner::RunnerLinks::geometry`].
-pub static PAGE: GeometryLinks = GeometryLinks::new(page_frame, page_measure, page_point);
+pub static PAGE: GeometryLinks = GeometryLinks::new(
+    page_frame,
+    page_measure,
+    page_point,
+    page_points,
+    page_shown,
+);
+
+#[cfg(target_arch = "wasm32")]
+fn page_shown(_: &Kernel, _: &Scrolled, view: ViewId) -> bool {
+    #[link(wasm_import_module = "exact_geometry")]
+    extern "C" {
+        fn shown(view: u32) -> u32;
+    }
+    // SAFETY: one view id in, one boolean out; the page calls nothing back.
+    unsafe { shown(view) != 0 }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn page_shown(_: &Kernel, _: &Scrolled, _: ViewId) -> bool {
+    false
+}
 
 /// The import's `op`: a layout box (0) or its `height: auto` measure (1).
 const FRAME: u32 = 0;
@@ -35,6 +56,13 @@ fn page_measure(_: &mut Kernel, _: &Scrolled, view: ViewId) -> GeometryAnswer {
 
 fn page_point(_: &Kernel, _: &Scrolled, x: f64, y: f64) -> Option<ViewId> {
     point(x, y).checked_sub(1)
+}
+
+fn page_points(_: &Kernel, _: &Scrolled, x: f64, y: f64) -> Vec<ViewId> {
+    points(x, y)
+        .into_iter()
+        .filter_map(|id| id.checked_sub(1))
+        .collect()
 }
 
 /// The page's reply as an answer: four numbers when answered.
@@ -75,6 +103,26 @@ fn point(x: f64, y: f64) -> u32 {
     }
     // SAFETY: two numbers in, one out; the page calls nothing back.
     unsafe { point(x, y) }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn points(x: f64, y: f64) -> Vec<u32> {
+    #[link(wasm_import_module = "exact_geometry")]
+    extern "C" {
+        fn points(x: f64, y: f64, out: *mut u32, cap: u32) -> u32;
+    }
+    // SAFETY: a null pointer with zero capacity asks only for the length.
+    let len = unsafe { points(x, y, std::ptr::null_mut(), 0) };
+    let mut out = vec![0; len as usize];
+    // SAFETY: the page writes at most `len` u32s to this owned buffer.
+    let written = unsafe { points(x, y, out.as_mut_ptr(), len) }.min(len);
+    out.truncate(written as usize);
+    out
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn points(_: f64, _: f64) -> Vec<u32> {
+    Vec::new()
 }
 
 #[cfg(not(target_arch = "wasm32"))]

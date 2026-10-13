@@ -24,7 +24,9 @@
 //! authored header and tablist as they always did.
 use super::Host;
 use crate::navigation::RouteBar;
-use exact_kernel::{Bar, Display, HeaderShape, HostCover, Kernel, PropId, ViewId};
+use exact_kernel::{
+    Appearance, Bar, Display, HeaderShape, HostCover, Kernel, PropId, StyleId, ViewId,
+};
 use exact_plan::EventKind;
 use exact_runner::DataSource;
 use std::collections::BTreeMap;
@@ -129,11 +131,15 @@ impl<D: DataSource> Host<D> {
                 .filter(|name| !name.is_empty());
             let pressed = |id: ViewId| self.runner.handlers_of(id).contains(&EventKind::Press);
             let (found, all) = crate::navigation::stacks(kernel, root);
-            // A tablist hidden as authored is no bar, as the web shows none.
+            // A tablist hidden as authored is no bar, as the web shows none;
+            // nor is one whose author wrote `appearance: none`, which keeps
+            // its authored bar (LLP 1075.003 §9.10).
             let found = found.filter(|tabs| {
-                kernel
-                    .node(tabs.tablist)
-                    .is_some_and(|n| n.style.display != Display::None)
+                kernel.node(tabs.tablist).is_some_and(|n| {
+                    n.style.display != Display::None
+                        && !(n.style.appearance == Appearance::None
+                            && n.style.written.has(StyleId::Appearance))
+                })
             });
             let below = if found.is_some() { below } else { 0.0 };
             if let Some(tabs) = &found {

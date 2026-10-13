@@ -811,8 +811,9 @@ const LEVEL: &str = "lower-level-without-heading";
 
 #[test]
 fn a_level_with_no_heading_role_is_named_with_its_repair() {
-    // LLP 1115.000 D12.5: `aria-level` alone is not a heading. It gets no
-    // heading style, and the iOS bar does not take it for the title.
+    // LLP 1115.000 D12.5: `aria-level` alone is not a heading. No host tells
+    // a screen reader it is one, it gets no heading style, and the iOS bar
+    // does not take it for the title.
     let bare =
         buttons("text \"Results\" aria-level=2\ntext \"More\" aria-level=(label == \"\" ? 2 : 3)");
     assert_eq!(
@@ -824,7 +825,8 @@ fn a_level_with_no_heading_role_is_named_with_its_repair() {
     assert!(
         m.starts_with(
             "`aria-level` on a `text` with no `role=\"heading\"` does not make a heading"
-        ) && m.contains("no heading style")
+        ) && m.contains("a screen reader is not told it is one on any platform")
+            && m.contains("no heading style")
             && m.contains("the iOS navigation bar does not take it for the screen's title")
             && m.contains("`text \"Results\" role=\"heading\" aria-level=2`"),
         "{m}"
@@ -1163,4 +1165,224 @@ fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
     )
     .replace("state tab = \"all\"", "state tab = \"all\" persist");
     assert_eq!(warned(&kept), []);
+}
+
+const WIDTH_PADDING: &str = "lower-width-padding";
+
+#[test]
+fn a_full_width_box_with_padding_is_named_with_its_repair() {
+    // LLP 1116.009 D5: focus-timer's and recipe-finder's round-11 bodies,
+    // `column padding=24 width="100%"`, which ran past a phone's right
+    // side while `verify` said nothing. The parent is the view's column
+    // (lines 7 on).
+    let src = buttons(
+        "column padding=24 gap=12 width=\"100%\"\n  text \"Timer\"\nbox width=\"100%\" padding=\"8px 16px\"\n  text \"x\"\nview width=\"100%\" border=\"1px solid -exact-separator\"\n  text \"y\"\nscroll flex=1\n  column padding-left=16 width=\"100%\"\n    text \"z\"",
+    );
+    assert_eq!(
+        warned(&src),
+        [
+            (WIDTH_PADDING.to_string(), 7),
+            (WIDTH_PADDING.to_string(), 9),
+            (WIDTH_PADDING.to_string(), 11),
+            (WIDTH_PADDING.to_string(), 14)
+        ]
+    );
+    let (_, warnings) = contract::compile_warned(&src);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with("`width=\"100%\"` with padding is wider than its parent by the padding")
+            && m.contains("drop the width (a block or a stretched flex item fills its parent")
+            && m.contains("`flex=1` field `min-width=0`")
+            && m.contains("`box-sizing=\"border-box\"`"),
+        "{m}"
+    );
+    // A style's rows count as the node's, its own winning.
+    let styled = "style Panel\n  padding=16 width=\"100%\"\n\ncomponent App\n  view\n    column\n      column class=Panel\n        text \"a\"\n      column class=Panel box-sizing=\"border-box\"\n        text \"b\"\n      column class=Panel padding=0\n        text \"c\"\n";
+    assert_eq!(warned(styled), [(WIDTH_PADDING.to_string(), 7)]);
+}
+
+#[test]
+fn what_fits_or_the_compiler_cannot_see_is_not_named_for_width_and_padding() {
+    for (case, view) in [
+        // The author's own word on sizing, or no room taken.
+        (
+            "border-box",
+            "column padding=24 width=\"100%\" box-sizing=\"border-box\"\n  text \"a\"",
+        ),
+        (
+            "a width that leaves room",
+            "column padding=8 width=\"50%\"\n  text \"a\"",
+        ),
+        ("a fixed width", "column padding=24 width=320\n  text \"a\""),
+        ("no padding", "column width=\"100%\"\n  text \"a\""),
+        (
+            "vertical padding only",
+            "column padding=\"16px 0\" width=\"100%\"\n  text \"a\"",
+        ),
+        (
+            "padding taken back",
+            "column padding=24 padding-left=0 padding-right=0 width=\"100%\"\n  text \"a\"",
+        ),
+        (
+            "a border with no line",
+            "column border=\"2px none -exact-separator\" width=\"100%\"\n  text \"a\"",
+        ),
+        // A value the compiler cannot read.
+        (
+            "a computed padding",
+            "column padding=(label == \"\" ? 0 : 24) width=\"100%\"\n  text \"a\"",
+        ),
+        (
+            "a computed width",
+            "column padding=24 width=(label == \"\" ? \"100%\" : \"50%\")\n  text \"a\"",
+        ),
+        (
+            "a length it does not read",
+            "column padding=\"env(safe-area-inset-left)\" width=\"100%\"\n  text \"a\"",
+        ),
+        // Not in the parent's flow, or not a container.
+        (
+            "positioned",
+            "column padding=24 width=\"100%\" position=\"absolute\"\n  text \"a\"",
+        ),
+        (
+            "hidden",
+            "column padding=24 width=\"100%\" display=\"none\"\n  text \"a\"",
+        ),
+        ("a field", "input width=\"100%\" padding=12 value=label"),
+        // A row's items shrink to fit; a grid's resolve against a cell.
+        (
+            "in a row",
+            "row\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+        (
+            "in a grid",
+            "view display=\"grid\"\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+        (
+            "in a flex row",
+            "view display=\"flex\"\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+        (
+            "a slot's children",
+            "Pill()\n  column padding=24 width=\"100%\"\n    text \"a\"",
+        ),
+    ] {
+        let src = buttons(view);
+        assert_eq!(warned(&src), [], "{case}\n{src}");
+    }
+    // A flex column and an explicit block both stretch their items.
+    for parent in [
+        "view display=\"flex\" flex-direction=\"column\"",
+        "view display=\"block\"",
+    ] {
+        let src = buttons(&format!(
+            "{parent}\n  column padding=24 width=\"100%\"\n    text \"a\""
+        ));
+        assert_eq!(warned(&src), [(WIDTH_PADDING.to_string(), 8)], "{src}");
+    }
+}
+
+#[test]
+fn a_grouped_lists_rows_are_not_named_for_width_and_padding() {
+    // The grouped list's sections place their rows themselves (lowering's,
+    // not the author's block): not a parent a percentage is of.
+    let src = buttons(
+        "list appearance=\"auto\" listStyle=\"inset-grouped\" flex=1 min-height=0\n  section\n    row width=\"100%\" padding-left=16\n      text \"a\"",
+    );
+    assert_eq!(warned(&src), []);
+}
+
+const ROUND_BUTTON: &str = "lower-round-button-label";
+
+/// The warnings of an app that uses `exact:content`'s `RoundButton`, as a build prints them:
+/// `body` is the view's lines, indented, from line 8.
+fn warned_circles(name: &str, body: &str) -> Vec<(String, u32, String)> {
+    let src = format!(
+        "use RoundButton from \"exact:content\"\ncomponent App\n  state n = 0\n  state title = \"Start quiz\"\n  action go\n    n = n + 1\n  view\n    column\n{body}"
+    );
+    let dir = std::env::temp_dir().join(format!("exact-circles-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, &src).unwrap();
+    let (result, warnings) = contract::compile_path_all_warned(&path, false);
+    let _ = std::fs::remove_dir_all(&dir);
+    if let Err(e) = result {
+        panic!("a warning never fails a build: {e:?}\n{src}");
+    }
+    warnings
+        .into_iter()
+        .map(|w| (w.id.clone(), w.span.line, w.message))
+        .collect()
+}
+
+#[test]
+fn a_round_button_label_longer_than_the_circle_holds_is_named_with_its_repair() {
+    // trivia, round 13: `RoundButton(label="Start quiz")` drew "Start q…" in the 80-point
+    // circle; the warning points at the label and names the prominent button.
+    let call = |label: &str| {
+        format!(
+            "      RoundButton(label={label}, tint=none, press=go, disabled=false, testId=\"start\")\n"
+        )
+    };
+    let got = warned_circles("long", &call("\"Start quiz\""));
+    assert_eq!(
+        got.iter()
+            .map(|(id, line, _)| (id.as_str(), *line))
+            .collect::<Vec<_>>(),
+        [(ROUND_BUTTON, 9)],
+        "{got:?}"
+    );
+    assert!(
+        got[0].2.contains("the Clock's circle for a word")
+            && got[0]
+                .2
+                .contains("\"Start quiz\" is 10 characters and the 80-point circle holds about 7")
+            && got[0].2.contains("`button` with `buttonStyle=\"filled\"`"),
+        "{got:?}"
+    );
+    // One word too long for the circle: eight characters is past the seven it holds.
+    let got = warned_circles("word", &call("\"Continue\""));
+    assert!(
+        got.len() == 1
+            && got[0]
+                .2
+                .contains("\"Continue\" is 8 characters and the 80-point circle holds about 7"),
+        "{got:?}"
+    );
+    // The Clock's words, the one-screen pattern's "500 ml" (two words, six characters) and a
+    // label the app computes are the circle's to hold.
+    for label in [
+        "\"Start\"",
+        "\"Stop\"",
+        "\"Lap\"",
+        "\"Reset\"",
+        "\"Resume\"",
+        "\"Restart\"",
+        "title",
+        "`Go ${n}`",
+    ] {
+        assert_eq!(warned_circles("fine", &call(label)), [], "{label}");
+    }
+    // Every written call is named once, in a choice or a loop, at its own line.
+    let body = format!(
+        "{}      each t in [\"a\", \"b\"] key=t\n        RoundButton(label=\"Next question\", tint=none, press=go, disabled=false, testId=t)\n",
+        call("\"Play again\"")
+    );
+    let got = warned_circles("sites", &body);
+    assert_eq!(
+        got.iter()
+            .map(|(id, line, _)| (id.as_str(), *line))
+            .collect::<Vec<_>>(),
+        [(ROUND_BUTTON, 9), (ROUND_BUTTON, 11)],
+        "{got:?}"
+    );
+}
+
+#[test]
+fn an_authors_own_round_button_is_not_the_circle() {
+    // A component of the name that takes other props is not `exact:content`'s part.
+    let src = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      RoundButton(label=\"Start the quiz now\", press=go)\ncomponent RoundButton\n  props\n    label: string\n    press: action\n  view\n    button press=press\n      text label\n";
+    assert_eq!(warned(src), []);
 }

@@ -72,7 +72,7 @@ final class CollectionMacTests: XCTestCase {
         p.collections.onFeedback = { feedback.append($0) }
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1)
-        XCTAssertEqual(feedback[0].count, 104)
+        XCTAssertEqual(feedback[0].count, 120)
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
@@ -226,7 +226,7 @@ final class CollectionMacTests: XCTestCase {
         ]))
         var interactions: [UInt32] = []
         p.collections.onFeedback = { bytes in
-            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[60 + $1]) << ($1 * 8) })
+            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[76 + $1]) << ($1 * 8) })
         }
         func drain() {
             let done = expectation(description: "pin feedback continuation")
@@ -393,7 +393,7 @@ final class CollectionMacTests: XCTestCase {
             (0..<4).reduce(0) { $0 | UInt32(bytes[offset + $1]) << ($1 * 8) }
         }
         p.collections.onFeedback = { bytes in
-            accepted[u32(bytes, 4)] = (u32(bytes, 56), u32(bytes, 60))
+            accepted[u32(bytes, 4)] = (u32(bytes, 72), u32(bytes, 76))
             XCTAssertLessThanOrEqual(accepted.values.filter { $0.0 != 0 }.count, 1)
             XCTAssertLessThanOrEqual(accepted.values.filter { $0.1 != 0 }.count, 1)
         }

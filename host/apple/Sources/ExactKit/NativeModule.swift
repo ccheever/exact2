@@ -997,7 +997,7 @@ final class NativeViews {
         if kind == 7, entry.revealing { entry.revealing = false; entry.view?.alpha = 1 }
         #endif
         let name = NativeViews.kinds[Int(kind)], text = String(decoding: data, as: UTF8.self), id = entry.id
-        guard owner.handlers.contains(name) else { return }
+        guard owner.handlers.contains(name) || kind == 3 || kind == 4 else { return }
         switch kind {
         case 0: presenter.press(id)
         case 1: presenter.change(id, text)

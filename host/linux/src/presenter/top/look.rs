@@ -163,6 +163,17 @@ fn label(engine: &mut TextEngine, text: &str, scale: f32, max: f32) -> Rc<Paragr
 }
 
 impl Layout {
+    /// Each text it draws, by the node it stands for, with its box in the
+    /// surface, points: what an accessibility service reads there.
+    pub fn texts(&self) -> Vec<(ViewId, Rect4)> {
+        (self.items.iter())
+            .filter_map(|item| match item {
+                Item::Text(p, at, _, source) => Some((*source, (at.0, at.1, p.width, p.height))),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Measure `plan` for `inputs`.
     pub fn of(engine: &mut TextEngine, plan: &Plan, pop: ViewId, inputs: &Inputs) -> Layout {
         match plan {

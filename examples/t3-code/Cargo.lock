@@ -413,6 +413,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "contract-syntax",
  "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",

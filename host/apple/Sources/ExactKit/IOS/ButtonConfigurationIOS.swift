@@ -93,7 +93,25 @@ enum ButtonConfigurationIOS {
         }
         return result
     }
-    static func apply(_ face: ButtonFace, to button: UIButton, traits: UITraitCollection, accent: UIColor?) {
+    /// The styles whose fill is the tint, under white ink: a destructive one is red filled. Any other
+    /// (plain, gray, tinted, bordered, borderless, glass) draws its ink, and a destructive one draws it red.
+    static let filledStyles: Set<String> = ["filled", "borderedProminent", "prominentGlass", "prominentClearGlass"]
+
+    /// A destructive button's ink: `systemRed`. The gray, bordered and tinted styles sit on a fill of their own,
+    /// where `systemRed` reads 2.9:1 (on UIKit's gray) and 2.7:1 (on its red tint) in light, a hair under the 3:1
+    /// `check` holds a control's label to (LLP 1116.003 D3); there the light red is deepened one notch (#f0302f
+    /// for #ff383c), which no one tells apart, and dark and increased contrast stay `systemRed`'s own.
+    static func destructiveInk(for style: String) -> UIColor {
+        guard ["gray", "bordered", "tinted", "borderedTinted"].contains(style) else { return .systemRed }
+        return UIColor { traits in
+            traits.userInterfaceStyle == .light && traits.accessibilityContrast != .high
+                ? UIColor(red: 240 / 255, green: 48 / 255, blue: 47 / 255, alpha: 1) : UIColor.systemRed.resolvedColor(with: traits)
+        }
+    }
+
+    /// `destructive`: the platform's destructive role, its red (`accent` is then that red): on a filled style
+    /// the tint is the fill and UIKit draws white ink; on the others the ink is red, unless the author painted it.
+    static func apply(_ face: ButtonFace, to button: UIButton, traits: UITraitCollection, accent: UIColor?, destructive: Bool = false) {
         let rows = face.rows
         var (config, drawn, _) = ControlHost.configuration(face)
         config.title = face.title
@@ -137,7 +155,10 @@ enum ButtonConfigurationIOS {
         // D3.1): black once white would fall under 3:1 on the accent as this scheme resolves it (relative luminance
         // above 0.3). UIKit keeps white on a pale tint, which `check` finds at 1.4:1 on yellow and 2.1:1 on teal
         // (three round-9 builds); the system blue, red and the rest keep UIKit's white. An authored colour wins.
-        else if (drawn == "filled" || drawn == "borderedProminent"), let accent, prefersDarkInk(on: accent, traits: traits) {
+        else if destructive, !filledStyles.contains(drawn) {
+            // UIKit's `role` draws nothing; the gray and bordered styles keep the label colour under a red tint.
+            config.baseForegroundColor = destructiveInk(for: drawn)
+        } else if (drawn == "filled" || drawn == "borderedProminent"), let accent, prefersDarkInk(on: accent, traits: traits) {
             config.baseForegroundColor = .black
         }
         let titleFontAuthored = rows.title["font_size"] != nil || rows.title["font_weight"] != nil

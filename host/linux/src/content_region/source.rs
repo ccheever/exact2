@@ -118,7 +118,7 @@ impl Capture<'_> {
                     return Err("paragraph link ancestry limit");
                 }
                 let n = self.kernel.node(id).ok_or("detached paragraph link")?;
-                if let Some(href) = n.props.str(PropId::Href) {
+                if let Some(href) = n.props.link() {
                     self.link_bytes = self
                         .link_bytes
                         .checked_add(href.len())

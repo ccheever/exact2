@@ -261,7 +261,8 @@ export function axFindings(reply) {
     if (h) flagged.set(e.i, h.id);
     if (h && flagged.get(e.parent) !== h.id) out.push({ kind: 'exposed-hidden', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}" under #${h.id} (${h.why})`, under: h.id });
     // UIKit's rule is the host's to apply (it knows the modal view's siblings); elsewhere, outside the modal element.
-    const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none' && !inside(e, ax.modal.element);
+    const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none'
+      && !inside(e, ax.modal.element) && !(ax.source === 'appkit' && ax.modal.presented?.some(i => inside(e, i)));
     if (leaks) out.push({ kind: 'outside-modal', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}"`, basis: ax.source === 'uikit' ? 'documented-rule' : ax.source === 'appkit' ? 'sheet' : 'platform' });
   }
   return out;
@@ -319,6 +320,22 @@ const PLATFORMS = {
       if (raw === 'AXCheckBox' && e.native?.subrole === 'AXToggle') return 'button';
       if (raw === 'AXCheckBox' && e.native?.subrole === 'AXSwitch') return 'switch';
       return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox', AXRadioButton: 'radio', AXSlider: 'slider', AXPopUpButton: 'combobox' }[raw] ?? e.role;
+    },
+    checked: e => e.states?.checked,
+  },
+  android: {
+    // Android says a heading by a flag with no level, a link and a tab by a role description (as Material's own
+    // tabs and navigation bar items say "Tab"), and everything else by its class: `android.widget.Button`,
+    // `CheckBox`, `Switch`, `RadioButton`, `SeekBar`, `EditText`, `Spinner` (LLP 1115.001 D13). A pressed button
+    // is a `ToggleButton`, a `button` on the web. Its checked state is the node's own, true or false.
+    observes: ['checked', 'disabled', 'expanded'],
+    role(e) {
+      const n = e.native ?? {}, kind = String(n.class ?? '').split('.').pop();
+      if (n.heading) return 'heading';
+      if (n.role === 'link') return 'link';
+      if (n.role === 'Tab') return 'tab';
+      return { Button: 'button', ImageButton: 'button', ToggleButton: 'button', CheckBox: 'checkbox', Switch: 'switch', RadioButton: 'radio',
+        SeekBar: 'slider', EditText: 'textbox', Spinner: 'combobox' }[kind] ?? e.role;
     },
     checked: e => e.states?.checked,
   },

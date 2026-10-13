@@ -106,7 +106,7 @@ LLP 1064 D1 refused all three. This admits CSS's full `box-shadow` grammar excep
 
 ### D5. `conic-gradient()` and stacked layers
 
-This widens LLP 1066's grammar. Admitted: `conic-gradient([from <angle>]? [at <position>]?, <stops>)` with 1066's stop rules, and a comma list of up to four layers mixing all three functions, painted with the first layer on top as in CSS. Still refused: `repeating-*`, `url()`, colour hints, and everything else 1066 refuses.
+This widens LLP 1066's grammar. Admitted: `conic-gradient([from <angle>]? [at <position>]?, <stops>)` with 1066's stop rules, and a comma list of up to four layers mixing all three functions, painted with the first layer on top as in CSS. LLP 1066’s 2026-10-12 amendment admits repeating linear gradients and px stop positions, including for masks. Still refused: repeating radial/conic gradients, `url()`, colour hints, and everything else 1066 refuses.
 
 - **Web:** native.
 - **iOS:** one `CAGradientLayer` per layer, with type `.conic` for a conic gradient. A box that `draw(_:)` paints (LLP 1066 D6) draws a conic gradient per pixel with Core Graphics, as `Canvas2DPaint.swift`'s `drawConic` does today.

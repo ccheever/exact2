@@ -26,6 +26,112 @@ final class NumberStepperMacTests: XCTestCase {
         return (node, { heard }, session)
     }
 
+    func testArrowKeysStepTheNumberEvenWithoutVisibleSpinButtons() throws {
+        let (node, heard, session) = fixture(["value": "443", "max": "65535"])
+        defer { session.destroy() }
+        node.applyStyle(["appearance": .string("textfield")])
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        defer { window.close() }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
+        XCTAssertEqual(editor.string, "444")
+        XCTAssertEqual(heard(), ["input 444", "change 444"])
+        editor.insertText("4a4", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        XCTAssertEqual(editor.string, "44")
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.setString("4a4", forType: .string)
+        editor.selectAll(nil)
+        XCTAssertTrue(editor.readSelection(from: pasteboard, type: .string))
+        XCTAssertEqual(editor.string, "44", "the paste path filters the same way as typing")
+        editor.insertText("-1.5e+2", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        XCTAssertEqual(editor.string, "-1.5e+2")
+        for (typed, expected) in [("1e2.3", "1e23"), ("1e-+2", "1e-2"), ("1..5", "1.5")] {
+            editor.insertText(typed, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+            XCTAssertEqual(editor.string, expected)
+        }
+        XCTAssertEqual(field.accessibilityRole(), .incrementor)
+        let accessible = try XCTUnwrap(NSAccessibility.unignoredDescendant(of: field) as? NSObject)
+        XCTAssertEqual(Presenter.axFacts(accessible)?.role, NSAccessibility.Role.incrementor.rawValue)
+        XCTAssertEqual(accessible.accessibilityAttributeValue(.minValue) as? NSNumber, 1)
+        XCTAssertEqual(accessible.accessibilityAttributeValue(.maxValue) as? NSNumber, 65535)
+        XCTAssertTrue(accessible.accessibilityActionNames().contains(.increment))
+        XCTAssertTrue(accessible.accessibilityActionNames().contains(.decrement))
+        XCTAssertEqual(field.accessibilityMinValue() as? NSNumber, 1)
+        XCTAssertEqual(field.accessibilityMaxValue() as? NSNumber, 65535)
+        editor.insertText("443", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        accessible.accessibilityPerformAction(.increment)
+        XCTAssertEqual(editor.string, "444")
+        XCTAssertEqual(Presenter.axFacts(accessible)?.value as? String, "444")
+        accessible.accessibilityPerformAction(.decrement)
+        XCTAssertEqual(editor.string, "443")
+        for (value, key, expected) in [("65535", "up", "65535"), ("1", "down", "1"), ("", "up", "1"), ("", "down", "1"), ("1e", "up", "1")] {
+            editor.insertText(value, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+            editor.doCommand(by: key == "up" ? #selector(NSResponder.moveUp(_:)) : #selector(NSResponder.moveDown(_:)))
+            XCTAssertEqual(editor.string, expected, "\(value) \(key)")
+        }
+        node.applyProps(set: ["min": "0", "max": "10", "step": "0.2"], clear: [])
+        editor.insertText("1.1", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
+        XCTAssertEqual(editor.string, "1.2")
+        editor.setMarkedText("１２", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        XCTAssertTrue(editor.hasMarkedText())
+        XCTAssertEqual(editor.string, "１２", "an input method keeps its marked text")
+        editor.insertText("12", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(editor.string, "12")
+    }
+
+    func testNumericSignsFollowChromesEditorIncludingIncompleteValues() throws {
+        let (node, _, session) = fixture(["value": ""])
+        defer { session.destroy() }
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        defer { window.close() }
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(node.field)))
+        let editor = try XCTUnwrap(node.field?.currentEditor() as? NSTextView)
+        // Chrome 155's visible editor keeps the first two, with an empty DOM value.
+        for (typed, expected) in [("12-", "12-"), ("--1", "--1"), ("1e2-", "1e2"), ("1e2+", "1e2"), ("1e-+2", "1e-2"), ("-1.5e+2", "-1.5e+2")] {
+            editor.insertText("", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            for char in typed { editor.insertText(String(char), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+            XCTAssertEqual(editor.string, expected, "typing \(typed)")
+            editor.insertText(typed, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            XCTAssertEqual(editor.string, expected, "inserting \(typed)")
+        }
+    }
+
+    func testRejectedIMECommitEndsCompositionAndAppliesTheHeldValue() throws {
+        let (node, _, session) = fixture(["value": "12"])
+        defer { session.destroy() }
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        defer { window.close() }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        for held in [false, true] {
+            editor.insertText("12", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 2, length: 0))
+            XCTAssertTrue(editor.hasMarkedText())
+            if held {
+                node.applyProps(set: ["value": "42"], clear: [])
+                XCTAssertEqual(node.pendingValue, "42")
+            }
+            editor.insertText("あ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            XCTAssertFalse(editor.hasMarkedText())
+            XCTAssertEqual(editor.string, held ? "42" : "12")
+            XCTAssertNil(node.pendingValue)
+            editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
+            XCTAssertEqual(editor.string, held ? "43" : "13", "stepping resumes after a rejected commit")
+        }
+    }
+
     /// One click of the up or the down arrow: the stepper's value moves a step and it sends its action.
     private func press(_ stepper: NSStepper, up: Bool) {
         stepper.doubleValue += up ? stepper.increment : -stepper.increment
@@ -149,6 +255,88 @@ final class NumberStepperMacTests: XCTestCase {
         press(stepper, up: true)
         XCTAssertEqual(editor.string, "4")
         XCTAssertEqual(heard(), ["input 4", "change 4"])
+    }
+
+    /// Typing into the field, as AppKit reports it: the text changes and says so.
+    private func type(_ node: NodeView, _ text: String) throws {
+        let field = try XCTUnwrap(node.field)
+        field.stringValue = text
+        node.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    }
+
+    /// LLP 1116.008 D5 (grocery-list, round 10): a typed 250 against a `max` of
+    /// 99 saved 250 while the stepper's up arrow was dimmed. The edit commits as
+    /// the bound it passed, written into the field and told as a step is:
+    /// `input`, then the `change`. What was typed while typing is unchanged.
+    func testATypedValuePastABoundCommitsAsTheBoundAndTheFieldShowsIt() throws {
+        let (node, heard, session) = fixture()
+        defer { session.destroy() }
+        let field = try XCTUnwrap(node.field), stepper = try XCTUnwrap(node.stepper)
+        try type(node, "250")
+        XCTAssertEqual(heard(), ["input 250"], "typing is as it was")
+        node.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: field))
+        XCTAssertEqual(heard(), ["input 250", "input 99", "change 99"])
+        XCTAssertEqual(field.stringValue, "99")
+        XCTAssertEqual(stepper.doubleValue, 99, "the stepper shows it")
+        try type(node, "-4")
+        node.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: field))
+        XCTAssertEqual(heard().suffix(3), ["input -4", "input 1", "change 1"])
+        XCTAssertEqual(field.stringValue, "1")
+        XCTAssertEqual(stepper.doubleValue, 1)
+        // An edit within the bounds, and text that is no number, are as they were.
+        try type(node, "42")
+        node.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: field))
+        XCTAssertEqual(field.stringValue, "42")
+        XCTAssertEqual(heard().suffix(2), ["input 42", "change 42"])
+        try type(node, "abc")
+        node.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: field))
+        XCTAssertEqual(field.stringValue, "abc")
+        XCTAssertEqual(heard().suffix(2), ["input abc", "change abc"])
+    }
+
+    /// Return commits in the field editor, which shows the bound as it does a step.
+    func testReturnCommitsTheBoundIntoTheFieldEditor() throws {
+        let (node, heard, session) = fixture()
+        defer { session.destroy() }
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = node
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.string = "250"
+        try type(node, "250")
+        XCTAssertTrue(node.control(field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertEqual(editor.string, "99")
+        XCTAssertEqual(heard(), ["input 250", "input 99", "change 99"])
+        XCTAssertEqual(try XCTUnwrap(node.stepper).doubleValue, 99)
+    }
+
+    func testOnlyAFieldWithAStepperHoldsItsBoundsAndTheHandlersItHasHearIt() throws {
+        let end = { (node: NodeView) in node.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: node.field)) }
+        // `appearance="textfield"`: the bare field, whose bounds are the browser's validation.
+        let (bare, bareHeard, bareSession) = fixture()
+        defer { bareSession.destroy() }
+        bare.applyStyle(["appearance": .string("textfield")])
+        XCTAssertNil(bare.stepper)
+        try type(bare, "250"); end(bare)
+        XCTAssertEqual(bare.field?.stringValue, "250")
+        XCTAssertEqual(bareHeard(), ["input 250", "change 250"])
+        let (text, textHeard, textSession) = fixture(["type": "text"])
+        defer { textSession.destroy() }
+        try type(text, "250"); end(text)
+        XCTAssertEqual(text.field?.stringValue, "250")
+        XCTAssertEqual(textHeard(), ["input 250", "change 250"])
+        let (change, changeHeard, changeSession) = fixture(handlers: ["change"])
+        defer { changeSession.destroy() }
+        try type(change, "250"); end(change)
+        XCTAssertEqual(changeHeard(), ["change 99"])
+        let (input, inputHeard, inputSession) = fixture(handlers: ["input"])
+        defer { inputSession.destroy() }
+        try type(input, "250"); end(input)
+        XCTAssertEqual(inputHeard(), ["input 250", "input 99"])
+        XCTAssertEqual(input.field?.stringValue, "99")
     }
 
     func testNoHandlersMeansNoEventsAndADisabledOrReadonlyFieldStepsNot() throws {

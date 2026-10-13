@@ -1826,3 +1826,13 @@ equal on the wasm page, the JS page and the Linux reference.
    against a runner, so that the Linux host can be the reference for state
    and tree? (§7, "A conformance reference without the wasm page": designed,
    not built; until then the wasm page stays conformance's reference.)
+
+### Intersection visibility (2026-10-12)
+
+Codex implements Charlie's issue-fix ruling 5 in both web targets through one
+lazy `intersect-glue.js` adapter over the browser's IntersectionObserver.
+LLP 1005's "Intersection visibility" defines the payload, root, margin and
+lifetime. The JS target passes the two-field record to the action; wasm sends
+host kind 44 (`0|1,ratio`) through the runner's typed event. No adapter is loaded
+before first paint. Native observation is outside this first slice and remains
+an explicit deviation in LLP 1001 and the open filesystem issue.

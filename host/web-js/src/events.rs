@@ -16,6 +16,7 @@ pub(crate) fn piece(event: EventKind) -> Option<&'static str> {
         EventKind::Transformrelease => Some("onTRelease"),
         EventKind::Reorderdrop => Some("onDrop"),
         EventKind::Resize => Some("onResize"),
+        EventKind::Intersect => Some("onIntersect"),
         _ => None,
     }
 }
@@ -27,7 +28,7 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Press => Some("onPress"),
         EventKind::Change | EventKind::Input => Some("onValue"),
         EventKind::Hover => Some("onHover"),
-        EventKind::Key | EventKind::Keyup => Some("onKey"),
+        EventKind::Key | EventKind::Keycapture | EventKind::Keyup => Some("onKey"),
         EventKind::Beforeunload => Some("onUnload"),
         EventKind::Submit => Some("onSubmit"),
         EventKind::Message => Some("onMessage"),
@@ -39,8 +40,10 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Wheel => Some("onWheel"),
         EventKind::Drop => Some("onFileDrop"),
         EventKind::Blur | EventKind::Focus => Some("onFocus"),
+        EventKind::Focusin | EventKind::Focusout => Some("onFocusWithin"),
         EventKind::Copy | EventKind::Cut | EventKind::Paste => Some("onClipboard"),
         EventKind::Selectionchange => Some("onSelectionChange"),
+        EventKind::Toggle => Some("onToggle"),
         _ => None,
     }
 }
@@ -60,6 +63,7 @@ mod tests {
             Input,
             Hover,
             Key,
+            Keycapture,
             Keyup,
             Beforeunload,
             Submit,
@@ -75,6 +79,8 @@ mod tests {
             Drop,
             Blur,
             Focus,
+            Focusin,
+            Focusout,
             Copy,
             Cut,
             Paste,

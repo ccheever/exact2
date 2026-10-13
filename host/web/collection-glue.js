@@ -3,8 +3,8 @@
 // commits a collection (LLP 1047 D5); navigation.js stands in until then.
 // `fill` (LLP 1050.000 §6): `velocity` in CSS px/s toward the end, and
 // `limit`, the rows past what the report owes it may build (null: any);
-// `ancestorMoving`, an enclosing list is moving (LLP 1070 F2). Wire v3:
-// offset, port and row sizes on the list's main and cross axes.
+// `ancestorMoving`, an enclosing list is moving (LLP 1070 F2). Wire v4:
+// offset, port, padding and row sizes on the list's main and cross axes.
 export function collectionBytes(facts, fill = {}) {
   const valid = n => Number.isFinite(n) && n >= 0 && n <= 3.4028234663852886e38;
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
@@ -12,7 +12,7 @@ export function collectionBytes(facts, fill = {}) {
   const rows = facts.measurements, seen = new Set();
   // The offset counts from the first row: negative in the padding before it (LLP 1010 §6.9).
   if (!id(facts.view) || !(Number.isFinite(facts.offset) && Math.abs(facts.offset) <= 3.4028234663852886e38)
-      || ![facts.port_main, facts.port_cross, facts.cross].every(valid)
+      || ![facts.port_main, facts.port_cross, facts.cross, facts.padding?.[0], facts.padding?.[1]].every(valid)
       || [facts.focus_view, facts.interaction_view].some(n => n != null && !id(n))) throw Error('invalid collection geometry');
   for (const row of rows) {
     if (!id(row.view) || seen.has(row.view) || !valid(row.size)) throw Error('invalid collection row');
@@ -20,16 +20,16 @@ export function collectionBytes(facts, fill = {}) {
   }
   const velocity = Number.isFinite(fill.velocity) ? fill.velocity : 0;
   const limit = Number.isInteger(fill.limit) && fill.limit >= 0 ? Math.min(fill.limit, 0xfffffffe) : 0xffffffff;
-  const bytes = new Uint8Array(84 + rows.length * 20), d = new DataView(bytes.buffer);
-  d.setUint32(0, 3, true); d.setUint32(4, facts.view, true);
+  const bytes = new Uint8Array(100 + rows.length * 20), d = new DataView(bytes.buffer);
+  d.setUint32(0, 4, true); d.setUint32(4, facts.view, true);
   d.setBigUint64(8, u64(facts.revision), true); d.setBigUint64(16, u64(facts.scroll_sequence), true);
-  [facts.offset, facts.port_main, facts.port_cross, facts.cross].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
-  d.setUint32(56, facts.focus_view ?? 0, true); d.setUint32(60, facts.interaction_view ?? 0, true);
-  d.setFloat64(64, velocity, true); d.setUint32(72, limit, true);
-  d.setUint32(76, fill.ancestorMoving ? 1 : 0, true); d.setUint32(80, rows.length, true);
+  [facts.offset, facts.port_main, facts.port_cross, facts.cross, facts.padding[0], facts.padding[1]].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
+  d.setUint32(72, facts.focus_view ?? 0, true); d.setUint32(76, facts.interaction_view ?? 0, true);
+  d.setFloat64(80, velocity, true); d.setUint32(88, limit, true);
+  d.setUint32(92, fill.ancestorMoving ? 1 : 0, true); d.setUint32(96, rows.length, true);
   rows.forEach((row, i) => {
-    d.setUint32(84 + i * 20, row.view, true); d.setBigUint64(88 + i * 20, u64(row.epoch), true);
-    d.setFloat64(96 + i * 20, row.size, true);
+    d.setUint32(100 + i * 20, row.view, true); d.setBigUint64(104 + i * 20, u64(row.epoch), true);
+    d.setFloat64(112 + i * 20, row.size, true);
   });
   return bytes;
 }
@@ -40,9 +40,9 @@ const INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
 // Every main-axis read and write goes through one of these.
 const AXES = {
   y: { offset: 'scrollTop', client: 'clientHeight', crossClient: 'clientWidth', scrollSize: 'scrollHeight', overflow: 'overflowY',
-    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', padEnd: 'paddingBottom', scrollPads: ['scrollPaddingTop', 'scrollPaddingBottom'], crossPads: ['paddingLeft', 'paddingRight'] },
+    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', padEnd: 'paddingBottom', crossPads: ['paddingLeft', 'paddingRight'] },
   x: { offset: 'scrollLeft', client: 'clientWidth', crossClient: 'clientHeight', scrollSize: 'scrollWidth', overflow: 'overflowX',
-    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', padEnd: 'paddingRight', scrollPads: ['scrollPaddingLeft', 'scrollPaddingRight'], crossPads: ['paddingTop', 'paddingBottom'] },
+    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', padEnd: 'paddingRight', crossPads: ['paddingTop', 'paddingBottom'] },
 };
 
 export function applyCollectionFeedback(batch, applyBatch) {
@@ -124,16 +124,14 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     : { start: port.getBoundingClientRect()[A.start] + port[A.clientStart], main: port[A.client], cross: port[A.crossClient] };
   // `raw`: the port's start edge from the list's content origin; `cross`: the
   // rows' available cross size, after the list's cross-axis padding;
-  // `trailing`: the padding after the rows (LLP 1010 §6.9), for the JS
-  // target's runner (the wasm runner reads its own layout).
+  // `padding`: the padding before the rows and after them (LLP 1010 §6.9).
   function geometry(s) {
     if (!s.el.isConnected || !s.el.getClientRects().length) return null;
-    const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A);
-    const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + number(css[A.padStart])
+    const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A), leading = number(css[A.padStart]);
+    const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + leading
       - (s.el === s.port ? s.port[A.offset] : 0);
     return { raw: port.start - origin, portMain: port.main, portCross: port.cross,
-      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), trailing: number(css[A.padEnd]),
-      leading: number(css[A.padStart]), scrollPadding: A.scrollPads.map(p => number(css[p])) };
+      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), padding: [leading, number(css[A.padEnd])] };
   }
   const dimensionsOf = g => `${g.portCross},${g.portMain},${g.cross}`;
   function liveView(s, element) {
@@ -265,7 +263,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           return { view: row.view, epoch: row.epoch, size: rect[A.size] };
         });
       } else if (releases.includes(s)) {
-        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, trailing: old.trailing, leading: old.leading, scrollPadding: old.scrollPadding };
+        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, padding: old.padding };
       } else continue;
       scrollChanged(s);
       // The jump's target, clamped as the browser will: reported before it
@@ -278,9 +276,9 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(-g.leading, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
-        focus_view: pins[0], interaction_view: pins[1], measurements, trailing: g.trailing, leading: g.leading, scrollPadding: g.scrollPadding };
-      const signature = [facts.offset, facts.scroll_sequence, dimensions, facts.trailing, facts.leading, ...(facts.scrollPadding ?? []), ...pins,
+        offset: Math.max(-g.padding[0], g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
+        padding: g.padding, focus_view: pins[0], interaction_view: pins[1], measurements };
+      const signature = [facts.offset, facts.scroll_sequence, dimensions, ...g.padding, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
@@ -381,7 +379,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if(scrollChanged(s))enqueue(s,true);
       enqueue(s);if(!delivering)flush(true);
       const g=geometry(s),f=s.lastFacts,p=viewport(s.port,AXES.y);
-      if(!g||!f||f.offset!==Math.max(-g.leading,g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
+      if(!g||!f||f.offset!==Math.max(-g.padding[0],g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
         ||f.cross!==g.cross||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
       return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.offset,
         portWidth:g.portCross,portHeight:g.portMain,rowWidth:g.cross,totalExtent:s.snapshot.totalExtent,
@@ -407,7 +405,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (!lease || interaction?.lease !== lease || delivering || reportsLeft <= 0) return null;
       const s=lease.state,view=liveView(s,element),g=geometry(s),old=s.lastFacts;
       if (!states.has(s.snapshot.view)||!lease.wrapper.isConnected||!lease.wrapper.contains(element)||view==null
-        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(-g.leading,g.raw)
+        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(-g.padding[0],g.raw)
         ||old.port_cross!==g.portCross||old.port_main!==g.portMain||old.cross!==g.cross
         ||s.port[AXES[s.axis].offset]!==s.offset) return null;
       const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};
@@ -579,7 +577,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         const f = s.lastFacts, A = AXES[s.axis];
         if (!f || !s.valid || !s.el.isConnected) continue;
         const css = getComputedStyle(s.el);
-        if (number(css[A.padStart]) !== f.leading || number(css[A.padEnd]) !== f.trailing) enqueue(s, true);
+        if (number(css[A.padStart]) !== f.padding[0] || number(css[A.padEnd]) !== f.padding[1]) enqueue(s, true);
       }
     },
     // An authored offset on a collection (glue.js): on the list's own axis

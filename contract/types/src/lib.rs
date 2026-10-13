@@ -572,6 +572,8 @@ pub struct Types {
 impl Types {
     /// The component's declaration scope: props, slots, derives, resources, actions.
     pub fn component_scope(&self, c: &Component, ct: &ComponentTypes) -> Scope {
+        #[cfg(test)]
+        component::SCOPE_BUILDS.with(|count| count.set(count.get() + 1));
         let mut names = Vec::new();
         for (i, p) in c.props.iter().enumerate() {
             names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));

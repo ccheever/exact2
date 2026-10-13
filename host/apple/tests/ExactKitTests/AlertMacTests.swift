@@ -20,10 +20,13 @@ final class AlertMacTests: XCTestCase {
     /// `lines` (texts from 40), its `actions` by title (buttons from 10,
     /// their labels from 20) and a cancel (30, label 31). `popover` makes it
     /// a popover its opener invokes instead of a `dialog`; `extra` adds a
-    /// row that is none of those (an input, id 50).
+    /// row that is none of those (an input, id 50). A dialog's `closedby` is
+    /// what lowering implies for the alert's shape, `closerequest` (LLP
+    /// 1115.000 D13.4), unless the test says another.
     private func fixture(label: String? = "Remove Book?", lines: [String] = ["“Piranesi” will be removed from your library."],
                          actions: [String] = ["Remove"], props: [Int: [String: String]] = [10: ["destructive": "true"]],
-                         filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false) -> Presenter {
+                         filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false,
+                         closedby: String = "closerequest") -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
         p.buttonFace = { id in var face = ButtonFace(); if filled.contains(id) { face.style = "filled" }; return face }
@@ -32,7 +35,7 @@ final class AlertMacTests: XCTestCase {
         window.contentView = p.viewport
         let closing: [String: String] = popover ? ["popovertarget": "ask", "popovertargetaction": "hide"] : ["commandfor": "ask", "command": "close"]
         var dialog: [String: String] = ["id": "ask", "accessibilityRole": "alertdialog"]
-        if popover { dialog["popover"] = "auto" } else { dialog["semanticTag"] = "dialog"; dialog["closedby"] = "any" }
+        if popover { dialog["popover"] = "auto" } else { dialog["semanticTag"] = "dialog"; dialog["closedby"] = closedby }
         if let label { dialog["accessibilityLabel"] = label }
         var ops: [[String: Any]] = [
             ["op": "create", "id": 1, "kind": "view"],
@@ -72,8 +75,12 @@ final class AlertMacTests: XCTestCase {
                          characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
     }
 
+    /// The rule itself is the kernel's, asked through the C ABI
+    /// (`exact_confirmation_is_alert`): one rule for lowering, Linux and here.
     func testTheShapeAndItsWordsAreTheRuleIOSFollows() {
         XCTAssertTrue(ConfirmationShape.isAlert(texts: 1, actions: 1, cancels: 1))
+        XCTAssertTrue(ConfirmationShape.isAlert(texts: 1, actions: 0, cancels: 1), "text and a cancel alone")
+        XCTAssertFalse(ConfirmationShape.isAlert(texts: 1, actions: 1, cancels: 2), "two cancels")
         XCTAssertTrue(ConfirmationShape.isAlert(texts: 2, actions: 2, cancels: 1))
         XCTAssertFalse(ConfirmationShape.isAlert(texts: 1, actions: 3, cancels: 1), "more than three buttons")
         XCTAssertFalse(ConfirmationShape.isAlert(texts: 0, actions: 1, cancels: 1), "a chooser has no text")
@@ -101,11 +108,15 @@ final class AlertMacTests: XCTestCase {
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let dialog = try XCTUnwrap(p.views[3])
+        dialog.handlers.insert("close")
+        var closed: [UInt32] = []
+        p.onClose = { closed.append($0) }
         p.press(2)
         let owner = try XCTUnwrap(p.alerts.presented)
         let alert = owner.alert
         XCTAssertTrue(window.attachedSheet === alert.window, "a sheet on its window")
         XCTAssertNil(p.dialogs.active, "not the painted dialog")
+        XCTAssertEqual(p.openTopLayerFrames.map(\.0), [3], "the runner must see the open alertdialog")
         XCTAssertTrue(dialog.isHidden)
         XCTAssertEqual(alert.messageText, "Remove Book?")
         XCTAssertEqual(alert.informativeText, "“Piranesi” will be removed from your library.")
@@ -125,9 +136,12 @@ final class AlertMacTests: XCTestCase {
         alert.buttons[0].performClick(nil)
         XCTAssertNil(window.attachedSheet, "the sheet has ended")
         XCTAssertNil(p.alerts.presented)
+        XCTAssertTrue(p.openTopLayerFrames.isEmpty)
         XCTAssertEqual(pressed, [], "not inside the alert's own action")
         turn()
         XCTAssertEqual(pressed, [10], "the authored button, once")
+        turn()
+        XCTAssertEqual(closed, [3])
         // Escape, by the key AppKit binds: the cancel has nothing to press.
         p.dialogCommand("showModal", "ask")
         let again = try XCTUnwrap(p.alerts.presented).alert
@@ -136,6 +150,29 @@ final class AlertMacTests: XCTestCase {
         XCTAssertNil(p.alerts.presented)
         turn()
         XCTAssertEqual(pressed, [10])
+        XCTAssertEqual(closed, [3, 3])
+    }
+
+    func testDismissalStillClosesWhenTheChosenActionChangesBeforeItsTurn() throws {
+        let p = fixture()
+        p.views[3]?.handlers.insert("close")
+        var pressed: [UInt32] = [], closed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.onClose = { closed.append($0) }
+        for (id, changed, restored) in [(20, ["text": "Delete"], ["text": "Remove"]),
+                                        (10, ["disabled": "true"], ["disabled": "false"])] {
+            let before = closed.count
+            p.press(2)
+            try XCTUnwrap(p.alerts.presented).alert.buttons[0].performClick(nil)
+            XCTAssertNil(window.attachedSheet)
+            p.apply(wireBatch([["op": "props", "id": id, "set": changed, "clear": []]]))
+            turn()
+            turn()
+            XCTAssertEqual(pressed, [], "a stale action must not press")
+            XCTAssertEqual(closed.count, before + 1, "the mounted dialog already closed")
+            XCTAssertEqual(closed.last, 3)
+            p.apply(wireBatch([["op": "props", "id": id, "set": restored, "clear": []]]))
+        }
     }
 
     func testWithNoLabelTheFirstLineIsTheTitleAndAPopoverFromItsInvokerIsTheSameAlert() throws {
@@ -154,6 +191,20 @@ final class AlertMacTests: XCTestCase {
         alert.buttons[1].performClick(nil)
         turn()
         XCTAssertEqual(pressed, [11])
+    }
+
+    func testPopoverCommandsRetainExplicitSourceWithoutInvoker() throws {
+        let p = fixture(popover: true), trigger = try XCTUnwrap(p.views[2])
+        trigger.props["id"] = "trigger"
+        trigger.props["popovertarget"] = nil
+        p.menus.action("showPopover", ["ask", "trigger"])
+        let owner = try XCTUnwrap(p.alerts.presented)
+        XCTAssertTrue(owner.source === trigger)
+        XCTAssertTrue(p.alerts.valid(owner))
+        p.menus.action("showPopover", ["ask", "trigger"])
+        XCTAssertTrue(p.alerts.presented === owner)
+        p.menus.action("togglePopover", ["ask", "trigger"])
+        XCTAssertNil(p.alerts.presented)
     }
 
     /// The default (LLP 1115.000 D7.3): exactly one `filled`, non-destructive
@@ -191,16 +242,19 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(safe.rows.map(\.cancel), [false, true])
     }
 
-    /// Any other shape is presented as before: more than three buttons or
-    /// no cancel is the chooser's menu (ChooserMacTests), and a `dialog`
-    /// holding anything but text and buttons, or with no text, is painted.
+    /// Any other shape is no alert: more than three buttons or no cancel is
+    /// the chooser's menu (ChooserMacTests), and a `dialog` holding anything
+    /// but text and buttons, or with no text, is a sheet that holds the
+    /// dialog's own subtree (LLP 1115.002 D7.2, `DialogSheetMacTests`).
     func testOtherShapesAreNotAlerts() throws {
         let form = fixture(extra: true)
         form.press(2)
         XCTAssertNil(form.alerts.presented)
-        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a field is the painted dialog")
-        XCTAssertNil(window.attachedSheet)
+        XCTAssertTrue(form.dialogs.active === form.views[3], "a dialog with a field is the dialog itself")
+        XCTAssertTrue(window.attachedSheet === form.views[3]?.window, "in a sheet of its own, not the alert's")
+        XCTAssertFalse(window.attachedSheet is NSPanel, "AppKit's alert is a panel; this is the dialog's window")
         form.dialogs.reset()
+        XCTAssertNil(window.attachedSheet)
         window.close()
         let wordless = fixture(lines: [])
         wordless.press(2)
@@ -221,6 +275,53 @@ final class AlertMacTests: XCTestCase {
         // An action that does not also close it is no alert's button.
         let open = fixture(props: [10: ["command": "request-close"]])
         XCTAssertNil(open.alerts.plan(of: try XCTUnwrap(open.views[3])))
+    }
+
+    /// LLP 1115.000 D13.4: an alert has no outside, and `NSAlert` has none:
+    /// its sheet takes a click on the window behind it and gives Escape to
+    /// its cancel. So that is the alert shape under the `closedby` lowering
+    /// implies for it, `closerequest`. A `dialog` of the same rows whose
+    /// author wrote `closedby="any"` asks for the dismissible form, which on
+    /// the Mac is the dialog's own sheet (LLP 1115.002 D7.2): a click outside
+    /// closes it. Under `closedby="none"` the alert's cancel has no Escape.
+    func testAnAlertHasNoOutsideAndClosedbyAnyIsThePaintedDialog() throws {
+        let alert = fixture()
+        alert.press(2)
+        let sheet = try XCTUnwrap(alert.alerts.presented)
+        XCTAssertNil(alert.dialogs.active, "an `NSAlert`: nothing painted, so nothing outside to click")
+        alert.dialogs.outside()
+        XCTAssertTrue(alert.alerts.presented === sheet, "a click outside does nothing")
+        XCTAssertTrue(alert.alerts.key("Escape"), "Escape presses the cancel")
+        XCTAssertNil(alert.alerts.presented)
+        window.close()
+
+        let light = fixture(closedby: "any")
+        let dialog = try XCTUnwrap(light.views[3])
+        XCTAssertNil(light.alerts.plan(of: dialog), "not an alert: an alert has no outside")
+        light.press(2)
+        XCTAssertNil(light.alerts.presented)
+        XCTAssertTrue(light.dialogs.active === dialog, "the dialog itself")
+        XCTAssertTrue(window.attachedSheet === dialog.window, "in a sheet that holds its subtree")
+        XCTAssertEqual(light.dialogs.observation?["closedby"] as? String, "any")
+        XCTAssertEqual(light.dialogs.observation?["presentation"] as? String, "sheet")
+        // A click on the window behind it, both halves: the sheet's under `any`.
+        let behind = NSPoint(x: 20, y: 20)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let click = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: behind, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                         context: nil, eventNumber: 7, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            XCTAssertTrue(light.dialogs.pointer(click), "the click is the dialog's, not the page's")
+        }
+        XCTAssertNil(light.dialogs.active, "a click outside closes it")
+        XCTAssertNil(window.attachedSheet)
+        window.close()
+
+        let held = fixture(closedby: "none")
+        held.press(2)
+        let owner = try XCTUnwrap(held.alerts.presented)
+        XCTAssertEqual(owner.alert.buttons.map(\.keyEquivalent), ["", ""], "no Escape for the cancel")
+        XCTAssertFalse(held.alerts.key("Escape"))
+        XCTAssertTrue(held.alerts.presented === owner, "only its buttons end it")
+        held.alerts.reset()
     }
 
     /// The alert ends, with nothing pressed, when a batch changes what it

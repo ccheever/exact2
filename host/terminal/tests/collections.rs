@@ -207,3 +207,27 @@ fn navigation_skips_rows_without_enabled_controls_in_both_directions() {
     vt.render(&mut host);
     assert!(vt.text(false).contains("picked 0"), "{}", vt.text(false));
 }
+
+#[test]
+fn followed_end_tracks_changed_terminal_list_padding() {
+    let source = app(
+        "padding-top=\"1lh\" padding-bottom=(pad == 4 ? \"4lh\" : pad == 1 ? \"1lh\" : \"2lh\") scroll-start=\"end\" scrollFollowEnd=true",
+        "          text `row ${n}` height=\"1lh\"",
+    ).replace(
+        "  state picked = -1",
+        "  state picked = -1\n  state pad = 2\n  action grow\n    pad = 4\n  action shrink\n    pad = 1",
+    );
+    let (mut host, mut vt) = boot(&source, 40, 8);
+    for (action, last_line) in [(None, 5), (Some("grow"), 3), (Some("shrink"), 6)] {
+        if let Some(action) = action {
+            host.act(action);
+            vt.render(&mut host);
+        }
+        let screen = vt.text(false);
+        assert_eq!(
+            screen.lines().position(|line| line.contains("row 199")),
+            Some(last_line),
+            "{action:?}: {screen}"
+        );
+    }
+}
