@@ -273,7 +273,8 @@ extension Presenter {
               viewport.bounds.contains(viewport.convert(point, from: nil)) else {
             setHoverPath([]); pointerCursor(over: nil, at: point); return nil
         }
-        let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        // What is under the pointer, a table's row included (the table takes its clicks, not its hover).
+        let hit = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(point, from: nil) ?? point) }
         var path: [NodeView] = []
         var leaf: NodeView?
         var region = false

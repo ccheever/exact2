@@ -102,9 +102,11 @@ final class TableFixture {
         return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
     }
 
-    init(count: Int, size: CGSize = CGSize(width: 480, height: 600), style: NSTableView.Style = .inset, table: Bool = true, source: String? = nil) throws {
+    init(count: Int, size: CGSize = CGSize(width: 480, height: 600), table: Bool = true, source: String? = nil) throws {
         _ = NSApplication.shared
         session = ExactApp.shared.makeSession(label: "table-feed")
+        // A vertical list is a table unless its rows are to be painted, as the driver's own chrome paints them.
+        session.presenter.tables.painted = !table
         view = ExactView(session: session)
         window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -114,7 +116,7 @@ final class TableFixture {
         let presenter = session.presenter
         list = try XCTUnwrap(presenter.views.values.first { $0.props["testId"] == "rows" })
         presenter.settlePump()
-        feed = table ? try XCTUnwrap(presenter.tables.show(list, style: style), "the list is one the runner windows") : nil
+        feed = table ? try XCTUnwrap(presenter.tables.feeds[list.id], "a vertical list is a table") : nil
         settle()
     }
     func close() { session.destroy(); window.close() }

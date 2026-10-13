@@ -591,7 +591,8 @@ final class CollectionMacTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [5, 4]],
         ]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
-        XCTAssertTrue(try XCTUnwrap(list.container.subviews.first as? NodeView).paintGhost, "the leaving row is a paint ghost")
+        // The first of the nodes: a vertical list's table is under its rows in the same document (LLP 1115.002 D5).
+        XCTAssertTrue(try XCTUnwrap(list.container.subviews.compactMap { $0 as? NodeView }.first).paintGhost, "the leaving row is a paint ghost")
         p.apply(batch([["op": "destroy", "id": 2]]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
     }

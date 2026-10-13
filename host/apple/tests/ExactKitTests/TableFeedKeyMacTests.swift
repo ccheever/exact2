@@ -232,26 +232,12 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertEqual(f.cells[10_000]?.row.map(f.item), 9_999)
     }
 
-    func testAnArrowKeyPressesTheRowItReachesWhenSelectingIsThePress() throws {
-        let f = try keyed()
-        click(try f.node("title-5"), in: f)
-        XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), f.status)
-        // As SwiftUI's list of navigation links pushes when the keyboard
-        // moves the selection (measured beside this): chosen by the feed's owner.
-        f.feed.press = .selection
-        queued(125, "\u{F701}", [.function, .numericPad], in: f)
-        XCTAssertEqual(f.table.selectedRow, 6)
-        XCTAssertTrue(f.status.hasPrefix("opened 6 presses 2 "), f.status)
-        // A click is still one press, not the selection's and the action's both.
-        click(try f.node("title-8"), in: f)
-        XCTAssertEqual(f.table.selectedRow, 8)
-        XCTAssertTrue(f.status.hasPrefix("opened 8 presses 3 "), f.status)
-    }
-
     /// A list of `count` rows whose press pushes a route for the row, and
     /// that route's Back.
-    private static func pushing(count: Int) -> String {
-        """
+    private static func pushing(count: Int, links: Bool = false) -> String {
+        // The row: a `press` that pushes, or a link to the row's route.
+        let row = links ? "link href=`/item/${r}` display=\"block\"" : "row press=open(r)"
+        return """
         routes nav
           items "/"
             item "/item/:id"
@@ -276,7 +262,7 @@ final class TableFeedKeyMacTests: XCTestCase {
                   column navigationKey=`${e.id}` position="absolute" inset=0
                     list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
                       each r in rows key=`k${r}`
-                        row press=open(r) testId=`row-${r}` padding="6px 0" width="100%"
+                        \(row) testId=`row-${r}` padding="6px 0" width="100%"
                           text `Row ${r}` testId=`title-${r}`
                 when e.name == "item"
                   column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
@@ -312,6 +298,35 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertTrue(f.window.makeFirstResponder(f.table))
         down(in: f)
         XCTAssertEqual(f.table.selectedRow, 8)
+    }
+
+    /// The arrow keys, ruled by the references (measured on macOS 27.0, key
+    /// window): a stock table's action is the mouse's alone, and SwiftUI's
+    /// list of navigation links pushes the row an arrow key reaches. So a
+    /// row that is a link to one of the app's routes is pressed by the key
+    /// that reaches it. A row whose `press` is an action is only selected
+    /// (`testTheSelectionStaysWithItsItemAcrossARowsReuseAndTheKeyboard`):
+    /// whether an action pushes is the compiler's to say, and no host is told yet.
+    func testAnArrowKeyPushesTheNavigationRowItReaches() throws {
+        let f = try keyed(count: 160, source: Self.pushing(count: 160, links: true))
+        click(try f.node("title-7"), in: f)
+        XCTAssertEqual(try f.node("detail").accessibleText, "Item 7", "a click on a link row follows it")
+        XCTAssertEqual(f.table.selectedRow, 7)
+        f.presenter.press(try f.node("back").id)
+        f.settle()
+        pump(0.6) { false }
+        f.settle()
+        XCTAssertNil(f.presenter.navigation.pushedRoute)
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        // Through the application's queue, as a person's key arrives.
+        queued(125, "\u{F701}", [.function, .numericPad], in: f)
+        XCTAssertEqual(f.table.selectedRow, 8)
+        XCTAssertEqual(try f.node("detail").accessibleText, "Item 8", "Down selected the next row and pushed its route")
+        f.presenter.press(try f.node("back").id)
+        f.settle()
+        pump(0.6) { false }
+        f.settle()
+        XCTAssertEqual(f.table.selectedRow, 8, "and it is still selected on the way back")
     }
 
     /// The window server's picture of the fixture's window, saved where `EXACT_PROOF_SHOTS` says.
