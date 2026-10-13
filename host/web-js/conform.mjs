@@ -71,7 +71,7 @@ import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { availableParallelism } from 'node:os';
+import { conformArgs } from './conform-args.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
@@ -92,15 +92,7 @@ const spawned = (command, args, options) => new Promise((done) => {
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const argv = process.argv.slice(2);
-const defaults = {
-  '--wasm-root': '/tmp/e3-wasm', '--out': '/tmp/exact-web-js-conform',
-  '--steps': 10, '--browser': null, '--only': null, '--label': 'urls',
-  '--jobs': Math.min(4, availableParallelism()),
-};
-const options = Object.fromEntries(Object.entries(defaults).map(([flag, fallback]) => {
-  const i = argv.indexOf(flag);
-  return [flag, i < 0 ? fallback : argv[i + 1]];
-}));
+const { options, named } = conformArgs(argv);
 const wasmRoot = resolve(options['--wasm-root']);
 const out = resolve(options['--out']);
 const maxSteps = Number(options['--steps']);
@@ -120,7 +112,6 @@ const knownFor = (app, step, field, what) => knownByKey.get(`${app}\0${step}\0${
 if (known.some(entry => !entry.app || !entry.step || !entry.field || !entry.reason)) throw new Error(`known-${crossBrowser}.json: every entry needs app, step, field, and reason`);
 if (knownByKey.size !== exact.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
 const only = options['--only'];
-const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !Object.hasOwn(options, argv[i - 1]));
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 // The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).

@@ -1,23 +1,31 @@
 import { test, expect } from 'bun:test';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { conformArgs } from './conform-args.mjs';
 
-// Missing builds stop before browser launch but still report every selected app.
-test('conformance option values are not selected as apps', () => {
-  const root = resolve(import.meta.dir, '../..');
-  const dir = mkdtempSync(resolve(root, 'target/conform-args-'));
-  try {
-    const out = resolve(dir, 'report');
-    const result = spawnSync(process.execPath, [
-      resolve(import.meta.dir, 'conform.mjs'), '--jobs', '1', 'caltrain',
-      '--steps', '0', '--label', 'probe', '--wasm-root', resolve(dir, 'wasm'),
-      '--out', out, '--strict',
-    ], { cwd: root, encoding: 'utf8' });
-    expect(result.status).toBe(1);
-    const report = JSON.parse(readFileSync(resolve(out, 'report.json'), 'utf8'));
-    expect(report.failures.map(f => f.target)).toEqual(['caltrain']);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}, 60_000);
+test('conformance selects menus without treating the job count as an app', () => {
+  const { options, named } = conformArgs(['menus', '--jobs', '1', '--build', '--strict']);
+  expect(named).toEqual(['menus']);
+  expect(options['--jobs']).toBe('1');
+});
+
+test('conformance consumes every value option between named apps', () => {
+  const values = {
+    '--wasm-root': 'wasm', '--out': 'report', '--steps': '0', '--browser': 'firefox',
+    '--only': 'menus', '--label': 'probe', '--jobs': '2',
+  };
+  const { options, named } = conformArgs(['caltrain', ...Object.entries(values).flat(), 'menus']);
+  expect(named).toEqual(['caltrain', 'menus']);
+  expect(options).toEqual(values);
+  const defaults = conformArgs([]);
+  expect(defaults.named).toEqual([]);
+  expect(defaults.options['--steps']).toBe(10);
+  expect(defaults.options['--jobs']).toBeGreaterThanOrEqual(1);
+  expect(defaults.options['--jobs']).toBeLessThanOrEqual(4);
+});
+
+test('URL comparison does not select its URLs or label as apps', () => {
+  const { options, named } = conformArgs([
+    '--urls', 'caltrain', 'http://localhost:8000', 'http://localhost:8001', '--label', 'preview',
+  ]);
+  expect(named).toEqual([]);
+  expect(options['--label']).toBe('preview');
+});
