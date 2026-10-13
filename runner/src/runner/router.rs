@@ -576,6 +576,13 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             self.init_slot(i, carried)?;
+            // Where the viewer is, known at launch (`launching_with`): the
+            // locale `set_place` writes, before any initializer calls `t`.
+            if Some(i) == locale && crate::time::launch_place().is_some() {
+                if let Some(resolved) = self.plan.resolve_locale(&self.place.locale) {
+                    self.slots[i] = Value::str(resolved);
+                }
+            }
         }
         Ok(())
     }

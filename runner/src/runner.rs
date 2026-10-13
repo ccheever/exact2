@@ -896,12 +896,6 @@ impl<D: DataSource> Runner<D> {
             conformed: Default::default(),
         };
         runner.init_slots(carried, launch)?;
-        // Where the viewer is, known at launch: the locale slot as `set_place` writes it.
-        if let (Some(_), Some(slot)) = (&launched_place, runner.plan.locale) {
-            if let Some(resolved) = runner.plan.resolve_locale(&runner.place.locale) {
-                runner.slots[slot.0 as usize] = Value::str(resolved);
-            }
-        }
         runner.derives = vec![None; runner.plan.derives.len()];
         // Resources: carry only the same named source and a value that still
         // fits the declared shape; a carried value can refuse nothing.

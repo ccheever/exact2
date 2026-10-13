@@ -315,8 +315,9 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     };
     let place = crate::zone::launch_place(|key| std::env::var(key).ok())?;
     let agent_time = crate::zone::agent_time(|key| std::env::var(key).ok(), &place.time_zone)?;
-    // What the host knows at launch, read from the first settle; `delivered`
-    // tells the same facts after, which then commit nothing.
+    // What the host knows at launch, read from the first settle. The date is
+    // sampled once, here, as the runner's clock zero (it starts at the boot):
+    // `delivered` tells the same fact after, which commits nothing.
     let (epoch_at_zero, utc_offset) = agent_time.unwrap_or_else(|| {
         let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
         (
@@ -343,18 +344,9 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         if let Some(e) = booted.0.set_place(&place) {
             eprintln!("exact: {e}");
         }
-        // @ref LLP 1027.000.000 — the date, at the clock's zero (now: boot);
-        // under the agent, the drive's epoch (D3).
-        let (epoch, offset) = agent_time.unwrap_or_else(|| {
-            let wall = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
-            (
-                wall - booted.0.host().now(),
-                crate::zone::local_offset_minutes(),
-            )
-        });
-        if let Some(e) = booted.0.set_time(epoch, offset) {
+        // @ref LLP 1027.000.000 — the date at the clock's zero, the boot's
+        // (above); under the agent, the drive's epoch (D3).
+        if let Some(e) = booted.0.set_time(epoch_at_zero, utc_offset) {
             eprintln!("exact: {e}");
         }
         // @ref LLP 1069.000 D2, D6 — this host has no share sheet and no

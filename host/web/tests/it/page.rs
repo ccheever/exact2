@@ -350,7 +350,7 @@ fn resolved_language_is_published_at_boot_and_after_switching() {
 /// leaves the last one, and the running runner is not told.
 #[test]
 fn the_launch_place_and_date_are_the_first_batchs() {
-    let mut plan = contract::compile("shape Time\n  utcOffset: number\n  locale: string\ncomponent App\n  state language = \"en\"\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.utcOffset}` testId=\"text\"\n").unwrap();
+    let mut plan = contract::compile("shape Time\n  utcOffset: number\n  locale: string\ncomponent App\n  state language = \"en\"\n  state seen = language\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.utcOffset}/${seen}` testId=\"text\"\n").unwrap();
     plan.locale = Some(exact_plan::SlotsId(0));
     for rtl in [false, true] {
         let name = exact_plan::StrId(plan.strings.len() as u32);
@@ -375,5 +375,6 @@ fn the_launch_place_and_date_are_the_first_batchs() {
         batch.contains(r#"{"op":"language","lang":"ar","dir":"rtl"}"#),
         "{batch}"
     );
-    assert!(batch.contains("ar-EG/120"), "{batch}");
+    // A root initializer reading the locale slot reads the launch's.
+    assert!(batch.contains("ar-EG/120/ar"), "{batch}");
 }
