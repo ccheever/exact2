@@ -691,15 +691,20 @@ An 8-bit sRGB screenshot can't check a color decision. `screenshot` stays
 LLP 1069.002's HEIC → JPEG conversion (`Picker.jpeg`) writes JPEG at
 quality 0.9 with orientation applied and no metadata copied.
 
-- The color profile is kept.
+- The color profile is kept unless the SDR fallback below renders Display P3.
 - From iOS 18 / macOS 15, an HDR photo (a gain map, PQ or HLG) is decoded
   with `kCGImageSourceDecodeToHDR` and written with
   `kCGImageDestinationEncodeToISOGainmap`. The written JPEG must contain
   the ISO gain map and classify as HDR. A failed or declined encode retries
   with ImageIO's SDR decode and encode requests. The retry must classify as
   SDR and report `CIImage.contentHeadroom` 1, or 0 (unknown) in a non-BT.2100
-  space; otherwise conversion fails. The simulator's PQ/HLG conversion
-  remains open in `QUEUE.md`.
+  space. If a finalized retry still fails that validation, a third encode
+  uses Core Image's `toneMapHDRtoSDR`, applies the source orientation, and
+  renders RGBA8 Display P3 in an extended linear Display P3 working space.
+  It writes a plain JPEG and requires the same SDR validation. Core Image's
+  option is available from iOS/tvOS 14.1 and macOS 11; this fallback runs
+  inside the 18/15/18 guard needed for the paired ImageIO requests and
+  headroom validation. A failed conversion removes its output.
 - Before 18, an HDR photo becomes its SDR picture.
 
 ## 5. What this changes elsewhere

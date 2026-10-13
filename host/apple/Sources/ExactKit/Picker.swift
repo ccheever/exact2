@@ -131,6 +131,7 @@ final class Picker: NSObject {
                 try? FileManager.default.removeItem(at: target)
                 try Picker.copy(f.url, to: target, accept: accept, mime: mime)
             } catch {
+                try? FileManager.default.removeItem(at: target)
                 session.log("picker: refused: \(f.name): \(error.localizedDescription)"); cancel(view); return
             }
             let type = convert ? "image/jpeg" : mime
@@ -179,20 +180,36 @@ final class Picker: NSObject {
     }
 
     /// D6: JPEG at quality 0.9, orientation applied, with no metadata copied
-    /// (so no location). The color profile is kept, and an HDR photo is
-    /// written with an ISO 21496-1 gain map where ImageIO can encode it.
-    /// A rejected HDR encode retries ImageIO's SDR rendition (LLP 1100 D13).
+    /// (so no location). An HDR photo is written with an ISO 21496-1 gain
+    /// map where ImageIO can encode it, preserving the color profile.
+    /// A rejected HDR encode retries ImageIO's SDR rendition, then Core
+    /// Image's Display P3 tone map if ImageIO still writes HDR (LLP 1100 D13).
     static func jpeg(from: URL, to: URL, finalize: (CGImageDestination) -> Bool = CGImageDestinationFinalize) throws {
+        var accepted = false
+        defer { if !accepted { try? FileManager.default.removeItem(at: to) } }
         guard let source = CGImageSourceCreateWithURL(from as CFURL, nil), let (w, h) = pixels(from)
         else { throw CocoaError(.fileReadCorruptFile) }
+        func encode(_ image: CGImage, options: [CFString: Any]) throws {
+            guard let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+            else { throw CocoaError(.fileWriteUnknown) }
+            CGImageDestinationAddImage(destination, image, options as CFDictionary)
+            guard finalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        }
         func write(hdr: Bool) throws {
             let options = jpegOptions(maxPixel: max(w, h), hdr: hdr)
             guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options.decode as CFDictionary)
             else { throw CocoaError(.fileReadCorruptFile) }
-            guard let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
-            else { throw CocoaError(.fileWriteUnknown) }
-            CGImageDestinationAddImage(destination, image, options.encode as CFDictionary)
-            guard finalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+            try encode(image, options: options.encode)
+        }
+        @available(iOS 18, macOS 15, tvOS 18, *)
+        func isSDRResult() -> Bool {
+            guard let result = CGImageSourceCreateWithURL(to as CFURL, nil),
+                  !isHDR(result), let image = CGImageSourceCreateImageAtIndex(result, 0, nil)
+            else { return false }
+            // CIImage reports 0 for unknown headroom, 1 for SDR.
+            // https://developer.apple.com/documentation/coreimage/ciimage/contentheadroom
+            let headroom = CIImage(cgImage: image).contentHeadroom
+            return headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true)
         }
         var wantsHDR = false
         if #available(iOS 18, macOS 15, tvOS 18, *) { wantsHDR = isHDR(source) }
@@ -200,19 +217,21 @@ final class Picker: NSObject {
            (try? write(hdr: true)) != nil,
            let result = CGImageSourceCreateWithURL(to as CFURL, nil),
            CGImageSourceCopyAuxiliaryDataInfoAtIndex(result, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil,
-           isHDR(result) { return }
+           isHDR(result) { accepted = true; return }
         try write(hdr: false)
-        if #available(iOS 18, macOS 15, tvOS 18, *) {
+        if #available(iOS 18, macOS 15, tvOS 18, *), !isSDRResult() {
             // ImageIO can finalize a JPEG while ignoring both SDR requests.
-            guard let result = CGImageSourceCreateWithURL(to as CFURL, nil),
-                  !isHDR(result), let image = CGImageSourceCreateImageAtIndex(result, 0, nil)
+            guard let image = CIImage(contentsOf: from, options: [.toneMapHDRtoSDR: true, .applyOrientationProperty: true]),
+                  let working = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3),
+                  let output = CGColorSpace(name: CGColorSpace.displayP3)
             else { throw CocoaError(.fileWriteUnknown) }
-            // CIImage reports 0 for unknown headroom, 1 for SDR.
-            // https://developer.apple.com/documentation/coreimage/ciimage/contentheadroom
-            let headroom = CIImage(cgImage: image).contentHeadroom
-            guard headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true)
+            let context = CIContext(options: [.workingColorSpace: working])
+            guard let bitmap = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: output)
             else { throw CocoaError(.fileWriteUnknown) }
+            try encode(bitmap, options: [kCGImageDestinationLossyCompressionQuality: 0.9])
+            guard isSDRResult() else { throw CocoaError(.fileWriteUnknown) }
         }
+        accepted = true
     }
 
     static func jpegOptions(maxPixel: Int, hdr: Bool) -> (decode: [CFString: Any], encode: [CFString: Any]) {

@@ -111,7 +111,8 @@ final class PickerColorTests: XCTestCase {
         XCTAssertEqual(properties[kCGImagePropertyOrientation] as? Int ?? 1, 1)
         attempts = 0
         XCTAssertThrowsError(try Picker.jpeg(from: source, to: out, finalize: { _ in attempts += 1; return false }))
-        XCTAssertEqual(attempts, 2, "only failure of both encodes cancels conversion")
+        XCTAssertEqual(attempts, 2, "a failed SDR write cancels conversion")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "failed conversion leaves no JPEG")
     }
 
     func testAFinalizedJPEGWithoutAGainMapRetriesSDR() throws {
@@ -137,7 +138,36 @@ final class PickerColorTests: XCTestCase {
         XCTAssertEqual(CIImage(cgImage: image).contentHeadroom, 1)
     }
 
-    func testAnSDRRetryRejectsAJPEGThatStillHasAGainMap() throws {
+    func testAnSDRRetryThatStaysHDRUsesAnOrientedCoreImageToneMap() throws {
+        guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("gain-map encoding needs macOS 15 / iOS 18") }
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+        defer { try? FileManager.default.removeItem(at: out) }
+        let hdr = try Data(contentsOf: Self.dir.appendingPathComponent("gainmap-iso.jpg"))
+        var attempts = 0
+        try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-orient6.heic"), to: out, finalize: { destination in
+            attempts += 1
+            let written = CGImageDestinationFinalize(destination)
+            if attempts == 1 { return false }
+            guard attempts == 2 else { return written }
+            // A finalized SDR request can still carry HDR; Core Image must retry it.
+            do { try hdr.write(to: out); return true }
+            catch { XCTFail("substituting the finalized JPEG: \(error)"); return false }
+        })
+        XCTAssertEqual(attempts, 3)
+        let jpeg = try XCTUnwrap(CGImageSourceCreateWithURL(out as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
+        XCTAssertFalse(Picker.isHDR(jpeg))
+        XCTAssertEqual(CIImage(cgImage: image).contentHeadroom, 1)
+        XCTAssertEqual(image.colorSpace?.name, CGColorSpace.displayP3)
+        XCTAssertEqual(image.width, 64)
+        XCTAssertEqual(image.height, 256)
+        let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(jpeg, 0, nil) as? [CFString: Any])
+        XCTAssertEqual(properties[kCGImagePropertyOrientation] as? Int ?? 1, 1)
+        let bright = try HDRPlatformProbe.sample(image, x: 147, sourceWidth: 256, rotated: true)
+        XCTAssertGreaterThan(try XCTUnwrap(bright.max()), 0.5, "the oriented tone map retains light")
+    }
+
+    func testFailedConversionRemovesItsOutput() throws {
         guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("gain-map encoding needs macOS 15 / iOS 18") }
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
         defer { try? FileManager.default.removeItem(at: out) }
@@ -146,15 +176,16 @@ final class PickerColorTests: XCTestCase {
         XCTAssertThrowsError(try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-iso.heic"), to: out, finalize: { destination in
             attempts += 1
             _ = CGImageDestinationFinalize(destination)
-            guard attempts == 2 else { return false }
+            if attempts == 1 { return false }
             do { try hdr.write(to: out); return true }
             catch { XCTFail("substituting the finalized JPEG: \(error)"); return false }
         }))
-        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(attempts, 3)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "even a finalized but rejected JPEG is removed")
     }
 
     func testAnHDRPhotoKeepsItsGainMapAndProfile() throws {
-        for file in ["gainmap-iso.heic", "pq.heic", "hlg.heic"] {
+        for file in ["gainmap-iso.heic", "pq.heic", "pq.avif", "hlg.heic"] {
             let declined = try HDRPlatformProbe.declined("\(file): HDR JPEG and gain map", {
                 try HDRPlatformProbe.requireGainMapJPEG(Self.dir.appendingPathComponent(file))
             })
@@ -172,36 +203,31 @@ final class PickerColorTests: XCTestCase {
             } catch {
                 conversionError = error
             }
-            #if os(iOS) && targetEnvironment(simulator)
-            if file == "pq.heic" || file == "hlg.heic" {
-                XCTAssertEqual(attempts, 2, file)
-                if let error = conversionError {
-                    XCTAssertEqual((error as? CocoaError)?.code, .fileWriteUnknown, file)
-                    let rejected = try XCTUnwrap(CGImageSourceCreateWithURL(out as CFURL, nil))
-                    let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(rejected, 0, nil))
-                    XCTAssertTrue(image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) == true, file)
-                    if #available(iOS 18, *) { XCTAssertEqual(CIImage(cgImage: image).contentHeadroom, 4.93, accuracy: 0.01, file) }
-                }
-                XCTExpectFailure("QUEUE: iOS PQ/HLG picker SDR conversion and physical HDR qualification; \(file) retains BT.2100 at headroom 4.93", strict: true) {
-                    XCTAssertNil(conversionError, "\(file): JPEG conversion must succeed")
-                }
-            } else {
-                XCTAssertNil(conversionError, "\(file): JPEG conversion must succeed")
-            }
-            #else
             XCTAssertNil(conversionError, "\(file): JPEG conversion must succeed")
-            #endif
+            var expectedAttempts = 1
+            if #available(macOS 15, iOS 18, tvOS 18, *), declined != nil {
+                let sdrDeclined = try HDRPlatformProbe.declined("\(file): ImageIO SDR JPEG", {
+                    try HDRPlatformProbe.requireSDRJPEG(Self.dir.appendingPathComponent(file))
+                })
+                expectedAttempts = sdrDeclined == nil ? 2 : 3
+            }
+            XCTAssertEqual(attempts, expectedAttempts, "\(file): each supported encode must succeed on its first attempt")
+            XCTContext.runActivity(named: "\(file): JPEG conversion took \(attempts) attempt(s)") { _ in }
             guard let jpeg = converted else { continue }
             let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
             let (w, h) = try XCTUnwrap(Picker.pixels(Self.dir.appendingPathComponent(file)))
             XCTAssertEqual(image.width, w, file)
             XCTAssertEqual(image.height, h, file)
-            if attempts == 2 {
+            if attempts > 1 {
                 XCTAssertFalse(Picker.isHDR(jpeg), "\(file): the retry writes plain SDR")
                 if #available(macOS 15, iOS 18, tvOS 18, *) {
-                    XCTAssertEqual(CIImage(cgImage: image).contentHeadroom, 1, file)
+                    let headroom = CIImage(cgImage: image).contentHeadroom
+                    XCTAssertTrue(headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true), file)
                     XCTAssertNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap), file)
                 }
+            }
+            if attempts == 3 {
+                try assertCoreImageToneMap(image, file: file)
             }
             if declined == nil && attempts == 1 {
                 XCTAssertTrue(Picker.isHDR(jpeg), "\(file): still HDR as JPEG")
@@ -226,10 +252,38 @@ final class PickerColorTests: XCTestCase {
         XCTAssertEqual(properties[kCGImagePropertyPixelWidth] as? Int, 64)
         XCTAssertEqual(properties[kCGImagePropertyPixelHeight] as? Int, 256)
         XCTAssertEqual(properties[kCGImagePropertyOrientation] as? Int ?? 1, 1)
-        if try HDRPlatformProbe.declined("gainmap-orient6.heic: HDR JPEG", {
+        let declined = try HDRPlatformProbe.declined("gainmap-orient6.heic: HDR JPEG", {
             try HDRPlatformProbe.requireGainMapJPEG(Self.dir.appendingPathComponent("gainmap-orient6.heic"))
-        }) == nil && attempts == 1 {
+        })
+        if declined == nil { XCTAssertEqual(attempts, 1, "a supported gain-map encode must not fall back to SDR") }
+        XCTContext.runActivity(named: "gainmap-orient6.heic: JPEG conversion took \(attempts) attempt(s)") { _ in }
+        if declined == nil && attempts == 1 {
             XCTAssertTrue(Picker.isHDR(jpeg))
+            if #available(macOS 15, iOS 18, tvOS 18, *) {
+                XCTAssertNotNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap))
+            }
         }
+    }
+
+    private func assertCoreImageToneMap(_ image: CGImage, file: String) throws {
+        let source = try XCTUnwrap(CIImage(contentsOf: Self.dir.appendingPathComponent(file), options: [.toneMapHDRtoSDR: true]))
+        let context = CIContext(options: [.workingColorSpace: try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3))])
+        let reference = try XCTUnwrap(context.createCGImage(source, from: source.extent, format: .RGBA8,
+            colorSpace: try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))))
+        XCTAssertEqual(image.colorSpace?.name, CGColorSpace.displayP3, file)
+        // These columns fall inside neutral patches in both the PQ and HLG fixtures.
+        let columns = [21, 63, 105, 147, 189, 233]
+        let stored = try columns.map { try HDRPlatformProbe.sample(image, x: $0, sourceWidth: 256) }
+        let expected = try columns.map { try HDRPlatformProbe.sample(reference, x: $0, sourceWidth: 256) }
+        for (got, want) in zip(stored, expected) {
+            for c in 0..<3 { XCTAssertEqual(got[c], want[c], accuracy: 0.02, "\(file): Core Image's tone map survives JPEG encoding") }
+        }
+        // The gain-map fixture starts above black and ends with coloured patches.
+        guard file != "gainmap-iso.heic" else { return }
+        let neutral = stored.map { $0[1] }
+        XCTAssertEqual(neutral.first!, 0, accuracy: 0.01, file)
+        XCTAssertGreaterThan(neutral[1], 0.01, "\(file): the tone map is not black")
+        XCTAssertEqual(neutral.last!, 1, accuracy: 0.02, file)
+        XCTAssertEqual(neutral, neutral.sorted(), "\(file): brighter stays brighter")
     }
 }

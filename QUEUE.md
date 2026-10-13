@@ -803,15 +803,8 @@ sits on that list carries the trade it would take.
   thread's time in that fling (Time Profiler, 1136 samples). Merging the slices landed inside one
   apply into a single pass would pay it once. It touches the T4 ordering code, so parked until a
   device shows the cost.
-- **iOS PQ/HLG picker SDR conversion and physical HDR qualification** (2026-10-13):
-  `PickerColorTests.testAnHDRPhotoKeepsItsGainMapAndProfile` expects exactly the
-  simulator's failed `pq.heic` and `hlg.heic` conversions with strict
-  `XCTExpectFailure`. ImageIO's ISO gain-map encode fails; the SDR decode and
-  encode requests finalize a JPEG still in PQ/HLG at `CIImage.contentHeadroom`
-  4.9261084. Exact rejects it. A working platform SDR conversion remains owed.
-  The failure expectation covers only conversion success. The retry count,
-  error, retained BT.2100 space and headroom are asserted outside it.
-  On the iOS 27 simulator (iPhone 17 Pro), independent Apple API probes also
+- **Physical iPhone HDR qualification** (2026-10-13):
+  On the iOS 27 simulator (iPhone 17 Pro), independent Apple API probes
   report `RGBA8Uint` for `.RGBA16Float` and `.gray8Uint` layer format hints,
   headroom 1 instead of 4 for gain-map HDR decodes, retained PQ/HLG for SDR
   decodes, and no ISO gain map when encoding the gain-map fixtures. The
@@ -861,12 +854,6 @@ sits on that list carries the trade it would take.
     CODE_SIGN_IDENTITY='Apple Development' DEVELOPMENT_TEAM="$TEAM_ID" \
     LIBRARY_SEARCH_PATHS="$EXACT_LIB_DIR"
   ```
-- **macOS field event XCTest failures** (2026-10-13, macOS 27.0.1,
-  `bun host/apple/build.mjs --test`): `NativeFieldsMacTests.testSearchInputIsANativeSearchField`
-  gets no input event after clearing, and `MarkupEditorTests`' plain-textarea
-  undo/redo and unfocused-editor cases get empty edits/history. Both classes
-  fail before and after the HDR fixes; the four colour classes pass afterward.
-  Field/editor sources are unchanged in that comparison.
 - **The date and place at launch on the remaining hosts** (2026-10-13; Apple, the Rust/Wasm web
   host and the Linux family's app boot boot under them, `exact_runner::time::launching_with`, and
   the JS target answers `exactTime` from the page): the render host, the content-region host,

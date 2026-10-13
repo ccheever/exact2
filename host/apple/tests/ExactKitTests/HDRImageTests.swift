@@ -90,7 +90,8 @@ final class HDRImageTests: XCTestCase {
     /// approximation of the original (an 8-bit base, a reduced 8-bit map), so
     /// the check is its shape, not the original's numbers: white stays near
     /// 1, light above it is recovered, brighter patches stay brighter, and
-    /// the headroom is the one it was made with (4).
+    /// the headroom is the one it was made with (4), or BT.2100's default
+    /// when ImageIO doesn't report the gain map's headroom.
     func testAGainMapRecoversLightAboveSDRWhite() throws {
         for file in ["gainmap-iso.jpg", "gainmap-iso.heic", "gainmap-orient6.heic"] {
             let (metadata, plan, image) = try decode(file, variant: RasterVariant.hdr)
@@ -114,7 +115,9 @@ final class HDRImageTests: XCTestCase {
                 }
             }) != nil { continue }
             XCTAssertTrue(image.isHDR, file)
-            XCTAssertEqual(image.headroom, 4, accuracy: 0.05, file)
+            let referenceHeadroom: Float = 1000 / 203
+            let expectedHeadroom: Float = abs(headroom - referenceHeadroom) < 0.01 ? referenceHeadroom : 4
+            XCTAssertEqual(image.headroom, expectedHeadroom, accuracy: 0.05, file)
             XCTAssertTrue(image.image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) == true, file)
             guard metadata.orientation == 1 else { continue }
             let neutral = stored.map { $0[1] }
@@ -233,8 +236,10 @@ enum HDRPlatformProbe {
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceShouldAllowFloat: plan.deep,
         ]
-        if #available(iOS 18, macOS 15, tvOS 18, *), hdr {
-            options[kCGImageSourceDecodeRequest] = plan.variant == RasterVariant.hdr ? kCGImageSourceDecodeToHDR : kCGImageSourceDecodeToSDR
+        if plan.variant == RasterVariant.hdr {
+            options[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
+        } else if hdr {
+            options[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToSDR
         }
         return try XCTUnwrap(CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary))
     }
@@ -276,8 +281,8 @@ enum HDRPlatformProbe {
         return (0..<3).map { Double(px[i + $0]) / max(Double(px[i + 3]), 1e-6) }
     }
 
-    static func requireGainMapJPEG(_ url: URL) throws {
-        guard #available(iOS 18, macOS 15, tvOS 18, *) else { throw Declined(reason: "ISO gain-map encoding needs iOS 18 / macOS 15") }
+    @available(iOS 18, macOS 15, tvOS 18, *)
+    private static func jpeg(_ url: URL, hdr: Bool) throws -> CGImageSource {
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
         let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
         let w = try XCTUnwrap(properties[kCGImagePropertyPixelWidth] as? Int)
@@ -286,21 +291,39 @@ enum HDRPlatformProbe {
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: max(w, h),
-            kCGImageSourceDecodeRequest: kCGImageSourceDecodeToHDR,
+            kCGImageSourceDecodeRequest: hdr ? kCGImageSourceDecodeToHDR : kCGImageSourceDecodeToSDR,
         ]
         let image = try XCTUnwrap(CGImageSourceCreateThumbnailAtIndex(source, 0, decode as CFDictionary))
         let bytes = NSMutableData()
         let destination = try XCTUnwrap(CGImageDestinationCreateWithData(bytes, "public.jpeg" as CFString, 1, nil))
         CGImageDestinationAddImage(destination, image, [
             kCGImageDestinationLossyCompressionQuality: 0.9,
-            kCGImageDestinationEncodeRequest: kCGImageDestinationEncodeToISOGainmap,
+            kCGImageDestinationEncodeRequest: hdr ? kCGImageDestinationEncodeToISOGainmap : kCGImageDestinationEncodeToSDR,
         ] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else {
-            throw Declined(reason: "CGImageDestinationFinalize fails for kCGImageDestinationEncodeToISOGainmap from \(url.lastPathComponent)")
+            throw Declined(reason: "CGImageDestinationFinalize fails for \(hdr ? "ISO gain-map" : "SDR") JPEG from \(url.lastPathComponent)")
         }
-        let jpeg = try XCTUnwrap(CGImageSourceCreateWithData(bytes, nil))
+        return try XCTUnwrap(CGImageSourceCreateWithData(bytes, nil))
+    }
+
+    static func requireGainMapJPEG(_ url: URL) throws {
+        guard #available(iOS 18, macOS 15, tvOS 18, *) else { throw Declined(reason: "ISO gain-map encoding needs iOS 18 / macOS 15") }
+        let jpeg = try jpeg(url, hdr: true)
         guard CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil else {
             throw Declined(reason: "kCGImageDestinationEncodeToISOGainmap produces no ISO gain map from \(url.lastPathComponent)")
+        }
+    }
+
+    @available(iOS 18, macOS 15, tvOS 18, *)
+    static func requireSDRJPEG(_ url: URL) throws {
+        let jpeg = try jpeg(url, hdr: false)
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(jpeg, 0, nil))
+        let headroom = CIImage(cgImage: image).contentHeadroom
+        guard CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeISOGainMap) == nil,
+              CGImageSourceCopyAuxiliaryDataInfoAtIndex(jpeg, 0, kCGImageAuxiliaryDataTypeHDRGainMap) == nil,
+              image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true,
+              headroom == 0 || headroom == 1 else {
+            throw Declined(reason: "ImageIO's SDR JPEG retains \(String(describing: image.colorSpace?.name)), headroom \(headroom), or a gain map from \(url.lastPathComponent)")
         }
     }
 }
