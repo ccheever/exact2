@@ -203,7 +203,8 @@ Start from the nearest pattern, a tested app with what the recipes teach; a reci
 
 The others are named for their topic: `dates-and-days`, `timers`, `money`, `symbols`…
 
-**Otherwise:** run `bun exact.mjs contract vocab` once for the card (every function, the tags with
-their attributes and events, each part's call, the test steps, the agent's operations), then write;
+**Otherwise:** read the card once, then write: run `bun exact.mjs contract vocab`, or, if you only read
+files, read `docs/card.md` (the same text). It has every function, tag, part's
+call, test step, and how to do a screen, sheet, timer, colour, data, test.
 `contract vocab <name> …` answers a name it leaves out; `docs/contract-for-agents.md` and `reference.md`
 by section; `apps/shelf` is a whole app.
