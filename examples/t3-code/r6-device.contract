@@ -286,10 +286,13 @@ component R6DeviceWorkspaceView
 
 // ThreadPreviewMiniPlayer (device, T3 Code 1e2ecbd975 MiniPlayerShell): the stream at the source's aspect in
 // the chat canvas's frame (chat-canvas-view.ts), clipped at its radius with a hairline ring. The 12 pt handle
-// (its 8 pt dot) and the pill drag it; eight invisible grab zones straddling the edges (8 pt thick) and corners
+// (its 8 pt dot) and the pill's padding drag it, its buttons do not (they stop the pointer-down: a press on one
+// never drags); eight invisible grab zones straddling the edges (8 pt thick) and corners
 // (16 pt square) resize it, their cursor the only affordance. A gesture reports its pan total since it began
-// (`serial|sourceKey|direction|dx|dy`) to the canvas source, which applies it from the frame on screen; the
-// release clears it. The zones are siblings of the clipped frame so their outer half takes the press. The pill
+// (`serial|sourceKey|direction|dx|dy`) to the canvas source, which takes the frame on screen as its start at the
+// serial's first answer; the serial is the gesture's own, made at its first pan and kept until the release (one
+// made per move would restart the gesture from the moved frame at every move: device-player-gestures DP-2), as
+// BrowserMiniPlayer's. The release clears it. The zones are siblings of the clipped frame so their outer half takes the press. The pill
 // ("Open preview in right panel", "Close floating preview") shows while the handle or the pill is hovered, a
 // pill button has focus (group-focus-within) or a gesture runs (the host sends no hover during a pan).
 component R6DeviceMiniPlayer
@@ -309,6 +312,7 @@ component R6DeviceMiniPlayer
   state pillFocus = ""
   state dragging = ""
   state started = 0
+  state serial = ""
   state gx = 0
   state gy = 0
   action overDot(value: bool)
@@ -317,17 +321,19 @@ component R6DeviceMiniPlayer
     pillOver = value
   action focusPill(id: string, value: bool)
     pillFocus = value ? id : (pillFocus == id ? "" : pillFocus)
-  // MiniPlayerShell beginGesture / handlePointerMove: the frame at the first pan, then the total.
+  // MiniPlayerShell beginGesture / handlePointerMove: the frame at the first pan, then the total, under one serial.
   action pan(direction: string, dx: number, dy: number)
     let starting = dragging == ""
     let count = starting ? started + 1 : started
+    let id = starting ? `${floor(performanceNow())}.${count}` : serial
     let nx = (starting ? 0 : gx) + dx
     let ny = (starting ? 0 : gy) + dy
     started = count
+    serial = id
     dragging = direction
     gx = nx
     gy = ny
-    gesture(`${floor(performanceNow())}.${count}|${mini.sourceKey}|${direction}|${nx}|${ny}`)
+    gesture(`${id}|${mini.sourceKey}|${direction}|${nx}|${ny}`)
   // endGesture: the stored frame stays where the last move left it.
   action release(vx: number, vy: number)
     dragging = ""
@@ -348,7 +354,11 @@ component R6DeviceMiniPlayer
         box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" pointer-events="none"
       box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width="0.625rem" height="0.625rem" border-radius="0.3125rem" border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color="light-dark(#0a0a0a40, #fafafa40)" box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events="none"
       box position="absolute" top=frame.pillInset right=frame.pillInset width="0.75rem" height="0.75rem" hover=overDot pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-handle"
-      row position="absolute" top=frame.pillInset right=frame.pillInset height="2rem" padding="0.125rem" gap="0.125rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fefefeeb, #171717eb)" box-shadow="0 10px 15px -3px #00000033" opacity=(pill ? 1 : 0) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events=(pill ? "auto" : "none") hover=overPill pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-pill"
+      // The pill holds no pan of its own: a pan on an ancestor takes a drag that starts on a button inside it (LLP
+      // 1057.001 rule 3), so its drag is a grab box behind the buttons over its padding, gaps and border, as
+      // BrowserMiniPlayer's; the buttons paint and take the pointer above it (position: relative, later in order).
+      row position="absolute" top=frame.pillInset right=frame.pillInset height="2rem" padding="0.125rem" gap="0.125rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fefefeeb, #171717eb)" box-shadow="0 10px 15px -3px #00000033" opacity=(pill ? 1 : 0) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events=(pill ? "auto" : "none") hover=overPill cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-pill"
+        box position="absolute" left=-1 top=-1 right=-1 bottom=-1 pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-grab"
         R6MiniPillButton(icon="panel-right", label="Open preview in right panel", shown=pill, press=local("surface-r6dev-mini-restore", "", ""), focusChange=focusPill("restore"), testId="device-mini-restore")
         R6MiniPillButton(icon="x", label="Close floating preview", shown=pill, press=local("surface-r6dev-mini-close", "", ""), focusChange=focusPill("close"), testId="device-mini-close")
       box position="absolute" left=0 right=0 top=(0 - edge) height=(2 * edge) pan=pan("north") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="device-mini-resize-north"
@@ -360,9 +370,9 @@ component R6DeviceMiniPlayer
       box position="absolute" left=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southwest") panrelease=release touch-action="none" cursor="nesw-resize" role="presentation" testId="device-mini-resize-southwest"
       box position="absolute" right=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southeast") panrelease=release touch-action="none" cursor="nwse-resize" role="presentation" testId="device-mini-resize-southeast"
 
-// A pill button (Button ghost icon-xs): focusable while the pill is hidden (opacity 0), as group-focus-within
-// needs, but it takes no pointer then; its glyph refuses the pointer too, since a box's pointer-events covers
-// only its own hit.
+// A pill button (Button ghost icon-xs: 24 pt with a 14 pt glyph from the sm width up, as BcPillButton): focusable
+// while the pill is hidden (opacity 0), as group-focus-within needs, but it takes no pointer then; its glyph refuses
+// the pointer too, since a box's pointer-events covers only its own hit. Positioned, so it lies over the pill's grab box.
 component R6MiniPillButton
   props
     icon: string
@@ -375,8 +385,8 @@ component R6MiniPillButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label testId=testId width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-      svg width="1rem" height="1rem" viewBox="0 0 24 24" color=r6devInk() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
+    button press=press hover=hover focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label testId=testId position="relative" flex-shrink=0 width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+      svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=r6devInk() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
         when icon == "panel-right"
           rect x=3 y=3 width=18 height=18 rx=2
           path d="M15 3v18"
