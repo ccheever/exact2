@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { eventKeyNames, matchesChord, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
   terminalInputShortcutData } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -131,5 +131,25 @@ describe("terminalNavigationShortcutData", () => {
   test("rejects unsupported combinations", () => {
     expect(terminalInputShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", shiftKey: true, altKey: true }))).toBeNull();
     expect(terminalInputShortcutData(key({ key: "a", code: "KeyA", altKey: true }))).toBeNull();
+  });
+});
+
+describe("the input's composing state (realinput-1011c G1-1, G1-2)", () => {
+  test("goes out as states: composing from the first update to the commit, once each, whatever the updates", () => {
+    const input = new EventTarget(), states: boolean[] = [];
+    const stop = observeComposition(input, (composing) => states.push(composing));
+    // 2-Set Korean: g, k, s, then r starts the next syllable (한 commits, ㄱ composes), then Space commits ㄱ.
+    for (const type of ["compositionstart", "compositionupdate", "compositionupdate", "compositionupdate", "compositionend",
+      "compositionstart", "compositionupdate", "compositionend"]) input.dispatchEvent(new Event(type));
+    expect(states).toEqual([true, false, true, false]);
+    // A repeated start (an update that restarts) changes nothing; leaving the input ends it.
+    input.dispatchEvent(new Event("compositionstart"));
+    input.dispatchEvent(new Event("compositionstart"));
+    input.dispatchEvent(new Event("blur"));
+    input.dispatchEvent(new Event("compositionend"));
+    expect(states).toEqual([true, false, true, false, true, false]);
+    stop();
+    input.dispatchEvent(new Event("compositionstart"));
+    expect(states).toHaveLength(6);
   });
 });
