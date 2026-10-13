@@ -421,7 +421,7 @@ final class TextSelectionMacTests: XCTestCase {
                       text `B${n}`
                     text `bcode ${n} body`
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     text `hcode ${n} body`
                     text `card ${n}` visibility="hidden"
