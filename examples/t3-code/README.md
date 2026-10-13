@@ -399,7 +399,7 @@ bun examples/t3-code/tools/generate/generate.mjs   # the generated sources, firs
 bun test examples/t3-code
 bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2023,DOM examples/t3-code/app.ts
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
-cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app's roots (minutes)
+cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app: app.contract and its imports (minutes)
 cargo test --manifest-path examples/t3-code/Cargo.toml --lib   # the app's workspace: the bake, then its tests (Hermes env of the root setup)
 ```
 
