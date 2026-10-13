@@ -169,7 +169,8 @@ component PrdCode
         when code.orphanCount > 0
           PrdCodeOrphans(code=code, surface=surface, handoffs=handoffs, choices=choices, documents=documents, highlights=highlights, env=env, still=still, local=local, act=act, press=press)
         row flex=1 min-height=0 width="100%"
-          list virtualized=true id=listId reachend=press("next", "") scroll=scrolled flex=1 min-width=0 min-height=0 testId="pull-request-code-list"
+          // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
+          list appearance="none" virtualized=true id=listId reachend=press("next", "") scroll=scrolled flex=1 min-width=0 min-height=0 testId="pull-request-code-list"
             each item in code.items key=item.id
               PrdCodeRow(item=item, code=code, scheme=scheme, size=size, surface=surface, draftText=draftText, handoffs=handoffs, choices=choices, documents=documents, highlights=highlights, env=env, still=still, local=local, act=act, press=press, rowCommand=rowCommand, begin=begin, cancel=cancel, editDraft=editDraft, add=add, agent=agent)
           when code.tree and code.hasFiles
@@ -206,7 +207,7 @@ component PrdCodeToolbar
               box opacity=0.7 flex-shrink=0 display="flex"
                 PgIcon(name="chevron-down", size=14, color=pcInk())
             KeyMenuOpen(menuId=menuId, armed=keyArmed, opened=keyOpened)
-            column id=menuId popover="auto" position="absolute" padding-top="0.25rem" testId="pull-request-code-scope-layer"
+            column id=menuId popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" testId="pull-request-code-scope-layer"
               // MenuPopup's glass blurs what is under it (backdrop-blur); the macOS presenter draws no backdrop blur, so the
               // glass sits on the popover colour itself, or the list's rows would read through the menu (live drive 1).
               column border-radius="0.625rem" backdrop-filter="blur(12px)" background-color="light-dark(#ffffff, #111111)"

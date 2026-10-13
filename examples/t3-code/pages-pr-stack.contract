@@ -92,7 +92,7 @@ component PrdStackControls
             when stack.warn
               PgIcon(name="triangle-alert", size=12, color="#fe9a00")
         KeyMenuOpen(menuId="pr-stack-menu", armed=keyArmed, opened=keyOpened)
-        row id="pr-stack-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-stack-layer"
+        row id="pr-stack-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-stack-layer"
           PrMenuBox(scheme=scheme, width=288, label=`Stack #${stack.number}`)
             KeyMenu(menuId="pr-stack-keys", items=stackItems, keyed=keyed, gap="0px", modal=true)
               row width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" justify-content="space-between" align-items="center" gap="0.5rem"

@@ -188,7 +188,8 @@ component NetworkAccessRows
             row min-width=0 max-width="100%" gap="0.25rem" align-items="baseline"
               text "Reachable at" font-size="0.75rem" line-height="1.125rem" flex-shrink=0 color="light-dark(#70707acc, #818181cc)"
               when net.hidden > 0
-                button press=toggleList aria-expanded=expanded testId="network-access-endpoints-toggle" display="flex" flex-direction="row" align-items="baseline" gap="0.5rem" min-width=0 padding=0 border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#71717b99, #81818199)" background-color="#00000000"
+                // The reference's `border-b border-dotted` (ConnectionsSettings.tsx): dotted since main `ff2251b0c` (#287), adopted in round 12.
+                button press=toggleList aria-expanded=expanded testId="network-access-endpoints-toggle" display="flex" flex-direction="row" align-items="baseline" gap="0.5rem" min-width=0 padding=0 border-width=0 border-bottom-width=1 border-bottom-style="dotted" border-color="light-dark(#71717b99, #81818199)" background-color="#00000000"
                   text net.summaryUrl font-size="0.75rem" line-height="1.125rem" min-width=0 line-clamp=1 color="light-dark(#70707acc, #818181cc)" testId="network-access-url"
                   text (expanded ? "Hide" : `+${net.hidden}`) font-size="0.75rem" line-height="1rem" font-weight=500 flex-shrink=0 color="light-dark(#70707acc, #818181cc)"
               else

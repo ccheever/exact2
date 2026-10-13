@@ -245,7 +245,7 @@ component PrList
                   each row in group.rows key=row.key
                     PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, diff=page.diffScheme, act=act, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
               when length(page.errors) > 0
-                column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem"
+                column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
                   each note in page.errors key=note.key
                     text note.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               // pr-links-previews-and-routing: Load more pull requests (the cursors), its spinner, the cap; a failed read over the rows.
@@ -362,7 +362,7 @@ component PrSortMenu
         PgIcon(name="arrow-down-up", size=16, color="light-dark(#71717b, #818181)")
         text "Sort" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       KeyMenuOpen(menuId="pr-sort-menu", armed=keyArmed, opened=keyOpened)
-      column id="pr-sort-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-sort-layer"
+      column id="pr-sort-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" testId="pr-sort-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Sort pull requests: ${page.sortLabel}`)
           KeyMenu(menuId="pr-sort-keys", items=[KmItem(id="pr-sort-ready", label="Merge readiness"), KmItem(id="pr-sort-blocked", label="Blocked on me"), KmItem(id="pr-sort-updated", label="Recently updated"), KmItem(id="pr-sort-newest", label="Newest shown"), KmItem(id="pr-sort-oldest", label="Oldest shown"), KmItem(id="pr-sort-largest", label="Largest shown"), KmItem(id="pr-sort-smallest", label="Smallest shown")], keyed=keyed, gap="0px", modal=true)
             PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="list-checks", label="Merge readiness", detail="", selected=(page.sort == "ready"), tick=false, disabled=false, press=control("sort", "ready"), testId="pr-sort-ready")
@@ -396,7 +396,7 @@ component PrHostMenu
         when not page.providerIconOnly
           text "All" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       KeyMenuOpen(menuId="pr-host-menu", armed=keyArmed, opened=keyOpened)
-      row id="pr-host-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-host-layer"
+      row id="pr-host-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-host-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Filter by provider: ${page.hostLabel}`)
           KeyMenu(menuId="pr-host-keys", items=map(filter(page.hosts, (host) => host.unavailable == ""), (host) => KmItem(id=`pr-host-${host.label}`, label=host.label)), keyed=keyed, gap="0px", modal=true)
             each host in page.hosts key=host.value
@@ -535,7 +535,7 @@ component PrFiltersMenu
         when page.filterBadge != ""
           text page.filterBadge padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0f)" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
       KeyMenuOpen(menuId="pr-filters-menu", armed=keyArmed, opened=keyOpened)
-      column id="pr-filters-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-filters-layer"
+      column id="pr-filters-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" testId="pr-filters-layer"
         box id="pr-filters-rest" tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="pr-filters-rest"
         row align-items="flex-start" key=subEscape
           when sub != ""
