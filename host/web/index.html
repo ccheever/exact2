@@ -79,8 +79,9 @@
     [data-exact-surface],
     [data-listrows] *, [data-liststyle] > section > * > *,
     :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { opacity: .65; }
-  /* A disabled custom button dims as the drawn switch does, and takes no press. */
-  #exact-root button:disabled:not([data-button-style], [data-native]) { opacity: .5; }
+  /* A disabled custom button dims as the drawn switch does, and takes no press; not one whose
+     author styles its own disabled state (Contract's `disabledStyled`, LLP 1115.000 D6). */
+  #exact-root button:disabled:not([data-button-style], [data-native], [data-disabledstyled]) { opacity: .5; }
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
   /* LLP 1069.000 D3: unsized text takes the root font size (16 unless the

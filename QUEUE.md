@@ -838,12 +838,6 @@ sits on that list carries the trade it would take.
     between nested drags; no single-tap versus double-tap; no "native only" condition; a `text`
     can't hold an inline badge (already in Charlie's asks).
 - **More gaps from the clone's workers** (bsky5, b32–b33, 2026-10-12), as reported:
-  - **A disabled button on the web is dimmed on top of the app's own disabled colours.** Not a
-    bug but LLP 1115.000 D6 on every host: a disabled custom pressable dims to half (the web's
-    `index.html` rule; the Mac's `syncDisabledLook`), and an authored `opacity` already wins on the
-    web. An app that draws its own disabled state gets both. Needs a ruling (x2-perf3, 2026-10-13):
-    an opt-out such as `-exact-disabled-look: none`, or no dim on a node whose fill or ink reads its
-    own `disabled` condition, which the compiler can tell.
   - Toasts have no warning style; a child component can't hold a resource; `agent` can't hold a
     fetch, so loading states can't be staged; no leftward swipe (`swiperight` only); no `exp`
     function; no hit slop.

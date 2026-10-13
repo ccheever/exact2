@@ -57,6 +57,10 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         text "No line above" border-top="none" testId="bare-row"
       list appearance="none" testId="own-rows"
         text "A row"
+      button disabled=true opacity=0.5 testId="own-off"
+        text "Off"
+      button disabled=true testId="off"
+        text "Off"
 "##,
     )
     .unwrap()
@@ -138,6 +142,13 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
     // in both looks, a list whose author opted out does not, and a row is
     // told which of its edges its author wrote (`none` is written too), so
     // the sheet draws no separator of its own there.
+    // LLP 1115.000 D6: Contract's mark on a button that styles its own disabled state.
+    assert!(
+        created(&neutral, "own-off").contains("\"data-disabledstyled\":\"true\""),
+        "{}",
+        created(&neutral, "own-off")
+    );
+    assert!(!created(&neutral, "off").contains("data-disabledstyled"));
     for page in [&neutral, &apple] {
         let rows = created(page, "rows");
         assert!(rows.contains("\"data-listrows\":\"true\""), "{rows}");

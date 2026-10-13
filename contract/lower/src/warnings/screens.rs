@@ -317,7 +317,7 @@ fn assigned(body: &[Stmt], out: &mut BTreeSet<String>) {
 
 /// Every name an expression reads (a `fn`'s body reads only its
 /// parameters, so a call reads its arguments).
-fn idents(e: &Expr, out: &mut Vec<String>) {
+pub(crate) fn idents(e: &Expr, out: &mut Vec<String>) {
     match e {
         Expr::Ident(n, _) => out.push(n.clone()),
         Expr::Call(_, args, _) | Expr::List(args, _) => args.iter().for_each(|a| idents(a, out)),
