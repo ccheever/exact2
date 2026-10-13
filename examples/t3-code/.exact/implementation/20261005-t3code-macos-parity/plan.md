@@ -300,13 +300,16 @@ is taken by this Mac before any app (the reference and Xcode lose it too), so th
 [diff-cite-popover](tasks/closed/20261011-diff-cite-popover.md) (#479, `6776a0999`),
 [reply-links-reference-behavior](tasks/closed/20261011-reply-links-reference-behavior.md) (#474, `20ce9dfdb`) and
 [adopt-main-fixes-r11](tasks/closed/20261012-adopt-main-fixes-r11.md) (#497, a fast-forward to `1f813789b`; main `b0e4a6c22` with #327). Framework gaps
-X84, X85 and X86 were filed on main (main PRs #483, #485, #488) with a table cell link's Tab stop (#484); main fixed X77,
+X84, X85 and X86 were filed on main (main PRs #483, #485, #488) with a table cell link's Tab stop (#484; fixed on main by
+`c4f1279fc` on 2026-10-13, not adopted); main fixed X77,
 X79, X81, X82, X84, X85, X86, X58 and X13's pan (#491, #490, #493, #494, #486, #487, #496, #477, #478), all adopted in
 round 11, and decided X80 by the platform rule. `realinput-1011c` (the bundle of `1f813789b`, 2026-10-12 to 10-13) ran
 the verify-1011c groups and those tasks' rows: 141 rows, 70 passed, 29 failed, 29 passed in part, 6 not run, 2 not
 reachable, 1 not filmable, 4 other. Its failures and part passes are in `STATUS.md` "Known differences" (the user's
-rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`; releaseHold crash, main issue
-pending), whose fix is in progress on main. Open: nothing that can move; the held tasks below wait on main.
+rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`), which draft main PR #519 (opened
+2026-10-13, not merged) files as `issues/closed/20261013-macos-a-click-after-a-node.md` and fixes. Open: nothing that can
+move; the held tasks below wait for an adoption round: main fixed X48 and X69 on 2026-10-12 (`eaf48e05c`, `afe11ead5`),
+with the other issues it closed after round 11 (`EXACT2-GAPS.md` "Closed on main since round 11"), none adopted yet.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
