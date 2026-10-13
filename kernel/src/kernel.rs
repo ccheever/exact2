@@ -286,6 +286,10 @@ pub struct Kernel {
     /// List rows mounted out of their port that hold an animation waiting
     /// for the row to show (`-exact-animation-trigger: view`, LLP 1055 D13).
     pub(crate) awaiting: crate::id::IdSet<ViewId>,
+    /// The measurer's revision its symbols were last measured under, `None`
+    /// before this kernel's measurer measured any: a new one asks about
+    /// every symbol again (`measure_symbols`).
+    symbol_revision: Option<u64>,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -351,6 +355,7 @@ impl Kernel {
             on_demand: true,
             detached: false,
             awaiting: Default::default(),
+            symbol_revision: None,
         }
     }
 
@@ -365,10 +370,14 @@ impl Kernel {
     }
 
     /// Build the engine's tree when it doesn't yet mirror the arena.
+    /// Ready for any layout, the main one, a content region's or a height
+    /// probe's: the engine tree, and the natural sizes the kernel measures
+    /// itself (`measure_symbols`).
     fn mirror(&mut self) {
         if self.layout.is_none() {
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
+        self.measure_symbols();
     }
 
     /// The published epoch: bumps on every commit that changed something.
@@ -1007,6 +1016,7 @@ impl Kernel {
             on_demand: self.on_demand,
             detached: self.detached,
             awaiting: Default::default(),
+            symbol_revision: None,
         }
     }
 }

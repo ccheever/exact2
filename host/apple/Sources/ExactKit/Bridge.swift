@@ -115,6 +115,8 @@ package final class Runtime {
         on { () -> Void in
             exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
             exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
+            // A system symbol's box, measured before layout as a paragraph's is
+            exact_set_symbol_measure(rt, measure == nil ? nil : SymbolMeasure.measure)
         }
     }
     /// The plan-font hook a boot calls synchronously, with its context.

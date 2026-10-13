@@ -41,6 +41,8 @@ pub struct Hooks {
     pub wake_ctx: *mut c_void,
     /// Measures a Canvas 2D run with Core Text (LLP 1056 D8), with `ctx`.
     pub canvas_text: Option<crate::canvas_text::CanvasTextFn>,
+    /// Measures a system symbol (`TextMeasurer::symbol_size`), with `ctx`.
+    pub symbol: Option<crate::measure::SymbolFn>,
 }
 
 impl Hooks {
@@ -53,6 +55,7 @@ impl Hooks {
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
         }
     }
 }
@@ -500,6 +503,7 @@ impl<D: DataSource> Bridge<D> {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
+                    .with_symbol(hooks.symbol)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
@@ -802,6 +806,7 @@ impl<D: DataSource> Bridge<D> {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
+                    .with_symbol(hooks.symbol)
                     .with_field_chrome(self.field_chrome)
                     .with_button_measure(self.button_measure)
                     .with_measure_revision(
