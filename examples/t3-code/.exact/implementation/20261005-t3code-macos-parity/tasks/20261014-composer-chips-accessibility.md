@@ -7,8 +7,8 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-composer-chips-accessibility'
-pr_url:
-verified_commit:
+pr_url: https://github.com/ccheever/exact2/pull/534
+verified_commit: d5727019d
 ---
 
 # The composer's chips to VoiceOver, the terminal chip's glyph, the context popover's order
@@ -235,7 +235,7 @@ On the final head (`origin/feat(example)/t3-code` `609f392d5` merged: already up
 
 ## Delivery
 
-Draft PR into `feat(example)/t3-code`; the coordinator reviews and merges.
+Draft PR [#534](https://github.com/ccheever/exact2/pull/534) into `feat(example)/t3-code`; the coordinator reviews and merges. The checks ran on `9d840b137`'s tree (code of `d5727019d`).
 
 ## Next action
 
