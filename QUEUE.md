@@ -803,16 +803,70 @@ sits on that list carries the trade it would take.
   thread's time in that fling (Time Profiler, 1136 samples). Merging the slices landed inside one
   apply into a single pass would pay it once. It touches the T4 ordering code, so parked until a
   device shows the cost.
-- **iOS Swift host tests failing on main** (2026-10-13, `bun host/apple/build.mjs --test --ios` on
-  an iPhone 17 Pro simulator, iOS 27.0, at 48755525c, and the same eight on every run of the
-  scrollend branch after): `HDRColorTests` (`testADrawnHDRColourGetsAHalfFloatStore`,
-  `testDrawnGradientAndBoxGradientTakeTheNodesLimit`, `testGradientLayersPreserveWideAndHDRStops`),
-  `HDRImageTests` (`testAGainMapRecoversLightAboveSDRWhite`, `testTheSDRRenditionStaysWithinSDR`),
-  `PickerColorTests` (`testAnHDRPhotoKeepsItsGainMapAndProfile`, `testOrientationIsAppliedNotCopied`)
-  and `RasterColorTests.testEveryFixtureDecodesToItsClassStorageAndColors`: all HDR or colour
-  storage (the result bundle: RGBA8 against RGBAh, rec2100-hlg against display-p3, HDR stored
-  as SDR, an HDR photo still HDR as JPEG), cause unconfirmed; xcodebuild's log names no assertion.
-  Diagnosed 2026-10-13 (parked on the Mac Studio, branch `q1013/ios-hdr`): the iOS 27 simulator keeps `RGBA8Uint` for a requested `RGBA16Float` `contentsFormat` (a hint, per CALayer's documentation), reports headroom 1 for gain-map HDR decodes, keeps PQ/HLG under `kCGImageSourceDecodeToSDR`, and writes no ISO gain map; the same requests work on macOS. The branch settles a rejected format hint (Exact reported a change on every repeat) and clears drawing headroom on the way back to SDR, but a PQ or HLG HEIC picked for an `image/jpeg` input still cancels: ImageIO's SDR encode stays PQ/HLG at headroom 4.93, so the fallback must draw into a Display P3 bitmap (or tone-map with Core Image) and require headroom 1. Its last review also found the decode request keys set outside their `#available` (iOS 17 and macOS 14 are still targets) and probes built from the options they test.
+- **iOS PQ/HLG picker SDR conversion and physical HDR qualification** (2026-10-13):
+  `PickerColorTests.testAnHDRPhotoKeepsItsGainMapAndProfile` expects exactly the
+  simulator's failed `pq.heic` and `hlg.heic` conversions with strict
+  `XCTExpectFailure`. ImageIO's ISO gain-map encode fails; the SDR decode and
+  encode requests finalize a JPEG still in PQ/HLG at `CIImage.contentHeadroom`
+  4.9261084. Exact rejects it. A working platform SDR conversion remains owed.
+  The failure expectation covers only conversion success. The retry count,
+  error, retained BT.2100 space and headroom are asserted outside it.
+  On the iOS 27 simulator (iPhone 17 Pro), independent Apple API probes also
+  report `RGBA8Uint` for `.RGBA16Float` and `.gray8Uint` layer format hints,
+  headroom 1 instead of 4 for gain-map HDR decodes, retained PQ/HLG for SDR
+  decodes, and no ISO gain map when encoding the gain-map fixtures. The
+  same requests work on macOS 27.0.1. Each declined assertion group records
+  its fixture and observed result; storage, headroom and neutral-pixel
+  comparisons still run. See [Apple's format hint](https://developer.apple.com/documentation/quartzcore/calayer/contentsformat)
+  and [headroom semantics](https://developer.apple.com/documentation/coreimage/ciimage/contentheadroom).
+  Physical iOS remains unqualified: run `HDRColorTests`, `HDRImageTests`,
+  `PickerColorTests` and `RasterColorTests` on a connected iPhone and require
+  no declined assertion groups, skips or expected failures. Their colour
+  fixtures are SwiftPM resources loaded through `Bundle.module`.
+  From the repository root, build the device archive and unsigned test bundle
+  (the generic iOS build passed without a phone):
+
+  ```sh
+  export PATH=$HOME/.bun/bin:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
+  HOST_CXXFLAGS="-isysroot $(xcrun --sdk macosx --show-sdk-path)" \
+  MACOSX_DEPLOYMENT_TARGET=14.0 IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+  EXACT_UPDATE_TRUST=development HERMES_LEAN_SYS_OFFLINE=1 \
+    cargo rustc --crate-type staticlib --profile host-dev -p caltrain-apple --lib --target aarch64-apple-ios
+  export EXACT_TESTS=1 EXACT_LIB=caltrain_apple
+  export EXACT_LIB_DIR="$PWD/target/aarch64-apple-ios/host-dev"
+  cd host/apple
+  xcodebuild build-for-testing -scheme Exact -destination 'generic/platform=iOS' \
+    -derivedDataPath ../../target/ios-hdr2/device-tests \
+    CODE_SIGNING_ALLOWED=NO LIBRARY_SEARCH_PATHS="$EXACT_LIB_DIR"
+  ```
+
+  Then, in that same shell, supply `PHONE_UDID` and `TEAM_ID` for an unlocked,
+  paired iPhone with Developer Mode enabled, and an Apple Development signing
+  identity in the keychain. Automatic signing needs that team's Xcode account
+  and permission to create the runner's provisioning profile. The explicit
+  library search path also covers Xcode caching the package's earlier
+  `EXACT_LIB_DIR`. This signed run remains unverified without a phone:
+
+  ```sh
+  xcodebuild test -scheme Exact -destination "platform=iOS,id=$PHONE_UDID" \
+    -derivedDataPath ../../target/ios-hdr2/device-tests \
+    -only-testing:ExactKitTests/HDRColorTests \
+    -only-testing:ExactKitTests/HDRImageTests \
+    -only-testing:ExactKitTests/PickerColorTests \
+    -only-testing:ExactKitTests/RasterColorTests \
+    -parallel-testing-enabled NO -collect-test-diagnostics never \
+    -allowProvisioningUpdates CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
+    CODE_SIGN_IDENTITY='Apple Development' DEVELOPMENT_TEAM="$TEAM_ID" \
+    LIBRARY_SEARCH_PATHS="$EXACT_LIB_DIR"
+  ```
+- **macOS field event XCTest failures** (2026-10-13, macOS 27.0.1,
+  `bun host/apple/build.mjs --test`): `NativeFieldsMacTests.testSearchInputIsANativeSearchField`
+  gets no input event after clearing, and `MarkupEditorTests`' plain-textarea
+  undo/redo and unfocused-editor cases get empty edits/history. Both classes
+  fail before and after the HDR fixes; the four colour classes pass afterward.
+  Field/editor sources are unchanged in that comparison.
 - **The date and place at launch on the remaining hosts** (2026-10-13; Apple, the Rust/Wasm web
   host and the Linux family's app boot boot under them, `exact_runner::time::launching_with`, and
   the JS target answers `exactTime` from the page): the render host, the content-region host,

@@ -9,6 +9,7 @@
 // (D9), whose files take the same path.
 import Foundation
 import ImageIO
+import CoreImage
 import AVFoundation
 import UniformTypeIdentifiers
 #if canImport(UIKit)
@@ -179,27 +180,53 @@ final class Picker: NSObject {
 
     /// D6: JPEG at quality 0.9, orientation applied, with no metadata copied
     /// (so no location). The color profile is kept, and an HDR photo is
-    /// written with an ISO 21496-1 gain map from iOS 18 / macOS 15; before
-    /// that it becomes its SDR picture (LLP 1100 D13).
-    static func jpeg(from: URL, to: URL) throws {
-        guard let source = CGImageSourceCreateWithURL(from as CFURL, nil),
-              let (w, h) = pixels(from),
-              let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+    /// written with an ISO 21496-1 gain map where ImageIO can encode it.
+    /// A rejected HDR encode retries ImageIO's SDR rendition (LLP 1100 D13).
+    static func jpeg(from: URL, to: URL, finalize: (CGImageDestination) -> Bool = CGImageDestinationFinalize) throws {
+        guard let source = CGImageSourceCreateWithURL(from as CFURL, nil), let (w, h) = pixels(from)
         else { throw CocoaError(.fileReadCorruptFile) }
+        func write(hdr: Bool) throws {
+            let options = jpegOptions(maxPixel: max(w, h), hdr: hdr)
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options.decode as CFDictionary)
+            else { throw CocoaError(.fileReadCorruptFile) }
+            guard let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+            else { throw CocoaError(.fileWriteUnknown) }
+            CGImageDestinationAddImage(destination, image, options.encode as CFDictionary)
+            guard finalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        }
+        var wantsHDR = false
+        if #available(iOS 18, macOS 15, tvOS 18, *) { wantsHDR = isHDR(source) }
+        if #available(iOS 18, macOS 15, tvOS 18, *), wantsHDR,
+           (try? write(hdr: true)) != nil,
+           let result = CGImageSourceCreateWithURL(to as CFURL, nil),
+           CGImageSourceCopyAuxiliaryDataInfoAtIndex(result, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil,
+           isHDR(result) { return }
+        try write(hdr: false)
+        if #available(iOS 18, macOS 15, tvOS 18, *) {
+            // ImageIO can finalize a JPEG while ignoring both SDR requests.
+            guard let result = CGImageSourceCreateWithURL(to as CFURL, nil),
+                  !isHDR(result), let image = CGImageSourceCreateImageAtIndex(result, 0, nil)
+            else { throw CocoaError(.fileWriteUnknown) }
+            // CIImage reports 0 for unknown headroom, 1 for SDR.
+            // https://developer.apple.com/documentation/coreimage/ciimage/contentheadroom
+            let headroom = CIImage(cgImage: image).contentHeadroom
+            guard headroom == 1 || (headroom == 0 && image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) != true)
+            else { throw CocoaError(.fileWriteUnknown) }
+        }
+    }
+
+    static func jpegOptions(maxPixel: Int, hdr: Bool) -> (decode: [CFString: Any], encode: [CFString: Any]) {
         var decode: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(w, h),
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
         ]
         var encode: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.9]
-        if #available(iOS 18, macOS 15, tvOS 18, *), isHDR(source) {
-            decode[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
-            encode[kCGImageDestinationEncodeRequest] = kCGImageDestinationEncodeToISOGainmap
+        if #available(iOS 18, macOS 15, tvOS 18, *) {
+            decode[kCGImageSourceDecodeRequest] = hdr ? kCGImageSourceDecodeToHDR : kCGImageSourceDecodeToSDR
+            encode[kCGImageDestinationEncodeRequest] = hdr ? kCGImageDestinationEncodeToISOGainmap : kCGImageDestinationEncodeToSDR
         }
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, decode as CFDictionary)
-        else { throw CocoaError(.fileReadCorruptFile) }
-        CGImageDestinationAddImage(destination, image, encode as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return (decode, encode)
     }
 
     /// A gain map of either kind, or a PQ or HLG transfer (LLP 1100 D4).

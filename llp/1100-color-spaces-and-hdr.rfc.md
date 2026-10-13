@@ -498,7 +498,8 @@ fallback API; before tvOS 26 these layers stay standard range.
   `corner-shape` the layer can't do), and a paragraph drawn rather than
   rastered (small text on macOS, a failed raster). When that drawing
   reaches past SDR white:
-  - the backing store is `RGBA16Float`
+  - the backing store requests `RGBA16Float`; `contentsFormat` is a hint,
+    so a redraw is requested only if the layer's actual format changes
   - the layer sets `contentsHeadroom` to the peak, because a backing store
     has no tag of its own
   - the layer asks for the limit's range
@@ -508,6 +509,8 @@ fallback API; before tvOS 26 these layers stay standard range.
   components outside [0,1] also require the extended layer and half-float
   backing, even when their Rec. 2020 headroom is 1 (wide SDR).
   The backing store returns to 8 bits when both light and gamut fit it.
+  Drawing headroom is cleared even if the layer rejected the HDR format;
+  layer-painted colors still request their own range.
 - **Extended-range contents.** Core Animation maps an HDR text raster's and
   an HDR gradient layer's contents to the layer's range only under
   `toneMapMode = .ifSupported`, so those layers set it. Other layers keep
@@ -691,7 +694,12 @@ quality 0.9 with orientation applied and no metadata copied.
 - The color profile is kept.
 - From iOS 18 / macOS 15, an HDR photo (a gain map, PQ or HLG) is decoded
   with `kCGImageSourceDecodeToHDR` and written with
-  `kCGImageDestinationEncodeToISOGainmap`, so it stays HDR.
+  `kCGImageDestinationEncodeToISOGainmap`. The written JPEG must contain
+  the ISO gain map and classify as HDR. A failed or declined encode retries
+  with ImageIO's SDR decode and encode requests. The retry must classify as
+  SDR and report `CIImage.contentHeadroom` 1, or 0 (unknown) in a non-BT.2100
+  space; otherwise conversion fails. The simulator's PQ/HLG conversion
+  remains open in `QUEUE.md`.
 - Before 18, an HDR photo becomes its SDR picture.
 
 ## 5. What this changes elsewhere

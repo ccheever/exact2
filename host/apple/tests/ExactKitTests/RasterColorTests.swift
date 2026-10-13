@@ -14,9 +14,7 @@ final class RasterColorTests: XCTestCase {
         let space: String; let bitsPerComponent: Int; let note: String; let patches: [Patch]
         let tolerance: Double?
     }
-    private static let dir = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/fixtures/color")
+    private static let dir = Bundle.module.resourceURL!.appendingPathComponent("ColorFixtures")
 
     private func expectations() throws -> [Expectation] {
         let names = try FileManager.default.contentsOfDirectory(atPath: Self.dir.path).filter { $0.hasSuffix(".json") }.sorted()
@@ -52,7 +50,8 @@ final class RasterColorTests: XCTestCase {
 
     /// V3.1, V3.2: class, storage and patch colors for every fixture.
     func testEveryFixtureDecodesToItsClassStorageAndColors() throws {
-        for e in try expectations() {
+        let fixtures = try expectations()
+        for e in fixtures {
             let decoded: (RasterMetadata, RasterDecodePlan, RasterImage)
             do { decoded = try decode(e.file) } catch { XCTFail("\(e.id) \(e.file): \(error)"); continue }
             let (metadata, plan, image) = decoded
@@ -60,7 +59,17 @@ final class RasterColorTests: XCTestCase {
             XCTAssertEqual(plan.variant, names[e.variant], "\(e.id) \(e.file): variant")
             XCTAssertEqual(metadata.deep, e.variant == "deep", "\(e.id) \(e.file): deep")
             let stored = image.image
-            XCTAssertEqual(stored.colorSpace.map(colorSpaceName), e.space, "\(e.id) \(e.file): stored space")
+            if e.class == "hdr" {
+                let probe = try HDRPlatformProbe.rasterThumbnail(Self.dir.appendingPathComponent(e.file), plan: plan, hdr: metadata.hdr)
+                XCTAssertEqual(stored.colorSpace, probe.colorSpace, "\(e.file): normalization preserves ImageIO's space")
+                if try HDRPlatformProbe.declined("\(e.file): stored SDR space", {
+                    try HDRPlatformProbe.requireSDRSpace(probe, file: e.file)
+                }) == nil {
+                    XCTAssertEqual(stored.colorSpace.map(colorSpaceName), e.space, "\(e.id) \(e.file): stored space")
+                }
+            } else {
+                XCTAssertEqual(stored.colorSpace.map(colorSpaceName), e.space, "\(e.id) \(e.file): stored space")
+            }
             XCTAssertEqual(stored.bitsPerComponent, plan.deep ? 16 : 8, "\(e.id) \(e.file): stored depth")
             XCTAssertEqual(image.residentBytes, plan.outputBytes, "\(e.id) \(e.file): charged bytes")
             if plan.deep { XCTAssertTrue(stored.bitmapInfo.contains(.floatComponents), "\(e.id): deep is half float") }
