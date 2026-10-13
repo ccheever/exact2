@@ -228,9 +228,7 @@ impl<D: DataSource> Runner<D> {
     /// was kept for (development tools read the journal; its request lines
     /// already carry URLs), so a stale answer is traceable to its key.
     pub(super) fn journal_kept_seeds(&mut self) {
-        for (_, line) in std::mem::take(&mut self.keeping.refused) {
-            self.log(line);
-        }
+        self.journal_refused();
         for i in 0..self.plan.resources.len() {
             if let Some(state) = self.resources[i].as_ref().filter(|s| s.kept_seed) {
                 let mut args = String::new();
@@ -239,6 +237,14 @@ impl<D: DataSource> Runner<D> {
                     super::lines::kept_shown(self.plan.str(self.plan.resources[i].name), &args);
                 self.log(line);
             }
+        }
+    }
+
+    /// Journal the kept answers refused by a settlement that stood: at
+    /// boot, and at a later commit before readiness (an identity changed).
+    pub(super) fn journal_refused(&mut self) {
+        for (_, line) in std::mem::take(&mut self.keeping.refused) {
+            self.log(line);
         }
     }
 

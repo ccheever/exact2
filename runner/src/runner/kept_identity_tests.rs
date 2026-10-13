@@ -278,7 +278,7 @@ fn a_long_identity_is_journaled_shortened_with_a_mark() {
 #[test]
 fn a_refused_kept_answer_is_journaled_with_why() {
     // The account kept for other arguments; feeds kept for a key read from
-    // the account's fallback; a third entry that no longer decodes.
+    // the account's fallback.
     let mut r = launch(
         false,
         vec![
