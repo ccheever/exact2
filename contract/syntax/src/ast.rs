@@ -188,8 +188,7 @@ pub enum Step {
         dy: f64,
         /// The node it ends on, by `testId`, and where in its box.
         to: Option<(String, Option<(f64, f64)>)>,
-        /// Where it starts, an offset from the node's top left; its middle
-        /// when `None`.
+        /// Where it starts, an offset from the node's top left; its middle when `None`.
         from: Option<(f64, f64)>,
         /// The left button rather than a finger, where a carrier has both.
         mouse: bool,
