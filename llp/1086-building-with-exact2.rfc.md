@@ -457,6 +457,21 @@ The device build validates bindgen and optimizer wasm and uses private output di
 
 **HS correction (2026-10-13):** HAND and EX4 were developed against different contracts. The `snapback4-device` crate now owns a `snapback4.engine` custom section containing `{format:1, version, capabilities}`. The section is canonical compact UTF-8 JSON with exactly those fields in that order; both readers reject lexical alternatives, duplicates and invalid UTF-8. Exact's build preserves it, derives the diagnostic `assets/snapback4.wasm.json` from it, and never infers identity from Cargo.lock. Preflight and Snapback `check` read only this embedded identity. Preflight compares the server's `device_compatibility` floor and required capabilities at `GET /` on dev and serve, allowing compatible version skew. Offline preflight still validates the embedded identity. Web/native hosts answer `engine_info` and `engine_headers` before partition open; the Rust client's Fetch constructors use the device crate's header helper and both transport drivers forward `x-snapback-device` after caller credentials. No app needs a stamp script or headers callback for device identity. A fresh guestbook regression imports generated backend operations and runs offline write/reconnect against both server modes, including a positive server-side delivered-write assertion. HS round 4 returned READY from both independent Muse and fresh Codex reviewers; verbatim provenance-tracked records are under `llp/reviews/3000.001.000-hs-r4.{muse,codex}.md`.
 
+**EX5 amendment (Charlie’s wave-10 task, 2026-10-13; implementer Codex):** default
+`snapback` rebuilds through Cargo before preflight, so a missing/stale stamp repairs
+without `--rebuild`. An existing divergent mount refuses with a diff before any edit.
+The release regression packs the local npm snapshot with `npm pack --ignore-scripts`,
+installs the tarball, scaffolds, checks and writes through the browser against dev and
+serve. `--online` mounts the separate `snapback4/online` HTTP adapter, without wasm,
+SQLite, prediction or retries. Interrupted writes have unknown server fate and throw.
+The Snapback checker must gate actual device consumers, not generated operations
+mounts; its precise outstanding change is in QUEUE. `snapback --port N` is the setting
+that updates the constant, grants and generated test prefixes; `backend [dev|serve
+<release>]` derives its port from that same constant. Temporary test pages bind port
+zero, unless the author explicitly selects a page port. Native bakes resolve the
+versioned Bun home installation before PATH; an explicit BUN is version-checked.
+Staged declaration internals use skipLibCheck, while application sources stay strict.
+
 Guestbook tests
 now begin with `fresh` so the default dev suite can run repeatedly.
 

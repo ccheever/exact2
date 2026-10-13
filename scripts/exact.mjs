@@ -912,18 +912,30 @@ async function main(argv) {
     // Flags may come before the path: `exact new --game ./my-game`.
     const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1));
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
-    const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined } : null;
+    const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
     return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets'), snapback});
   }
-  if (verb === 'snapback') {
-    const args = guardFlags('snapback', argv.slice(1));
-    if (!args[0]) { console.error('exact snapback: name the app\'s directory (its exact.mjs passes it: bun exact.mjs snapback)'); process.exit(2); }
-    const port = args.indexOf('--port');
-    const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
-    const source = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';
+  if (verb === 'backend') {
+    const dir = resolve(name), parent = resolve(dir, '..');
+    const source = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(source)?.[1];
-    if (existsSync(resolve(dir, 'assets/snapback4.wasm')) && !args.includes('--rebuild')) await devicePreflight(app, origin ? [origin] : []);
-    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '' }));
+    if (!origin) throw new Error('exact backend: app.ts needs a literal const origin (bun exact.mjs snapback --port N writes it)');
+    const url = new URL(origin);
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw new Error('exact backend: the origin must be loopback to launch a local server');
+    const args = argv.slice(2);
+    if (!args.length) args.push('dev');
+    if (args.includes('--port')) throw new Error('exact backend: set the origin once with bun exact.mjs snapback --port N');
+    const result = spawnSync(process.execPath, [resolve(parent, 'node_modules/snapback4/bin/snapback4.js'), ...args, '--port', url.port || (url.protocol === 'https:' ? '443' : '80')], { cwd: parent, stdio: 'inherit' });
+    if (result.error) throw result.error;
+    process.exitCode = result.status ?? 1;
+    return;
+  }
+  if (verb === 'snapback') {
+    if (!name) { console.error('exact snapback: name the app\'s directory (its exact.mjs passes it: bun exact.mjs snapback)'); process.exit(2); }
+    const args = guardFlags('snapback', argv.slice(1)), port = args.indexOf('--port');
+    const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
+    // Always ask Cargo to validate its inputs; cached or unstamped bytes never block repair.
+    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') }));
     app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     const nextOrigin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];

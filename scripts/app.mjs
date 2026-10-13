@@ -311,7 +311,7 @@ const PINNED_BUN = existsSync(resolve(ROOT, 'package.json'))
 if (process.versions.bun && PINNED_BUN) {
   const [have, pin] = [process.versions.bun, PINNED_BUN].map(v => v.split('.').map(Number));
   const at = pin.findIndex((part, i) => have[i] !== part);
-  if (at >= 0 && have[at] < pin[at] && !HELP) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins. Upgrade it (\`bun upgrade\`), or install ${PINNED_BUN} beside it and run the scripts with that one: \`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-${PINNED_BUN} bash -s bun-v${PINNED_BUN}\`, then \`~/.bun-${PINNED_BUN}/bin/bun scripts/…\``);
+  if (at >= 0 && have[at] < pin[at] && !HELP) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins. Upgrade it (\`bun upgrade\`), or install ${PINNED_BUN} beside it and run the scripts with that one: \`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-${PINNED_BUN} bash -s bun-v${PINNED_BUN}\`, then \`~/.bun-${PINNED_BUN}/bin/bun ${process.argv.slice(1).map(arg => JSON.stringify(arg)).join(' ')}\``);
   // Build steps start `bun` by name (the bake's compatibility inputs, the
   // TypeScript compiler); they get the Bun that passed, not whatever is first on PATH.
   const found = Bun.which('bun');
@@ -722,10 +722,10 @@ export function developmentBuildEnv() {
   // plain object does not. Preserve Path and emit only one spelling for children.
   const path = env.PATH ?? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
   for (const key of Object.keys(env)) if (key !== 'PATH' && key.toLowerCase() === 'path') delete env[key];
+  if (process.versions.bun) env.BUN = process.execPath;
   env.PATH = [...(process.versions.bun ? [dirname(process.execPath)] : []), ...path.split(delimiter).filter(Boolean)].join(delimiter);
   return env;
 }
-
 /** Rust replacement capability baked into this platform/environment, independent
  * of release cadence and rebuild triggers. @ref LLP 1029.000 §2. */
 export function rustPolicy(manifest, platform, environment = 'dev') {

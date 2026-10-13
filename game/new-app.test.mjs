@@ -546,6 +546,9 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     writeFileSync(resolve(dir, 'app.ts'), ts.replace(/export const appId = '[^']*'/, "export const appId = 'com.example.other'"));
     assert.ok(wireSnapback(dir, { build: false }).includes(`app.ts must say: export const appId = "${manifest().app.id}"; (it says "com.example.other")`));
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest(), typescript: { sources: { ...manifest().typescript.sources, snapback4: '../../moved/exact2/snapback4/ts' } } }, null, 2));
+    const beforeMountRefusal = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    assert.throws(() => wireSnapback(dir, { build: false, port: 9999 }), /refusing to rewrite an edited mount[^]*- snapback4:[^]*\+ snapback4:/);
+    assert.equal(readFileSync(resolve(dir, 'app.ts'), 'utf8'), beforeMountRefusal);
     createApp(dir, { update: true });
     assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
     // A plain app's notes say how to wire one.

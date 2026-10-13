@@ -938,7 +938,7 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
         "node_modules/rows/package.json",
         r#"{"name":"rows","type":"module","exports":{".":{"types":"./dist/index.d.ts","import":"./dist/index.js"}}}"#,
     );
-    let index = "import type { Inner } from './inner.js';\nimport type { Unit } from 'units';\nimport type { Plain } from 'plain';\nexport type Row = { id: string; count: Inner; unit: Unit; plain: Plain };\nexport declare const rows: Row[];\n";
+    let index = "export type ForeignOnly = MissingFromDOM;\nimport type { Inner } from './inner.js';\nimport type { Unit } from 'units';\nimport type { Plain } from 'plain';\nexport type Row = { id: string; count: Inner; unit: Unit; plain: Plain };\nexport declare const rows: Row[];\n";
     put("node_modules/rows/dist/index.d.ts", index);
     put(
         "node_modules/rows/dist/inner.d.ts",

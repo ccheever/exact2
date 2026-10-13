@@ -117,7 +117,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   const kept = storage === undefined ? null : driveStore(selected, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   // `--port`/EXACT_PORT, else a named store's own port, else any free one; said once a run, on stderr (stdout is the reply).
-  await listenOn(server, fixed ?? (kept && !pageURL ? kept.port : 0), '127.0.0.1', undefined, !!fixed).catch((e) => {
+  await listenOn(server, fixed ?? (kept && !pageURL && env?.EXACT_AGENT_EPHEMERAL_PORT !== '1' ? kept.port : 0), '127.0.0.1', undefined, !!fixed).catch((e) => {
     throw e.code !== 'EADDRINUSE' || fixed ? e : new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name, or --port <n>`);
   });
     const port = server.address().port; if (!openWeb.said) console.error(`${openWeb.said = `web: ${selected.name} served at http://127.0.0.1:${port}/`}${fixed ? '' : ' (--port <n> or EXACT_PORT picks the port)'}`);

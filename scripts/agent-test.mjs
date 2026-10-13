@@ -377,7 +377,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // (every `clock +N`, settle and timer), as the runner reports it; whole milliseconds, which every host takes.
     const first = facts.epoch; // the test's launch date, which a `reload` moves `facts.epoch` on from
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: { ...environment, EXACT_AGENT_EPHEMERAL_PORT: '1' }, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).

@@ -2,13 +2,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createServer } from 'node:net';
 const sdk = resolve(import.meta.dirname, '..');
 const binary = process.env.SNAPBACK4_BIN ?? resolve(sdk, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
 const packageDir = process.env.SNAPBACK4_PACKAGE ?? resolve(sdk, 'node_modules/snapback4');
-for (const mode of ['dev', 'serve']) test(`fresh Exact guestbook syncs, writes offline and reconnects against ${mode}`, async () => {
+for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`npm Exact ${online ? 'online write' : 'guestbook syncs, writes offline and reconnects'} against ${mode}`, async () => {
   const project = mkdtempSync(join(sdk, 'target/hs-guestbook-'));
   const app = join(project, 'app'); let server;
   const env = {...process.env, SNAPBACK4_BIN: binary, CARGO_INCREMENTAL: '0', CARGO_PROFILE_DEV_DEBUG: '0', CARGO_PROFILE_TEST_DEBUG: '0'};
@@ -21,11 +21,88 @@ for (const mode of ['dev', 'serve']) test(`fresh Exact guestbook syncs, writes o
     const reservation = createServer().listen(0, '127.0.0.1');
     await new Promise(ok => reservation.once('listening', ok));
     const port = reservation.address().port; await new Promise(ok => reservation.close(ok));
-    mkdirSync(join(project, 'node_modules/.bin'), {recursive: true});
-    symlinkSync(packageDir, join(project, 'node_modules/snapback4'), 'dir');
-    symlinkSync(binary, join(project, 'node_modules/.bin/snapback4'));
-    writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.25'}}));
-    run(process.execPath, [join(sdk, 'scripts/exact.mjs'), 'new', app, '--snapback', '--port', String(port)]);
+    // Qualify the shipped npm shape, not a source-directory symlink.
+    const packed = JSON.parse(run('npm', ['pack', packageDir, '--ignore-scripts', '--json', '--pack-destination', project]));
+    const tarball = join(project, packed[0].filename);
+    writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: `file:${tarball}`}}));
+    run('npm', ['install', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund']);
+    assert.ok(readFileSync(join(project, 'node_modules/snapback4/dist/contract.d.ts')).length);
+    if (online) {
+      mkdirSync(join(project, 'snapback'), {recursive: true});
+      writeFileSync(join(project, 'snapback/schema.q'), `use personas alice, bob
+
+table notes:
+  author: principal
+  body: text 1..200
+  at: time
+  by byTime: at, id
+  public 'notes are public'
+  insert <- .author = viewer
+  update <- deny
+  delete <- .author = viewer
+  online only
+
+query recent():
+  return notes last 50 by byTime
+
+mutation post(body: text 1..200):
+  row = insert notes { author: viewer, body, at: now }
+  return { id: row.id }
+`);
+    }
+    run(process.execPath, [join(sdk, 'scripts/exact.mjs'), 'new', app, '--snapback', ...(online ? ['--online'] : []), '--port', String(port)]);
+    if (online) {
+      assert.equal(existsSync(join(app, 'assets/snapback4.wasm')), false);
+      writeFileSync(join(app, 'app.contract'), `shape Board
+  latest: string
+shape Post
+  id: string
+component App
+  state draft = ""
+  resource board = notes() as shape Board else empty()
+  mutation posted as shape Post refreshes board
+  action edit(value: string)
+    draft = value
+  action post
+    send posted = post(draft)
+  view
+    column
+      input value=draft input=edit testId="draft"
+      button "Post" press=post testId="post"
+      text board.latest testId="latest"
+`);
+      writeFileSync(join(app, 'app.ts'), `import type { Answer, Result, Sources } from './app.contract.d.ts';
+import { Snapback, refused } from './snapback4/snapback.ts';
+import { api } from './backend/api.ts';
+export const appId = 'com.example.app';
+const origin = 'http://127.0.0.1:${port}';
+export const grants = \`net.fetch \${origin}\`;
+const persona = 'alice';
+const db = new Snapback({origin, headers: () => ({ 'x-snapback-persona': persona })});
+const sources: Sources = {
+  notes: async (): Promise<Result<'notes'>> => {
+    const read = await db.read(api.recent, {});
+    if (read.denied) throw refused(read.denied);
+    return { latest: read.data?.[0]?.body ?? '' };
+  },
+  post: async ([body]): Promise<Result<'post'>> => {
+    const sent = await db.send(api.post, {body});
+    if (sent.state === 'failed') throw refused(sent.why);
+    return sent.result;
+  },
+};
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
+`);
+      writeFileSync(join(app, 'app.test.contract'), `epoch now
+
+test "one online write"
+  clock data
+  type "draft" "from the tunnel"
+  tap "post"
+  clock data
+  expect text "latest" == "from the tunnel"
+`);
+    }
     assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /import \{ api \} from '.\/backend\/api.ts'/);
     if (mode === 'serve') {
       const schema = join(project, 'snapback/schema.q');
@@ -45,20 +122,22 @@ for (const mode of ['dev', 'serve']) test(`fresh Exact guestbook syncs, writes o
       const signed = await response.json(); assert.equal(response.status, 200); assert.ok(signed.session?.token);
       const source = readFileSync(join(app, 'app.ts'), 'utf8').replace('viewer: `dev:${persona}`, headers: () => ({ \'x-snapback-persona\': persona })',
         `viewer: ${JSON.stringify(signed.session.principal)}, headers: () => ({ authorization: ${JSON.stringify('Bearer ' + signed.session.token)} })`);
-      writeFileSync(join(app, 'app.ts'), source);
+      writeFileSync(join(app, 'app.ts'), online ? source.replace("'x-snapback-persona': persona", `authorization: ${JSON.stringify('Bearer ' + signed.session.token)}`) : source);
       const tests = readFileSync(join(app, 'app.test.contract'), 'utf8');
-      writeFileSync(join(app, 'app.test.contract'), 'epoch now\n\n' + tests.slice(tests.indexOf('test "offline,'))
+      if (!online) writeFileSync(join(app, 'app.test.contract'), 'epoch now\n\n' + tests.slice(tests.indexOf('test "offline,'))
         .replace('  clock data\n  fail fetch', '  clock data\n  expect text "status" == "Synced"\n  fail fetch')
         + `  expect text "status" == "Synced"\n  expect text "latest" == ${JSON.stringify(signed.session.principal + ': from the tunnel')}\n`);
     }
     // Execute the exact recovery command the server's refusal prescribes.
-    writeFileSync(join(app, 'assets/snapback4.wasm'), Buffer.from([0,97,115,109,1,0,0,0]));
-    run(process.execPath, ['exact.mjs', 'snapback', '--rebuild'], app);
-    if (mode === 'dev') {
+    if (!online) writeFileSync(join(app, 'assets/snapback4.wasm'), Buffer.from([0,97,115,109,1,0,0,0]));
+    if (!online) run(process.execPath, ['exact.mjs', 'snapback'], app);
+    if (mode === 'dev' && !online) {
       const tests = join(app, 'app.test.contract');
       writeFileSync(tests, readFileSync(tests, 'utf8').replace('  expect text "sending" == "0 sending"',
         '  expect text "sending" == "0 sending"\n  expect text "status" == "Synced"\n  expect text "latest" == "dev:alice: from the tunnel"'));
     }
+    // Upstream check currently gates backend-only mounts; record the coordinated deferral.
+    if (!online) run(binary, ['check']);
     const output = run(process.execPath, ['exact.mjs', 'test', 'web'], app);
     assert.match(output, /0 failed/);
     // Check server authority too: a refused queued write must not satisfy reconnect.

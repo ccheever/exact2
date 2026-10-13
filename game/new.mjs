@@ -116,6 +116,7 @@ export function createApp(destination, options = {}) {
   if (options.update) return updateApp(dir, name);
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
+  if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
   mkdirSync(dir, { recursive: true });
   let created;
   const existingBackend = options.snapback && existsSync(resolve(dir, '..', 'snapback/schema.q'));
@@ -133,7 +134,7 @@ export function createApp(destination, options = {}) {
     throw error;
   }
   // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
-  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app. Write app.ts and app.contract for its generated operations; no guestbook was substituted.' : ''}\n${wireSnapback(dir, { build: options.snapback.build ?? true, port })}`;
+  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app. Write app.ts and app.contract for its generated operations; no guestbook was substituted.' : ''}\n${wireSnapback(dir, { build: options.snapback.build ?? true, port, online: options.snapback.online ?? false })}`;
 }
 
 /** The Snapback origin's port `--port` names (`snapback4 dev`'s default, 4400, else). */
@@ -319,18 +320,24 @@ test "offline, a note is kept, then delivered on reconnect"
 }
 
 /** The driver's mount, from the app to this checkout: relative always, since the native bake refuses an absolute one. */
-function driverMount(dir) {
-  return relative(realpathSync(dir), realpathSync(resolve(ROOT, 'snapback4/ts')));
+function driverMount(dir, online = false) {
+  return relative(realpathSync(dir), realpathSync(resolve(ROOT, online ? 'snapback4/online' : 'snapback4/ts')));
 }
 
 /** `bun exact.mjs snapback` (and the end of \`exact new --snapback\`): what the README's setup block did. Generates the backend's
  * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
  * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
-export function wireSnapback(dir, { build = true, port = null } = {}) {
+export function wireSnapback(dir, { build = true, port = null, online = false } = {}) {
   dir = resolve(dir);
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
   const parent = dirname(dir), said = [], version = snapbackVersion();
+  const existing = JSON.parse(readFileSync(manifestPath, 'utf8')).typescript?.sources ?? {};
+  const expected = { snapback4: driverMount(dir, online), backend: '../snapback/generated' };
+  for (const [name, path] of Object.entries(expected)) {
+    if (existing[name] !== undefined && resolve(dir, existing[name]) !== resolve(dir, path))
+      throw new Error(`exact snapback: refusing to rewrite an edited mount in app.json:\n- ${name}: ${JSON.stringify(existing[name])}\n+ ${name}: ${JSON.stringify(path)}\nKeep your mount, or explicitly edit app.json to the proposed path before running again.`);
+  }
   if (port !== null) {
     port = snapbackPort(port, 'exact snapback --port');
     const source = resolve(dir, 'app.ts');
@@ -380,7 +387,7 @@ export function wireSnapback(dir, { build = true, port = null } = {}) {
   }
   const text = readFileSync(manifestPath, 'utf8'), app = JSON.parse(text);
   const sources = ((app.typescript ??= {}).sources ??= {});
-  sources.snapback4 = driverMount(dir);
+  sources.snapback4 = driverMount(dir, online);
   if (existsSync(generated)) sources.backend = '../snapback/generated';
   const next = JSON.stringify(app, null, 2) + '\n';
   if (next !== text) writeFileSync(manifestPath, next);
@@ -393,11 +400,12 @@ export function wireSnapback(dir, { build = true, port = null } = {}) {
   const ts = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';
   const appId = /export const appId\s*=\s*['"`]([^'"`]*)['"`]/.exec(ts)?.[1];
   if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
-  if (build) {
+  if (build && !online) {
     const built = spawnSync(process.execPath, [resolve(ROOT, 'snapback4/web/build.mjs'), 'assets/snapback4.wasm'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] });
     if (built.status !== 0) throw new Error('the device did not build (above); bun exact.mjs snapback --rebuild builds it again');
     said.push('assets/snapback4.wasm: built with assets/snapback4.wasm.json (the device the page loads)');
   }
+  if (online) said.push('Online-only adapter: no wasm or SQLite partition; mutations go to the server, with no outbox or automatic retry.');
   const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
   const at = port ?? (origin ? new URL(origin).port || 80 : 4400);
   said.push(`Before \`bun exact.mjs test web\`: \`bunx snapback4 dev --port ${at}\` in ${parent} (snapback4@${version}).`);

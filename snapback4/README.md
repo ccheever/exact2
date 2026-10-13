@@ -34,10 +34,10 @@ The published release includes `fresh` dev reset and generic `file`/PDF assets.
 >   that section and compare the server's public `GET /` compatibility floor and
 >   capabilities, as `check` does. `.wasm.json` is derived diagnostic output.
 >   Compatible version skew is allowed; empty, malformed or duplicate stamps refuse.
-> - **The origin's port, in four places** (["Ports"](#ports-the-snapback-origin-and-the-pages-own)):
+> - **One origin setting** (["Ports"](#ports-the-snapback-origin-and-the-pages-own)):
 >   `app.ts`'s `origin`, its `net.fetch` grant (write it as `${origin}`),
->   `snapback4 dev --port`, and the test file's `fail fetch`/`pass fetch`
->   prefixes. Moving it means all four. The page's port (`EXACT_PORT`,
+>   `bun exact.mjs backend`, and the generated test file's `fail fetch`/`pass fetch`
+>   prefixes. `bun exact.mjs snapback --port N` updates them together. The page's port (`EXACT_PORT`,
 >   `--port` on `bun exact.mjs`) is another, never this one.
 > - **Grants.** `sqlite.open app:/data` for the partition; `fs.read app:/tmp`
 >   to upload a picked file and `fs.write app:/cache` to download one.
@@ -61,6 +61,16 @@ snapback4@0.4.25`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
 the app (`app.contract`, `app.ts` at that origin with its grants,
 `app.test.contract`) and `snapback/schema.q` when there is none, then wires it. With an existing schema it keeps the greeting app and mounts
 the backend's operations: write the view and data sources for those operations.
+For a server-only app, write its schema first, then use `new app --snapback --online`
+(or `snapback --online` on an app with no driver mount). This mounts `snapback4/online`,
+which exports `Snapback` with typed `read(api.query, args)` and `send(api.mutation, args)`:
+`new Snapback({origin, headers})`. It loads no wasm and opens no SQLite partition.
+Reads return the server's `data` envelope; mutations return `sent` with `result` or
+`failed` with `why`. An interrupted write throws: its server fate may be unknown,
+so read before retrying. There is no offline prediction, queue or automatic retry.
+Snapback's current `check` still incorrectly gates a backend-only mount; see `QUEUE.md`
+for the coordinated upstream correction. Exact's web preflight gates only the device mount.
+
 An existing app (the one holding `app.json`, the backend in the directory
 above it): `bun exact.mjs snapback`. Either one:
 
@@ -82,7 +92,9 @@ above it): `bun exact.mjs snapback`. Either one:
    the backend first writes `snapback/generated/`.
 4. **Builds the device** the page loads into `assets/snapback4.wasm` (`node
    <exact2>/snapback4/web/build.mjs assets/snapback4.wasm` by hand) and its
-   glue, which every host's bake type-checks. The first build compiles the
+   glue, which every host's bake type-checks. Every default `snapback` run asks Cargo to rebuild when inputs changed, including
+   when the existing stamp is missing or stale. It refuses an edited driver or backend
+   mount with a before/after diff before changing files. The first build compiles the
    client for a few minutes; later ones take seconds. The web host serves it
    at `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s
    `wasm` names another). A web build of an app that mounts the driver
@@ -190,7 +202,12 @@ compare times the server returned with each other; a deadline the app
 computes from its own clock disagrees with the server in every test on
 the fixed epoch. For a drive or test against `snapback4 dev`, say `--epoch now` (a test
 file's `epoch now`): the date is then the machine's clock, read once at
-launch, and agrees with the server's (the agent's `clock` still moves it).
+launch. `clock +60000` then advances only the UI's clock; it does not advance
+Snapback's `now`, sessions, expiry jobs or server schedules. `clock data` waits for
+real network/storage work and leaves both clocks unchanged. Use the Snapback CLI's
+own clock controls for a dev-server scheduling proof. `epoch now` aligns the start,
+not the two clocks after a virtual jump. Production wall-clock time keeps moving
+while a test's UI clock stands still.
 
 ### A complete app
 
@@ -436,14 +453,16 @@ module reads no environment, so the server must come to it:
 file's `fail fetch`/`pass fetch` prefixes name the same origin. To move it,
 run `bun exact.mjs snapback --port <n>` to update a literal loopback
 `const origin`, matching grant literals and test fetch prefixes; it prints
-the matching `dev --port <n>`. `${origin}` grants follow automatically.
+the matching `dev --port <n>`. `bun exact.mjs backend` starts it in the backend directory
+and reads that same `const origin`; `backend serve <release>` uses the same port. `${origin}` grants follow automatically.
 An origin it cannot identify or a production origin is refused for this
 port edit: set production origins yourself. `test web` reads
 this origin from the build's `net.fetch` grants (`app.ts`'s `grants`), asks
 whether anything listens there, and refuses the run when nothing does.
 **The Exact page's port** is separate: `EXACT_PORT=<n>` (or `--port <n>`)
 serves `web`, `test web` and `agent web` on exactly that port, else a free
-one. It never changes the origin the app fetches, and `--port` on `test web`
+one selected atomically by the OS for temporary tests; no remembered development
+page or temporary-store hash supplies it. Reload keeps the same page origin. It never changes the origin the app fetches, and `--port` on `test web`
 is the page's, not the server's. On a machine that assigns you ports, take
 one for `snapback4 dev --port` and the origin, and another for `EXACT_PORT`.
 
@@ -739,3 +758,9 @@ change poll; LLP 1110), and the 0.2.32 legacy fallback. `round.rs` names its sou
 The device crate emits canonical compact UTF-8 `snapback4.engine` JSON into every linked wasm artifact: `{format:1, version, capabilities}`. Build tooling preserves it and derives `assets/snapback4.wasm.json` for diagnostics; preflight reads the embedded section, including when offline. It compares the same server floor and schema capabilities as Snapback `check`, via the public `GET /` compatibility record on dev and serve. Compatible version differences are allowed. Missing or malformed identity names `bun exact.mjs snapback --rebuild`.
 
 Web and native wrappers expose `engine_info` and `engine_headers` before partition open. Every Rust Fetch carries headers from `snapback4_device::engine::headers()`, and both transport drivers forward them automatically, including the first schema request. Applications supply credentials only. Generated backend operations typecheck using Snapback's DOM-free public declarations.
+
+Uploads currently expose a completed `fetch` response, not transferred-byte events.
+Show an indeterminate indicator until the response arrives; determinate progress
+requires transport support for loaded/total byte events. Do not estimate a percentage
+from elapsed UI time. Picked CSV, TSV, plain text, Markdown, HTML, CSS, XML and YAML
+files retain their MIME types; unknown extensions remain `application/octet-stream`.

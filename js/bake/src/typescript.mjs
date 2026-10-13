@@ -306,6 +306,8 @@ export function ambientRefusals(stage, file, code, parse) {
 export const compilerOptions = {
   noEmit: true,
   strict: true,
+  // Installed declaration internals belong to their package; app sources stay strict.
+  skipLibCheck: true,
   target: 'ES2023',
   module: 'ESNext',
   moduleResolution: 'bundler',
