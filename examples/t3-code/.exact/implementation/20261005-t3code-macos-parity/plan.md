@@ -317,9 +317,10 @@ dashed, and lists the other workarounds main's fixes since round 11 end (`EXACT2
 which the follow-up [r12-kept-workarounds](tasks/20261013-r12-kept-workarounds.md) holds (planned; Inspect app colors among
 them, now that main closed #321). The held tasks below can resume
 once it merges: main fixed X48 and X69 on 2026-10-12 (`eaf48e05c`, `afe11ead5`).
-[adopt-main-fixes-r13](tasks/20261014-adopt-main-fixes-r13.md) adopts main `898ca3a09`, then `95f2fd3e7`, with #523 (`issues/closed/20261013-macos-a-press-held-on-a.md`):
+[adopt-main-fixes-r13](tasks/20261014-adopt-main-fixes-r13.md) adopts main `898ca3a09`, then `95f2fd3e7` and `2ba30e401`, with #523 (`issues/closed/20261013-macos-a-press-held-on-a.md`):
 X87 is fixed (round 12's agent trigger aborts the T3 tip's bundle and runs on round 13's, as the reference); main's
-other commits since `0b956d63d` (Ibex's consumer adoption, the sticky-target intersection fix, the date and place at launch) end no clone workaround,
+other commits since `0b956d63d` (Ibex's consumer adoption, the sticky-target intersection fix, the date and place at launch, the focus fix that closes
+X54's issue) end no clone workaround,
 so nothing is retired and r12-kept-workarounds stands.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in

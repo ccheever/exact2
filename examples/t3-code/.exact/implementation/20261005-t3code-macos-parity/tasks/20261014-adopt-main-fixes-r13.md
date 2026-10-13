@@ -1,14 +1,14 @@
 ---
 name: 20261014-adopt-main-fixes-r13
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: unverified
-delivery: none
+implementation: done
+verification: verified
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r13'
 pr_url: null
-verified_commit: null
+verified_commit: 37540190c
 ---
 
 # Main adoption, round 13 (X87 fixed by #523)
@@ -19,7 +19,9 @@ verified_commit: null
 merged 2026-10-13 by fast-forward as `9149492d4`) adopted main `0b956d63d`. Since then main has #523 (`898ca3a09`: a
 `ChainingScrollView` keeps a held view only while it is in the window), which fixes X87, the SIGABRT round 12's agent
 drive found (a press held on the timeline scroller's empty area, then ⌘1 and ⌘2); and Charlie's work since (Ibex's
-consumer adoption, `f31c6e2ba` to `6dd91519c`; the intersection fix for sticky targets, `c016978a6`). The user decided
+consumer adoption, `f31c6e2ba` to `6dd91519c`; the intersection fix for sticky targets, `c016978a6`; and, reached
+while this round ran, the date and place at launch, `115c3aada` to `95f2fd3e7`, and the focus fix that closes X54's issue,
+`1bcf7436f`). The user decided
 on 2026-10-11 that every item below is built now, matching the reference T3 Code (no further decision needed unless the
 reference itself is ambiguous).
 
@@ -70,3 +72,138 @@ reference itself is ambiguous).
   (session 2, the bisect).
 - RT-2: main `git log 0b956d63d..origin/main`; `EXACT2-GAPS.md` "Closed on main since round 11" and "Partly fixed";
   [r12-kept-workarounds](20261013-r12-kept-workarounds.md) KW-1 to KW-13 with each row's reference lines.
+
+## Adopted main
+
+**`898ca3a09`**, then **`95f2fd3e7`** and **`2ba30e401`** (main's tip at the last merge, 19 commits past round 12's `0b956d63d`):
+
+- `48485695b`: this record's first version.
+- Before any merge: the T3 tip `9149492d4`'s bundle built in this worktree and driven (lane `adopt-main-fixes-r13-before`).
+- `62a7c3c1d`: `git merge --no-ff origin/main` at `898ca3a09` (11 commits: #523; Ibex's consumer adoption `f31c6e2ba` to
+  `6dd91519c`; the sticky-target intersection fix `c016978a6`). No conflict (`Cargo.lock` merged clean). `contract build`
+  exit 0 with round 12's plan: 6,470 slots, 120,810 nodes, 48 resources, 33,309,129 bytes, the same warnings (233
+  `lower-colour-one-scheme`, 20 `lower-dialog-role` shown). The compiler is unchanged since round 12 (main touched only
+  `contract/cli/tests`), so round 12's uncapped analysis stands. This merge's bundle was the live drive's (after).
+- `45f7c5045`: the records (`EXACT2-GAPS.md`, `STATUS.md`, `plan.md`).
+- `534b9613c`: `git merge --no-ff origin/main` at `95f2fd3e7`, which main reached after the live drive (5 commits: the date
+  and place at launch, `115c3aada` to `95f2fd3e7`: a boot reads the locale, zone and seed from its first settle, and on
+  Apple `SessionTime.primeTime` tells the place before each boot; QUEUE). No conflict. A Mac boot change, so the bundle
+  was rebuilt and the drive run again on it (after2, the one retry): every screen pixel-equal to the live drive's.
+- `30c228b70`: the records name the second merge. The checks ran once on `534b9613c` (all exit 0, Checks); main moved
+  while they ran.
+- `37540190c`: `git merge --no-ff origin/main` at `2ba30e401` (3 commits: `1bcf7436f`, a wrapper removed by blur still
+  hears its `focusout`, which closes X54's issue, with `FocusEvents.swift` on the Mac; `89a5b5e29`, the JS target's
+  agent gate, web only; QUEUE). No conflict. Not driven: the clone writes no `focusin=` or `focusout=`, so the Mac change
+  has nothing of the clone's to deliver, and the rest is web and QUEUE. The checks, the Bun suite, strict tsc, `contract
+  build` and the bundle build ran again on this head.
+
+On the final head after a fresh fetch: `git merge-base --is-ancestor origin/main HEAD`, `git rev-list --count
+HEAD..origin/feat(example)/t3-code` and `git diff origin/main HEAD -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'`
+(Checks). The `Cargo.toml` / `Cargo.lock` difference is the `examples/t3-code/macos` member and the `t3-code-macos` package
+only. The PR must land as a merge (or a fast-forward of the feature branch to its head), never a squash: a squash drops
+main from the branch's ancestry.
+
+## Each item of main's new commits
+
+| Item | Main commit | Outcome | Clone change |
+| --- | --- | --- | --- |
+| X87: a scroll view pressed on its empty port leaves with its freed parent | `898ca3a09` (#523) | RT-1: round 12's trigger runs on | none (no workaround existed) |
+| Intersection: sticky targets sampled where they stick; rotated roots | `c016978a6` | X22's `intersect=` (partly fixed, KW-12): the clone writes no `intersect=` (0 sites), and its one `position="sticky"` row (the pull request summary's section heading, `pages-pr-summary.contract:282`) is observed by nothing, so nothing changes; the `t3-turn` hooks stay (a rework) | none |
+| Ibex's consumer adoption: the native executor's transports from upstream Ibex (Apple's native transport stays the default, the async switch stays off), the bounded portable worker pool, `fs.compressImage`'s job ownership, document leases with typed `doc:/` codes, a 16 MiB storage result limit | `f31c6e2ba`, `d26e929aa`, `f3de34746`, `313f51d4c`, `e9a6ef95f`, `2cd37da16`, merges `a7af46999`, `f9eaf7fd6`, `6dd91519c` | No `EXACT2-GAPS.md` row and no clone workaround names any of them: the clone's TypeScript calls no global `fetch`, no `fs.compressImage` and no document picker, and its server traffic is its own native WebSocket module. The drive ran its data module and storage on it (sessions 1 and 2 exit 0, every screen pixel-equal to the before's) | none |
+| The date and place at launch (locale, zone, seed before each boot) | `115c3aada`, `5ccb7d797`, `6233c4cc2`, `95f2fd3e7` (second merge) | The clone's first settle reads the real locale and zone; the drive (agent facts `--time-zone Asia/Seoul`, a fixed epoch) is pixel-equal to the first merge's on all 15 screens, the relative ages ("3d", "8d") included | none |
+| A wrapper removed by blur still hears its `focusout` (X54's issue closed) | `1bcf7436f` (third merge) | X54 (KW-12): the clone writes no `focusin=` or `focusout=` (0 sites), so nothing it runs changes. Its stand-ins ("Show full comment" as a Tab stop before a long comment's held body, the remark pencil shown while itself focused, `KmDoor` in `menu-keys.contract`) need `focusin` on their wrappers to retire: a rework of the pull request threads and of `menu-keys.contract`'s door, kept (`EXACT2-GAPS.md` X54) | none |
+| The JS target's agent gate in lazily copied production web modules | `89a5b5e29` (third merge) | web only | none |
+| QUEUE, LLP and review records | `22cf1cd6b`, `2ba30e401` and the rest | nothing on the clone's path | none |
+
+## Cause and fix
+
+- **RT-1, X87 (#523, adopted).** #523's issue gives the mechanism, the one round 12 bisected: main `3998e650e` (X65) gave
+  `ChainingScrollView` a `removeFromSuperview` that refused every removal while its mouse was held, AppKit's own when it
+  frees the parent (`-[NSView _finalize]`) included, so the scroll view reached its dealloc still a subview and AppKit
+  raised. #523 keeps the view under a held press only while it is in the window (#519's rule for `NodeView`). Round 12's
+  agent trigger, the same ops on both builds: the fixture thread, `tap transcript down` (contact 1267 at (768, 446), the
+  scroller's empty area below the reply's table), ⌘1, ⌘2, the up, the sidebar's Settings, Back. The T3 tip's bundle
+  (main `0b956d63d`) exits at ⌘1's batch (SIGABRT; the crash report's last exception backtrace `-[NSView dealloc]` ←
+  `-[NSScrollView dealloc]` ← `AutoreleasePoolPage::releaseUntil`, X87's frames). Round 13's runs every op: ⌘1 opens Sweep
+  five and ⌘2 Sweep four under the held press (state: `…:sweep-4`), the up lands, Settings opens, Back returns. The
+  reference does the same (CDP: the press held below the reply, ⌘1 `sweep-5`, ⌘2 `sweep-4`, the up, Settings ›
+  General, Escape back to Sweep four). No clone source changed.
+- **RT-2 (nothing to retire).** Main's 19 commits since `0b956d63d`, each read against `EXACT2-GAPS.md` and the 13 rows
+  of [r12-kept-workarounds](20261013-r12-kept-workarounds.md) ("Each item" above): #523 closes X87, which had no
+  workaround; `1bcf7436f` closes X54's issue, whose stand-ins need a rework to move to `focusin` (KW-12), not a
+  one-attribute retirement; the intersection fix extends X22's `intersect=`, which the clone does not write (KW-12's hooks stay a
+  rework); Ibex's adoption and the launch facts touch nothing a workaround stands in for. KW-1 to KW-13 stand as that
+  record says, each with its reason (a parity change across many sites, a rework, or a drive the lanes lack).
+- **AD-1.** Nothing the clone writes is refused or compiles differently (the same plan, byte for byte in size, and the
+  same warnings); the Mac host changes (`ChainingScrollView`, the launch place) ran in both drives.
+
+## Acceptance results
+
+Drive: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/c1086cf3fd9943711c71f3ae872290b536c16f19/adopt-main-fixes-r13/drive.sh.txt), [lane.sh](https://raw.githubusercontent.com/ccheever/exact2/d5e7845ef8b8d4614599ce34d8ab1f8d9fae56ba/adopt-main-fixes-r13/lane.sh.txt),
+[ref-rt1.mjs](https://raw.githubusercontent.com/ccheever/exact2/a6f7630fb0240ebdcbb63d4b23dae5ed1f7a2616/adopt-main-fixes-r13/ref-rt1.mjs.txt), [crashes.py](https://raw.githubusercontent.com/ccheever/exact2/ac93f2074bcd3d57102e8747c2935c09828f3dca/adopt-main-fixes-r13/crashes.py.txt); [readouts](https://raw.githubusercontent.com/ccheever/exact2/7099db73d3c2cb67e1ae32017c222e65e5c206bf/adopt-main-fixes-r13/readouts.txt) (exits, crash frames,
+states, pixels, the contract build, RT-2 commit by commit).
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| AD-1: the branch contains main | pass at the final merge (main `2ba30e401`) | Adopted main; Checks |
+| AD-1: the framework tree is main's | pass: empty after `62a7c3c1d`, `534b9613c`, `37540190c` and on the final head | Adopted main; Checks |
+| AD-1: the checks pass | see Checks | Checks |
+| AD-1: the clone works | pass: session 1 (the shell, Settings General, Appearance, Providers, Usage and back, the fixture thread, the right panel's file viewer, Settings from it, Back) exits 0 on both builds; all 11 screens pixel-equal before and after; the final bundle (after2) pixel-equal to the after on all 15 screens of both sessions | [smoke](https://raw.githubusercontent.com/ccheever/exact2/d21e799f5ea9141efddbeb0d8fb846198def98cb/adopt-main-fixes-r13/ad1-smoke.png), readouts |
+| RT-1 (X87) | pass: session 2, before SIGABRT at ⌘1's batch (op 12 of 26, X87's frames); after and after2 every op runs (exit 0): Sweep five, Sweep four under the held press, the up, Settings, Back; the reference the same | [image](https://raw.githubusercontent.com/ccheever/exact2/7dd69a98a9c5f5041bf1440cd42178394fa77386/adopt-main-fixes-r13/rt1-x87.png), readouts |
+| RT-1 records | pass: `EXACT2-GAPS.md` (X87's row, "Closed on main since round 12", the releaseHold section), `STATUS.md` (round 12 merged, round 13's entry, X87's "Found, not in scope" row), `plan.md` | the diff |
+| RT-2 | pass: nothing a merged main fix ends trivially; each commit and KW-1 to KW-13 listed with why (X87 had no workaround; X54's stand-ins need a rework) | Each item; readouts |
+| Real input | none needed (agent mode reaches X87's trigger); one optional step below | — |
+
+Drives (agent mode, 1280×840, `--epoch 2026-10-14T22:00:00+09:00 --time-zone Asia/Seoul`, base port 16850, the clone's
+server on 16852; each session on a lane reset to round 12's seed). Before: this worktree at the T3 tip `9149492d4` (main
+`0b956d63d`), built before the merge (lane `adopt-main-fixes-r13-before`). After: the bundle of `62a7c3c1d` (main
+`898ca3a09`; lane `adopt-main-fixes-r13`). After2: the bundle of `534b9613c` (main `95f2fd3e7`), the same lane. The third merge (`37540190c`, main `2ba30e401`)
+was built, not driven (above). Reference:
+T3 Code `1e2ecbd975` on lane `adopt-main-fixes-r13-ref` (16850/16851) over CDP.
+
+## Real-input batch steps
+
+Optional, for the coordinator's next session (agent mode already reaches the trigger). Launch this branch's bundle as a
+lane copy seeded as `lane.sh` seeds it, window 1280×840. Never send a message.
+
+1. **RT-1 X87 (round 12's step 7).** In the Timeline verification thread, press and hold below the last message (the
+   timeline's empty area); with the button held press ⌘1, then ⌘2; release; click the sidebar's Settings, then Back.
+   Expected: the threads change, Settings opens and Back returns; the app stays (round 12's bundle aborted at ⌘1).
+
+## Tests
+
+- No clone source changed (no `.contract`, `.ts`, Swift or Rust under `examples/t3-code`), so no Bun guard is added: the
+  fix is main's, tested there (`ScrollRoutingTests.testAnEmptyScrollPortFreedUnderAPressGoesWithItsNode`), and this
+  round's proof is the drive. No AppKit binary was rebuilt (`host/apple/modules/` and the clone's Swift unchanged).
+
+## Checks
+
+CHECKS_TABLE
+
+## Attempts and evidence
+
+| Attempt | Revision | Outcome | Evidence |
+| --- | --- | --- | --- |
+| Reference, runs 1–2 | Electron `1e2ecbd975`, lane `adopt-main-fixes-r13-ref` | stopped on the script's own selectors (the thread row's `sr-only` text, then a press point on the composer); not used | — |
+| Reference, run 3 | the same | the press held below the reply, ⌘1, ⌘2, the up, Settings, Escape: no crash | the reference column |
+| Before drive | this worktree at `9149492d4` | session 1 exit 0; session 2 SIGABRT at ⌘1's batch (X87) | the before column |
+| After drive (the live drive) | the bundle of `62a7c3c1d` | sessions 1 and 2 exit 0 | the after column |
+| After2 (the one retry) | the bundle of `534b9613c` (main moved: a Mac boot change) | sessions 1 and 2 exit 0, every screen pixel-equal to the after's | readouts |
+| Checks, first run | `534b9613c` | every check exit 0 (Checks); main moved while they ran, so the third merge and the checks again | Checks |
+
+## Not done / not verified
+
+None.
+
+## Decision needed
+
+None: X87 is fixed on main and every other item follows the reference or main's platform rules.
+
+## Delivery
+
+Draft PR [#PR_NUMBER](PR_URL) against `feat(example)/t3-code`. It must land as a merge or a fast-forward of the feature branch to
+its head, never a squash (a squash drops main from the branch's ancestry).
+
+## Next action
+
+The coordinator: review, then merge (merge or fast-forward); the optional real-input step with the next session.
