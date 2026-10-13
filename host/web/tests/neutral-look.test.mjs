@@ -78,7 +78,7 @@ const fixture = `
     <div data-liststyle="inset-grouped" data-exact-said="background-color" id="list-said" style="background-color:rgb(1, 2, 3)"></div>
   </div>
   <div popover="auto" role="menu" id="menu" style="display:flex;flex-direction:column"><button type="button" data-native data-button-style="bordered" id="item" style="display:grid"><span data-exact-text>Rename</span></button><button type="button" data-native data-button-style="bordered" data-destructive="true" id="item-delete" style="display:grid"><span data-exact-text>Delete</span></button></div>
-  <dialog id="alert" role="alertdialog" aria-label="Sure?"><div data-exact-text>It cannot be undone.</div><button type="button" data-native data-button-style="bordered" id="cancel" style="display:grid"><span data-exact-text>Cancel</span></button></dialog>
+  <dialog id="alert" role="alertdialog" aria-label="Sure?"><div data-exact-text>It cannot be undone.</div><button type="button" data-native data-button-style="bordered" data-destructive="true" id="delete" style="display:grid"><span data-exact-text>Delete</span></button><button type="button" data-native data-button-style="bordered" id="cancel" style="display:grid"><span data-exact-text>Cancel</span></button></dialog>
 </div>`;
 // What the page answers with: a colour as the engine paints it (each serializes `color-mix()` its own way), a box.
 const helpers = `
@@ -240,9 +240,10 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('context menu in a corner'), menu[0] + menu[2], menu[1] + menu[3]]).toEqual([at('context menu in a corner'), 960, 680]);
       await page.keyboard.press('Escape');
 
-      // An alert reads from the start, its actions at the end, each its own width.
-      const alert = await page.evaluate(() => { document.getElementById('alert').showModal(); return [css('alert', 'width'), css('alert', 'textAlign'), css('alert', 'justifyContent'), css('alert', 'borderTopLeftRadius'), color('alert', 'backgroundColor'), box('cancel')[2] < 200]; });
-      expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', 'flex-end', '12px', SURFACE[scheme], true]]);
+      // An alert reads from the start. Its actions share the row equally (416 less 24 of padding each side and a 12 px
+      // gap is 178 each), and a destructive one's edge is its red, where the other's is the look's line.
+      const alert = await page.evaluate(() => { document.getElementById('alert').showModal(); return [css('alert', 'width'), css('alert', 'textAlign'), css('alert', 'borderTopLeftRadius'), color('alert', 'backgroundColor'), box('delete')[2], box('cancel')[2], css('delete', 'borderTopColor') === css('delete', 'color'), css('cancel', 'borderTopColor') === css('delete', 'borderTopColor')]; });
+      expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
     // A narrow window: the sheet is the page's own box, full-bleed. A coarse pointer: a control is 44 px.

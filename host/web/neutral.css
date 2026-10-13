@@ -194,15 +194,18 @@
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
   :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
 
-  /* A dialog is a modal surface. An alert reads as a page does: its title and message at the start, its actions at
-     the end in the order written, each its own width. */
+  /* A dialog is a modal surface. An alert reads as a page does, its title and message at the start. Its actions share
+     the row equally in the order written, a title too long for its share taking a row of its own, and a destructive
+     one has its red in its edge as well as its ink. (Graded blind against small buttons at the row's end on
+     2026-10-12: 17 judgments to 1 for this row, LLP 1115.000 D4.) */
   :where(#exact-root dialog) { border: none; border-radius: 12px; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-modal); }
   :where(#exact-root dialog)::backdrop { background-color: var(--exact-scrim); }
-  :where(#exact-root dialog[role="alertdialog"]) { width: min(26rem, calc(100vw - 32px)); padding: 24px; gap: 8px; text-align: start; justify-content: flex-end; }
+  :where(#exact-root dialog[role="alertdialog"]) { width: min(26rem, calc(100vw - 32px)); padding: 24px; gap: 8px 12px; text-align: start; }
   :where(#exact-root dialog[role="alertdialog"][aria-label])::before { font-size: 1.125em; }
   :where(#exact-root dialog[role="alertdialog"] > :not(button)) { font-size: 1em; color: var(--exact-secondary-label); }
   :where(#exact-root dialog[role="alertdialog"] > :not(button):has(+ button)) { margin-bottom: 16px; }
-  #exact-root dialog[role="alertdialog"] > button { flex: 0 1 auto; min-width: 5rem; }
+  #exact-root dialog[role="alertdialog"] > button { min-width: min-content; }
+  #exact-root dialog[role="alertdialog"] > button[data-button-style="bordered"][data-destructive="true"]:enabled { border-color: var(--exact-accent); }
 
   /* A popover is a raised surface, and opens at its invoker: under it, from its inline start, and where that does not
      fit, the other way. A menu's rows are rows: the label's ink (red when destructive), a wash under the pointer. A
