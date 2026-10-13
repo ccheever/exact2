@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn svg_environment_attributes_stay_omitted_across_state_and_segment_changes() {
+fn complex_svg_attributes_stay_omitted_across_state_and_segment_changes() {
     for length in [
         "env(viewport-segment-height 1 0)",
         "calc(env(viewport-segment-height 1 0) + 10%)",
@@ -11,6 +11,10 @@ fn svg_environment_attributes_stay_omitted_across_state_and_segment_changes() {
         "env(viewport-segment-height 1 0, 25%)",
         "ENV(viewport-segment-height 1 0, 25%)",
         "env(safe-area-inset-top)",
+        "calc(10vh + 10px)",
+        "min(10vw, 50%)",
+        "max(5px, 10vw)",
+        "clamp(1px, 10vw, 100px)",
     ] {
         let plan = contract::compile(&format!(
             r##"

@@ -716,27 +716,14 @@ pub fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static
 /// An SVG element's references and attribute rows as the page takes them:
 /// its `id` rewritten to its DOM id, `href` to its target's, and the rows
 /// of [`attribute_rows`] as attributes.
-pub(super) fn svg_props(
-    kernel: &Kernel,
-    node: &NodeRef<'_>,
-    relative: bool,
-    out: &mut SortedMap<String, String>,
-) {
-    svg_props_of(
-        &|from, id| kernel.resolve_id(from, id),
-        &node.facts(),
-        relative,
-        out,
-    )
+pub(super) fn svg_props(kernel: &Kernel, node: &NodeRef<'_>, out: &mut SortedMap<String, String>) {
+    svg_props_of(&|from, id| kernel.resolve_id(from, id), &node.facts(), out)
 }
 
-/// [`svg_props`], from a node's facts and its tree's references. With
-/// `relative`, the JS target's live binding supplies hairlines; otherwise
-/// the kernel's resolved user-unit numbers are written here.
+/// [`svg_props`], from a node's facts and its tree's references.
 pub fn svg_props_of(
     resolve: Resolve<'_>,
     node: &NodeFacts<'_>,
-    relative: bool,
     out: &mut SortedMap<String, String>,
 ) {
     if !node.node_type.is_svg_element() {
@@ -758,37 +745,28 @@ pub fn svg_props_of(
             continue;
         }
         let text = match node.style.get(*row) {
-            exact_kernel::RowValue::Dimension(_)
-                if relative
-                    && matches!(
-                        node.style.relative.get(*row),
-                        Some((exact_kernel::style::relative::Unit::Hairline, _))
-                    ) =>
-            {
-                continue
-            }
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
                 exact_num::Shortest(v as f64).to_string()
             }
-            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Auto) => continue,
-            exact_kernel::RowValue::Dimension(d) => {
+            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
+                format!("{}%", exact_num::Shortest(p as f64))
+            }
+            exact_kernel::RowValue::Dimension(
+                d @ exact_kernel::Dimension::Viewport(
+                    exact_kernel::ViewportUnit::Vw
+                    | exact_kernel::ViewportUnit::Vh
+                    | exact_kernel::ViewportUnit::Vmin
+                    | exact_kernel::ViewportUnit::Vmax,
+                    _,
+                ),
+            ) => {
                 let mut text = String::new();
                 crate::css::dimension(&mut text, d);
                 text
             }
             _ => continue,
         };
-        // The web has no segment rectangles. Omit env() even with a fallback
-        // so live batches, documents and JS templates use the same initial value.
-        if !text.to_ascii_lowercase().contains("env(") {
-            out.insert((*name).into(), text);
-        }
-    }
-}
-
-impl<D: exact_runner::DataSource> super::Host<D> {
-    pub(super) fn svg_props(&self, node: &NodeRef<'_>, out: &mut SortedMap<String, String>) {
-        svg_props(self.runner.kernel(), node, false, out);
+        out.insert((*name).into(), text);
     }
 }
 

@@ -130,7 +130,10 @@ impl Em<'_> {
             .find(|(attribute, _)| *attribute == id)
         {
             let p = self.uses.rt("svgGeometry");
-            let _ = write!(self.out, "{p}({e},\"{name}\",{f});");
+            let css = self
+                .uses
+                .rt(if self.is_motion_node(i) { "Sm" } else { "S" });
+            let _ = write!(self.out, "{p}({e},\"{name}\",{f},{css});");
             return Ok(());
         }
         if matches!(

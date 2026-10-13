@@ -1192,17 +1192,7 @@ impl Em<'_> {
                     let source = serde_json::to_string(v.as_str().unwrap_or_default()).unwrap();
                     self.markdown(&e, &format!("()=>{source}"));
                 }
-                let reactive_attribute = b.kind == BindingKind::Style
-                    && exact_web::host::template::attribute_rows(node_type)
-                        .iter()
-                        .any(|(id, _)| *id as u16 == b.id)
-                    && v.as_str().is_some_and(|s| {
-                        s.to_ascii_lowercase().contains("env(")
-                            || exact_kernel::style::relative::named_length(s).is_some()
-                    });
-                if !reactive_attribute {
-                    continue;
-                }
+                continue;
             }
             let f = self
                 .f(b.expr, scope)

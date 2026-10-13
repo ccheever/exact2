@@ -9,5 +9,3 @@ tap fallback
 tap fallback
 tap hairline-toggle
 tap hairline-toggle
-prefer segments 2x1 gap 40
-prefer segments 1x1

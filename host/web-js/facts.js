@@ -12,54 +12,12 @@
 //   baked; a JS build links no update store, so nothing is ever staged.
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
-import { data, Resources, commit, R, Refusal, P, sig, W, cssText } from "./rt.js";
+import { data, Resources, commit, R, Refusal } from "./rt.js";
 import { displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
 // `readers`: resource name → [its fields, in its shape's order, …].
 const byName = (readers, name, v) => readers[name][0].map(n => v[n]);
-
-let svgEnvironment;
-let observingFold = false;
-function observeFold() {
-  if (observingFold) return;
-  observingFold = true;
-  const changed = () => commit(() => {
-    if (svgEnvironment) W(svgEnvironment, svgEnvironment() + 1);
-    for (const r of Resources) if (r.source === "exactViewport") R(r);
-  }, "viewport");
-  onFold(changed);
-  // Moving between displays may change resolution without resizing the window.
-  const resolution = () => matchMedia(`(resolution: ${devicePixelRatio || 1}dppx)`).addEventListener("change", () => {
-    changed(); resolution();
-  }, { once: true });
-  resolution();
-  // The agent's substitute and the browser's report refresh the same readers.
-  (globalThis.exact ??= {}).fold = { prefer: f => {
-    const env = preferFold(f && Object.keys(f).length ? f : null);
-    changed(); return env;
-  }, env: foldEnv };
-}
-export function svgGeometry(e, name, read) {
-  P(e, name, () => {
-    const v = cssText(name, "", read());
-    if (v == null || /^\s*(auto|initial|unset|revert(-layer)?)\s*$/i.test(v)) return null;
-    // Segment rectangles are unavailable to the wasm projection. Both web
-    // targets omit env() geometry so all engines use the same initial value.
-    if (/env\(/i.test(v)) return null;
-    if (v !== "var(--exact-hairline, 1px)") return v;
-    // A server render has no display; the live binding answers at mount.
-    if (globalThis.__exactRender) return 1;
-    if (!svgEnvironment) {
-      svgEnvironment = sig(0);
-      observeFold();
-    }
-    svgEnvironment();
-    // SVG attributes cannot use CSS variables in WebKit. SVG and kernel
-    // lengths have single precision; keep one device pixel as a user-unit number.
-    return Math.fround(1 / (devicePixelRatio || 1));
-  });
-}
 
 const CONTRAST = ["no-preference", "more", "less", "custom"];
 const GAMUT = ["srgb", "p3", "rec2020", "rec2020"];
@@ -75,8 +33,11 @@ export function viewport(readers) {
   };
   if (typeof addEventListener !== "function") return;
   const changed = again("exactViewport", "viewport");
+  addEventListener("resize", changed);
   onPreferences(changed);
-  observeFold();
+  onFold(changed);
+  // The agent's `prefer` fold group (LLP 1078 D7): an empty one re-reads the browser, a filled one is the substitute.
+  (globalThis.exact ??= {}).fold = { prefer: (f) => { const env = preferFold(f && Object.keys(f).length ? f : null); changed(); return env; }, env: foldEnv };
 }
 
 // A release admits no agent mode (LLP 1069.007 D2): its build writes this false.

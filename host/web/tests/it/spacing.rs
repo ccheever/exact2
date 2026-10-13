@@ -203,3 +203,31 @@ fn svg_hairline_attributes_follow_the_display_scale() {
         assert!(unchanged["ops"].as_array().unwrap().is_empty());
     }
 }
+
+#[test]
+fn svg_font_lengths_keep_computed_points() {
+    let (host, first) = boot(
+        r#"component App
+  view
+    svg width=200 height=400 font-size=20
+      svg testId="em" height="2em"
+      svg testId="rem" height="2rem"
+      svg testId="compact" height="calc(10px)"
+"#,
+    );
+    let first: serde_json::Value = serde_json::from_str(&first).unwrap();
+    for (name, height) in [("em", "40"), ("rem", "32"), ("compact", "10")] {
+        let op = first["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["props"]["data-testid"] == name)
+            .unwrap();
+        assert_eq!(op["props"]["height"], height, "{name}: {op}");
+        let id = op["id"].as_u64().unwrap() as u32;
+        let parts =
+            exact_web::host::template::parts(host.runner().kernel(), host.runner().plan(), id)
+                .unwrap();
+        assert_eq!(parts.props.get("height").map(String::as_str), Some(height));
+    }
+}

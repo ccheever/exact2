@@ -818,7 +818,7 @@ export function normal(prop, t) {
 }
 export { gridValue } from "./grid.js";
 // A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11); a bound `-exact-hairline` is the sheet's one device pixel, as css.rs writes a literal one (LLP 1115.000 D10.3).
-export const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
+const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : /^\s*-exact-hairline\s*$/i.test(v) ? "var(--exact-hairline, 1px)" : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {
   // The value this binding last wrote: the same again writes nothing (each
   // write was two style mutations, for every dynamic row of every row a
@@ -860,7 +860,7 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { svgGeometry } from "./facts.js"; export { ds, x_querySelectorAll } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
+export { svgTransform, svgGeometry } from "./svg-transform.js"; export { ds, x_querySelectorAll } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
 import { backdropValue as backdropCss } from "./backdrop.js"; export const backdropValue = (v, report = true) => backdropCss(v, report ? why => say(`unset backdrop-filter: ${why}`) : undefined);
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
