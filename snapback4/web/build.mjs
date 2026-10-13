@@ -11,7 +11,8 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { gzipSync } from 'node:zlib';
-import { deviceHash, engineVersion, validateDevice } from './device-build.mjs';
+import { pathToFileURL } from 'node:url';
+import { deviceHash, validateDevice } from './device-build.mjs';
 
 const out = process.argv[2];
 // Help before any work: `--help` was taken as the output path, after minutes of building (app farm 016).
@@ -96,7 +97,14 @@ if (opt.status === 0) validateDevice(readFileSync(optimized), 'wasm-opt output')
 // Keep whichever transfers smaller: -Oz shrinks this module raw but can grow
 // it gzipped (as Snapback's own build-wasm.sh finds and compares).
 const gzipped = path => gzipSync(readFileSync(path), { level: 9 }).length;
-const bytes = readFileSync(opt.status === 0 && gzipped(optimized) < gzipped(built) ? optimized : built);
+const moduleBytes = readFileSync(opt.status === 0 && gzipped(optimized) < gzipped(built) ? optimized : built);
+const device = await import(pathToFileURL(resolve(glue, 'device.js')).href);
+device.initSync({ module: moduleBytes });
+const engine = JSON.parse(device.engine_info());
+const leb = value => { const bytes = []; do { const next = value & 127; value >>>= 7; bytes.push(next | (value ? 128 : 0)); } while (value); return Buffer.from(bytes); };
+const sectionName = Buffer.from('snapback4.engine');
+const section = Buffer.concat([leb(sectionName.length), sectionName, Buffer.from(JSON.stringify(engine))]);
+const bytes = Buffer.concat([moduleBytes, Buffer.from([0]), leb(section.length), section]);
 function write(path, bytes) {
   if (existsSync(path) && readFileSync(path).equals(bytes)) return;
   mkdirSync(dirname(path), { recursive: true });
@@ -106,8 +114,7 @@ function write(path, bytes) {
 if (out) {
   const path = resolve(process.cwd(), out);
   write(path, bytes);
-  const embedded = WebAssembly.Module.customSections(new WebAssembly.Module(bytes), 'snapback4.build');
-  const stamp = embedded.length ? JSON.parse(Buffer.from(embedded[0]).toString()) : { engineVersion: engineVersion() };
+  const stamp = { ...engine, engineVersion: engine.version };
   write(path + '.json', Buffer.from(JSON.stringify({ ...stamp, sha256: deviceHash(bytes) }, null, 2) + '\n'));
 }
 // The glue as TypeScript the bake captures; it is generated, so unchecked.

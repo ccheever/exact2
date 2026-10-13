@@ -69,6 +69,7 @@ Keep scratch files in `.exact/` (any other new file makes the build stale).
 serves on that port; a held port is refused. Otherwise each picks a free port and
 prints its URL. A native client starts a second loop on `n+1`. A storage store
 keeps its data per port, so drive one store on one port.
+
 - **Named Chrome stores.** `agent web --storage s1` starts empty each run.
   Add `--keep-storage` to reopen its saved data and password session, or
   `--reset-storage` to explicitly reset it. A live drive owns its profile;
@@ -216,7 +217,7 @@ none listens. Start `snapback4 dev` on that origin’s port, seeded if needed;
 
 Each test opens empty app storage; backend rows survive tests and runs unless
 `fresh` at the file’s top (or leading a test) empties `snapback4 dev` before each
-test. This uses `POST /dev/reset` (Snapback4 **0.4.24**, `dev` only, not yet on npm).
+test. This uses `POST /dev/reset` (Snapback4 **0.4.25**, `dev` only).
 `fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
 relative to the test file. A server lacking reset fails the test.
 
@@ -271,35 +272,3 @@ The others are named for their topic (`timers`, `money`…).
 text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
 data, test. A lookup is for a name the card lacks (`contract vocab <name> …`) or a compile error;
 `docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.
-
-A Snapback app needs its backend running before `test web`: the runner checks
-loopback origins in its fetch grants and refuses a Snapback run if none listens.
-Start `snapback4 dev` in the backend directory, seeded if the tests read seeded rows.
-
-`test web` reads backend origins from `app.ts`’s `net.fetch` grants.
-`EXACT_PORT` sets the page’s port and never moves the Snapback origin.
-
-A server’s minted ids are unique, not ordered. Sort by time; tests can reach
-rows by text or a position-based testId (`each t, i in tasks key=t.id`,
-``testId=`task-${i}` ``).
-
-Type the function returning a mutation’s reply (`Promise<Result<'post'>>`):
-the build names an extra field, and a failing test names a refused reply.
-
-`navigate=follow` needs your `action follow(url: string)`. `textarea` takes
-`input`’s `value`, `input=`, `change=` and `placeholder` for several lines.
-A date made from a value works (`new Date(ms)`, `Intl.DateTimeFormat`);
-reading the current date in a data module is refused.
-
-`console.log` in a source appears in the agent’s `logs`; a failed test’s
-notes show its last lines.
-
-`fresh` at the file’s top (or leading a test) empties its `snapback4 dev` server
-via `POST /dev/reset` (Snapback4 0.4.24, `dev` only) before each test. `fresh "seed.json"` then seeds it with
-`[{"table": …, "row": {…}}]`, from a path relative to the test file. Without
-`fresh`, backend rows survive tests and runs. A server lacking reset fails the test.
-
-With an existing backend schema, `new --snapback` keeps the starter app: write
-its sources for those generated operations. `snapback --port <n>` moves a
-loopback origin, its grants and test fetch prefixes together. Password sign-in,
-stored sessions and refresh with Contract time are in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).

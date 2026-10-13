@@ -59,6 +59,7 @@ impl Fetch {
     pub fn to_json(&self) -> Json {
         let mut value =
             json!({"method": self.method, "path": self.path, "exchange": self.exchange});
+        value["headers"] = json!({"x-snapback-device": crate::engine_info().to_string()});
         if let Some(body) = &self.body {
             value["body"] = body.clone();
         }

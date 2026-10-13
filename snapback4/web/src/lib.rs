@@ -16,6 +16,12 @@ use snapback4_device::{
 };
 use wasm_bindgen::prelude::*;
 
+/// The build stamps the actual compiled engine into its wasm artifact.
+#[wasm_bindgen]
+pub fn engine_info() -> String {
+    exact_snapback4_client::engine_info().to_string()
+}
+
 struct Host {
     app_id: String,
     kept: Vec<Change>,

@@ -19,10 +19,11 @@ export function readDeviceStamp(path) {
   const bytes = readFileSync(path);
   validateDevice(bytes);
   // Prefer the engine's embedded stamp when supplied by Snapback's build.
-  const embedded = WebAssembly.Module.customSections(new WebAssembly.Module(bytes), 'snapback4.build');
+  const embedded = WebAssembly.Module.customSections(new WebAssembly.Module(bytes), 'snapback4.engine');
   let stamp;
   try {
     stamp = embedded.length ? JSON.parse(Buffer.from(embedded[0]).toString()) : JSON.parse(readFileSync(path + '.json', 'utf8'));
+    if (embedded.length) stamp.engineVersion = stamp.version;
   } catch { throw new Error('Snapback4 device has no readable build stamp; run bun exact.mjs snapback --rebuild'); }
   if (typeof stamp.engineVersion !== 'string' || (!embedded.length && stamp.sha256 !== deviceHash(bytes))) {
     throw new Error('Snapback4 device build stamp does not match its wasm; run bun exact.mjs snapback --rebuild');

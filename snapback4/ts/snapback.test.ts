@@ -13,9 +13,6 @@ import type { Change, SqliteStorage } from './web.ts';
 import type { MutationOp, QueryOp } from './snapback.ts';
 
 const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, `../../node_modules/snapback4-${process.platform}-${process.arch}/snapback4${process.platform === 'win32' ? '.exe' : ''}`);
-const version = /snapback4 (\d+)\.(\d+)\.(\d+)/.exec(spawnSync(binary, ['--version'], { encoding: 'utf8' }).stdout);
-const has024 = Boolean(version && (Number(version[1]) > 0 || Number(version[2]) > 4 || (Number(version[2]) === 4 && Number(version[3]) >= 24)));
-// Published 0.4.16 has no file schema type or dev reset; keep their cases for 0.4.24.
 const SCHEMA = `
 use identity
 table messages:
@@ -127,9 +124,6 @@ table photos:
 mutation addPhoto(photo: image <=1000000):
   return insert photos { owner: viewer, photo }
 
-query myPhotos():
-  return photos[owner = viewer] last 100 by .id
-
 table documents:
   owner: principal
   attachment: file <=1000000
@@ -147,7 +141,7 @@ query documents():
 
 query myDocuments():
   return documents[owner = viewer] last 100 by .id
-`.replace(/\ntable documents:[\s\S]*$/, text => has024 ? text : '');
+`;
 
 const scratch = mkdtempSync(join(tmpdir(), 'exact-snapback4-ts-'));
 const wasm = join(scratch, 'snapback4.wasm');
@@ -893,7 +887,6 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   expect(shown).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${sent.asset.id}.png`, type: 'image/png', bytes: png.byteLength });
   expect([...files.get(`app:/cache/snapback4-photos-alice-${sent.asset.id}.png`)!]).toEqual([...png]);
   expect((await alice.download(sent.asset.id, 'app:/tmp/one.png')).ok).toBe(true);
-  if (has024) {
   const pdf = new TextEncoder().encode('%PDF-1.4\nExact attachment\n%%EOF');
   const uploaded = await alice.upload(pdf, { file: { type: 'application/pdf', name: 'review notes.pdf' } });
   if (!uploaded.ok) throw new Error(uploaded.why.message);
@@ -904,7 +897,6 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   const downloaded = await alice.download(uploaded.asset.id);
   expect(downloaded).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${uploaded.asset.id}-review notes.pdf`, name: 'review notes.pdf', type: 'application/pdf', bytes: pdf.byteLength });
   if (downloaded.ok) expect(files.get(downloaded.path)).toEqual(pdf);
-  }
   // Another viewer cannot read the row, so the bytes are not there for them.
   const bob = await withFiles('bob', join(scratch, 'photos-bob'));
   const hidden = await bob.download(sent.asset.id);
@@ -918,7 +910,7 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   await away.close();
 }, 60_000);
 
-(has024 ? test : test.skip)('fresh uses the live 0.4.24 reset door, empties rows, and seeds the next test', async () => {
+test('fresh uses the live reset door, empties rows, and seeds the next test', async () => {
   const { resetBackends } = await import('../../scripts/agent-test.mjs');
   const first = await open('alice', join(scratch, 'fresh-first'));
   expect((await first.send('send', { body: 'before reset' }, Date.now())).state).toBe('sent');
@@ -1133,25 +1125,23 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
       name: signedIn.options.name, viewer: aliceSession.principal,
       headers: () => ({ authorization: `Bearer ${aliceSession.token}` }) });
     const privatePdf = new TextEncoder().encode('%PDF-1.4\nPrivate native document\n%%EOF');
-    const privateImage = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
-    const assetField = has024 ? 'attachment' : 'photo', privateQuery = has024 ? 'myDocuments' : 'myPhotos';
-    const privateAsset = has024 ? await signedIn.upload(privatePdf, { file: { type: 'application/pdf', name: 'native-private.pdf' } }) : await signedIn.upload(privateImage);
+    const privateAsset = await signedIn.upload(privatePdf, { file: { type: 'application/pdf', name: 'native-private.pdf' } });
     if (!privateAsset.ok) throw new Error(privateAsset.why.code);
-    expect((await signedIn.send(has024 ? 'addDocument' : 'addPhoto', { [assetField]: { id: privateAsset.asset.id } }, Date.now())).state).toBe('sent');
-    const cached = await headersSibling.read<Record<string, { id: string }>[]>(privateQuery, {}, Date.now());
+    expect((await signedIn.send('addDocument', { attachment: { id: privateAsset.asset.id } }, Date.now())).state).toBe('sent');
+    const cached = await headersSibling.read<{ attachment: { id: string } }[]>('myDocuments', {}, Date.now());
     expect(cached.server).not.toBe(true);
-    expect(cached.data?.some(row => row[assetField].id === privateAsset.asset.id)).toBe(true);
+    expect(cached.data?.some(row => row.attachment.id === privateAsset.asset.id)).toBe(true);
     expect(authOnly.isOpen).toBe(false);
     expect(await authOnly.logout()).toEqual({ ok: true });
     expect(store.get('native-session')).toBeNull();
     expect(nativeDevice).toBeUndefined();
     expect(authenticatedSibling.usable).toBe(false);
     expect(headersSibling.usable).toBe(false);
-    await expect(headersSibling.read(privateQuery, {}, Date.now())).rejects.toThrow(/E_STALE/);
-    await expect(authenticatedSibling.read(privateQuery, {}, Date.now())).rejects.toThrow(/E_AUTH/);
+    await expect(headersSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_STALE/);
+    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_AUTH/);
     // Same-account login must create a new partition owner, not revive siblings.
     expect((await authOnly.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
-    await expect(authenticatedSibling.read(privateQuery, {}, Date.now())).rejects.toThrow(/E_STALE/);
+    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_STALE/);
     await signedIn.close(); await authenticatedSibling.close(); await headersSibling.close();
     expect((await authOnly.send('send', { body: 'unbound logout recovered' }, Date.now())).state).toBe('sent');
     await authOnly.logout(); await authOnly.close();

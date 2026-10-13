@@ -206,6 +206,13 @@ pub fn host_request(
     request.method = fetch.method.into();
     request.headers.extend(headers.iter().cloned());
     request
+        .headers
+        .retain(|(name, _)| !name.eq_ignore_ascii_case("x-snapback-device"));
+    request.headers.push((
+        "x-snapback-device".into(),
+        exact_snapback4_client::engine_info().to_string(),
+    ));
+    request
 }
 
 /// What the host brought back, for [`Client::deliver`] or [`Client::changed`].

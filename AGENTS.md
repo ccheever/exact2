@@ -214,3 +214,7 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
 - Optional capability is a separate artifact loaded on demand (the GPU module) or another
   executor (the browser, for motion on the web) — never a cargo feature on a core crate.
   Each crate depends on strictly less than the one above it; there is no build matrix.
+
+Snapback4 consumers use published `snapback4@0.4.25` and the matching immutable
+Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
+`bun exact.mjs snapback --rebuild` after changing these pins.

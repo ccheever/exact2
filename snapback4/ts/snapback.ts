@@ -12,6 +12,19 @@
 import { webDevice, type SqliteStorage } from './web.ts';
 export type { SqliteStorage } from './web.ts';
 
+// Published operation declarations reach auth's Pick<Storage, ...>. This is
+// a structural type only; Exact provides no localStorage runtime global.
+declare global {
+  interface Storage {
+    readonly length: number;
+    clear(): void;
+    getItem(key: string): string | null;
+    key(index: number): string | null;
+    removeItem(key: string): void;
+    setItem(key: string, value: string): void;
+  }
+}
+
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Request = { [key: string]: Json };
 /** A query's or a write's arguments: any JSON object (`undefined` fields are left out). */
@@ -899,6 +912,11 @@ export class Snapback {
     const { method, path, body } = fetchRequest as { method: string; path: string; body?: Json };
     const headers = this.headers();
     if (body !== undefined) headers['content-type'] = 'application/json';
+    if (this.held && !path.startsWith('/auth/')) {
+      const engine = await this.call({ op: 'engine_info' });
+      if (!engine.ok) throw new Error('E_DEVICE_VERSION: device has no engine identity; run bun exact.mjs snapback --rebuild');
+      headers['x-snapback-device'] = JSON.stringify(engine.ok);
+    }
     try {
       const response = await fetch(`${this.options.origin}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
       const text = await response.text();

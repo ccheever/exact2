@@ -56,9 +56,9 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.4.16**: the CLI is pinned in `bun.lock`;
+Snapback4 consumers use release **0.4.25**: the CLI is pinned in `bun.lock`;
 Cargo pins the device and its client to the matching release source commit
-`468d3aa5be3eee914883e37f3ab0424030ac882d`. `snapback4/` is one client for an
+`a0bb11bde670af282de1093ebdb9f5cd0d1853e4`. `snapback4/` is one client for an
 app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
 the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
