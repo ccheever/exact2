@@ -250,9 +250,10 @@ is an ordinary name there, so `action searchKey(key: string)` and `action refres
 compile. Shape fields, named arguments and members take any word
 ([grammar](contract-grammar.md#lexical-rules)).
 
-`contract vocab` prints the card, what an app writes in one read (at most 8 KB: every
+`contract vocab` prints the card, what an app writes in one read (at most 12 KB: every
 function, the tags with their attributes and events, each part's call, the test steps,
-the agent's operations); `contract vocab --all` lists every built-in tag, attribute, CSS
+the agent's operations, and how to do a second screen, a sheet, a timer, colour, data, a
+test; `docs/card.md` is the same text, checked in); `contract vocab --all` lists every built-in tag, attribute, CSS
 property and standard function the compiler accepts, with each property's value kind and
 default and each function's signature; `contract vocab <name>` answers for one (a function's rules and
 an example too: `contract vocab formatDate`), or says what to write instead
