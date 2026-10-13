@@ -46,8 +46,8 @@ Numbers preserve the former ledger so a patch never disappears without its
 replacement and consumer evidence. Rows 3–7 and 9–13 retire the corresponding
 local source patches. The evidence below qualifies the macOS consumers and
 portable adapter; platform-specific limits are named rather than inferred from
-source replacement. The four remaining file deltas were checked against the
-pinned upstream tree: two explicit stub build scripts and two standalone locks.
+source replacement. The consumer deltas are two explicit stub build scripts, two standalone locks,
+and the workspace boundaries below.
 
 | Former Exact patch | Upstream replacement | Exact consumer evidence |
 |---|---|---|
@@ -76,6 +76,11 @@ have not happened in this local delivery, so row 8 is not retired. Existing
 is not evidence that a released Android artifact was consumed.
 
 ## Remaining consumer integration seams
+
+`ibex2`, `ibex2-sqlite` and `hermes-lean-sys` declare empty workspaces. This stops
+Cargo from discovering an enclosing checkout when `cargo fmt --all` visits these
+excluded path dependencies in a nested worktree. Preserve these boundaries when
+refreshing the vendored crates.
 
 `ibex2/build.rs` emits empty binding bytecode and hardening metadata only when
 `EXACT_JS_ENGINE=stub`. `hermes-lean-sys/build.rs` recognizes that same explicit

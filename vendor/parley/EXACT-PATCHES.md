@@ -119,3 +119,9 @@ named here pass.
 All other archive files are byte-for-byte upstream. The upstream test suite
 (not in the archive) passed with patches 1–4 applied; with 4–7, five tests
 change as each patch intends (the spike's results list them).
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.

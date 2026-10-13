@@ -50,3 +50,9 @@ pass.
    script's list is what a copy per script gave).
 
 All other archive files are byte-for-byte upstream.
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.
