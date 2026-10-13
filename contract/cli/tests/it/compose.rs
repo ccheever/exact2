@@ -179,13 +179,13 @@ fn an_annotated_state_or_derive_is_told_its_type_is_inferred() {
     let error = contract::compile(state).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-expected", "a state's type is inferred, so `state deleted` takes no `: type`: write `state deleted = …`; an empty start is `none` or `[]`, and the writes give it its type")
+        ("syntax-expected", "drop `: option<Task>`; a state's type is inferred (an empty start is `none` or `[]`, and the writes give it its type)")
     );
     let derive = "component App\n  derive n: number = 2\n  view\n    text \"a\"\n";
     let error = contract::compile(derive).unwrap_err();
     assert_eq!(
         error.message,
-        "a derive's type is inferred, so `derive n` takes no `: type`: write `derive n = …`, which is its expression's"
+        "drop `: number`; a derive's type is its expression's"
     );
 }
 
@@ -214,19 +214,19 @@ fn a_view_if_and_a_state_as_name_the_contract_form() {
     let error = contract::compile(state_as).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-expected-newline", "a state takes no `as`: its type is inferred from its initializer and the writes to it (a `none` takes its type from a write such as `draft = some(…)`)")
+        ("syntax-expected-newline", "drop `as option<string>`; a state's type is inferred from its initializer and the writes to it (a `none` takes its type from a write such as `draft = some(…)`)")
     );
     let count_as = "component App\n  state n = 0 as number\n  view\n    text \"a\"\n";
     let error = contract::compile(count_as).unwrap_err();
     assert_eq!(
         error.message,
-        "a state takes no `as`: its type is inferred from its initializer and the writes to it"
+        "drop `as number`; a state's type is inferred from its initializer and the writes to it"
     );
     let derive_as = "component App\n  derive n = 2 as number\n  view\n    text \"a\"\n";
     let error = contract::compile(derive_as).unwrap_err();
     assert_eq!(
         error.message,
-        "a derive takes no `as`: its type is inferred from its expression"
+        "drop `as number`; a derive's type is inferred from its expression"
     );
 }
 

@@ -771,7 +771,7 @@ fn any_merged_class_or_none_arm_disables_the_default_permanently() {
 fn a_bare_default_style_refusal_reports_its_first_reason() {
     for (body, reason) in [
         ("button background-color=\"red\" border=\"1px solid blue\" buttonStyle=\"filled\"\n  text \"Go\"", "background-color"),
-        ("button border-radius=8 buttonStyle=\"filled\"\n  text \"Go\"", "border-top-left-radius"),
+        ("button border-radius=8 buttonStyle=\"filled\"\n  text \"Go\"", "border-radius"),
         ("button font-family=\"system-ui\" buttonStyle=\"filled\"\n  text \"Go\"", "font-family"),
         ("button href=\"/x\" buttonStyle=\"filled\"\n  text \"Go\"", "href"),
         ("button buttonStyle=\"filled\"\n  box width=4 height=4", "box"),
@@ -779,7 +779,11 @@ fn a_bare_default_style_refusal_reports_its_first_reason() {
     ] {
         let (id, message) = refused(body);
         assert_eq!(id, "lower-button-style", "{message}");
-        assert!(message.contains(reason) && message.contains("Remove") && message.contains("appearance=\"none\"") && message.contains("without `buttonStyle`"), "{message}");
+        // LLP 1116.014 D1: the custom-face edit, and a native button's where there is one.
+        assert!(message.contains(reason) && message.contains("remove `buttonStyle`") && message.contains("appearance=\"none\""), "{message}");
+        let native = message.starts_with("for a native button, keep only `text` and a symbol `image`")
+            || message.starts_with("to keep the native button, remove `");
+        assert_eq!(native, !matches!(reason, "href" | "canvas"), "{message}");
     }
 }
 
