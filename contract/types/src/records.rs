@@ -86,7 +86,7 @@ pub(crate) fn infer_record(
         }
         given.push(name);
         let t = infer(value, scope, shapes)?;
-        if !checks::accepts_expr(want, value, &t) {
+        if !checks::accepts_expr(want, value, &t, scope, shapes) {
             return err(
                 "type-argument",
                 format!("field `{name}` of `{shape}` is `{want}`, given `{t}`"),

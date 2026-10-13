@@ -462,3 +462,45 @@ component App
     );
     assert!(!exact_plan::Value::str("missing").conforms(&plan, exact_plan::TypesId(enum_ty as u32)));
 }
+
+#[test]
+fn nested_enum_parameters_keep_membership_and_enum_keys_and_overrides_work() {
+    let app = "component App\n  action pick(a: option<enum<\"a\", \"b\">>, b: list<enum<\"a\", \"b\">>)\n    focus(\"ok\")\n  action go\n    pick(some(\"a\"), [\"a\", \"b\"])\n  view\n    button \"Pick\" press=go\n";
+    contract::compile(app).unwrap();
+    for (good, bad) in [
+        ("some(\"a\")", "some(\"bad\")"),
+        ("[\"a\", \"b\"]", "[\"a\", \"bad\"]"),
+    ] {
+        assert!(contract::compile(&app.replace(good, bad)).is_err(), "{bad}");
+    }
+    let keyed = "shape Choice\n  value: enum<\"a\", \"b\">\ncomponent App\n  resource choices = choices() as shape list<Choice> else empty()\n  resource choice = choice() as shape Choice else empty(value=\"b\")\n  view\n    column\n      text choice.value\n      each x in choices key=x.value\n        text x.value testId=\"enum-row\"\n";
+    let plan = contract::compile(keyed).unwrap();
+    assert!(contract::compile(&keyed.replace("value=\"b\"", "value=\"bad\"")).is_err());
+    struct Choices;
+    impl DataSource for Choices {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(if source == "choices" {
+                Value::list(vec![
+                    Value::record(vec![Value::str("a")]),
+                    Value::record(vec![Value::str("b")]),
+                ])
+            } else {
+                Value::record(vec![Value::str("b")])
+            })
+        }
+    }
+    let baked = contract::bake(plan, Choices).unwrap();
+    let runner = Runner::boot(
+        baked,
+        Choices,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.kernel().find_by_test_id("enum-row").len(), 2);
+
+    let wrapped = "shape Choice\n  value: list<option<enum<\"a\", \"b\">>>\ncomponent App\n  resource choice = choice() as shape Choice else empty(value=[some(\"b\"), none])\n  view\n    text \"nested\"\n";
+    contract::compile(wrapped).unwrap();
+    assert!(contract::compile(&wrapped.replace("some(\"b\")", "some(\"bad\")")).is_err());
+}

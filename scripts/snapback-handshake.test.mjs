@@ -54,8 +54,11 @@ mutation post(body: text 1..200):
     run(process.execPath, [join(sdk, 'scripts/exact.mjs'), 'new', app, '--snapback', ...(online ? ['--online'] : []), '--port', String(port)]);
     if (online) {
       assert.equal(existsSync(join(app, 'assets/snapback4.wasm')), false);
-      writeFileSync(join(app, 'app.contract'), `shape Board
+      writeFileSync(join(app, 'app.contract'), `shape Choice
+  value: enum<"a", "b">
+shape Board
   latest: string
+  choices: list<Choice>
 shape Post
   id: string
   status: enum<"sent", "failed">
@@ -73,6 +76,8 @@ component App
       input value=draft input=edit testId="draft"
       button "Post" press=post("send") testId="post"
       text board.latest testId="latest"
+      each choice in board.choices key=choice.value
+        text choice.value
       text (match failure(posted) { case some(f) => f.code, case none => "ok" }) testId="failure"
       text (match posted { case some(p) => p.status, case none => "" }) testId="fate"
 `);
@@ -88,7 +93,7 @@ const sources: Sources = {
   notes: async (): Promise<Result<'notes'>> => {
     const read = await db.read(api.recent, {});
     if (read.denied) throw refused(read.denied);
-    return { latest: read.data?.[0]?.body ?? '' };
+    return { latest: read.data?.[0]?.body ?? '', choices: [{value: 'a'}, {value: 'b'}] };
   },
   post: async ([body]): Promise<Result<'post'>> => {
     const sent = await db.send(api.post, {body});

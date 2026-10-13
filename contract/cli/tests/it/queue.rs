@@ -824,3 +824,61 @@ fn mutation_failures_are_readable_clear_on_send_and_do_not_run_then() {
     r.advance(0.0).unwrap();
     assert_eq!(slot(&r, "log"), " b");
 }
+
+#[test]
+fn a_queue_next_clears_failure_for_immediate_and_deferred_answers() {
+    let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive last =");
+    for deferred in [false, true] {
+        let mut r = boot_with(
+            &app,
+            Desk {
+                later: true,
+                ..Desk::default()
+            },
+        );
+        r.act("pair", vec![]).unwrap();
+        let first = tickets(&mut r)[0];
+        r.data().fail_parse = true;
+        r.fulfill(first, reply("ok")).unwrap();
+        assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+        r.data().fail_parse = false;
+        r.data().later = deferred;
+        r.advance(0.0).unwrap();
+        assert_eq!(
+            r.derive("why"),
+            Some(&Value::str("ok")),
+            "next deferred={deferred}"
+        );
+        if deferred {
+            let next = tickets(&mut r)[0];
+            r.fulfill(next, reply("ok")).unwrap();
+            assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+        }
+    }
+}
+
+#[test]
+fn a_refused_queue_next_restores_the_previous_failure() {
+    let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive last =");
+    let mut r = boot_with(
+        &app,
+        Desk {
+            later: true,
+            ..Desk::default()
+        },
+    );
+    r.act("pair", vec![]).unwrap();
+    let first = tickets(&mut r)[0];
+    r.data().fail_parse = true;
+    r.fulfill(first, reply("ok")).unwrap();
+    r.data().fail_parse = false;
+    r.data().later = false;
+    r.data().fail_check = true;
+    assert!(r.advance(0.0).is_err());
+    assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+    assert_eq!(r.queued(), [("wrote".to_string(), 1)]);
+    r.data().fail_check = false;
+    r.act("bump", vec![]).unwrap();
+    r.advance(0.0).unwrap();
+    assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+}

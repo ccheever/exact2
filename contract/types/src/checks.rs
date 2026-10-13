@@ -125,14 +125,7 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
     }
 }
 
-/// A literal may inhabit a finite string vocabulary; a dynamic string needs
-/// a source or state whose declared vocabulary guarantees membership.
-pub(super) fn accepts_expr(want: &Ty, expr: &Expr, have: &Ty) -> bool {
-    if let (Ty::Enum(values), Expr::Str(value, _)) = (want, expr) {
-        return values.contains(value);
-    }
-    can_unify(want, have)
-}
+pub(super) use super::enums::accepts_expr;
 
 /// Check compatibility without constructing a discarded merged type.
 pub(super) fn can_unify(a: &Ty, b: &Ty) -> bool {
@@ -1141,7 +1134,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
                 match infer(key, &inner, shapes) {
-                    Ok(Ty::String | Ty::Number | Ty::Bool) => {}
+                    Ok(Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool) => {}
                     Ok(kt) => sink.push(TypeError {
                         id: "type-each-key",
                         message: format!("a key must be a string, number, or bool, not `{kt}`"),

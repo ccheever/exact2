@@ -148,7 +148,7 @@ fn arg_types(
 ) -> Result<(), TypeError> {
     for (arg, pt) in args.iter().zip(params) {
         let t = infer(arg, scope, shapes)?;
-        if !checks::accepts_expr(pt, arg, &t) {
+        if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
             return err(
                 "type-argument",
                 format!("`{callee}` expects `{pt}`, given `{t}`"),
@@ -371,7 +371,7 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
                     break;
                 }
                 if let Ok(t) = infer(arg, &scope, shapes) {
-                    if matches!(ct.actions[ci][at], Ty::Enum(_)) {
+                    if ct.actions[ci][at].contains_enum() {
                         continue;
                     }
                     if let Some(u) = ct.actions[ci][at].unify(&t) {

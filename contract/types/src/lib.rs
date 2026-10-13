@@ -22,6 +22,7 @@ mod bounds;
 mod calls;
 mod checks;
 mod component;
+mod enums;
 mod failure;
 mod geometry;
 mod injects;
@@ -110,6 +111,11 @@ impl std::fmt::Display for Ty {
 }
 
 impl Ty {
+    /// Whether a finite vocabulary is present, including under option/list/action.
+    pub fn contains_enum(&self) -> bool {
+        enums::contains(self)
+    }
+
     /// An ordinary string, including a finite string vocabulary.
     pub fn is_string(&self) -> bool {
         matches!(self, Ty::String | Ty::Enum(_))
@@ -688,10 +694,11 @@ pub fn ascribe(
     declared: &TypeExpr,
     shapes: &Shapes,
     span: Span,
+    scope: &Scope,
 ) -> Result<Ty, TypeError> {
     let declared = shapes.resolve(declared)?;
-    match checks::accepts_expr(&declared, expr, t) {
-        true => Ok(if matches!(declared, Ty::Enum(_)) {
+    match checks::accepts_expr(&declared, expr, t, scope, shapes) {
+        true => Ok(if declared.contains_enum() {
             declared
         } else {
             declared.unify(t).expect("accepted types unify")
@@ -854,7 +861,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 }
                 for (i, (arg, want)) in args.iter().zip(params).enumerate() {
                     let t = infer(arg, scope, shapes)?;
-                    if !checks::accepts_expr(want, arg, &t) {
+                    if !checks::accepts_expr(want, arg, &t, scope, shapes) {
                         return err(
                             "type-argument",
                             format!(
@@ -887,7 +894,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 }
                 for (arg, pt) in args.iter().zip(params.iter()) {
                     let t = infer(arg, scope, shapes)?;
-                    if !checks::accepts_expr(pt, arg, &t) {
+                    if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
                         return err(
                             "type-argument",
                             format!("`{name}` expects `{pt}`, given `{t}`"),
@@ -1062,7 +1069,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         }
         Expr::Typed(value, ty, span) => {
             let t = infer(value, scope, shapes)?;
-            ascribe(&t, value, ty, shapes, *span)?
+            ascribe(&t, value, ty, shapes, *span, scope)?
         }
         Expr::Arrow { span, .. } => {
             return err(
@@ -1236,7 +1243,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .collect(),
         );
         let t = infer(&f.body, &scope, &shapes)?;
-        if !checks::accepts_expr(ret, &f.body, &t) {
+        if !checks::accepts_expr(ret, &f.body, &t, &scope, &shapes) {
             return err(
                 "type-fn-return",
                 format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),

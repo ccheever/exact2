@@ -155,6 +155,7 @@ fn constant(
             };
             Some(Value::Number(-n))
         }
+        (Ty::Enum(values), Expr::Str(s, _)) if values.contains(s) => Some(Value::str(s)),
         (Ty::String, Expr::Str(s, _)) => Some(Value::str(s)),
         (Ty::String, Expr::Template(parts, _))
             if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) =>

@@ -305,7 +305,12 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             asm.str(self.b.str(key));
             let ty = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
-            let scalar = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown);
+            let scalar = |t: &Ty| {
+                matches!(
+                    t,
+                    Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+                )
+            };
             let admitted = match &ty {
                 Ty::Option(inner) => scalar(inner),
                 t => scalar(t),

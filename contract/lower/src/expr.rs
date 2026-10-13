@@ -529,7 +529,7 @@ pub(crate) fn compile(
         }
         Expr::Typed(value, ty, span) => {
             let t = compile(l, asm, value, scope, locals)?;
-            contract_types::ascribe(&t, value, ty, &l.types.shapes, *span).map_err(|e| LowerError {
+            contract_types::ascribe(&t, value, ty, &l.types.shapes, *span, scope).map_err(|e| LowerError {
                 id: e.id,
                 message: e.message,
                 span: e.span,

@@ -253,6 +253,8 @@ impl<D: DataSource> Runner<D> {
         };
         let waiting = self.queues.waiting[m].len();
         self.log(format!("{name} next ({waiting} waiting)"));
+        // Inside next's checkpoint: a refused settlement restores the old failure.
+        self.failed_mut[m] = None;
         let later = match self.ask_send(m, &head.source, &head.args) {
             Ok(Asked::Now(slot, value)) => {
                 self.slots[slot] = value;

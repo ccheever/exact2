@@ -643,8 +643,14 @@ fn refine_params_from_view(
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
                                     let t = infer(arg, scope, shapes)?;
-                                    if matches!(ct.actions[ai][i], Ty::Enum(_))
-                                        && !checks::accepts_expr(&ct.actions[ai][i], arg, &t)
+                                    if ct.actions[ai][i].contains_enum()
+                                        && !checks::accepts_expr(
+                                            &ct.actions[ai][i],
+                                            arg,
+                                            &t,
+                                            scope,
+                                            shapes,
+                                        )
                                     {
                                         return err(
                                             "type-argument",
@@ -655,7 +661,7 @@ fn refine_params_from_view(
                                             arg.span(),
                                         );
                                     }
-                                    if matches!(ct.actions[ai][i], Ty::Enum(_)) {
+                                    if ct.actions[ai][i].contains_enum() {
                                         continue;
                                     }
                                     if let Some(u) = ct.actions[ai][i].unify(&t) {
@@ -771,7 +777,7 @@ fn refine_params_from_view(
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty).filter(|_| !matches!(declared, Ty::Enum(_)) || checks::can_unify(&declared, &ty)) else {
+                                    let Some(unified) = declared.unify(&ty).filter(|_| !declared.contains_enum() || checks::can_unify(&declared, &ty)) else {
                                         if !counted {
                                             continue;
                                         }
