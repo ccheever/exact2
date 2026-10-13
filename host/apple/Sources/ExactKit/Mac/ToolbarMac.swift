@@ -662,6 +662,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // After the window's owner has styled the toolbar (`onChange`).
         if attaching { keepContent(content) }
         hatchToolbar()
+        // AppKit creates the new items' accessibility elements during layout.
+        window.contentView?.superview?.layoutSubtreeIfNeeded()
         syncAccessibility()
         // Of the header beside the window's, what the bar shows or stands
         // for leaves the page; its heading and the rest stay in its pane.
