@@ -163,6 +163,43 @@ const built = (() => {
   };
 })();
 
+// LLP 1116.012 D3 (contacts, round 14): a row is covered only if nothing scrolls it clear. Four stages, each 300 px: (a) a list
+// above an in-flow bar, a row past the list's end whose middle is in the bar's lower half (the fold row, which scrolls up clear);
+// (b) the same list under a bar laid over it, with the range to scroll up clear; (c) the bar over a list that scrolls only 6 px, its
+// last row under the bar for good; (d) a header over the list's first row at the start, which scrolling can only move further under.
+const rows = (id, count, height) => Array.from({ length: count }, (_, i) => `          text testId="${id}-${i}" height=${height} flex-shrink=0 "Row ${i}"`).join('\n');
+const FOLDS = `component FoldFixture
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column testId="root"
+      column testId="stage-a" height=300 flex-shrink=0
+        scroll testId="list-a" flex=1 min-height=0
+          column
+${rows('a', 12, 50)}
+        row testId="bar-a" height=57 flex-shrink=0 background-color="-exact-secondary-background"
+          text testId="tab-a" "Tab"
+      column testId="stage-b" height=300 flex-shrink=0 position="relative"
+        scroll testId="list-b" position="absolute" top=0 left=0 right=0 height=300
+          column
+${rows('b', 12, 50)}
+        row testId="bar-b" position="absolute" bottom=0 left=0 right=0 height=57 background-color="-exact-secondary-background"
+          text testId="tab-b" "Tab"
+      column testId="stage-c" height=300 flex-shrink=0 position="relative"
+        scroll testId="list-c" position="absolute" top=0 left=0 right=0 height=300
+          column
+${rows('c', 6, 51)}
+        row testId="bar-c" position="absolute" bottom=0 left=0 right=0 height=57 background-color="-exact-secondary-background"
+          text testId="tab-c" "Tab"
+      column testId="stage-d" height=300 flex-shrink=0 position="relative"
+        scroll testId="list-d" position="absolute" top=0 left=0 right=0 height=300
+          column
+${rows('d', 12, 50)}
+        row testId="bar-d" position="absolute" top=0 left=0 right=0 height=57 background-color="-exact-secondary-background"
+          text testId="tab-d" "Tab"
+`;
+
 /** testId → the kinds found on it, per scheme: `<control>'s label` findings count as the control's. */
 const kinds = (run) => {
   const out = {};
@@ -319,6 +356,14 @@ test('a page with every finding class has each found, by testId, in the scheme i
     const t = kinds((await checkOp(tall, [])).check[0]);
     expect(t).toEqual({ cut: ['clipped'], unreachable: ['covered'] });
   } finally { await tall.close(); }
+  // A row under a bar is covered only when no scroller moves it clear (LLP 1116.012 D3): the fold row of a list above an in-flow bar, or
+  // under a bar laid over it with the range to scroll by, is not; the last row of a list that scrolls too little, and the first row
+  // under a header at the start of its list, are.
+  const folds = await open({ host: 'web', url: await built('folds', FOLDS), size: [390, 1300] });
+  try {
+    const run = (await checkOp(folds, ['light'])).check[0];
+    expect(kinds(run)).toEqual({ 'c-5': ['covered'], 'd-0': ['covered'] });
+  } finally { await folds.close(); }
   const clean = await open({ host: 'web', url: await built('clean', CLEAN) });
   try {
     const r = await checkOp(clean, ['both']);
