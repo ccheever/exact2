@@ -1463,13 +1463,13 @@ export function strings(tables) { Texts = tables; }
 /** RFC 4647 lookup of the page's locale (an agent's `?locale`): the longest
  * subtag prefix a table is named for, without case, else the base. */
 export function locale() {
-  let tag = "en-US";
+  let tag = Texts[0]?.[0] ?? "";
   try { tag = reportPlace().split("\0")[0]; } catch {}
   for (;;) {
     const t = Texts.find(r => r[0].toLowerCase() === tag.toLowerCase());
     if (t) return t[0];
     const i = tag.lastIndexOf("-");
-    if (i < 0) return Texts[0][0];
+    if (i < 0) return Texts[0]?.[0] ?? "";
     tag = tag.slice(0, i);
   }
 }
