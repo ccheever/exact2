@@ -270,7 +270,7 @@ kernel's parent chain, crossing only the arms and rows on that path, and
 reconstructs their frames for curried arguments.
 
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
-| Key(record) | Keyup(record) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
+| Keycapture(record) | Key(record) | Keyup(record) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event
 payload — a change's text, a hover's `over` (in or out: one kind, one handler,
 one action), a key's web name (`Enter`, `Escape`, `ArrowDown`, `a` — the
@@ -280,16 +280,59 @@ handler: the web's implicit submission (HTML forms §4.10.21.2) without a
 form, so an action need not branch on a key. `Contextmenu` and `Dblclick`
 (2026-09-09, Messages) carry no payload: the platform recognizes secondary
 activation / a long press and a double click / tap. The `EventKind`s are
-`plan/tables/format.json`'s. Not events
+`plan/tables/format.json`'s.
+
+**Bubbling focus events** (Charlie, 2026-10-08; implementer: focus lane,
+2026-10-12). `focusin` and `focusout` follow DOM focus transitions: the old
+target's `focusout` bubbles before the new target's `focusin`, including a move
+between descendants of the same wrapper. Both offer an optional `FocusEvent`
+record with `target` (the focused element's `id`, or `""`) and `relatedTarget`
+(`some(id)` for the other focused element, including `some("")` when it has no
+`id`, or `none` when focus enters from or leaves to no element). A handler on
+an ancestor does not make that ancestor focusable or a Tab stop. Programmatic,
+pointer and Tab moves use the same transition; removing the focused node
+delivers `focusout` through ancestors still connected when removal begins.
+The web targets use DOM focus events; native hosts dispatch the same path
+from their focus transition, retaining the old path for a removed node.
+Autofocus uses that transition too. IDs are read
+at the transition, including an ID changed while focused. `stopPropagation()`
+stops either bubbling event at its current handler; it does not stop the other
+event in the transition or an enclosing event. Early web focus replay preserves
+that event scope too (focus lane review fixes, 2026-10-12). An edited field's
+transition follows Chrome's observed `change`, `blur`, `focusout`, `focus`,
+`focusin` order. UIKit read-only textarea selection sessions announce responder
+entry even when UIKit omits its editing delegate callback. The host ABI kinds
+are 46 (`focusin`) and 47 (`focusout`), after 45 (`intersect`).
+
+**Declared native deviation (2026-10-12, issue #283):** if a `blur` handler
+destroys its wrapper, Apple and Linux skip that destroyed wrapper's later
+`focusout` handler while retaining surviving ancestors from the old path.
+Chrome instead dispatches within the detached subtree, without its former
+connected ancestors.
+Keeping destroyed native handler bindings alive through that event is not
+implemented; the issue remains open for this case.
+
+Not events
 (2026-08-30, the minimal set first): pointer coordinates and moves (a drag)
 and a wheel's offsets reaching the runner (a scroll
 container's position is the host's, LLP 1007 §6); `keyup` became one on
 2026-10-07 (§9).
+
 `Scroll` (2026-09-09, Messages) appends two number arguments, `scrollLeft`
 and `scrollTop`, in CSS pixels, after the authored arguments. It reports the
 host's changed position, including programmatic changes, and does not bubble.
 The host still owns scrolling. The ABI's dispatch kind 13 carries two finite
 numbers as UTF-8 `left,top`; malformed coordinates are refused.
+
+`Scrollend` (2026-10-13, the Bluesky clone) is DOM's `scrollend`: no
+arguments, sent once a scroll that moved the offset is over, after its last
+`Scroll`. On the web it is the browser's own. On iOS it is the end of a drag
+that throws nothing, of its deceleration, or of an animated scroll; on macOS
+the end of a live scroll (a trackpad's, its momentum included); any other move
+there (a jump the app wrote, a mouse wheel's notches) ends once the offset has
+been still for 100 ms. A node without a `scrollend` handler takes it as
+nothing. ABI dispatch kind 51, no payload. Not yet on the Linux and Android
+host, whose scrolls a shell or the presenter's own input drive.
 `act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with
@@ -334,6 +377,12 @@ instead of rescanning and sorting the whole plan for every row. Within a group,
 `order` then site index retain the prior ordering; a tied node precedes a region.
 The index stores plan structure only, is rebuilt with each runner, and uses
 memory proportional to plan sites rather than mounted rows or history length.
+Complete row-field projections, string-default expressions and literal choices
+from projected booleans are also recognized once per binding. A one-byte kind
+keeps operands in the original bytecode; each evaluation still checks its runtime
+scopes, field kinds and string pool. Lowered functions still read both arguments
+before branching, and only the selected branch reads its literal. Every other
+expression uses the existing VM.
 
 **Atomicity.** An action, a reply and a recommit each take one checkpoint —
 slots, the store, pending requests, commands, and the flags settlement sets
@@ -440,6 +489,11 @@ and the rows enclosing it); a visited node evaluates only its stale bindings,
 and a parent rebuilds its child list only when a region's roots changed. An
 `each` keyed from the same subject object with unchanged key inputs is not
 re-keyed; a windowed list with unchanged items only refreshes its mounted rows.
+Ordinary `each` rows omit their empty state table when they own no slots and
+their body's dependencies contain neither row-slot reads nor opaque reads.
+An ancestor of a state-reading subtree retains its table as an identity for
+the written row's scope chain; windowed collection rows retain their tables.
+The decision is made only when creating rows, once per region update.
 Settlement keeps a derive's value, and a resource its arguments, when every
 input has settled to the value it had when they were last computed — dynamic
 `Pending` retries and cycle refusals are unchanged; a derive whose value is the
@@ -539,6 +593,7 @@ reaches the focus whatever took the keydown (a shortcut, a
 `repeat`, true on the keydowns the platform repeats while a key is held
 (never on a keyup). An element with a `keyup` handler takes the focus, as
 one with `key` does.
+
 - **ABI:** kind 6 (`key`) and 43 (`keyup`), one wire for both
   (`KeyboardEvent::parse`): the chord the hosts already wrote
   (`Shift+Meta+b`), then, where the host knows them, `\n` and the code,
@@ -570,9 +625,30 @@ Tests: `contract/cli/tests/it/keyup.rs` (the wire, the record, the
 refusals), `runner/src/runner/event/keyboard.rs`, `KeyUpMacTests` (AppKit's
 keyUp and a modifier's flags change), Linux's
 `keyup_hears_a_release_and_both_carry_code_and_repeat`, and the JS target's
-`keys` conformance plan (Chrome, against the wasm runner). Not here: a
-capture-phase handler and a reserved held-modifier fact (#140, the owner's to
-decide).
+`keys` conformance plan (Chrome, against the wasm runner). A reserved
+held-modifier fact remains out (#140).
+
+**Capture-phase keys** (Charlie, 2026-10-11; #140, the coding-agent desktop
+app's window shortcuts). `keycapture=action` hears DOM `keydown` on the path
+from the outermost ancestor through the focused target before any `key=`
+handler. Its string payload and optional `KeyboardEvent` are the same as
+`key=`. The target's capture handler precedes its bubble handler regardless
+of attribute order. `disabled` excludes only HTML form controls from the key
+path; the walk skips a disabled control and continues at its parent, while a
+disabled container still hears and passes keys (LLP 1088 D7.3). A capture
+handler that calls `stopPropagation()` prevents target and bubble handlers,
+including the target's `key=` handler when called at the target.
+This stops Exact's handler walk while leaving the key's default action,
+including Enter submission, available. `preventDefault()` at any phase
+cancels the key's native default, including a field edit. The path is fixed before dispatch and
+actions run in phase order. `keycapture` on a container does not itself add a
+Tab stop; held modifiers remain `keyup` plus `exactPage().hasFocus`, with no
+keyboard fact. The ABI kind is 44, after `keyup` in
+`plan/tables/format.json`.
+The compiler/runner test in `contract/cli/tests/it/keyup.rs` holds the wire
+and record; Linux's `capture_precedes_target_and_bubble_and_controls_the_default`,
+`KeyUpMacTests` and `PressFocusIOSTests` hold the native order and stop; the
+`capture-keys` web conformance plan drives both browser runtimes in Chrome.
 
 **A chord during an input method's composition, and held modifiers**
 (2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text
@@ -603,3 +679,52 @@ Send button, Shift's release), `FieldCompositionIOSTests`, and
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
 completed swipe. Move/cancel samples do not enter the runner.
+
+## Intersection visibility (Charlie, 2026-10-12)
+
+Implementer: Codex, 2026-10-12; web targets and native geometry slice.
+Charlie's ruling: "intersect=: admit now — intersect=action
+{isIntersecting, intersectionRatio}, intersect-margin, root = nearest scroller,
+threshold 0, fires on mount + enter/leave". Consumer: T3 sidebar subscriptions
+and timeline minimap. This admits no container queries or reactive geometry.
+
+`intersect=action` offers an optional final `IntersectionObserverEntry` record,
+after authored arguments: `isIntersecting: bool`, `intersectionRatio: number`.
+It does not bubble. The root is the nearest ancestor CSS scroll container
+(`overflow: auto`, `scroll` or `hidden` on either axis), or the viewport.
+`intersect-margin` is a literal rootMargin string: one to four signed `px` or
+`%` lengths, default `"0px"`; the compiler normalizes case-insensitive units
+and requires CSS number syntax (digits after a decimal point or exponent).
+Percentages follow Chrome: root height for top/bottom, root width for left/right. The margin expands only the root;
+intervening clips still apply. This is geometric intersection, not occlusion or painted visibility.
+
+The browser's IntersectionObserver with threshold 0 supplies initial delivery
+(including an offscreen node), then enter/leave. Edge contact may report true
+with ratio 0; a zero-area target reports ratio 1 when intersecting. A ratio
+change alone does not deliver. Removed nodes stop observing without a synthetic
+leave; a new mount gets a fresh initial delivery. Callback entries retain browser
+order within a root/margin observer; different observers have no ordering
+guarantee. Static rendering dispatches nothing.
+A changed nearest root restarts observation with a fresh initial delivery.
+
+Host coverage: both web targets use the same browser adapter. AppKit, UIKit
+(including tvOS) and Linux use one runner sampler over laid-out frames and
+reported scroll offsets. Native hosts sample after the resize loop and scroll turns,
+mark entries before dispatch, and generation-check queued entries so removal
+or recycling cannot deliver to a replacement. A handler that changes geometry
+is observed on the next host turn. Apple samples at the next executor pump,
+after the presenter has applied the previous batch and reported authored scroll
+offsets. The runner preserves registration order within a root/margin group,
+including when keyed targets move; a changed root re-registers at the end.
+The browser adapter starts after first paint. A failed observer construction
+retires that target's registration without interrupting other targets.
+
+Native qualification remains incomplete: inline text runs, presentation-time
+motion/sticky/fixed geometry, rotated roots and SVG clip references are not
+qualified by this slice. Native transforms use the committed two-dimensional
+rows, as `frame()` does, not animation samples. Percentage margins follow the
+local Chrome oracle's per-axis basis. This differs from the W3C draft's width
+rule and is recorded as a spec deviation in LLP 1001. Windows and Android inherit the Linux
+sampler but their carriers are unqualified; terminal does not call the sampler. These deviations are also in LLP 1001; the issue
+stays open until native presenter tests and drives and the remaining geometry
+cases are qualified.

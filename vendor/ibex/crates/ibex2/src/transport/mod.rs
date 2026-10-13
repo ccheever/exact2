@@ -10,12 +10,17 @@
 //! @ref LLP 0057#3-the-boundary — Rust owns semantics, the platform owns transport
 
 pub mod dev_tcp;
+pub mod metrics_log;
 pub use dev_tcp::DevTcpTransport;
 
 #[cfg(target_vendor = "apple")]
 pub mod darwin;
 #[cfg(target_vendor = "apple")]
 pub use darwin::DarwinTransport;
+#[cfg(target_vendor = "apple")]
+pub mod darwin_async;
+#[cfg(target_vendor = "apple")]
+pub use darwin_async::DarwinLane;
 #[cfg(any(
     not(target_vendor = "apple"),
     target_os = "macos",

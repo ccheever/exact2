@@ -63,6 +63,8 @@ public struct Batch {
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
+    var topLayer: (() -> [(UInt32, CGRect)])?
+    var inlineFrame: ((UInt32) -> CGRect?)?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
     // Release builds have neither the callback nor a copy of the wire bytes.
@@ -91,7 +93,19 @@ package final class Runtime {
     static let busy = Batch(ops: [], timers: false, motion: false, clock: nil,
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
     static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
-    package func on(_ body: () -> Batch) -> Batch { Owner.shared.sync(body, busy: Runtime.busy) }
+    package func on(_ body: () -> Batch) -> Batch {
+        let open = topLayer?() ?? []
+        let ids = open.map(\.0)
+        let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
+        return Owner.shared.sync({
+            ids.withUnsafeBufferPointer { ids in
+                rects.withUnsafeBufferPointer { rects in
+                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count))
+                }
+            }
+            return body()
+        }, busy: Runtime.busy)
+    }
     package func on<T>(busy: @autoclosure () -> T, _ body: () -> T) -> T { Owner.shared.sync(body, busy: busy()) }
     package func on(_ body: () -> Void) { Owner.shared.sync(body, busy: ()) }
 
@@ -102,6 +116,8 @@ package final class Runtime {
         on { () -> Void in
             exact_set_measure(rt, measure, UnsafeMutableRawPointer(bitPattern: ctx))
             exact_set_lines(rt, measure == nil ? nil : TextEngine.linesText)
+            // A system symbol's box, measured before layout as a paragraph's is
+            exact_set_symbol_measure(rt, measure == nil ? nil : SymbolMeasure.measure)
         }
     }
     /// The plan-font hook a boot calls synchronously, with its context.
@@ -220,6 +236,10 @@ package final class Runtime {
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
     func blur(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 5, 0, now)) } }
+    func focusEvent(_ view: UInt32, entering: Bool, target: String, related: String?, now: Double) -> Batch {
+        let payload = "\(target.utf8.count):\(target)" + (related.map { "1\($0)" } ?? "0")
+        return on { read(exact_dispatch(rt, view, entering ? 46 : 47, write(payload), now)) }
+    }
     func contextmenu(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 10, 0, now)) } }
     /// DOM's `beforeunload` (36) at a node that hears it (studio diary R17).
     func beforeunload(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 36, 0, now)) } }
@@ -305,6 +325,8 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, 13, n, now))
         }
     }
+    /// A scroll finished (DOM's `scrollend`), after its last `scroll`.
+    func scrollend(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 51, 0, now)) } }
     /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
     func intoView(_ view: UInt32, key: String, block: String, inline: String) -> Batch {
         return on {
@@ -353,14 +375,16 @@ package final class Runtime {
     }
     /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its
     /// plain text; a `contextmenu` (10) with its pointer line, a `wheel`
-    /// (37) or a `drop` (38) with theirs (`Event::of_host_kind`).
+    /// (37), a `drop` (38), or a popover `toggle` (50) with theirs (`Event::of_host_kind`).
     func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }
     /// `selectionchange` (35): a `text`'s part of the selection, its source
-    /// UTF-16 offsets and then its text.
-    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, now: Double) -> Batch {
-        on { read(exact_dispatch(rt, view, 35, write("\(start),\(end),\(text)"), now)) }
+    /// UTF-16 offsets, rectangle count and coordinates, then its text.
+    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, rects: [CGRect], now: Double) -> Batch {
+        let boxes = rects.flatMap { [$0.minX, $0.minY, $0.width, $0.height].map { String(Double($0)) } }
+        let payload = ([String(start), String(end), String(rects.count)] + boxes + [text]).joined(separator: ",")
+        return on { read(exact_dispatch(rt, view, 35, write(payload), now)) }
     }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
@@ -382,12 +406,12 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, 9, n, now))
         }
     }
-    /// A key down (kind 6) or up (43, #140) at the view: its chord by the
+    /// A key down (kind 6), up (43) or capture (44, #140) at the view: its chord by the
     /// web's key name, then its code and repeat (`KeyPress.payload`).
-    func key(_ view: UInt32, _ payload: String, up: Bool = false, now: Double) -> Batch {
+    func key(_ view: UInt32, _ payload: String, up: Bool = false, capture: Bool = false, now: Double) -> Batch {
         return on {
             let n = write(payload)
-            return read(exact_dispatch(rt, view, up ? 43 : 6, n, now))
+            return read(exact_dispatch(rt, view, capture ? 44 : up ? 43 : 6, n, now))
         }
     }
     /// A `change`; a text field's carries its selection as the edit left
@@ -405,6 +429,10 @@ package final class Runtime {
             let n = write(selection?.payload(value) ?? value)
             return read(exact_dispatch(rt, view, selection == nil ? 23 : 40, n, now))
         }
+    }
+    /// The scripted replacement's one input, with its DOM inputType (kind 48).
+    func replacementInput(_ view: UInt32, _ value: String, _ selection: FieldSelection, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 48, write(selection.payload(value)), now)) }
     }
     /// A text field's `select` (kind 42, x2apps codeedit #2): its value and
     /// the selection it now has.
@@ -424,6 +452,10 @@ package final class Runtime {
             let n = write(payload)
             return read(exact_dispatch(rt, view, 26, n, now))
         }
+    }
+    /// A dialog closed after restoring its focus (LLP 1021).
+    func dialogClose(_ view: UInt32, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 49, write(""), now)) }
     }
     /// A file input's picker was dismissed: HTML's `cancel` (LLP 1069.002 D2).
     func pickerCancel(_ view: UInt32, now: Double) -> Batch {
@@ -453,9 +485,25 @@ package final class Runtime {
             return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    func protocolLocation(of href: String, protocol name: String, template: String) -> String? {
+        return on(busy: nil) {
+            let n = write(href + "\0" + name + "\0" + template)
+            let len = exact_protocol_location_of(rt, n)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
     /// Whether `location` names one of the app's declared routes (LLP 1038 §7).
     func routeMatches(_ location: String) -> Bool {
         return on(busy: false) { exact_route_matches(rt, write(location)) != 0 }
+    }
+    /// The location of the visit beneath the route keyed `key` on its stack,
+    /// `nil` for a stack's root or a key that names no visit (LLP 1115 D5).
+    func locationBeneath(_ key: String) -> String? {
+        guard let id = UInt64(key) else { return nil }
+        return on(busy: nil) {
+            let len = exact_location_beneath(rt, id)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
     }
     func launch(_ location: String) { on { () -> Void in let n = write(location); _ = exact_set_launch_location(rt, n) } }
     func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
@@ -463,6 +511,11 @@ package final class Runtime {
             let n = write(location)
             return read(exact_dispatch(rt, view, 14, n, now))
         }
+    }
+    /// The platform's own Back from the visit keyed `key` (LLP 1115 D5).
+    func hostBack(_ key: String, now: Double) -> Batch? {
+        guard let id = UInt64(key) else { return nil }
+        return on { read(exact_host_back(rt, id, now)) }
     }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
@@ -474,9 +527,11 @@ package final class Runtime {
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
+    func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
     func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
+    func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
     func listIndex(_ view: UInt32, key: String) -> Int? {
         return on(busy: nil) {
@@ -556,6 +611,13 @@ package final class Runtime {
             return RadioGroup(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
+    /// A navigation root's tabs by the kernel's rule (LLP 1115.001 D11); nil for one stack.
+    func rootTabs(_ view: UInt32) -> RootTabs? {
+        return on(busy: nil) {
+            let len = exact_root_tabs(rt, view)
+            return RootTabs(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
     /// Host intrinsic sizes (nil clears one), under one layout.
     func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
         return on {
@@ -579,6 +641,7 @@ package final class Runtime {
                 case .none: (0, [0, 0, 0, 0])
                 case .edges(let e)?: (1, [e.top, e.right, e.bottom, e.left])
                 case .whole?: (2, [0, 0, 0, 0])
+                case .inset(let top, let bottom)?: (3, [top, 0, bottom, 0])
                 }
                 for word in [view, kind] + edges.map({ Float($0).bitPattern }) {
                     withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }

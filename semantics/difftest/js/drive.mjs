@@ -116,9 +116,16 @@ async function build(compiler, dir, file) {
 // ---------------------------------------------------------------- one case
 async function drive(code, c, hostSources) {
   const document = createDocument();
+  // The page's storage: the device's store at launch (LLP 1116 D5), which
+  // persist.js reads as a slot is made and writes after each commit.
+  const kept = new Map(Object.entries(c.stored ?? {}));
+  const localStorage = {
+    get length() { return kept.size; }, key: i => [...kept.keys()][i] ?? null,
+    getItem: k => kept.has(k) ? kept.get(k) : null, setItem: (k, v) => { kept.set(k, String(v)); }, removeItem: k => { kept.delete(k); },
+  };
   const ctx = vm.createContext({
     document, location: { pathname: '/', search: '', href: 'http://difftest.invalid/', origin: 'http://difftest.invalid' },
-    history: { replaceState() {}, pushState() {}, go() {}, state: null }, localStorage: { length: 0, key() {}, getItem() { return null; }, setItem() {}, removeItem() {} },
+    history: { replaceState() {}, pushState() {}, go() {}, state: null }, localStorage,
     addEventListener() {}, removeEventListener() {}, navigator: {},
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
@@ -192,14 +199,29 @@ async function drive(code, c, hostSources) {
   const walk = (e, f, windowed) => { for (const k of e.childNodes) if (k.nodeType === 1) { f(k); if (!(windowed && windowedList(k))) walk(k, f, windowed); } };
   const windowedList = e => e.getAttribute('role') === 'list' && [...e.childNodes].some(k => k.nodeType === 1 && k.getAttribute('role') === 'listitem' && k.getAttribute('data-listitemkey') !== null);
   const find = id => { let hit = null; walk(root, e => { if (!hit && e.getAttribute('data-testid') === id) hit = e; }, false); return hit; };
+  // What the store keeps for a persisted state, read back by its slot's type
+  // (persist.js's text: a non-finite number as its name).
+  const revive = (v, t) => t === 'n' && typeof v === 'string' ? Number(v) : Array.isArray(t) && t[0] === '?' ? (v === null ? null : revive(v, t[1]))
+    : Array.isArray(t) && Array.isArray(v) ? v.map(x => revive(x, t[1])) : v;
+  const storeLines = () => {
+    for (const name of c.persisted ?? []) {
+      const i = names[0].indexOf(name), text = localStorage.getItem('exact.state.' + name);
+      let shown = '-';
+      try { if (text != null) shown = typed(revive(JSON.parse(text), types[0][i]), types[0][i]); } catch {}
+      out.push(`store ${name} ${shown}`);
+    }
+  };
   const observe = () => {
-    names.forEach((group, g) => group.forEach((name, i) => {
-      // The locale slot (`#locale`) is no root slot the runner shows.
-      if (name.startsWith('#')) return;
-      let v;
-      try { v = state[g][i](); } catch (e) { notes.push(`# js: ${['slot', 'derive', 'resource'][g]} ${name}: ${e.message}`); return; }
-      out.push(`${['slot', 'derive', 'resource'][g]} ${name} ${typed(v, types[g][i])}`);
-    }));
+    names.forEach((group, g) => {
+      if (g === 1) storeLines(); // after the slots, as observe.rs writes them
+      group.forEach((name, i) => {
+        // The locale slot (`#locale`) is no root slot the runner shows.
+        if (name.startsWith('#')) return;
+        let v;
+        try { v = state[g][i](); } catch (e) { notes.push(`# js: ${['slot', 'derive', 'resource'][g]} ${name}: ${e.message}`); return; }
+        out.push(`${['slot', 'derive', 'resource'][g]} ${name} ${typed(v, types[g][i])}`);
+      });
+    });
     // Each queue's waiting sends (LLP 1092 D12), in declaration order, as observe.rs writes them.
     for (const m of Mutations) if (m.queue) out.push(`queued ${m.name} ${m.wait?.length ?? 0}`);
     out.push(...commands); commands = [];

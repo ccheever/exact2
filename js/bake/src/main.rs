@@ -3,6 +3,17 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
+/// The source map a development Cargo bake leaves beside its plan
+/// (`exact_bake`'s receipt): only when compiling the app's contract again
+/// gives the baked plan's own nodes. A drive of the generation (LLP 1116.003)
+/// then names Contract lines, as it does on the build that baked them.
+fn development_map(app: &Path, plan: &[u8]) -> Option<String> {
+    let source = app.join("app.contract").canonicalize().ok()?;
+    let (compiled, map) = contract::compile_path_mapped(&source).ok()?;
+    let baked = exact_plan::Plan::decode(plan).ok()?;
+    (compiled.nodes == baked.nodes).then(|| map.json(plan))
+}
+
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if let [app, flag] = args.as_slice() {
@@ -18,11 +29,20 @@ fn main() -> ExitCode {
         eprintln!("expected --out <new-generation-dir>");
         return ExitCode::from(2);
     }
-    match exact_js_bake::bake(Path::new(app), &exact_js_bake::Tools::default()).and_then(|baked| {
-        baked.write_new(Path::new(output))?;
-        println!("{}", baked.receipt);
-        Ok(())
-    }) {
+    match exact_js_bake::bake(Path::new(app), &exact_js_bake::Tools::default()).and_then(
+        |mut baked| {
+            baked.source_map = baked
+                .source_map
+                .or_else(|| development_map(Path::new(app), &baked.plan));
+            baked.write_new(Path::new(output))?;
+            // stdout is the receipt; the compiler's warnings go beside it.
+            for warning in &baked.warnings {
+                eprintln!("{warning}");
+            }
+            println!("{}", baked.receipt);
+            Ok(())
+        },
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("TypeScript bake: {error}");

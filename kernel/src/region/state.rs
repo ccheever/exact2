@@ -376,8 +376,7 @@ impl RegionState {
             arena,
             root,
             shell_frames,
-            &shell_geometry.field_content,
-            &shell_geometry.button_bases,
+            &shell_geometry.facts,
             true,
             &mut changed,
         );
@@ -385,8 +384,7 @@ impl RegionState {
             arena,
             root,
             &frames,
-            &geometry.field_content,
-            &geometry.button_bases,
+            &geometry.facts,
             current || selected.is_none(),
             &mut changed,
         );
@@ -581,6 +579,13 @@ impl Candidate<'_> {
 impl TextMeasurer for Candidate<'_> {
     fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
         self.measurer.field_chrome(request)
+    }
+    fn field_text(
+        &mut self,
+        kind: crate::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        self.measurer.field_text(kind, request)
     }
     fn height_free(&self) -> bool {
         self.height_free
@@ -891,8 +896,7 @@ fn publish(
     arena: &mut NodeArena,
     root: u32,
     frames: &[RegionFrame],
-    field_content: &crate::id::IdMap<NodeKey, Frame>,
-    button_bases: &crate::id::IdMap<NodeKey, Option<f32>>,
+    facts: &super::BoxFacts,
     current: bool,
     changed: &mut Vec<NodeKey>,
 ) {
@@ -909,12 +913,14 @@ fn publish(
         let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
-        if let Some(&content) = field_content.get(&f.node) {
+        let inset = facts.insets.get(&f.node).copied().unwrap_or_default();
+        arena.set_inset(s, Some(inset));
+        if let Some(&content) = facts.field_content.get(&f.node) {
             arena.field_content.insert(s, content);
         } else {
             arena.field_content.remove(&s);
         }
-        if let Some(&basis) = button_bases.get(&f.node) {
+        if let Some(&basis) = facts.button_bases.get(&f.node) {
             arena.button_bases.insert(s, basis);
         } else {
             arena.button_bases.remove(&s);

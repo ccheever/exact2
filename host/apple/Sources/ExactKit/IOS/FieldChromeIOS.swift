@@ -39,6 +39,10 @@ final class FieldChromeCache: @unchecked Sendable {
     // separator stroke, checked beside a roundedRect field in the fixture.
     static let textareaRadius: CGFloat = 5
     static let textareaStroke: CGFloat = 0.5
+    /// The request's bit for a field in a grouped list's row (LLP 1116.005
+    /// D2): borderless in its cell, which is the field, as a hand-built
+    /// settings form's `UITextField` is; the kind is in the low two bits.
+    static let cell: UInt8 = 4
 
     @discardableResult
     func configure(_ next: UITraitCollection) -> Bool {
@@ -57,7 +61,9 @@ final class FieldChromeCache: @unchecked Sendable {
     }
     func prefill(family: UInt16, font: UIFont, weight: UInt16, italic: Bool) {
         precondition(Thread.isMainThread)
-        for kind in UInt8(0)...UInt8(3) {
+        // A field, secure field, search field and textarea; then the three
+        // that sit in a grouped list's cell (`Self.cell`), never a search.
+        for kind in [UInt8(0), 1, 2, 3, 0 | Self.cell, 1 | Self.cell, 3 | Self.cell] {
             let request = ExactFieldChromeRequest(kind: kind, family_id: family, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
             let k = key(request, font: font)
             lock.lock(); let known = entries[k] != nil; lock.unlock()
@@ -92,8 +98,9 @@ final class FieldChromeCache: @unchecked Sendable {
         precondition(Thread.isMainThread)
         lock.lock(); let current = traits; lock.unlock()
         var result = ExactFieldChrome()
+        let kind = key.kind & 3
         current.performAsCurrent {
-            if key.kind == 3 {
+            if kind == 3 {
                 #if os(tvOS)
                 // The read-only tvOS text view keeps today's zero-inset
                 // presentation, with no iOS textarea bezel or editor chrome.
@@ -101,19 +108,31 @@ final class FieldChromeCache: @unchecked Sendable {
                 #else
                 let view = TextArea(frame: CGRect(x: 0, y: 0, width: 320, height: 100))
                 view.font = font
-                view.configureNativeChrome(true)
+                view.configureNativeChrome(true, cell: key.kind & Self.cell != 0)
                 let inset = view.textContainerInset
                 result = ExactFieldChrome(top: Float(inset.top), right: Float(inset.right), bottom: Float(inset.bottom), left: Float(inset.left), minimum_height: 0, provisional: 0)
                 #endif
                 return
             }
+            #if os(tvOS)
             let field = UITextField(frame: .zero)
-            #if !os(tvOS)
-            field.borderStyle = .roundedRect
+            #else
+            // A search field is `UISearchTextField`'s shape (LLP 1115): its
+            // text clears the magnifier, and the clear button's room is kept
+            // whether or not it shows, so editing never moves the text.
+            let field: UITextField
+            if kind == 2 {
+                let search = UISearchTextField(frame: .zero)
+                search.clearButtonMode = .always
+                field = search
+            } else {
+                field = UITextField(frame: .zero)
+                field.borderStyle = key.kind & Self.cell != 0 ? .none : .roundedRect
+            }
             #endif
             field.font = font
-            field.isSecureTextEntry = key.kind == 1
-            if key.kind == 2 { field.keyboardType = .webSearch }
+            field.isSecureTextEntry = kind == 1
+            if kind == 2 { field.keyboardType = .webSearch }
             field.text = "Hg"
             let fitted = field.sizeThatFits(CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude))
             let height = max(font.lineHeight, fitted.height)

@@ -4,6 +4,7 @@
 //! wide one), its colours and attributes. The writer emits only sequences it
 //! constructs itself; app text reaches it already stripped of controls.
 
+use crate::color::ColorDepth;
 use std::fmt::Write as _;
 
 /// An opaque colour.
@@ -39,7 +40,7 @@ pub struct Style {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cell {
     /// The cluster; empty when this cell continues a wide one to its left.
-    pub text: String,
+    pub text: smol_str::SmolStr,
     /// Its style.
     pub style: Style,
 }
@@ -96,6 +97,7 @@ pub struct Grid {
     pub rows: usize,
     cells: Vec<Cell>,
     links: Vec<String>,
+    colors: ColorDepth,
     /// Where the terminal's cursor goes (a focused field's caret), if shown.
     pub cursor: Option<(usize, usize)>,
 }
@@ -108,7 +110,20 @@ impl Grid {
             rows,
             cells: vec![Cell::default(); cols * rows],
             links: Vec::new(),
+            colors: ColorDepth::TrueColor,
             cursor: None,
+        }
+    }
+
+    /// Reduce paint to the output palette before diffing, so invisible colour
+    /// changes cause no cell writes in monochrome mode.
+    pub fn limit_colors(&mut self, colors: ColorDepth) {
+        self.colors = colors;
+        if colors != ColorDepth::TrueColor {
+            for cell in &mut self.cells {
+                cell.style.fg = cell.style.fg.and_then(|rgb| colors.reduce(rgb));
+                cell.style.bg = cell.style.bg.and_then(|rgb| colors.reduce(rgb));
+            }
         }
     }
 
@@ -160,11 +175,11 @@ impl Grid {
             return;
         };
         let bg = style.bg.or(cell.style.bg);
-        cell.text = text.to_string();
+        cell.text = text.into();
         cell.style = Style { bg, ..style };
         for i in 1..cols as i32 {
             if let Some(c) = self.cell_mut(x + i, y) {
-                c.text = String::new();
+                c.text = smol_str::SmolStr::default();
                 c.style = Style { bg, ..style };
             }
         }
@@ -261,7 +276,7 @@ impl Grid {
             let cell = self.cell(x, y);
             if current != Some(cell.style) {
                 self.link_to(&mut out, current.map_or(0, |c| c.link), cell.style.link);
-                sgr(&mut out, cell.style);
+                sgr_colors(&mut out, current, cell.style, self.colors);
                 current = Some(cell.style);
             }
             out.push_str(&cell.text);
@@ -282,7 +297,7 @@ impl Grid {
                 let cell = self.cell(x, y);
                 if current != Some(cell.style) {
                     self.link_to(&mut out, current.map_or(0, |c| c.link), cell.style.link);
-                    sgr(&mut out, cell.style);
+                    sgr_colors(&mut out, current, cell.style, self.colors);
                     current = Some(cell.style);
                 }
                 out.push_str(&cell.text);
@@ -325,7 +340,7 @@ impl Grid {
                     let cell = self.cell(end, y);
                     if current != Some(cell.style) {
                         self.link_to(out, current.map_or(0, |c| c.link), cell.style.link);
-                        sgr(out, cell.style);
+                        sgr_colors(out, current, cell.style, self.colors);
                         current = Some(cell.style);
                     }
                     out.push_str(&cell.text);
@@ -372,7 +387,7 @@ impl Grid {
                     let cell = self.cell(at, y);
                     if current != Some(cell.style) {
                         self.link_to(&mut out, current.map_or(0, |c| c.link), cell.style.link);
-                        sgr(&mut out, cell.style);
+                        sgr_colors(&mut out, current, cell.style, self.colors);
                         current = Some(cell.style);
                     }
                     out.push_str(&cell.text);
@@ -391,32 +406,216 @@ impl Grid {
     }
 }
 
-fn sgr(out: &mut String, s: Style) {
-    out.push_str("\x1b[0");
-    for (on, code) in [
-        (s.bold, ";1"),
-        (s.faint, ";2"),
-        (s.italic, ";3"),
-        (s.underline, ";4"),
-        (s.reverse, ";7"),
-        (s.strike, ";9"),
+// SGR 22 clears both bold and faint; restore either one that remains on.
+// Other attributes and the two colours can change independently, without
+// resetting and resending the whole style for each differently coloured cell.
+#[cfg(test)]
+fn sgr(out: &mut String, before: Option<Style>, s: Style) {
+    sgr_colors(out, before, s, ColorDepth::TrueColor);
+}
+
+fn sgr_colors(out: &mut String, before: Option<Style>, s: Style, colors: ColorDepth) {
+    let start = out.len();
+    out.push_str("\x1b[");
+    let mut old = before.unwrap_or_default();
+    if before.is_none() {
+        out.push_str("0;");
+    }
+    if (old.bold && !s.bold) || (old.faint && !s.faint) {
+        out.push_str("22;");
+        old.bold = false;
+        old.faint = false;
+    }
+    if s.bold && !old.bold {
+        out.push_str("1;");
+    }
+    if s.faint && !old.faint {
+        out.push_str("2;");
+    }
+    for (was, on, enable, disable) in [
+        (old.italic, s.italic, "3;", "23;"),
+        (old.underline, s.underline, "4;", "24;"),
+        (old.reverse, s.reverse, "7;", "27;"),
+        (old.strike, s.strike, "9;", "29;"),
     ] {
-        if on {
-            out.push_str(code);
+        if was != on {
+            out.push_str(if on { enable } else { disable });
         }
     }
-    if let Some(Rgb(r, g, b)) = s.fg {
-        let _ = write!(out, ";38;2;{r};{g};{b}");
+    if old.fg != s.fg {
+        if let Some(rgb) = s.fg {
+            colors.write(out, rgb, false);
+        } else {
+            out.push_str("39;");
+        }
     }
-    if let Some(Rgb(r, g, b)) = s.bg {
-        let _ = write!(out, ";48;2;{r};{g};{b}");
+    if old.bg != s.bg {
+        if let Some(rgb) = s.bg {
+            colors.write(out, rgb, true);
+        } else {
+            out.push_str("49;");
+        }
     }
-    out.push('m');
+    if out.len() == start + 2 {
+        // A link can change while the SGR attributes stay the same.
+        out.truncate(start);
+    } else {
+        out.pop();
+        out.push('m');
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn palette_reduction_preserves_text_and_suppresses_invisible_color_changes() {
+        for (colors, expected) in [
+            (ColorDepth::Monochrome, vt100::Color::Default),
+            (ColorDepth::Ansi16, vt100::Color::Idx(9)),
+            (ColorDepth::Ansi256, vt100::Color::Idx(196)),
+            (ColorDepth::TrueColor, vt100::Color::Rgb(255, 0, 0)),
+        ] {
+            let mut grid = Grid::new(4, 1);
+            grid.put(
+                0,
+                0,
+                "界",
+                2,
+                Style {
+                    fg: Some(Rgb(255, 0, 0)),
+                    bg: Some(Rgb(255, 0, 0)),
+                    bold: true,
+                    underline: true,
+                    reverse: true,
+                    ..Style::default()
+                },
+                grid.bounds(),
+            );
+            grid.limit_colors(colors);
+            for bytes in [grid.ansi(), grid.row_sgr(0), grid.diff(None)] {
+                // `ansi` terminates its row with a newline; leave room so
+                // the row under test does not scroll off the emulator.
+                let mut parser = vt100::Parser::new(2, 4, 0);
+                parser.process(bytes.as_bytes());
+                let cell = parser.screen().cell(0, 0).unwrap();
+                assert_eq!(cell.contents(), "界");
+                assert_eq!(cell.fgcolor(), expected);
+                assert_eq!(cell.bgcolor(), expected);
+                assert!(cell.bold() && cell.underline() && cell.inverse());
+            }
+        }
+        let mut a = Grid::new(1, 1);
+        let mut b = Grid::new(1, 1);
+        for (grid, rgb) in [(&mut a, Rgb(10, 20, 30)), (&mut b, Rgb(200, 100, 0))] {
+            grid.put(
+                0,
+                0,
+                "x",
+                1,
+                Style {
+                    fg: Some(rgb),
+                    bg: Some(rgb),
+                    ..Style::default()
+                },
+                grid.bounds(),
+            );
+            grid.limit_colors(ColorDepth::Monochrome);
+        }
+        assert_eq!(a, b);
+        let mut out = String::new();
+        b.diff_relative(&a, &mut out);
+        assert!(
+            !out.contains('x'),
+            "an invisible colour change rewrote the cell"
+        );
+    }
+
+    #[test]
+    fn sgr_transitions_preserve_other_attributes_and_restore_default_colours() {
+        let styles: Vec<_> = (0..64)
+            .flat_map(|bits| {
+                (0..3).map(move |colour| Style {
+                    bold: bits & 1 != 0,
+                    faint: bits & 2 != 0,
+                    italic: bits & 4 != 0,
+                    underline: bits & 8 != 0,
+                    reverse: bits & 16 != 0,
+                    strike: bits & 32 != 0,
+                    fg: [None, Some(Rgb(1, 2, 3)), Some(Rgb(234, 56, 78))][colour],
+                    bg: [Some(Rgb(40, 50, 60)), None, Some(Rgb(210, 220, 230))][colour],
+                    ..Style::default()
+                })
+            })
+            .collect();
+        for &before in &styles {
+            for &after in &styles {
+                let mut out = String::new();
+                sgr(&mut out, None, before);
+                out.push('a');
+                sgr(&mut out, Some(before), after);
+                out.push('b');
+                let mut vt = vt100::Parser::new(1, 3, 0);
+                vt.process(out.as_bytes());
+                let c = vt.screen().cell(0, 1).unwrap();
+                let colour = |v| match v {
+                    Some(Rgb(r, g, b)) => vt100::Color::Rgb(r, g, b),
+                    None => vt100::Color::Default,
+                };
+                assert_eq!(c.contents(), "b");
+                assert_eq!(c.fgcolor(), colour(after.fg), "{before:?} -> {after:?}");
+                assert_eq!(c.bgcolor(), colour(after.bg));
+                assert_eq!(c.bold(), after.bold);
+                assert_eq!(c.italic(), after.italic);
+                assert_eq!(c.underline(), after.underline);
+                assert_eq!(c.inverse(), after.reverse);
+            }
+        }
+    }
+
+    #[test]
+    fn sgr_intensity_reset_restores_the_remaining_attribute() {
+        // vt100 does not expose faint or strike, so check their SGR codes.
+        let both = Style {
+            bold: true,
+            faint: true,
+            ..Style::default()
+        };
+        let mut out = String::new();
+        sgr(
+            &mut out,
+            Some(both),
+            Style {
+                faint: true,
+                ..Style::default()
+            },
+        );
+        assert_eq!(out, "\x1b[22;2m");
+        out.clear();
+        sgr(
+            &mut out,
+            Some(both),
+            Style {
+                bold: true,
+                ..Style::default()
+            },
+        );
+        assert_eq!(out, "\x1b[22;1m");
+        out.clear();
+        sgr(
+            &mut out,
+            Some(Style {
+                strike: true,
+                ..Style::default()
+            }),
+            Style::default(),
+        );
+        assert_eq!(out, "\x1b[29m");
+        out.clear();
+        sgr(&mut out, Some(both), Style { link: 1, ..both });
+        assert!(out.is_empty(), "OSC links do not change SGR attributes");
+    }
 
     #[test]
     fn a_link_that_changes_target_on_the_same_text_is_redrawn() {

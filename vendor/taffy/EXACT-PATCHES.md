@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28 and 29 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32 and 33 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -958,3 +958,122 @@ margin, every batch compared bit for bit (frames and scroll extents) with a
 rehydrated kernel; a feed of one kind lays out no row once its texts were
 seen; the same with the memo off. Every other layout test runs with it on
 for the lists it builds (`containment_tests`).
+
+## Patch 30: a multi-column container's resolved height bounds — Exact's
+
+The block algorithm, and the leaf algorithm for a multi-column text with no
+children, resolve `min-height` and `max-height` against the containing
+block's height only where Taffy holds it definite (an authored height, a
+stretched flex item, an absolute box with both insets). Patch 27's caller
+cuts the flow thread into columns by those bounds, and could only guess that
+definiteness from styles. `LayoutPartialTree::set_multicol_bounds` (default:
+nothing) receives a multi-column container's two bounds, border box, `None`
+where it has none, each time its final layout is computed (a measurement
+may resolve them against another basis, and a final layout taken from the
+cache writes none); `TaffyTree` keeps them (`multicol_bounds(node)`), the
+maximum raised to a larger minimum as the layout clamps the box (CSS 2
+§10.7), and a replay (patch 29) writes them as the recorded layout did. The
+block path reports them from `compute_block_layout`; the leaf path from the
+dispatch in `taffy_tree.rs`, through `leaf::height_bounds`, which resolves
+them as `compute_leaf_layout` does for its own size, in every sizing mode,
+as the block algorithm does: a flex item's final layout is a content-size
+one, handed a size the bounds already clamped, and its columns are still
+cut by them.
+**Held by** `kernel::tests::it::browser_columns::a_percentage_height_bound_caps_the_columns`
+(`max-height` in percent under an authored height and under a stretched flex
+item, against Chrome, and under a larger `min-height`),
+`a_paragraph_s_height_bound_caps_its_columns` (a text leaf's, alone and as a
+flex item, against Chrome) and
+`kernel::layout::memo_tests::a_replayed_row_s_columns_are_cut_by_its_recorded_height_bounds`
+(List rows replayed after the first).
+
+## Patch 31: allocate tree-owned layout caches when first used
+
+`NodeData` holds a pointer to a cache, allocated only when `Cache::store`
+keeps a result. A node that has never laid out carries no nine-entry cache:
+Exact's inline text runs are engine nodes, but their paragraph is measured
+as one box. Clearing a populated cache retains its allocation for reuse on
+later edits. Hidden-layout and collapsing-margin answers that the existing
+cache declines to store allocate nothing. Cache keys, eviction, invalidation,
+replay, and the public `Cache` type are unchanged.
+
+**Held by** `tree::cache::tests::lazy_storage_preserves_cache_answers_and_clear_state`
+(the same query/store/clear sequence against the existing cache, including
+axis, parent-height, sizing-mode, margin and hidden-layout differences) and
+`lazy_storage_allocates_only_for_a_cached_result_and_reuses_it` (misses,
+refused entries, invalidation, clone independence and allocation reuse).
+The kernel's layout, replay, reparenting and fresh-tree differential tests
+also run against this storage. The stale `Style` size assertions now include
+the vendored extension rows: 600 bytes with `String`, 568 with `Arc<str>` on
+the tested 64-bit host; this patch changes neither style layout nor its size.
+
+## Patch 32: release node contexts with their primary nodes
+
+`TaffyTree::remove` and `TaffyTree::clear` remove the matching
+`node_context_data` entries as well as the primary node slots. A secondary map
+owns its values independently, so leaving these entries behind retained Exact's
+measurement and flow vectors until physical slot reuse or tree destruction and
+allowed stale node keys to retrieve removed contexts. Focused drop-counter
+tests cover immediate and exactly-once destruction, replacement, physical slot
+reuse, stale-key absence, and preservation of an unrelated survivor context.
+
+## Patch 33: a flex item's length in its container's main size is clamped by its maximum — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-10-12, for issue X86
+(`issues/closed/20261012-column-height-ignores-leaf-max-height.md`).
+
+`determine_container_main_size` sums the items' lengths for a container
+whose main size is automatic. Four of its sites let an item's flex base size
+past its `max_size`. The definite-available-space branch and the wrapping
+`MinContent` branch floored the base size by `min_size` alone. The intrinsic
+branch's scroll-container arm took the base size as it was. And its two
+shortcut arms, for an item that may not shrink (`flex-shrink: 0`), took the
+base size as a minimum, which outranked the maximum. A leaf's base size is
+measured under `SizingMode::ContentSize`, which drops its min and max
+(`compute_leaf_layout`), so it is the whole content. A column whose height is
+automatic, holding a text leaf at `max-height: 160px`, was therefore as tall
+as the whole text:
+
+- in definite space, whatever the leaf: a row's unstretched item when the row
+  has a definite height (the issue's cases A to C, whose probe row is the
+  window's height), and an absolutely positioned column (case D; a T3 Code
+  popover reached 16,000 pt while its textarea was laid out clamped);
+- under a max-content offer (an item of a row whose height is automatic, a
+  block's child), when the leaf is a scroll container (`overflow: hidden`)
+  or may not shrink. A textarea is not a scroll container in Taffy (the
+  kernel makes only a scroll view and a list scroll by default), so the
+  issue's case H, a textarea column in a block, held.
+
+A box clamps its own measured size, and under a max-content offer a leaf that
+neither scrolls nor refuses to shrink takes the measured arm, which clamps, so
+neither showed it. Chrome sizes the column from its items' clamped sizes in
+every case.
+
+The definite and wrapping branches and the scroll-container arm now clamp the
+base size by the item's min and max main sizes, floor the result at its
+padding and border, and add the margin last (patch 14's order: the clamp can
+go below the padding and border, and a floor taken after the margin lost it).
+The shortcut arms clamp by the flex base size first and by the min and max
+main size last (CSS Flexbox §9.9.1); where the two ranges overlap that is the
+combined clamp they used before. The same clamps give a row's min-content
+width when a leaf's unbroken word is wider than its `max-width`. Upstream
+main (`7d33901cc`, 2026-10-09) has the same sites.
+
+**Held by** `browser_flex::a_column_is_as_tall_as_its_items_clamped_by_max_height`
+(Chrome 155, plain HTML, 37 cases; 28 fail on the unpatched source): a row's
+column (the row's height automatic, then 300) holding a text leaf or an
+image, with margins, a negative margin, content- and border-box padding, a
+border-box `max-height` under its padding with and without a margin, two
+leaves and a gap; the absolutely positioned column, with a margin and a
+negative one; a `flex-shrink: 0` leaf in a row's column and in a block's,
+with a `height`, a `min-height` and a margin; a column in a block; a block,
+a row and a column holding a box as controls; and six rows of an unbroken
+word at `max-width: 130px`. On macOS the issue's probe lays out cases A to D
+at 132, 132, 130 and 132 pt (898, 434, 656 and 706 before), and a column
+holding a content-sized textarea typed past its maximum stays at the
+textarea's height.
+
+## Patch 34: invalidate row-layout memo after environment changes
+
+The row-layout memo exposes `forget_memo` so an environment change invalidates
+recordings whose calc handles keep the same identity but resolve differently.

@@ -740,8 +740,8 @@ them, on every evaluator.
   units, each piece made well formed on its own (D2's rule: an astral
   character is two U+FFFD), and `split("", "")` is `[]`. One list step per
   piece, taken before the pieces are built (the runner counts them first;
-  the JS target steps before an empty separator's split and after any
-  other's, the same trap either way), then the list's extent measured as
+  the JS target counts a nonempty separator's matches up to the remaining
+  budget before splitting), then the list's extent measured as
   `Opcode::List`'s. No limit argument, no regular expression.
 - **Each evaluator.** Runner: `strings::{index_of, pieces, split}`,
   `lists::index_of`, `vm.rs` `list_call`. JS target: `x_indexOf` and
@@ -847,10 +847,11 @@ pass that cannot loop instead.
   `replaceItems(sourceItems)` repros). `state other = items` after a typed
   write is still `type-cannot-infer`, without a `?`. `derive d = some(d)`
   and `press=a(a, a)` are refused as before (tests in `instance.rs`).
-- **D7.1** as specified, `contract/analyze/src/payload.rs`, shared by
-  analysis and lowering. Payloads without a DOM property are named as the
-  in-repo apps name them (`scrollLeft, scrollTop`, `dx, dy`, `vx, vy`,
-  `height, velocity`, `item, before`).
+- **D7.1** as specified, `contract/types/src/payload.rs`, shared by
+  analysis and lowering, and by the type checker for an action a miscount
+  leaves untyped, which analysis never reaches (#478). Payloads without a
+  DOM property are named as the in-repo apps name them (`scrollLeft,
+  scrollTop`, `dx, dy`, `vx, vy`, `height, velocity`, `item, before`).
 - **D7.2** as specified, plus `hook` on a module tag keeping its own
   refusal (`lower-hook-module`). No in-repo or x2apps module tag changed.
 - **D7.4** as specified. Until stage 3, `replace(s, a, b)` points to

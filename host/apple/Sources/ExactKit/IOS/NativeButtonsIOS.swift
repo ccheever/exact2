@@ -1,6 +1,8 @@
 // Native buttons on UIKit (LLP 1069.011): a `button appearance="auto"` is a
 // `Control` of type `button`, and its control is UIKit's own `UIButton` with
-// the `UIButton.Configuration` its `buttonStyles` row names. Its title and
+// the `UIButton.Configuration` its `buttonStyles` row names, or with no
+// `buttonStyle` written the platform's own (`ButtonFace.unsaid`, LLP 1115.000
+// D15: plain on iOS). Its title and
 // symbol are the node's face, read from the kernel (`exact_button_face`);
 // its children are never views. The control takes the touch and runs the
 // node's activation (D4); the node keeps keys and focus; the control is the
@@ -17,6 +19,7 @@ final class NativeButtonIOS: UIButton {
     struct Written: Equatable {
         var face: ButtonFace
         var accent: UIColor?
+        var destructive: Bool
         var enabled: Bool
         var label: String?
         var testId: String?
@@ -42,7 +45,7 @@ final class NativeButtonIOS: UIButton {
     /// Whether it draws glass: a glass row on iOS 26 and later.
     var isGlass = false
     /// The configuration drawn, its name in the table's iOS column.
-    var drawn = "bordered"
+    var drawn = ButtonFace.unsaid
     override var canBecomeFocused: Bool {
         #if os(tvOS)
         return isEnabled && isUserInteractionEnabled && owner?.inert != true && owner?.cssVisibilityHidden != true
@@ -58,9 +61,9 @@ final class NativeButtonIOS: UIButton {
         if context.nextFocusedItem === self {
             presenter.focusKey = owner.props["testId"]
             presenter.focusGuides.focused(owner)
-            if owner.handlers.contains("focus") { presenter.focus(owner.id) }
+            presenter.focus(owner.id)
         }
-        if context.previouslyFocusedItem === self, owner.handlers.contains("blur") { presenter.blur(owner.id) }
+        if context.previouslyFocusedItem === self { presenter.blur(owner.id) }
     }
     #endif
 }
@@ -84,36 +87,24 @@ extension NodeView {
     }
 
     /// D4: the control's primary action is what a custom button's touch-up
-    /// does, once. Each node from this one up to the press's target takes
-    /// the focus when it can, unless a `retainFocus` ancestor keeps the
-    /// editor's (as the touch-up walks the responder chain); the target is
-    /// this node or, without a handler, the nearest ancestor with one whose
-    /// box holds the touch (refused at a disabled one), resolved first; a
-    /// target that did not take the focus ends the editing; then `press`
-    /// and the canvas's pointer return.
+    /// does, once: the target is this node or, without a handler, the
+    /// nearest ancestor with one whose box holds the touch (refused at a
+    /// disabled one), resolved first; then the press's focus
+    /// (`focusForPress`), and `press` when there is a target.
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
-        var at: UIView? = self
-        while let view = at, view !== presenter.viewport {
-            if let node = view as? NodeView {
-                if node.canBecomeFirstResponder, !node.isFirstResponder, presenter.contextRetainsFocus(node) != true {
-                    _ = node.becomeFirstResponder()
-                }
-                if node === target { break }
-            }
-            at = view.superview
-        }
+        focusForPress(target: target)
         guard let target, presenter.views[target.id] === target else { return }
-        if !target.isFirstResponder && presenter.contextRetainsFocus(target) != true { presenter.viewport.endEditing(true) }
         presenter.press(target.id)
-        target.finishPointerPress()
     }
 }
 
 extension ControlHost {
     func makeNativeButton(_ node: NodeView) -> UIControl {
-        let button = NativeButtonIOS(configuration: .bordered())
+        // Its face is read and applied before it shows; until then it is the
+        // button nobody styled.
+        let button = NativeButtonIOS(configuration: Self.configuration(ButtonFace()).0)
         button.owner = node
         // The node is not an element. UIKit leaves this default false until
         // assistive technology loads its runtime, so expose the control's
@@ -158,21 +149,30 @@ extension ControlHost {
     /// restart UIKit's own animations).
     func configureNative(_ button: NativeButtonIOS, _ owner: NodeView, accent: UIColor?) {
         let face = self.face(owner.id)
+        // A destructive button draws in the platform's destructive red, as a hand-built screen's does (SwiftUI's
+        // `Button(role: .destructive)`, UIKit's red tint): red ink, or a red fill under white ink on a filled
+        // style (LLP 1116.008, team-kanban: "Delete is not styled as destructive"). The accent it only inherits
+        // leaves it red, as it leaves a swipe action's; an accent written on the button itself, and a colour
+        // written on its title, win (LLP 1115: what the author writes wins).
+        let destructive = owner.props["destructive"] == "true" && !owner.wrote("accent_color")
+        let accent = destructive ? UIColor.systemRed : accent
         let written = NativeButtonIOS.Written(
-            face: face, accent: accent, enabled: !owner.disabled,
+            face: face, accent: accent, destructive: destructive, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            // A checked radio is selected, as Safari's VoiceOver reads one (`setAccessibilityChecked`).
+            selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
+            expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, traits: .init(button.traitCollection),
             interactive: owner.style["pointer_events"]?.string != "none")
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
-            presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
+            presenter.session?.log("buttonStyle `\(face.style ?? "")` is not a button style; drawing bordered")
         }
         button.written = written
         let (_, drawn, glass) = Self.configuration(face)
         button.isEnabled = written.enabled
         button.isUserInteractionEnabled = written.interactive
-        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent)
+        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive)
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
@@ -190,7 +190,7 @@ extension ControlHost {
     /// What the agent's `layout` says of a native button (D10).
     func nativeObservation(_ button: NativeButtonIOS) -> [String: Any] {
         let face = button.written?.face ?? ButtonFace()
-        return ["view": "UIButton", "style": face.style, "drawn": button.drawn, "title": face.title as Any,
+        return ["view": "UIButton", "style": face.style as Any, "drawn": button.drawn, "title": face.title as Any,
                 "symbol": face.symbol as Any, "enabled": button.isEnabled,
                 "subtitle": face.subtitle as Any, "imagePlacement": face.placement ?? (face.leading ? "leading" : "trailing"),
                 "pointerEvents": button.isUserInteractionEnabled ? "auto" : "none",

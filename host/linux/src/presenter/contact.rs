@@ -220,13 +220,17 @@ impl<D: DataSource> Presenter<D> {
             .as_ref()
             .map_or(self.host.now(), |c| self.host.now().max(c.last_ms))
     }
+    /// The node the held contact went down on.
+    pub(super) fn contact_hit(&self) -> Option<NodeKey> {
+        self.contact.as_ref().map(|contact| contact.hit)
+    }
     pub(crate) fn contact_position(&self) -> Option<(f32, f32)> {
         self.contact.as_ref().map(|c| c.position)
     }
 
     /// Every candidate of a contact on `hit`: innermost first, then reorder >
     /// transform > height > pan > swipe on one node (LLP 1057.001 §1).
-    fn candidates(&self, hit: NodeKey) -> Vec<Candidate> {
+    pub(super) fn candidates(&self, hit: NodeKey) -> Vec<Candidate> {
         let ranked = [
             self.arrange_candidate(hit),
             self.transform_candidate(hit),
@@ -281,11 +285,16 @@ impl<D: DataSource> Presenter<D> {
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         // A hatch observes after this dispatch, and claims nothing
         // (LLP 1075.003.000.001 §2.2.2); so for a move, an up and a cancel.
+        // Under an open surface of the top layer the page takes no touch.
+        if self.top_takes_pointer(now_ms) {
+            return Ok(false);
+        }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         let result = match self.contact_down(x, y, now_ms) {
             Ok(taken) => self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err),
             Err(e) => Err(e),
         };
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Down, x, y);
         result
     }
@@ -339,6 +348,10 @@ impl<D: DataSource> Presenter<D> {
             return Ok(false);
         }
         let mut rest = self.candidates(hit);
+        // A swipe yields the edge the system's own gesture starts from.
+        if self.in_gesture_edge(x) {
+            rest.retain(|c| !matches!(c, Candidate::Swipe(_)));
+        }
         let arrange = rest
             .iter()
             .find(|c| matches!(c, Candidate::Arrange(_)))
@@ -372,7 +385,13 @@ impl<D: DataSource> Presenter<D> {
             });
             return Ok(true);
         }
-        let press = self.handler_target(view, EventKind::Press).and_then(|id| {
+        let pressed = self.handler_target(view, EventKind::Press);
+        // `-exact-press-haptic` plays at the press, the host's own as the
+        // scale below is (LLP 1077 D14).
+        if let Some(id) = pressed {
+            self.press_haptic(id);
+        }
+        let press = pressed.and_then(|id| {
             let node = self.host.kernel().node(id)?;
             if node.style.press_scale == 1. {
                 return None;
@@ -426,12 +445,16 @@ impl<D: DataSource> Presenter<D> {
             true => self.pointer_moved_over(x, y, now_ms),
             false => None,
         };
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Move, x, y);
         over.map_or(moved, Err)
     }
     fn pointer_moved(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.retire_pointer();
-        if let Some(error) = self.hover_at(Some((x, y)), now_ms) {
+        // A finger hovers nothing, down or lifted (LLP 1115.001 D7.4): what
+        // a mouse hovered before it came is left.
+        let at = (!self.direct()).then_some((x, y));
+        if let Some(error) = self.hover_at(at, now_ms) {
             return Err(error);
         }
         if self.contact.is_none() {
@@ -463,10 +486,11 @@ impl<D: DataSource> Presenter<D> {
             x as f64 - contact.origin.0 as f64,
             y as f64 - contact.origin.1 as f64,
         );
+        let slop = self.slop;
         if contact.hold.is_none()
             && !contact.group
             && !contact.panning
-            && dx.abs().max(dy.abs()) > exact_motion::gesture::SLOP
+            && dx.abs().max(dy.abs()) > slop
         {
             // The first candidate whose axis rule accepts begins; the ones
             // before it fall away (LLP 1057.001 §1).
@@ -489,7 +513,7 @@ impl<D: DataSource> Presenter<D> {
             let dx = x as f64 - from.0 as f64;
             let dy = y as f64 - from.1 as f64;
             contact.position = (x, y);
-            if contact.panning || dx.abs().max(dy.abs()) > exact_motion::gesture::SLOP {
+            if contact.panning || dx.abs().max(dy.abs()) > slop {
                 contact.panning = true;
                 if let Some((key, _)) = contact.press.take() {
                     self.host.press_feedback(key, false, now_ms);
@@ -526,7 +550,7 @@ impl<D: DataSource> Presenter<D> {
         if contact.hold.is_none() {
             let dx = x as f64 - contact.origin.0 as f64;
             let dy = y as f64 - contact.origin.1 as f64;
-            if dx.abs().max(dy.abs()) <= exact_motion::gesture::SLOP {
+            if dx.abs().max(dy.abs()) <= slop {
                 self.contact = Some(contact);
                 return Ok(false);
             }
@@ -649,6 +673,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn pointer_up(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Up, x, y);
         let result = self.pointer_lift(x, y, now_ms);
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Up, x, y);
         result
     }
@@ -748,7 +773,7 @@ impl<D: DataSource> Presenter<D> {
         } else if let Some((key, box_)) = contact.press {
             if box_.contains(x, y) && self.input_live(key) {
                 if let Some(node) = self.host.kernel().node_by_key(key) {
-                    self.dispatch_press(node.id, now_ms, true);
+                    self.activate(node.id, now_ms);
                 }
             }
             Ok(false)
@@ -792,6 +817,7 @@ impl<D: DataSource> Presenter<D> {
         let at = self.contact_position().or(self.pointer).unwrap_or((0., 0.));
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Cancel, at.0, at.1);
         let result = self.pointer_abandon(now_ms);
+        self.refresh_feedback();
         self.hatch_pointer(mark, crate::hatches::Phase::Cancel, at.0, at.1);
         result
     }

@@ -347,6 +347,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         StyleDomainError::AutoNotAdmitted(style) => {
                             ApplyError::AutoNotAdmitted { op_index, style }
                         }
+                        StyleDomainError::PercentNotAdmitted(style) => {
+                            ApplyError::PercentNotAdmitted { op_index, style }
+                        }
                         StyleDomainError::TooManyTracks { style, count } => {
                             ApplyError::TooManyTracks {
                                 op_index,
@@ -449,8 +452,8 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 for child in children {
                     if staged.parent_of(*child) != Some(*id) {
                         arrivals.push((op_index, *child));
+                        staged.parents.insert(*child, Some(*id));
                     }
-                    staged.parents.insert(*child, Some(*id));
                 }
                 staged.children.insert(*id, children.clone());
             }
@@ -514,39 +517,95 @@ pub(crate) fn apply_document(
     epoch: u64,
     language: Option<(&str, crate::Direction)>,
 ) -> Result<CommitReceipt, ApplyError> {
+    let mut commit = DocumentCommit::new(batch, root_id, epoch);
+    let Target {
+        arena,
+        layout,
+        selectors,
+    } = target;
+    continue_document(
+        Target {
+            arena,
+            layout,
+            selectors,
+        },
+        ops,
+        language,
+        &mut commit,
+    )?;
+    Ok(finish_document(arena, commit))
+}
+
+/// Private work retained until a logical document commit publishes once.
+/// The ordinary apply path keeps this on its stack; only continuation boxes it.
+pub(crate) struct DocumentCommit {
+    receipt: CommitReceipt,
+    touched: Vec<NodeKey>,
+    created: IdSet<u32>,
+    left: IdMap<NodeKey, NodeKey>,
+    leavers: Vec<crate::handoff::Leaver>,
+    pub(crate) failed: bool,
+}
+
+impl DocumentCommit {
+    pub(crate) fn new(batch: u64, root_id: u32, epoch: u64) -> Self {
+        Self {
+            receipt: CommitReceipt {
+                batch,
+                root_id,
+                epoch,
+                ..CommitReceipt::default()
+            },
+            touched: Vec::new(),
+            created: IdSet::default(),
+            left: IdMap::default(),
+            leavers: Vec::new(),
+            failed: false,
+        }
+    }
+}
+
+/// Validate one phase before writes, then resolve its computed styles. No
+/// lifecycle finalization or receipt publication occurs at this boundary.
+pub(crate) fn continue_document(
+    target: Target<'_>,
+    ops: &[Op],
+    language: Option<(&str, crate::Direction)>,
+    commit: &mut DocumentCommit,
+) -> Result<(), ApplyError> {
     validate(target.arena, ops)?;
     let Target {
         arena,
         layout,
         selectors,
     } = target;
-    let mut receipt = CommitReceipt {
-        batch,
-        root_id,
-        epoch,
-        ..CommitReceipt::default()
-    };
-    let mut touched: Vec<NodeKey> = Vec::new();
-    let mut created: IdSet<u32> = IdSet::default();
+    let DocumentCommit {
+        receipt,
+        touched,
+        created,
+        left,
+        leavers,
+        ..
+    } = commit;
     let mut detach = Detach::default();
-    // Children detached by this batch that declare an exit: the parent each left.
-    let mut left: IdMap<u32, u32> = IdMap::default();
-    // Destroyed nodes carrying a shared-element name (LLP 1013.000 D3).
-    let mut leavers = Vec::new();
     // A node this batch creates and then styles: its first engine style
     // would be derived twice, at the create (from the default style) and at
     // the style. It is created with the engine's default instead and derived
     // once: at its style when that changes a layout row, else at the end of
     // the batch (`unstyled`). A list row's mount is a create and a style per
     // node.
-    let styled: IdSet<u32> = ops
-        .iter()
-        .filter_map(|op| match op {
-            Op::SetStyle { id, .. } => Some(*id),
-            _ => None,
-        })
-        .collect();
+    // Most updates create no engine nodes; collect this lookup only when
+    // a non-text creation actually needs it.
+    let mut styled: Option<IdSet<u32>> = None;
     let mut unstyled: IdSet<u32> = IdSet::default();
+    // A text node's final parent decides whether it is a measured paragraph
+    // or an inline run. Only paragraphs need an engine node. Defer creation
+    // and changes of ownership until this batch's topology and styles settle.
+    let mut text_nodes = Vec::new();
+    // Creation identity spans the logical commit; text ownership settles each
+    // phase. Earlier creations must be resynced when this phase moves them.
+    // Keep the ordinary single-phase path's duplicate avoidance allocation-free.
+    let earlier_creations = !created.is_empty();
 
     let applied = (|| -> Result<(), ApplyError> {
         for (op_index, op) in ops.iter().enumerate() {
@@ -564,7 +623,20 @@ pub(crate) fn apply_document(
                             op_index,
                             what: "validated batch exhausted slot space",
                         })?;
-                    let leaf = if styled.contains(id) {
+                    let leaf = if *node_type == NodeType::Text {
+                        text_nodes.push(arena.key(slot));
+                        None
+                    } else if styled
+                        .get_or_insert_with(|| {
+                            ops.iter()
+                                .filter_map(|op| match op {
+                                    Op::SetStyle { id, .. } => Some(*id),
+                                    _ => None,
+                                })
+                                .collect()
+                        })
+                        .contains(id)
+                    {
                         unstyled.insert(slot);
                         layout.new_leaf_unstyled(slot, node_type.is_measured_leaf())
                     } else {
@@ -579,7 +651,7 @@ pub(crate) fn apply_document(
                 }
                 Op::DestroyView { id } => {
                     let slot = live_slot(arena, op_index, *id)?;
-                    if let Some(exit) = exit(arena, &created, &left, slot) {
+                    if let Some(exit) = exit(arena, created, left, slot) {
                         receipt.exits.push(exit);
                     }
                     if let Some(parent) = arena.parent(slot) {
@@ -606,6 +678,7 @@ pub(crate) fn apply_document(
                         }
                         receipt.destroyed.push(arena.key(s));
                         created.remove(&s);
+                        left.remove(&arena.key(s));
                         arena.free_slot(s);
                     }
                     receipt.layout_invalidated = true;
@@ -630,12 +703,14 @@ pub(crate) fn apply_document(
                             value.as_str(),
                         );
                     }
-                    arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
-                    view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                    arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
+                    view_box_changed(arena, layout, slot, *prop, receipt);
+                    // A first `value` makes a `progress` the bar (LLP 1116 D8).
                     if matches!(
                         prop,
                         PropId::Type | PropId::AccessibilityRole | PropId::Href
-                    ) {
+                    ) || (*prop == PropId::Value && old.is_none())
+                    {
                         if let Some(node) = arena.taffy(slot) {
                             layout.restyle(arena, slot, node);
                         }
@@ -650,6 +725,7 @@ pub(crate) fn apply_document(
                             invalidate_text_sources(arena, slot);
                         }
                     }
+                    source_changed(arena, slot, *prop, receipt);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
@@ -661,11 +737,11 @@ pub(crate) fn apply_document(
                         if *prop == PropId::Id {
                             selectors.update_id(slot, old.as_str(), None);
                         }
-                        arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
-                        view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                        arena.mark_export_dirty(slot, NodeFlags::PROPS_DIRTY);
+                        view_box_changed(arena, layout, slot, *prop, receipt);
                         if matches!(
                             prop,
-                            PropId::Type | PropId::AccessibilityRole | PropId::Href
+                            PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Value
                         ) {
                             if let Some(node) = arena.taffy(slot) {
                                 layout.restyle(arena, slot, node);
@@ -681,6 +757,7 @@ pub(crate) fn apply_document(
                                 invalidate_text_sources(arena, slot);
                             }
                         }
+                        source_changed(arena, slot, *prop, receipt);
                         touched.push(arena.key(slot));
                     }
                 }
@@ -691,19 +768,17 @@ pub(crate) fn apply_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    let mut next = arena.style(slot).clone();
-                    next.apply_patch(patch);
-                    arena.set_style(slot, next);
+                    arena.patch_style(slot, patch);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
                     }
-                    style_changed(arena, layout, slot, changed, &mut receipt);
+                    style_changed(arena, layout, slot, changed, receipt);
                     if changed.intersects(StyleMask::LAYOUT) {
                         unstyled.remove(&slot);
                     }
                     touched.push(arena.key(slot));
-                    propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
+                    propagate_inherited(arena, layout, slot, changed, touched, receipt);
                 }
                 Op::ClearStyle { id, mask } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -712,16 +787,14 @@ pub(crate) fn apply_document(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    let mut next = arena.style(slot).clone();
-                    next.clear(*mask);
-                    arena.set_style(slot, next);
+                    arena.clear_style(slot, *mask);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
                     }
-                    style_changed(arena, layout, slot, changed, &mut receipt);
+                    style_changed(arena, layout, slot, changed, receipt);
                     touched.push(arena.key(slot));
-                    propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
+                    propagate_inherited(arena, layout, slot, changed, touched, receipt);
                 }
                 Op::SetChildren { id, children } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -750,7 +823,7 @@ pub(crate) fn apply_document(
                             // A producer detaches before it destroys: the
                             // parent an exit leaves from is the one it had.
                             if leaving_with(arena, *o).is_some() {
-                                left.insert(*o, slot);
+                                left.insert(arena.key(*o), arena.key(slot));
                             }
                         }
                     }
@@ -802,17 +875,18 @@ pub(crate) fn apply_document(
                     touched.push(arena.key(slot));
                     receipt.layout_invalidated = true;
                     for (orphan, before) in detached {
-                        inherited_after_move(
-                            arena,
-                            layout,
-                            orphan,
-                            before,
-                            &mut touched,
-                            &mut receipt,
-                        );
+                        if arena.node_type(orphan) == NodeType::Text {
+                            text_nodes.push(arena.key(orphan));
+                        }
+                        inherited_after_move(arena, layout, orphan, before, touched, receipt);
                     }
                     for (m, before) in moved {
-                        inherited_after_move(arena, layout, m, before, &mut touched, &mut receipt);
+                        if arena.node_type(m) == NodeType::Text
+                            && (earlier_creations || !created.contains(&m))
+                        {
+                            text_nodes.push(arena.key(m));
+                        }
+                        inherited_after_move(arena, layout, m, before, touched, receipt);
                     }
                 }
                 Op::AttachRoot { id } => {
@@ -855,7 +929,7 @@ pub(crate) fn apply_document(
                         .inherited_source(slot, crate::StyleId::Direction)
                         .is_none()
                 {
-                    inherited_changed(arena, layout, slot, rows, &mut receipt);
+                    inherited_changed(arena, layout, slot, rows, receipt);
                     touched.push(arena.key(slot));
                 } else if changed
                     && matches!(arena.node_type(slot), NodeType::Text | NodeType::TextInput)
@@ -868,8 +942,21 @@ pub(crate) fn apply_document(
         }
     }
 
-    relative::resolve(arena, layout, &mut touched, &mut receipt);
+    relative::resolve(arena, layout, touched, receipt);
+    sync_text_nodes(arena, layout, text_nodes);
 
+    Ok(())
+}
+
+/// Final lifecycle facts use the final tree and every phase's raw leavers.
+pub(crate) fn finish_document(arena: &NodeArena, commit: DocumentCommit) -> CommitReceipt {
+    let DocumentCommit {
+        mut receipt,
+        touched,
+        created,
+        leavers,
+        ..
+    } = commit;
     // A later op can destroy an exit's parent: then that op's root leaves
     // (and exits, if it declares one) and this node goes inside it.
     receipt
@@ -896,7 +983,47 @@ pub(crate) fn apply_document(
     // Receipts outlive this batch; do not retain scratch for duplicates or dead nodes.
     touched.shrink_to_fit();
     receipt.touched = touched;
-    Ok(receipt)
+    if receipt.display_changed.len() > 1 {
+        let mut seen = IdSet::default();
+        receipt
+            .display_changed
+            .retain(|key| arena.resolve(*key).is_some() && seen.insert(*key));
+    } else {
+        receipt
+            .display_changed
+            .retain(|key| arena.resolve(*key).is_some());
+    }
+    receipt
+}
+
+/// Inline runs are part of their paragraph's measurement, never independent
+/// layout boxes. A run promoted to a paragraph gets its current computed style;
+/// a paragraph moved into another paragraph releases its derived engine node.
+/// Keys discard destroyed generations, including slots reused in this batch.
+fn sync_text_nodes(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, nodes: Vec<NodeKey>) {
+    let mut parents = IdSet::default();
+    for key in nodes {
+        let Some(slot) = arena.resolve(key) else {
+            continue;
+        };
+        if arena.is_inline_run(slot) {
+            if let Some(node) = arena.taffy(slot) {
+                layout.remove(node);
+                arena.set_taffy(slot, None);
+            }
+        } else if arena.taffy(slot).is_none() {
+            let node = layout.new_leaf(arena, slot, true);
+            arena.set_taffy(slot, node);
+            if node.is_some() {
+                parents.extend(arena.parent(slot));
+            }
+        }
+    }
+    // Every new handle exists before any parent is linked. Sync each parent
+    // once, so mounting a paragraph per list row remains linear in its rows.
+    for parent in parents {
+        sync_children(arena, layout, parent);
+    }
 }
 
 /// The exit a destroyed subtree root plays, if any (LLP 1063). Not for a
@@ -906,7 +1033,7 @@ pub(crate) fn apply_document(
 fn exit(
     arena: &NodeArena,
     created: &IdSet<u32>,
-    left: &IdMap<u32, u32>,
+    left: &IdMap<NodeKey, NodeKey>,
     slot: u32,
 ) -> Option<Exit> {
     if created.contains(&slot) {
@@ -914,7 +1041,10 @@ fn exit(
     }
     let parent = arena
         .parent(slot)
-        .or_else(|| left.get(&slot).copied())
+        .or_else(|| {
+            left.get(&arena.key(slot))
+                .and_then(|key| arena.resolve(*key))
+        })
         .filter(|p| arena.is_live(*p))?;
     if created.contains(&parent) || arena.node_type(parent) == NodeType::Text {
         return None;
@@ -1045,6 +1175,36 @@ fn count(entries: usize, attached: usize) {
     });
 }
 
+/// An image's source changed: it may have become a system symbol or
+/// stopped being one (`remeasure_symbol`).
+fn source_changed(arena: &mut NodeArena, slot: u32, prop: PropId, receipt: &mut CommitReceipt) {
+    if prop == PropId::ImageSource && arena.node_type(slot) == NodeType::Image {
+        remeasure_symbol(arena, slot, receipt);
+    }
+}
+
+/// A system symbol's font changed, its own or an inherited size or weight
+fn symbol_font_changed(
+    arena: &mut NodeArena,
+    slot: u32,
+    rows: StyleMask,
+    receipt: &mut CommitReceipt,
+) {
+    if rows.intersects(StyleMask::TEXT) && crate::replaced::symbol_role(arena, slot).is_some() {
+        remeasure_symbol(arena, slot, receipt);
+    }
+}
+
+/// Measure an image's symbol again before the next layout
+/// (`Kernel::measure_symbols`). The size measured for its old inputs stops
+/// being the kernel's at once, so a report its host makes first (a picture's)
+/// is its size.
+fn remeasure_symbol(arena: &mut NodeArena, slot: u32, receipt: &mut CommitReceipt) {
+    arena.measured_symbols.remove(slot);
+    arena.symbols_owed.insert(slot);
+    receipt.layout_invalidated = true;
+}
+
 fn invalidate_text(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
     let owner = arena.measure_owner(slot);
     arena.revise_text(owner, true);
@@ -1158,8 +1318,9 @@ fn style_changed(
         invalidate_text(arena, layout, slot);
         receipt.layout_invalidated = true;
     }
+    symbol_font_changed(arena, slot, mask, receipt);
     if !mask.minus(StyleMask::LAYOUT).is_empty() {
-        arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+        arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
         if !mask.intersects(StyleMask::TEXT) {
             arena.revise_text(slot, false);
         }
@@ -1222,8 +1383,9 @@ fn inherited_changed(
         invalidate_text(arena, layout, slot);
         receipt.layout_invalidated = true;
     }
+    symbol_font_changed(arena, slot, rows, receipt);
     if !rows.minus(StyleMask::TEXT).is_empty() {
-        arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+        arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
         if !rows.intersects(StyleMask::TEXT) {
             arena.revise_text(slot, false);
         }
@@ -1233,7 +1395,7 @@ fn inherited_changed(
 /// A control's computed starting style changed outside an authored commit.
 pub(crate) fn control_env_changed(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
     arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
-    arena.flags_mut(slot).insert(NodeFlags::PAINT_DIRTY);
+    arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
     invalidate_text(arena, layout, slot);
     if let Some(node) = arena.taffy(slot) {
         layout.restyle(arena, slot, node);

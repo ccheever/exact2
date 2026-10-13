@@ -2,7 +2,7 @@
 //! longhands, `border-color` with one to four values, and `currentcolor`
 //! kept a keyword that follows `color`, never an RGB baked at compile time.
 
-use exact_kernel::{Color, ColorValue, Kernel, StyleId, StyleMask, StyleProps};
+use exact_kernel::{BorderStyle, Color, ColorValue, Kernel, StyleId, StyleMask, StyleProps};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Event, Runner};
 
@@ -49,6 +49,44 @@ fn painted(r: &Runner<NoData>, id: &str) -> [ColorValue; 4] {
 
 fn fixed(hex: &str) -> ColorValue {
     ColorValue::Fixed(Color::parse_hex(hex).unwrap())
+}
+
+#[test]
+fn patterned_border_styles_lower_for_sides_shorthand_and_binding() {
+    let mut r = boot(
+        "component A\n  state dashed = false\n  action flip\n    dashed = not dashed\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"sides\" border-width=\"1px 2px 4px 3px\" border-style=\"dotted dashed solid none\"\n      box testId=\"long\" border-bottom-width=1 border-bottom-style=\"dotted\"\n      box testId=\"short\" border-bottom=\"4px dashed red\"\n      box testId=\"bound\" border-width=2 border-style=(dashed ? \"dashed\" : \"dotted\")\n",
+    );
+    let sides = style_of(&r, "sides");
+    assert_eq!(
+        [
+            sides.border_style_top,
+            sides.border_style_right,
+            sides.border_style_bottom,
+            sides.border_style_left
+        ],
+        [
+            BorderStyle::Dotted,
+            BorderStyle::Dashed,
+            BorderStyle::Solid,
+            BorderStyle::None
+        ]
+    );
+    assert_eq!(sides.border_widths(), [1.0, 2.0, 4.0, 0.0]);
+    assert_eq!(
+        style_of(&r, "long").border_style_bottom,
+        BorderStyle::Dotted
+    );
+    assert_eq!(
+        style_of(&r, "short").border_style_bottom,
+        BorderStyle::Dashed
+    );
+    assert_eq!(style_of(&r, "bound").border_style_top, BorderStyle::Dotted);
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, Event::Press).unwrap();
+    assert_eq!(style_of(&r, "bound").border_style_top, BorderStyle::Dashed);
 }
 
 fn sides(s: &StyleProps) -> [Option<ColorValue>; 4] {
@@ -259,22 +297,25 @@ fn a_numeric_border_says_to_quote_the_shorthand() {
         .unwrap_err()
         .message
     };
+    // What the message says to write compiles, and earns no warning: its
+    // colour is a role, not a literal `lower-colour-one-scheme` would name.
     let compiles = |attr: &str| {
-        contract::compile(&format!(
+        let (plan, warnings) = contract::compile_warned(&format!(
             "component App\n  state x = true\n  view\n    view {attr} testId=\"b\"\n"
-        ))
-        .unwrap_or_else(|e| panic!("{attr}: {e}"));
+        ));
+        plan.unwrap_or_else(|e| panic!("{attr}: {e}"));
+        assert_eq!(warnings, [], "{attr}");
     };
     assert_eq!(
         says("border=0"),
         "`border`: `0` is a number, and a CSS shorthand is a string, so write `\"0\"`"
     );
     compiles("border=\"0\"");
-    assert_eq!(says("border-top=2"), "`border-top`: `2` is a number, and a CSS shorthand is a string, as CSS writes it: `\"2px solid #ccc\"`");
-    compiles("border-top=\"2px solid #ccc\"");
+    assert_eq!(says("border-top=2"), "`border-top`: `2` is a number, and a CSS shorthand is a string, as CSS writes it: `\"2px solid -exact-separator\"`");
+    compiles("border-top=\"2px solid -exact-separator\"");
     // One arm of a choice: the literal is named, and its replacement keeps the choice.
-    assert_eq!(says("border=(x ? \"0\" : 1)"), "`border`: `1` is a number, and a CSS shorthand is a string, as CSS writes it: `\"1px solid #ccc\"`");
-    compiles("border=(x ? \"0\" : \"1px solid #ccc\")");
+    assert_eq!(says("border=(x ? \"0\" : 1)"), "`border`: `1` is a number, and a CSS shorthand is a string, as CSS writes it: `\"1px solid -exact-separator\"`");
+    compiles("border=(x ? \"0\" : \"1px solid -exact-separator\")");
     // A negative width (a style folds `-1` into a number) gets no example: no width is negative.
     let error = contract::compile(
         "style Card\n  border=-1\ncomponent App\n  view\n    view class=Card testId=\"b\"\n",

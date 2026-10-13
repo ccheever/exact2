@@ -330,6 +330,26 @@ impl SizeIndex {
         self.tree.total()
     }
 
+    /// Sufficient bound only: caller bounds every candidate leaf and padding by H.
+    /// With B >= 1 power-of-two leaves, monotone nonnegative addition bounds
+    /// each subtree by its leaf count * H: doubling that bound is exact in f64.
+    /// The root is <= B*H, and either padded addition order is <= 4*B*H
+    /// (two more exact doublings). Dividing f32::MAX by 4*B is exact too.
+    /// Retained/denoised leaves are <= the current root; revived zeros use the
+    /// estimate. No approximate accumulation or changed-leaf overlay is needed.
+    pub(crate) fn padded_extent_definitely_fits(&self, max_value: f64) -> bool {
+        max_value >= 0.0 && max_value <= (f32::MAX as f64) / (4.0 * self.tree.base as f64)
+    }
+
+    /// Predict changed leaves with the sum tree's exact addition grouping.
+    /// The overlay stays empty/allocation-free until a height actually changes.
+    pub(crate) fn preview_heights(&self) -> HeightPreview<'_> {
+        HeightPreview {
+            tree: &self.tree,
+            sums: None,
+        }
+    }
+
     /// The rows and the padding after them: past every offset a port takes.
     pub(crate) fn scroll_extent(&self) -> f64 {
         self.total_height() + self.trailing
@@ -699,6 +719,48 @@ struct SumTree {
     zeros: usize,
     #[cfg(test)]
     visits: std::cell::Cell<usize>,
+}
+
+pub(crate) struct HeightPreview<'a> {
+    tree: &'a SumTree,
+    sums: Option<HashMap<usize, f64>>,
+}
+
+impl HeightPreview<'_> {
+    pub(crate) fn set_height(&mut self, position: usize, height: f64) {
+        let mut node = self.tree.base + position;
+        let old = self
+            .sums
+            .as_ref()
+            .and_then(|s| s.get(&node))
+            .copied()
+            .unwrap_or(self.tree.sums[node]);
+        if height == old {
+            return;
+        }
+        let sums = self.sums.get_or_insert_with(HashMap::new);
+        sums.insert(node, height);
+        while node > 1 {
+            node /= 2;
+            let left = sums
+                .get(&(node * 2))
+                .copied()
+                .unwrap_or(self.tree.sums[node * 2]);
+            let right = sums
+                .get(&(node * 2 + 1))
+                .copied()
+                .unwrap_or(self.tree.sums[node * 2 + 1]);
+            sums.insert(node, left + right);
+        }
+    }
+
+    pub(crate) fn total_height(&self) -> f64 {
+        self.sums
+            .as_ref()
+            .and_then(|s| s.get(&1))
+            .copied()
+            .unwrap_or(self.tree.total())
+    }
 }
 
 impl SumTree {

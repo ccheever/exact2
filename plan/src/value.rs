@@ -75,6 +75,10 @@ impl std::fmt::Debug for Value {
 impl PartialEq for Value {
     fn eq(&self, other: &Value) -> bool {
         match (self, other) {
+            // Inline bytes are canonical (unused space is zeroed). Comparing
+            // their storage needs no UTF-8 validation, including on a miss.
+            (Value::InlineStr(a), Value::InlineStr(b)) => a == b,
+            (Value::HeapStr(a), Value::HeapStr(b)) => a == b,
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Unit, Value::Unit) => true,
@@ -833,6 +837,36 @@ mod text_tests {
             Value::str(&long),
             Value::HeapStr(HeapStr(Str::from(long.as_str())))
         );
+    }
+
+    #[test]
+    fn text_equality_matches_bytes_across_storage_forms() {
+        let texts = [
+            "",
+            "\0",
+            "a",
+            "a\0",
+            "a\0b",
+            "é",
+            "e\u{301}",
+            "漢字",
+            "👍🏽",
+            "12345678901234",
+            "12345678901235",
+            "123456789012345",
+            "123456789012346",
+            "ééééééé",
+            "éééééééx",
+        ];
+        for a in texts {
+            for b in texts {
+                for av in [Value::str(a), Value::HeapStr(HeapStr(Str::from(a)))] {
+                    for bv in [Value::str(b), Value::HeapStr(HeapStr(Str::from(b)))] {
+                        assert_eq!(av == bv, a == b, "{a:?} / {b:?}");
+                    }
+                }
+            }
+        }
     }
 
     /// `same_str`: one allocation for shared text, equal bytes for inline.

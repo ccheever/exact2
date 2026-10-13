@@ -34,6 +34,81 @@ final class CollectionMacTests: XCTestCase {
         ]))
         return (p, p.views[1]!)
     }
+    func testAppOwnedAnchorRestoresABorderedListWithoutDrift() throws {
+        _ = NSApplication.shared
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = """
+        component App
+          state shown = true
+          state first = none
+          state within = 0
+          state saved = none
+          state offset = 0
+          action moved(x: number, y: number, e: ScrollEvent)
+            first = e.firstVisibleKey
+            within = e.firstVisibleOffset
+          action save
+            saved = first
+            offset = within
+          action toggle
+            shown = not shown
+          action restore
+            match saved
+              case some(key)
+                scrollIntoView("feed", key, offset=offset)
+              case none
+                offset = 0
+          view
+            column
+              button press=save testId="save"
+                text "Save"
+              button press=toggle testId="toggle"
+                text "Toggle"
+              button press=restore testId="restore"
+                text "Restore"
+              text `${within}` testId="within"
+              when shown
+                list id="feed" testId="feed" virtualized=true estimated-item-height=100 height=300 width=400 border-top="10px solid black" scroll=moved
+                  each n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
+                    text `${n}` height=100
+
+        """
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "scroll-anchor-border")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 500, height: 600)).error)
+        let p = session.presenter
+        func node(_ name: String) throws -> NodeView {
+            try XCTUnwrap(p.views.values.first { $0.props["testId"] == name })
+        }
+        func settle() {
+            p.settlePump()
+            let delivered = expectation(description: "queued scroll event")
+            DispatchQueue.main.async { DispatchQueue.main.async { delivered.fulfill() } }
+            wait(for: [delivered], timeout: 5)
+            p.settlePump()
+        }
+        func press(_ name: String) throws { p.press(try node(name).id); settle() }
+        settle()
+        try XCTUnwrap(node("feed").scroll).contentView.scroll(to: NSPoint(x: 0, y: 1861))
+        settle()
+        for _ in 0..<3 {
+            XCTAssertEqual(try node("within").props["text"], "51")
+            try press("save")
+            try press("toggle")
+            try press("toggle")
+            try press("restore")
+            XCTAssertEqual(try XCTUnwrap(node("feed").scroll).contentView.bounds.minY, 1861, accuracy: 0.5)
+        }
+    }
+
     func testCSSCursorKeywordsReachAppKit() {
         XCTAssertTrue(CSSCursor.value("grab") === NSCursor.openHand)
         XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
@@ -72,7 +147,7 @@ final class CollectionMacTests: XCTestCase {
         p.collections.onFeedback = { feedback.append($0) }
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1)
-        XCTAssertEqual(feedback[0].count, 104)
+        XCTAssertEqual(feedback[0].count, 120)
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
@@ -226,7 +301,7 @@ final class CollectionMacTests: XCTestCase {
         ]))
         var interactions: [UInt32] = []
         p.collections.onFeedback = { bytes in
-            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[60 + $1]) << ($1 * 8) })
+            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[76 + $1]) << ($1 * 8) })
         }
         func drain() {
             let done = expectation(description: "pin feedback continuation")
@@ -393,7 +468,7 @@ final class CollectionMacTests: XCTestCase {
             (0..<4).reduce(0) { $0 | UInt32(bytes[offset + $1]) << ($1 * 8) }
         }
         p.collections.onFeedback = { bytes in
-            accepted[u32(bytes, 4)] = (u32(bytes, 56), u32(bytes, 60))
+            accepted[u32(bytes, 4)] = (u32(bytes, 72), u32(bytes, 76))
             XCTAssertLessThanOrEqual(accepted.values.filter { $0.0 != 0 }.count, 1)
             XCTAssertLessThanOrEqual(accepted.values.filter { $0.1 != 0 }.count, 1)
         }
@@ -591,7 +666,8 @@ final class CollectionMacTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [5, 4]],
         ]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
-        XCTAssertTrue(try XCTUnwrap(list.container.subviews.first as? NodeView).paintGhost, "the leaving row is a paint ghost")
+        // The first of the nodes: a vertical list's table is under its rows in the same document (LLP 1115.002 D5).
+        XCTAssertTrue(try XCTUnwrap(list.container.subviews.compactMap { $0 as? NodeView }.first).paintGhost, "the leaving row is a paint ghost")
         p.apply(batch([["op": "destroy", "id": 2]]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
     }

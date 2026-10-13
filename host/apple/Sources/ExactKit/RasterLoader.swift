@@ -119,6 +119,8 @@ private final class RasterBackend: @unchecked Sendable {
         serial += 1
         let source = RasterSource(id: serial, name: name, resolver: resolver)
         source.users = 1; sources[serial] = WeakRasterSource(source); byName[key] = serial
+        // A worker waiting on the gate wakes to read this source's metadata.
+        exact_raster_session_control(id, 5)
         return .source(source)
     }
     func release(_ id: UInt64) {

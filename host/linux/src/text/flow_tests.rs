@@ -338,6 +338,19 @@ fn tall_wall_jumps_and_unrepresentable_flow_falls_back_to_visible_text() {
     let p = engine.paragraph_flow(&s, 400., &wall, None);
     assert_eq!(p.fragments().len(), 1);
     assert!(p.fragments()[0].y >= 30_000.);
+    // Trimmed, the line keeps its clearance: it loses only its own space above the cap height
+    let mut trimmed = s.clone();
+    trimmed.text_box_trim = exact_kernel::TextBoxTrim::TrimBoth;
+    trimmed.text_box_edge = exact_kernel::TextBoxEdge::CapAlphabetic;
+    let t = engine.paragraph_flow(&trimmed, 400., &wall, None);
+    let cut = p.fragments()[0].y - t.fragments()[0].y;
+    assert!(cut > 0. && cut < p.height - 30_000., "{cut}");
+    assert!(
+        t.first_baseline > 30_000.,
+        "the baseline stays below the wall: {}",
+        t.first_baseline
+    );
+    assert!((t.first_baseline - (p.first_baseline - cut)).abs() < 1e-3);
     if let FlowShape::RoundRect { height, .. } = &mut wall[0] {
         *height = f32::MAX;
     }

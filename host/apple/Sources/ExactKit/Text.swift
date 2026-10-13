@@ -25,6 +25,19 @@ import CExact
 import CoreText
 
 /// One styled run: what changes glyph metrics.
+extension Run {
+    /// This run at `scale` of its size, in the kernel's f32 arithmetic
+    /// (`TextStyle::scaled`, LLP 1116.001 D1.4: a fitted paragraph).
+    func scaled(_ scale: Float) -> Run {
+        guard scale != 1 else { return self }
+        var run = self
+        run.size = CGFloat(Float(size) * scale)
+        run.lineHeight = lineHeight.map { CGFloat(Float($0) * scale) }
+        run.letterSpacing = CGFloat(Float(letterSpacing) * scale)
+        return run
+    }
+}
+
 package struct Run: Hashable {
     package var text: String
     package var size: CGFloat
@@ -43,6 +56,11 @@ package struct Run: Hashable {
     var background: [Double]? = nil
     /// CSS visibility hides ink without changing shaping or descendant visibility.
     var hidden = false
+    /// Its colour is one its author fixed: a literal or a `light-dark()`
+    /// pair, not a role and not unsaid (`BatchValue.fixesInk`). Selected on
+    /// the Mac in the light appearance, such text keeps its ink, as an
+    /// `NSTextView` leaves it (LLP 1115.000 D7.9). Paint, never metrics.
+    var fixedInk = false
     /// Its own `text-shadow` (offset x, y, blur, r g b a) when the
     /// paragraph's runs differ (`Spec.gatherShadows`), and its
     /// `-webkit-text-stroke` (width, r g b a): paint (LLP 1077 D3, D7).
@@ -58,7 +76,7 @@ package struct Run: Hashable {
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.hidden == rhs.hidden, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
+              lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
               lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
@@ -85,6 +103,7 @@ package struct Run: Hashable {
         hasher.combine(href)
         hasher.combine(background)
         hasher.combine(hidden)
+        hasher.combine(fixedInk)
         hasher.combine(shadow)
         hasher.combine(stroke)
         hasher.combine(indent)
@@ -123,6 +142,15 @@ struct Spec: Hashable {
     /// blur in points, then the colour's r g b a (0–255), resolved for the
     /// appearance. Nil when the runs' own differ (`gatherShadows`).
     var shadow: [Double]? = nil
+    /// CSS `text-box-trim` (0 none, 1 trim-start, 2 trim-end, 3 trim-both)
+    /// and `text-box-edge`'s over (0 text, 1 cap, 2 ex) and under (0 text,
+    /// 1 alphabetic) edges: the paragraph is cut to its fonts' own metrics,
+    /// for measuring and painting alike.
+    var textBoxTrim = 0
+    var textBoxOver = 0
+    var textBoxUnder = 0
+    /// CSS `text-wrap-style: balance` (TextBreaks.swift, `balance`).
+    var balance = false
 }
 
 /// Where collapsed white space went, from `exact_text_collapse`: offsets
@@ -397,31 +425,6 @@ final class ParagraphInkIndex {
     }
 }
 
-extension Spec {
-    /// Paint does not affect wrapping. Retain run boundaries and metric styles.
-    var geometry: Spec {
-        var value = self
-        value.color = [0, 0, 0, 255]
-        value.ellipsis = false
-        value.source = SourceMap()
-        for i in value.runs.indices {
-            value.runs[i].hidden = false
-            value.runs[i].color = nil
-            value.runs[i].decoration = ""
-            value.runs[i].href = ""
-            value.runs[i].background = nil
-            value.runs[i].shadow = nil
-            value.runs[i].stroke = nil
-        }
-        if var strut = value.strut {
-            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""; strut.background = nil
-            strut.shadow = nil; strut.stroke = nil
-            value.strut = strut
-        }
-        return value
-    }
-}
-
 /// CoreText's process-wide registration, once per URL, never undone.
 enum FontRegistry {
     nonisolated(unsafe) private static var registered: Set<URL> = []
@@ -630,7 +633,7 @@ package final class TextEngine {
             if row.source_len == 0 {
                 if stack < 8 { continue }
                 let generics = ["system-ui", "ui-sans-serif", "sans-serif", "ui-serif", "serif", "ui-monospace", "monospace", "ui-rounded"]
-                let generic = row.weight == 1 ? generics.firstIndex(of: name) : nil
+                let generic = row.weight == 1 ? generics.firstIndex(of: name.lowercased()) : nil
                 let descriptor: CTFontDescriptor?
                 if let generic { descriptor = CTFontCopyFontDescriptor(font(size: 16, weight: 400, family: generic, italic: false) as CTFont) }
                 else {
@@ -791,6 +794,7 @@ package final class TextEngine {
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             if r.hidden { a[.exactHidden] = true }
+            if r.fixedInk, r.color != nil { a[.exactFixedInk] = true }
             // A centred stroke over the fill: Core Text's negative width,
             // in percent of the run's size (LLP 1077 D7). Each run's own.
             if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {
@@ -799,7 +803,7 @@ package final class TextEngine {
             }
             if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if r.underlined { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
@@ -1010,7 +1014,8 @@ package final class TextEngine {
         var plan = LineBreakPlan()
         let text = shape.attributed.string as NSString
         // `nowrap` takes no soft break (below), so it needs none of them.
-        if spec.wraps && width.isFinite && breaks == nil && ranges == nil {
+        // Reused breaks still balance: the box measures as the greedy lines.
+        if spec.wraps && width.isFinite && ((breaks == nil && ranges == nil) || (spec.balance && spec.lineClamp == 0)) {
             if let cached = shape.lineBreakBoundaries { plan.boundaries = cached }
             else {
                 plan.boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
@@ -1019,6 +1024,13 @@ package final class TextEngine {
             }
             plan.prepare(text, length: length)
         }
+        func next(_ plan: inout LineBreakPlan, _ start: Int, _ room: Double) -> Int {
+            plan.next(typesetter, source: shape.attributed, text: text, start: start, room: room, offerWidth: width,
+                      breakWord: spec.overflowWrap != 0, length: length)
+        }
+        // CSS `text-wrap-style: balance` (TextBreaks.swift): a narrower room until the first forced break.
+        let balanced = spec.balance && spec.lineClamp == 0 && !plan.boundaries.isEmpty && width > 0
+            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, next: next, typesetter: typesetter, source: shape.attributed) : nil
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
             var count: Int
@@ -1036,15 +1048,8 @@ package final class TextEngine {
             } else {
                 // CSS `text-indent` takes its room from the first line only,
                 // a list item's indent from each of its lines.
-                let room = limit - Double(insets.at(start).width)
-                plan.advance(to: start)
-                func suggest(_ room: Double) -> Int {
-                    plan.suggest(typesetter, start: start, room: room, offerWidth: width, breakWord: spec.overflowWrap != 0, length: length, text: text)
-                }
-                count = suggest(room)
-                // A soft hyphen's break shows one, which must fit (TextBreaks).
-                count = Self.fitSoftHyphen(start: start, count: count, room: room, boundaries: plan.boundaries, source: shape.attributed,
-                                           typesetter: typesetter, length: length, retry: suggest)
+                let room = (balanced.map { start < $0.until ? $0.room : limit } ?? limit) - Double(insets.at(start).width)
+                count = next(&plan, start, room)
             }
             if count <= 0 { count = length - start }
             let range = CFRangeMake(start, count)
@@ -1138,8 +1143,15 @@ package final class TextEngine {
         // up once, on iOS (CSSLineBox). A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
+        // Balancing moves breaks, never the box: it measures as its greedy lines do.
+        maxWidth = max(maxWidth, balanced?.widest ?? 0)
+        var height = explicit ? y : ceil(y)
+        // CSS `text-box-trim`: the first line cut at its fonts' text, cap or
+        // ex top, the last at their baseline or descent, as the measurer and
+        // the painter both see it (`Spec.textBoxTrim`).
+        trimTextBox(spec, lines: lines, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)
         let paragraph = Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth),
-                                  height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
+                                  height: height, lineBottoms: lineBottoms,
                                   shape: shape, offeredWidth: width, glyphCount: glyphCount)
         paragraph.clampedRange = clampedRange
         paragraph.insets = insets
@@ -1358,6 +1370,8 @@ package final class TextEngine {
         // Metric-only keys match the geometry used by the colored presenter.
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
+        made.textBoxTrim = Int(request.text_box_trim); made.textBoxOver = Int(request.text_box_over); made.textBoxUnder = Int(request.text_box_under)
+        made.balance = request.text_wrap_style == 1
         if made.hyphens == 2, let lang = request.lang {
             made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
         }

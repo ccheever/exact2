@@ -160,7 +160,7 @@ final class DevMenuIOSTests: XCTestCase {
         XCTAssertEqual(journal(session, "dev menu: waiting for a presentation to finish"), 1)
         modal.shown = nil
         let deadline = Date().addingTimeInterval(2)
-        while modal.asked.isEmpty, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        while modal.asked.isEmpty, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
         XCTAssertTrue(modal.asked.first === alert, "once it has gone")
         // A reload drops a presentation still waiting.
         modal.shown = leaving

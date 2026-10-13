@@ -29,8 +29,31 @@ final class BorderParityIOSTests: XCTestCase {
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
     }
 
+    func testPatternedBordersMatchChrome() {
+        let failures = BorderParity.checkPatterns { render($0, dark: $1, page: $2) }
+        XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
+    }
+
+    func testPatternedBorderLeavesGaps() {
+        for pattern in ["dotted", "dashed"] {
+            var style = BorderParity.cases(flipped: false)[0].style
+            style["background_color"] = .array([.number(255), .number(255), .number(255), .number(255)])
+            for side in ["top", "right", "bottom", "left"] {
+                style["border_width_" + side] = .number(4)
+                style["border_color_" + side] = .array([.number(255), .number(0), .number(0), .number(255)])
+                style["border_style_" + side] = .string(pattern)
+            }
+            let pixels = render(style, dark: false, page: CGColor(gray: 1, alpha: 1))
+            let rows = (0..<70).map { y in (10..<90).map { pixels[(y * 100 + $0) * 4 + 1] } }
+            let borderRows = rows.filter { $0.filter { $0 < 100 }.count > 4 }
+            XCTAssertFalse(borderRows.isEmpty, "\(pattern) has ink")
+            XCTAssertTrue(borderRows.allSatisfy { $0.contains(where: { $0 > 245 }) }, "\(pattern) leaves gaps")
+        }
+    }
+
     /// LLP 1066: the gradient page's cases (`GradientParity`), light then dark.
     func testEveryGradientCaseMatchesChrome() {
+        GradientParity.checkLengthResize()
         var failures = GradientParity.check(dark: false) { render($0, dark: $1, page: $2) }
         failures += GradientParity.check(dark: true) { render($0, dark: $1, page: $2) }
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))

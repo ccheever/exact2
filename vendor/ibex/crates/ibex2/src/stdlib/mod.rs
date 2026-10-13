@@ -9,6 +9,7 @@ pub mod console;
 pub mod crypto;
 pub mod events;
 pub mod fetch;
+pub mod fetch_async;
 pub mod fs;
 // Exact patch 9: `fs.compressImage`.
 mod fs_image;

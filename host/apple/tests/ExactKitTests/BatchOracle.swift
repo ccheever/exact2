@@ -53,7 +53,7 @@ typealias OracleNodeStyle = [String: OracleBatchValue]
 struct OracleBatchOp: Decodable {
     enum Kind: String {
         case create, props, style, children, paragraph, frame, content, present, roots, destroy
-        case flow, surface, command, hold, collections, region, router, title, language, unknown
+        case fieldContent, flow, surface, command, hold, collections, region, router, title, language, unknown
         case svg, animations, canvas2d, reorder, exit, rank
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion"
     }
@@ -181,11 +181,16 @@ struct OracleInlineText: Decodable {
         if let ratio = style["line_height"]?.number { height = CGFloat(Float(ratio) * size) }
         else if let px = style["line_height"]?.string, px.hasSuffix("px"), let value = Float(px.dropLast(2)) { height = CGFloat(value) }
         else { height = nil }
-        return Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
-                   family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
-                   lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
-                   color: style["text_color"]?.channels(dark: dark),
-                   decoration: style["text_decoration_line"]?.string ?? "", href: href)
+        var run = Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
+                      family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
+                      lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
+                      color: style["text_color"]?.channels(dark: dark),
+                      decoration: style["text_decoration_line"]?.string ?? "", href: href)
+        // A colour that names no system colour is one its author fixed (the app's own asset is).
+        if let color = style["text_color"] {
+            if case .object(let o) = color, let name = o["sys"]?.string { run.fixedInk = name.hasPrefix("named:") } else { run.fixedInk = true }
+        }
+        return run
     }
 }
 
@@ -213,6 +218,8 @@ private struct OracleInlineStyle: Decodable {
         run.decoration = try c.decodeIfPresent(String.self, forKey: .text_decoration_line) ?? ""
         color = try c.decodeIfPresent(OracleInlineColor.self, forKey: .text_color)
         run.color = color?.light
+        // The oracle reads channels and pairs only: every one a fixed colour.
+        run.fixedInk = color != nil
     }
 }
 

@@ -466,9 +466,42 @@ fn a_page_is_the_shell_around_the_document() {
     let rest = html
         .replace(exact_render::capture(), "")
         .replace(" data-wasm=\"./app.wasm\"", "");
-    assert!(!rest.contains("app.wasm"));
-    assert!(!rest.contains("navigation.js"));
+    // Comments are prose, not fetches: a shell comment may name a module
+    // (this assertion once read them, and three comment rewordings followed).
+    let rest = strip_comments(&rest);
+    assert!(
+        !rest.contains("app.wasm"),
+        "an interaction page names app.wasm outside a comment, so something fetches it before intent"
+    );
+    assert!(
+        !rest.contains("navigation.js"),
+        "an interaction page names navigation.js outside a comment, so something fetches it before intent"
+    );
     a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(interaction);
+}
+
+/// The shell with its CSS (`/* … */`) and HTML (`<!-- … -->`) comments cut:
+/// what a name in prose must not be judged as.
+fn strip_comments(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while !rest.is_empty() {
+        let css = rest.find("/*");
+        let web = rest.find("<!--");
+        let (at, close) = match (css, web) {
+            (Some(c), Some(w)) if w < c => (w, "-->"),
+            (Some(c), _) => (c, "*/"),
+            (None, Some(w)) => (w, "-->"),
+            (None, None) => break,
+        };
+        out.push_str(&rest[..at]);
+        let after = &rest[at..];
+        rest = after
+            .find(close)
+            .map_or("", |end| &after[end + close.len()..]);
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The same document over the JavaScript runtime's shell (one render for
@@ -663,6 +696,53 @@ fn a_route_lists_its_pages_with_its_source() {
         exact_web::document::build_locations(&plan).unwrap(),
         vec![("/".to_string(), false)]
     );
+}
+
+/// A `pages=` source that is re-asked without end (`Dispatch::Again` gets
+/// its outcome at once, every time) still meets the enumerator's deadline
+/// (Astra, code review round 1: the loop checked it only after a drain came
+/// back empty, and spun).
+#[test]
+fn a_pages_source_re_asked_without_end_meets_the_deadline() {
+    struct Forever;
+    impl DataSource for Forever {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(Answer::Later(Request::continuation(1)))
+        }
+        fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
+            exact_runner::Dispatch::Again
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Later(Request::continuation(1)))
+        }
+    }
+    let plan = contract::compile(
+        "routes nav\n  tab home \"/\" render=build\n    post \"/post/:post\" render=build pages=posts(\"public\")\ncomponent A\n  view\n    text \"a\"\n",
+    )
+    .unwrap();
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let row = plan
+            .routes
+            .iter()
+            .find(|r| plan.str(r.name) == "post")
+            .unwrap();
+        let listed = exact_render::pages(&plan, Forever, row, Duration::from_millis(300));
+        let _ = done.send(listed);
+    });
+    let listed = finished
+        .recv_timeout(Duration::from_secs(20))
+        .expect("the enumerator returns at its deadline");
+    assert!(listed.unwrap_err().contains("deadline"));
 }
 
 #[test]

@@ -1,6 +1,7 @@
 //! D9's source sweep: imported components compile in their application, where
 //! their props and app-local native modules have meaning.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn sources(path: &Path, out: &mut Vec<PathBuf>) {
@@ -20,6 +21,97 @@ fn sources(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+fn imported_sources(
+    paths: &[PathBuf],
+    mut graph: impl FnMut(&Path) -> contract::SourceGraph,
+) -> BTreeSet<PathBuf> {
+    let mut paths: Vec<_> = paths.iter().collect();
+    // Try conventional roots first; every other candidate still gets a turn.
+    paths.sort_by_key(|path| path.file_name().is_none_or(|name| name != "app.contract"));
+    let mut completed = BTreeSet::new();
+    let mut imported = BTreeSet::new();
+    for path in paths {
+        if completed.contains(path) {
+            continue;
+        }
+        let graph = graph(path);
+        // A failed load may have stopped before a file's remaining imports.
+        if graph.errors.is_empty() {
+            completed.extend(graph.sources.iter().map(|source| source.path.clone()));
+        }
+        imported.extend(graph.sources.into_iter().skip(1).map(|source| source.path));
+    }
+    imported
+}
+
+#[test]
+fn source_sweep_does_not_reload_completed_imports() {
+    let dir = std::env::temp_dir().join(format!("exact-sweep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    let app = dir.join("app.contract");
+    let branch = dir.join("a-branch.contract");
+    let leaf = dir.join("leaf.contract");
+    let other = dir.join("other.contract");
+    std::fs::write(
+        &app,
+        "use Branch from \"./a-branch.contract\"\ncomponent App\n  view\n    Branch()\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &branch,
+        "use Leaf from \"./leaf.contract\"\ncomponent Branch\n  view\n    Leaf()\n",
+    )
+    .unwrap();
+    std::fs::write(&leaf, "component Leaf\n  view\n    text \"leaf\"\n").unwrap();
+    std::fs::write(
+        &other,
+        "use Leaf from \"./leaf.contract\"\ncomponent Other\n  view\n    Leaf()\n",
+    )
+    .unwrap();
+    let paths = vec![branch.clone(), app.clone(), leaf.clone(), other.clone()];
+    let mut read = Vec::new();
+    let imported = imported_sources(&paths, |path| {
+        read.push(path.to_path_buf());
+        contract::source_graph(path)
+    });
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(imported, BTreeSet::from([branch, leaf]));
+    assert_eq!(
+        read,
+        vec![app, other],
+        "completed imports must not be loaded and scoped again"
+    );
+}
+
+#[test]
+fn source_sweep_revisits_partial_import_graphs() {
+    let dir = std::env::temp_dir().join(format!("exact-sweep-partial-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    let app = dir.join("app.contract");
+    let broken = dir.join("broken.contract");
+    let branch = dir.join("branch.contract");
+    let leaf = dir.join("leaf.contract");
+    std::fs::write(&app, "use Broken from \"./broken.contract\"\nuse Branch from \"./branch.contract\"\ncomponent App\n  view\n    Branch()\n").unwrap();
+    std::fs::write(&broken, "use Leaf from \"./leaf.contract\"\nuse Missing from \"./missing.contract\"\ncomponent Broken\n  view\n    Leaf()\n").unwrap();
+    std::fs::write(
+        &branch,
+        "use Leaf from \"./leaf.contract\"\ncomponent Branch\n  view\n    Leaf()\n",
+    )
+    .unwrap();
+    std::fs::write(&leaf, "component Leaf\n  view\n    text \"leaf\"\n").unwrap();
+    let paths = vec![app.clone(), broken.clone(), branch.clone(), leaf.clone()];
+    let mut read = Vec::new();
+    let imported = imported_sources(&paths, |path| {
+        read.push(path.to_path_buf());
+        contract::source_graph(path)
+    });
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(imported, BTreeSet::from([broken.clone(), leaf]));
+    assert_eq!(read, vec![app, broken, branch]);
+}
+
 #[test]
 fn every_app_corpus_and_example_compiles_and_the_button_migration_is_complete() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -30,16 +122,7 @@ fn every_app_corpus_and_example_compiles_and_the_button_migration_is_complete() 
     for dir in ["apps", "contract/corpus", "examples"] {
         sources(&root.join(dir), &mut paths);
     }
-    let imported: std::collections::BTreeSet<_> = paths
-        .iter()
-        .flat_map(|path| {
-            contract::source_graph(path)
-                .sources
-                .into_iter()
-                .skip(1)
-                .map(|source| source.path)
-        })
-        .collect();
+    let imported = imported_sources(&paths, contract::source_graph);
     let mut failures = Vec::new();
     let mut compiled = 0;
     for path in paths.iter().filter(|path| !imported.contains(*path)) {

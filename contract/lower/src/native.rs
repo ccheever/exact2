@@ -15,7 +15,7 @@ use contract_syntax::{Attr, File, Node, Span};
 use contract_types::{Scope, Ty};
 use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::asm::Asm;
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 
 /// HTML's reserved hyphenated names (SVG and MathML elements).
 const RESERVED: [&str; 8] = [
@@ -200,11 +200,12 @@ impl Lowerer<'_> {
         locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<(), LowerError> {
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::NativeViewModuleName as u16,
-            expr: self.b.constant(&exact_plan::Value::str(tag)),
-        });
+        let module = self.b.constant(&exact_plan::Value::str(tag));
+        bindings.push(crate::prop_row(
+            PropId::NativeViewModuleName,
+            module,
+            crate::IMPLIED,
+        ));
         let mut keyed: std::collections::BTreeMap<&str, &Attr> = Default::default();
         for a in leftovers {
             keyed.insert(a.name.as_str(), a);
@@ -230,11 +231,12 @@ impl Lowerer<'_> {
             }
         }
         asm.native_props(keyed.len() as u32);
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::NativeViewProps as u16,
-            expr: self.b.code(asm),
-        });
+        let written = leftovers.iter().any(|a| a.written);
+        bindings.push(crate::prop_row(
+            PropId::NativeViewProps,
+            self.b.code(asm),
+            written,
+        ));
         Ok(())
     }
 }
@@ -251,6 +253,7 @@ mod tests {
             name: name.into(),
             value: contract_syntax::Expr::Ident("v".into(), Default::default()),
             span: Default::default(),
+            written: true,
         };
         for name in [
             "mode", "seed", "values", "in", "viewBox", "offset", "orient",
@@ -270,6 +273,7 @@ mod tests {
             name: name.into(),
             value: contract_syntax::Expr::Ident("v".into(), Default::default()),
             span: Default::default(),
+            written: true,
         };
         for name in [
             "appearance",

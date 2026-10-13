@@ -104,6 +104,14 @@ final class ScrollAnchoringMacTests: XCTestCase {
         XCTAssertEqual(clip.bounds.minY, 100)
     }
 
+    func testPresentedTransformsDoNotMoveTheScrollOffset() {
+        for (property, x, y) in [("translate", 0.0, 20.0), ("scale", 1.5, 0.0), ("rotate", 10.0, 0.0)] {
+            let (p, clip) = fixture(top: 200)
+            p.apply(wireBatch([["op": "present", "id": 15, "property": property, "x": x, "y": y]]))
+            XCTAssertEqual(clip.bounds.minY, 200, "changing the anchor's \(property) suppresses anchoring")
+        }
+    }
+
     func testARemovedAnchorKeepsTheNumericOffset() {
         let (p, clip) = fixture(top: 200)
         p.apply(wireBatch([

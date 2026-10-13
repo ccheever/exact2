@@ -68,6 +68,48 @@ impl Collection {
     }
 }
 impl Tree {
+    /// The event's physical offset, not a pending correction's destination.
+    pub(crate) fn collection_scroll_anchor(
+        &self,
+        kernel: &exact_kernel::Kernel,
+        view: ViewId,
+        left: f64,
+        top: f64,
+        width: f64,
+        height: f64,
+    ) -> Option<(Value, f64)> {
+        if !self.has_collections {
+            return None;
+        }
+        let c = find_collection(&self.children, view)?;
+        let (at, port) = match c.axis {
+            ListAxis::Vertical => (top, height),
+            ListAxis::Horizontal => (left, width),
+        };
+        // Native scroll coordinates include the border; browser scroll offsets
+        // already exclude it and have no kernel layout insets.
+        let origin = kernel
+            .node(view)
+            .and_then(|node| {
+                let (left, top, _, _) = kernel.resolved_padding(node.key)?;
+                let (border_left, border_top, _, _) = kernel.resolved_border(node.key)?;
+                Some(match c.axis {
+                    ListAxis::Vertical => f64::from(top + border_top),
+                    ListAxis::Horizontal => f64::from(left + border_left),
+                })
+            })
+            .unwrap_or_else(|| c.index.leading());
+        let offset = (at - origin).max(-c.index.leading());
+        let position = c.index.row_at(offset.max(0.0)).ok()??;
+        let start = c.index.prefix(position)?;
+        if port <= 0.0 || start >= offset + port {
+            return None;
+        }
+        Some((
+            Value::str(&super::super::key_text(c.keys.get(position)?)?[2..]),
+            offset - start,
+        ))
+    }
     /// O(live instances) snapshots. No unmounted record/key serialization.
     pub fn collections(&self) -> Vec<CollectionSnapshot> {
         self.collections_with(usize::MAX)
@@ -295,7 +337,7 @@ impl Tree {
             self.last_work = u.work;
             return Ok((false, None));
         };
-        let Some(by_view) = target.prepare_feedback(&feedback)? else {
+        let Some(by_view) = target.prepare_feedback(&feedback, fill)? else {
             self.last_work = u.work;
             return Ok((false, None));
         };
@@ -310,25 +352,18 @@ impl Tree {
         };
         let (changed, edge) = feedback_walk(&mut self.children, u, &[], &feedback, &by_view, fill)?
             .unwrap_or((false, None));
-        let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
-            .into_iter()
-            .partition(|op| !matches!(op, Op::DestroyView { .. }));
-        live.extend(gone);
-        u.ops = live;
+        u.detach_before_destroy();
         self.last_work = u.work;
         Ok((changed || released, edge))
     }
+    /// [`Collection::reveal_at`] for list `view`.
+    pub(crate) fn show_collection(&mut self, u: &mut Update<'_>, view: ViewId, offset: f64) {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            collection.reveal_at(u, offset);
+        }
+    }
     pub(crate) fn has_collection(&self, view: ViewId) -> bool {
         find_collection(&self.children, view).is_some()
-    }
-    /// Before a report on `view`: its padding and scroll padding as its
-    /// style resolves them (@ref LLP 1010 §6.9). The scroll range runs from
-    /// the padding before the first row to the padding after the last;
-    /// offsets count from the first row, so a host subtracts the first.
-    pub(crate) fn set_collection_insets(&mut self, view: ViewId, insets: super::inset::Insets) {
-        if let Some(collection) = find_collection_mut(&mut self.children, view) {
-            collection.set_insets(insets);
-        }
     }
     /// Publish one fresh set of host measurement identities after a deferred
     /// edge's state change settles. No keys, data or row bodies are evaluated.
@@ -409,7 +444,7 @@ fn feedback_walk(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     feedback_walk(roots, u, &inner, feedback, by_view, fill)?
                 }
                 Active::Rows { rows } => {
@@ -518,7 +553,7 @@ fn release_other_pins(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     changed |= release_other_pins(roots, u, &inner, target, categories)?;
                 }
                 Active::Rows { rows } => {
@@ -671,7 +706,7 @@ pub(in crate::instance) fn invalidate_typography(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     invalidate_typography(roots, u, &inner)?;
                 }
                 Active::Rows { rows } => {
@@ -722,7 +757,7 @@ fn edit_walk<T>(
             Child::Region(r) => match &mut r.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     edit_walk(roots, view, u, &inner, edit)?
                 }
                 Active::Rows { rows } => {

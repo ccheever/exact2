@@ -315,3 +315,13 @@ fn an_elements_tag_keeps_its_space_before_a_parenthesized_positional() {
         "{after}"
     );
 }
+
+/// LLP 1116.010 D3: a negative literal and an exponent keep their spelling,
+/// and the spaced negation (`- 1`) the printer closes up is the same literal.
+#[test]
+fn a_negative_literal_and_an_exponent_keep_their_spelling() {
+    let src = "component App\n  view\n    input min=-1e300 max=2.5E-3 step=4e+2 margin-top=- 8\n";
+    let after = preserved(src);
+    assert!(after.contains("min=-1e300 max=2.5E-3 step=4e+2"), "{after}");
+    assert!(after.contains("margin-top=-8"), "{after}");
+}

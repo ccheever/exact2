@@ -15,3 +15,6 @@ path = "src/main.rs"
 [dependencies]
 exact-terminal = { path = "../../../host/terminal" }
 llp-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }

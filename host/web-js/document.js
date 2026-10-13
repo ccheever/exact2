@@ -12,15 +12,15 @@
 // After each commit's tree update, once the page has had a head, the active
 // head is found again, so one that changes, leaves or is covered gives its
 // fields to the next; the page's title and description follow it as the web
-// host's `documentHead` writes them (document-glue.js), the page's own title
-// where no head sets one.
-import { unselected } from "./navigation.js";
+// host's `documentHead` writes them (document-glue.js). Where no head sets a
+// title it is the selected route's header's heading, else the app's name
+// (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
+import { unselected, pageTitle } from "./navigation.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
 export const Head = {};
 const Heads = new Set();
-let Own = null; // the page's title before a head's
 
 /** A head: its node `t` (a `<template>` rt.js placed) and its `fields`, each
  * text or a getter `effect` follows. Its fields are the page's while it is
@@ -63,9 +63,7 @@ function publish() {
   if (JSON.stringify(next) === JSON.stringify(Head)) return;
   for (const k in Head) delete Head[k];
   Object.assign(Head, next);
-  Own ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
-  const title = Head.headTitle ?? Own;
-  if (document.title !== title) document.title = title;
+  pageTitle(Head.headTitle ?? null);
   let m = document.querySelector('meta[name="description"]');
   if (Head.headDescription == null) m?.remove();
   else { if (!m) { m = document.createElement("meta"); m.setAttribute("name", "description"); document.head.append(m); } m.content = Head.headDescription; }
@@ -75,10 +73,11 @@ function publish() {
  * navigation.js's, the web host's own): each root's routes are projected,
  * the covered hidden and inert, now and after every commit's tree (`after`,
  * rt.js `After`), as the web host projects after every batch; Escape on a
- * modal route presses its back, and `navigate` takes a popstate's location. */
-export function projectRoots(history, navigate, say, after) {
+ * modal route presses its back, and `navigate` takes a popstate's location
+ * (unheard, `hostBack` and `hostGo` are the router's own). */
+export function projectRoots(history, navigate, say, after, hostBack, hostGo) {
   const root = document.getElementById("exact-root"), project = () => history.project(root, say);
-  history.connect(root, navigate, say);
+  history.connect(root, navigate, say, hostBack, hostGo);
   after.push(project); project();
 }
 

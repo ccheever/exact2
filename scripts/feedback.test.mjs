@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { pending, redact, send, setStanding, standing, status } from './feedback.mjs';
+import { DETAILED, instructions, pending, redact, send, setStanding, standing, status } from './feedback.mjs';
 import { needs, summary } from './feedback-worker.js';
 
 function app() {
@@ -74,18 +74,28 @@ test('local keeps the diary and never sends; a * entry answers for projects with
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
-test('status prints the detailed diary only when EXACT_DIARY=detailed, and never under never', () => {
+test('status prints what to keep under ask, local and always, nothing more under never, and the detailed diary only when asked', () => {
   const { parent, dir } = app();
   try {
-    // Each answer says what it asks (the chess diary: `ask` read as undefined).
-    assert.equal(status(dir, {}), 'ask (keep the diary; ask once before sending): 0 unsent diaries, 0 unsent logged commands');
-    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask \(keep the diary; ask once before sending\): 0 unsent[^]*detailed diary[^]*date '\+%F %T'[^]*self-assessment/);
-    // docs/diary.md reads `never` in this output as the opt-out; the extra instructions must not say it.
-    assert.doesNotMatch(status(dir, { EXACT_DIARY: 'detailed' }), /never/);
+    // Each answer says what it asks (the chess diary: `ask` read as undefined), first.
+    const ask = status(dir, {});
+    assert.ok(ask.startsWith('ask (keep the diary; ask once before sending): 0 unsent diaries, 0 unsent logged commands\n\n# The authoring diary\n\n## What to keep'), ask);
+    assert.match(ask, /### Needed[^]*## What not to write[^]*## Asking to share[^]*feedback send --yes/);
+    assert.doesNotMatch(ask, /detailed diary/);
+    // The instructions are docs/diary.md's from "What to keep" on, not its list of answers.
+    assert.doesNotMatch(ask, /skip everything below/);
+    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask \(keep the diary; ask once before sending\): 0 unsent[^]*### Needed[^]*detailed diary[^]*date '\+%F %T'[^]*self-assessment/);
+    // docs/diary.md reads `never` in this output as the opt-out; the detailed instructions must not say it.
+    assert.doesNotMatch(DETAILED, /never/);
+    setStanding(dir, 'always');
+    assert.match(status(dir, {}), /^always \(keep the diary; send it at the end of each task, saying so\)[^]*## Asking to share/);
+    // `local` keeps the diary but never asks or sends, so it gets no "Asking to share".
+    setStanding(dir, 'local');
+    assert.match(status(dir, {}), /^local \(keep the diary; ask nothing, send nothing\)[^]*## What to keep[^]*## What not to write/);
+    assert.doesNotMatch(status(dir, {}), /Asking to share|feedback send/);
     setStanding(dir, 'never');
     assert.equal(status(dir, { EXACT_DIARY: 'detailed' }), 'never (keep no diary; never ask): 0 unsent diaries, 0 unsent logged commands');
-    setStanding(dir, 'local');
-    assert.doesNotMatch(status(dir, {}), /never/);
+    assert.equal(instructions('never'), '');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

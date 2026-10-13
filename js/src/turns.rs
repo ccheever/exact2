@@ -2,19 +2,15 @@
 //! is asked again after each delivery (LLP 1027.003.000 §13; LLP 1097 D2);
 //! a call let go mid-turn runs its steps to the end (ledger F12).
 use super::{Key, Module, WAITING};
-use exact_runner::{Dispatch, InFlight, Outcome, Response, Work};
+use exact_runner::{Dispatch, InFlight, Outcome};
 use std::collections::HashMap;
 
 impl Module {
-    /// A waiting answer's work: nothing to run, only an answer to ask again.
+    /// A waiting answer's work: nothing to run, only an answer to ask again
+    /// (`Dispatch::Again`, LLP 1041 §8.4 amended 2026-10-09). A host
+    /// settles it in its ordered place without executor work.
     pub(crate) fn ask_again() -> Dispatch {
-        Dispatch::Run(Work::Now(Box::new(|| {
-            Outcome::Response(Response {
-                status: 200,
-                headers: Vec::new(),
-                body: Vec::new(),
-            })
-        })))
+        Dispatch::Again
     }
 
     /// Whether anything in the module may yet settle a waiting answer: a

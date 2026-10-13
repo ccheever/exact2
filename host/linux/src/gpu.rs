@@ -52,6 +52,8 @@ pub struct Gpu {
     /// while the next frame is painted.
     renderer: Arc<std::sync::Mutex<Renderer>>,
     image_refused: bool,
+    /// The page's colour ([`Backend::page`]); white until one is told.
+    page: Option<[u8; 4]>,
     scene: vello::Scene,
     scale: f32,
     width: f32,
@@ -223,6 +225,7 @@ impl Gpu {
             queue,
             renderer,
             image_refused: false,
+            page: None,
             scene: vello::Scene::new(),
             scale: 1.0,
             width: 1.0,
@@ -250,6 +253,7 @@ impl Gpu {
         let height = ((self.height * self.scale).round() as u32).max(1);
         let t0 = Instant::now();
         let (device, queue) = (self.device.clone(), self.queue.clone());
+        let [r, g, b, a] = self.page.unwrap_or([255; 4]);
         let result = {
             let target = self.target(width, height);
             let view = target.view.clone();
@@ -262,7 +266,7 @@ impl Gpu {
                     scene,
                     &view,
                     &RenderParams {
-                        base_color: Color::WHITE,
+                        base_color: Color::from_rgba8(r, g, b, a),
                         width,
                         height,
                         antialiasing_method: AaConfig::Area,
@@ -459,6 +463,10 @@ impl Backend for Gpu {
         "gpu"
     }
 
+    fn page(&mut self, color: [u8; 4]) {
+        self.page = Some(color);
+    }
+
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
         self.scale = scale;
         self.width = width;
@@ -641,10 +649,21 @@ impl Backend for Gpu {
             ),
         };
         let a = self.affine(ts);
+        // Vello samples the ramp at integer device coordinates; CSS uses
+        // pixel centres. Shift the repeating brush, not its clipped shape.
+        let placed = if g.repeat {
+            Some(a.inverse() * Affine::translate((-0.5, -0.5)) * a)
+        } else {
+            placed
+        };
         self.scene.fill(
             Fill::NonZero,
             a,
-            &brush.with_stops(stops.as_slice()),
+            &brush.with_stops(stops.as_slice()).with_extend(if g.repeat {
+                vello::peniko::Extend::Repeat
+            } else {
+                vello::peniko::Extend::Pad
+            }),
             placed,
             &shape(s),
         );
@@ -652,6 +671,9 @@ impl Backend for Gpu {
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let a = self.affine(ts);
+        if let Some(ring) = &part.ring_clip {
+            self.scene.push_clip_layer(Fill::EvenOdd, a, &bez(ring));
+        }
         if let Some(clip) = &part.clip {
             self.scene.push_clip_layer(Fill::NonZero, a, &bez(clip));
         }
@@ -663,6 +685,9 @@ impl Backend for Gpu {
             &bez(&part.region),
         );
         if part.clip.is_some() {
+            self.scene.pop_layer();
+        }
+        if part.ring_clip.is_some() {
             self.scene.pop_layer();
         }
     }

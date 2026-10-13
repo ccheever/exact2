@@ -376,8 +376,9 @@ is not enough, it can come back as a refinement.
   by the server. Natively it must be independent HTTP
   (`exactIndependentHttp`, LLP 1041 §8.4): on the ordered lane it would
   hold every later ordered request of the app behind it for up to the wait.
-  So it occupies one of the native executor's two independent workers for
-  its wait. Two live streams fill them, and further independent work waits
+  So it occupies one of the native executor's independent workers for
+  its wait (two when this was written; six since LLP 1041's 2026-10-09
+  amendment). Two live streams filled them then, and further independent work waits
   behind them (it is not refused; the lane admits 128). That cost is
   stated here, not hidden. A host stream path for an iterator's waits (its
   own thread, the 16-stream bound) is the remedy if it is measured to

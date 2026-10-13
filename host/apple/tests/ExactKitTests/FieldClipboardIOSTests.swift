@@ -63,5 +63,23 @@ final class FieldClipboardIOSTests: XCTestCase {
         XCTAssertFalse(node.fieldClipboard(#selector(NodeView.paste(_:)), text: "!"))
         XCTAssertEqual(heard, ["1:33:", "1:34:BLOCK", "1:34:!"])
     }
+
+    /// A node no one hears declines the edit menu's copy, cut and paste,
+    /// and one sent anyway is dropped, never forwarded to UIView (which
+    /// implements none: a field's Cut, empty, raised doesNotRecognizeSelector).
+    func testAnUnheardEditIsDeclinedAndNeverForwarded() throws {
+        let p = presenter()
+        let line = try XCTUnwrap(p.views[3]), editor = try XCTUnwrap(p.views[2]), root = try XCTUnwrap(p.views[1])
+        for action in [#selector(NodeView.copy(_:)), #selector(NodeView.cut(_:)), #selector(NodeView.paste(_:))] {
+            XCTAssertEqual(root.canPerformAction(action, withSender: nil), action != #selector(NodeView.copy(_:)), "the root hears paste and cut, not copy")
+            // A field's or text area's edits are its editor's, not the node's.
+            XCTAssertFalse(line.canPerformAction(action, withSender: nil))
+            XCTAssertFalse(editor.canPerformAction(action, withSender: nil))
+        }
+        line.copy(nil)
+        line.cut(nil)
+        root.copy(nil)
+        XCTAssertEqual(heard, [], "an unheard copy is no event and no crash")
+    }
 }
 #endif

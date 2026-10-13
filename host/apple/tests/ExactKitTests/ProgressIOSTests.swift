@@ -21,10 +21,12 @@ final class ProgressIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
-    private func progress(_ id: Int, _ props: [String: String] = [:], side: Double = 20, y: Double = 0) -> [[String: Any]] {
+    /// A spinner whose style has the red `color` it computes; `written`, its
+    /// author wrote that on it (LLP 1115.000 D2), else it only inherits it.
+    private func progress(_ id: Int, _ props: [String: String] = [:], side: Double = 20, y: Double = 0, written: Bool = false) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "control",
           "props": ["type": "progress", "accessibilityRole": "progressbar", "accessibilityBusy": "true"].merging(props) { $1 },
-          "handlers": [], "style": ["text_color": [255, 0, 0, 255]]],
+          "handlers": [], "style": ["text_color": [255, 0, 0, 255]].merging(written ? ["written": ["text_color"]] : [:]) { $1 }],
          ["op": "frame", "id": id, "x": 0.0, "y": y, "w": side, "h": side]]
     }
     private func box(_ id: Int) -> [[String: Any]] {
@@ -32,8 +34,30 @@ final class ProgressIOSTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0]]
     }
 
+    /// LLP 1115 D4: a `color` the indicator only inherits is not its own;
+    /// it keeps UIKit's. A colour its author wrote on it is its own, the
+    /// parent's colour written again and a platform colour included (LLP
+    /// 1115.000 D2).
+    func testAnInheritedColourLeavesUIKitsIndicatorColour() throws {
+        var ops = box(1) + progress(2) + progress(3, written: true) + progress(4, written: true)
+        ops[0]["style"] = ["text_color": [255, 0, 0, 255], "written": ["text_color"]]
+        let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        ops[6]["style"] = ["text_color": red, "written": ["text_color"]]
+        let p = presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]])
+        XCTAssertEqual(try XCTUnwrap(p.controls.spinners[2]).color, ControlHost.platformInk)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        try XCTUnwrap(p.controls.spinners[3]).color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "equal to its parent's, and written")
+        // A platform colour its author wrote: UIKit's red for these traits.
+        var want: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        let spinner = try XCTUnwrap(p.controls.spinners[4])
+        UIColor.systemRed.resolvedColor(with: spinner.traitCollection).getRed(&want.0, green: &want.1, blue: &want.2, alpha: &want.3)
+        spinner.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        for (got, want) in zip([r, g, b, a], [want.0, want.1, want.2, want.3]) { XCTAssertEqual(got, want, accuracy: 0.01, "\([r, g, b, a])") }
+    }
+
     func testItIsUIKitsActivityIndicatorSizedByItsBox() throws {
-        let p = presenter(box(1) + progress(2, ["testId": "busy", "accessibilityLabel": "Loading"]) + progress(3, side: 40, y: 40)
+        let p = presenter(box(1) + progress(2, ["testId": "busy", "accessibilityLabel": "Loading"], written: true) + progress(3, side: 40, y: 40)
                           + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
         let medium = try XCTUnwrap(p.controls.spinners[2])
         XCTAssertEqual(medium.style, .medium)
@@ -53,6 +77,65 @@ final class ProgressIOSTests: XCTestCase {
         if !ExactEnv.agentFreezes { XCTAssertTrue(medium.isAnimating) }
         p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
         XCTAssertNotEqual(medium.accessibilityLabel, "Loading", "a cleared label is cleared")
+    }
+
+    /// LLP 1116 D8: a drawn `role="progressbar"` box is one element whose
+    /// value is the percentage UIKit's own progress view speaks, or its
+    /// `aria-valuetext`; its fill is not a second element.
+    func testADrawnProgressbarSpeaksItsValue() throws {
+        let p = presenter(box(1) + [["op": "create", "id": 2, "kind": "view", "handlers": [], "style": [:],
+                                     "props": ["accessibilityRole": "progressbar", "accessibilityValueNow": "30", "accessibilityLabel": "Download"]],
+                                    ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 8.0]]
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let bar = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(bar.isAccessibilityElement)
+        XCTAssertEqual(bar.accessibilityLabel, "Download")
+        XCTAssertEqual(bar.accessibilityValue, "30%")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityValueNow": "2", "accessibilityValueMax": "8"]]]))
+        XCTAssertEqual(bar.accessibilityValue, "25%")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityValueText": "2 of 8 glasses"]]]))
+        XCTAssertEqual(bar.accessibilityValue, "2 of 8 glasses")
+    }
+
+    private func bar(_ id: Int, _ props: [String: String], y: Double = 0) -> [[String: Any]] {
+        [["op": "create", "id": id, "kind": "control",
+          "props": ["type": "progress", "accessibilityRole": "progressbar"].merging(props) { $1 },
+          "handlers": [], "style": ["accent_color": [255, 0, 0, 255]]],
+         ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 160.0, "h": 16.0]]
+    }
+
+    /// LLP 1116 D8: with a `value`, a `progress` is UIKit's progress view
+    /// (`.default`) across its content box at its own height, centred, at
+    /// HTML's fraction (`max` 1 unsaid; past `max`, full), tinted by its
+    /// `accent-color` and named by `aria-label`; VoiceOver hears the
+    /// percentage. Its value taken away, it is the activity indicator again.
+    func testAValuedProgressIsUIKitsProgressView() throws {
+        let p = presenter(box(1) + bar(2, ["value": "0.25", "testId": "water", "accessibilityLabel": "Water"]) + bar(3, ["value": "3", "max": "8"], y: 40)
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
+        let water = try XCTUnwrap(p.controls.bars[2])
+        XCTAssertEqual(water.progressViewStyle, .default)
+        XCTAssertEqual(water.progress, 0.25)
+        XCTAssertEqual(water.frame.width, 160, "across its box")
+        XCTAssertEqual(water.frame.height, water.intrinsicContentSize.height)
+        XCTAssertEqual(water.frame.midY, 8, "centred in its 16-point box")
+        XCTAssertNil(p.controls.spinners[2], "no activity indicator")
+        XCTAssertFalse(water.isUserInteractionEnabled)
+        XCTAssertEqual(water.accessibilityLabel, "Water")
+        XCTAssertEqual(water.accessibilityIdentifier, "water")
+        XCTAssertEqual(water.accessibilityValue, "25%")
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        try XCTUnwrap(water.progressTintColor).getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "its accent")
+        XCTAssertEqual(try XCTUnwrap(p.controls.bars[3]).progress, 0.375)
+        let seen = try XCTUnwrap(p.controls.observation(try XCTUnwrap(p.views[2])))
+        XCTAssertEqual(seen["view"] as? String, "UIProgressView")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "2", "accessibilityValueText": "All of it"]]]))
+        XCTAssertEqual(water.progress, 1, "past max: full")
+        XCTAssertEqual(water.accessibilityValue, "All of it")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["value"]]]))
+        XCTAssertNil(p.controls.bars[2])
+        XCTAssertNil(water.superview)
+        XCTAssertNotNil(p.controls.spinners[2], "no value: the indicator")
     }
 
     func testItStopsWhenHiddenOrRemoved() throws {

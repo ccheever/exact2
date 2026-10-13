@@ -22,6 +22,8 @@ exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-motion = { path = "../../motion" }
 exact-num = { path = "../../num" }
+# Which literal is a colour, for the one-scheme warning (LLP 1116.002 D1).
+exact-color = { path = "../../color" }
 
 # CLDR script direction is baked per table; no locale data ships in a host.
 icu_locale = "=2.3.0"

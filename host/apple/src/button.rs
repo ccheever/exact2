@@ -2,16 +2,22 @@
 //! @ref LLP 1069.011.001 D1–D15.
 use exact_kernel::{ButtonFaceStyle, PressFace};
 
+/// `style` is the `buttonStyle` the author wrote. A written name crosses
+/// with its row's platform columns (`bordered`'s for a name not in the
+/// table). With none written the face says so, `"style":null`, and carries
+/// no column: what an unsaid button draws is each platform's own default,
+/// which the host holds (`ButtonFace`, LLP 1115.000 D15).
 pub(crate) fn face_json(
     face: Option<&PressFace>,
     rows: Option<&ButtonFaceStyle>,
-    style: &str,
+    style: Option<&str>,
 ) -> String {
     let quote = exact_runner::agent::quote;
     let button = face.is_some();
     let face = face.cloned().unwrap_or_default();
-    let row = exact_kernel::generated::button_style(style);
-    let drawn = row.or_else(|| exact_kernel::generated::button_style("bordered"));
+    let row = style.and_then(exact_kernel::generated::button_style);
+    let drawn =
+        style.and_then(|_| row.or_else(|| exact_kernel::generated::button_style("bordered")));
     let mut json = format!("{{\"button\":{button},\"title\":");
     match &face.title {
         Some(t) => quote(t, &mut json),
@@ -21,11 +27,7 @@ pub(crate) fn face_json(
     // An SF Symbol's own name, or a role's Apple name (LLP 1035.004.000);
     // a role with none is "", as `symbolName` is: a symbol that draws no
     // image, not no symbol (grok's code review).
-    match face.symbol.as_deref().map(|r| {
-        r.strip_prefix("sf/")
-            .or_else(|| exact_kernel::generated::symbol(r).map(|s| s.0))
-            .unwrap_or("")
-    }) {
+    match face.symbol.as_deref().map(exact_kernel::apple_symbol_name) {
         Some(apple) => quote(apple, &mut json),
         None => json.push_str("null"),
     }
@@ -38,7 +40,10 @@ pub(crate) fn face_json(
         None => json.push_str("null"),
     }
     json.push_str(",\"style\":");
-    quote(style, &mut json);
+    match style {
+        Some(style) => quote(style, &mut json),
+        None => json.push_str("null"),
+    }
     if let Some(d) = drawn {
         json.push_str(",\"ios\":");
         quote(d.ios, &mut json);
@@ -47,7 +52,7 @@ pub(crate) fn face_json(
         json.push_str(",\"macos\":");
         quote(d.macos, &mut json);
     }
-    json.push_str(&format!(",\"known\":{}", row.is_some()));
+    json.push_str(&format!(",\"known\":{}", style.is_none() || row.is_some()));
     json.push_str(",\"subtitle\":");
     match &face.subtitle {
         Some(t) => quote(t, &mut json),
@@ -77,7 +82,10 @@ pub(crate) fn face_json(
             }
             quote(name, &mut json);
             json.push(':');
-            json.push_str(&value.map_or_else(|| "{}".into(), resolved_rows));
+            json.push_str(&value.map_or_else(
+                || "{}".into(),
+                |rows| crate::style::style_json_resolved(rows).0,
+            ));
         }
         json.push_str(",\"imageGap\":");
         json.push_str(
@@ -89,23 +97,6 @@ pub(crate) fn face_json(
     }
     json.push('}');
 
-    json
-}
-
-/// The face record already resolved lengths against the live kernel environment.
-/// Neither sizing nor drawing may re-resolve them against a second environment.
-fn resolved_rows(style: &exact_kernel::StyleProps) -> String {
-    let mut json = crate::style::style_json_resolved(style).0;
-    // An em size has already incorporated the platform font's Dynamic Type scale.
-    if style.mask.has(exact_kernel::StyleId::FontSize)
-        && matches!(
-            style.relative.get(exact_kernel::StyleId::FontSize),
-            Some((exact_kernel::style::relative::Unit::Em, _))
-        )
-    {
-        json.pop();
-        json.push_str(",\"font_size_resolved\":1}");
-    }
     json
 }
 
@@ -135,7 +126,7 @@ mod tests {
         let face = kernel.press_face(id).unwrap();
         let rows = kernel.button_face_style(id).unwrap();
         let json: serde_json::Value =
-            serde_json::from_str(&face_json(Some(&face), Some(&rows), "tinted")).unwrap();
+            serde_json::from_str(&face_json(Some(&face), Some(&rows), Some("tinted"))).unwrap();
         assert_eq!(json["subtitle"], "Your vehicle");
         assert_eq!(json["symbol"], "lock.fill");
         assert_eq!(json["placement"], "top");
@@ -148,9 +139,13 @@ mod tests {
         assert_eq!(json["rows"]["button"]["padding_left"], 9);
         assert_eq!(json["rows"]["button"]["border_radius_top_left"], 18);
     }
+    /// LLP 1115.000 D12.1: a face row's size is the kernel's number, which
+    /// the host draws as it is. An `em` under the platform's control font
+    /// carries that font's Dynamic Type scale; an absolute size, and an `em`
+    /// of one, is the author's; `rem` follows the root. Nothing asks the host
+    /// to scale any of them again.
     #[test]
-    #[ignore = "QUEUE: a native button title in `em` under an authored absolute button font is marked already scaled, so it misses Dynamic Type; the kernel face record must carry the font basis (LLP 1104 step 3 review)"]
-    fn em_fonts_scale_only_platform_bases_and_absolute_bases_scale_once() {
+    fn a_face_rows_size_is_the_kernels_number_and_is_scaled_nowhere_else() {
         let plan = contract::compile(
             r#"component Buttons
   view
@@ -193,11 +188,7 @@ mod tests {
         host.runner_mut().kernel_mut().set_env(env).unwrap();
         host.resize(400., 800.);
         let kernel = host.runner().kernel();
-        for (name, title_size, scaled) in [
-            ("platform", 102., true),
-            ("absolute", 13., false),
-            ("root", 16., false),
-        ] {
+        for (name, title_size) in [("platform", 102.), ("absolute", 13.), ("root", 16.)] {
             let id = kernel
                 .node_by_key(kernel.find_by_test_id(name)[0])
                 .unwrap()
@@ -206,7 +197,7 @@ mod tests {
             let json: serde_json::Value = serde_json::from_str(&face_json(
                 kernel.press_face(id).as_ref(),
                 Some(&rows),
-                "bordered",
+                None,
             ))
             .unwrap();
             assert_eq!(json["rows"]["title"]["font_size"], title_size);
@@ -215,13 +206,43 @@ mod tests {
             } else {
                 &["title", "subtitle", "symbol"][..]
             } {
-                assert_eq!(
-                    json["rows"][part].get("font_size_resolved").is_some(),
-                    scaled,
+                assert!(
+                    json["rows"][part].get("font_size_resolved").is_none(),
                     "{name} {part}"
                 );
             }
         }
+    }
+    /// LLP 1115.000 D15: the face says whether its author wrote a
+    /// `buttonStyle`. A written name crosses with its row's columns; with
+    /// none written the style is null and no column crosses, since what an
+    /// unsaid button draws is the platform's default, which the host holds.
+    /// A name outside the table still draws `bordered` and says it is unknown.
+    #[test]
+    fn the_face_says_whether_its_author_wrote_a_style() {
+        let face = PressFace {
+            title: Some("Add".into()),
+            fits: true,
+            ..Default::default()
+        };
+        let json = |style| -> serde_json::Value {
+            serde_json::from_str(&face_json(Some(&face), None, style)).unwrap()
+        };
+        let said = json(Some("bordered"));
+        assert_eq!(said["style"], "bordered");
+        assert_eq!(said["ios"], "bordered");
+        assert_eq!(said["macos"], "push");
+        assert_eq!(said["known"], true);
+        let unsaid = json(None);
+        assert!(unsaid["style"].is_null(), "{unsaid}");
+        for column in ["ios", "iosBefore26", "macos"] {
+            assert!(unsaid.get(column).is_none(), "{column}: {unsaid}");
+        }
+        assert_eq!(unsaid["known"], true, "nothing written is not a wrong name");
+        let wrong = json(Some("chunky"));
+        assert_eq!(wrong["style"], "chunky");
+        assert_eq!(wrong["ios"], "bordered");
+        assert_eq!(wrong["known"], false);
     }
     struct NoData;
     impl exact_runner::DataSource for NoData {

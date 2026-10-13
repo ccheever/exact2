@@ -261,47 +261,94 @@ export function axFindings(reply) {
     if (h) flagged.set(e.i, h.id);
     if (h && flagged.get(e.parent) !== h.id) out.push({ kind: 'exposed-hidden', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}" under #${h.id} (${h.why})`, under: h.id });
     // UIKit's rule is the host's to apply (it knows the modal view's siblings); elsewhere, outside the modal element.
-    const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none' && !inside(e, ax.modal.element);
+    const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none'
+      && !inside(e, ax.modal.element) && !(ax.source === 'appkit' && ax.modal.presented?.some(i => inside(e, i)));
     if (leaks) out.push({ kind: 'outside-modal', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}"`, basis: ax.source === 'uikit' ? 'documented-rule' : ax.source === 'appkit' ? 'sheet' : 'platform' });
   }
   return out;
 }
 
-/** The fixture's control kinds, normalized (D6); anything else passes through. */
-export function axRole(e, source) {
-  const raw = e.native?.role;
-  if (source === 'uikit') {
-    const traits = Array.isArray(raw) ? raw : [];
-    if (e.native?.class === 'UITextField' || e.native?.class === 'UITextView') return 'textbox';
-    if (traits.includes('button') && (e.value === 'checked' || e.value === 'unchecked')) return 'checkbox';
-    // UIKit has no radio trait: the host's drawn radio says so by its class (x2apps survey #2).
-    if (e.native?.class === 'ExactRadio') return 'radio';
-    if (traits.includes('link')) return 'link';
-    if (traits.includes('header')) return 'heading';
-    // An aria-pressed toggle: Chrome's is a `button` with a pressed state.
-    if (traits.includes('button') || traits.includes('toggleButton')) return 'button';
-    return e.role;
-  }
-  // An aria-pressed toggle is AXCheckBox/AXToggle on AppKit, a `button` on the web.
-  if (source === 'appkit' && raw === 'AXCheckBox' && e.native?.subrole === 'AXToggle') return 'button';
-  if (source === 'appkit' && raw === 'AXCheckBox' && e.native?.subrole === 'AXSwitch') return 'switch';
-  if (source === 'appkit') return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox', AXRadioButton: 'radio', AXSlider: 'slider', AXPopUpButton: 'combobox' }[raw] ?? e.role;
-  return e.role;
-}
-// The states each source can observe, and the roles a state applies to (D6).
-// `disabled` is reported only when true on every source, so absence is its false;
-// `checked` and `level` are always reported where they apply, so absence is missing.
-// `expanded` is reported where a control has it (Chrome's aria-expanded, UIKit's
-// accessibilityExpandedStatus); AppKit's accessor cannot tell false from
-// unsupported, so the AppKit walk reports it only when true (TRUE_ONLY).
-const CAN = { 'chrome-cdp': ['checked', 'level', 'disabled', 'expanded'], uikit: ['checked', 'disabled', 'expanded'], appkit: ['checked', 'level', 'disabled', 'expanded'] };
+/** How each platform says a role and its states (LLP 1115.000 D14.4): the
+ * comparison reads each side through its own row, so a platform's own form
+ * of a control is what is expected of it, never a disagreement with the web.
+ * `role` is the common role an element stands for (the fixture's control
+ * kinds; anything else passes through); `checked` its checked state, absent
+ * when the platform's form of it is missing, which is a finding; `observes`
+ * the states the platform can report; `trueOnly` those whose absence means
+ * only "not true". `disabled` is reported only when true on every platform,
+ * so absence is its false; `checked` and `level` are always reported where
+ * they apply, so absence is missing; `expanded` where a control has it. */
+const PLATFORMS = {
+  'chrome-cdp': {
+    observes: ['checked', 'level', 'disabled', 'expanded'],
+    role: e => e.role,
+    checked: e => e.states?.checked,
+  },
+  uikit: {
+    // UIKit exposes no heading level; its expanded status needs iOS 18 (the reply's `observes` says).
+    observes: ['checked', 'disabled', 'expanded'],
+    role(e) {
+      const traits = Array.isArray(e.native?.role) ? e.native.role : [];
+      if (e.native?.class === 'UITextField' || e.native?.class === 'UITextView') return 'textbox';
+      // UIKit has no radio trait: the host's drawn radio says so by its class (x2apps survey #2).
+      if (e.native?.class === 'ExactRadio') return 'radio';
+      // A toggle is UIKit's one form for a checkbox, a switch and a pressed button: which it is, is
+      // what the view's author wrote, which the host's reply carries from the view it joined.
+      if ((traits.includes('toggleButton') || e.native?.class === 'UISwitch') && (e.role === 'checkbox' || e.role === 'switch')) return e.role;
+      if (traits.includes('link')) return 'link';
+      if (traits.includes('header')) return 'heading';
+      // An aria-pressed toggle: Chrome's is a `button` with a pressed state.
+      if (traits.includes('button') || traits.includes('toggleButton')) return 'button';
+      return e.role;
+    },
+    // UIKit's toggle value (D13.3) is expected here: "1" on, "0" off, "2" mixed, which VoiceOver
+    // speaks in the reader's language. Another value (Safari's English "checked") is not the
+    // platform's, so the state is missing. A radio has no toggle: its reply carries its state.
+    checked(e) {
+      const traits = Array.isArray(e.native?.role) ? e.native.role : [];
+      if (!traits.includes('toggleButton') && e.native?.class !== 'UISwitch') return e.states?.checked;
+      return { 1: true, 0: false, 2: 'mixed' }[e.value];
+    },
+  },
+  appkit: {
+    observes: ['checked', 'level', 'disabled', 'expanded'],
+    // AppKit's accessor cannot tell an unexpanded control from one with no such state.
+    trueOnly: ['expanded'],
+    role(e) {
+      const raw = e.native?.role;
+      // An aria-pressed toggle is AXCheckBox/AXToggle on AppKit, a `button` on the web.
+      if (raw === 'AXCheckBox' && e.native?.subrole === 'AXToggle') return 'button';
+      if (raw === 'AXCheckBox' && e.native?.subrole === 'AXSwitch') return 'switch';
+      return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox', AXRadioButton: 'radio', AXSlider: 'slider', AXPopUpButton: 'combobox' }[raw] ?? e.role;
+    },
+    checked: e => e.states?.checked,
+  },
+  android: {
+    // Android says a heading by a flag with no level, a link and a tab by a role description (as Material's own
+    // tabs and navigation bar items say "Tab"), and everything else by its class: `android.widget.Button`,
+    // `CheckBox`, `Switch`, `RadioButton`, `SeekBar`, `EditText`, `Spinner` (LLP 1115.001 D13). A pressed button
+    // is a `ToggleButton`, a `button` on the web. Its checked state is the node's own, true or false.
+    observes: ['checked', 'disabled', 'expanded'],
+    role(e) {
+      const n = e.native ?? {}, kind = String(n.class ?? '').split('.').pop();
+      if (n.heading) return 'heading';
+      if (n.role === 'link') return 'link';
+      if (n.role === 'Tab') return 'tab';
+      return { Button: 'button', ImageButton: 'button', ToggleButton: 'button', CheckBox: 'checkbox', Switch: 'switch', RadioButton: 'radio',
+        SeekBar: 'slider', EditText: 'textbox', Spinner: 'combobox' }[kind] ?? e.role;
+    },
+    checked: e => e.states?.checked,
+  },
+};
+// The roles a state applies to (D6).
 const APPLIES = { checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };
 const ABSENT_IS_FALSE = new Set(['disabled']);
-const TRUE_ONLY = { appkit: new Set(['expanded']) };
-const checkedOf = (e, source) => source === 'uikit' && (e.value === 'checked' || e.value === 'unchecked') ? e.value === 'checked' : e.states?.checked;
 
-/** Parity against the web by unique testId (D6): role, name, and the states
- * both hosts can observe. Refuses a truncated or spanned side. */
+/** Parity between two hosts by unique testId (D6), which is what the author
+ * wrote: role, name, and the states both can observe, each read through its
+ * platform's row of `PLATFORMS` (LLP 1115.000 D14.4). A missing element is
+ * unjoined and a missing state a finding, as before. Refuses a truncated or
+ * spanned side. */
 export function axParity(web, other, testIds) {
   for (const r of [web, other]) if (r.spanned || r.ax?.truncated || r.ax?.coverage?.complete === false) throw new Error('axParity: a side is truncated, spanned or incomplete');
   // The view's own element first; an owned one (its text) only when the view exposes none.
@@ -315,25 +362,27 @@ export function axParity(web, other, testIds) {
     return { m, dup };
   };
   const a = index(web), b = index(other), sa = web.ax.source, sb = other.ax.source;
+  const pa = PLATFORMS[sa], pb = PLATFORMS[sb];
+  if (!pa || !pb) throw new Error(`axParity: no platform table for ${pa ? sb : sa}`);
   const findings = [], unjoined = [];
   for (const t of testIds ?? [...a.m.keys()]) {
     const x = a.m.get(t), y = b.m.get(t);
     if (!x || !y) { unjoined.push(t); continue; }
-    const rx = axRole(x, sa), ry = axRole(y, sb);
+    const rx = pa.role(x), ry = pb.role(y);
     if (rx !== ry) findings.push({ kind: 'parity', testId: t, detail: `role ${rx} (web) vs ${ry} (${sb})` });
     const nx = (x.name ?? '').trim().replace(/\s+/g, ' '), ny = (y.name ?? '').trim().replace(/\s+/g, ' ');
     if (nx !== ny) findings.push({ kind: 'parity', testId: t, detail: `name ${JSON.stringify(nx)} (web) vs ${JSON.stringify(ny)} (${sb})` });
     // A state both can observe and that applies to the role: missing on either side is a finding before any comparison.
     // A reply that names what this runtime can observe (UIKit's expanded needs iOS 18) narrows the table.
-    const can = (r, src) => CAN[src].filter(s => !Array.isArray(r.ax.observes) || r.ax.observes.includes(s));
-    for (const s of can(web, sa).filter(s => can(other, sb).includes(s))) {
+    const can = (r, p) => p.observes.filter(s => !Array.isArray(r.ax.observes) || r.ax.observes.includes(s));
+    for (const s of can(web, pa).filter(s => can(other, pb).includes(s))) {
       if (!APPLIES[s](rx) || !APPLIES[s](ry)) continue;
-      let vx = s === 'checked' ? checkedOf(x, sa) : x.states?.[s], vy = s === 'checked' ? checkedOf(y, sb) : y.states?.[s];
+      let vx = s === 'checked' ? pa.checked(x) : x.states?.[s], vy = s === 'checked' ? pb.checked(y) : y.states?.[s];
       if (ABSENT_IS_FALSE.has(s)) { vx ??= false; vy ??= false; }
       // Expanded applies where either side reports it.
       if (s === 'expanded' && vx == null && vy == null) continue;
       // A true-only report: absence is "not true", which agrees with false.
-      if (TRUE_ONLY[sb]?.has(s) && vy == null) { if (vx === true) findings.push({ kind: 'parity', testId: t, detail: `${s} true (web) vs not reported (${sb})` }); continue; }
+      if (pb.trueOnly?.includes(s) && vy == null) { if (vx === true) findings.push({ kind: 'parity', testId: t, detail: `${s} true (web) vs not reported (${sb})` }); continue; }
       if (vx == null || vy == null) findings.push({ kind: 'parity', testId: t, detail: `${s} missing on ${vx == null ? 'web' : sb} (${vx ?? '—'} vs ${vy ?? '—'})` });
       else if (vx !== vy) findings.push({ kind: 'parity', testId: t, detail: `${s} ${vx} (web) vs ${vy} (${sb})` });
     }

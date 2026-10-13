@@ -30,6 +30,7 @@ pub(super) struct State {
     /// A resize round is delivering: its handlers' commits lay out, and the
     /// round that follows is this loop's, not a nested one.
     resizing: bool,
+    intersecting: bool,
 }
 impl<D: DataSource> Presenter<D> {
     fn transform_geometry(&self, binding: TransformDragBinding) -> Option<Geometry> {
@@ -198,7 +199,8 @@ impl<D: DataSource> Presenter<D> {
         // A second callback can change mapping; refuse/cancel immediately even
         // though its dimensions are intentionally deferred to an external turn.
         self.retire_pointer();
-        error
+        let resized = self.deliver_resizes();
+        error.or(resized).or(self.deliver_intersections())
     }
 
     /// The element resize event after layout, as the browser's loop runs
@@ -228,6 +230,40 @@ impl<D: DataSource> Presenter<D> {
         }
         self.host.runner_mut().resize_settled();
         self.transform_geometry.resizing = false;
+        error
+    }
+}
+
+impl<D: DataSource> Presenter<D> {
+    /// One observation batch after layout or scroll, sharing the runner's
+    /// geometry with Apple. A handler's geometry changes wait for the next pump.
+    fn deliver_intersections(&mut self) -> Option<String> {
+        if self.transform_geometry.intersecting || self.transform_geometry.resizing {
+            return None;
+        }
+        self.transform_geometry.intersecting = true;
+        let due = self.host.runner_mut().intersect_due();
+        let mut error = None;
+        for entry in due {
+            if !self.host.runner_mut().intersect_delivered(&entry) {
+                continue;
+            }
+            let now = self.host.now();
+            let dispatched = self.host.dispatch_at(
+                entry.view,
+                Event::Intersect {
+                    is_intersecting: entry.is_intersecting,
+                    intersection_ratio: entry.intersection_ratio,
+                },
+                now,
+            );
+            let after = self.after_commit();
+            error = error.or(dispatched).or(after);
+        }
+        self.transform_geometry.intersecting = false;
+        if !self.host.runner_mut().intersect_due().is_empty() {
+            self.executor.notify();
+        }
         error
     }
 }

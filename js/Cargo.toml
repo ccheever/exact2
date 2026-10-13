@@ -34,3 +34,7 @@ exact-kernel = { path = "../kernel" }
 # remain platform-independent.
 [target.'cfg(unix)'.dev-dependencies]
 exact-render = { path = "../host/render" }
+# The Apple host's Bridge, executor and pump over a module's answers
+# (tests/it/admission.rs, LLP 1041 §8.4).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+exact-apple = { path = "../host/apple" }

@@ -8,6 +8,33 @@ import CExact
 final class TextCSSTests: XCTestCase {
     let engine = TextEngine(resolve: { _ in nil })
 
+    func testRuntimeInstalledFamiliesSelectTheirOwnFacesAndWidths() throws {
+        guard !TextEngine.installedFaces("Arial").isEmpty,
+              !TextEngine.installedFaces("Menlo").isEmpty else { throw XCTSkip("Arial or Menlo unavailable") }
+        let engine = TextEngine(resolve: { _ in nil })
+        let arial = Array("Arial".utf8), menlo = Array("Menlo".utf8)
+        arial.withUnsafeBufferPointer { a in
+            menlo.withUnsafeBufferPointer { m in
+                var rows = [ExactFontFace(), ExactFontFace()]
+                rows[0].family = a.baseAddress; rows[0].family_len = a.count; rows[0].stack = 8
+                rows[1].family = m.baseAddress; rows[1].family_len = m.count; rows[1].stack = 9
+                rows.withUnsafeMutableBufferPointer { buffer in
+                    var catalog = ExactFontCatalog()
+                    catalog.faces = UnsafePointer(buffer.baseAddress); catalog.count = buffer.count
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        let a = engine.font(size: 20, weight: 400, family: 8, italic: false) as CTFont
+        let m = engine.font(size: 20, weight: 400, family: 9, italic: false) as CTFont
+        XCTAssertEqual(CTFontCopyFamilyName(a) as String, "Arial")
+        XCTAssertEqual(CTFontCopyFamilyName(m) as String, "Menlo")
+        let text = "The quick brown fox 0123456789"
+        let width = { (font: CTFont) in CTLineGetTypographicBounds(
+            CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font])), nil, nil, nil) }
+        XCTAssertNotEqual(width(a), width(m))
+    }
+
     func testHTMLMaxlengthCountsUTF16AndAllowsDeletingAnAuthoredLongValue() {
         let props = ["maxlength": "3"]
         XCTAssertEqual(TextInputLimit.prefix("a😀b", props: props), "a😀")

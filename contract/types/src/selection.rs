@@ -9,6 +9,32 @@
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 
+/// HTML's range replacement, with the field's id first (LLP 1069.001).
+pub(super) fn range_text_args(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let types: Vec<Ty> = args
+        .iter()
+        .map(|a| infer(a, scope, shapes))
+        .collect::<Result<_, _>>()?;
+    if matches!(
+        types.as_slice(),
+        [Ty::String, Ty::String]
+            | [Ty::String, Ty::String, Ty::Number, Ty::Number]
+            | [Ty::String, Ty::String, Ty::Number, Ty::Number, Ty::String]
+    ) {
+        return Ok(());
+    }
+    err(
+        "type-set-range-text",
+        "`setRangeText(id, text[, start, end[, selectionMode]])`: the field's id and replacement strings, optional UTF-16 offsets, and optionally `select`, `start`, `end` or `preserve` (default)",
+        span,
+    )
+}
+
 /// `setSelectionRange("id", start, end[, direction])`: HTML's method, its
 /// field named first by `id` (x2apps codeedit #2).
 pub(super) fn selection_range_args(
@@ -29,7 +55,7 @@ pub(super) fn selection_range_args(
     }
     err(
         "type-set-selection-range",
-        "`setSelectionRange(\"id\", start, end)` or `setSelectionRange(\"id\", start, end, \"backward\")`: the field's `id`, the UTF-16 offsets, and optionally `forward`, `backward` or `none`",
+        "`setSelectionRange(\"id\", start, end)` or `setSelectionRange(\"id\", start, end, \"backward\")`: the node's `id`, the UTF-16 offsets, and optionally `forward`, `backward` or `none`",
         span,
     )
 }
@@ -48,15 +74,18 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
         "wheel" => Some("WheelEvent"),
         "drop" => Some("DragEvent"),
-        "key" | "keyup" => Some("KeyboardEvent"),
+        "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
+        "toggle" => Some("ToggleEvent"),
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         "selectionchange" => Some("Selection"),
         // The target as HTML's `input` and `change` leave it (x2apps
         // codeedit #2, survey #2): its value, checked state and selection.
         "input" | "change" => Some("InputEvent"),
+        "focusin" | "focusout" => Some("FocusEvent"),
         "resize" => Some("DOMRectReadOnly"),
+        "intersect" => Some("IntersectionObserverEntry"),
         "reorderdrop" => Some("ReorderEvent"),
         // @ref LLP 1098 D2 — the Media Session's actions, as
         // `setActionHandler` hands them.
@@ -68,6 +97,27 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
 }
 
 pub(super) fn declare(shapes: &mut Shapes) {
+    shapes.map.insert(
+        "IntersectionObserverEntry".into(),
+        vec![
+            ("isIntersecting".into(), Ty::Bool),
+            ("intersectionRatio".into(), Ty::Number),
+        ],
+    );
+    shapes.map.insert(
+        "FocusEvent".into(),
+        vec![
+            ("target".into(), Ty::String),
+            ("relatedTarget".into(), Ty::Option(Box::new(Ty::String))),
+        ],
+    );
+    shapes.map.insert(
+        "ToggleEvent".into(),
+        vec![
+            ("oldState".into(), Ty::String),
+            ("newState".into(), Ty::String),
+        ],
+    );
     shapes.map.insert(
         "MarkdownSelection".into(),
         vec![
@@ -113,6 +163,7 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("selectionStart".into(), Ty::Number),
             ("selectionEnd".into(), Ty::Number),
             ("selectionDirection".into(), Ty::String),
+            ("inputType".into(), Ty::String),
         ],
     );
     // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):
@@ -125,13 +176,18 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // diary), what `selectionchange` hands its action, in the order
     // `exact_runner::Event::SelectionChange` writes it: the selected text
     // (DOM `Range.toString()`) and its UTF-16 start and end in the node's
-    // own text, as written. Nothing selected there is "" with equal offsets.
+    // own text, as written, followed by viewport rectangle snapshots.
+    // Nothing selected there is "" with equal offsets and no rectangles.
     shapes.map.insert(
         "Selection".into(),
         vec![
             ("text".into(), Ty::String),
             ("start".into(), Ty::Number),
             ("end".into(), Ty::Number),
+            (
+                "rects".into(),
+                Ty::List(Box::new(Ty::Record("Geometry".into()))),
+            ),
         ],
     );
     // DOM's `PointerEvent`, the subset every host measures, in the order
@@ -219,7 +275,12 @@ pub(super) fn declare(shapes: &mut Shapes) {
             "clientHeight",
         ]
         .map(|f| (f.into(), Ty::Number))
-        .to_vec(),
+        .into_iter()
+        .chain([
+            ("firstVisibleKey".into(), Ty::Option(Box::new(Ty::String))),
+            ("firstVisibleOffset".into(), Ty::Number),
+        ])
+        .collect(),
     );
     // What a `resize` handler's action hears after the content box's width
     // and height when it takes one more parameter, in the order
@@ -274,4 +335,25 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("duration".into(), maybe()),
         ],
     );
+}
+
+/// HTML's popover methods, with an explicit source element for opening.
+pub(super) fn popover_args(
+    name: &str,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let valid = match args {
+        [id] => infer(id, scope, shapes)? == Ty::String,
+        [id, Expr::NamedArg(option, source, _)] if name != "hidePopover" && option == "source" => {
+            infer(id, scope, shapes)? == Ty::String && infer(source, scope, shapes)? == Ty::String
+        }
+        _ => false,
+    };
+    if valid {
+        return Ok(());
+    }
+    err("type-popover-command", "popover commands take an element id string; showPopover and togglePopover also take source= followed by an element id string", span)
 }

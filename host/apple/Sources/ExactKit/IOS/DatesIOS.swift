@@ -25,6 +25,7 @@ extension ControlHost {
         assign(picker, \.minimumDate, owner.props["min"].flatMap { DateValue.parse(kind, $0) })
         assign(picker, \.maximumDate, owner.props["max"].flatMap { DateValue.parse(kind, $0) })
         let bound = owner.props["value"] ?? ""
+        (picker as? BoundDatePicker)?.placeholder = DateValue.placeholder(owner.props)
         if let picker = picker as? BoundDatePicker {
             guard picker.applied != bound else { return }
             picker.applied = bound
@@ -71,11 +72,75 @@ extension ControlHost {
 }
 
 /// A picker that knows the bound value last written into it (`configureDate`).
+/// HTML's empty date, time or datetime is a state a `UIDatePicker`, which
+/// always holds a date, cannot show: it showed today (bench t7-wizard,
+/// 2026-10-08). Its own content is masked out, still taking the tap that
+/// opens the calendar, under the platform's pill, in the same system
+/// fill, which holds the author's `placeholder` in the placeholder colour
+/// and, with none, no words at all (LLP 1115.000 D13.1): a date format there
+/// (Chrome's `mm/dd/yyyy`, or the locale's own) is a browser's empty field
+/// drawn on a control that has none. The pill is layers, not a view, so it
+/// takes no touch and no part in Auto Layout or the picker's measured size.
+/// Opening it starts at today, and only a choice commits it.
 final class BoundDatePicker: UIDatePicker {
     var applied: String?
+    /// The author's `placeholder`, "" when there is none.
+    var placeholder = "" { didSet { if placeholder != oldValue, empty { setNeedsLayout() } } }
     /// No date: an empty bound value or a cleared one, which the picker's
     /// own `date` cannot say.
-    var empty = false
+    var empty = false { didSet { if empty != oldValue { setNeedsLayout() } } }
+    private let pill = CALayer(), words = CATextLayer()
+    private static let nothing = "exact.empty-date"
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // UIKit rebuilds its content as the mode or date changes, so the
+        // mask is renewed here. A mask that shows nothing hides today's date
+        // whole and takes no part in hit testing, so a tap still opens the
+        // calendar. (It had been faded to 2%, which iOS 26's glass label
+        // still showed: a ghost of today's date under the placeholder.)
+        for view in subviews {
+            if empty, view.layer.mask?.name != Self.nothing {
+                let mask = CALayer()
+                mask.name = Self.nothing
+                view.layer.mask = mask
+            } else if !empty, view.layer.mask?.name == Self.nothing {
+                view.layer.mask = nil
+            }
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard empty else { pill.removeFromSuperlayer(); return }
+        if pill.superlayer !== layer {
+            pill.zPosition = 1
+            pill.addSublayer(words)
+            words.alignmentMode = .center
+            words.truncationMode = .end
+            layer.addSublayer(pill)
+        }
+        let frame = subviews.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        pill.frame = frame.isNull ? bounds : frame
+        pill.cornerRadius = min(pill.frame.height / 2, 8)
+        pill.backgroundColor = UIColor.tertiarySystemFill.resolvedColor(with: traitCollection).cgColor
+        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        words.string = placeholder
+        words.font = font
+        words.fontSize = font.pointSize
+        words.foregroundColor = UIColor.placeholderText.resolvedColor(with: traitCollection).cgColor
+        words.contentsScale = window?.screen.scale ?? traitCollection.displayScale
+        words.frame = CGRect(x: 0, y: (pill.bounds.height - font.lineHeight) / 2, width: pill.bounds.width, height: font.lineHeight)
+    }
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        if empty { setNeedsLayout() }
+    }
+    /// The pill as shown, for a test: its words and its frame.
+    var placeholderShown: (text: String, frame: CGRect)? {
+        pill.superlayer === layer ? ((words.string as? String) ?? "", pill.frame) : nil
+    }
+    override var accessibilityValue: String? {
+        get { empty ? "" : super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
 }
 
 extension DateValue {

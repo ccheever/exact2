@@ -45,6 +45,30 @@ fn text(r: &Runner<Items>, id: &str) -> String {
 }
 
 #[test]
+fn action_writes_refresh_the_scope_before_a_later_send_is_lowered() {
+    let source = r#"
+component App
+  state first = none
+  state second = none
+  mutation changed as shape string
+  action set(n: number)
+    first = some(n)
+  action copy
+    second = first
+  action publish
+    send changed = out(second)
+  view
+    text "ok"
+"#;
+    contract::compile(source).unwrap_or_else(|e| panic!("{e:?}"));
+    // Handler arguments type parameters after the initial slot-write probes.
+    let inferred = source
+        .replace("set(n: number)", "set(n)")
+        .replace("text \"ok\"", "button \"ok\" press=set(1)");
+    contract::compile(&inferred).unwrap_or_else(|e| panic!("{e:?}"));
+}
+
+#[test]
 fn a_state_typed_by_a_write_types_the_derives_that_read_it() {
     let mut r = boot(
         r#"

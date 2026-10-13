@@ -43,7 +43,7 @@ component NativeNavigationScroll
               when e.name == "cold"
                 column navigationKey=`${e.id}` navigationScroll="cold-native-list" position="absolute" inset=0 display="flex" flex-direction="column"
                   header display="flex" align-items="center" padding=12 gap=12 flex-shrink=0
-                    text "Native Cold Title" aria-level=1 flex=1
+                    text "Native Cold Title" role="heading" aria-level=1 flex=1
                     button press=shrink testId="cold-shrink"
                       text "Shrink"
                     button press=measure testId="cold-measure"
@@ -71,7 +71,7 @@ component NativeNavigationScroll
                   header flex-shrink=0
                     button id="back" press=back aria-label="Back" testId="pushed-back"
                       text "Back"
-                    text "Pushed Title" aria-level=1
+                    text "Pushed Title" role="heading" aria-level=1
                   list appearance="auto" id="pushed-list" testId="pushed-list" flex=1 min-height=0
                     section
                       each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
@@ -80,7 +80,7 @@ component NativeNavigationScroll
               when e.name == "later"
                 column navigationKey=`${e.id}` navigationScroll="later-scroller" position="absolute" inset=0 display="flex" flex-direction="column"
                   header flex-shrink=0
-                    text "Later Title" aria-level=1
+                    text "Later Title" role="heading" aria-level=1
                   when between
                     text "Between the header and the list" testId="later-between" height=30 flex-shrink=0
                   when plain
@@ -97,7 +97,7 @@ component NativeNavigationScroll
               when e.name == "arriving"
                 column navigationKey=`${e.id}` navigationScroll="arriving-list" position="absolute" inset=0 display="flex" flex-direction="column"
                   header flex-shrink=0
-                    text "Arriving Title" aria-level=1
+                    text "Arriving Title" role="heading" aria-level=1
                   when arrived
                     list appearance="auto" id="arriving-list" testId="arriving-list" flex=1 min-height=0
                       section

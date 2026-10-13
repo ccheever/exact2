@@ -301,7 +301,8 @@ if (process.argv.includes('--flow')) {
 const profile = resolve(ROOT, 'target/exact-chrome-profile', app.id.replace(/[^a-zA-Z0-9._-]/g, '_'));
 mkdirSync(profile, { recursive: true });
 /** The last lines a failed child printed, for a row that says why. */
-const failure = (r) => `${r.stderr ?? ''}\n${r.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' / ').slice(0, 400);
+// The last lines that say why: a thrown error's stack frames and Bun's banner say only where.
+const failure = (r) => `${r.stderr ?? ''}\n${r.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter((l) => l && !/^at |^Bun v\d/.test(l)).slice(-3).join(' / ').slice(0, 400);
 const step = async (name, f) => { const t = Date.now(); const v = await f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
 
 // 1. Native pipeline numbers (a release bin; warm cache builds in ~1 s).
@@ -690,11 +691,12 @@ await step('macos-boot', () => {
 // swift), then the budget row "touch one line, rebuild that crate" for the
 // host crate — and the startup again on the fresh binary.
 if (long) {
-  // The loop's own budgets, in this captured checkout's warm cache: the five
+  // The loop's own budgets, in this captured checkout's warm cache: the six
   // checks exactly as AGENTS.md states them (the second pass is the warm
   // one), then one kernel source touched and its tests rebuilt and run.
   await step('loop', () => {
     // A developer's environment: none of this fixture's EXACT_* overrides.
+    // (The sixth check's build scripts run Bun: app.mjs has put this one first on PATH.)
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('EXACT_')));
     const timed = (command, args, name = args[0]) => {
       const t = Date.now();
@@ -709,6 +711,7 @@ if (long) {
         timed('cargo', ['fmt', '--all', '--', '--check']),
         timed(process.execPath, ['scripts/caps.mjs'], 'caps'),
         timed(process.execPath, ['scripts/boot.mjs'], 'boot'),
+        timed('cargo', ['check', '--workspace', '--all-targets', '--keep-going'], 'workspace'),
       ];
       return { s: checks.reduce((sum, c) => sum + c.s, 0), failed: checks.filter(c => !c.ok).map(c => c.name) };
     };
@@ -880,7 +883,10 @@ const IOS_HELLO_BYTES = { speed: 8_600_000, size: 6_050_000 };
 // 2026-10-06): 36.0 and 15.6 KiB shipped after that cut. RealWorld's bulk is its own
 // generated module (~8 KB), the runtime core (~11.6 KB) and the TypeScript data layer
 // (~2.9 KB); the video player grew with its media session, controls and full screen.
-const JS_TARGET_KIB = { realworld: 38, 'video-player': 17, caltrain: 25 };
+// RealWorld raised 38 → 45 (Charlie, 2026-10-12): 43.45 KiB shipped at fe5b26798, grown by real
+// features since 2026-10-08 (optimistic writes, +2.4 KB, the largest; the LLP 1115.000 web rows);
+// the file-body path already links by use (-0.4 KB). A link-by-use cut hunt is in QUEUE.md.
+const JS_TARGET_KIB = { realworld: 45, 'video-player': 17, caltrain: 25 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
@@ -1045,7 +1051,7 @@ if (Number.isFinite(out.macos_paint_ms)) rows.push(
 if (rebuild) rows.push([`edit → ${out.web_target === 'js' ? 'JS target' : 'wasm'} rebuilt (no driver)`, ms(out.rebuild_ms), out.rebuild_note ?? 'the cold path: cargo build of the app crate']);
 if (long) {
   const s = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} s` : 'n/a');
-  rows.push(['blocking gate (the five checks, warm)', s(out.gate_s), `${out.gate_failed?.length ? `failing: ${out.gate_failed.join(', ')}; ` : ''}first pass ${s(out.gate_first_s)}; budget ${budget('Blocking gate')}`]);
+  rows.push(['blocking gate (the six checks, warm)', s(out.gate_s), `${out.gate_failed?.length ? `failing: ${out.gate_failed.join(', ')}; ` : ''}first pass ${s(out.gate_first_s)}; budget ${budget('Blocking gate')}`]);
   rows.push(['kernel: touch one line, rebuild', s(out.touch_kernel_s), `kernel/src/lib.rs; budget ${budget('Touch one line')}`]);
   rows.push(['kernel: test what you changed', s(out.test_kernel_s), `cargo test -p exact-kernel${out.test_kernel_ok === false ? ' (failing)' : ''}; budget ${budget('Test what you changed')}`]);
   rows.push(['macOS: initial captured build', out.macos_build_failed ? 'FAILED' : s(out.macos_build_s), out.macos_build_failed ?? `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);

@@ -20,7 +20,7 @@ component GroupedList
   action pick(next: string)
     kind = next
   view
-    column testId="grouped-list" height="100%" padding-top="env(safe-area-inset-top)" background-color="light-dark(#f2f2f7, #000000)"
+    column testId="grouped-list" height="100%" padding-top="env(safe-area-inset-top)" background-color="-exact-grouped-background"
       row role="tablist" margin=16 gap=2
         button role="tab" aria-selected=(kind == "inset-grouped") press=pick("inset-grouped") flex=1 testId="style-inset"
           text "Inset"
@@ -54,8 +54,8 @@ component GroupedListRows
           text "MC" color="#ffffff" font-size=22 font-weight=600
         column flex-grow=1 margin-left=8 min-width=0
           text "Maya Chen" font-size=22
-          text "+1 415 555 0134" color="light-dark(#3c3c4399, #ebebf599)" font-size=15
-        image "symbol:forward-chevron" width=10 height=14 object-fit="contain" font-weight=600 -exact-tint-color="light-dark(#3c3c434d, #ebebf54d)"
+          text "+1 415 555 0134" color="-exact-secondary-label" font-size=15
+        image "symbol:forward-chevron" width=10 height=14 object-fit="contain" font-weight=600 -exact-tint-color="-exact-tertiary-label"
     section
       header
         text "Account"
@@ -78,7 +78,7 @@ component GroupedListRows
         image "symbol:info"
         text "Detail"
         button press=tap testId="detail" aria-label="More info"
-          image "symbol:info" width=26 height=26 object-fit="contain" -exact-tint-color="light-dark(#0088ff, #0091ff)"
+          image "symbol:info" width=26 height=26 object-fit="contain" -exact-tint-color="AccentColor"
       footer
         text `Tapped ${taps} times.`
     section

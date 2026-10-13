@@ -600,6 +600,13 @@ impl Context {
         self.endowment.state.is_idle()
     }
 
+    /// Host operations started and not yet returned, a let-go
+    /// `fs.compressImage` among them, its completion queued or not
+    /// (Exact patch 11).
+    pub fn in_flight(&self) -> usize {
+        self.endowment.state.in_flight()
+    }
+
     /// Borrowed Arc-backed pointer for the JSI adapter. The context must
     /// outlive the adapter's detach; the adapter never releases this pointer.
     pub fn state_ptr(&self) -> *const c_void {

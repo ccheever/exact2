@@ -125,7 +125,7 @@ pub(crate) fn item_left(u: &mut Update<'_>, wrapper: ViewId) {
     u.ops.push(Op::SetProp {
         id: wrapper,
         prop: PropId::ListItemKey,
-        value: PropValue::Str(String::new()),
+        value: PropValue::Str("".into()),
     });
 }
 
@@ -255,7 +255,7 @@ impl Collection {
                 .ok_or_else(|| invalid("a row's key has no text"))?;
             let mut props = exact_kernel::PropList::new();
             props.set(PropId::AccessibilityRole, PropValue::Str("listitem".into()));
-            props.set(PropId::ListItemKey, PropValue::Str(key));
+            props.set(PropId::ListItemKey, PropValue::Str(key.into()));
             if row.published != (usize::MAX, usize::MAX) {
                 let (position, count) = row.published;
                 props.set(

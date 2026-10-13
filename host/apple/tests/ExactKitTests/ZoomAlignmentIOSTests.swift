@@ -40,7 +40,7 @@ final class ZoomAlignmentIOSTests: XCTestCase {
         image.loadGeneration = 1
         loader.load(image, source: "photo.png", resolver: resolver)
         let end = Date(timeIntervalSinceNow: 5)
-        while image.raster == nil && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while image.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         XCTAssertNotNil(image.raster)
         let drawn = ModalHost.zoomAlignment(target: image, fallbackNatural: nil, in: zoomed)
         XCTAssertEqual(drawn.height, 301.5, accuracy: 0.01)

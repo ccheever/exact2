@@ -351,7 +351,14 @@ impl<'a> Layout<'a> {
                                 }
                             }
                         }
-                        self.header(*span, attrs, false, last_positional);
+                        // A part's declarations (`::placeholder` and its
+                        // block) are not on the element's head.
+                        let (parts, head): (Vec<Attr>, Vec<Attr>) = attrs
+                            .iter()
+                            .cloned()
+                            .partition(|a| a.name.starts_with("::"));
+                        self.attributes.extend(parts.iter().map(|a| a.span));
+                        self.header(*span, &head, false, last_positional);
                     }
                     self.nodes(children);
                 }
@@ -490,7 +497,13 @@ impl<'a> Layout<'a> {
                         a,
                         "when" | "if" | "match" | "not" | "and" | "or" | "in" | "with"
                     ))
-                || (b == ":" && !self.ternary_colons.contains(&token.span));
+                || (b == ":" && !self.ternary_colons.contains(&token.span))
+                // A part's name against its `::` (`::placeholder`, parts.rs).
+                || (a == ":"
+                    && self
+                        .position(previous.span)
+                        .and_then(|i| i.checked_sub(1))
+                        .is_some_and(|i| self.tokens[i].kind == TokenKind::Punct(":")));
             if !tight {
                 out.push(' ');
             }

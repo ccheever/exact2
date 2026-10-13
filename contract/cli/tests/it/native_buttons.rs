@@ -174,6 +174,11 @@ fn the_style_is_a_name_in_the_table_on_a_native_button_only() {
 #[test]
 fn its_face_is_a_title_a_symbol_or_both() {
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:close\" : \"symbol:add\")"));
+    // A role by Apple's name for it or an alias (LLP 1116.007 D3.1).
+    boot(&app(
+        "button appearance=\"auto\" press=go aria-label=\"Settings\"\n  image \"symbol:gearshape\"",
+    ));
+    boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:xmark\" : \"symbol:plus\")"));
     // An SF Symbol by name, literal or computed (LLP 1035.004.000).
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Send\"\n  image \"symbol:sf/paperplane.fill\""));
     boot(&app("button appearance=\"auto\" press=go\n  image `symbol:sf/${busy ? \"hourglass\" : \"paperplane\"}`\n  text \"Send\""));
@@ -591,6 +596,30 @@ fn the_default_is_native_and_explicit_none_is_bare() {
     boot(&app("button buttonStyle=\"filled\"\n  text \"Go\""));
 }
 
+/// LLP 1116.004 D5.2: a radio is a native button by default, as a tab is, so
+/// a radio group of them is the platform's segmented control on every host
+/// (the web's look keys on the native button); a role no host projects on a
+/// native button still leaves the default one bare.
+#[test]
+fn a_radio_is_native_by_default_as_a_tab_is() {
+    let radio = |checked: bool| {
+        app(&format!("row role=\"radiogroup\" aria-label=\"Tip\"\n  button role=\"radio\" aria-checked={checked} press=go testId=\"b\"\n    text \"15%\"\n  button role=\"radio\" aria-checked={} press=go\n    text \"18%\"", !checked))
+    };
+    for checked in [true, false] {
+        assert_eq!(
+            appearance_of(&radio(checked)),
+            (NodeType::Control, exact_kernel::Appearance::Auto)
+        );
+    }
+    contract::compile(&app("row role=\"radiogroup\"\n  button appearance=\"auto\" role=\"radio\" aria-checked=true press=go\n    text \"15%\"")).unwrap();
+    assert_eq!(
+        appearance_of(&app(
+            "button role=\"dialog\" press=go testId=\"b\"\n  text \"Go\""
+        )),
+        (NodeType::Pressable, exact_kernel::Appearance::None)
+    );
+}
+
 #[test]
 fn disabling_rows_are_bare_by_default_and_refused_under_auto_except_radius() {
     let mut rows = vec![
@@ -775,6 +804,10 @@ fn bare_reasons_live_only_in_the_development_map_and_migration_uses_merged_rows(
             false,
         ),
         ("button testId=\"b\"\n  box width=4 height=4", false),
+        (
+            "button accent-color=\"#34c759\" testId=\"b\"\n  text \"Go\"",
+            false,
+        ),
     ] {
         let source = app(body);
         let (plan, map) = contract::compile_path_source_mapped(&path, &source).unwrap();

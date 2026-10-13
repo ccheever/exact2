@@ -249,7 +249,7 @@ component Content
             column gap=2
               image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
               text "Caltrain" font-size="0.8125em" font-weight=700 letter-spacing=1.2 color=accent testId="brand"
-              text station.name font-size="1.5em" font-weight=700 testId="station-name" aria-level=1
+              text station.name font-size="1.5em" font-weight=700 testId="station-name" role="heading" aria-level=1
               text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="#666666"
             column gap=6 align-items="flex-end"
               // The development host's Reload, as its dev menu has it. Only a

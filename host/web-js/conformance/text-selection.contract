@@ -1,0 +1,17 @@
+component SelectionRange
+  state picked = ""
+  state count = 0
+  action heard(s: Selection)
+    picked = s.text
+    count = length(s.rects)
+  action choose
+    setSelectionRange("p1", 0, 5)
+  action clear
+    removeAllRanges()
+  view
+    column padding=24 gap=16
+      text "Alpha beta gamma delta epsilon 😀 zeta." id="p1" testId="p1" font-size=18 width=180 selectionchange=heard
+      text "Second paragraph" testId="p2" selectionchange=heard
+      text `${picked}:${count}` testId="out"
+      button "Choose" press=choose testId="choose"
+      button "Clear" press=clear testId="clear"

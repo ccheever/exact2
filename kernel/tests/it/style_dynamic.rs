@@ -6,6 +6,60 @@ use exact_kernel::{
 };
 
 #[test]
+fn borrowed_css_parses_like_owned_css_and_retains_no_source_borrow() {
+    for (id, css, valid) in [
+        (StyleId::TextColor, "#abcdef80", true),
+        (StyleId::TextColor, "light-dark(#123, #abc)", true),
+        (
+            StyleId::Animation,
+            "a-long-temporary-animation-name 1s linear",
+            true,
+        ),
+        (StyleId::Transition, "opacity 120ms ease-in", true),
+        (StyleId::Width, "1.25rem", true),
+        (StyleId::LineHeight, "2lh", true),
+        (StyleId::Translate, "12px 25%", true),
+        (StyleId::TextColor, "invalid-color", false),
+        (StyleId::Width, "1pzz", false),
+        (StyleId::LineHeight, "not-a-length", false),
+    ] {
+        let mut borrowed = StyleProps::default();
+        let mut owned = borrowed.clone();
+        let mut source = css.to_owned();
+        let result = borrowed.set_dynamic(id, &StyleValue::Text(source.as_str().into()));
+        let expected = owned.set_dynamic(id, &StyleValue::Text(css.to_owned().into()));
+        assert_eq!(result, expected, "{id:?}: {css}");
+        assert_eq!(result.is_ok(), valid, "{id:?}: {css}");
+        // The parsed value remains usable after its producer reuses the buffer.
+        source.clear();
+        source.push_str("a replacement that is not valid CSS");
+        drop(source);
+        assert_eq!(borrowed, owned, "{id:?}: {css}");
+        if result.is_err() {
+            assert_eq!(borrowed, StyleProps::default());
+        }
+    }
+}
+
+#[test]
+fn bound_column_rule_refuses_patterns_without_changing_the_solid_rule() {
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text("solid".into()))
+        .unwrap();
+    for value in ["dotted", "dashed"] {
+        let before = style.clone();
+        assert!(
+            style
+                .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text(value.into()))
+                .is_err(),
+            "{value}"
+        );
+        assert_eq!(style, before, "{value} changed the column rule");
+    }
+}
+
+#[test]
 fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
     let mut s = StyleProps::default();
     for (text, x, y) in [
@@ -39,7 +93,7 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         );
     }
     let max = format!("{}px 0", f32::MAX as f64);
-    s.set_dynamic(StyleId::Translate, &StyleValue::Text(max))
+    s.set_dynamic(StyleId::Translate, &StyleValue::Text(max.into()))
         .unwrap();
     assert_eq!(s.translate.x, f32::MAX);
     for text in [
@@ -114,9 +168,16 @@ fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_w
     assert!(style
         .set_dynamic(StyleId::BorderColorTop, &StyleValue::Auto)
         .is_err());
-    assert!(style
+    style
         .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dashed".into()))
-        .is_err());
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderStyleRight,
+            &StyleValue::Text("dotted".into()),
+        )
+        .unwrap();
+    assert_eq!(style.border_widths(), [8.0, 3.0, 0.0, 0.0]);
     let mut k = Kernel::with_monospace();
     k.apply_frame(&wire::encode(
         0,
@@ -629,7 +690,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     for (text, expected) in [
         ("0px", 0.),
         ("12.5PX", 12.5),
-        (" -2e1px ", -20.),
+        // A math function clamps to the row's range (CSS Values 4 §9.1)
+        (" calc(-2e1px) ", 0.),
         ("0", 0.),
         ("10em", 160.),
         ("1.5rem", 24.),
@@ -641,6 +703,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     }
     for text in [
         "NaNpx", "infpx", "1e39px", "1.px", "12 px", "12", "10 em", "1e39em", "0px 1px",
+        // A negative literal height is invalid, as in CSS.
+        " -2e1px ",
     ] {
         let before = style.clone();
         assert!(
@@ -680,6 +744,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("1px 2px #000".into()),
         StyleValue::Text("y 30deg".into()),
         StyleValue::Text("blur(12px) saturate(1.14)".into()),
+        StyleValue::Text("flip-block, flip-inline".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();
@@ -691,9 +756,14 @@ fn every_row_writes_its_own_field_and_no_other() {
             .map(|name| StyleValue::Text((*name).into()))
             .chain(candidates.iter().cloned());
         let mut written = None;
+        // A row whose one value is its initial one (`outline-style`'s
+        // `none`, LLP 1104 D6) is written by marking it.
+        let only_initial = names.len() == 1;
         for value in values {
             let mut s = base.clone();
-            if s.set_dynamic(id, &value).is_ok() && s.get(id) != base.get(id) {
+            if s.set_dynamic(id, &value).is_ok()
+                && (s.get(id) != base.get(id) || (only_initial && s.mask.has(id)))
+            {
                 written = Some(s);
                 break;
             }

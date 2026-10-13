@@ -111,7 +111,7 @@ every commit, and a regression is a P0 with a name on it.
 | Dev restart, edit to present | 100 ms p50 |
 | App JavaScript executed before first pixel | none |
 | Touch one line, rebuild that crate | 30 s |
-| The whole blocking check suite | 60 s |
+| The whole blocking check suite | 65 s |
 
 How the design keeps those numbers:
 
@@ -128,26 +128,35 @@ How the design keeps those numbers:
 - **Edits land in about a tenth of a second.** On a fresh app made by `exact new`, a
   saved Contract or TypeScript edit was rebuilt and in the page in 99 ms.
 
-### 3. The web is the standard
+### 3. Write the web, ship the platform
 
-When a default, a property name, a value, or a behavior could follow CSS or follow
-something else (React Native's Yoga, UIKit, AppKit), Exact follows CSS, even where a
-CSS reset would usually override it.
+What you write is CSS: the vocabulary, the layout model, the development loop. What you
+leave unsaid is the platform's: controls, colour, type, motion, gestures, the keyboard
+and accessibility come out as an app built by hand with UIKit or AppKit would have them,
+and on the web as a carefully built web app would. What you write wins. The order is
+author, then platform, then CSS's default, and one test settles a dispute: would someone
+who knows the platform notice? ([LLP 1115](llp/1115-write-the-web-ship-the-platform.principle.md))
 
-- A bare node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
+- Layout is CSS's, because a person can't see a layout default, only its result. A bare
+  node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
   `flex-shrink: 1`, the same as a bare `<div>`.
-- Properties are CSS's: `font-size`, `object-fit`, `text-overflow`, `line-clamp`,
-  `light-dark()`, `env(safe-area-inset-top)`. The compiler refuses an alias and names
-  the web's spelling.
-- The browser is the parity oracle. Native layout, Canvas 2D, SVG, gradients, and
-  motion are checked against what Chrome draws.
+- Names are CSS's, because names are what you write: `font-size`, `object-fit`,
+  `text-overflow`, `line-clamp`, `light-dark()`, `env(safe-area-inset-top)`. The compiler
+  refuses an alias and names the web's spelling.
+- Unsaid presentation is the platform's. Text is the system's label colour and size (17
+  points on an iPhone, 13 on a Mac, the reader's setting in a browser), a `button` is the
+  system's button, a pushed screen has the system's Back. An app that says less looks
+  more at home.
+- The browser is the parity oracle for layout and for what you wrote. Native layout
+  given the same inputs, Canvas 2D, SVG, gradients, and authored motion are checked
+  against what Chrome draws.
 - The web is also the development loop. You work on the seconds-long web loop, and the
   native hosts are swept behind you.
-- Any unavoidable deviation is declared, with its reason, in
+- Any unavoidable deviation in layout is declared, with its reason, in
   [`llp/1001-kernel-v1.spec.md`](llp/1001-kernel-v1.spec.md). For example, Taffy has no
   `position: static`.
 
-Following the web doesn't mean the lowest common denominator. Where a platform can do
+Writing the web doesn't mean the lowest common denominator. Where a platform can do
 more (real HTML in an SVG `foreignObject` on the web, MapKit through a native module on
 Apple), Exact lets it.
 
@@ -295,9 +304,10 @@ bun exact.mjs ios --run                     # an iOS Simulator
 
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
 `app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
-`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) tells a coding agent where the
-guides are and lists the app's commands, including `bun exact.mjs contract …` for the
-compiler and `contract vocab` for every tag and property Contract accepts. Before any of
+`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
+[`docs/start-here.md`](docs/start-here.md), the one guide it must read, and at `bun
+exact.mjs help` for the commands, including `bun exact.mjs contract …` for the compiler
+and `contract vocab` for the card of what an app writes (`--all`: every tag and property Contract accepts). Before any of
 it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
 is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
@@ -318,8 +328,9 @@ on each host in its own session; for a copy you launched yourself, use
 
 ## Contract
 
-Read the complete [guide for humans](docs/contract-for-humans.md),
-[guide for agents](docs/contract-for-agents.md), or
+An agent building an app starts at [start-here.md](docs/start-here.md), the only
+required reading, then looks up the [recipe](docs/recipes/) for each question. For more, read the complete [guide for humans](docs/contract-for-humans.md),
+or look things up in the [guide for agents](docs/contract-for-agents.md) or the
 [grammar and vocabulary reference](docs/contract-grammar.md).
 
 Contract describes what an app shows and how its state changes. It doesn't fetch, read
@@ -328,7 +339,8 @@ app: a Contract file, a TypeScript file, and a test. This exact app was built fo
 macOS, and the iOS Simulator, and its test passed on all three.
 
 ```contract
-// app.contract: the view, its state, and what each action changes
+// app.contract: the view, its state, and what each action changes. It names no colour,
+// font or control size: each host draws its own heading, field, button, checkbox and list.
 shape Todo
   id: string
   title: string
@@ -336,10 +348,6 @@ shape Todo
 
 shape Change
   count: number
-
-style Card
-  padding=12 border-radius=10 gap=10 align-items="center"
-  background-color="light-dark(#f2f2f5, #1c1c1e)"
 
 component Todos
   state draft = ""
@@ -353,25 +361,27 @@ component Todos
     if trim(draft) != ""
       send changed = addTodo(trim(draft))
       draft = ""
-  action toggle(id: string)
-    send changed = toggleTodo(id)
+  action toggle(id: string, done: bool)
+    send changed = setDone(id, done)
   action remove(id: string)
     send changed = removeTodo(id)
 
   view
-    column padding=24 gap=12
-      text `${left} left` font-size=28 font-weight=700 testId="count"
-      row gap=8
-        input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 padding=10
-        button press=add padding=10 testId="add"
-          text "Add"
-      each t in todos key=t.id
-        row class=Card testId=`todo-${t.id}`
-          button press=toggle(t.id) aria-label="Toggle" testId=`toggle-${t.id}`
-            text (t.done ? "✓" : "○")
-          text t.title flex=1 text-decoration-line=(t.done ? "line-through" : "none")
-          button press=remove(t.id) aria-label="Delete" testId=`remove-${t.id}`
-            text "✕"
+    list appearance="auto" height="100%"
+      section
+        header
+          text `${left} left` role="heading" testId="count"
+        row
+          input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 min-width=0
+          button press=add buttonStyle="filled" testId="add"
+            text "Add"
+      section
+        each t in todos key=t.id
+          row testId=`todo-${t.id}`
+            input type="checkbox" checked=t.done change=toggle(t.id) aria-label=t.title testId=`toggle-${t.id}`
+            text t.title flex=1
+            button press=remove(t.id) destructive=true testId=`remove-${t.id}`
+              text "Delete"
 ```
 
 ```ts
@@ -391,8 +401,8 @@ const sources: Sources = {
     todos = [...todos, { id: String(next++), title, done: false }];
     return { count: todos.length };
   },
-  toggleTodo: ([id]) => {
-    todos = todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+  setDone: ([id, done]) => {
+    todos = todos.map((t) => (t.id === id ? { ...t, done } : t));
     return { count: todos.length };
   },
   removeTodo: ([id]) => {
@@ -479,8 +489,8 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
   only by acting on authored nodes, as a person would.
 
 These limits serve the principles. An agent can't wire up a data race it can't write.
-A plan with no JavaScript in it starts fast. A view written in CSS's own words means
-the same thing on every host.
+A plan with no JavaScript in it starts fast. A view written in CSS's own words lays out
+the same on every host and looks at home on each.
 
 ### The compiler talks back
 
@@ -506,7 +516,11 @@ Each app lives in [`apps/<name>/`](apps). Run one on the web with
 `bun host/apple/build.mjs <name>-apple --run`, and on iOS by adding `--ios`. All of
 these screenshots come from the web host, taken by `scripts/agent.mjs`.
 
-To learn from, read these four first:
+To learn from, start with [Shelf](apps/shelf), the recipe app. It names no colour and no
+font size, and `scripts/no-tells.mjs` holds it to that, so it shows what an app that
+leaves presentation to the platform looks like on each host. Then read these four for
+what each teaches. They were written before [LLP 1115](llp/1115-write-the-web-ship-the-platform.principle.md)
+and paint their own colours and sizes, so take their structure, not their style:
 
 | App | What it teaches |
 |---|---|
@@ -616,7 +630,10 @@ else here was admitted because a real app needed it.
   scroll- or drag-linked timelines ([LLP 1002](llp/1002-motion-v1.rfc.md),
   [LLP 1063](llp/1063-presence-and-layout-motion.rfc.md)).
 - **Lists.** Virtualized lists, vertical or horizontal, one level deep
-  ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)).
+  ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)). The rows of a vertical
+  `list` are its platform's: UIKit's separators and highlight, a table on the Mac, one
+  line between rows on the web, with nothing drawn by the app
+  ([LLP 1115.000](llp/1115.000-no-tells-on-every-host.rfc.md), D16).
 - **Controls and media.** Inputs, `select`, a WYSIWYG Markdown editor on the web, macOS,
   and iOS ([LLP 1045](llp/1045-markdown-editor.rfc.md)), images including animated
   ones, video ([LLP 1042](llp/1042-video.spec.md)), pickers for an app's declared file
@@ -692,7 +709,7 @@ Start with [`rules/RULES.md`](rules/RULES.md), one page on how work happens here
 [`rules/DEFERRED.md`](rules/DEFERRED.md), what v1 deliberately leaves out. Agents should
 also read [`AGENTS.md`](AGENTS.md). In short:
 
-- **Five blocking checks, 60 seconds in total.** Anything slower runs asynchronously,
+- **Six blocking checks, 65 seconds in total.** Anything slower runs asynchronously,
   per commit.
 
   ```sh
@@ -701,7 +718,12 @@ also read [`AGENTS.md`](AGENTS.md). In short:
   cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
   bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
   bun scripts/boot.mjs     # counts the module graph before first pixel
+  cargo check --workspace --all-targets --keep-going   # every crate compiles
   ```
+
+  The first three build and test Cargo's `default-members`. The last compiles every
+  other crate too, so a host or an app outside them cannot stop compiling unseen. It
+  needs the pinned Bun (`package.json`) first on `PATH`: app crates' build scripts run it.
 
 - **Verify by running, not by reading.** Build the app a change touches and drive it:
   `bun scripts/smoke.mjs <web|macos|ios|linux>` drives the whole app on that host.

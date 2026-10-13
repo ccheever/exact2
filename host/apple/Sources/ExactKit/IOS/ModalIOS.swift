@@ -56,7 +56,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             sheet.detents = detents.isEmpty ? [.large()] : detents
             sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
             sheet.prefersGrabberVisible = detents.count > 1
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            // Several: scrolling at the content's top grows the sheet, as
+            // UIKit's own sheets do (LLP 1115 wave 1).
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
@@ -112,7 +114,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // tvOS has neither grouped backgrounds nor a keyboard layout guide.
         view.backgroundColor = .white
         #else
-        view.backgroundColor = .secondarySystemGroupedBackground
+        // A sheet's surface where the author painted none: the platform's
+        // (LLP 1115 D2), which UIKit elevates in dark mode.
+        view.backgroundColor = .systemBackground
         let probe = UIView()
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false
@@ -152,9 +156,7 @@ private final class Presentation {
     let backgroundNode: NodeView?
     weak var backgroundHome: UIView?
     let backgroundHomeFrame: CGRect
-    /// The home's bounds as the background left it (`ModalHost.returnFrame`).
-    let backgroundHomeBounds: CGRect?
-    let backgroundResizes: Bool
+    let backgroundHomeSize: CGSize
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
@@ -176,8 +178,7 @@ private final class Presentation {
         backgroundNode = node
         backgroundHome = background.view.superview
         backgroundHomeFrame = background.view.frame
-        backgroundHomeBounds = background.view.superview?.bounds
-        backgroundResizes = background.view.autoresizingMask.isSuperset(of: [.flexibleWidth, .flexibleHeight])
+        backgroundHomeSize = background.view.superview?.bounds.size ?? .zero
         backgroundInteraction = background.view.isUserInteractionEnabled
         backgroundAccessibility = background.view.accessibilityElementsHidden
         self.home = home
@@ -309,6 +310,18 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         guard canDismissByBackdrop(id), let route = layers.last?.route else { return }
         presenter.navigation.invokeBack(from: route)
     }
+    /// The agent's `back` on the top sheet (LLP 1116.006 D4): its swipe
+    /// down, refused as UIKit's is (`presentationControllerShouldDismiss`)
+    /// and ending as a completed one does (`invokeBack`). nil with no sheet
+    /// up; "" when it went, else why not.
+    func agentDismiss() -> String? {
+        guard let route = layers.last?.route else { return nil }
+        if inTransition { return "the sheet is still moving: `clock settle` first" }
+        if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return "its closedby is \"none\"" }
+        if refusesDismissal(of: route) { return presenter.navigation.backRefusal }
+        presenter.navigation.invokeBack(from: route)
+        return ""
+    }
 
     func prepare(_ batch: Batch) {
         for layer in layers where batch.ops.contains(where: {
@@ -347,24 +360,20 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         return true
     }
 
-    /// Where a background goes back in its home. The home is a route node,
-    /// laid out at the presented route's size while it is up (580 by 660
-    /// points for an iPad card), and grows back once the background is in
-    /// it: a background that resizes with it keeps its margins at the home's
-    /// size now, so it grows with the home. Put back at its old frame it grew
-    /// by the home's growth too (1,060 by 1,700 points on an iPad, its tabs
-    /// off centre and its bar's trailing item gone for the whole dismissal).
-    static func returnFrame(_ frame: CGRect, from then: CGRect?, to now: CGRect?, resizes: Bool) -> CGRect {
-        guard resizes, let then, let now else { return frame }
-        return now.inset(by: UIEdgeInsets(top: frame.minY - then.minY, left: frame.minX - then.minX,
-                                          bottom: then.maxY - frame.maxY, right: then.maxX - frame.maxX))
-    }
-
     private func releaseBackground(_ layer: Presentation) {
         let background = layer.background
         layer.backgroundHome?.addSubview(background.view)
-        background.view.frame = Self.returnFrame(layer.backgroundHomeFrame, from: layer.backgroundHomeBounds,
-                                                 to: layer.backgroundHome?.bounds, resizes: layer.backgroundResizes)
+        // Its home kept resizing while it was away (framed to the sheet, then
+        // the keyboard coming back), and autoresizing would have carried it
+        // along. Put back at its old size, the home's next shrink took the
+        // difference out of it a second time: a navigation controller, which
+        // clips, cut its route off far above the keyboard until the
+        // dismissal ended.
+        let mask = background.view.autoresizingMask
+        background.view.frame = NavigationRules.restoredFrame(
+            layer.backgroundHomeFrame, homeThen: layer.backgroundHomeSize,
+            homeNow: layer.backgroundHome?.bounds.size ?? layer.backgroundHomeSize,
+            flexibleWidth: mask.contains(.flexibleWidth), flexibleHeight: mask.contains(.flexibleHeight))
         background.view.isUserInteractionEnabled = layer.backgroundInteraction
         background.view.accessibilityElementsHidden = layer.backgroundAccessibility
         // Frames precede content extents, as in a normal batch. A retired
@@ -598,7 +607,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
         guard layers.last?.controller === presentationController.presentedViewController,
               !presenter.navigation.canInvokeBack else { return }
-        presenter.session?.log("modal dismissal refused: no enabled navigationBack control in the active route")
+        presenter.session?.log("modal dismissal refused: \(presenter.navigation.backRefusal)")
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {

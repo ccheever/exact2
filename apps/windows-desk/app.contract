@@ -38,7 +38,7 @@ component WindowsDesk
       row flex=1 min-height=0 gap=22
         column width=210 gap=12
           text "START WITH A SAMPLE" id="samples-label" height=24
-          list id="samples" height=180
+          list id="samples" appearance="none" height=180
             button "Welcome" id="welcome" press=welcome height=40
             button "Today's checklist" id="checklist" press=checklist height=40
             button "Scratchpad" id="scratch" press=scratch height=40

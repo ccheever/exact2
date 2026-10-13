@@ -26,8 +26,8 @@ extension ControlHost {
         let bound = owner.props["value"] ?? ""
         let value = DateValue.parse(kind, bound)
         guard let field = picker as? DateField else { return }
-        field.placeholder = DateField.placeholder(kind, picker.locale ?? .current)
-        field.kind = kind
+        field.owner = owner
+        field.placeholder = DateValue.placeholder(owner.props)
         guard field.applied != bound else { return }
         field.applied = bound
         field.empty = value == nil
@@ -67,13 +67,35 @@ extension ControlHost {
     }
 }
 
-/// HTML's empty date, time or datetime: the format as a placeholder
-/// (Chrome's `mm/dd/yyyy`, `--:-- --`), where an `NSDatePicker`, which
+/// HTML's empty date, time or datetime, where an `NSDatePicker`, which
 /// always holds a date, showed its reference date, 1/1/2001 (x2apps kanban
-/// F23). Editing an empty one starts at now, and only a change commits it.
+/// F23): the field's own text is clear, and it draws its author's
+/// `placeholder` in the placeholder colour or, with none, no words at all
+/// (LLP 1115.000 D13.1; it had drawn Chrome's `mm/dd/yyyy`). Editing an
+/// empty one starts at now, and only a change commits it.
+final class DateCellMac: NSDatePickerCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
 final class DateField: NSDatePicker {
-    var kind = "date"
-    var placeholder = ""
+    override class var cellClass: AnyClass? { get { DateCellMac.self } set {} }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+    weak var owner: NodeView?
+    override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    override func keyDown(with event: NSEvent) {
+        guard acceptsFirstResponder else { return }
+        if owner?.nativeValueTab(event, control: self) == true { return }
+        super.keyDown(with: event)
+    }
+    /// The author's `placeholder`, "" when there is none.
+    var placeholder = "" { didSet { if placeholder != oldValue, empty { needsDisplay = true } } }
     /// The bound value last written into it (`configureDate`).
     var applied: String?
     var empty = false { didSet { if empty != oldValue { refresh() } } }
@@ -86,7 +108,7 @@ final class DateField: NSDatePicker {
         needsDisplay = true
     }
     override func becomeFirstResponder() -> Bool {
-        guard super.becomeFirstResponder() else { return false }
+        guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
         if empty {
             // Now, as the picker reads its values: the wall clock's fields at UTC.
             let local = DateFormatter()
@@ -94,10 +116,12 @@ final class DateField: NSDatePicker {
             dateValue = DateValue.parse("datetime-local", local.string(from: Date())) ?? dateValue
         }
         refresh()
+        owner?.focusEntered()
         return true
     }
     override func resignFirstResponder() -> Bool {
         guard super.resignFirstResponder() else { return false }
+        owner?.focusLeft()
         DispatchQueue.main.async { [weak self] in self?.refresh() }
         return true
     }
@@ -110,31 +134,6 @@ final class DateField: NSDatePicker {
         placeholder.draw(at: NSPoint(x: 4, y: (bounds.height - height) / 2), withAttributes: attributes)
     }
     override func accessibilityValue() -> Any? { empty ? "" : super.accessibilityValue() }
-
-    /// The locale's order of fields, written as Chrome writes an empty one.
-    static func placeholder(_ kind: String, _ locale: Locale) -> String {
-        func written(_ template: String) -> String {
-            let pattern = DateFormatter.dateFormat(fromTemplate: template, options: 0, locale: locale) ?? ""
-            var out = "", last: Character?
-            for c in pattern where c != "'" {
-                if c == last, c.isLetter { continue }
-                last = c
-                switch c {
-                case "y": out += "yyyy"
-                case "M", "L": out += "mm"
-                case "d": out += "dd"
-                case "h", "H", "k", "K", "m", "a": out += "--"
-                // A narrow no-break space before `a` too, as Chrome spaces it.
-                default: if c.isWhitespace { out += " " } else if !c.isLetter { out.append(c) }
-                }
-            }
-            return out
-        }
-        switch kind {
-        case "date": return written("yMMdd")
-        case "time": return written("jmm")
-        default: return written("yMMdd") + ", " + written("jmm")
-        }
-    }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif

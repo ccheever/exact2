@@ -47,8 +47,11 @@ const APP: &str = r#"component App
         text "remove"
 "#;
 fn boot() -> Presenter<Rows> {
+    boot_source(APP)
+}
+fn boot_source(source: &str) -> Presenter<Rows> {
     let (mut p, e) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &contract::compile(source).unwrap().encode(),
         Rows((0..100).map(|i| AppValue::str(&i.to_string())).collect()),
         (400., 500.),
         1.,
@@ -62,7 +65,7 @@ fn boot() -> Presenter<Rows> {
     }
     p
 }
-fn id(p: &Presenter<Rows>, name: &str) -> ViewId {
+fn id<D: DataSource>(p: &Presenter<D>, name: &str) -> ViewId {
     let k = p.host.kernel().find_by_test_id(name)[0];
     p.host.kernel().node_by_key(k).unwrap().id
 }
@@ -72,6 +75,45 @@ fn start(p: &mut Presenter<Rows>) -> (NodeKey, ReorderToken, HoldToken) {
     let s = p.arrange.as_ref().unwrap();
     (s.binding.wrapper, s.token, s.hold)
 }
+#[test]
+fn padded_reorder_uses_row_coordinates_before_and_after_native_scrolling() {
+    for (top, bottom, scroll) in [(0, 0, 0.), (48, 80, 0.), (48, 80, 64.), (0, 80, 64.)] {
+        let source = APP
+            .replace("  state grips = true", "  state dropped = \"\"\n  state grips = true")
+            .replace("    count = count + 1", "    count = count + 1\n    dropped = match before { case some(k) => k, case none => \"end\" }")
+            .replace("width=width height=180", &format!("width=width height=300 box-sizing=\"border-box\" border-top-width=3 border-left-width=2 padding-top={top} padding-bottom={bottom}"));
+        let mut p = boot_source(&source);
+        let list = id(&p, "list");
+        p.scroll.insert(list, (0., scroll));
+        p.collection_scrolled(list);
+        p.queue_collections();
+        assert!(p.refine_collections().is_none());
+        let key = p.host.kernel().node(list).unwrap().key;
+        let facts = p.host.runner().reorder_geometry(key).unwrap();
+        assert_eq!(facts.scroll_top, scroll as f64 - top as f64);
+        assert!(
+            p.reorder_facts_current(&facts),
+            "padding {top}/{bottom}, scroll {scroll}"
+        );
+        let (x, y) = centre(&mut p, "grip-2");
+        p.pointer_down(x, y, 0.).unwrap();
+        assert!(p.pointer_move(x, y + 10., 10.).unwrap());
+        assert!(p.arrange.is_some(), "padded row lifts");
+        assert!(p.pointer_move(x, y + 55., 20.).unwrap());
+        assert!(p.pointer_up(x, y + 55., 30.).unwrap());
+        assert_eq!(
+            slot(&p, "dropped"),
+            "4",
+            "padding {top}/{bottom}, scroll {scroll}"
+        );
+        assert_eq!(p.host.runner().slot("count"), Some(&AppValue::Number(1.)));
+        p.clock(5000.);
+        p.frame();
+        assert!(p.arrange.is_none());
+        assert!(p.collection_interaction().is_none());
+    }
+}
+
 #[test]
 fn terminal_retains_offscreen_source_after_grip_death_and_second_feedback_then_finishes() {
     let mut p = boot();
@@ -213,6 +255,52 @@ fn an_arrange_sample_publishes_concurrent_height_layout_then_cancels_changed_por
 }
 
 #[test]
+fn padded_reorder_rejects_unreported_scroll_and_padding() {
+    for side in [
+        exact_kernel::StyleId::PaddingTop,
+        exact_kernel::StyleId::PaddingBottom,
+    ] {
+        let source = APP.replace(
+            "width=width height=180",
+            "width=width height=300 box-sizing=\"border-box\" padding-top=48 padding-bottom=80",
+        );
+        let mut p = boot_source(&source);
+        let list = id(&p, "list");
+        let key = p.host.kernel().node(list).unwrap().key;
+        let facts = p.host.runner().reorder_geometry(key).unwrap();
+        assert!(p.reorder_facts_current(&facts));
+        p.scroll.insert(list, (0., 1.));
+        assert!(
+            !p.reorder_facts_current(&facts),
+            "native scroll must be reported first"
+        );
+        p.scroll.insert(list, (0., 0.));
+        let mut style = exact_kernel::StyleProps {
+            padding_top: exact_kernel::Dimension::Points(64.),
+            padding_bottom: exact_kernel::Dimension::Points(100.),
+            ..Default::default()
+        };
+        style.mask.set(side);
+        p.host.apply_test_ops(&[exact_kernel::Op::SetStyle {
+            id: list,
+            patch: Box::new(style),
+        }]);
+        assert!(
+            !p.reorder_facts_current(&facts),
+            "padding must be reported, including trailing-only changes"
+        );
+        p.queue_collections();
+        assert!(p.refine_collections().is_none());
+        let fresh = p.host.runner().reorder_geometry(key).unwrap();
+        assert!(p.reorder_facts_current(&fresh));
+        assert!(
+            !p.reorder_facts_current(&facts),
+            "old witness stays stale after feedback"
+        );
+    }
+}
+
+#[test]
 fn actual_scroll_ahead_of_feedback_retires_before_invalid_callback_validation() {
     let mut p = boot();
     let (_, token, hold) = start(&mut p);
@@ -316,6 +404,9 @@ component App
         text "stall"
 "#;
 fn board() -> Presenter<Board> {
+    board_source(BOARD)
+}
+fn board_source(source: &str) -> Presenter<Board> {
     let cards = [
         ("a1", "a"),
         ("a2", "a"),
@@ -324,7 +415,7 @@ fn board() -> Presenter<Board> {
         ("b2", "b"),
     ];
     let (mut p, e) = Presenter::boot_with(
-        &contract::compile(BOARD).unwrap().encode(),
+        &contract::compile(source).unwrap().encode(),
         Board(
             cards
                 .iter()
@@ -372,6 +463,81 @@ fn carry(p: &mut Presenter<Board>, card: &str, to: (f32, f32), now: f64) {
 fn phase(p: &Presenter<Board>) -> Option<exact_runner::ReorderPhase> {
     let s = p.group.as_ref()?;
     p.host.runner().reorder_frame(s.token).map(|f| f.phase)
+}
+
+#[test]
+fn padded_group_reorder_maps_between_different_origins_and_an_empty_target() {
+    for (target, expected) in [("b", "a1>b@b2"), ("c", "a1>c@")] {
+        let source = BOARD.replace("width=120 height=180 flex-shrink=0", "width=120 height=180 flex-shrink=0 border-top-width=3 padding-top=(col == \"a\" ? 48 : 80) padding-bottom=36");
+        let mut p = board_source(&source);
+        let point = if target == "b" {
+            let b2 = centre(&mut p, "grip-b2");
+            (b2.0, b2.1 - 10.)
+        } else {
+            (270., 100.) // The visible part of empty c, whose row origin is 83.
+        };
+        carry(&mut p, "a1", point, 0.);
+        assert!(p.pointer_up(point.0, point.1, 30.).unwrap());
+        assert_eq!(slot(&p, "log"), expected);
+        assert_eq!(slot(&p, "from"), "col-a");
+        p.clock(200.);
+        p.clock(3000.);
+        p.frame();
+        assert!(p.group.is_none() && p.brush.lift.ghost.is_none());
+        assert!(p.collection_interaction().is_none());
+    }
+}
+
+#[test]
+fn padded_group_drop_refuses_a_target_scrolled_ahead_of_feedback() {
+    let source = BOARD.replace(
+        "width=120 height=180 flex-shrink=0",
+        "width=120 height=180 flex-shrink=0 box-sizing=\"border-box\" padding-top=48 padding-bottom=80",
+    );
+    let mut p = board_source(&source);
+    let b2 = centre(&mut p, "grip-b2");
+    carry(&mut p, "a1", (b2.0, b2.1 - 10.), 0.);
+    let list = id(&p, "list-b");
+    p.scroll.insert(list, (0., 1.));
+    assert!(
+        !p.end_group(true, 30.).unwrap(),
+        "an old target cannot certify a pointer drop"
+    );
+    assert_eq!(slot(&p, "log"), "");
+    p.clock(2000.);
+    p.frame();
+    assert!(p.group.is_none() && p.brush.lift.ghost.is_none());
+    assert!(p.collection_interaction().is_none());
+}
+
+#[test]
+fn padded_group_drop_refuses_geometry_changed_by_a_due_timer() {
+    let source = BOARD
+        .replace(
+            "  state log = \"\"",
+            "  state padding = 48\n  state log = \"\"",
+        )
+        .replace("  action flush\n", "  action flush\n    padding = 96\n")
+        .replace(
+            "width=120 height=180 flex-shrink=0",
+            "width=120 height=180 flex-shrink=0 padding-top=padding padding-bottom=80",
+        );
+    let mut p = board_source(&source);
+    let b2 = centre(&mut p, "grip-b2");
+    carry(&mut p, "a1", (b2.0, b2.1 - 10.), 0.);
+    assert!(
+        !p.end_group(true, 200.).unwrap(),
+        "due padding changes must precede drop certification"
+    );
+    assert_eq!(
+        p.host.runner().slot("padding"),
+        Some(&AppValue::Number(96.))
+    );
+    assert_eq!(slot(&p, "log"), "");
+    p.clock(2000.);
+    p.frame();
+    assert!(p.group.is_none() && p.brush.lift.ghost.is_none());
+    assert!(p.collection_interaction().is_none());
 }
 
 #[test]
@@ -635,34 +801,30 @@ fn a_hold_that_never_answers_times_out_and_the_ghost_returns_home() {
 
 #[test]
 fn keys_lift_step_across_lists_and_drop_with_focus_following_the_row() {
-    let mut p = board();
-    let grip = p
-        .host
-        .kernel()
-        .node_by_key(p.host.kernel().find_by_test_id("grip-a2")[0])
-        .unwrap()
-        .id;
-    assert!(p.focusable(grip), "a grouped grip takes the focus");
-    p.type_key(grip, "Space", " ", true, false).unwrap();
-    assert!(
-        p.group.is_some() && p.brush.lift.ghost.is_none(),
-        "keys draw no ghost"
-    );
-    p.key_down("ArrowRight", p.host.now());
-    assert!(p
-        .host
-        .runner()
-        .reorder_json()
-        .contains("\"to\":\"col-b\",\"before\":\"b2\""));
-    p.key_down("ArrowDown", p.host.now());
-    p.key_down("Enter", p.host.now());
-    assert_eq!(slot(&p, "log"), "a2>b@");
-    assert!(p.group.is_none());
-    let moved = p
-        .host
-        .kernel()
-        .node_by_key(p.host.kernel().find_by_test_id("grip-a2")[0])
-        .unwrap()
-        .id;
-    assert_eq!(p.focus, Some(moved), "focus follows the row that landed");
+    for padding in ["", " padding-top=48 padding-bottom=80"] {
+        let source = BOARD.replace(
+            "width=120 height=180 flex-shrink=0",
+            &format!("width=120 height=180 flex-shrink=0{padding}"),
+        );
+        let mut p = board_source(&source);
+        let grip = id(&p, "grip-a2");
+        assert!(p.focusable(grip), "a grouped grip takes the focus");
+        p.type_key(grip, "Space", " ", true, false).unwrap();
+        assert!(
+            p.group.is_some() && p.brush.lift.ghost.is_none(),
+            "keys draw no ghost"
+        );
+        p.key_down("ArrowRight", p.host.now());
+        assert!(p
+            .host
+            .runner()
+            .reorder_json()
+            .contains("\"to\":\"col-b\",\"before\":\"b2\""));
+        p.key_down("ArrowDown", p.host.now());
+        p.key_down("Enter", p.host.now());
+        assert_eq!(slot(&p, "log"), "a2>b@");
+        assert!(p.group.is_none());
+        let moved = id(&p, "grip-a2");
+        assert_eq!(p.focus, Some(moved), "focus follows the row that landed");
+    }
 }

@@ -6,7 +6,15 @@ use super::*;
 pub trait Backend {
     /// `"gpu"` or `"cpu"`.
     fn name(&self) -> &'static str;
-    /// A new frame of this size in points at this scale, cleared to white.
+    /// The page's own colour, told before each frame begins: what a frame
+    /// is cleared to, so an unset background is the platform's surface for
+    /// the scheme and never white under a dark one (LLP 1115 D2; LLP
+    /// 1115.001 D3.6). A backend that draws over a shell's own surface (the
+    /// Canvas recorder, whose reader paints it behind the view) clears
+    /// nothing and ignores it.
+    fn page(&mut self, _color: [u8; 4]) {}
+    /// A new frame of this size in points at this scale, cleared to the
+    /// page's colour ([`Backend::page`]; white until one is told).
     fn begin(&mut self, width: f32, height: f32, scale: f32);
     /// Seed a clipped repaint from an accepted frame; false means full repaint.
     fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
@@ -44,7 +52,8 @@ pub trait Backend {
     ) -> bool {
         false
     }
-    /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
+    /// Fill one colour's share of a border (LLP 1053 G2): region even-odd,
+    /// clipped by its side (non-zero) and optional ring (even-odd).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
     /// An explicit tint replaces its RGB through the picture's alpha alone.

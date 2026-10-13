@@ -9,8 +9,9 @@ enum ControlKinds {
     static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
     /// The chrome index's key for a `progress`, the platform's activity
-    /// indicator (LLP 1069.001, amended 2026-10-07): a view, not a control,
-    /// so its own pass, outside `indexed`.
+    /// indicator (LLP 1069.001, amended 2026-10-07) or, with a `value`, its
+    /// progress bar (LLP 1116 D8): a view, not a control, so its own pass,
+    /// outside `indexed`.
     static let progress = "type:progress"
     /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
@@ -57,10 +58,33 @@ struct RangeSpec {
     }
 }
 
+/// A determinate progress's `value` and `max` by HTML's rules
+/// (`exact_kernel::Progress`, LLP 1116 D8): `max` is 1 unless it reads as a
+/// number above 0; `value` is 0 unless it reads as one, held to 0 and `max`.
+struct ProgressSpec {
+    var value = 0.0, max = 1.0
+
+    init(_ props: [String: String]) {
+        let number = { (s: String?) in s.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.flatMap { $0.isFinite ? $0 : nil } }
+        max = number(props["max"]).flatMap { $0 > 0 ? $0 : nil } ?? 1
+        value = Swift.min(Swift.max(number(props["value"]) ?? 0, 0), max)
+    }
+
+    /// How much of the bar is filled, 0 to 1.
+    var fraction: Double { value / max }
+}
+
 /// A date control's value in HTML's format, read and written as the
 /// platform's `Date` at UTC: HTML's values carry no zone, so the picker
 /// shows the wall time the string names and never converts it.
 enum DateValue {
+    /// What an empty date control says (LLP 1115.000 D13.1): its author's
+    /// `placeholder`, or no words. A date format (`mm/dd/yyyy`) is a
+    /// browser's empty field, which the platform's control does not have.
+    static func placeholder(_ props: [String: String]) -> String {
+        props["placeholder"] ?? ""
+    }
+
     static let utc = TimeZone(identifier: "UTC")!
     private static func formatter(_ pattern: String) -> DateFormatter {
         let f = DateFormatter()
@@ -126,7 +150,11 @@ struct SelectMenu: Equatable {
 /// the platform names it, whether its image is a raster instead, whether the
 /// image leads, its `aria-label`, whether its children fit (one text, one
 /// image, nothing else); and a native button's `buttonStyles` row (LLP
-/// 1069.011 D2) — each platform's draw, a `~` marking a stand-in.
+/// 1069.011 D2) — each platform's draw, a `~` marking a stand-in. `style` is
+/// the `buttonStyle` its author wrote, nil when they wrote none: the face
+/// then carries no row, and the platform columns keep their defaults here,
+/// which are what a button with no style draws (`unsaid`; the Mac's push
+/// button).
 struct ButtonFace: Equatable {
     /// Whether the node is a button at all; the rest is empty when not.
     var button = true
@@ -139,9 +167,9 @@ struct ButtonFace: Equatable {
     var leading = true
     var label: String?
     var fits = true
-    var style = "bordered"
-    var ios = "bordered"
-    var iosBefore26 = "bordered"
+    var style: String?
+    var ios = ButtonFace.unsaid
+    var iosBefore26 = ButtonFace.unsaid
     var macos = "push"
     var known = true
 
@@ -158,12 +186,25 @@ struct ButtonFace: Equatable {
         leading = o["leading"] as? Bool ?? true
         label = o["label"] as? String
         fits = o["fits"] as? Bool ?? true
-        style = o["style"] as? String ?? "bordered"
-        ios = o["ios"] as? String ?? "bordered"
-        iosBefore26 = o["iosBefore26"] as? String ?? "bordered"
-        macos = o["macos"] as? String ?? "push"
+        style = o["style"] as? String
+        ios = o["ios"] as? String ?? ios
+        iosBefore26 = o["iosBefore26"] as? String ?? iosBefore26
+        macos = o["macos"] as? String ?? macos
         known = o["known"] as? Bool ?? true
     }
+
+    /// What UIKit draws for a button whose author wrote no `buttonStyle`, by
+    /// its name in the table's iOS column (LLP 1115.000 D15). On iOS it is
+    /// the plain configuration, tinted text with no fill, as `UIButton(type:
+    /// .system)` and SwiftUI's `Button` are; `buttonStyle="bordered"` is what
+    /// an author writes for the grey capsule. tvOS keeps the bordered button:
+    /// its focus look is drawn on the button's own shape, and a plain button
+    /// has none to draw it on. The two are told apart here and nowhere else.
+    #if os(iOS)
+    static let unsaid = "plain"
+    #else
+    static let unsaid = "bordered"
+    #endif
 
     /// The text a platform entry shows (a menu row, a confirmation's action):
     /// the title, else the label (a symbol-only button's).
@@ -207,7 +248,11 @@ struct ButtonFaceRows: Equatable {
             if let s = v as? String { return .string(s) }
             if let n = v as? NSNumber { return .number(n.doubleValue) }
             if let a = v as? [Any] { return .array(a.map(value)) }
-            if let o = v as? [String: Any] { return .object(o.mapValues(value)) }
+            if let o = v as? [String: Any] {
+                let values = o.mapValues(value)
+                if let c = CalculatedLength(values) { return .calculation(c) }
+                return .object(values)
+            }
             return .null
         }
         func rows(_ name: String) -> NodeStyle { (object[name] as? [String: Any] ?? [:]).mapValues(value) }

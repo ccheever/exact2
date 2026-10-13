@@ -462,8 +462,17 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn key_pressed(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
+        // An open surface of the top layer takes every key (`top.rs`).
+        if self.surface_key(name, now_ms) {
+            return;
+        }
         // The page's shortcuts first, focus or none (`shortcuts.rs`).
         if self.shortcut(name, false, now_ms) {
+            return;
+        }
+        // Then a desktop's Back key (LLP 1115.000 D5.4), focus or none.
+        if self.back_key(name) {
+            self.back_key_down(name, code, repeat, now_ms);
             return;
         }
         let Some(id) = self.focus else {
@@ -525,6 +534,7 @@ impl<D: DataSource> Presenter<D> {
             && matches!(name, " " | "Enter")
             || role == Some("link") && name == "Enter"
         {
+            self.note_press(id, true);
             self.dispatch_press(id, now_ms, false);
             return;
         }

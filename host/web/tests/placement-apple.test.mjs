@@ -11,7 +11,7 @@ const check=unavailable ? test.skip : test;
 // Execute each production capture loop's empty-child branch with Swift values.
 // The remainder of the loop is a stand-in for a successful bitmap upload.
 for (const host of ['Mac','IOS']) check(`${host} clears zero-sized and display-none captures${unavailable ? ` — ${unavailable}` : ''}`,()=>{
-  const file=`host/apple/Sources/ExactKit/${host}/Gpu${host}.swift`;
+  const file=`host/apple/Sources/ExactSurfaces/Gpu${host}.swift`; // ExactSurfaces since 244ac708d (LLP 1047.001)
   const source=readFileSync(process.env.R7_APPLE_SOURCE ?? file,'utf8');
   const start=source.indexOf('        for (i, child) in children.enumerated() {');
   const end=source.indexOf('            let hidden = child.hiddenByHost',start);

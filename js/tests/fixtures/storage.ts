@@ -324,6 +324,10 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch (_) { return {text: value + ":empty"}; }
   }
   if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
+  if (op === "read-size") {
+    try { return {text:String((await storage.fs.readFile(value)).byteLength)}; }
+    catch (error:any) { return {text:error.message}; }
+  }
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {
     try { await storage.fs.writeFile("app:/cache/no", new Uint8Array([1])); }

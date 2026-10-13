@@ -125,7 +125,7 @@ impl Op {
                     });
                 }
                 let value = match kind {
-                    PropKind::Str => PropValue::Str(r.string()?.to_string()),
+                    PropKind::Str => PropValue::Str(r.string()?.into()),
                     PropKind::Bool => PropValue::Bool(r.u8()? != 0),
                     PropKind::Int => PropValue::Int(r.i64()?),
                     PropKind::Float => PropValue::Float(r.f64()?),
@@ -189,6 +189,8 @@ mod tests {
         let mut patch = StyleProps::default();
         patch.width = Dimension::Percent(50.0);
         patch.mask.set(StyleId::Width);
+        // One row its author wrote, one the compiler implied (LLP 1115.000 D2).
+        patch.written.set(StyleId::Width);
         patch.flex_direction = FlexDirection::Row;
         patch.mask.set(StyleId::FlexDirection);
         let mut mask = StyleMask::EMPTY;
@@ -236,6 +238,20 @@ mod tests {
         ] {
             round_trip(op);
         }
+    }
+
+    /// LLP 1115.000 D2: a patch says "written" only of a row it sets.
+    #[test]
+    fn a_patch_that_writes_a_row_it_does_not_set_is_rejected() {
+        let mut w = Writer::new();
+        w.style_mask(StyleMask::of(StyleId::Opacity));
+        w.style_mask(StyleMask::of(StyleId::Width));
+        w.f32(0.5);
+        let bytes = w.into_vec();
+        assert_eq!(
+            Op::decode_payload(OpCode::SetStyle, 1, &mut Reader::new(&bytes)),
+            Err(DecodeError::WrittenUnsetRow)
+        );
     }
 
     #[test]

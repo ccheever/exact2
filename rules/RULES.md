@@ -8,7 +8,7 @@ Each rule is **[check]** (enforced in CI) or **[review]** (enforced by a human).
 
 ## Budgets — every budget is a trade, not a limit
 
-- **5 blocking checks, 60s total.** A sixth requires deleting one, same PR. **[check]**
+- **6 blocking checks, 65s total.** A seventh requires deleting one, same PR. **[check]**
 - **15 documents in the working set** (`llp/current/`). A 16th requires archiving one —
   which is just removing the link. The corpus itself is uncapped. **[check]**
 - **10 documents in the foundation** (`llp/foundation/`). **[check]**
@@ -36,7 +36,7 @@ Tracked every commit. A regression is a P0 with a name on it.
 |---|---|
 | Touch one line, rebuild that crate | 30s |
 | Test what you changed | 60s |
-| Blocking gate suite | 60s |
+| Blocking gate suite | 65s |
 | Full build, warm cache | 5 min |
 | Dev restart, request to present | 100ms p50 |
 | Cold start to interactive first frame | 100ms p50 |
@@ -48,9 +48,9 @@ Tracked every commit. A regression is a P0 with a name on it.
   and taking something off, or Charlie's waiver. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
-- **Web is the standard and the dev loop; native is swept.** One Contract source targets
-  all four surfaces; a semantic that could follow CSS follows CSS. Verify on the
-  seconds-loop and let the minutes-loop run behind you. **[review]**
+- **Write the web, ship the platform.** Authors write CSS; what they leave unsaid is the
+  platform's, as a hand-built UIKit/SwiftUI app has it (LLP 1115, "no tells"). Author >
+  platform > CSS default. **[review]**
 - **The boot path executes and compiles nothing.** No app JS before first pixel; modules
   ship as bytecode, never source strings transpiled per module at boot. Startup is
   emergent and cannot be retrofitted, so the boot graph is budgeted from commit one —
@@ -75,12 +75,13 @@ Tracked every commit. A regression is a P0 with a name on it.
   another lane's work into yours. Use a temporary commit.
 - Kill only PIDs you recorded at launch. Never by name or pattern.
 
-## The five checks
+## The six checks
 
-`build` · `test` · `lint` · `caps` · `boot`
+`build` · `test` · `lint` · `caps` · `boot` · `workspace`
 
 `caps` enforces the budgets above. `boot` counts the module graph reachable before first
-pixel and fails when it grows — a count, so it cannot flake the way a timer does. It takes
-the last slot; a sixth check now costs one of these five.
+pixel and fails when it grows — a count, so it cannot flake the way a timer does.
+`workspace` is `cargo check --workspace --all-targets --keep-going`, with the pinned Bun:
+the others compile only `default-members`.
 
 Everything else runs async.

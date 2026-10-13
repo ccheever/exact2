@@ -271,6 +271,7 @@ fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
             port_cross: 390.0,
             port_main: 300.0,
             cross: 390.0,
+            padding: [0.0; 2],
             measurements: snapshot
                 .rows
                 .iter()

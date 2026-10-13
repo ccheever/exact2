@@ -51,7 +51,11 @@ impl<D: DataSource> Registry<D> {
         self.entries.insert(
             rt,
             Rc::new(RefCell::new(Entry {
-                bridge: Bridge::with_links(links),
+                bridge: {
+                    let mut bridge = Bridge::with_links(links);
+                    bridge.document_owner = u64::from(rt);
+                    bridge
+                },
                 hooks: Hooks::none(),
             })),
         );

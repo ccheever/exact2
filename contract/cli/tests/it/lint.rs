@@ -387,6 +387,62 @@ fn a_bound_string_on_a_number_row_is_refused_as_its_literal_is() {
 }
 
 #[test]
+fn number_only_style_choices_reject_computed_string_arms() {
+    let app = |node: &str| {
+        format!(
+            "component A\n  state on = true\n  state label = \"bad\"\n  state maybe = some(0.5)\n  view\n    {node}\n"
+        )
+    };
+    for node in [
+        "view opacity=(on ? 0.5 : label)",
+        "view opacity=(on ? 0.5 : (on ? label : 1))",
+        "view opacity=(match maybe { case some(x) => x, case none => (on ? label : 1) })",
+        "view opacity=(match maybe { case some(x) => x, case none => label })",
+        "view flex-grow=(on ? 1 : label)",
+        "view opacity=`${label}`",
+        "view opacity=toString(label)",
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-type", "{node}: {e}");
+        assert!(e.message.contains("string"), "{node}: {e}");
+    }
+    contract::compile(&app("view opacity=(on ? 0.5 : 0.75)")).unwrap();
+    contract::compile(&app("view font-size=(on ? 12 : \"14px\")")).unwrap();
+}
+
+// The type checker refuses these forms itself (`type-branches`), before
+// lowering; this pins that refusal. The lowerer's own walk is tested by
+// `mixed_types_inside_computed_arms_and_match_subjects_are_found`.
+#[test]
+fn number_only_style_choices_reject_mixed_nested_expressions() {
+    let app = |node: &str| {
+        format!("component A\n  state on = true\n  state label = \"0.75\"\n  view\n    {node}\n")
+    };
+    for node in [
+        "view opacity=`${on ? label : 1}`",
+        "view opacity=toString(on ? label : 1)",
+        "view opacity=(on ? 0.5 : `${on ? label : 1}`)",
+        "view opacity=(match (on ? some(label) : some(1)) { case some(x) => x, case none => 0 })",
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "type-branches", "{node}: {e}");
+    }
+}
+
+#[test]
+fn number_only_style_choices_accept_valid_css_wide_keywords() {
+    let app = |node: &str| format!("component A\n  state on = true\n  view\n    {node}\n");
+    for node in [
+        "view opacity=(on ? 0.5 : \"unset\")",
+        "text \"w\" font-weight=(on ? 700 : \"inherit\")",
+        "view opacity=(on ? 0.5 : (on ? \"unset\" : 1))",
+        "view opacity=(on ? \"unset\" : \"unset\")",
+    ] {
+        contract::compile(&app(node)).unwrap_or_else(|e| panic!("{node}: {e}"));
+    }
+}
+
+#[test]
 fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     let app = |state: &str, node: &str| {
         format!("shape Todo\n  title: string\ncomponent A\n  state draft = \"\"\n{state}  view\n    column\n      {node}\n")

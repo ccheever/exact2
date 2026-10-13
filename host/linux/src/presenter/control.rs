@@ -6,6 +6,13 @@ use super::*;
 /// Fixed geometry used by Linux's own painters. Text-bearing controls are
 /// measured from their painted labels in `size_controls` instead.
 fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
+    use exact_kernel::ControlKind::{Checkbox, Radio, Range, Switch};
+    // Under the neutral look a mark is sized by its font, which the kernel
+    // reads from the look's rows as it lays the control out (LLP 1115.000
+    // D17): nothing fixed is reported over that.
+    if crate::paint::look::neutral() && matches!(kind, Checkbox | Radio | Switch | Range) {
+        return None;
+    }
     match kind {
         exact_kernel::ControlKind::Checkbox | exact_kernel::ControlKind::Radio => {
             Some((13.0, 13.0))
@@ -264,6 +271,11 @@ impl<D: DataSource> Presenter<D> {
             width = width.max(p.width + 32.0);
             row = row.max(p.height + 8.0);
         }
+        if crate::paint::look::neutral() {
+            // The look's menu row is no shorter than this (LLP 1115.000 D17).
+            use exact_kernel::generated::metric::MENU_ROW_HEIGHT;
+            row = row.max(crate::paint::look::px(MENU_ROW_HEIGHT, style.font_size));
+        }
         let height = row * choices.len() as f32 + 2.0 * MENU_PAD;
         let (x, y, _, h) = b.rect;
         let below = y + h + 2.0;
@@ -337,8 +349,27 @@ impl<D: DataSource> Presenter<D> {
                 let Some(kind) = exact_kernel::ControlKind::of(node.node_type, node.props) else {
                     continue;
                 };
+                let neutral = crate::paint::look::neutral();
+                // The neutral look's file field is its button and its
+                // words, in the field's own type.
+                if neutral && kind == exact_kernel::ControlKind::File {
+                    sizes.push((id, crate::paint::neutral::file_size(&mut text, &node)));
+                    continue;
+                }
                 if let Some(size) = fixed_painted_size(kind) {
                     sizes.push((id, size));
+                    continue;
+                }
+                // And its date fields are the kernel's size for one, the
+                // browser's own control's, which the value drawn here fits.
+                if neutral
+                    && matches!(
+                        kind,
+                        exact_kernel::ControlKind::Date
+                            | exact_kernel::ControlKind::Time
+                            | exact_kernel::ControlKind::DateTimeLocal
+                    )
+                {
                     continue;
                 }
                 // Native buttons measure synchronously through TextMeasurer before layout.
@@ -371,6 +402,22 @@ impl<D: DataSource> Presenter<D> {
                     let p = text.paragraph(&crate::paint::text_spec(&style, label), None);
                     w = w.max(p.width);
                     h = h.max(p.height);
+                }
+                if neutral {
+                    // The look's select, as the page's sheet sizes it (LLP
+                    // 1115.000 D17): the control's line round its widest
+                    // option, a field's padding before it and room for the
+                    // caret after, on the select's own line.
+                    use crate::paint::look::{number, px};
+                    use exact_kernel::generated::metric;
+                    let em = style.font_size;
+                    let line = px(metric::CONTROL_LINE, em);
+                    let inline = px(metric::FIELD_PADDING_INLINE, em)
+                        + px(metric::SELECT_PADDING_END, em)
+                        + 2.0 * line;
+                    let high = number(metric::SELECT_LINE_HEIGHT) * em + 2.0 * line;
+                    sizes.push((id, ((w + inline).ceil(), high)));
+                    continue;
                 }
                 if h == 0.0 {
                     h = style.font_size * 1.2;
@@ -409,6 +456,11 @@ mod tests {
             fixed_painted_size(ControlKind::Progress),
             None,
             "the kernel's 20 × 20"
+        );
+        assert_eq!(
+            fixed_painted_size(ControlKind::ProgressBar),
+            None,
+            "the kernel's `10em` by `1em`, under the plan's `width: 100%`"
         );
     }
 
@@ -464,6 +516,49 @@ mod tests {
         assert_eq!(
             p.type_text(spin, "50"),
             Err(format!("view {spin} is not an input"))
+        );
+    }
+
+    /// LLP 1116 D8: a determinate progress is painted as UIKit's progress
+    /// view: a 4 px track across its box, centred, filled with the accent
+    /// to its value; as wide as its column and `1em` tall (LLP 1115.000
+    /// D10.2: 160 by 16 before, HTML's box); a press is its ancestor's.
+    #[test]
+    fn a_progress_bar_paints_its_value_in_the_accent_and_takes_no_press() {
+        let app = "component App\n  view\n    column width=200 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"bar\" value=3 max=4 accent-color=\"#ff0000\"\n";
+        let (mut p, error) = super::Presenter::boot_with(
+            &contract::compile(app).unwrap().encode(),
+            Empty,
+            (200., 100.),
+            1.,
+            std::path::PathBuf::new(),
+            super::PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let bar = {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id("bar")[0]).unwrap().id
+        };
+        let (x, y, w, h) = p.rect_of(bar).unwrap();
+        assert_eq!((w, h), (200.0, 16.0));
+        let mut at = |dx: f32, dy: f32| {
+            let c = p
+                .frame()
+                .pixel((x + dx) as u32, (y + dy) as u32)
+                .unwrap()
+                .demultiply();
+            [c.red(), c.green(), c.blue()]
+        };
+        assert_eq!(at(60.0, 8.0), [0xff, 0, 0], "filled to three quarters");
+        assert_eq!(at(140.0, 8.0), [0xff, 0, 0], "of 200: to 150");
+        let rest = at(180.0, 8.0);
+        assert!(rest[0] < 0xff && rest[0] == rest[1], "the track: {rest:?}");
+        assert_eq!(at(60.0, 2.0), [0xff, 0xff, 0xff], "above the track");
+        let now = p.host().now();
+        assert!(
+            !p.toggle_control(bar, now),
+            "a press passes to its ancestor"
         );
     }
 }

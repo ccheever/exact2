@@ -27,23 +27,84 @@ enum PositionArea {
         area == "top" || area == "bottom" || area == "center" || area.hasSuffix("span-all")
     }
 
-    /// The top-left of a border box of `size` placed by `area` against
-    /// `anchor`, in a layer of `bounds`. CSS aligns the margin box, so
-    /// `margins` widen the box being placed and the border box sits inside
-    /// them. `none` (and `bottom span-right`) is D2's rule: the margin box's
-    /// top-left at the invoker's bottom-left. A `top` area puts its bottom at
-    /// the invoker's top; `center` centres it over the invoker; `right
-    /// span-bottom` (a submenu, §5) puts its top-left at the invoker's
-    /// top-right. Then the margin box is clamped to the layer, as CSS shifts
-    /// an absolutely positioned box that overflows its area back into its
-    /// containing block; never flipped (a flip is `position-try`, not admitted).
-    static func origin(_ area: String, anchor: CGRect, size: CGSize, margins: Margins = .init(), in bounds: CGRect) -> CGPoint {
-        let outer = CGSize(width: size.width + margins.left + margins.right, height: size.height + margins.top + margins.bottom)
-        let beside = area == "right span-bottom"
-        let x = beside ? anchor.maxX : centred(area) ? anchor.midX - outer.width / 2 : anchor.minX
-        let y = beside ? anchor.minY : area == "center" ? anchor.midY - outer.height / 2
-            : area.hasPrefix("top") ? anchor.minY - outer.height : anchor.maxY
-        return CGPoint(x: max(bounds.minX, min(x, bounds.maxX - outer.width)) + margins.left,
-                       y: max(bounds.minY, min(y, bounds.maxY - outer.height)) + margins.top)
+    /// The current option belongs to this opening, like the open state.
+    struct History {
+        var area = "", fallbacks = "", size = CGSize.zero, margins = Margins()
+        var choice = 0
+    }
+
+    static func origin(_ area: String, anchor: CGRect, size: CGSize, margins: Margins = .init(),
+                       fallbacks: String = "none", in bounds: CGRect) -> CGPoint {
+        var history = History()
+        return origin(area, anchor: anchor, size: size, margins: margins, fallbacks: fallbacks, history: &history, in: bounds)
+    }
+
+    /// Each attempt starts from the authored area and margins. Centred axes
+    /// use CSS's anchor-center overflow alignment; an edge-aligned axis
+    /// overflows unless an authored fallback fits (CSS Anchor Positioning §6).
+    static func origin(_ area: String, anchor: CGRect, size: CGSize, margins: Margins = .init(),
+                       fallbacks: String = "none", history: inout History, in bounds: CGRect) -> CGPoint {
+        if history.area != area || history.fallbacks != fallbacks || history.size != size || history.margins != margins {
+            history = History(area: area, fallbacks: fallbacks, size: size, margins: margins)
+        }
+        let axes = axes(area)
+        func attempt(_ x: Int, _ y: Int, _ m: Margins) -> (CGPoint, CGRect) {
+            let outer = CGSize(width: size.width + m.left + m.right, height: size.height + m.top + m.bottom)
+            func at(_ side: Int, _ low: CGFloat, _ high: CGFloat, _ length: CGFloat, _ min: CGFloat, _ max: CGFloat) -> CGFloat {
+                switch side {
+                case -2: return low - length
+                case -1: return high - length
+                case 1: return low
+                case 2: return high
+                default: return Swift.max(min, Swift.min((low + high - length) / 2, max - length))
+                }
+            }
+            var point = CGPoint(x: at(x, anchor.minX, anchor.maxX, outer.width, bounds.minX, bounds.maxX),
+                                y: at(y, anchor.minY, anchor.maxY, outer.height, bounds.minY, bounds.maxY))
+            // No authored area keeps D2's native default placement.
+            if area == "none" {
+                point.x = max(bounds.minX, min(point.x, bounds.maxX - outer.width))
+                point.y = max(bounds.minY, min(point.y, bounds.maxY - outer.height))
+            }
+            return (CGPoint(x: point.x + m.left, y: point.y + m.top), CGRect(origin: point, size: outer))
+        }
+        let options = ["none"] + fallbacks.split(separator: ",").map(String.init)
+        func selected(_ index: Int) -> (CGPoint, CGRect) {
+            let words = options[index].split(whereSeparator: { $0.isWhitespace })
+            var (x, y, m) = (axes.x, axes.y, margins)
+            if words.contains("flip-block") { y = -y; swap(&m.top, &m.bottom) }
+            if words.contains("flip-inline") { x = -x; swap(&m.left, &m.right) }
+            return attempt(x, y, m)
+        }
+        let current = selected(history.choice)
+        if bounds.contains(current.1) || area == "none" { return current.0 }
+        for index in options.indices where index != history.choice {
+            let candidate = selected(index)
+            if bounds.contains(candidate.1) {
+                history.choice = index
+                return candidate.0
+            }
+        }
+        return current.0
+    }
+
+    // -2/2: outside the anchor; -1/1: span toward that edge; 0: anchor-center.
+    private static func axes(_ area: String) -> (x: Int, y: Int) {
+        if area == "none" { return (1, 2) }
+        var (x, y) = (0, 0)
+        for word in area.split(separator: " ") {
+            switch word {
+            case "left": x = -2
+            case "right": x = 2
+            case "top": y = -2
+            case "bottom": y = 2
+            case "span-left": x = -1
+            case "span-right": x = 1
+            case "span-top": y = -1
+            case "span-bottom": y = 1
+            default: break
+            }
+        }
+        return (x, y)
     }
 }

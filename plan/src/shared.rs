@@ -249,6 +249,17 @@ impl From<Vec<Value>> for Items {
     }
 }
 
+impl<const N: usize> From<[Value; N]> for Items {
+    /// Fixed fields move straight into shared storage, without a heap vector.
+    #[inline]
+    fn from(items: [Value; N]) -> Items {
+        Items(triomphe::ThinArc::from_header_and_iter(
+            (),
+            items.into_iter(),
+        ))
+    }
+}
+
 impl<'a> From<std::vec::Drain<'a, Value>> for Items {
     /// The drained values, moved in: no vector of their own.
     #[inline]
@@ -277,5 +288,50 @@ impl<'a> IntoIterator for &'a Items {
     type IntoIter = std::slice::Iter<'a, Value>;
     fn into_iter(self) -> Self::IntoIter {
         self.as_slice().iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Items, Value};
+
+    #[test]
+    fn fixed_fields_preserve_order_encoding_and_shared_ownership() {
+        fn check<const N: usize>() {
+            let shared = Value::str("long enough to require shared storage");
+            let fields: [Value; N] = std::array::from_fn(|i| match i % 8 {
+                0 => Value::Number(-(i as f64)),
+                1 => Value::Bool(i % 2 == 0),
+                2 => Value::str("界é"),
+                3 => shared.clone(),
+                4 => Value::Unit,
+                5 => Value::NONE,
+                6 => Value::some(shared.clone()),
+                _ => Value::list(vec![Value::Number(i as f64), shared.clone()]),
+            });
+            let expected = Value::record(fields.to_vec());
+            let holders = shared.str_strong_count();
+            let actual = Value::Record(Items::from(fields));
+            assert_eq!(
+                shared.str_strong_count(),
+                holders,
+                "moves fields without cloning"
+            );
+            assert_eq!(actual, expected);
+            assert_eq!(actual.to_bytes(), expected.to_bytes());
+            assert_eq!(Value::from_bytes(&actual.to_bytes()).unwrap(), expected);
+            let clone = actual.clone();
+            let (Value::Record(a), Value::Record(b)) = (&actual, &clone) else {
+                unreachable!()
+            };
+            assert!(Items::ptr_eq(a, b));
+            drop((clone, actual, expected));
+            assert_eq!(shared.str_strong_count(), Some(1));
+        }
+        check::<0>();
+        check::<1>();
+        check::<9>();
+        check::<64>();
+        check::<1024>();
     }
 }

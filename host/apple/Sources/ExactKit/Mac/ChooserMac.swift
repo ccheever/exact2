@@ -2,7 +2,9 @@
 // shape iOS presents as an action sheet — one or more press rows that hide
 // it (the actions), at most one handlerless hide-only cancel, text rows (the
 // message) — is an NSMenu popped up against its invoker by its
-// `position-area`, as a button menu is.
+// `position-area`, as a button menu is. (One in the alert shape, with text,
+// a cancel and at most three buttons, is `NSAlert` first: AlertsMac.swift,
+// LLP 1115.000 D7.6. What reaches this is a chooser, or text with no cancel.)
 // One item per action: its title, its image (a symbol, else its `img` once
 // loaded), checked for `aria-checked`, dimmed when disabled, red when
 // destructive. A chooser (more than one action, no text) is headed by its
@@ -22,6 +24,7 @@ extension MenuHost {
     /// An alertdialog presented as a menu, kept until its menu has ended.
     final class Confirmation {
         weak var source: NodeView?
+        let invoked: Bool
         weak var popover: NodeView?
         /// The popover's presentation this owner belongs to.
         let presentation: Int
@@ -39,8 +42,9 @@ extension MenuHost {
         /// The action chosen, pressed on the next turn unless cancelled first.
         var chosen: Int?
         func cancel() { finished = true; chosen = nil }
-        init(source: NodeView, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
+        init(source: NodeView, invoked: Bool, popover: NodeView, presentation: Int, actions: [Presented], heading: String?, message: [String]) {
             self.source = source; self.popover = popover; self.presentation = presentation; self.actions = actions
+            self.invoked = invoked
             self.heading = heading; self.message = message
         }
     }
@@ -83,7 +87,7 @@ extension MenuHost {
         guard actions.contains(where: { choosable($0, in: pop) }) else { return refuse("every action is disabled") }
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }
         let label = pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
-        return Confirmation(source: source, popover: pop, presentation: presentation(of: pop),
+        return Confirmation(source: source, invoked: opens(source, pop), popover: pop, presentation: presentation(of: pop),
                             actions: actions.map { .init($0, title: title(of: $0), enabled: choosable($0, in: pop)) },
                             heading: texts.isEmpty && actions.count > 1 ? label : nil, message: texts)
     }
@@ -94,7 +98,7 @@ extension MenuHost {
     /// and enablement as presented. A reused row given another provider
     /// ends the menu rather than dispatching under its old title.
     func valid(_ owner: Confirmation) -> Bool {
-        guard let source = owner.source, let pop = owner.popover, invokes(source, pop), isConfirmation(pop),
+        guard let source = owner.source, let pop = owner.popover, invokes(source, pop, requiringTarget: owner.invoked), isConfirmation(pop),
               presentation(of: pop) == owner.presentation else { return false }
         return owner.actions.allSatisfy { presented(owner, $0) }
     }
@@ -112,7 +116,8 @@ extension MenuHost {
         if !owner.message.isEmpty { menu.addItem(.separator()) }
         for (index, entry) in owner.actions.enumerated() {
             guard let row = entry.node else { continue }
-            let item = NSMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
+            let item = AccessibleMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
+            item.owner = row
             item.target = self
             item.representedObject = Choice(owner, index)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
@@ -155,7 +160,7 @@ extension MenuHost {
         owner.finished = true
         owner.chosen = choice.index
         choosing.append(owner)
-        DispatchQueue.main.async { [weak self, owner] in self?.dispatch(owner) }
+        afterNativeTracking { [weak self, owner] in self?.dispatch(owner) }
     }
     /// The recorded choice, once, if the menu still showed what is there.
     private func dispatch(_ owner: Confirmation) {

@@ -7,6 +7,29 @@
 // tab bar controller, one navigation controller a tab).
 import Foundation
 
+/// A navigation root's tabs as the kernel finds them (`exact_root_tabs`;
+/// `Kernel::root_tabs`, LLP 1115.001 D11): the rule every host with a tab
+/// bar reads, over the kernel's own tree in tree order. The Mac's sidebar
+/// reads it (LLP 1115.002 D3); UIKit's tab bar still reads `NavigationTabs`
+/// below, over its views.
+struct RootTabs: Equatable {
+    let tablist: UInt32, tabs: [UInt32], panels: [UInt32]
+    /// The app left the bar's placement unsaid, by the web's rule for its
+    /// own sidebar (LLP 1116.004 D1.1; `host/web/navigation.js` `unsaidBar`):
+    /// read from the kernel's layout rows, which do not cross to the views.
+    let unsaid: Bool
+
+    init(tablist: UInt32, tabs: [UInt32], panels: [UInt32], unsaid: Bool) {
+        (self.tablist, self.tabs, self.panels, self.unsaid) = (tablist, tabs, panels, unsaid)
+    }
+
+    init?(json: Data) {
+        guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let tablist = o["tablist"] as? Int, let tabs = o["tabs"] as? [Int], let panels = o["panels"] as? [Int] else { return nil }
+        self.init(tablist: UInt32(tablist), tabs: tabs.map { UInt32($0) }, panels: panels.map { UInt32($0) }, unsaid: o["unsaid"] as? Bool ?? false)
+    }
+}
+
 struct NavigationTabs {
     let tablist: NodeView
     /// The tabs that name a panel, and those panels, in tab order.

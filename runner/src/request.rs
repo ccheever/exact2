@@ -76,6 +76,41 @@ pub enum HttpScheduling {
     },
 }
 
+/// What a redirect response does: the Fetch standard's `redirect` option.
+/// Native transports follow it in Rust, re-checking the grant on every hop;
+/// `Manual` hands the 3xx back (its `Location` readable), `Error` fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Redirect {
+    /// Follow to the final response.
+    #[default]
+    Follow,
+    /// Return the redirect response itself.
+    Manual,
+    /// Fail the request on a redirect.
+    Error,
+}
+
+impl Redirect {
+    /// The mode `fetch` names (absent is `follow`), refusing any other word.
+    pub fn parse(name: Option<&str>) -> Result<Redirect, String> {
+        match name.unwrap_or("follow") {
+            "follow" => Ok(Redirect::Follow),
+            "manual" => Ok(Redirect::Manual),
+            "error" => Ok(Redirect::Error),
+            other => Err(format!("redirect: follow, manual or error, not {other}")),
+        }
+    }
+
+    /// Its name as `fetch` spells it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Redirect::Follow => "follow",
+            Redirect::Manual => "manual",
+            Redirect::Error => "error",
+        }
+    }
+}
+
 /// One host request, with ordered native execution unless explicitly opted in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -114,6 +149,8 @@ pub struct Request {
     /// then empty. Set by TypeScript's `fetch(url, {exactBodyFrom})` and
     /// [`Request::body_from`] (LLP 1108 D6 R2).
     pub body_from: Option<String>,
+    /// What a redirect response does (`fetch`'s `redirect`).
+    pub redirect: Redirect,
 }
 
 /// The largest file [`Request::body_from`] sends: 64 MiB.
@@ -150,6 +187,7 @@ impl Request {
             stream: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
         }
     }
 
@@ -204,6 +242,7 @@ impl Request {
             stream: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
         }
     }
 
@@ -222,6 +261,7 @@ impl Request {
             stream: false,
             timeout_ms: None,
             body_from: None,
+            redirect: Redirect::Follow,
         }
     }
 
@@ -631,9 +671,28 @@ pub enum Dispatch {
     /// Not yet: the source holds it — a turn is reserved ahead of it — and
     /// releases it from `DataSource::release` after a later commit.
     Held,
+    /// Ask the answer again: no work to run, only its settlement, in its
+    /// place among the ordered requests (LLP 1041 §8.4, amended
+    /// 2026-10-09). A host settles it with [`Dispatch::again_outcome`]; a
+    /// native executor never makes it worker work, never counts it against
+    /// the sixteen effects, and keeps it pending rather than refusing it
+    /// when its settlement window is full.
+    Again,
     /// No work: the token is unknown or already consumed. The host refuses
     /// the request as it does a missing continuation.
     Missing,
+}
+
+impl Dispatch {
+    /// What an [`Dispatch::Again`] settles with: an empty success, which
+    /// the source reads as "look again", never as a reply.
+    pub fn again_outcome() -> Outcome {
+        Outcome::Response(Response {
+            status: 200,
+            headers: Vec::new(),
+            body: Vec::new(),
+        })
+    }
 }
 
 /// A request the host is to run: its ticket, the resource or mutation it

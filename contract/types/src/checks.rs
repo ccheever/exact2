@@ -4,7 +4,7 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart, TypeExpr, HOST_COMMANDS,
+    Attr, Component, Expr, File, Node, Owner, Span, TemplatePart, TypeExpr, HOST_COMMANDS,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -488,181 +488,6 @@ fn collect_owner_scopes(
     complete
 }
 
-/// A slot's fill, checked where `children` stands with its caller's scope
-/// and providers (LLP 1035.005.000 D9: the slot's own section does not
-/// reach it).
-#[derive(Clone)]
-struct Fill {
-    nodes: Vec<Node>,
-    scope: Scope,
-    provides: Vec<(String, Ty, Span)>,
-}
-
-/// Check the concrete provider path to every inject after component typing:
-/// `provides` is the root's `provide` section, `scope` its scope.
-pub(super) fn check_injects(
-    nodes: &[Node],
-    provides: &[Binding],
-    scope: &Scope,
-    types: &Types,
-    file: &File,
-) -> Result<(), TypeError> {
-    let mut provided = Vec::new();
-    for b in provides {
-        provided.push((
-            b.name.clone(),
-            infer(&b.expr, scope, &types.shapes)?,
-            b.span,
-        ));
-    }
-    check_inject_nodes(nodes, scope, types, file, &mut provided, None, 0)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn check_inject_nodes(
-    nodes: &[Node],
-    scope: &Scope,
-    types: &Types,
-    file: &File,
-    provides: &mut Vec<(String, Ty, Span)>,
-    fill: Option<&Fill>,
-    depth: u32,
-) -> Result<(), TypeError> {
-    for node in nodes {
-        match node {
-            Node::Element { children, .. } => {
-                check_inject_nodes(children, scope, types, file, provides, fill, depth)?;
-            }
-            Node::Use {
-                name,
-                children,
-                span,
-                ..
-            } => {
-                // A use of an unknown component was refused and never expanded.
-                let Some(target) = file
-                    .components
-                    .iter()
-                    .position(|component| &component.name == name)
-                else {
-                    continue;
-                };
-                let target_c = &file.components[target];
-                let target_t = &types.components[target];
-                for (j, inject) in target_c.injects.iter().enumerate() {
-                    let Some((_, got, provided_at)) = provides
-                        .iter()
-                        .rev()
-                        .find(|(provided, _, _)| provided == &inject.name)
-                    else {
-                        continue;
-                    };
-                    let want = &target_t.props[target_c.props.len() + j];
-                    if !can_unify(want, got) {
-                        return err(
-                            "type-provide",
-                            format!(
-                                "the provided `{}` is `{got}`, but `{name}` injects `{want}`",
-                                inject.name
-                            ),
-                            *provided_at,
-                        );
-                    }
-                }
-                if depth >= 32 {
-                    return err(
-                        "syntax-inline-depth",
-                        format!("component `{name}` nests too deeply (a cycle?)"),
-                        *span,
-                    );
-                }
-                let target_scope = types.component_scope(target_c, target_t);
-                let child_fill = target_c.slot.then(|| Fill {
-                    nodes: children.clone(),
-                    scope: scope.clone(),
-                    provides: provides.clone(),
-                });
-                let outer = provides.len();
-                for b in &target_c.provides {
-                    let got = infer(&b.expr, &target_scope, &types.shapes)?;
-                    provides.push((b.name.clone(), got, b.span));
-                }
-                let checked = check_inject_nodes(
-                    &target_c.view,
-                    &target_scope,
-                    types,
-                    file,
-                    provides,
-                    child_fill.as_ref(),
-                    depth + 1,
-                );
-                provides.truncate(outer);
-                checked?;
-            }
-            Node::Children { .. } => {
-                if let Some(fill) = fill {
-                    check_inject_nodes(
-                        &fill.nodes,
-                        &fill.scope,
-                        types,
-                        file,
-                        &mut fill.provides.clone(),
-                        None,
-                        depth,
-                    )?;
-                }
-            }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                check_inject_nodes(then, scope, types, file, provides, fill, depth)?;
-                check_inject_nodes(otherwise, scope, types, file, provides, fill, depth)?;
-            }
-            Node::Each {
-                var,
-                index,
-                list,
-                body,
-                ..
-            } => {
-                let ty = infer(list, scope, &types.shapes)?;
-                let Ty::List(item) = ty else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{ty}`"),
-                        list.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_each(var, index.as_deref(), *item);
-                check_inject_nodes(body, &inner, types, file, provides, fill, depth)?;
-            }
-            Node::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                let ty = infer(subject, scope, &types.shapes)?;
-                let Ty::Option(item) = ty else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ty}`"),
-                        subject.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                check_inject_nodes(&some.1, &inner, types, file, provides, fill, depth)?;
-                let mut none_scope = scope.clone();
-                none_scope.push_region(None);
-                check_inject_nodes(none, &none_scope, types, file, provides, fill, depth)?;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
 /// id, then `multiple` (a bool) for `showOpenFilePicker` or
 /// `suggestedName` (a string) for `showSaveFilePicker`.
@@ -814,7 +639,7 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
     Ok(())
 }
 
-/// `showNotification(title=, body=, tag=, showTrigger=)`: the Notification
+/// `showNotification(title=, body=, tag=, showTrigger=, navigate=)`: the Notification
 /// API's title and options by name, named only, `title` required; strings,
 /// and `showTrigger` a number (when to show it, in epoch milliseconds: the
 /// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
@@ -827,7 +652,7 @@ fn notification_args(
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…)`";
+    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)`";
     if name == "closeNotification" {
         let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
         if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
@@ -849,12 +674,12 @@ fn notification_args(
             );
         };
         let want = match arg_name.as_str() {
-            "title" | "body" | "tag" => Ty::String,
+            "title" | "body" | "tag" | "navigate" => Ty::String,
             "showTrigger" => Ty::Number,
             other => {
                 return err(
                     "type-notification-argument",
-                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag= and showTrigger="),
+                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag=, showTrigger= and navigate="),
                     *at,
                 )
             }
@@ -930,11 +755,11 @@ fn into_view_args(
         }
         if let Some(Expr::NamedArg(_, _, at)) = args
             .iter()
-            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row" || name == "offset"))
         {
             return err(
                 "type-scroll-into-view",
-                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                "`row=` and `offset=` go with a list's `id` and a row's key",
                 *at,
             );
         }
@@ -973,6 +798,16 @@ fn into_view_options(
         let allowed: &[&str] = match name.as_str() {
             "block" | "inline" => &["start", "center", "end", "nearest"],
             "behavior" => &["auto", "instant", "smooth"],
+            "offset" => {
+                if infer(value, scope, shapes)? != Ty::Number {
+                    return err(
+                        "type-scroll-into-view",
+                        "`offset` is a number of CSS pixels into the row",
+                        *at,
+                    );
+                }
+                continue;
+            }
             "row" => {
                 infer(value, scope, shapes)?;
                 continue;
@@ -1023,12 +858,18 @@ pub(super) fn check_command(
         };
         return err("type-unknown-command", message, span);
     }
+    if name == "relaunch" && !args.is_empty() {
+        return err("type-relaunch", "`relaunch()` takes no arguments", span);
+    }
     if name == "preventDefault" && !args.is_empty() {
         return err(
             "type-prevent-default",
             "`preventDefault()` takes no arguments: it prevents the default action of the event that ran this action (a key's, a wheel's scroll, a `beforeunload`'s close)",
             span,
         );
+    }
+    if matches!(name, "showPopover" | "hidePopover" | "togglePopover") {
+        return super::selection::popover_args(name, args, scope, shapes, span);
     }
     if name == "close" && args.len() > 1 {
         return err(
@@ -1083,8 +924,18 @@ pub(super) fn check_command(
     if name == "fastSeek" || name == "load" {
         return super::media::command_args(name, args, scope, shapes, span);
     }
+    if name == "removeAllRanges" && !args.is_empty() {
+        return err(
+            "type-remove-all-ranges",
+            "`removeAllRanges()` takes no arguments",
+            span,
+        );
+    }
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);
+    }
+    if name == "setRangeText" {
+        return crate::selection::range_text_args(args, scope, shapes, span);
     }
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);

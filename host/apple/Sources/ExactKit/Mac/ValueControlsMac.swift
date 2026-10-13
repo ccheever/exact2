@@ -10,7 +10,7 @@ extension ControlHost {
     func makeValueControl(_ kind: String) -> NSControl {
         if kind == "range" { return makeRange() }
         if ControlKinds.dates.contains(kind) { return makeDate(kind) }
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        let popup = SelectField(frame: .zero, pullsDown: false)
         // Each item's own `disabled`, never AppKit's validation.
         popup.autoenablesItems = false
         return popup
@@ -20,6 +20,7 @@ extension ControlHost {
         if let slider = control as? NSSlider { configureRange(slider, owner); return }
         if let picker = control as? NSDatePicker { configureDate(picker, owner, accent: accent); return }
         guard let popup = control as? NSPopUpButton else { return }
+        (popup as? SelectField)?.owner = owner
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
         menus[owner.id] = menu
@@ -38,7 +39,10 @@ extension ControlHost {
     /// select (D3), which its cell measures and its intrinsic size may not.
     func naturalSize(_ control: NSControl) -> CGSize {
         let natural = control.intrinsicContentSize
-        // A slider has no natural width; Chrome's range is 129 wide.
+        // A slider has no width of its own: it is as wide as its node, which
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
+        // range's intrinsic width on every host (`ControlKind::default_size`):
+        // what the node falls back to where that has nothing to resolve against.
         if control is NSSlider { return CGSize(width: 129, height: ceil(natural.height)) }
         guard control is NSPopUpButton, let cell = control.cell else { return natural }
         return CGSize(width: ceil(max(natural.width, cell.cellSize.width)), height: natural.height)
@@ -116,5 +120,33 @@ extension ControlHost {
         return ["view": "NSPopUpButton", "value": menu?.chosenValue as Any, "title": popup.titleOfSelectedItem as Any,
                 "options": menu?.options.map(\.label) ?? []]
     }
+}
+/// The pop-up itself receives focus and native editing keys, even with
+/// macOS Keyboard navigation off; its wrapper is never a second stop.
+final class SelectField: NSPopUpButton {
+    override class var cellClass: AnyClass? { get { PopupCellMac.self } set {} }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+    weak var owner: NodeView?
+    override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
+        owner?.focusEntered()
+        return true
+    }
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        owner?.focusLeft()
+        return true
+    }
+    override func keyDown(with event: NSEvent) {
+        guard acceptsFirstResponder else { return }
+        if owner?.nativeValueTab(event, control: self) == true { return }
+        super.keyDown(with: event)
+    }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif

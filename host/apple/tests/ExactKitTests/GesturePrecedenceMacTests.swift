@@ -71,6 +71,25 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerHeld)
     }
 
+    /// A pointer's offsets are from the content box layout sent: a padding
+    /// the style rows cannot resolve (5% of a 400-point containing block) is
+    /// 20 points in, as the canvas or paragraph inside it is drawn.
+    func testAPointersOffsetsAreFromTheContentBoxLayoutSent() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown"]],
+            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 5], "padding_top": 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "fieldContent", "id": 1, "rect": [20.0, 4.0, 180.0, 96.0]]
+        ])
+        var samples: [PointerSample] = []
+        p.onPointer = { _, _, sample in samples.append(sample) }
+        let node = p.views[1]!
+        node.mouseDown(with: event(.leftMouseDown, node))
+        XCTAssertEqual(samples.last?.x, 80); XCTAssertEqual(samples.last?.y, 46)
+        node.mouseUp(with: event(.leftMouseUp, node))
+    }
+
     /// Any button holds the pointer, as in a browser (review b5-b 1): the
     /// secondary button's down, moves and up and the middle button's are the
     /// node's pointer events with `buttons` 2 and 4; the secondary's down is
@@ -171,6 +190,132 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertFalse(child.isDescendant(of: old))
     }
 
+    /// The T3 Code clone's crash on a click after "Archive thread" or a
+    /// thread's Delete confirm (realinput-1011c G4-14, LSF-6): a context
+    /// menu took a right-click's up, so the hold lasts, and a batch removes
+    /// and frees the row it went down on. The view pressed goes with its
+    /// row rather than staying a subview of a freed one, and the next click's
+    /// up ends the hold without reaching it.
+    func testARowFreedUnderAHoldTakesThePressedViewWithIt() throws {
+        var p: Presenter!
+        weak var row: NodeView?
+        autoreleasepool {
+            p = host([
+                ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "pointermove"]],
+                ["op": "create", "id": 2, "kind": "view"],
+                ["op": "create", "id": 3, "kind": "view"],
+                ["op": "create", "id": 4, "kind": "button", "handlers": ["press"]],
+                ["op": "children", "id": 2, "ids": [3]],
+                ["op": "children", "id": 1, "ids": [2, 4]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+                ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 40.0],
+                ["op": "frame", "id": 3, "x": 10.0, "y": 10.0, "w": 100.0, "h": 20.0],
+                ["op": "frame", "id": 4, "x": 0.0, "y": 250.0, "w": 100.0, "h": 30.0]
+            ])
+            row = p.views[2]
+        }
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        p.onPress = { log.append("press \($0)") }
+        let label = try XCTUnwrap(p.views[3])
+        autoreleasepool { label.rightMouseDown(with: event(.rightMouseDown, label)) }
+        // No up: the context menu's tracking took it. The pressed view is
+        // destroyed while its row is in the window, then the row goes.
+        autoreleasepool {
+            p.apply(wireBatch([["op": "destroy", "id": 3], ["op": "destroy", "id": 2], ["op": "children", "id": 1, "ids": [4]]]))
+        }
+        XCTAssertNil(row, "the row is freed")
+        let settings = try XCTUnwrap(p.views[4])
+        settings.mouseDown(with: event(.leftMouseDown, settings))
+        settings.mouseUp(with: event(.leftMouseUp, settings))
+        XCTAssertNil(label.superview, "the pressed view left with its row")
+        // The hold the menu left ends at this up, as before.
+        XCTAssertEqual(log, ["down 1", "up 1", "press 4"])
+        XCTAssertNil(p.pointerHeld)
+        XCTAssertNil(p.pointerSource)
+    }
+
+    /// The T3 Code clone's crash on a click on Settings while a panel held
+    /// the pointer (realinput-1011c R11-X79, R11-X51): a batch between the
+    /// down and the up replaces the button's panel. AppKit sends that up to
+    /// no view, the one pressed having left the window, so the hold lasts,
+    /// and the next click, on the new button, ends it at its up.
+    func testAPanelReplacedUnderAClickTakesThePressedViewWithIt() throws {
+        var p: Presenter!
+        weak var panel: NodeView?
+        autoreleasepool {
+            p = host([
+                ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "pointermove"]],
+                ["op": "create", "id": 2, "kind": "view"],
+                ["op": "create", "id": 3, "kind": "button", "handlers": ["press"]],
+                ["op": "children", "id": 2, "ids": [3]],
+                ["op": "children", "id": 1, "ids": [2]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+                ["op": "frame", "id": 2, "x": 0.0, "y": 200.0, "w": 200.0, "h": 100.0],
+                ["op": "frame", "id": 3, "x": 10.0, "y": 10.0, "w": 100.0, "h": 30.0]
+            ])
+            panel = p.views[2]
+        }
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        p.onPress = { log.append("press \($0)") }
+        let settings = try XCTUnwrap(p.views[3])
+        autoreleasepool { settings.mouseDown(with: event(.leftMouseDown, settings)) }
+        // The panel leaves the window first, then its nodes are destroyed.
+        autoreleasepool {
+            p.apply(wireBatch([
+                ["op": "create", "id": 5, "kind": "view"],
+                ["op": "create", "id": 6, "kind": "button", "handlers": ["press"]],
+                ["op": "children", "id": 5, "ids": [6]],
+                ["op": "children", "id": 1, "ids": [5]],
+                ["op": "destroy", "id": 3],
+                ["op": "destroy", "id": 2],
+                ["op": "frame", "id": 5, "x": 0.0, "y": 200.0, "w": 200.0, "h": 100.0],
+                ["op": "frame", "id": 6, "x": 10.0, "y": 10.0, "w": 100.0, "h": 30.0]
+            ]))
+        }
+        XCTAssertNil(panel, "the panel is freed")
+        // No up for that click: AppKit sent it to no view. The next click
+        // is on the new button.
+        let again = try XCTUnwrap(p.views[6])
+        again.mouseDown(with: event(.leftMouseDown, again))
+        again.mouseUp(with: event(.leftMouseUp, again))
+        XCTAssertNil(settings.superview, "the pressed view left with its panel")
+        // The hold the first up missed ends at this up, as before.
+        XCTAssertEqual(log, ["down 1", "up 1", "press 6"])
+        XCTAssertNil(p.pointerHeld)
+        XCTAssertNil(p.pointerSource)
+    }
+
+    /// LLP 1005: a held node's release clears the hold. The view the button
+    /// went down on goes with the button even so, and a resting pointer's
+    /// hover follows the layout again, as it does after any up.
+    func testTheButtonLetsThePressedViewGoAfterTheHeldNodeLeft() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "pointermove"]],
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["hover"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1, 3]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 50.0, "h": 50.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 150.0, "w": 200.0, "h": 100.0]
+        ])
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        let child = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[3])
+        child.mouseDown(with: event(.leftMouseDown, child))
+        p.apply(wireBatch([["op": "roots", "ids": [3]], ["op": "destroy", "id": 2], ["op": "destroy", "id": 1]]))
+        XCTAssertNil(p.pointerHeld, "the held node's release cleared the hold")
+        other.mouseUp(with: event(.leftMouseUp, other))
+        XCTAssertNil(p.pointerSource, "the button let the pressed view go")
+        p.agentPointer = other.convert(NSPoint(x: other.bounds.midX, y: other.bounds.midY), to: nil)
+        XCTAssertNotNil(p.restingPointer(), "a resting pointer's hover follows again")
+        XCTAssertEqual(log, ["down 1"])
+    }
+
     /// LLP 1056 §3: a free pointer's moves are one a display frame, the
     /// latest, as the web host sends them; a pending one goes before a down
     /// (Grok's batch 2 review). AppKit can report several `mouseMoved` a frame.
@@ -187,9 +332,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
         let node = p.views[1]!
         for right in [0.0, 5.0, 10.0] { node.mouseMoved(with: event(.mouseMoved, node, right: right)) }
         XCTAssertEqual(log, [], "nothing until the frame")
-        let frame = expectation(description: "a display frame")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { frame.fulfill() }
-        wait(for: [frame], timeout: 2)
+        p.flushHoverMove() // the driver's display frame, independent of a window server tick
         XCTAssertEqual(log, ["move 1"], "one move a frame")
         XCTAssertEqual(xs.last, 110, "the latest")
         node.mouseMoved(with: event(.mouseMoved, node, right: 20))
