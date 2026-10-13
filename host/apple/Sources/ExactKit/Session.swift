@@ -679,6 +679,7 @@ public final class ExactSession {
     }
     private func wire() {
         runtime.topLayer = { [weak self] in self?.presenter.openTopLayerFrames ?? [] }
+        runtime.setInlineGeometry { [weak self] id in self?.presenter.inlineFrame(id) }
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.
             runtime.canvasDefer(true)

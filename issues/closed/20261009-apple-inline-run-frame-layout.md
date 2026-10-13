@@ -1,6 +1,7 @@
 # macOS: frame() of an inline text run is unavailable, and agent layout omits inline runs (rest of #133)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple frame() and agent layout read viewport unions of shaped inline fragments with each run's font metrics, finite empty-run insertion rectangles, and no hanging-space-only fragments; the Chrome oracle, InlineFrameMacTests, and InlineFrameIOSTests verify these cases and wrapped-run scrolling, and the runner regression verifies availability and callback lifetime.
 **Systems:** host/apple, text geometry, agent
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

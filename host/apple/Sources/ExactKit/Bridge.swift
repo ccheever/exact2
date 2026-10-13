@@ -64,6 +64,7 @@ package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
     var topLayer: (() -> [(UInt32, CGRect)])?
+    var inlineFrame: ((UInt32) -> CGRect?)?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
     // Release builds have neither the callback nor a copy of the wire bytes.

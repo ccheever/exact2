@@ -180,9 +180,12 @@ extension Agent {
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     package func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
-        let bounds = region ?? v.bounds
+        Self.box(region ?? v.bounds, of: v, viewport: presenter.viewport)
+    }
+
+    static func box(_ bounds: CGRect, of v: NSView, viewport: NSScrollView) -> NSRect {
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
-        let clip = presenter.viewport.contentView
+        let clip = viewport.contentView
         // Where it is seen (`drawnRect`): through the placement of a child a
         // canvas's surface placed (LLP 1014 D5), not the kernel's frame, and
         // through every transformed box on the way (LLP 1077 D8), as
@@ -246,6 +249,8 @@ extension Agent {
             }
             nodes.append(n)
         }
+        nodes.append(contentsOf: inlineLayout())
+        nodes.sort { ($0["id"] as? Int ?? 0) < ($1["id"] as? Int ?? 0) }
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
@@ -281,11 +286,12 @@ extension Agent {
         }
         let clipView = presenter.viewport.contentView
         let rect = { (r: NSRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
-        let b = box(host)
-        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(host.bounds.width), "h": Agent.r2(host.bounds.height)],
+        let local = presenter.inlineText(UInt32(id)).map { host.inlineBounds($0) ?? .zero } ?? host.bounds
+        let b = presenter.inlineFrame(UInt32(id)) ?? box(host, region: local)
+        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(local.width), "h": Agent.r2(local.height)],
                                     "capture": ["scale": Agent.r2(host.window?.backingScaleFactor ?? 1)]]
         if let w = host.window, let content = w.contentView {
-            let inWindow = host.convert(host.bounds, to: nil)
+            let inWindow = host.convert(local, to: nil)
             space["window"] = rect(NSRect(x: inWindow.origin.x, y: content.frame.height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
             let onScreen = w.convertToScreen(inWindow)
             let top = NSScreen.screens.first?.frame.maxY ?? onScreen.maxY

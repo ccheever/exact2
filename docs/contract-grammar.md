@@ -619,6 +619,12 @@ says. Every roster function has a row and an example, and each example written
 | `elementsFromPoint(x, y)` | `list<string>`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
 | `querySelectorAll(selector)` | `list<string>`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
+On Apple, `frame` of an inline `text` run returns the viewport-space union of
+its line fragments, using the run's own font metrics and excluding hanging
+wrap spaces. An empty run has a zero-width rectangle at its insertion point
+with its font's height. Scrolling moves this rectangle; clipping does not trim
+it. Other native hosts currently report inline runs unavailable.
+
 For `elementsFromPoint`, an id-less hit outside a named ancestor's own box
 includes that ancestor once before lower layers. This keeps its first entry
 equal to `elementFromPoint`'s nearest-id answer; LLP 1001 §1 declares the
