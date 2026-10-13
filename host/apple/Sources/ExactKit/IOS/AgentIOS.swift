@@ -568,7 +568,8 @@ extension Agent {
         // finger there reaches; without one, the target's own press
         // (`AgentAddressedTap.swift`).
         let plain = ["wheel", "hover", "contextmenu", "dblclick", "pinch", "x", "y"].allSatisfy { req[$0] == nil } && v.kind != "iframe"
-        if plain, req["at"] != nil {
+        // A long press or a double tap at a point too: where its word is (LLP 1115.000 D11.6).
+        if plain || req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true, req["at"] != nil {
             guard let point = (req["at"] as? [Double]).flatMap({ $0.count == 2 && $0.allSatisfy(\.isFinite) ? tapPoint(req, node: v) : nil }) else { return ["error": "tap at needs two finite numbers"] }
             let whole = box(v)
             guard whole.contains(point) else { return ["error": "tap #\(v.id) at: (\(Agent.r2(point.x - whole.minX)), \(Agent.r2(point.y - whole.minY))) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
@@ -609,6 +610,15 @@ extension Agent {
         }
         if req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true {
             let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
+            // Selectable text (LLP 1115.000 D11.6): a double tap, and a long
+            // press its own `contextmenu` does not take, select the word
+            // there. UIKit synthesizes neither, so the selection is the
+            // recognized one; a long press's stops there, as a finger's does.
+            var selection: [String: Any]?
+            #if os(iOS)
+            selection = presenter.agentSelect(hit, at: p, event: event)
+            #endif
+            if let selection, event == "contextmenu" { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             var next: UIView? = hit
             while let node = next {
                 // A context menu's popover (LLP 1021 §5.1) answers it too: the
@@ -621,10 +631,11 @@ extension Agent {
                         // A node with only a popover that cannot open it is not the target.
                         if !presenter.menus.agentContext(target) && !handled { next = node.superview; continue }
                     } else { presenter.dblclick(target.id) }
-                    return ["tapped": Int(target.id), "event": event, "injected": true, "at": at]
+                    return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
                 next = node.superview
             }
+            if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
         }
         if let scale = req["pinch"] as? Double {

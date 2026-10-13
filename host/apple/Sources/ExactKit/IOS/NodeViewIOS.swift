@@ -175,6 +175,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if CanvasInputs.owns(touch.view) { return false }
         if gestureRecognizer === swipeRecognizer, gestureRecognizer.numberOfTouches == 0 { swipeDownX = touch.location(in: window).x }
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
+        if gestureRecognizer === contextRecognizer, selectsText(under: touch) { return false } // its long press selects (LLP 1115.000 D11.6)
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view
@@ -826,6 +827,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // that sets `auto` again is still a target.
             if passesThrough { return nil }
             guard bounds.contains(point) else { return nil }
+            if event?.type == .touches, isParagraph { touchedText() } // selectable text takes its interaction for this touch
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
             // reach its effect view. Its content view is the target; the

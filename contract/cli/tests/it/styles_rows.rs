@@ -261,3 +261,38 @@ component A
     assert_eq!(row(&r, "choice", PaddingTop), written);
     assert_eq!(row(&r, "bound", Width), written);
 }
+
+/// CSS `user-select` (LLP 1115.000 D11.6): `text` is honoured where a host
+/// has text selection (the web, macOS, iOS) and is on the node that says
+/// it, not inherited on the wire, since each host resolves `auto` from what
+/// is above. The two values no native presenter has are refused by name.
+#[test]
+fn user_select_text_compiles_and_all_and_contain_are_refused_by_name() {
+    let source = "component App\n  view\n    column\n      column user-select=\"text\" testId=\"prose\"\n        text \"x\" testId=\"said\"\n      text \"y\" testId=\"unsaid\"\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let select = |id: &str| {
+        let key = runner.kernel().find_by_test_id(id)[0];
+        runner.kernel().node_by_key(key).unwrap().style.user_select
+    };
+    assert_eq!(select("prose"), exact_kernel::UserSelect::Text);
+    assert_eq!(select("said"), exact_kernel::UserSelect::Auto);
+    assert_eq!(select("unsaid"), exact_kernel::UserSelect::Auto);
+    for value in ["all", "contain"] {
+        let source = format!("component App\n  view\n    text \"x\" user-select=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("`user-select=\"{value}\"`")),
+            "{error}"
+        );
+        assert!(error.contains("auto, none and text"), "{error}");
+        assert!(!error.contains("unknown attribute"), "{error}");
+    }
+}
