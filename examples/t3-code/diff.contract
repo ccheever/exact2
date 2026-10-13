@@ -117,7 +117,8 @@ component DiffPanelBody
                 text data.diffEmptyLabel font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717ab3, #818181b3)" testId="diff-empty"
             else
               // DiffFileLoadingBoundary: nearing the end of a large diff asks for four more files (diff-review.ts).
-              list virtualized=true id="diff-list" reachend=command("diffreview", "next", "", 0) flex=1 min-height=0 width="100%" testId="diff-content"
+              // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
+              list appearance="none" virtualized=true id="diff-list" reachend=command("diffreview", "next", "", 0) flex=1 min-height=0 width="100%" testId="diff-content"
                 each item in data.diffItems key=item.id
                   DiffRow(item=item, wrap=data.diffWrap, command=command, scheme=data.look.diff, size=data.look.codeSize, commentOpen=data.diffCommentOpen, draftText=draftText, editDraft=editDraft, beginComment=beginComment, cancelComment=cancelComment, saveComment=saveComment)
         when data.diffTree and length(data.diffFiles) > 0
@@ -355,7 +356,7 @@ component DiffBasePicker
   action back
     focus("diff-base")
   view
-    column id="diff-base-menu" popover="auto" position="absolute" padding-top="0.25rem" width="18rem" testId="diff-base-layer"
+    column id="diff-base-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" width="18rem" testId="diff-base-layer"
       when pickedAt != session
         column aria-modal=true width="100%" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label="Comparison target" testId="diff-base-picker"
           button press=back popovertarget="diff-base-menu" popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close comparison target" tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 padding=0 border-width=0 opacity=0 overflow="hidden" testId="diff-base-escape" title=""

@@ -418,7 +418,7 @@ component ScheduledEditor
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
                 // BranchPicker: ComboboxPopup at the trigger's width, Search refs..., the refs with
                 // their current/worktree/remote/default tag, and the Start from origin row.
-                column id="task-branch-menu" popover="auto" position="absolute" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
+                column id="task-branch-menu" popover="auto" position-try-fallbacks="none" position="absolute" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
                   column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%"
                     row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7, #ffffff14)"
                       LucideSearch(size=16, color="light-dark(#71717b8c, #8181818c)")

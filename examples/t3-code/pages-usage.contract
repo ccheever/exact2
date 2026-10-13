@@ -353,7 +353,7 @@ component UsageBreadcrumb
             else
               PgIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
         KeyMenuOpen(menuId="usage-environment-menu", armed=keyArmed, opened=keyOpened)
-        column id="usage-environment-menu" popover="auto" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-environment-layer"
+        column id="usage-environment-menu" popover="auto" position-try-fallbacks="none" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-environment-layer"
           // MenuPopup sizes to its content (usage-and-pr-pages PG-5): the measured width (10rem at least) is its least width
           // and no row truncates, where that width as the width cut "Daehyeon's MacBook Pro" at a word. Its dropdown glass
           // blurs what is under it, which the macOS presenter cannot, so the glass sits on the popover colour itself, as in
@@ -483,7 +483,7 @@ component UsageSelect
         text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
         PgIcon(name="chevron-down", size=12, color="light-dark(#71717b, #818181)")
       // aria-modal: Base UI's Select popup is modal, so its Escape closes it before the page's Back hears it.
-      column id=menuId popover="auto" aria-modal=true position="absolute" left=0 top=0 padding-top="0.25rem"
+      column id=menuId popover="auto" position-try-fallbacks="none" aria-modal=true position="absolute" left=0 top=0 padding-top="0.25rem"
         column min-width="8rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="listbox" aria-label=ariaLabel
           children
 
