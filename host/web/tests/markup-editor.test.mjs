@@ -5,11 +5,15 @@ import { resolve } from 'node:path';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
 import { buildEditor } from '../../web-js/module.mjs';
 import * as playwright from 'playwright-core';
+import { browserMissing } from '../../../scripts/agent-playwright.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const chrome = installed();
-const engines = ['chromium', 'firefox', 'webkit'].filter(name => name === 'chromium' ? !chrome.unavailable : existsSync(playwright[name].executablePath()));
-const wasm = engines.length ? readFileSync(await buildEditor()) : null;
+const engines = ['chromium', 'firefox', 'webkit'];
+const missing = Object.fromEntries(await Promise.all(engines.map(async e => [e, await browserMissing(e)])));
+const engineTest = Object.fromEntries(engines.map(e => [e, need(e === 'chromium' ? 'chrome' : e, missing[e])]));
+const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) : null;
 
 async function editor(engine, source, drive, runtime = false) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
@@ -78,7 +82,7 @@ function browser(engine) {
 afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); }, 60000);
 
 for (const engine of engines) {
-  test(`${engine}: JS runtime forwards Markdown key cancellation in both directions`, async () => {
+  engineTest[engine](`${engine}: JS runtime forwards Markdown key cancellation in both directions`, async () => {
     await editor(engine, 'hello', async (page, field) => {
       await field.focus();
       await field.evaluate(el => getSelection().selectAllChildren(el));
@@ -100,7 +104,7 @@ for (const engine of engines) {
     }, true);
   }, 60000);
 
-  test(`${engine}: a cancelled capture shortcut leaves selected Markdown unchanged`, async () => {
+  engineTest[engine](`${engine}: a cancelled capture shortcut leaves selected Markdown unchanged`, async () => {
     await editor(engine, 'hello', async (page, field) => {
       await field.focus();
       await field.evaluate(el => {
@@ -126,7 +130,7 @@ for (const engine of engines) {
     });
   }, 60000);
 
-  test(`${engine}: browser Select All includes hidden syntax`, async () => {
+  engineTest[engine](`${engine}: browser Select All includes hidden syntax`, async () => {
     for (const source of ['# Heading', '```js\ncode\n```', '# Heading\n\n[link](https://example.com)\n\n```js\ncode\n```']) {
       await editor(engine, source, async (page, field) => {
         await field.focus();
@@ -148,7 +152,7 @@ for (const engine of engines) {
     });
   }, 60000);
 
-  test(`${engine}: multi-line replacement reports only the new source and undo restores every line`, async () => {
+  engineTest[engine](`${engine}: multi-line replacement reports only the new source and undo restores every line`, async () => {
     for (const source of ['one\n\ntwo', '# Heading\n\n[link](https://example.com)\n\n```js\ncode\n```', '- [x] done\n\n> quoted\n\n- two']) {
       await editor(engine, source, async (page, field) => {
         // Untouched hidden constructs also survive the source-mode round trip.
@@ -176,7 +180,7 @@ for (const engine of engines) {
     }
   }, 60000);
 
-  test(`${engine}: native structural edits and composition reconcile the live tree`, async () => {
+  engineTest[engine](`${engine}: native structural edits and composition reconcile the live tree`, async () => {
     await editor(engine, 'one\n\ntwo', async (page, field) => {
       await field.click();
       await field.evaluate(el => {
@@ -210,7 +214,7 @@ for (const engine of engines) {
     });
   }, 60000);
 
-  test(`${engine}: composition replaces selected hidden fences and preserves cancelled compositions`, async () => {
+  engineTest[engine](`${engine}: composition replaces selected hidden fences and preserves cancelled compositions`, async () => {
     const source = '# Heading\n\n[link](https://example.com)\n\n```js\ncode\n```';
     await editor(engine, source, async (page, field) => {
       await field.click();
@@ -235,4 +239,3 @@ for (const engine of engines) {
     });
   }, 60000);
 }
-if (!engines.length) test.skip(`Markdown editor needs an installed browser: ${chrome.unavailable}`, () => {});

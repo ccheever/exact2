@@ -3,6 +3,8 @@ import {chmodSync, existsSync, mkdtempSync, readFileSync, rmSync} from 'node:fs'
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {open} from '../../../scripts/agent.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const root = resolve(new URL('../../..', import.meta.url).pathname);
 const defaultDist = resolve(root, 'host/web/dist');
@@ -20,12 +22,13 @@ const distFor = target => {
 };
 
 const originalChrome = process.env.CHROME;
+const installed = chromium();
 let wrapperDir = null;
 if (process.env.EXACT_NO_GPU_CHROME) process.env.CHROME = process.env.EXACT_NO_GPU_CHROME;
-else if (originalChrome && existsSync(originalChrome)) {
+else if (!installed.unavailable) {
   wrapperDir = mkdtempSync(resolve(tmpdir(), 'exact-no-gpu-chrome-'));
   const wrapper = resolve(wrapperDir, 'chrome');
-  const quoted = `'${originalChrome.replaceAll("'", "'\\''")}'`;
+  const quoted = `'${installed.executable.replaceAll("'", "'\\''")}'`;
   await Bun.write(wrapper, `#!/bin/sh\nexec ${quoted} --disable-gpu "$@"\n`);
   chmodSync(wrapper, 0o700);
   process.env.CHROME = wrapper;
@@ -35,7 +38,7 @@ afterAll(() => {
   if (wrapperDir) rmSync(wrapperDir, {recursive:true, force:true});
 });
 
-const browserMissing = !process.env.CHROME || !existsSync(process.env.CHROME);
+const browserMissing = !process.env.CHROME || !existsSync(process.env.CHROME) ? installed.unavailable ?? `EXACT_NO_GPU_CHROME names no browser: ${process.env.CHROME}` : null;
 const timed = async (target, operation, run, timings) => {
   const started = performance.now();
   const reply = await run();
@@ -47,9 +50,8 @@ const timed = async (target, operation, run, timings) => {
 
 for (const target of ['js', 'wasm']) {
   const dist = distFor(target);
-  const unavailable = browserMissing ? 'Chrome is missing' : !dist ? `${target} dist is missing` : marker(dist) !== target ? `${dist} is not a ${target} dist` : null;
-  if (unavailable) console.warn(`SKIP no-GPU ${target}: ${unavailable}`);
-  const check = unavailable ? test.skip : test.serial;
+  const fixture = !dist ? `no ${target} Caltrain dist: name one with EXACT_NO_GPU_${target.toUpperCase()}_DIST` : marker(dist) !== target ? `${dist} is not a ${target} dist` : null;
+  const check = browserMissing ? need('chrome', browserMissing) : fixture ? need('fixture', fixture) : test.serial;
 
   check(`Caltrain stays responsive without a GPU on the ${target} target`, async () => {
     const session = await open({host:'web', app:'caltrain', webDist:dist});

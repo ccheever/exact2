@@ -10,10 +10,11 @@ fn pure_utilities_match_the_web_executor() {
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     if !std::path::Path::new(&chrome).exists() {
+        // EXACT_REQUIRED=1 (the async lane): a missing prerequisite fails (scripts/coverage.mjs).
         assert_ne!(
-            std::env::var("EXACT_PURE_CHROME_REQUIRED").as_deref(),
+            std::env::var("EXACT_REQUIRED").as_deref(),
             Ok("1"),
-            "Chrome utility oracle unavailable: set CHROME to its executable"
+            "missing chrome: Chrome utility oracle unavailable: set CHROME to its executable"
         );
         eprintln!("pure utility browser sweep unavailable: set CHROME");
         return;

@@ -13,10 +13,11 @@ import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import * as playwright from 'playwright-core';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const chrome = installed();
-const check = chrome.unavailable ? test.skip : test;
+const check = need('chrome', chrome.unavailable);
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-fake-clock-')), dist = resolve(dir, 'dist');
 let served = null, browser = null;
 // Chrome takes seconds to quit once it has opened a page.
