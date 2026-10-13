@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-input-and-ime
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/533
 verified_commit: null
 ---
 
@@ -167,6 +167,38 @@ composition the engine had ended); the reference's own code (`surface.ts`) sends
 The clone keeps sending only commits and does not imitate the leak. If real-input step 1 still shows the clone sending
 separate jamo (ㅎ, ㅏ) at that cadence, should the clone imitate Chromium's states (which would also put ㅎ and 하 in the
 shell), or is "한글 once at a normal pace" the bar?
+
+## Checks
+
+On `c1725bc6a` (the final code; the record commits after it change no code). `origin/feat(example)/t3-code` was
+still `609f392d5`, this branch's base, so there was nothing to merge.
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4858 pass, 1 skip, 0 fail (328 files) |
+| strict `tsc` (README command) | 0 | and `terminal-host/src/entry.ts` with the same flags, 0 |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,453 lines |
+| AppKit `macos/tests/terminal` (README recipe) | 0 | 42 run, 1 skipped (the cost table), 0 failed |
+| `cargo test -p t3-code-macos --lib` | 0 | 25 passed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,353 passed, 0 failed, 46 ignored |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | before the live drive (`71c9602b9`'s app code); also once at the feature tip for the before drives and once more after them |
+
+During development: the terminal AppKit binary, the Bun files touched, `contract build`; `terminal-drawer-view.test.ts`
+run alone fails on a module-order error in files this task does not touch (`worktree-cleanup.ts`); it passes in the full
+suite.
+
+## Delivery
+
+Draft pull request [#533](https://github.com/ccheever/exact2/pull/533) into `feat(example)/t3-code`.
+
+## Next action
+
+The coordinator reviews the draft PR; the real-input batch runs steps 1-4 above.
 
 ## Not done / not verified
 
