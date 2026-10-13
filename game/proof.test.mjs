@@ -407,8 +407,10 @@ test('explicit focus in a commit precedes autofocus and its authored side effect
   const code=runFocusCommands.toString()+';\n'+source.slice(start,end);
   const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
   const document={activeElement:null};
-  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document',code)(
-    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document);
+  // `inputHandlers` (the tail's route-arrival call, optional there) has no
+  // part in the order under test, so it stands in as absent.
+  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document','inputHandlers',code)(
+    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{name:'focus',args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document,undefined);
   expect(calls).toEqual(['explicit']);
 });
 
@@ -711,7 +713,7 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
 });
 
 function pinLiterals(path, text) {
-  const evidence=/(^|\/)(artifacts|diaries)\/|^game\/bench\/results\/|^(llp|issues|vendor)\//;
+  const evidence=/(^|\/)(artifacts|diaries)\/|^game\/(bench|bakeoff\/[^/]+)\/results\/|^(llp|issues|vendor)\//;
   if(/(^|\/)(Cargo\.lock|bun\.lock|shells\.lock)$/.test(path) || path.endsWith('/pins.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') return [];
   const generated = path === '.llp/skills-receipt.json' || path.endsWith('/.baked-assets.json') || ['update/tests/it/fixtures/publisher/canonical.bin','update/tests/it/fixtures/publisher/exact.json'].includes(path);
   if (generated) return [];
@@ -725,6 +727,7 @@ test('pin scan includes authored benchmark tests and ordinary digest strings', (
   expect(pinLiterals('game/bench/feel.test.mjs',hash)).toEqual([hash]);
   for(const quote of ['"',"'",'`','']) expect(pinLiterals('game/engine/tests/foo.rs',quote+digest+quote).length).toBe(1);
   expect(pinLiterals('game/bench/results/receipt.md',digest)).toEqual([]);
+  expect(pinLiterals('game/bakeoff/garden/results/2026-10-06-r1/exact2/DIARY.md',hash)).toEqual([]); // a results diary is evidence, as the bench's is
   expect(pinLiterals('Cargo.lock',digest)).toEqual([]);
   expect(pinLiterals('game/engine/src/data/text.rs','0'.repeat(64))).toEqual([]); // Decimal padding, not a world pin.
   expect(pinLiterals('game/engine/src/data/text.rs',digest)).toEqual([digest]);
@@ -937,7 +940,7 @@ test('a game\'s helper scripts are not proof inputs; its build inputs are', asyn
   const {proofInputExcluded}=await import('./proof.mjs');
   for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
-  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','presentation/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','render/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
     expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
   // Shared SDK scripts stay inputs: the web glue is JavaScript.
   expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);
