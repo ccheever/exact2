@@ -605,6 +605,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     if name == "appearance" {
         doc["note"] = APPEARANCE.into();
     }
+    if name == "transform" {
+        doc["note"] = vocab::BOX_TRANSFORM_REFUSAL.into();
+    }
     doc
 }
 
@@ -697,6 +700,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if name == "appearance" {
                 lines.push(APPEARANCE.into());
+            }
+            if name == "transform" {
+                lines.push(vocab::BOX_TRANSFORM_REFUSAL.into());
             }
             lines
         }

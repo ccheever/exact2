@@ -244,6 +244,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("reachstart", "view", "reachstart=done"),
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
+        ("transform", "view", "transform=\"scale(0.8)\""),
         ("selectionchange", "view", "selectionchange=done"),
         ("name", "view", "name=\"station\""),
         ("markup", "view", "markup=\"markdown\""),
@@ -847,4 +848,27 @@ fn placeholder_answers_with_its_block() {
             .any(|a| a["name"].as_str().unwrap().starts_with("::")),
         "a part's declaration is listed as an attribute"
     );
+}
+
+#[test]
+fn transform_vocab_names_the_box_refusal_and_individual_properties() {
+    let text = stdout(&vocab(&["transform"]));
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "transform"]))).unwrap();
+    assert!(text.contains("only on SVG elements"), "{text}");
+    assert!(json["attribute"]["only"]
+        .as_str()
+        .unwrap()
+        .contains("SVG elements"));
+    for note in [text.as_str(), json["attribute"]["note"].as_str().unwrap()] {
+        for expected in [
+            "`transform`",
+            "deferred",
+            "LLP 1055.000 D5",
+            "`rotate`",
+            "translate=\"0px 25px\"",
+            "scale=0.8",
+        ] {
+            assert!(note.contains(expected), "{expected}: {note}");
+        }
+    }
 }

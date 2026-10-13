@@ -33,6 +33,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("reachstart", "`list`"),
     ("reachend", "`list`"),
     ("text-transform", "any tag but `input` and `textarea`"),
+    ("transform", "SVG elements, including `svg` and SVG `text`"),
     ("selectionchange", "`text`"),
     ("name", "`input type=\"radio\"`"),
     ("markup", "`text` or `textarea`"),
@@ -53,6 +54,9 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "an `audio` or `video` with `metadata=`",
     ),
 ];
+
+/// LLP 1055.000 D5's box refusal and the alternatives printed by `contract vocab`.
+pub const BOX_TRANSFORM_REFUSAL: &str = "write the individual `translate`, `rotate` and `scale` properties on a box: `transform=\"translate(0px, 25px)\"` becomes `translate=\"0px 25px\"`, and `transform=\"scale(0.8)\"` becomes `scale=0.8`; `transform` on a box is deferred (LLP 1055.000 D5), and is accepted only on SVG elements";
 
 /// What a button with no `buttonStyle` is on each host (LLP 1115.000 D15,
 /// D14.5), in one sentence for both places that print it. The hosts hold the
