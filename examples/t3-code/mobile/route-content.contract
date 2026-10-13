@@ -480,7 +480,8 @@ component MobileRouteContent
       SettingsInformation(data=informationData, route=routeName, query=informationQuery, legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
     else when routeName == "settings"
       SettingsRoot(data=settingsData.root, navigate=openSetting)
-      SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
+      when focused
+        SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
     else when startsWith(routeName, "settingsScheduled") or routeName == "settingsUsage" or routeName == "settingsUsageAccount"
       when focused
         SettingsAutomation(data=automationData, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, dark=(appearance.scheme == "dark"), command=automationAction)
