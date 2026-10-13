@@ -61,6 +61,22 @@ final class IdleTickTests: XCTestCase {
         }
     }
 
+    /// A slice the owner published before an empty scroll batch lands
+    /// first, and the scroll batch then still skips the pass: a fling's
+    /// fills are often in flight.
+    func testAnEmptyScrollBatchBehindAPublishedSliceLandsItAndSkipsThePass() throws {
+        let session = ExactApp.shared.makeSession(label: "idle-behind-slice")
+        defer { session.destroy() }
+        let due = session.now() + 250
+        session.publishTickForTests(wireBatch([["op": "props", "id": 1, "set": ["testId": "x"]]]))
+        XCTAssertTrue(session.tickInFlight)
+        let before = session.appliedBatches
+        session.applyUnlessEmpty(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil, timerDueMs: due), scrolled: true)
+        XCTAssertFalse(session.tickInFlight, "the slice landed")
+        XCTAssertEqual(session.appliedBatches, before + 1, "the slice's pass, not the empty scroll batch's")
+        XCTAssertEqual(session.timerDue, due, "the scroll batch's deadline, the owner's latest")
+    }
+
     func testTheControlsFlagDecodes() throws {
         let data = Data(#"{"ops":[],"timers":false,"motion":false,"controls":true}"#.utf8)
         XCTAssertTrue(Batch.decode(data).controls)

@@ -972,9 +972,15 @@ public final class ExactSession {
     /// frame. Fills and list feedback already skip theirs. Other events
     /// still apply an empty batch: a native control that changed itself
     /// before its handler ran is reconciled by the pass (a refused tab), and
-    /// the agent's clock seeks native animations through it.
+    /// the agent's clock seeks native animations through it. Slices published
+    /// before it land first (T4), and it is asked again (a fling's fills).
     func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
-        guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
+        guard !applying else { apply(batch); return }
+        if !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
+            landFill()
+            guard state != .destroyed else { return }
+        }
+        guard !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         timerDue = batch.timerDueMs
@@ -982,6 +988,11 @@ public final class ExactSession {
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
         if scrolled { presenter.scrolledWithoutPass() }
     }
+
+    #if DEBUG
+    /// Tests: a tick's slice the owner published, not yet landed.
+    func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
+    #endif
 
     /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
