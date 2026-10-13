@@ -572,8 +572,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // is (a tab bar's, under a list that runs beneath it).
             var added = UIEdgeInsets.zero
             if model.sections.last?.footer != nil, let below = model.spaceBelow { added.bottom += below }
-            added.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
-            added.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
+            added.top += owner.padding("top")
+            added.bottom += owner.padding("bottom")
             var inset = scroll.contentInset
             inset.top += added.top
             inset.bottom += added.bottom

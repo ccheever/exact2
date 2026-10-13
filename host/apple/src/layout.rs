@@ -275,9 +275,9 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
-            let field_content = node.field_content_rect();
+            let field_content = published_content_box(&node, kernel);
             let field_cell = node.is_cell_field();
-            if (self.layout_withheld && node.node_type == NodeType::TextInput)
+            if self.layout_withheld
                 || m.field_content != field_content
                 || m.field_cell != field_cell
             {
@@ -398,6 +398,31 @@ impl<D: DataSource> Host<D> {
             }
         }
     }
+}
+
+/// Publish native editor geometry, or a CSS content box when authored padding
+/// needs layout to resolve it (percentages use the containing block's width).
+pub(super) fn published_content_box(node: &NodeRef<'_>, kernel: &Kernel) -> Option<Frame> {
+    node.field_content_rect().or_else(|| {
+        let s = node.style;
+        let points = [
+            s.padding_top,
+            s.padding_right,
+            s.padding_bottom,
+            s.padding_left,
+        ]
+        .iter()
+        .all(|d| matches!(d, exact_kernel::Dimension::Points(_)));
+        (!points).then(|| {
+            let (x, y, width, height) = exact_kernel::svg::scene::content_box(kernel, node);
+            Frame {
+                x,
+                y,
+                width,
+                height,
+            }
+        })
+    })
 }
 
 /// Natural scrollable overflow, including padding and descendants. The

@@ -122,7 +122,7 @@ impl<D: DataSource> Runner<D> {
                             .flatten()
                             .and_then(|up| self.kernel.node(arena.local_id(up)))
                             .map_or(node.frame.width, |up| {
-                                exact_kernel::svg::scene::content_box(&up).2
+                                exact_kernel::svg::scene::content_box(&self.kernel, &up).2
                             });
                         let resolved = self.kernel.resolved_padding(key);
                         content_rect(&node, block, resolved, self.stitched(key))

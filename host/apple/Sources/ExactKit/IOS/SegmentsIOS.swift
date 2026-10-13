@@ -304,8 +304,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             size = CGSize(width: 1, height: natural.height)
             if owner.style["box_sizing"]?.string == "border-box" {
                 let border = owner.number("border_width")
-                size.height += owner.number("border_width_top", border) + owner.number("padding_top")
-                    + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
+                size.height += owner.number("border_width_top", border) + owner.padding("top")
+                    + owner.number("border_width_bottom", border) + owner.padding("bottom")
             }
         } else {
             guard owner.bounds.width > 0 else { return }

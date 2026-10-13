@@ -72,6 +72,8 @@ struct FlatPaint: Equatable {
         for (key, value) in style {
             // A percentage needs the final box; let the view paint it.
             if key.hasPrefix("border_radius_"), value.number == nil { return nil }
+            // Such a padding takes the content box layout sends, which a layer would not keep
+            if key.hasPrefix("padding_"), value.number == nil { return nil }
             if Self.inert.contains(key) { continue }
             switch key {
             case "position_type":

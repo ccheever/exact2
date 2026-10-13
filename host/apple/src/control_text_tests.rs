@@ -66,6 +66,7 @@ const SOURCE: &str = r#"component Fields
       input testId="field" padding="1em" value="hello"
       input testId="bare" appearance="none" value="hello"
       textarea testId="area" rows=2
+      view testId="padded" width=200 height=40 box-sizing="border-box" padding-left="5%"
 "#;
 fn field(host: &Host<NoData>, name: &str) -> u32 {
     let kernel = host.runner().kernel();
@@ -246,6 +247,18 @@ fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() 
         .unwrap()
         .field_content_rect();
     host.mirror.get_mut(&native).unwrap().field_content = guessed;
+    // As may an ordinary box's content box, which only layout resolves
+    let padded = field(&host, "padded");
+    let kernel = host.runner().kernel();
+    let (x, y, width, height) =
+        exact_kernel::svg::scene::content_box(kernel, &kernel.node(padded).unwrap());
+    assert_eq!(x, 20.);
+    host.mirror.get_mut(&padded).unwrap().field_content = Some(exact_kernel::Frame {
+        x,
+        y,
+        width,
+        height,
+    });
     failure.set(false);
     let settled: serde_json::Value = serde_json::from_str(&host.resize(400., 800.)).unwrap();
     assert!(settled["error"].is_null(), "{settled}");
@@ -264,6 +277,14 @@ fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() 
             .iter()
             .any(|op| op["op"] == "fieldContent" && op["id"] == native),
         "withheld editor rects must be republished: {settled}"
+    );
+    assert!(
+        settled["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|op| op["op"] == "fieldContent" && op["id"] == padded),
+        "withheld content boxes must be republished: {settled}"
     );
 }
 

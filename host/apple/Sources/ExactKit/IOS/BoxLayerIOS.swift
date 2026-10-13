@@ -74,12 +74,7 @@ extension NodeView {
             l.masksToBounds = false
             return
         }
-        let uniform = number("border_width")
-        let content = bounds.insetBy(
-            left: number("border_width_left", uniform) + number("padding_left"),
-            top: number("border_width_top", uniform) + number("padding_top"),
-            right: number("border_width_right", uniform) + number("padding_right"),
-            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        let content = contentBox()
         let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
         let shown = rect.intersection(content)
         let radii = cornerRadii(in: bounds)

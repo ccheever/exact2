@@ -274,12 +274,7 @@ extension NodeView {
     /// when no corner is rounded. `nil`: `draw(_:)` paints them.
     private var imagePlan: (shown: CGRect, unit: CGRect, radius: CGFloat, corners: CACornerMask)? {
         guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image else { return nil }
-        let uniform = number("border_width")
-        let content = bounds.insetBy(
-            left: number("border_width_left", uniform) + number("padding_left"),
-            top: number("border_width_top", uniform) + number("padding_top"),
-            right: number("border_width_right", uniform) + number("padding_right"),
-            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        let content = contentBox()
         let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
         let shown = rect.intersection(content)
         let radii = cornerRadii(in: bounds)

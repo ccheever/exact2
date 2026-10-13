@@ -38,7 +38,7 @@ impl<D: DataSource> Presenter<D> {
         let node = kernel.node(id)?;
         let paragraph = self.paragraph(id)?;
         let b = self.boxes.iter().find(|b| b.id == id)?;
-        let content = exact_kernel::svg::scene::content_box(&node);
+        let content = exact_kernel::svg::scene::content_box(kernel, &node);
         let (px, py) = (x - b.rect.0 - content.0, y - b.rect.1 - content.1);
         // The line whose box the point is in: from a little over the glyphs'
         // ascent above its baseline to their descent below it.
@@ -157,7 +157,7 @@ component App
             .node_by_key(kernel.find_by_test_id(reader)[0])
             .unwrap()
             .id;
-        let content = exact_kernel::svg::scene::content_box(&kernel.node(id).unwrap());
+        let content = exact_kernel::svg::scene::content_box(kernel, &kernel.node(id).unwrap());
         let rect = p.rect_of(id).unwrap();
         let paragraph = p.paragraph(id).unwrap();
         let (line, baseline) = paragraph

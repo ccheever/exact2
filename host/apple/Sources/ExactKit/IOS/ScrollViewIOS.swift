@@ -167,7 +167,7 @@ final class PaddedRefreshControl: UIRefreshControl {
         // On a node's own scroll, whose padding is in its content. A grouped
         // list's collection view holds the padding as an inset: UIKit's place.
         guard superview is ScrollView, let owner = superview?.superview as? NodeView else { return }
-        let top = owner.number("padding_top")
+        let top = owner.padding("top")
         guard top != 0 else { return }
         let gap = convert(CGPoint(x: 0, y: top), from: owner).y
         if gap != 0 { frame = frame.offsetBy(dx: 0, dy: gap) }

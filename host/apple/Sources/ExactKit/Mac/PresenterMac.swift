@@ -1068,7 +1068,7 @@ package final class Presenter {
         for op in batch.ops {
             let kind = op.op
             let id = op.id
-            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
+            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy || kind == .fieldContent) }
             switch kind {
             case .transformDrag:
                 if let binding = TransformDragBinding(op.payload) {
@@ -1277,7 +1277,7 @@ package final class Presenter {
         _ = chrome.takeChangedNames()
     }
 
-    private static let accessibilityOps: Set<BatchOp.Kind> = [.create, .props, .style, .children, .paragraph, .flow, .frame]
+    private static let accessibilityOps: Set<BatchOp.Kind> = [.create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent]
 
     /// The views a batch touched and every view above them, as the batch
     /// left the hierarchy: what a pass reading a subtree must revisit.

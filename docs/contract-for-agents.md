@@ -1923,8 +1923,12 @@ For a drag still built by hand, test the dragged node's visual centre (the middl
 its `frame(id)`, which includes the `translate` the drag gave it), not the
 pointer: the box under a lifted card is the card.
 
-SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
-refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
+SVG uses SVG names. Native SVG geometry has incomplete support for `calc()`,
+`min()`, `max()` and `clamp()`, including nested SVG viewports and `<use>`
+placement and sizing. Use numeric lengths or percentages there; CSS layout math
+on the outer SVG element does not imply support inside its scene.
+`foreignObject` compiles and renders on the web; native hosts refuse it at run
+time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
 hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
 others) and implemented by the module; its unknown attributes pass through

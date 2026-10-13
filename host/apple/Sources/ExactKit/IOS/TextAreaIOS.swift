@@ -323,7 +323,7 @@ extension NodeView {
         #else
         if isNativeTextControl {
             area.frame = bounds
-            if let r = nativeFieldContent {
+            if let r = kernelContentBox {
                 area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
             }
         } else { area.frame = contentBox() }

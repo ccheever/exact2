@@ -185,22 +185,15 @@ fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     )
 }
 impl BoxPaint {
-    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
+    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool) -> Self {
         let s = node.style;
         let widths = s.border_widths();
         let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
         let env = kernel.env();
-        let pad = |d: Dimension| match d.resolve(&env) {
-            Dimension::Points(p) => p,
-            Dimension::Percent(p) => w * p / 100.0,
-            Dimension::Calc(p, x) => w * p / 100.0 + x,
-            Dimension::Auto
-            | Dimension::Env(..)
-            | Dimension::Segment(..)
-            | Dimension::Viewport(..)
-            | Dimension::Compare(..) => 0.0,
-        };
+        // The padding layout resolved, which input reads too: a percentage
+        // is of the containing block's width
+        let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
         let material = node.props.str(PropId::BackgroundMaterial).map(|name| {
@@ -244,12 +237,7 @@ impl BoxPaint {
                 || s.backdrop_filter.clone(),
                 |m| BackdropFilter(vec![BackdropOp::Blur(m.blur)]),
             ),
-            padding: [
-                pad(s.padding_top),
-                pad(s.padding_right),
-                pad(s.padding_bottom),
-                pad(s.padding_left),
-            ],
+            padding: [top, right, bottom, left],
         }
     }
     fn geometry(&self, rect: Rect4) -> BoxGeometry {
@@ -906,7 +894,7 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
-        self.row_node(node.key, f, &p);
+        self.row_node(walk.scene.kernel, node.key, f, &p);
         // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
         if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
             self.row_refuse();
@@ -1020,8 +1008,7 @@ impl Painter {
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
-        let paint =
-            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&shown.colors);
+        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark).presented(&shown.colors);
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));

@@ -55,7 +55,7 @@ extension CollectionHost {
             let available = max(0, portHeight - content.minY - (node.bounds.height - content.maxY))
             let cross = measured ?? available
             guard cross.isFinite else { return nil }
-            let start = max(0, node.number("padding_left")), end = max(0, node.number("padding_right"))
+            let start = max(0, node.padding("left")), end = max(0, node.padding("right"))
             // From the first item: negative in the padding before it, down
             // to that padding (LLP 1010 §6.9).
             return CollectionFacts(offset: Double(max(-start, at.x + insets.left - content.minX)),
@@ -65,7 +65,7 @@ extension CollectionHost {
         let available = max(0, portWidth - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        let start = max(0, node.number("padding_top")), end = max(0, node.number("padding_bottom"))
+        let start = max(0, node.padding("top")), end = max(0, node.padding("bottom"))
         return CollectionFacts(offset: Double(max(-start, at.y + insets.top - content.minY)),
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
             measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))

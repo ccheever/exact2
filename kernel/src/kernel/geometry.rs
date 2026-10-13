@@ -259,21 +259,19 @@ impl Kernel {
     /// The padding the last layout resolved, in points: left, top, right,
     /// bottom. A percentage is of the containing block's width, which in a
     /// multi-column container is the column's (CSS Multi-column §3.4).
-    /// `None` when the node has no engine layout.
+    /// Whichever engine laid the node out publishes it, a content region's
+    /// own included: zero for a hidden node, `None` before any layout or for
+    /// a node the document's engine has no node for.
     pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
-        let slot = self.arena.resolve(key)?;
-        let node = self.arena.taffy(slot)?;
-        let pad = self.layout.as_deref()?.tree_ref()?.layout(node).padding;
-        Some((pad.left, pad.top, pad.right, pad.bottom))
+        let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.padding;
+        Some((left, top, right, bottom))
     }
 
     /// The border the last layout resolved, in points: left, top, right,
-    /// bottom. `None` when the node has no engine layout.
+    /// bottom, published as [`Kernel::resolved_padding`] is.
     pub fn resolved_border(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
-        let slot = self.arena.resolve(key)?;
-        let node = self.arena.taffy(slot)?;
-        let b = self.layout.as_deref()?.tree_ref()?.layout(node).border;
-        Some((b.left, b.top, b.right, b.bottom))
+        let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.border;
+        Some((left, top, right, bottom))
     }
 
     /// The root `slot` is laid out under, when nothing between them was

@@ -85,7 +85,7 @@ mod activation_tests;
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
-use layout::content_size;
+use layout::{content_size, published_content_box};
 #[path = "resize.rs"]
 mod resize;
 #[path = "scale.rs"]

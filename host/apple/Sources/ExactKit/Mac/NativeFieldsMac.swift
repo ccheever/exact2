@@ -8,7 +8,7 @@ extension NodeView {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
     }
     func nativeEditorRect(in proposed: NSRect) -> NSRect? {
-        guard isNativeTextControl, let rect = nativeFieldContent else { return nil }
+        guard isNativeTextControl, let rect = kernelContentBox else { return nil }
         var content = proposed.insetBy(left: rect.minX, top: rect.minY,
             right: max(0, bounds.width - rect.maxX), bottom: max(0, bounds.height - rect.maxY))
         // NSTextFieldCell top-aligns a tall title rect. Centre its one line
@@ -104,12 +104,11 @@ extension NodeView {
         applyTextChecking(editor)
     }
     func applyFieldContent(_ payload: [String: Any]) {
-        if let r = payload["rect"] as? [Double], r.count == 4 {
-            nativeFieldContent = NSRect(x: r[0], y: r[1], width: r[2], height: r[3])
-        } else { nativeFieldContent = nil }
-        let cell = nativeFieldContent != nil && payload["cell"] as? Bool == true
+        let r = payload["rect"] as? [Double]
+        let box = r.flatMap { $0.count == 4 ? NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
+        applyKernelContentBox(box)
+        let cell = box != nil && payload["cell"] as? Bool == true
         if cell != fieldInCell { fieldInCell = cell; styleNativeField() }
-        layoutField(); layoutTextArea()
     }
 }
 

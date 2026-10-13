@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import ImageIO
 import XCTest
 @testable import ExactKit
 
@@ -184,6 +185,45 @@ final class BoxLayerMacTests: XCTestCase {
         n.frame.size = CGSize(width: 80, height: 160)
         XCTAssertEqual(n.cornerSizes(in: n.bounds), Array(repeating: CGSize(width: 40, height: 80), count: 4))
         XCTAssertNil(FlatPaint(style), "percentage geometry cannot use a fixed-radius flat leaf")
+    }
+
+    /// A content box layout sends with no frame or style change (a
+    /// percentage padding whose containing block widened) repaints an
+    /// image by the new one: a radius over a padded content box draws, so
+    /// the next display draws it rather than keeping the sublayer's choice.
+    func testAnImageFollowsAContentBoxSentAlone() throws {
+        _ = NSApplication.shared
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-content-box-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1); context.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(root.appendingPathComponent("wide.png") as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: root)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        let n = NodeView(id: 1, kind: "image", presenter: p)
+        defer { loader.shutdown(); n.raster = nil; window.close(); withExtendedLifetime(resolver) {} }
+        p.views[1] = n; p.viewport.addSubview(n)
+        n.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
+        var style = round(20); style["object_fit"] = .string("cover"); style["padding_left"] = .object(["pct": .number(10)])
+        n.applyStyle(style)
+        n.loadGeneration = 1
+        loader.load(n, source: "wide.png", resolver: resolver)
+        let end = Date(timeIntervalSinceNow: 300)
+        while n.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        n.applyFieldContent(["rect": [0.0, 0.0, 40.0, 40.0]])
+        n.display()
+        XCTAssertNotNil(n.imageLayer, "an unpadded rounded image is a sublayer")
+        XCTAssertNil(n.layer?.contents)
+        n.applyFieldContent(["rect": [4.0, 0.0, 36.0, 40.0]])
+        n.display()
+        XCTAssertNil(n.imageLayer)
+        XCTAssertNotNil(n.layer?.contents, "a radius over a padded content box draws")
     }
 
     private func node(_ style: NodeStyle, kind: String = "view", size: CGSize = CGSize(width: 300, height: 120)) -> NodeView {

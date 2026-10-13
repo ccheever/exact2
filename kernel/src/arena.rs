@@ -5,10 +5,9 @@
 //! ([`NodeKey`]), and destroyed slots go on a free list. Nothing here hashes on
 //! the read path except the wire-id lookup a producer's op needs once.
 //!
-//! The arena is the authored truth. Frames and Taffy handles are derived
-//! columns: rehydration is columns-plus-rebuild, never serialized engine state.
+//! Rehydration rebuilds frames and Taffy handles from authored columns.
 
-use crate::id::IdMap;
+use crate::id::{BoxInset, IdMap};
 use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
 use std::rc::Rc;
@@ -75,6 +74,8 @@ pub struct NodeArena {
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
+    /// Padding and border published by the document or content-region layout.
+    insets: Vec<Option<BoxInset>>,
     /// Host intrinsic size: a replaced element's natural size or a projected
     /// tablist's or radio group's native control size; `None` before
     /// measurement or after removal.
@@ -138,6 +139,7 @@ impl Clone for NodeArena {
             display_scale: self.display_scale,
             display_scale_next: self.display_scale_next,
             contents: self.contents.clone(),
+            insets: self.insets.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),
             blocks: self.blocks.clone(),
@@ -219,6 +221,7 @@ impl NodeArena {
             self.type_counts.clear();
             self.frames[slot] = Frame::default();
             self.contents[slot] = (0.0, 0.0);
+            self.insets[slot] = None;
             self.intrinsic[slot] = None;
             self.taffy[slot] = None;
             self.is_root[slot] = false;
@@ -275,6 +278,7 @@ impl NodeArena {
             geometry_passes,
             frames,
             contents,
+            insets,
             intrinsic,
             taffy,
             is_root,
@@ -848,6 +852,7 @@ impl NodeArena {
                 self.geometry_passes.push((0, 0));
                 self.frames.push(Frame::default());
                 self.contents.push((0.0, 0.0));
+                self.insets.push(None);
                 self.intrinsic.push(None);
                 self.taffy.push(None);
                 self.is_root.push(false);
@@ -871,6 +876,7 @@ impl NodeArena {
         self.layout_dirty.insert(slot);
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.insets[s] = None;
         self.intrinsic[s] = None;
         self.taffy[s] = None;
         self.is_root[s] = false;
@@ -904,6 +910,7 @@ impl NodeArena {
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.insets[s] = None;
         self.intrinsic[s] = None;
         self.covers.retain(|(s, _)| *s != slot);
         self.blocks.set(slot, None);
@@ -1113,6 +1120,14 @@ impl NodeArena {
 
     pub(crate) fn set_content(&mut self, slot: u32, content: (f32, f32)) {
         self.contents[slot as usize] = content;
+    }
+
+    pub(crate) fn set_inset(&mut self, slot: u32, inset: Option<BoxInset>) {
+        self.insets[slot as usize] = inset;
+    }
+
+    pub(crate) fn inset(&self, slot: u32) -> Option<BoxInset> {
+        self.insets[slot as usize]
     }
 
     pub(crate) fn set_frame(&mut self, slot: u32, frame: Frame) {
