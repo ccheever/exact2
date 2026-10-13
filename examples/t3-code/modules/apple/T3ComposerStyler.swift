@@ -378,6 +378,11 @@ final class T3ComposerStyler {
         guard chipKind(chip) == "terminal", let value = contextPath(chip).flatMap({ contexts[$0] }) else { return nil }
         return value.components(separatedBy: "\t").dropFirst(2).joined(separator: "\t")
     }
+    /// composer-chips-accessibility: a context reference the draft holds no record for (composerContextPresentation's
+    /// fallback, UnresolvedContextChip: CircleDashedIcon, the neutral chip dashed, "Unavailable context, <label>").
+    func chipMissing(_ chip: T3ComposerChip) -> Bool {
+        chip.kind == "context" && (contextPath(chip).map { contexts[$0] == nil } ?? true)
+    }
     func chipResolved(_ chip: T3ComposerChip) -> Bool {
         guard chip.kind == "context" else { return true }
         if let text = terminalText(chip) { return !text.isEmpty }
@@ -708,7 +713,8 @@ final class T3ComposerUnderlay: NSView {
     private func drawChip(_ chip: T3ComposerChip, in rect: NSRect, size: CGFloat, dark: Bool, styler: T3ComposerStyler, font: NSFont) {
         let resolved = styler.chipResolved(chip)
         let image = resolved ? styler.chipImage(chip) : nil
-        let palette = image?.palette ?? T3ComposerUnderlay.palette[styler.chipKind(chip)] ?? T3ComposerUnderlay.palette["thread"]!
+        let missing = styler.chipMissing(chip)
+        let palette = image?.palette ?? T3ComposerUnderlay.palette[missing ? "neutral" : styler.chipKind(chip)] ?? T3ComposerUnderlay.palette["thread"]!
         let ink = resolved ? NSColor(t3Hex: dark ? palette[1] : palette[0]) : (styler.baseInk ?? .textColor)
         let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: size * 0.5, yRadius: size * 0.5)
         NSColor(t3Hex: palette[2]).setFill(); path.fill()
@@ -730,7 +736,7 @@ final class T3ComposerUnderlay: NSView {
             NSImage(cgImage: image.thumbnail, size: iconRect.size).draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
             NSGraphicsContext.restoreGraphicsState()
         } else {
-            T3ComposerIcons.draw(T3ComposerIcons.name(for: chip, kind: styler.chipKind(chip)), in: iconRect, color: ink, dark: dark, path: chip.detail)
+            T3ComposerIcons.draw(missing ? "circle-dashed" : T3ComposerIcons.name(for: chip, kind: styler.chipKind(chip)), in: iconRect, color: ink, dark: dark, path: chip.detail)
         }
         let label = styler.displayLabel(chip) as NSString
         let labelFont = styler.chipFont(font)
@@ -776,6 +782,8 @@ final class T3ComposerUnderlay: NSView {
     /// dark border] from oklch(0.62 C H) mixed as the reference's tokens do.
     static let palette: [String: [String]] = [
         "thread": ["#2a3f40", "#c9e2df", "#009c961c", "#a6cccb", "#21a7a161"],
+        // composer-chips-accessibility: ContextChip's default kind (an unresolved reference): border-border/70, bg-accent/40.
+        "neutral": ["#27272a", "#f5f5f5", "#f4f4f566", "#e4e4e7b3", "#ffffff0f"],
         "mention": ["#2c3e45", "#cbe0e6", "#0096af1c", "#a9cad5", "#39a1b861"],
         "file": ["#2b3d4b", "#cadfed", "#0090cd1c", "#a8c8e0", "#389cd361"],
         "skill": ["#433448", "#e7d4ea", "#b261be1c", "#d4b8db", "#ba72c661"],
