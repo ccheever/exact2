@@ -369,8 +369,12 @@ final class T3TerminalView: ExactNativeInstance {
         synchronizedStatus = status
     }
 
-    /// writeSystemMessage: `\r\n[terminal] <message>\r\n`.
-    func systemMessage(_ message: String) { write("\r\n[terminal] \(message)\r\n") }
+    /// writeSystemMessage: `\r\n[terminal] <message>\r\n`, every line end of the message a CRLF, so a
+    /// server's multi-line message starts each line at the left edge (a bare LF stair-steps it).
+    func systemMessage(_ message: String) { write("\r\n[terminal] \(Self.crlf(message))\r\n") }
+    static func crlf(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n")
+    }
 
     override var view: ExactNativeView { web }
     override var focusTarget: ExactNativeView? { web }

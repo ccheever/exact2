@@ -471,7 +471,7 @@ component T3Code
   state licenseExpanded = ""
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
-  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id) as shape list<KeyDispatch>
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp) as shape list<KeyDispatch>
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision) as shape SourceControlPage
   resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, fdaPoll) as shape IntegrationsPage
   // browser-surface part 4: the import wizard's Full Disk Access step reads the grant again every 1.5 s and when the window
@@ -1274,6 +1274,7 @@ component T3Code
   state confirmDestructive = false
   state confirmOp = ""
   state confirmTarget = ""
+  state confirmReturn = "" // terminal-links-and-close G1-4: the element a terminal close confirm opened from gives the focus back on Cancel (Base UI's finalFocus)
   state confirmValue = ""
   state terminalCloseHandled = 0
   task shellTicks mount
@@ -1331,6 +1332,7 @@ component T3Code
     confirmDestructive = true
     confirmOp = shell.panel.terminalClose.op
     confirmTarget = shell.panel.terminalClose.target
+    confirmReturn = ""
     confirmValue = ""
     focus("app-confirm-cancel") // dialog-shortcut-focus: the confirm takes the focus from the terminal (Base UI's initialFocus); Cancel gives it back
   task shellOpen when shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
@@ -1422,7 +1424,8 @@ component T3Code
       openSettings() // a project link replaces the whole scope (retainSettingsScope)
       settingsProjectId = target
       settingsRoute = "projects"
-    if op == "ui:confirm"
+    if op == "ui:confirm" or startsWith(op, "ui:confirm:") // `ui:confirm:<id>`: Cancel gives the focus back to element <id>
+      confirmReturn = op == "ui:confirm" ? "" : slice(op, 11)
       confirmTitle = askTitle
       confirmBody = askBody
       confirmDestructive = destructive
@@ -1438,6 +1441,8 @@ component T3Code
       sidebarRun("snooze:custom", target, "title")
   action confirmUi(accept: bool)
     confirmOp = ""
+    if confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close" or confirmOp == "shelllocal:surface-close-confirmed"
+      terminalCloseHandled = shell.panel.terminalClose.serial // a terminal close asked while it was open is dropped, as the reference refuses it (G1-4)
     if startsWith(confirmOp, "shell:") // dialog-shortcut-focus: the title menu's confirms give the focus back to its trigger (Base UI's finalFocus)
       focus("thread-title")
     if accept and (confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close")
@@ -1445,6 +1450,8 @@ component T3Code
     else if accept and not commandPending
       commandPending = true
       send changed = command(confirmOp, confirmTarget, confirmValue, 0)
+    else if not accept and (confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close") and confirmReturn != ""
+      focus(confirmReturn)
     else if not accept and (confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close")
       send terminalChanged = command(confirmOp == "terminallocal:close" ? "terminallocal:focus" : "terminalpanellocal:focus", confirmTarget, "", 0)
     else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open

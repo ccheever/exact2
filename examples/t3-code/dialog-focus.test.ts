@@ -134,9 +134,10 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     expect(app).toMatch(/confirmValue = ""\n\s+focus\("app-confirm-cancel"\)/); // the terminal's close asks with the focus in the confirm
     // The terminal's own close buttons keep the focus when pressed; they move it into the confirm themselves.
     const terminal = await source('terminal.contract');
-    expect(terminal.match(/action askClose[^\n]*\n\s+confirm\("ui:confirm"[^\n]*\n\s+focus\("app-confirm-cancel"\)/g)?.length).toBe(2);
-    expect(terminal).toContain('button press=askClose(tab.target, tab.closeTitle, tab.closeBody)');
-    expect(terminal).toContain('id="terminal-close", strip=strip, edge=true, press=askClose)');
+    // terminal-links-and-close G1-4: each asks as `ui:confirm:<its element>`, which Cancel gives the focus back to.
+    expect(terminal.match(/action askClose[^\n]*\n\s+confirm\(`ui:confirm:[^\n]*\n\s+focus\("app-confirm-cancel"\)/g)?.length).toBe(2);
+    expect(terminal).toContain('press=askClose(tab.target, tab.closeTitle, tab.closeBody, `terminal-tab-close-${view.surface}-${tab.id}`)');
+    expect(terminal).toContain('id="terminal-close", elementId=`terminal-close-${view.surface}`, strip=strip, edge=true, press=askClose)');
     const overlays = await source('sidebar-overlays.contract');
     expect(overlays).toContain('cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))');
     const rows = (await source('sidebar-row.contract')).split('\n').filter(line => line.includes('testId=`thread-${t.id}`') && line.includes('press=open(t.id, "click")'));

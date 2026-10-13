@@ -132,13 +132,16 @@ final class T3TerminalActions: NSObject {
 
     /// TS owns the URL-vs-path decision and editor preference. This boundary performs only
     /// the system-browser branch and reports a terminal-local failure without opening files.
-    static func perform(_ request: [String: Any], reply: ExactReply) -> Bool {
+    /// An agent run opens nothing: the URL is recorded as `remoteEditorsOpen` records it
+    /// (T3RemoteEditors.openOrRecord, `T3_REMOTE_OPEN_LOG`), so a drive can read what a link did.
+    static func perform(_ request: [String: Any], agent: Bool = false, reply: ExactReply) -> Bool {
         guard let op = request["op"] as? String, ["terminalOpenExternal", "terminalSystemMessage"].contains(op) else { return false }
         DispatchQueue.main.async {
             let value: [String: Any]
             if op == "terminalOpenExternal" {
-                let url = (request["url"] as? String).flatMap(URL.init(string:))
-                let opened = url.map { ["http", "https"].contains($0.scheme?.lowercased() ?? "") && NSWorkspace.shared.open($0) } ?? false
+                let text = request["url"] as? String ?? ""
+                let url = URL(string: text).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+                let opened = url.map { agent ? T3RemoteEditors.openOrRecord(text, agent: true) : NSWorkspace.shared.open($0) } ?? false
                 value = ["opened": opened]
             } else {
                 let views = T3Terminals.shared.all.filter { view in
