@@ -194,6 +194,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     /// Whether `node` is the row lifted into a preview: a children op on its
     /// popover leaves it there.
     func lifts(_ node: NodeView) -> Bool { open?.preview === node }
+    func logicalParent(of view: UIView) -> UIView? {
+        guard let owner = open, owner.preview === view, !owner.dropped else { return nil }
+        return owner.inPopover ? owner.homePopover?.container : owner.container
+    }
     func children(_ parent: UIView, _ wanted: [NodeView]) {
         guard let owner = open, let preview = owner.preview else { return }
         if let i = wanted.firstIndex(where: { $0 === preview }) {

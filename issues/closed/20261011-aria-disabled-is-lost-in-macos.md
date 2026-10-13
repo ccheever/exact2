@@ -1,6 +1,7 @@
 # ARIA disabled is lost in macOS standard toolbar viewers
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Standard toolbar viewers and grouped-list cells carry ARIA disabled without blocking input; lifted popovers, production context-menu previews and custom rows retain authored ancestry for state and descendant refresh. Covered by HeaderMacTests.testARIAUnavailableToolbarViewerRemainsPressable, GroupedListIOSTests.testARIAUnavailableReachesStandardCellsAndCarriedRows, NativeContextsIOSTests.testLiftedContentKeepsItsAuthoredARIAUnavailableAncestor and ContextMenuLifetimeIOSTests.testLiftedPreviewKeepsAuthoredARIAUnavailableAndRefreshesItsButton.
 **Systems:** AppKit, accessibility
 **Author:** ariadisabled review fix
 **Date:** 2026-10-11

@@ -229,9 +229,12 @@ extension Agent {
     /// presentation transform applied (UIKit's conversion carries `transform`),
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     package func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
-        let bounds = region ?? v.bounds
+        Self.box(region ?? v.bounds, of: v, viewport: presenter.viewport)
+    }
+
+    static func box(_ bounds: CGRect, of v: UIView, viewport: UIScrollView) -> CGRect {
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
-        let vp = presenter.viewport
+        let vp = viewport
         let o = vp.contentOffset
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box
         // where it is seen, through the placement, not the kernel's frame,
@@ -277,6 +280,8 @@ extension Agent {
             }
             nodes.append(n)
         }
+        nodes.append(contentsOf: inlineLayout())
+        nodes.sort { ($0["id"] as? Int ?? 0) < ($1["id"] as? Int ?? 0) }
         // The page's environment (LLP 1012 §1): the insets the kernel was
         // given, and the keyboard's inset on the viewport, by the web's
         // `env()` names.
@@ -306,7 +311,7 @@ extension Agent {
     /// the window and the screen, the scroll and clip chains above it, whether
     /// it is hidden, inert, in the viewport or clipped away, and what was
     /// mounted for it. Observations, never a second model; a stale id is
-    /// refused by name. An inline run's geometry is its paragraph's.
+    /// refused by name. An inline run's geometry is its fragment union.
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
@@ -346,11 +351,12 @@ extension Agent {
         }
         let vp = presenter.viewport
         let rect = { (r: CGRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
-        let b = box(host)
-        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(host.bounds.width), "h": Agent.r2(host.bounds.height)],
+        let local = presenter.inlineText(UInt32(id)).map { host.inlineBounds($0) ?? .zero } ?? host.bounds
+        let b = presenter.inlineFrame(UInt32(id)) ?? box(host, region: local)
+        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(local.width), "h": Agent.r2(local.height)],
                                     "capture": ["scale": Agent.r2(vp.window?.screen.scale ?? vp.traitCollection.displayScale)]]
         if let w = host.window {
-            let inWindow = host.convert(host.bounds, to: w)
+            let inWindow = host.convert(local, to: w)
             space["window"] = rect(inWindow)
             space["screen"] = rect(w.convert(inWindow, to: w.screen.coordinateSpace))
         }

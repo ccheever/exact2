@@ -50,7 +50,7 @@ extension NodeView {
             #if os(macOS)
             ancestor = presenter?.menus.parent(of: view) ?? view.superview
             #else
-            ancestor = (view as? NodeView).flatMap { presenter?.navigation.logicalParent(of: $0) } ?? view.superview
+            ancestor = presenter?.accessibilityParent(of: view) ?? view.superview
             #endif
         }
         return false
@@ -415,6 +415,13 @@ extension NodeView {
 }
 
 extension Presenter {
+    #if !os(macOS)
+    /// Native presentations carry views out of their authored ancestry.
+    func accessibilityParent(of view: UIView) -> UIView? {
+        menus.logicalParent(of: view) ?? groupedLists?.logicalParent(of: view)
+            ?? (view as? NodeView).flatMap { navigation.logicalParent(of: $0) } ?? view.superview
+    }
+    #endif
     /// Names, live regions and autofocus. `changed` limits the pass to the
     /// views a batch touched and their ancestors — a button's name reads its
     /// subtree — plus every live region and pending autofocus; nil reads
@@ -440,7 +447,7 @@ extension Presenter {
                         #if os(macOS)
                         ancestor = menus.parent(of: view)
                         #else
-                        ancestor = (view as? NodeView).flatMap { navigation.logicalParent(of: $0) } ?? view.superview
+                        ancestor = accessibilityParent(of: view)
                         #endif
                     }
                 }

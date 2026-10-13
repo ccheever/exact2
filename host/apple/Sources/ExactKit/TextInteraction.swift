@@ -1,5 +1,6 @@
 // Paragraph input/AX projection. The run table owns identity; native elements
 // are created only when accessibility requests them, never when mounting text.
+import CoreText
 #if os(macOS)
 import AppKit
 #else
@@ -96,13 +97,6 @@ extension NodeView {
         if headingLevel != nil { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
         accessibilityLabel = label
         #endif
-    }
-    func inlineRects(_ run: InlineText) -> [CGRect] {
-        guard let paragraph = paragraphLayout() else { return [] }
-        // A run's range is in the source; the lines, in the shaped text (LLP 1053 G5).
-        let spec = paragraphSpec()
-        let lo = spec.source.collapsed(run.range.location), hi = spec.source.collapsed(NSMaxRange(run.range))
-        return paragraph.selectionRects(NSRange(location: lo, length: hi - lo), align: spec.align, in: contentBox(), dirty: bounds)
     }
     func textAccessibilityChildren() -> [Any]? {
         #if os(macOS)

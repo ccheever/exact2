@@ -26,6 +26,7 @@ extension Presenter {
               event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
               let window = owner ?? event.window, window === viewport.window,
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
+        if let run = window.firstResponder as? InlineKeyView, run.owner?.inlineContextMenu(run.id) == true { return true }
         let point: NSPoint
         var next: NSView?
         if let focus = keyTarget(window.firstResponder) {

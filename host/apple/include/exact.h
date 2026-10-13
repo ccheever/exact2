@@ -432,6 +432,11 @@ uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t le
  * frame() and measure() subtract from the kernel's scroll-free box, so an
  * action reads the box where the viewer sees it (LLP 1051.000 D1). No batch. */
 void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, double top);
+/* An inline run's shaped fragments, united in viewport coordinates. Called
+ * synchronously on the runtime owner; UI work is served on main. */
+typedef struct { double x, y, width, height; uint32_t available; } ExactInlineFrame;
+typedef ExactInlineFrame (*ExactInlineFrameFn)(void *ctx, uint32_t view);
+void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, void *ctx);
 /* Open top-layer views in back-to-front order, with viewport x/y/width/height
  * in four doubles per id. Structural reads use their actual presentation. */
 void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, uint32_t count);

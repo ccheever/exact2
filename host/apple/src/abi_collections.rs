@@ -140,7 +140,11 @@ impl<D: DataSource> Bridge<D> {
         let text = self
             .host
             .as_ref()
-            .and_then(|h| h.runner().list_text(view, range).ok())
+            .and_then(|h| {
+                h.runner()
+                    .list_text(view, range, exact_runner::ListTextPolicy::MacOS)
+                    .ok()
+            })
             .unwrap_or_default();
         self.emit(text)
     }

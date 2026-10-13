@@ -1,6 +1,7 @@
 # macOS: a centred line wider than its box is centred and clipped at its start (CSS start-aligns it)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Already fixed by 24083b9b9: all Apple text paths use direction-aware overflow start alignment; TextGeometryTests.testALineWiderThanItsBoxIsStartAlignedAndOverflowsTheEndEdge passes (54-test class verified).
 **Systems:** host/apple, text geometry, raster
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
