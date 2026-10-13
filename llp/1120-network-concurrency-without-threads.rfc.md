@@ -592,8 +592,15 @@ The historical `bsky4` commit `c5e6e50` and its `tools/perf/measure.py` are abse
 from the available local, Air and Studio checkouts. The older local Bluesky
 checkout has a Rust-only data module despite `rust.mode=off`, so using it would
 require an app migration and would not reproduce the specified baseline.
-Current included-app device smoke and controlled diagnostics cannot satisfy
-§5's four interleaved 12-run LTE arms. The default therefore remains off.
+Charlie assigned the historical `bsky4` benchmarking and rollout campaign to
+the agent on Tuft on October 13. That lane owns recovering the original fixture
+and measurement script, the four interleaved 12-run LTE arms, HTTP/2 transaction
+and connection-overlap evidence, and the remaining §5 recordings. Its handoff
+includes the controlled stall's four connections and 6 / 6 / 6 / 1 terminal
+waves, the exact activation-relative deadline semantics, and the prohibition
+on speculative replay of writes. Current included-app device smoke and these
+controlled diagnostics cannot satisfy that gate. The default remains off until
+the external campaign passes it and the independent code reviews are clear.
 
 ## Ibex consumer adoption, 2026-10-13
 
