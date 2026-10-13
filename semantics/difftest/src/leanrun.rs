@@ -97,24 +97,21 @@ pub fn module(cases: &[LeanCase]) -> String {
 /// `verify` turn it on; `DIFFTEST_CACHE=1` or `0` decides for any command).
 pub static CACHE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn caching() -> bool {
+/// The library's digest when observations are kept and reused.
+fn caching() -> Option<&'static str> {
     let on = match std::env::var("DIFFTEST_CACHE").as_deref() {
         Ok("1") => true,
         Ok("0") => false,
         _ => CACHE.load(std::sync::atomic::Ordering::Relaxed),
     };
-    on && library_digest().is_some()
+    library_digest().filter(|_| on)
 }
-
-/// Bumped when what a kept observation means changes in a way the digests
-/// below cannot see.
-const CACHE_PROTOCOL: &str = "2";
 
 /// A digest of everything that decides what Lean prints for a case beside
 /// the case itself: the semantics' sources, the toolchain, the Lake files,
 /// and this file, which writes the harness around a case, runs Lean and
-/// splits its output. `None` when a source cannot be read: then nothing is
-/// reused.
+/// splits its output (so editing it starts the cache afresh). `None` when a
+/// source cannot be read: then nothing is reused.
 fn library_digest() -> Option<&'static str> {
     static DIGEST: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     DIGEST
@@ -140,7 +137,6 @@ fn library_digest() -> Option<&'static str> {
             walk(&root.join("Contract"), &mut files)?;
             files.sort();
             let mut h = Digest::default();
-            h.add(CACHE_PROTOCOL.as_bytes());
             h.add(include_str!("leanrun.rs").as_bytes());
             for f in files {
                 h.add(
@@ -180,9 +176,9 @@ impl Digest {
 
 /// Where a case's observation is kept: keyed by its embedding (whatever
 /// its `def`'s name), oracle and events, and the library.
-fn cache_file(dir: &Path, c: &LeanCase) -> PathBuf {
+fn cache_file(dir: &Path, library: &str, c: &LeanCase) -> PathBuf {
     let mut h = Digest::default();
-    h.add(library_digest().unwrap_or_default().as_bytes());
+    h.add(library.as_bytes());
     h.add(
         c.program
             .replacen(&format!("def {} ", c.name), "def _ ", 1)
@@ -203,11 +199,11 @@ pub fn memo(
     module: &str,
     f: impl FnOnce() -> Result<Vec<String>, String>,
 ) -> Result<Vec<String>, String> {
-    if !caching() {
+    let Some(library) = caching() else {
         return f();
-    }
+    };
     let mut h = Digest::default();
-    h.add(library_digest().unwrap_or_default().as_bytes());
+    h.add(library.as_bytes());
     h.add(module.as_bytes());
     let file = dir.join("cache").join(format!("{}.txt", h.hex()));
     if let Ok(t) = std::fs::read_to_string(&file) {
@@ -228,10 +224,10 @@ pub fn memo(
 /// are those of a case run before is answered from what that run printed
 /// (Lean's run is deterministic), and only the rest reach Lean.
 pub fn run(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<String>>, String> {
-    if !caching() {
+    let Some(library) = caching() else {
         return run_uncached(cases, dir, tag);
-    }
-    let files: Vec<PathBuf> = cases.iter().map(|c| cache_file(dir, c)).collect();
+    };
+    let files: Vec<PathBuf> = cases.iter().map(|c| cache_file(dir, library, c)).collect();
     let mut results: Vec<Option<Vec<String>>> = files
         .iter()
         .map(|f| {

@@ -4,12 +4,12 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SCHEMA, Store, changedSince, checkEnv, entry, fingerprint, walk } from './async-inputs.mjs';
-import { checks, outcomeOf, semanticsChecks } from './async.mjs';
+import { Inputs, SCHEMA, Store, UNAVAILABLE, changedSince, checkEnv, decide, entry, fingerprint, outcomeOf } from './async-inputs.mjs';
+import { checks, semanticsChecks } from './async.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'async-inputs-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
-const fp = (groups, command = ['sh', ['-c', 'true']], env = {}) => fingerprint('difftest', ...command, env, groups);
+const fp = (groups, command = ['sh', ['-c', 'true']], env = {}) => fingerprint(...command, env, groups);
 
 test('a path is absent, a directory, a link or a file by its content', () => {
   const root = mkdtempSync(join(dir, 'entry-'));
@@ -26,6 +26,7 @@ test('a path is absent, a directory, a link or a file by its content', () => {
 
 test('a walk sees hidden files and empty directories, and skips what it is told to', () => {
   const root = mkdtempSync(join(dir, 'walk-'));
+  const walk = (_, r, skip) => new Inputs(root, {}).lines([r], skip);
   mkdirSync(join(root, 'app/.shells'), { recursive: true });
   writeFileSync(join(root, 'app/.shells/app.json'), '{}');
   const before = walk(root, 'app');
@@ -87,17 +88,27 @@ test('what changed is named against the last pass', () => {
   expect(changedSince(store, 'difftest', fp({ binary: ['2'], programs: ['1'] }))).toEqual(['binary']);
 });
 
+test('a gated check is skipped on a pass under its inputs, and runs when the gate cannot tell', async () => {
+  const store = new Store(mkdtempSync(join(dir, 'decide-')));
+  const opts = { env: {}, inputs: async () => ({ g: ['a'] }) };
+  const first = await decide(store, null, 'lean', 'sh', [], opts);
+  expect(first.changed).toEqual(['(no pass recorded)']);
+  store.record('lean', first.fp, 'pass', { sha: 'one' });
+  expect((await decide(store, null, 'lean', 'sh', [], opts)).passed?.sha).toBe('one');
+  expect((await decide(store, null, 'lean', 'sh', [], { ...opts, inputs: async () => ({ g: ['b'] }) })).changed).toEqual(['g']);
+  const failed = await decide(store, null, 'lean', 'sh', [], { ...opts, inputs: async () => { throw new Error('no graph'); } });
+  expect(failed).toEqual({ error: 'no graph' });
+});
+
 test('the semantics run as four gated checks, and only a finished run is an outcome', () => {
   const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
-  const gated = steps.filter(step => step[3]).map(([name]) => name);
-  expect(gated).toEqual(['lean', 'vm-extract', 'difftest', 'difftest-js']);
+  expect(steps.filter(step => step[3]).map(([name]) => name)).toEqual(['lean', 'vm-extract', 'difftest', 'difftest-js']);
   const byName = Object.fromEntries(semanticsChecks({ HOME: '/h', PATH: '/p', EXACT_AGENT: '1' }).map(s => [s[0], s]));
   expect(byName.difftest[3].env).toEqual({ HOME: '/h', PATH: '/h/.elan/bin:/p', HERMES_LEAN_SYS_OFFLINE: '1', DIFFTEST_CACHE: '1' });
   expect(byName['difftest-js'][2][1]).toContain('--js-only');
   expect(byName.difftest[2][1]).not.toContain('--js');
-  const vm = byName['vm-extract'][3];
-  expect(outcomeOf(vm, 'vm-extract: skipped: Charon not found at /x (CHARON)\n', 0, false)).toBe('unavailable');
-  expect(outcomeOf(vm, 'vm-extract: lake build\n', 0, false)).toBe('pass');
-  expect(outcomeOf(vm, '', 1, false)).toBe('fail');
-  expect(outcomeOf(byName.lean[3], '', 0, true)).toBe('fail');
+  expect(outcomeOf(0, false)).toBe('pass');
+  expect(outcomeOf(UNAVAILABLE, false)).toBe('unavailable');
+  expect(outcomeOf(1, false)).toBe('fail');
+  expect(outcomeOf(0, true)).toBe('fail');
 });

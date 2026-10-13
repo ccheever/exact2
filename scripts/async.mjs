@@ -51,7 +51,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, resolve } from 'node:path';
-import { INPUTS, Store, changedSince, checkEnv, fingerprint, sourcesOf } from './async-inputs.mjs';
+import { INPUTS, Inputs, Store, checkEnv, decide, outcomeOf } from './async-inputs.mjs';
 import { main as issue } from './issue.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -150,58 +150,36 @@ export function appleTouched(sha, since, diff = git) {
 }
 
 // The Contract semantics (semantics/README.md; Charlie, 2026-10-03), four
-// checks with their own inputs (scripts/async-inputs.mjs). `lean`: the Lean
-// project builds with every proof checked (the app proofs among them); a
-// `sorry` fails it, since a proof that is not there is not checked.
-// `vm-extract`: the shipped VM machine extracted (Charon, Aeneas) and proved
-// against Contract/Vm.lean (semantics/vm-extract/README.md); where a tool is
-// missing it says so and is unavailable, never a pass. `difftest`: the
-// runner against the semantics over the scripted corpus, the explored
-// programs and a fixed random sweep (fixed seeds, so a divergence is
-// attributed to the commit that made it), the compiler's bytecode on the Lean
-// VM model, the Lean type checker against the Rust one, component expansion
-// against the Lean expander and the component-level semantics, and number
-// printing; Lean's answers are reused for a case whose program, oracle,
-// events and semantics are unchanged (`DIFFTEST_CACHE`). `difftest-js`: the
-// corpus, the explored programs and a smaller sweep on the web JS target (the
-// second implementation) against the runner. Every part of a check runs
-// whatever the one before it found.
+// checks, each with its inputs (scripts/async-inputs.mjs). A `sorry` fails
+// `lean`: a proof that is not there is not checked. The sweeps' seeds are
+// fixed, so a divergence is attributed to the commit that made it. Every part
+// of a check runs whatever the one before it found.
 const difftest = args => `cargo run -q -p contract-difftest -- ${args} || failed=1`;
 const script = lines => ['sh', ['-c', ['failed=0', ...lines, 'exit $failed'].join('\n')]];
+/** The semantics' environment (lake on PATH), with `extra`. */
+const semanticsEnv = (base, extra) => checkEnv({ ...base, PATH: `${base.HOME}/.elan/bin:${base.PATH}` }, extra);
 export function semanticsChecks(base = process.env) {
-  const env = extra => checkEnv({ ...base, PATH: `${base.HOME}/.elan/bin:${base.PATH}` }, extra);
+  const env = semanticsEnv(base);
   return [
     ['lean', ...script([
       'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
       'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
-    ]), { env: env() }],
-    ['vm-extract', 'sh', ['semantics/vm-extract/check.sh'],
-      { env: env(), outcome: (log, status) => /^vm-extract: skipped:/m.test(log) ? 'unavailable' : status === 0 ? 'pass' : 'fail' }],
+    ]), { env, inputs: INPUTS.lean }],
+    // Exits 77 (UNAVAILABLE: not a pass, not a failure) where Charon or Aeneas is missing.
+    ['vm-extract', 'sh', ['semantics/vm-extract/check.sh'], { env, inputs: INPUTS['vm-extract'] }],
     ['difftest', ...script([
       'apps', 'corpus', 'explore contract/corpus apps/*/app.contract', 'random --seed 1 --count 5000', 'lowering-corpus',
       'lowering --seed 1 --count 300', 'numbers --count 200000', 'types --seed 1 --count 100',
       'expansion semantics/corpus --seed 1 --count 200',
-    ].map(difftest)), { env: env({ DIFFTEST_CACHE: '1' }) }],
+    ].map(difftest)), { env: semanticsEnv(base, { DIFFTEST_CACHE: '1' }), inputs: INPUTS.difftest }],
     ['difftest-js', ...script([
       'corpus --js-only', 'explore contract/corpus apps/*/app.contract --js-only', 'random --seed 1 --count 500 --js-only',
-    ].map(difftest)), { env: env() }],
+    ].map(difftest)), { env, inputs: INPUTS['difftest-js'] }],
   ];
 }
 
-/** A gated check's fingerprint at the worktree's checkout, or the error that means it must run. */
-export async function gate(name, command, args, opts, sources) {
-  try {
-    return { fp: fingerprint(name, command, args, opts.env, await INPUTS[name](WT, opts.env, sources)) };
-  } catch (e) {
-    return { error: String(e.message ?? e).slice(0, 2000) };
-  }
-}
-
-/** The outcome a gated check's run records: a pass, a failure, or nothing. */
-export function outcomeOf(opts, log, status, hung) {
-  if (hung) return 'fail';
-  return opts.outcome ? opts.outcome(log, status) : status === 0 ? 'pass' : 'fail';
-}
+/** What the semantics checks read at the worktree's checkout, read once for all four. */
+const semanticsInputs = () => new Inputs(WT, semanticsEnv(process.env));
 
 export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos']) {
   const conditional = new Set(conditionalNames);
@@ -271,9 +249,6 @@ function prune() {
   console.log(`pruned ${WT}/target/debug to ${(KIB(debug) / 1024 / 1024).toFixed(0)} GiB (was over 80 GiB)`);
 }
 
-/** `f`'s answer to its first call, for every call (one `contract sources` pass per commit). */
-const cached = f => { let answer; return (...args) => (answer ??= f(...args)); };
-
 async function check(sha, since) {
   const dir = resolve(STATE_DIR, sha.slice(0, 12));
   mkdirSync(dir, { recursive: true });
@@ -285,34 +260,30 @@ async function check(sha, since) {
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
   if (installed.status !== 0) result.failures.push(`install: bun install --frozen-lockfile exit ${installed.status}`);
   const store = new Store(resolve(STATE_DIR, 'fingerprints'));
-  let sources;
+  let inputs;
   for (const [name, command, args, opts] of checks(sha, since)) {
+    const ran = { command: [command, ...args].join(' ') };
     let gated = null;
     if (opts) {
       const start = performance.now();
-      sources ??= cached(sourcesOf(WT, opts.env));
-      gated = await gate(name, command, args, opts, sources);
-      const seconds = (performance.now() - start) / 1000;
-      const passed = gated.fp && store.passed(name, gated.fp);
-      if (passed) {
-        result.checks[name] = { command: [command, ...args].join(' '), skipped: `inputs of ${passed.sha?.slice(0, 12)}'s pass`, fingerprint: gated.fp.digest, seconds };
+      gated = await decide(store, inputs ??= semanticsInputs(), name, command, args, opts);
+      Object.assign(ran, gated.error ? { gateError: gated.error } : { fingerprint: gated.fp.digest, changed: gated.changed },
+        { gateSeconds: (performance.now() - start) / 1000 });
+      if (gated.passed) {
+        result.checks[name] = { ...ran, skipped: `inputs of ${gated.passed.sha?.slice(0, 12)}'s pass` };
         continue;
       }
-      gated.seconds = seconds;
     }
     const logPath = resolve(dir, `${name}.log`), fd = openSync(logPath, 'w');
     const load = loadavg()[0], start = performance.now();
     const r = await run(command, args, opts?.env ?? env, fd);
     closeSync(fd);
     const seconds = (performance.now() - start) / 1000, log = readFileSync(logPath, 'utf8');
-    result.checks[name] = { command: [command, ...args].join(' '), status: r.status, seconds, load, ...(r.hung ? { hung: true } : {}) };
-    if (gated) {
-      Object.assign(result.checks[name], gated.fp
-        ? { fingerprint: gated.fp.digest, changed: changedSince(store, name, gated.fp), gateSeconds: gated.seconds }
-        : { gateError: gated.error });
-      if (gated.fp) store.record(name, gated.fp, outcomeOf(opts, log, r.status, r.hung), { sha });
-    }
-    result.failures.push(...failures(name, log, r.status));
+    result.checks[name] = { ...ran, status: r.status, seconds, load, ...(r.hung ? { hung: true } : {}) };
+    const outcome = gated && outcomeOf(r.status, r.hung);
+    if (gated?.fp) store.record(name, gated.fp, outcome, { sha });
+    // A check that could not run here found nothing.
+    if (outcome !== 'unavailable') result.failures.push(...failures(name, log, r.status));
     if (r.hung) {
       const slow = [...new Set([...log.matchAll(/^test (\S+) has been running for over 60 seconds/gm)].map(m => m[1]))];
       result.failures.push(...(slow.length ? slow.map(t => `${name}: ${t} hung`) : [`${name}: hung past ${HANG_MS / 60000} min`]));
@@ -324,7 +295,7 @@ async function check(sha, since) {
 
 function file(result, fresh, since) {
   const short = result.sha.slice(0, 8);
-  const timing = Object.entries(result.checks).map(([n, c]) => `${n} ${c.seconds.toFixed(0)} s (exit ${c.status}, load ${c.load.toFixed(0)})`).join(' · ');
+  const timing = Object.entries(result.checks).map(([n, c]) => c.skipped ? `${n} skipped (${c.skipped})` : `${n} ${c.seconds.toFixed(0)} s (exit ${c.status}, load ${c.load.toFixed(0)})`).join(' · ');
   const what = since ? `that ${since.slice(0, 8)} (the last commit it checked) did not have, from a commit in ${since.slice(0, 8)}..${short}` : `that ${short}'s parent did not have`;
   const body = [`The tier ${TIER} async lane found ${fresh.length} failure(s) ${what}:`, '',
     ...fresh.map(f => `- ${f}`), '', `Commit: ${short} ${result.subject}`, `Checks: ${timing}`,
@@ -368,12 +339,10 @@ if (import.meta.main) {
     git(['fetch', '-q', 'origin']);
     const sha = git(['rev-parse', at && !at.startsWith('--') ? at : BRANCH]);
     git(['checkout', '--detach', '--force', sha], WT);
-    const store = new Store(resolve(STATE_DIR, 'fingerprints'));
-    let sources;
+    const store = new Store(resolve(STATE_DIR, 'fingerprints')), inputs = semanticsInputs();
     for (const [name, command, args, opts] of semanticsChecks()) {
-      sources ??= cached(sourcesOf(WT, opts.env));
-      const { fp, error } = await gate(name, command, args, opts, sources);
-      console.log(`${name}: ${error ? `run (the gate failed: ${error})` : store.passed(name, fp) ? 'skip' : `run (changed: ${changedSince(store, name, fp).join(', ')})`}`);
+      const { error, passed, changed } = await decide(store, inputs, name, command, args, opts);
+      console.log(`${name}: ${error ? `run (the gate failed: ${error})` : passed ? 'skip' : `run (changed: ${changed.join(', ')})`}`);
     }
     process.exit(0);
   }
