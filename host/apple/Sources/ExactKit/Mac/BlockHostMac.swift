@@ -89,6 +89,18 @@ final class BlockHost {
     /// its authored parent leaves it there.
     func owns(_ node: NodeView) -> Bool { entries[node.id]?.node === node }
 
+    /// The node children `home` holds, with the subtrees that left it for a
+    /// container of their own back in their places: its authored children,
+    /// for a reader of the tree's shape (a stack's routes).
+    func authored(_ mounted: [NodeView], in home: NSView) -> [NodeView] {
+        guard !entries.isEmpty else { return mounted }
+        var out = mounted
+        for entry in entries.values.sorted(by: { $0.node.id < $1.node.id }) where entry.home === home && !out.contains(where: { $0 === entry.node }) {
+            if let next = entry.next, let at = out.firstIndex(where: { $0 === next }) { out.insert(entry.node, at: at) } else { out.append(entry.node) }
+        }
+        return out
+    }
+
     /// Put `node`'s subtree in `container` and lay it out in `block`; `used`
     /// hears its used size, now and whenever layout gives it another.
     func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
@@ -138,8 +150,15 @@ final class BlockHost {
         onUsed?(op.id, size)
     }
 
+    /// A subtree's root is being destroyed, its view still in its container:
+    /// a sheet keeps what it showed while it leaves (RouteSheetMac.swift).
+    var onDestroyed: ((NodeView) -> Void)?
+
     /// The node is gone, and its block with it.
-    func destroyed(_ id: UInt32) { entries[id] = nil; used[id] = nil }
+    func destroyed(_ id: UInt32) {
+        if let node = entries[id]?.node { onDestroyed?(node) }
+        entries[id] = nil; used[id] = nil
+    }
 
     private func tell(_ blocks: [(UInt32, HostBlock?)]) {
         guard let session = presenter?.session else { return }

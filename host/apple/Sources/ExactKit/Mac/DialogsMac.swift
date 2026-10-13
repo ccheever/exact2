@@ -5,7 +5,9 @@ import AppKit
 /// The actual subtree moves; fields, selection and app state remain the same.
 /// A `dialog` that is no alert is AppKit's sheet on its window, holding that
 /// subtree (LLP 1115.002 D7.2, SheetsMac.swift); under the driver's own
-/// chrome it is painted in the page over a backdrop, as it was.
+/// chrome it is painted in the page over a backdrop, as it was. A modal route
+/// is a sheet by the same means (D7.4, RouteSheetMac.swift): an entry here
+/// whose node is the route, which navigation shows and takes away.
 final class DialogHost {
     private(set) weak var presenter: Presenter?
     final class Entry {
@@ -18,8 +20,13 @@ final class DialogHost {
         let backdrop = DialogBackdrop(frame: .zero)
         /// Its sheet, while AppKit presents it; nil while it is painted.
         var sheet: DialogSheet?
-        init(_ dialog: NodeView, previous: NSView?) {
-            self.dialog = dialog; self.previous = previous
+        /// A modal route in its sheet, not a `dialog`: what its sheet shows
+        /// of its header, and the header's nodes hidden while it does.
+        let route: Bool
+        var header: SheetHeader?
+        var stoodFor: [NodeView] = []
+        init(_ dialog: NodeView, previous: NSView?, route: Bool = false) {
+            self.dialog = dialog; self.previous = previous; self.route = route
             selection = ((previous as? NSTextField)?.currentEditor() as? NSTextView)?.selectedRange()
                 ?? (previous as? NSTextView)?.selectedRange()
             parent = dialog.superview
@@ -34,6 +41,8 @@ final class DialogHost {
     var painted = ExactEnv.authoredChrome
     /// A mouse went down on the window behind a sheet (SheetsMac.swift).
     var downBehind = false
+    /// The routes' sheets are being reconciled (RouteSheetMac.swift).
+    var syncingRoutes = false
     private var accessibilityBlocker: ObjectIdentifier?
     /// The native button drawn as the open dialog's default (DefaultButtonMac.swift).
     weak var drawnDefault: NativeButtonMac?
@@ -61,7 +70,7 @@ final class DialogHost {
     }
     func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
     /// The window the open dialog is in: its sheet's, or the page's.
-    private var window: NSWindow? { active?.window ?? presenter?.viewport.window }
+    var window: NSWindow? { active?.window ?? presenter?.viewport.window }
     func focusOwner(_ window: NSWindow) -> NSView? {
         guard let view = window.firstResponder as? NSView else { return nil }
         if let editor = view as? NSTextView, editor.isFieldEditor {
@@ -91,10 +100,16 @@ final class DialogHost {
         if presenter.alerts.isOpen(dialog) || presenter.alerts.present(dialog, from: nil) { return }
         // Over the dialog that is open, when one is: its sheet's window.
         let front = self.window ?? window
-        let entry = Entry(dialog, previous: focusOwner(front))
+        present(Entry(dialog, previous: focusOwner(front)), over: front)
+    }
+    /// `entry` joins the top layer: a dialog painted or in its sheet, a
+    /// modal route in its sheet.
+    func present(_ entry: Entry, over front: NSWindow) {
+        guard let presenter else { return }
+        let dialog = entry.dialog
         presenter.menus.reset()
         entries.append(entry)
-        if painted {
+        if painted, !entry.route {
             entry.backdrop.host = self
             entry.backdrop.autoresizingMask = [.width, .height]
             presenter.viewport.addSubview(entry.backdrop)
@@ -135,7 +150,8 @@ final class DialogHost {
         let wasTop = i == entries.count
         // Its sheet leaves with the dialog still in it, as a person watches it go.
         if let sheet = entry.sheet { end(entry, sheet) }
-        dialog.isHidden = true
+        // A route is shown and hidden by navigation.
+        if !entry.route { dialog.isHidden = true }
         if entry.sheet == nil {
             dialog.removeFromSuperview()
             entry.backdrop.removeFromSuperview()
@@ -169,7 +185,8 @@ final class DialogHost {
     /// A children op still addresses the authored parent, even while a dialog
     /// is in the top layer. Removing that edge retires its presentation.
     func children(_ parent: NSView, _ wanted: [NodeView]) {
-        for entry in entries where (entry.parent === parent) != wanted.contains(where: { $0 === entry.dialog }) {
+        // A route's sheet leaves after the batch (`syncRoutes`), never inside it.
+        for entry in entries where !entry.route && (entry.parent === parent) != wanted.contains(where: { $0 === entry.dialog }) {
             close(entry.dialog)
         }
     }
@@ -184,7 +201,7 @@ final class DialogHost {
     func sync() {
         guard let presenter else { return }
         presenter.alerts.sync()
-        for entry in entries {
+        for entry in entries where !entry.route {
             let parent = entry.parent
             let connected = parent === presenter.root || parent?.isDescendant(of: presenter.root) == true
                 || entries.contains { other in other !== entry && (parent === other.dialog || parent?.isDescendant(of: other.dialog) == true) }
@@ -286,7 +303,7 @@ final class DialogHost {
         let period = event.type == .keyDown && event.keyCode == 47
             && event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
         if event.keyCode == 53 || period {
-            if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { close(dialog) }
+            if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { dismiss(dialog) }
             return true
         }
         // Return is the default button's, when the dialog has one (LLP 1115.000 D7.3).
@@ -323,10 +340,17 @@ final class DialogHost {
         return false
     }
     func outside() {
-        if let dialog = active, dialog.props["closedby"] == "any" { close(dialog) }
+        if let dialog = active, dialog.props["closedby"] == "any" { dismiss(dialog) }
+    }
+    /// The platform's dismissal (Escape, Command-period, a click behind a
+    /// `closedby="any"` sheet): a dialog closes; a modal route goes back as
+    /// its stack goes, which the app decides (BackMac.swift).
+    private func dismiss(_ dialog: NodeView) {
+        guard entry(ofRoute: dialog) != nil else { return close(dialog) }
+        if let refused = presenter?.navigation.dismiss(dialog) { presenter?.session?.log("modal dismissal refused: \(refused)") }
     }
     var observation: [String: Any]? {
-        presenter?.alerts.observation ?? entries.last.map {
+        presenter?.alerts.observation ?? entries.last { !$0.route }.map {
             ["kind": "dialog", "dialog": Int($0.dialog.id), "closedby": $0.dialog.props["closedby"] ?? "closerequest", "phase": "open",
              "presentation": $0.sheet == nil ? "painted" : "sheet"]
         }

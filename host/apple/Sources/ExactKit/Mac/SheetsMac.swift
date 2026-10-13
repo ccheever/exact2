@@ -51,28 +51,40 @@ import AppKit
 final class SheetWindow: NSWindow {}
 
 /// A dialog's sheet: its window, the view that holds the dialog's subtree,
-/// and the window it is a sheet on.
+/// and the window it is a sheet on. A modal route's sheet is the same, with
+/// its own title row and buttons round that view (`RouteChrome`, D7.4).
 final class DialogSheet {
     let window: SheetWindow
     let content = BlockView(frame: .zero)
+    /// A modal route's sheet: its rows round the content. Nil for a dialog's.
+    let chrome: RouteChrome?
     /// The page's window, or the sheet this one stands on.
     private(set) weak var over: NSWindow?
     var begun = false
-    init(over: NSWindow, size: CGSize) {
+    /// The content's size as layout last returned it.
+    private var used = CGSize.zero
+    init(over: NSWindow, size: CGSize, chrome: RouteChrome? = nil) {
         self.over = over
+        self.chrome = chrome
         window = SheetWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         // Light or dark as the window it belongs to, whoever set that.
         window.appearanceSource = over
         content.frame = NSRect(origin: .zero, size: size)
-        window.contentView = content
+        if let chrome { chrome.hold(content); window.contentView = chrome } else { window.contentView = content }
     }
-    /// The content's size, as layout returned it: the window's.
+    /// The content's size, as layout returned it: the window's, with a
+    /// route's rows round it.
     func fit(_ size: CGSize) {
-        guard size.width > 0, size.height > 0, content.frame.size != size else { return }
+        guard size.width > 0, size.height > 0 else { return }
+        used = size
+        let whole = chrome?.size(around: size) ?? size
+        guard window.contentView?.frame.size != whole else { return }
         // AppKit keeps an attached sheet centred as its size changes.
-        window.setContentSize(size)
+        window.setContentSize(whole)
     }
+    /// The rows round the content changed: the window is the same content and the new rows.
+    func refit() { fit(used) }
 }
 
 extension NSView {
@@ -140,21 +152,23 @@ extension Presenter {
 
 extension DialogHost {
     /// A sheet's maximum: the content area of the window the page is in.
-    private var maximum: CGSize? {
+    var maximum: CGSize? {
         guard let window = presenter?.viewport.window else { return nil }
         return window.contentLayoutRect.size
     }
 
     /// Make `entry`'s sheet and move the dialog into it, laid out there.
     func prepare(_ entry: Entry, over front: NSWindow) {
-        guard let presenter, let maximum else { return }
+        guard let presenter, maximum != nil else { return }
         // On top of whatever is attached already: AppKit holds a second
         // sheet on one window back until the first has gone.
         var over = front
         while let top = over.attachedSheet { over = top }
-        let sheet = DialogSheet(over: over, size: entry.frame.size)
+        let sheet = DialogSheet(over: over, size: entry.frame.size, chrome: entry.route ? RouteChrome() : nil)
         entry.sheet = sheet
-        presenter.blocks.show(entry.dialog, in: sheet.content, block: .atMost(maximum)) { [weak sheet] size in sheet?.fit(size) }
+        if entry.route { adopt(entry, sheet) }
+        guard let block = block(of: entry) else { return }
+        presenter.blocks.show(entry.dialog, in: sheet.content, block: block) { [weak sheet] size in sheet?.fit(size) }
         // A presenter with no session lays nothing out again: the dialog
         // keeps the box the page gave it, at the sheet's corner.
         if presenter.blocks.used[entry.dialog.id] == nil { entry.dialog.setFrameOrigin(.zero) }
@@ -182,6 +196,7 @@ extension DialogHost {
         let key = sheet.window.isKeyWindow
         if let over, over.sheets.contains(sheet.window) { over.endSheet(sheet.window) }
         sheet.window.orderOut(nil)
+        if entry.route { release(entry) }
         if live(dialog) { dialog.frame = entry.frame }
         presenter?.blocks.release(dialog)
         if key, let over, over.isVisible { over.makeKey() }
@@ -199,8 +214,8 @@ extension DialogHost {
 
     /// The window changed size: a sheet's maximum is its content area.
     func fitSheets() {
-        guard let presenter, let maximum else { return }
-        for entry in entries where entry.sheet != nil { presenter.blocks.resize(entry.dialog, .atMost(maximum)) }
+        guard let presenter else { return }
+        for entry in entries where entry.sheet != nil { if let block = block(of: entry) { presenter.blocks.resize(entry.dialog, block) } }
     }
 
     /// A click on the window behind the open dialog's sheet. AppKit gives
