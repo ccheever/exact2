@@ -7,12 +7,14 @@ semantics against the flat semantics, by observation.
 Structure is compared declaration by declaration and node by node, through
 `repr`. Types are compared apart: a child's states and parameters carry
 the types the checker gave the child standalone, the flat embedding the
-types it inferred in the expansion, which may be more precise; only a flat
-type that is not at least the expansion's (`Ty.le`) is a difference.
+types it inferred in the expansion, which may be more precise. A lifted
+type that differs is a difference, except a curried argument's hidden
+parameter's, whose flat type need only be at least the expansion's
+(`paramsAgree`).
 -/
 import Contract.Expand
 import Contract.CompSem
-import Contract.ValTy
+import Contract.Types
 
 namespace Contract.ExpandCheck
 
@@ -56,27 +58,40 @@ def structDiff (l r : Program) : Option String :=
   firstDiff "routes" l.routes r.routes <|>
   (if reprStr l.router == reprStr r.router then .none else .some "router")
 
-/-- One action's flat parameter types are at least the expansion's, one by
-one: what the expansion leaves `?`, the checker may have typed. -/
-def paramsLe (l r : List Ty) : Bool :=
-  l.length == r.length && (l.zip r).all fun (a, b) => Ty.le a b
+/-- A curried argument's hidden parameter, `@capture:n:aI:J` (a prop's or an
+inject's is `@capture:n:i`). -/
+def curried (x : String) : Bool :=
+  match x.splitOn ":" with
+  | ["@capture", _, a, _] => a.startsWith "a"
+  | _ => false
 
-/-- The first lifted declaration whose flat type is not at least its type in
-the Lean expansion. A curried argument's hidden parameter
-(`@capture:n:aI:J`) is `?` in both expansions, as inline.rs gives it no
-type; the checker types it from the handler that binds its action
+/-- One action's flat parameter types against the Lean expansion's: the
+same, except a curried argument's hidden parameter's, which need only be at
+least the expansion's (`Ty.le`). Both expansions leave it `?`, as inline.rs gives
+it no type; the checker types it from the handler that binds its action
 (`press=go#1(3)`: `number`), as it does any untyped parameter. -/
-def typeDiff (l r : Program) : Option String :=
-  firstDiffBy Ty.le "state types" (l.states.map (·.ty)) (r.states.map (·.ty)) <|>
-  firstDiffBy paramsLe "parameter types" (l.actions.map fun a => a.params.map (·.2))
-    (r.actions.map fun a => a.params.map (·.2))
+def paramsAgree (l r : List (String × Ty)) : Bool :=
+  Ty.leAll (l.map (·.2)) (r.map (·.2)) &&
+    (l.zip r).all fun ((x, a), (_, b)) => curried x || a == b
 
--- A typed curried capture is no difference (corpus/actions/calls/prop-row);
--- a conflict, or a type the flat embedding lost, is.
-example : paramsLe [.number, .string, .unknown] [.number, .string, .string] = true := by decide
-example : paramsLe [.number] [.string] = false := by decide
-example : paramsLe [.number] [.unknown] = false := by decide
-example : paramsLe [.unknown] [] = false := by decide
+/-- The first lifted declaration whose flat type differs from its type in
+the Lean expansion, as `paramsAgree` allows. -/
+def typeDiff (l r : Program) : Option String :=
+  firstDiff "state types" (l.states.map (·.ty)) (r.states.map (·.ty)) <|>
+  firstDiffBy paramsAgree "parameter types" (l.actions.map (·.params)) (r.actions.map (·.params))
+
+-- A curried argument the checker typed is no difference
+-- (corpus/actions/calls/prop-row); on it, a conflict or a type the flat
+-- embedding lost is. Any other parameter's types must be the same, `?`
+-- against `number` included.
+#guard paramsAgree [("n", .number), ("@capture:0:a1:0", .unknown)]
+  [("n", .number), ("@capture:0:a1:0", .number)]
+#guard paramsAgree [("@capture:0:a1:0", .unknown)] [("@capture:0:a1:0", .number)]
+#guard !paramsAgree [("@capture:0:a1:0", .number)] [("@capture:0:a1:0", .string)]
+#guard !paramsAgree [("@capture:0:a1:0", .number)] [("@capture:0:a1:0", .unknown)]
+#guard !paramsAgree [("n", .unknown)] [("n", .number)]
+#guard !paramsAgree [("@capture:0:1", .unknown)] [("@capture:0:1", .number)]
+#guard !paramsAgree [("@capture:0:a1:0", .unknown)] []
 
 /-- Both checks for one case, as lines: `#expand-error`, `#struct`, `#types`
 (each with what differs, or `ok`), then the flat observation after

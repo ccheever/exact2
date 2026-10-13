@@ -415,10 +415,10 @@ cargo run -p contract-difftest -- expansion --seed 1 --count 500     # generated
 Rust's expansion (the flat embedding of the expansion the plan compiler
 makes, `contract::lean::lean_plain`: its uses' arguments not ascribed as
 `contract lean`'s are for the checker), declaration by declaration and node
-by node, types apart (a lifted type the flat one is not at least, `Ty.le`,
-is reported, not failed: a child's declarations carry the standalone
-checker's types, and a curried argument's hidden parameter is `?` in both
-expansions until the checker types it from its handler); (b) the
+by node, types apart (a lifted type that differs is reported, not failed:
+a child's declarations carry the standalone checker's types; a curried
+argument's hidden parameter, `?` in both expansions until the checker types
+it from its handler, need only be at least the expansion's, `Ty.le`); (b) the
 component-level semantics of the unexpanded file against the flat
 semantics of Rust's expansion over the case's script, the oracle the
 runner's transcript, every observation line compared but the slots the
