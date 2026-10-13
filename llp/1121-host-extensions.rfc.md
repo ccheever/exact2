@@ -21,6 +21,10 @@ today; a live source announces a topic. Under the agent, each source is a
 `prefer` name. There is no new agent operation, no new Contract syntax and
 no new host command.
 
+A spike on today's exact2 (§6) runs the design on the iOS simulator, on an
+iPhone, where the app shows the phone's real battery level and state, and on
+the web, where a second extension reads the device's orientation.
+
 An extension is the app's native module (LLP 1067.000), cut into pieces
 that are written once and shared: by the apps that need the same device
 value, and by a host that has that value for every app it runs.
@@ -175,7 +179,7 @@ entry on the main thread, nothing fetched over the network, never closed.
 | Host | Implementation | Composed into |
 |---|---|---|
 | macOS, iOS, tvOS | `apple/*.swift`, a subclass of `ExactExtension` with `call`, `later`, `destroy` and a context with `changed`, `agent`, `now` | `libexact_modules.dylib`; the module dispatches on `"extension"` |
-| Web (JS target and wasm) | `web/index.js` exporting `call`, `later`, `connect` | the page module that `native-glue.js` loads |
+| Web (JS target and wasm) | `web/index.js` exporting `later` and `connect` (the web has no synchronous `call`, LLP 1067.000 D9) | the page module that `native-glue.js` loads |
 | Linux, Windows | `linux/*.rs`, a type implementing an `Extension` trait | the statically linked module, as hatches are (LLP 1075.003.000.001 D9) |
 | Android | `android/*.kt` (provisional, as hatches are) | the app's Kotlin module |
 | Terminal | none in v1 | — |
@@ -260,47 +264,55 @@ platforms a plan's extensions allow, as it does for hatch words.
 
 ## 6. Spike on today's seams
 
-Before a ruling, a spike shows the design on iOS with no exact2 change, on a
-branch: a `battery` extension (LLP 1069.000 D4's own example) and a small app
-that shows the charge and whether the device is charging.
+Before a ruling, a spike shows the design on iOS and the web with no exact2
+change: an app outside exact2 (made with `exact new`) that lists two
+extensions and has no data code of its own.
 
-- **The implementation** reads `UIDevice.batteryLevel` and `batteryState`
-  with `isBatteryMonitoringEnabled` set, and announces the topic
-  `battery.battery` on `UIDevice.batteryLevelDidChangeNotification` and
-  `batteryStateDidChangeNotification`
+- **`battery`** (LLP 1069.000 D4's own example), implemented on iOS: it reads
+  `UIDevice.batteryLevel` and `batteryState` with
+  `isBatteryMonitoringEnabled` set, and announces `battery.battery` on
+  `batteryLevelDidChangeNotification` and `batteryStateDidChangeNotification`
   ([UIDevice](https://developer.apple.com/documentation/uikit/uidevice)).
-- **What exact2 would do (D3, D5)** the spike does with code it generates into
-  the app from `extension.json`: a TypeScript data source (LLP 1027) that
-  forwards `battery()` to `native.later` and watches `battery.battery`, and an
-  `ExactModule` (LLP 1067.000) that dispatches on `"extension"`.
-- **Agent mode (D7)** is the module's own substitute (LLP 1067.000 D6), since
-  `prefer` names need the runner change.
-- **Run and drive:** `bun host/apple/build.mjs --ios <app> --run` on a
-  simulator and with `--device` on an iPhone, driven with
-  `bun scripts/agent.mjs ios`.
+  Under the agent its substitute starts at 50% and loses 1% a minute on the
+  session clock, announcing each step.
+- **`attitude`** (pitch and roll in tenths of a degree, the declaration the
+  out-of-tree port's level app reads), implemented on the web: it reads
+  `deviceorientation` (`beta`, `gamma`;
+  [DeviceOrientation Event](https://w3c.github.io/deviceorientation/)) and
+  announces `attitude.attitude` at most ten times a second, and only after a
+  change of half a degree, so a live source is not an animation channel (LLP
+  1075.003 §3.3). Where the browser asks for access
+  (`DeviceOrientationEvent.requestPermission`, which iOS Safari and current
+  Chrome have), events start only after the send `requestAttitude()`, made
+  from a tap. Under the agent the device lies level and access is granted.
+- **What exact2 would do (D3, D5, D6, D9)** the spike does with code it
+  generates from the files: a TypeScript data source (LLP 1027) that
+  forwards each source and send to `native.later` and watches live topics;
+  an `ExactModule` (LLP 1067.000) and a page module that dispatch on
+  `"extension"`; and, on a platform with no implementation of an extension,
+  its declared `default`.
+- **Agent mode (D7)** is each extension's own substitute (LLP 1067.000 D6),
+  since `prefer` names need the runner change.
+- **Run and drive:** the app's `bun exact.mjs ios --run` (a simulator),
+  `ios --device --run` (an iPhone) and `agent ios`; `test web`; and, outside
+  the agent, `bun exact.mjs web` in Chrome, whose orientation the DevTools
+  protocol sets (`DeviceOrientation.setDeviceOrientationOverride`).
 
-It measures what D5 saves (the app's data code for the value) and finds
-what the generated glue cannot do that the runner change would.
+**Results** (2026-10-13, exact2 7fa397d4e). Both paths work end to end, on
+a simulator, a real iPhone and Chrome, with no exact2 change.
 
-**Result (2026-10-13, iPhone 18 Pro simulator, iOS 27.0, exact2 7fa397d4e):**
+| Where | Run | What it showed |
+|---|---|---|
+| iPhone 18 Pro simulator, iOS 27.0 | under the agent | `battery`: "50%", "unplugged": the journal shows `query power: battery`, `POST exact-native:` and an HTTP 200 answer of 33 bytes (`{"level":0.5,"state":"unplugged"}`). After `clock +60000` the extension announced `battery.battery`, the runner asked again, and the tree showed "49%"; after a further `clock +120000`, "47%". A request in flight when the topic changed landed first and was then asked again (LLP 1016.002 D4). `attitude`, not implemented on iOS: its default, "No motion data". |
+| iPhone 18 Pro simulator, iOS 27.0 | outside the agent | `battery`: "Unknown": the simulator reports no battery (`batteryLevel` -1, state unknown). |
+| iPhone 16 Pro Max, iOS 26.7.1 | outside the agent | `battery`: "90%", "charging": the real values, the same as the phone's status bar (read by argent's XCUITest runner). |
+| Web (JS target) | `bun exact.mjs test web`, under the agent | `battery`, not implemented on the web: its default, "Unknown"; `attitude`: the substitute, "pitch 0.0°, roll 0.0°" (1 test passed). |
+| Chrome (desktop), JS target | outside the agent | Before access, `attitude` answered its default and the view showed "Enable motion". A click sent `requestAttitude()` ("access: granted") and the view showed the overridden orientation, "pitch 20.0°, roll 5.0°". A new orientation (-15°, 30°) showed at once, with no reload. A change of less than half a degree (-15.3°, 30.2°) reached the page but was not announced, and the view kept "-15.0°, 30.0°". |
 
-- The path works end to end with no exact2 change. Under the agent the
-  journal shows `query power: battery`, `POST exact-native:` and an HTTP 200
-  answer of 33 bytes (`{"level":0.5,"state":"unplugged"}`), and the tree
-  shows "50%". The substitute loses 1% a minute on the session clock and
-  announces `battery.battery` each minute: after `clock +60000` the runner
-  asks again and the tree shows "49%", after a further `clock +120000`
-  "47%". A request in flight when a topic changed landed first and was then
-  asked again (LLP 1016.002 D4).
-- Outside the agent the simulator reports no battery (`UIDevice.batteryLevel`
-  -1, state unknown), so the app shows "Unknown". On an iPhone 16 Pro Max
-  (iOS 26.7.1, outside the agent) the app showed "90%" and "charging", the
-  values the phone's status bar showed (read by argent's XCUITest
-  runner). On the web, with no module, the source answers its declared
-  `default` (`bun exact.mjs test web`, 1 passed).
-- The app's own data code for the value is none: `app.ts` only spreads the
-  generated sources. The generated glue is 13 lines of TypeScript and 49
-  of Swift per app, which D5 and D6 would move into exact2.
+- The app's own data code for the two extensions is none: `app.ts` only
+  spreads the generated sources. The generated glue for two extensions is
+  24 lines of TypeScript, 56 of Swift and 26 of JavaScript per app, which
+  D5, D6 and D9 would move into exact2.
 - What the glue cannot do, and the runner change would:
   - check a reply against the declaration; the generated TypeScript casts
     it to the declared type (D5);
@@ -310,6 +322,9 @@ what the generated glue cannot do that the runner change would.
     substitute answers (D7);
   - the `app.json` field: the manifest's schema refuses an unknown key, so
     the list is in a separate `extensions.json` (D2).
+- Not checked: a change of battery state on the iPhone (the cable unplugged
+  with the app open); `attitude` in a phone's browser (not run); other
+  platforms.
 
 ## 7. Questions for Charlie
 
