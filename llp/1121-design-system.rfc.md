@@ -1,7 +1,7 @@
 # LLP 1121: Facet — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** Draft r5, 2026-10-13. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh) (`llp/reviews/rfc-2026-10-13-design-system-r{1,2,3}.{astra,grok}.md`); every verdict after round 1 was RIGHT WITH CHANGES. r5 writes in Charlie's rulings on r4's questions (2026-10-13): the system is **Facet**, with `.facet` files; a design changes through a public, versioned edit API whose main client is Facet's own design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. r5 is reviewed once (round 4) and r6 takes its findings (§0). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q4).
+**Status:** Draft r6, 2026-10-13. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system is **Facet**, with `.facet` files; a design changes through a public, versioned edit API whose main client is Facet's own design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`. Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q4).
 **Systems:**
 - A new leaf crate, `facet/` (`exact-facet`): the `.facet` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -67,6 +67,48 @@ Only the build evaluates, in Rust: exact1 wrote its resolver in TypeScript and t
 it to Rust by hand.
 
 ## 0. Review rounds
+
+**Round 4** (r5 → r6, focused on r5's changes; written in without another round). Astra:
+RIGHT WITH CHANGES, no BLOCKER (7 MAJOR, 2 MINOR). Grok: RIGHT WITH CHANGES (1 BLOCKER, 6
+MAJOR, 2 MINOR). Both confirmed round 3's blocker fixed: a boundary's implied row stops the
+kernel's ancestor walk and gives the wasm emitter a row. Each finding is taken:
+- **The live table never reached a running build** (Grok B1). Publishing a plan is what
+  restarts the page and the Apple hosts, and a mark inside one process did not stop the
+  others. Now a value-only change publishes no plan, decided by content (the structure
+  digest) in both loops' watchers and `Session`; the batch travels on the dev event stream
+  the builds already hold, and a new kernel entry applies it in one commit (D13).
+- **Colour ids across processes** (Grok M2): the batch carries CSS text; each process
+  interns; `Wide` entries are reference-counted, and a full table refuses with a diagnostic
+  (D13).
+- **The token** (Grok M3): the install predicate whole, `!forwarded` included, and the same
+  not-found; held in memory, never in `.exact/`; presented as the first frame or a header.
+  The design tool builds for the web's JS target, since only a TypeScript data module there
+  can send frames; native and wasm sessions do not speak the protocol. Pairing has a stated
+  code strength and attempt limit (D13, D14).
+- **Transactions** (Astra M1, Grok m9): one writer per project under a lock, serialized
+  checks, a journaled set of renames recovered on restart, publication after the whole
+  commit; inverses carry the new digests (D13).
+- **Inverses** (Astra M2): `unset-*` and `remove-*` operations, so undoing a first
+  `set-param` restores the component's default (D13).
+- **`resolve`** (Astra M3): the stored value or residual with labelled fallbacks; concrete
+  values from `resolve-on`, naming a build and a node (D13).
+- **Live or rebuild** (Astra M6): judged by the dependency closure, so a param a motion token
+  folds from rebuilds (D13, D15).
+- **Params** (Grok M4, Astra M4/M5/M7): one Contract form (string values, `range="0..40"`
+  and other attributes; no new lexer token); stable identities (`post.contract#PostButton`),
+  ambiguous short names refused, aliases resolved to the declaration; controls by kind,
+  `select` with `options`, no `toggle`; ranged lengths in px only, defaults checked after
+  folding, a scrub over a token default a pinned override; reachability from rows, state
+  parts and native declarations; the IR block's fields; `length` and `number` bindings; props
+  are not params (D15, D12).
+- **A Light preview** (Grok M5): a `color-scheme` node is a boundary too (D7).
+- **Staging** (Grok M6, Astra m9): `facet-param-unused` from stage 7; the tool's panels gated
+  in the stages that add them; embedded sessions are later; D6's prerequisite points at the
+  type-token stage (§5).
+- **`prefer mode`** (Grok M7): a fourth `prefer` group (D13).
+- **Minors:** the re-specified rows are the schema's inherited colour rows, not
+  `-exact-tint-color` (Grok m8); `preview` names a build (Grok m9); a Figma plugin may open
+  `ws://localhost`, so a bridge is optional (Astra m8).
 
 **Charlie's rulings on r4** (r4 → r5, 2026-10-13):
 - **An API is how a design changes.** D13 is now the Facet protocol, `facet/1`: public,
@@ -199,7 +241,7 @@ retention, the capability and the DTCG tuple export. Each finding is taken:
 - **Folding** (Astra M2, Grok M10): `Fixed` only for what CSS serializes as legacy `rgb()`;
   a `light-dark()` with a modern half is one `Wide` with its dark side (D7, §3).
 - **Typography** (Astra M3, Grok M2): LLP 1115.000 D12.2 (unsaid weight and leading resolved
-  per platform) is stage 4's prerequisite, and a type token sets only the longhands it writes
+    per platform) is a prerequisite of the stage that adds type tokens, and a type token sets only the longhands it writes
   (D6).
 - **Previews** (Grok M4): a mode pin does not change the scheme; a Light preview is
   `color-scheme="light"`, Dim and Black are `color-scheme="dark"` plus the pin (D5).
@@ -471,7 +513,7 @@ theme
   Today's `font` shorthand cannot do that: it writes a numeric weight and `line-height:
   normal` and marks all four written (`contract/lower/src/shorthands.rs`). LLP 1115.000
   D12.2, an unsaid weight and leading resolved per platform with per-longhand provenance, is
-  therefore stage 4's prerequisite. When a token's value changes which longhands it writes
+    therefore stage 6's prerequisite. When a token's value changes which longhands it writes
   (an update, a dev reload), the ones it no longer writes are cleared.
 - **Bold Text is not a consequence of an unsaid weight.** It is the accessibility pass on the
   system font, which weights it even under an authored weight and leaves a bundled font
@@ -526,10 +568,13 @@ it.
 
 **A mode boundary re-specifies inherited colour tokens.** Inheritance copies the nearest
 ancestor's row past nodes that lack it (`kernel/src/arena.rs`), so comparing a node with its
-parent cannot catch a pin. Instead, at each node with `-exact-mode`, the kernel writes every
-inherited colour row (`color`, `fill`, `stroke`, `-exact-tint-color` …) whose inherited
-value came from a token as an implied row on that node, holding the token's value for the
-node's tuple. Descendants inherit it as any row; the wasm host emits it in the boundary's
+parent cannot catch a pin. Instead, at each **boundary** (a node with `-exact-mode` or with `color-scheme`), the kernel
+writes every inherited colour row (the schema's inherited colour rows: `color`,
+`caret-color`, `fill`, `stroke`) whose inherited value came from a token as an implied row
+on that node, holding the token's value for the node's tuple. A `color-scheme` boundary needs
+it too: on the web a `light-dark()` resolves on the element that specifies it and
+descendants inherit the used colour (LLP 1034), so a Light card on a dark page would keep
+dark text without it. Descendants inherit it as any row; the wasm host emits it in the boundary's
 CSS (`host/web/src/element.rs`); the JS target does the same (below). So text inside a Black
 preview on a Dim page is Black's colour, though its row was written on the page. **Only
 colours re-select.** Re-specifying a font would compound an `em` size at the boundary
@@ -570,7 +615,7 @@ Android's reader repaint from the kernel's resolved rows (`host/linux/src/paint.
   selected by exact match, and each rule declares **every** token that varies by any app
   axis, default values included. So a Black pin inside a Dim page restores Black, and no
   property is inherited across a boundary. No token's value is a `var()` of another token;
-- **a boundary re-specifies inherited colour tokens**, the kernel's rule: CSS inherits
+- **a boundary (a mode pin or a `color-scheme`) re-specifies inherited colour tokens**, the kernel's rule: CSS inherits
   `color` as a computed colour, so the runtime, which knows for each inherited row whether
   its nearest specified value is a token, writes that row again (`color:
   var(--x-text-primary)`) on the boundary element;
@@ -751,9 +796,9 @@ committed.
 |---|---|---|
 | Contract | nothing generated: the compiler checks names against the IR | views |
 | TypeScript | a `Token` string-literal union per kind in the types `bun exact.mjs contract types` writes, so a data module returning `"surface.card"` is checked; `facet.css` and `facet.ts` (resolved constants per tuple) for code outside a plan | `app.ts` data modules; web pages outside Exact |
-| Rust | `pub const SURFACE_CARD: Token<Color>` and `session.facet().get(token, node)` | data crates returning names; the terminal host; a game's Canvas 2D; Rust native modules |
-| Swift | `ExactFacet(view).color(.surfaceCard)` as a dynamic `UIColor`/`NSColor`, `font(.typeBody)`, `symbol(.iconReply)`, and `observe` | native modules (LLP 1024), LLP 1075.003's hatches, the sample host's screens (LLP 1031) |
-| Kotlin | `ExactFacet(view).color("surface.card")` as an Android `Color` int, and `observe`; a Compose adapter is optional, outside the host | Android native views |
+| Rust | `pub const SURFACE_CARD: Token<Color>` (and `Token<Length>`, `Token<Number>` …) and `session.facet().get(token, node)` | data crates returning names; the terminal host; a game's Canvas 2D; Rust native modules |
+| Swift | `ExactFacet(view).color(.surfaceCard)` as a dynamic `UIColor`/`NSColor`, `length(…)` and `number(…)` in points, `font(.typeBody)`, `symbol(.iconReply)`, and `observe` | native modules (LLP 1024), LLP 1075.003's hatches, the sample host's screens (LLP 1031) |
+| Kotlin | `ExactFacet(view).color("surface.card")` as an Android `Color` int, `length(…)` and `number(…)`, and `observe`; a Compose adapter is optional, outside the host | Android native views |
 | DTCG | D14 | other tools |
 
 - **Identity is the name, not the index.** A generated constant holds the token's name and
@@ -784,70 +829,118 @@ Paper, Pencil and the like) connect through it, and Facet's own design tool (D14
 it and is the main way designs are edited. Files are its durable storage.
 
 **The server.** `bun exact.mjs facet serve` owns one project's design: its `.facet` files and
-the `params` sections and state parts in its `.contract` files (D15, D8). The dev loop runs
-it in its own process (`host/web-js/dev.mjs`, and the native loop's), so it can coordinate
-with the file watcher; it also runs alone, with no app running, for a tool that edits tokens
-and params without previews. It keeps no state of its own beyond what the files say.
+the `params` sections and state parts in its `.contract` files (D15, D8). It runs inside
+whichever dev loop is running (`host/web/dev.mjs`, whose `exact_web::dev::Session` compiles
+the plan, or `host/web-js/dev.mjs`), or alone, with no app running, for a tool that edits
+without previews. **One writer per project:** the server holds an exclusive lock
+(`.exact/facet.lock`), and a second server for the same project refuses to start. It keeps no
+state of its own beyond what the files say.
 
 **The protocol, `facet/1`.** JSON messages over a WebSocket, and the same messages as one-shot
-HTTP POSTs for scripts.
+HTTP POSTs for scripts. Its reference is `docs/facet-protocol.md`, versioned with it.
 - **`hello`** negotiates the version. A minor version adds operations or fields; a client
   ignores fields it does not know. A major version the server does not speak is refused. The
-  IR's format number (D2) is reported with it.
-- **Reads:** `describe` (the IR: kinds, axes, dials and component params with their editor
-  metadata, tokens and their `when`s, which dials each token depends on); `resolve` (a
-  token's value for a tuple and a scheme); `explain` (a token's chain to its dials);
-  `uses` (where a token is used, from the connected development builds, D7's index).
-- **`subscribe`** streams every change, whoever made it: another client's operation, a hand
-  edit (the server watches the files), a `git checkout`. Each event carries the new digests.
-- **Writes** are the operations below, alone or as a **transaction** applied atomically:
+  IR's format number (D2) is reported with it, and the connected development builds are
+  listed, each with an id.
+- **Reads:**
+  - `describe`: the IR (kinds, axes, dials and component params with their editor metadata,
+    tokens and their `when`s, the dials and params each depends on);
+  - `resolve`: a token's value for a tuple and a scheme, **as the build stores it**: a
+    constant, or the residual (a role, a `platform-color`, a mix, a `rem` length) with its
+    fallback, labelled as a fallback. A concrete value for a residual (what iOS shows in
+    Increased Contrast, a `rem` at this Dynamic Type size) comes from `resolve-on`, which
+    names a connected build and a node, and says which build and traits it resolved under.
+    Contrast badges say which of the two they assessed;
+  - `explain`: a token's chain to its dials and params;
+  - `uses`: where a token is used, from the connected builds (D7's index).
+- **`subscribe`** streams every change, whoever made it: another client's write, a hand edit
+  (the server watches the files), a `git checkout`. Each event carries the new digests and,
+  for a client's write, the client that made it.
+- **Writes** are the operations below, alone or as a **transaction**:
 
-| Operation | Edits | Connected development builds |
-|---|---|---|
-| `set-dial name value` | a dial | the live table (below) for every token it reaches |
-| `set-token name [when …] value` | a token's default or a `when` | the live table for that token and all folded from it |
-| `set-param component.name value` | a component param's app value (D15) | the live table |
-| `set-state style state row value` | a state part (D8), through `contract fmt` | rebuild and reload: state parts compile into rows and state looks |
-| `set-token` on a `duration` or `easing`, or `set-dial` on a dial one folds from | the design | rebuild and reload: substituted at build (D3) |
-| `add-token`, `rename-token`, `remove-token`, `add-axis-value`, `add-param` | structure | rebuild and reload, which carries state (LLP 1007 §6) |
-| `preview axis=value` | nothing | pins an app mode on one build, as `prefer` does |
+| Operation | Edits |
+|---|---|
+| `set-dial name value` | a dial's value |
+| `set-token name [when …] value`, `unset-token-when name when…` | a token's default or one `when` line; unset removes the line |
+| `set-param component.name value`, `unset-param component.name` | the app's value for a component param (D15); unset removes it, so the component's default applies again |
+| `set-state style state row value`, `unset-state style state row` | a row of a state part (D8), through `contract fmt` |
+| `add-token`, `rename-token`, `remove-token`, `add-axis-value`, `remove-axis-value`, `add-param`, `remove-param` | structure |
+| `preview build axis=value` | nothing on disk: pins an app mode on one connected build, by its id, as `prefer mode` does |
 
-- **Each write**, or transaction:
-  1. carries the digest of every file it edits as the client last saw it; a different digest
-     on disk is a conflict and nothing is written (optimistic concurrency, so two clients
-     editing at once never overwrite each other silently);
-  2. is checked by the evaluator; a refused write changes nothing and returns the
+- **Each transaction:**
+  1. carries the digest of every file it edits as the client last saw it; the server, the
+     one writer, checks them under its lock, so two clients editing at once conflict instead
+     of overwriting;
+  2. is checked by the evaluator; a refused transaction changes nothing and returns the
      diagnostics;
-  3. is written through `facet fmt` and `contract fmt` (one line per value), so the files
-     stay hand-editable, diffable and reviewable, and git is the history;
-  4. returns the new digests and the **inverse** transaction, which is how a client undoes.
+  3. is **committed as a set**: every changed file is formatted (`facet fmt`, `contract
+     fmt`) into a temporary file and fsynced, an intent record listing the renames is written
+     to `.exact/facet.journal`, the files are renamed into place, and the record is removed.
+     A server that starts and finds a record completes its renames, so a crash never leaves a
+     transaction half-applied. Files stay hand-editable, one line per value, and git is the
+     history;
+  4. is published (the event, the live table below) only after the whole commit;
+  5. returns the new digests and the **inverse** transaction, whose preconditions are those
+     digests. An inverse restores absence where the write created something
+     (`unset-param` undoes the first `set-param`, so the component's default keeps working).
 - **`propose`** runs a transaction without writing: the diff, the diagnostics and the tokens
   it would change. Importers use it so a person accepts what another tool suggests (D14).
 
-**The live table** is what a write does to running development builds. The evaluator re-folds
-every token that depends on the change and sends one batch of changed rows, tagged with the
-plan's **structure digest** (the plan without its design table), the design digest it
-applies to, and the new one. A build applies it only if its design digest is the batch's
-base; otherwise, and on every connect, it gets a full snapshot. A different structure digest
-gets the ordinary reload. The kernel replaces the rows in one commit and runs D7's refresh;
-the JS target rewrites, in one style update, every boundary rule that declares a changed
-token. The server skips the watcher's reload for its own write, by digest, in-process, and
-rebuilds the plan in the background so the next reload carries the values.
+**What a commit does to running development builds** depends on what changed, judged by the
+whole dependency closure, not the operation's name:
+- **Only values in the token table** (the structure digest, the plan without its design
+  table, is unchanged, and no affected token is substituted at build): the **live table**.
+- **Anything else** (a structure change; a state part, which compiles into rows and state
+  looks; a `duration` or `easing` token, or any dial or param they fold from, which D3
+  substitutes at build): the ordinary rebuild and reload, which carries state (LLP 1007 §6).
+
+The same rule applies to a hand edit: saving a value change in `app.facet` is a live-table
+edit too.
+
+**The live table.**
+- **No plan is published for a value-only change.** Today a saved source becomes a new plan
+  file, and publishing it is what restarts the page (`exact_boot_plan`, LLP 1007 §6) and the
+  Apple hosts (`EXACT_DEV_PLAN`, LLP 1008), losing scroll, focus and drafts; the JS loop
+  reloads the page on any change in the app directory (`host/web-js/dev.mjs`). So both
+  loops' watchers, and `Session`, ask the evaluator whether a change to a `.facet` file left
+  the structure digest unchanged; if so they publish no plan and do not reload. The decision
+  is by content, so it holds across processes and for a hand edit.
+- **The batch travels on the channel the builds already hold to the dev server** (the dev
+  event stream that tells them a plan changed), as a new message: the changed tokens, each
+  value as its wire text (a colour as CSS text, as LLP 1095's wire carries colours; a length
+  as its dimension), tagged with the structure digest, the design digest it applies to, and
+  the new one. A build applies it only if its design digest is the batch's base; otherwise,
+  and on every connect, it asks for a full snapshot.
+- **A build applies it in one commit** through a new kernel entry (`exact_design_rows` in each
+  host's ABI): the kernel replaces the rows and runs D7's refresh. The JS target's runtime
+  rewrites, in one style update, every boundary rule that declares a changed token.
+- **Each process interns colours itself.** A `Wide` id is an index into a process-global
+  table capped at 4,096 entries (`kernel/src/style/wide.rs`), so ids never cross processes.
+  An entry is reference-counted: it lives while a row, a fallback, a token value or a
+  transition's endpoint holds it, and is freed after. A full table refuses the batch's new
+  colour with a diagnostic to the tool, and the build keeps its old value: nothing is
+  dropped silently.
 
 **Authentication.**
-- **Local clients** (the design tool, the agent, a plugin's local bridge) use the
-  **project-scoped write token**: random, in `.exact/`, mode `0600`, written into a response
-  only for a verified-local request (loopback host and loopback peer, the `access.local`
-  test the install page uses, `host/web/local-install.mjs`), never into a body a `--lan` or
-  `--allow-host` client can load. The dev gate itself authenticates no one
-  (`scripts/install-page.mjs:274-294`). Reads of a local server need the token too, since a
-  design may be unreleased.
-- **Remote and collaborative clients** are open (§9 Q5). The proposal: **pairing**. The
-  local design tool shows a short code; the remote client presents it once and receives its
-  own token, scoped `read`, `propose` or `write`, listed and revocable in `.exact/`, with
-  every write attributed to it in the event stream. Several people editing one design are
-  several clients of one server, serialized by step 1's digests. A hosted relay for a team
-  that shares no machine is not in r5.
+- **Local clients** use the **write token**: random, held in the server's memory, never
+  written to disk (`.exact/` is not ignored by git). It is given only in answer to a
+  request that passes the install page's test whole: admitted by the dev gate, no
+  forwarding header, loopback host and loopback peer (`access.local`,
+  `scripts/install-page.mjs:269-292`); any other request for it gets the not-found the
+  install endpoint gives. A client presents it as the first WebSocket message, or as an
+  `x-exact-facet-token` header on a POST, never in a URL. Reads need it too, since a design
+  may be unreleased.
+- **Who can speak the protocol.** A native or wasm Exact session cannot set headers or send
+  frames on a socket (LLP 1016.000); a TypeScript data module on the web's JS target can.
+  So the design tool (D14) builds for the web's JS target, and its data module is the
+  protocol client. `bun exact.mjs facet op …` is a client over HTTP.
+- **Remote and collaborative clients** wait on §9 Q5. The proposal: **pairing**. The local
+  design tool shows a code (at least 40 bits, valid two minutes, five attempts); the remote
+  client presents it once, on the pairing endpoint, which is the only thing a non-local
+  request can reach, and receives its own token, scoped `read`, `propose` or `write`, listed
+  and revocable in the tool, every write attributed to it in the event stream. Several people
+  editing one design are several clients of one server, serialized by the digests. A hosted
+  relay for a team that shares no machine is not in r6.
 - **Release builds** have no protocol endpoint, no live table and no token. A shipped app's
   design changes by an update (D7).
 
@@ -861,24 +954,29 @@ Charlie's admission (§9 Q4).
   host; the JS target's runtime keeps the same map. T3 Code's "Accent color · 4 uses" needs
   no `data-paint` word.
 - **Explain this pixel:** `tree` and `explain` report, for a row holding a reference, the
-  token, the `when` that won, and its dial chain (`background-color: surface.card ← neutral
+  token, the `when` that won, and its chain (`background-color: surface.card ← neutral
   (dial)`).
-- **The agent pins app modes** with `prefer mode dark-style=dim`, as it pins scheme and
-  contrast (LLP 1095 D7).
+- **The agent pins app modes** with a fourth `prefer` group, `mode` (`prefer mode
+  dark-style=dim`), beside `media`, `page` and `fold` (`scripts/agent-prefer.mjs`,
+  `host/linux/src/agent.rs`). It runs `setMode` and leaves `prefers-color-scheme` alone.
 
 ### D14 — Clients: Facet's design tool first; Figma, Paper and Pencil are clients too
 
-**Facet's design tool is the primary client**, the "living Figma". It is an Exact app,
-connected over `facet/1` like any other client:
+**Facet's design tool is the primary client**, the "living Figma". It is an Exact app built
+for the web's JS target, whose TypeScript data module speaks `facet/1` with the local token
+(D13), like any other client:
 - **dials and params**, grouped and ordered by their declared `group` and `priority` (D4,
   D15), each drawn with its declared control;
 - **a token × mode grid**, like Figma Variables: resolved swatches per tuple and scheme,
   contrast badges between declared on-pairs, which dials each token follows;
-- **a component workbench:** each component's params, its state parts, and previews in every
-  mode side by side (`color-scheme` and `-exact-mode`, D5);
-- **the app's own screens**, as embedded sessions (as the sample host embeds two, LLP 1031)
-  or as connected development builds on a phone and the Mac, all changing together through
-  the live table.
+- **a component workbench:** each component's params with their controls, its state parts,
+  and its previews in every mode, drawn by a connected build of the app pinned per mode
+  (`preview`, and `color-scheme` with `-exact-mode` inside the app's own preview screens,
+  D5);
+- **the app's own screens**, as its connected development builds (a phone, the Mac, a
+  browser tab), listed by `hello` and all changing together through the live table.
+  Embedding the app's screens inside the tool itself is later: a web JS-target app cannot
+  host another session today.
 
 **Agents** use the same operations: `bun exact.mjs facet op set-token surface.card …` is a
 protocol client with the local token.
@@ -887,8 +985,9 @@ protocol client with the local token.
 checks and the same authority: the files.
 - **Authority.** Names, kinds, axes and structure change only through structure operations
   that pass the checks; values change only through writes. No tool has a side channel.
-- **Importers propose.** A Figma plugin (through a local bridge, since a plugin cannot open a
-  socket to an arbitrary host), a Paper or Pencil integration, or a DTCG file turns its
+- **Importers propose.** A Figma plugin (its manifest may allow `ws://localhost`; a bridge is
+  needed only where a plugin should not hold the token), a Paper or Pencil integration, or a
+  DTCG file turns its
   changes into `propose` transactions; a person or agent accepts them. A change to a token
   folded from a dial is offered as a dial change where one dial explains it, or as a pinned
   override the tool marks ("no longer follows `accent`"), so a dial never goes inert unseen.
@@ -913,9 +1012,10 @@ checks and the same authority: the files.
 **Ruled (Charlie, 2026-10-13):** a Contract component declares what is tweakable and how, as
 part of its definition: typed params with ranges, editor controls and a priority or group, so
 the design tool knows what to surface first. This is exact1 Facet's `params` and `design`
-blocks (button.contract), made one section, without its TypeScript recipe tables.
+blocks (`button.contract`), made one section, without its TypeScript recipe tables.
 
-**A `params` section in the component:**
+**A `params` section in the component.** In Contract every value is a string, as a row's token
+name is, and the editor metadata are ordinary attributes:
 
 ```contract
 component PostButton
@@ -923,10 +1023,10 @@ component PostButton
     label: string
     enabled: bool
   params
-    fill: color = "accent.fill"  control=color  group="Colour"  priority=1
-    radius: length = "radius.full"  in 0..40  step=1  control=slider  group="Shape"  priority=1  label="Corner radius"
-    pressed: color = "color-mix(in oklab, param.fill 88%, text.primary)"  control=none
-    padding: length = 12px  in 8..32  step=2  control=slider  group="Shape"  priority=2
+    fill: color = "accent.fill"  control="color"  group="Colour"  priority=1
+    radius: length = "radius.md"  range="0..40"  step=1  control="slider"  group="Shape"  priority=1  label="Corner radius"
+    padding: length = "12px"  range="8..32"  step=2  control="slider"  group="Shape"  priority=2
+    pressed: color = "color-mix(in oklab, param.fill 88%, text.primary)"  control="none"
   view
     button press=post disabled=(!enabled) background-color="param.fill" border-radius="param.radius" padding="param.padding"
       :active
@@ -934,39 +1034,72 @@ component PostButton
       text label
 ```
 
-- **A param is a token owned by its component**, named `PostButton.radius` (a package's,
-  `reading.Article.measure`). Its default is any token value: a literal, another token, or an
-  expression over tokens, dials and the component's other params. Inside the component a row
-  names it as `"param.radius"`, which the compiler rewrites to the full name. It is in the
-  reference table like any token, so it follows modes and the live table.
-- **The app's value.** The app's `.facet` file may set it by full name, with `when` lines
-  like any token (`PostButton.radius = 12px`); `set-param` writes there. The component's file
-  keeps its default. One value per design: every instance of the component shares it.
+- **A param is a token owned by its component.** Its default is any token value: a literal, a
+  token, or an expression over tokens, dials and the component's other params. Inside the
+  component, a row and a default expression name it as `param.radius`, which the compiler
+  rewrites to its full name. It is in the reference table like any token, so it follows
+  modes, and a change to it re-folds every param and token that reads it.
+- **Its identity is stable.** A component's identity is its declaring file, relative to its
+  app or package root, and its name: `post.contract#PostButton`, or
+  `@scope/reading/article.contract#Article` for a package's. A param's full name is that
+  identity and the param (`post.contract#PostButton.radius`). The short form
+  `PostButton.radius` is accepted wherever it is unambiguous and refused where two
+  components share the name (`facet-param-ambiguous`); an import alias (`use X as Y`)
+  resolves to the declaring identity, so renaming an import or reordering imports never
+  redirects an override.
+- **The app's value.** The app's `.facet` file may set a param by name, with `when` lines like
+  any token; `set-param` writes there and `unset-param` removes it. The component's file keeps
+  its default. One value per design: every instance shares it.
 - **Params are not props.** A prop is per instance and runtime data; a param is the design's,
-  the same for every instance, and never read by the runner. A per-instance variant is a prop
+  the same for every instance, never read by the runner. A per-instance variant is a prop
   that chooses between params (`background-color=(primary ? "param.fill" : "param.quiet")`).
-- **Editor metadata**, all optional: `in a..b` and `step=` (for numbers and lengths, the
-  range is enforced, as a dial's is); `control=` (`slider`, `color`, `token` (a picker of
-  tokens of the kind), `toggle`, `select` for a param whose value is one of listed tokens, or
-  `none` for a derived param the tool does not surface); `label=`; `help=`; `group=` (groups
-  in the order they first appear); `priority=` 1, 2 or 3 (1 is surfaced first, 3 behind
-  "more"; the default is 2). App dials (D4) take the same metadata.
-- **Checks.** A param no row in its component reads is refused (`facet-param-unused`, D4's
-  completeness rule for params). A param's kind is checked against each row that uses it
-  (D3). A default outside its range is refused.
-- **Language-neutral.** The `params` section lowers into the IR's `components` block. A
-  component that is not Contract (a native module's view in Swift or Kotlin, a Rust canvas
-  component) declares the same block in a `.facet` file:
+  The tool surfaces params, not props; showing a component's variant props in the workbench
+  (exact1's `control prop variant as select`) comes with the component library (stage 12).
+- **Controls, by kind:**
+
+| Kind | `control=` | Notes |
+|---|---|---|
+| `color` | `color` (a colour well), `token` (a picker of colour tokens), `select`, `none` | |
+| `length` | `slider`, `stepper`, `token`, `select`, `none` | `range` and `step` in px |
+| `number` | `slider`, `stepper`, `select`, `none` | `range` and `step` unitless |
+| `type`, `family`, `box-shadow`, `text-shadow`, `icon` | `token`, `select`, `none` | |
+| `duration`, `easing` | `slider` (duration, in ms), `token`, `select`, `none` | an edit rebuilds (D13) |
+
+  `select` takes its choices as `options="radius.sm|radius.md|radius.lg"`: tokens of the
+  param's kind, shown by name. `none` is a derived param the tool does not surface. The
+  default control is `token`. `label=`, `help=`, `group=` (groups in the order they first
+  appear) and `priority=` (1 surfaced first, 3 behind "more", default 2) apply to all. App
+  dials (D4) take the same metadata.
+- **What a range checks.** A ranged length takes px literals only, so it can be checked at
+  build; a `rem`, `em` or text-style value there is refused (`facet-range-unit`). The default,
+  folded for every tuple, must be inside the range (`radius.md` is 12 px in the example).
+  An override that is a literal is checked against it; one that names a token is checked
+  after folding. A scrub in the tool that replaces a token default with a literal is a pinned
+  override, marked as D14 marks a dial's ("no longer follows `radius.md`").
+- **Checks.** A param must be reached from a root: a row or a state part of its component,
+  through any chain of params (`pressed` above is read by `:active` only, so it lands with
+  state parts, stage 8), or, for a component that is not Contract, its declaration in a
+  `.facet` file, which makes all its params roots. Otherwise it is refused
+  (`facet-param-unused`). A param's kind is checked against every row that uses it (D3).
+- **Language-neutral.** The `params` section lowers into the IR's `components` block: per
+  component its identity, and per param its name, kind, default expression, range, step,
+  control, options, label, help, group and priority. A component that is not Contract (a
+  native module's view in Swift or Kotlin, a Rust canvas component) declares the same block
+  in a `.facet` file, in the `.facet` grammar (bare CSS values, `in a..b`):
 
 ```
 component MapCard
   params
-    pin: color = "accent.fill"  control=color  priority=1
+    pin: color = accent.fill  control=color  priority=1
+    inset: length = 8px  in 0..24  control=slider  priority=2
 ```
 
-  and reads its params through the bindings (D12): `ExactFacet(view).color(.mapCardPin)`.
-- **Grammar.** `section = … | "params" block(param)`; `param = FIELD ":" kind "=" value
-  [ "in" value ".." value ] { IDENT "=" literal } NL`. One `params` section per component.
+  and reads them through the bindings (D12): `ExactFacet(view).color(.mapCardPin)`,
+  `.length(.mapCardInset)`.
+- **Contract grammar.** `section = … | "params" block(param)`; `param = FIELD ":" kind "="
+  STRING { attribute } NL`, with `range`, `step`, `control`, `options`, `label`, `help`,
+  `group` and `priority` the admitted attributes. One `params` section per component. No new
+  token in the Contract lexer: the range is a string.
 
 ## 3. The `.facet` grammar
 
@@ -1033,6 +1166,7 @@ theme
   accent.fill-faded = light-dark(color-mix(in srgb, accent 50%, #ffffff), color-mix(in srgb, #208bfe 50%, #000000))
   accent.on-fill = #ffffff
   type.body = -exact-body/1.35 "InterVariable"
+    radius.md = 12px
   radius.full = 999px
 
 icons
@@ -1075,20 +1209,26 @@ Android's reader and the terminal.
    design payload. **Alongside, independent:** `setRootFontSize("125%")` (QUEUE's item).
    Gate: the clone's font-size setting scales Dynamic Type at two Dynamic Type sizes.
 3. **The Facet protocol and the design tool, over files** (D13 without the live table, D14's
-   own tool). Needs Charlie's §Tooling admission. No digest break. **Gate:** the design tool
-   edits the clone's dials and tokens through `facet/1`; every write is a one-line diff;
-   two clients writing the same token conflict instead of overwriting; a hand edit and a
-   `git checkout` reach a subscribed client; `propose` changes nothing on disk; a write or
-   read without the token is refused, and a `--lan` client cannot obtain it; the inverse
-   transaction undoes.
+   own tool: the dials panel and the token grid). Needs Charlie's §Tooling admission. No
+   digest break. **Gate:** the design tool, a web JS-target app, edits the clone's dials and
+   tokens through `facet/1`; every write is a one-line diff; two clients writing the same
+   token conflict instead of overwriting; a second server for the project refuses to start;
+   a transaction across two files killed between its renames is completed on restart; a hand
+   edit and a `git checkout` reach a subscribed client; `propose` changes nothing on disk; a
+   request without the token is refused, and a `--lan` client or a forwarded request cannot
+   obtain it; each inverse transaction undoes, including an `unset-param` restoring the
+   component's default.
 4. **The live table** (D13). Needs Charlie's §Runtime admission, and reclaimable live colour
    storage first: `Wide` entries are process-global, immutable and capped at 4,096
    (`kernel/src/style/wide.rs`); the policy says what a running transition keeps alive. No
-   digest break beyond stage 2. **Gate:** a dial drag in the design tool reaches the clone on
-   the iOS simulator, the Mac and the web at once, with no state lost (a scrolled list stays
-   scrolled, a draft stays typed) and no reload; a build that reconnects after missing a batch
-   gets the snapshot; more than 4,096 distinct colour edits drop none and leave storage
-   bounded; `uses` and `explain` are right on every host.
+   digest break beyond stage 2; the new kernel entry `exact_design_rows` on every host.
+   **Gate:** a dial drag in the design tool, and a hand edit of a value in `app.facet`,
+   reach the clone on the iOS simulator, the Mac and the web at once, with no plan
+   published, no reload and no state lost (a scrolled list stays scrolled, a draft stays
+   typed); a structure edit still reloads; a build that reconnects after missing a batch gets
+   the snapshot; more than 4,096 distinct colour edits leave storage bounded, and a full
+   table refuses with a diagnostic rather than dropping; `preview` pins one named build;
+   `uses`, `explain` and `resolve-on` are right on every host.
 5. **Bindings and the DTCG client** (D12, D14). No digest break. **Gate:** a native module in
    the sample host draws with `ExactFacet(view).color(…)` and follows `setMode`, a pin above
    it, a Dynamic Type change and the live table; two embedded sessions with different
@@ -1099,18 +1239,23 @@ Android's reader and the terminal.
    `font-family` writes and its radii become tokens with screens identical; under Bold Text a
    system-font type token is bolded, one with an authored weight too, and a bundled family is
    not. `calc()` with `rem` in a token waits on QUEUE's `rem`/`em` item.
-7. **Component params** (D15). Colour params may land with stage 2's kinds, the rest with
-   stage 6's. No digest break beyond those stages (a param is a token). **Gate:** the clone's
-   post action row and Post button declare params; the design tool lists them by group and
-   priority with their controls; a `set-param` reaches every instance live; a Swift native
-   view's `.facet` params appear beside them; an unused param is refused.
+7. **Component params** (D15) and the workbench's params panel. Colour params may land with
+   stage 2's kinds, the rest with stage 6's; a param whose only reader is a state part lands
+   with stage 8. No digest break beyond those stages (a param is a token). `facet-param-unused`
+   starts here. **Gate:** the clone's post action row and Post button declare params; the
+   design tool lists them by group and priority with their controls and `select` options; a
+   `set-param` reaches every instance live, and one on a duration param rebuilds instead; a
+   Swift native view's `.facet` params appear beside them and draw through
+   `ExactFacet(view)`; an unused param, an ambiguous short name and a `rem` value on a ranged
+   length are refused; renaming an import keeps an override on its component.
 8. **State parts and control roles** (D8, D9). Digest break: state looks; the control-role
    table. Hosts: all that paint a press. **Gate:** the clone's Post button and switches are
    right on every host with no hand fix and no double dim; a checked, disabled toggle with
    both parts shows `:disabled`'s; a class change and a base change while pressed keep the
    overlay over the new base; existing `disabledStyled` apps unchanged; LLP 1061's press
-   corpus unchanged; `facet-unreachable` names the macOS switch and iOS's disabled glass
-   button.
+      corpus unchanged; `facet-unreachable` names the macOS switch and iOS's disabled glass
+   button; the workbench shows each component's state parts, editable through `set-state`
+   (which rebuilds).
 9. **Icon tokens** (D10). Digest break: none if the symbol wire already takes an SVG source
    per node, else one. **Gate:** the clone's ~100 `symbol:sf/…` uses draw on the web from
    icon tokens; a missing source fails the build with the target named.
@@ -1126,7 +1271,8 @@ Android's reader and the terminal.
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
     first consumer is named before it starts.
 
-**Checks that stay from stage 2:** `facet-dial-inert` and `facet-param-unused`; golden IR and
+**Checks that stay from stage 2:** `facet-dial-inert` (and `facet-param-unused` from stage
+7); golden IR and
 folded tables for the corpus designs (one evaluator, so no cross-language parity corpus); a
 plan-size budget (the clone's design adds under 4 KB); first frame unchanged within noise for
 an app with a design.
