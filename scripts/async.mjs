@@ -82,7 +82,7 @@ export function tierTwoChecks() {
 export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 // The T3 Code clone's own workspace (examples/t3-code/Cargo.toml): its build script bakes the whole app on
-// one core, about twelve minutes, so the root's members and the six checks leave it out. Built, tested and
+// one core for minutes, so the root's members and the six checks leave it out. Built, tested and
 // linted here, in the root's target (pruned with it), where the units the two workspaces share are built
 // once. Clippy's build of the build script is a unit of its own, so linting bakes once more.
 const t3Code = ['--manifest-path', 'examples/t3-code/Cargo.toml', '--target-dir', 'target', '--workspace', '--locked'];
