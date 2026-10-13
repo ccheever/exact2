@@ -601,3 +601,8 @@ The old vendored process-wide metric-file hook is now Exact's optional
 `IBEX2_HTTP_METRICS` file selection for that lane. Blocking/native comparisons
 use Ibex's explicit diagnostic; a file from only the async observer is not a
 qualified two-arm comparison. The production async switch stays opt-in.
+
+Portable fallback pools start lazily at their first reservation: one ordered
+worker and the configured independent-worker count (six by default). Their
+slots count alongside the six machine threads under Exact's process limit, and
+accepted work retains its slots through physical return after core retirement.

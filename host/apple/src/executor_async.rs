@@ -34,6 +34,8 @@ use std::time::{Duration, Instant};
 #[path = "executor_timer.rs"]
 mod timer;
 use timer::Timer;
+#[path = "executor_workers.rs"]
+mod workers;
 
 /// Resumed independent HTTP exchanges at once, the session's per-host
 /// connection limit too (LLP 1120 D2, D5): HTTP/2 multiplexes them.
@@ -42,7 +44,11 @@ pub(super) const IN_FLIGHT: usize = super::build_number(option_env!("EXACT_HTTP_
 /// reports `h2` or `h3` (D3): URLSession's own limit, so it never queues.
 const PER_ORIGIN: usize = 6;
 /// The base set: two starters, two finishers, the timer, the disposer (D4).
-pub(super) const THREADS: usize = 6;
+pub(super) const THREADS: usize = 6 + if cfg!(any(not(target_vendor = "apple"), test)) {
+    1 + super::INDEPENDENT
+} else {
+    0
+};
 
 /// A job's run: its ticket and generation.
 type Run = (u64, u64);
@@ -241,6 +247,7 @@ enum Done {
 /// The machine for one core: its lanes' transports, channels and threads.
 pub(super) struct Machine {
     shared: Arc<Shared>,
+    worker_budget: Arc<workers::Budget>,
     transports: [Option<Lane>; 2],
     /// Why a request is refused on a lane with no transport.
     unbound: String,
@@ -253,8 +260,11 @@ pub(super) struct Machine {
 }
 
 /// How a lane's transport is made from its owner's bindings.
-pub(super) type Lanes =
-    Arc<dyn Fn(usize, &ibex2::host::Bindings) -> (Arc<dyn AsyncTransport>, bool) + Send + Sync>;
+pub(super) type Lanes = Arc<
+    dyn Fn(usize, &ibex2::host::Bindings, Arc<workers::Budget>) -> (Arc<dyn AsyncTransport>, bool)
+        + Send
+        + Sync,
+>;
 
 impl Machine {
     pub(super) fn new(
@@ -275,9 +285,10 @@ impl Machine {
             .next()
             .flatten()
             .or_else(|| parsed().ok().map(|g| host().endow(g)));
+        let worker_budget = Arc::new(workers::Budget::default());
         let transport = |lane: usize, b: Option<ibex2::host::Bindings>| {
             b.map(|b| {
-                let (transport, portable) = lanes(lane, &b);
+                let (transport, portable) = lanes(lane, &b, worker_budget.clone());
                 shared.state.lock().unwrap().book.portable[lane] = portable;
                 (transport, b.fetch)
             })
@@ -286,6 +297,7 @@ impl Machine {
         Arc::new(Machine {
             shared,
             transports,
+            worker_budget,
             unbound,
             finishers: [Mutex::new(None), Mutex::new(None)],
             timer: Timer::default(),
@@ -329,6 +341,7 @@ impl Machine {
         spawn("exact-timer".into(), Box::new(move || m.timer()));
         let m = self.clone();
         spawn("exact-dispose".into(), Box::new(move || m.disposer()));
+        *self.worker_budget.0.lock().unwrap() = slots.collect();
         ok
     }
 
@@ -1110,7 +1123,7 @@ pub(super) fn asynchronous() -> bool {
 pub(super) fn asynch_lanes() -> Lanes {
     #[cfg(all(target_vendor = "apple", not(test)))]
     {
-        Arc::new(|lane, _| {
+        Arc::new(|lane, _, _| {
             let per_host = if lane == 1 { IN_FLIGHT } else { 0 };
             (
                 Arc::new(ibex2::transport::darwin_async::DarwinLane::new(per_host)),
@@ -1120,13 +1133,9 @@ pub(super) fn asynch_lanes() -> Lanes {
     }
     #[cfg(any(not(target_vendor = "apple"), test))]
     {
-        Arc::new(|_, bindings: &ibex2::host::Bindings| {
-            // The portable adapter reserves bounded worker capacity before
-            // accepting an exchange; activation cannot fail to dispatch it.
-            let workers = Arc::new(
-                ibex2::stdlib::fetch_async::BoundedWorkerPool::new(4, IN_FLIGHT)
-                    .expect("create bounded HTTP workers"),
-            );
+        Arc::new(|lane, bindings: &ibex2::host::Bindings, budget| {
+            let threads = if lane == 0 { 1 } else { super::INDEPENDENT };
+            let workers = Arc::new(workers::Workers::new(threads, budget));
             (Arc::new(bindings.fetch.blocking_adapter(workers)), true)
         })
     }

@@ -729,6 +729,6 @@ fn worker_placed_typescript_storage_keeps_the_document_owner() {
     let mut other = root.module().placed(Placement::Worker);
     other.set_document_owner(9131);
     other.activate().unwrap();
-    assert!(read(&mut other, &mut store, &doc).contains("no such document"));
+    assert!(read(&mut other, &mut store, &doc).contains("document ENOENT:"));
     exact_data::documents::forget(9130);
 }

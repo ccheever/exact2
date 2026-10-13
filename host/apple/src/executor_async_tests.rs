@@ -124,7 +124,8 @@ fn core_with_upload_copy(
             .collect();
     let (wake, woke) = channel();
     let script = script.clone();
-    let lanes: asynch::Lanes = Arc::new(move |_, _| (Arc::new(Scripted(script.clone())), portable));
+    let lanes: asynch::Lanes =
+        Arc::new(move |_, _, _| (Arc::new(Scripted(script.clone())), portable));
     let core = Core::with_owners_lanes(
         owners,
         grants,
