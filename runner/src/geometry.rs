@@ -24,6 +24,8 @@
 //! compiler requires `measure`'s id to be a literal, which is what lets the
 //! runner find them all first.
 
+#[cfg(test)]
+mod inline_tests;
 mod intersection;
 pub(crate) use intersection::intersection;
 
@@ -91,6 +93,13 @@ impl GeometryAnswer {
 /// id of the literal each was asked with.
 pub type Measured = Vec<(StrId, GeometryAnswer)>;
 
+/// A native presenter's shaped inline fragments, read only when an action
+/// asks for a run. The answer is their union in viewport coordinates.
+pub trait InlineGeometry: std::fmt::Debug {
+    /// The last presented run, or `UNAVAILABLE` when it is not mounted.
+    fn frame(&self, view: ViewId) -> GeometryAnswer;
+}
+
 /// Where the host last showed each scroll container, and the page, in CSS
 /// px (`scrollLeft`, `scrollTop`): what a native read subtracts from the
 /// kernel's scroll-free box (kanban diary F4: an app hand-tracked every
@@ -102,6 +111,7 @@ pub struct Scrolled {
     page: (f64, f64),
     boxes: Vec<(NodeKey, f64, f64)>,
     top_layer: Vec<(NodeKey, Option<[f64; 4]>)>,
+    pub(crate) inline: Option<std::rc::Rc<dyn InlineGeometry>>,
 }
 
 impl Scrolled {
@@ -258,6 +268,37 @@ pub static KERNEL: GeometryLinks = GeometryLinks::new(
 );
 
 fn kernel_frame(kernel: &Kernel, scrolled: &Scrolled, view: ViewId) -> GeometryAnswer {
+    let arena = kernel.arena();
+    if let Some(key) = arena
+        .key_of(view)
+        .filter(|key| arena.is_inline_run(key.index))
+    {
+        let mut owner = key.index;
+        while arena.is_inline_run(owner) {
+            let Some(parent) = arena.parent(owner) else {
+                return GeometryAnswer::UNAVAILABLE;
+            };
+            owner = parent;
+        }
+        let Some((_, provisional)) = kernel.laid_out_frame(arena.key(owner)) else {
+            return GeometryAnswer::UNAVAILABLE;
+        };
+        let mut answer = scrolled
+            .inline
+            .as_ref()
+            .map_or(GeometryAnswer::UNAVAILABLE, |read| read.frame(view));
+        if answer.unavailable
+            || ![answer.x, answer.y, answer.width, answer.height]
+                .iter()
+                .all(|v| v.is_finite())
+            || answer.width < 0.0
+            || answer.height < 0.0
+        {
+            return GeometryAnswer::UNAVAILABLE;
+        }
+        answer.provisional |= provisional;
+        return answer;
+    }
     kernel
         .arena()
         .key_of(view)

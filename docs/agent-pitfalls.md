@@ -760,6 +760,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `expect` that reads what its reply sets.
   (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
 
+- **An `iframe` can show an app-owned document.** Use
+  `src="app:/data/doc.pdf"` (also `app:/cache` and `app:/tmp`). The host
+  reads it as its file type and keeps the authored sandbox; a missing or
+  refused app file fires `error`, without a successful `load`. This does
+  not provide a portable fit-to-width PDF viewer or toolbar controls.
+
 - **An `iframe` of `http://` from a named host loads under the agent and shows an
   App Transport Security error in the macOS app.** `http://localtest.me:5173/` or
   `http://example.com/` read "The resource could not be loaded because the App

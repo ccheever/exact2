@@ -29,8 +29,7 @@ package final class Presenter {
             guard !applying else { return }
             // Rows stay carried: a trait refresh never pulls a row (and a
             // first responder or a touch in it) out of its cell. Lists mount
-            // first, so a segment or control in a carried row is judged
-            // where it shows.
+            // first, so a segment or control in a carried row is judged where it shows.
             groupedLists?.sync(changed: [])
             segments.sync()
             controls.sync()
@@ -482,6 +481,7 @@ package final class Presenter {
         return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
     }
 
+    lazy var popoverEvents = PopoverEvents(self)
     /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
     /// confirmation by its id, the platform's alert or sheet (MenusIOS).
     func dialogCommand(_ name: String, _ id: String) {

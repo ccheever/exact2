@@ -63,6 +63,27 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertTrue(closer.accessibilityActivate(), "the production touch activation rule selects a hide-only button")
         XCTAssertFalse(p.menus.lifted(pop)); XCTAssertTrue(pop.isHidden)
     }
+
+    func testLiftedContentKeepsItsAuthoredARIAUnavailableAncestor() throws {
+        let p = presenter(view(9) + native(1, ["popovertarget": "content"])
+            + view(2, ["popover": "auto", "id": "content"], h: 120)
+            + native(3) + view(4)
+            + [["op": "children", "id": 2, "ids": [3, 4]],
+               ["op": "children", "id": 9, "ids": [1, 2]], ["op": "roots", "ids": [9]]],
+            faces: [1: face("Open"), 3: face("Inside")])
+        defer { p.menus.reset(); window.isHidden = true }
+        p.press(1)
+        let pop = try XCTUnwrap(p.views[2]), node = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(p.menus.lifted(pop))
+        p.apply(wireBatch([["op": "props", "id": 9, "set": ["accessibilityDisabled": "true"]]]))
+        let button = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        XCTAssertTrue(node.ariaUnavailable)
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled))
+        XCTAssertTrue(button.isEnabled)
+        p.apply(wireBatch([["op": "props", "id": 9, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(node.ariaUnavailable)
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+    }
     func testANativeSwipeActionIsDrawnFromItsFace() throws {
         let p = presenter(
             view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin flag archive"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])

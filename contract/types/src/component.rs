@@ -628,6 +628,7 @@ fn refine_params_from_view(
                             | "navigate"
                             | "cancel"
                             | "close"
+                            | "toggle"
                             | "resize"
                             | "intersect"
                     ) {

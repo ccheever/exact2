@@ -52,6 +52,14 @@ pub(super) struct Published {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// The presenter's on-demand geometry for shaped inline runs.
+    pub fn set_inline_geometry(
+        &mut self,
+        read: Option<std::rc::Rc<dyn crate::geometry::InlineGeometry>>,
+    ) {
+        self.scrolled.inline = read;
+    }
+
     /// The open popovers and dialogs last shown by a native presenter.
     pub fn top_layer(&mut self, views: &[ViewId]) {
         self.scrolled.top_layer(&self.kernel, views);

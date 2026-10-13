@@ -43,6 +43,7 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Focusin | EventKind::Focusout => Some("onFocusWithin"),
         EventKind::Copy | EventKind::Cut | EventKind::Paste => Some("onClipboard"),
         EventKind::Selectionchange => Some("onSelectionChange"),
+        EventKind::Toggle => Some("onToggle"),
         _ => None,
     }
 }

@@ -26,6 +26,9 @@ const APP: &str = r#"routes nav
     detail "/detail"
 component App
   state said = "nothing"
+  state toggled = ""
+  action toggling(e: ToggleEvent)
+    toggled = `${e.oldState}>${e.newState}`
   state aimed = ""
   state name = ""
   action ask
@@ -81,7 +84,7 @@ component App
             row width=400 height=40
               button press=poke contextmenu=aim("row") contextPopover="menu" testId="held" width=300 height=40
                 text "Hold me"
-              button popovertarget="menu" aria-label="More" testId="more" width=40 height=40
+              button popovertarget="menu" aria-label="More" id="trigger" testId="more" width=40 height=40
                 image "symbol:more"
           when e.name == "detail"
             text "Detail" testId="detail"
@@ -117,11 +120,11 @@ component App
           text "Two"
         button commandfor="chooser" command="close"
           text "Cancel"
-      column id="menu" popover="auto" role="menu" aria-label="Row"
+      column id="menu" popover="auto" toggle=toggling role="menu" aria-label="Row"
         button press=rename popovertarget="menu" popovertargetaction="hide" testId="menu-rename"
           image "symbol:pencil"
           text "Rename"
-        button press=send popovertarget="menu" popovertargetaction="hide" testId="menu-share"
+        button press=send popovertarget="menu" popovertargetaction="hide" id="second" testId="menu-share"
           text "Share"
         button press=send disabled=true popovertarget="menu" popovertargetaction="hide" testId="menu-off"
           text "Unavailable"
@@ -1043,4 +1046,61 @@ fn a_menu_grows_from_the_corner_by_its_anchor() {
     let words = p.take_requests().unwrap();
     let at = words.iter().position(|w| *w == 7).unwrap();
     assert_eq!(words[at + 5], 0b0001);
+}
+
+#[test]
+fn popover_commands_use_the_existing_surface_and_report_toggles() {
+    let (mut p, _) = windowed();
+    let args = [exact_plan::Value::str("menu")];
+    p.popover_command("showPopover", &args);
+    p.popover_command("showPopover", &args);
+    p.run_commands(|| Nothing);
+    assert!(p.surface().is_some());
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("closed>open"))
+    );
+    p.popover_command("hidePopover", &args);
+    p.run_commands(|| Nothing);
+    assert!(p.surface().is_none());
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("open>closed"))
+    );
+    p.popover_command("showPopover", &args);
+    p.run_commands(|| Nothing);
+    p.key_down("Escape", 3.0);
+    p.run_commands(|| Nothing);
+    assert!(p.surface().is_none());
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("open>closed"))
+    );
+    p.popover_command("togglePopover", &args);
+    p.popover_command("togglePopover", &args);
+    p.run_commands(|| Nothing);
+    assert_eq!(
+        p.host.runner().slot("toggled"),
+        Some(&exact_plan::Value::str("closed>closed"))
+    );
+}
+
+#[test]
+fn focus_after_show_selects_the_shell_menu_row_and_escape_restores_the_trigger() {
+    let (mut p, _) = windowed();
+    let trigger = id(&p, "more");
+    let second = id(&p, "menu-share");
+    p.set_focus(Some(trigger), 0.0);
+    p.popover_command("showPopover", &[Value::str("menu"), Value::str("trigger")]);
+    assert_eq!(p.focus_command(&[Value::str("second")]), Some(second));
+    assert_eq!(p.top.open.as_ref().unwrap().focused, Some(1));
+    assert_eq!(p.focus(), None, "the menu owns focus, not the page");
+    p.key_down("ArrowDown", 1.0);
+    assert_eq!(
+        p.top.open.as_ref().unwrap().focused,
+        Some(3),
+        "advance from the selected row, skipping disabled"
+    );
+    p.key_down("Escape", 2.0);
+    assert_eq!(p.focus(), Some(trigger));
 }

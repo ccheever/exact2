@@ -1,13 +1,12 @@
-// The web host's glue: apply batches, forward events, tick the clock.
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
-// the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle } from "./navigation.js";
-import { observeGroupedInset, releaseGroupedInset, reparentGroupedInset } from "./grouped-inset.js";
+import { popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle } from "./navigation.js";
+let groupedInsets; function groupedInset(el, op, raw) { if (!groupedInsets && (op !== "observe" || !String(raw).includes('%'))) return; (groupedInsets ??= afterNativePaint().then(() => loadAfterPaint('./grouped-inset.js', 'groupedInsets'))).then(m => m[op](el, raw)); }
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
 // An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`, and an element with none gets none (an empty media `src` is a failed load). A media element plays it (podcast F19): the glue hears the URL as its source, and a path with no file is handed to it as written, which it refuses (`src-not-supported`) as HTML refuses a source it cannot fetch. `then` runs once it lands (a `load` command's). A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
+function appFrameSource(el, value) { if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/")) return false; const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el)))); return true; }
 const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -423,7 +422,7 @@ function applyProps(el, set, clear) {
   syncMedia(el, set, clear); if (set && "data-scrolldocument" in set) scrollDocs.add(el);
   let sandboxChanged = false;
   for (const name of clear || []) {
-    if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
+    if (el instanceof HTMLIFrameElement && name === "src") { appFrameSource(el, null); iframeLoading.set(el, true); }
     if (el instanceof HTMLIFrameElement && name === "sandbox" && el.hasAttribute("sandbox")) sandboxChanged = true;
     if (name === "scrollFollowEnd") followScroll(el, false);
     else if (name === "scrollTop" || name === "scrollLeft") {
@@ -457,6 +456,7 @@ function applyProps(el, set, clear) {
     } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
     } else if (name === "disabled" || name === "readonly" || name === "multiple" || (el instanceof HTMLMediaElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement && el.matches(":disabled")) el.blur(); } else el.removeAttribute(name); // a focused control that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup); a box keeps it, as `disabled` means nothing on a div
+    } else if (el instanceof HTMLIFrameElement && name === "src" && appFrameSource(el, value)) {
     } else {
       const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
@@ -517,7 +517,7 @@ function attach(el, id, handlers) {
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle, capture = false) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load") && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
+    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load" || event === "error" && el instanceof HTMLIFrameElement) && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
   }, capture);
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
     on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
@@ -527,11 +527,9 @@ function attach(el, id, handlers) {
   });
   if (el instanceof HTMLIFrameElement) {
     if (!iframeLoading.has(el)) iframeLoading.set(el, true);
-    const dispatchLoad = handlers.includes("load");
-    on("load", () => {
-      iframeLoading.set(el, false);
-      if (dispatchLoad && inputReady) send(wasm.exact_dispatch(id, 8, 0, now()));
-    });
+    const arrived = failure => { iframeLoading.set(el, false); const source = el.exactAppFrame, go = () => { if (views.get(id) === el && !retiredViews.has(el) && el.exactAppFrame === source && handlers.includes(failure == null ? "load" : "error")) send(failure == null ? wasm.exact_dispatch(id, 8, 0, now()) : wasm.exact_dispatch(id, 19, writeIn("error\n" + failure), now())); }; if (inputReady) go(); else moduleReady.then(() => inputReady && go()); };
+    on("error", ev => arrived(ev.detail ?? "iframe did not load"));
+    on("load", () => { if (el.exactAppFrame && !el.exactAppFrame.url) return; arrived(null); });
     if (handlers.includes("message")) {
       messageFrames.add(el);
       ensureMessageListener();
@@ -559,6 +557,7 @@ function attach(el, id, handlers) {
     } else if (kind === "intersect") {
       (intersects ??= loadAfterPaint('./intersect-glue.js', 'observeIntersect')).then(observe => { if (views.get(id) === el && !retiredViews.has(el)) el.exactIntersect = observe(el, r => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 45, writeIn(`${Number(r.isIntersecting)},${r.intersectionRatio}`), now())); }); });
     } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, writeIn(r), now())); }); on("pointerdown", e => own()?.(e)); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`)
+    } else if (kind === "toggle") { on(kind, e => send(wasm.exact_dispatch(id, 50, writeIn(`${e.oldState},${e.newState}`), now())));
     } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, "start,end,text"
       onSelection(el, (text, a, b) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn(`${a},${b},${text}`), now())); });
     } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds
@@ -598,7 +597,7 @@ function viewFor(op, id) {
 function apply(batch) {
   // Retire dispatch before children ops can synchronously blur removed views; a leaving view's box is read before any op moves it (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); releaseGroupedInset(el); el.exactIntersect?.(); } }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); groupedInset(el, "release"); el.exactAppFrame?.dispose(); el.exactIntersect?.(); } }
   }
   presence.live?.before(batch, views);
   listSelection?.before();
@@ -627,7 +626,7 @@ function apply(batch) {
         }
         applyProps(el, op.props, []);
         const css = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); if ((el.getAttribute("style") ?? "") !== css) el.style.cssText = css; noteFit(css); // an adopted element's is already there; a fitted text's scale follows each batch (LLP 1116.001 D1.4)
-        attach(el, op.id, op.handlers); if (el.hasAttribute("data-grouped-row-separator")) observeGroupedInset(el, el.style.getPropertyValue("--exact-grouped-inset"));
+        attach(el, op.id, op.handlers); if (el.hasAttribute("data-grouped-row-separator")) groupedInset(el, "observe", el.style.getPropertyValue("--exact-grouped-inset"));
         views.set(op.id, el); if (op.tag.includes("-") && !op.ns && !el.exactNative) nativeCreate(el, op.id);
         listView(el, op.id, collectionOp?.items.some(item => item.view === op.id));
         break;
@@ -639,7 +638,7 @@ function apply(batch) {
       }
       case "style": {
         const el = viewFor("style", op.id);
-        if (el) { exact.gpu?.beforeStyle(el); motion.style(op.id, op.css); noteFit(op.css); if (el.hasAttribute("data-grouped-row-separator")) observeGroupedInset(el, el.style.getPropertyValue("--exact-grouped-inset")); if (el.hasAttribute("data-action")) el.style.touchAction="none"; exact.gpu?.afterStyle(el); }
+        if (el) { exact.gpu?.beforeStyle(el); motion.style(op.id, op.css); noteFit(op.css); if (el.hasAttribute("data-grouped-row-separator")) groupedInset(el, "observe", el.style.getPropertyValue("--exact-grouped-inset")); if (el.hasAttribute("data-action")) el.style.touchAction="none"; exact.gpu?.afterStyle(el); }
         break;
       }
       case "children": {
@@ -656,7 +655,7 @@ function apply(batch) {
         let cursor = skip(el.firstElementChild);
         for (const child of want) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
-          el.insertBefore(child, cursor); reparentGroupedInset(child);
+          el.insertBefore(child, cursor); groupedInset(child, "reparent");
         }
         while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; } settleValue(el); // a select shows its committed value among its new options
         break;
@@ -767,6 +766,7 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); else if (op.name === "setRootFontSize") appRootFontSize(op.args?.[0], log); // LLP 1077 D14; LLP 1069.000 D3: the runner laid out at the size, the document's root takes it
         else if (op.name === "focus" || op.name === "selectText" || op.name === "setSelectionRange" || op.name === "setRangeText" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
+        else if (["showPopover", "hidePopover", "togglePopover"].includes(op.name)) focusCommands.push({ name: op.name, args: op.args });
         else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close" && op.args?.[0] == null) window.close(); /* studio diary R17 */ else if (op.name === "showModal" || op.name === "close") { const id = op.args?.[0], el = [...views.values()].find(el => el.id === id), close = op.name === "close"; if (el instanceof HTMLDialogElement) { if (close) el.close(); else if (!el.open) el.showModal(); else log(`showModal "${id}" ignored: dialog is already open`); } else if (el?.popover != null && el.getAttribute("role") === "alertdialog") { if (close) el.hidePopover(); else if (!el.matches(":popover-open")) el.showPopover(); } else if (!close) log(`showModal "${id}" refused: no dialog or alertdialog popover has that id`); } // `showModal(id)`, `close(id)` from an action: the dialog's own, or an alertdialog popover's (LLP 1101.001 P5, LLP 1115 D6), as host/web-js/commands.js `modal`
         else if (op.name === "stopPropagation") { if (keyEvent) keyEvent.exactStopped = true; /* no ancestor's `key` handler hears it; its default still happens */ } else if (op.name === "requestFullscreen") { const el = [...views.values()].find(el => el.id === op.args?.[0] && el.exactMedia); if (!el) log(`requestFullscreen: refused: no video with id "${op.args?.[0]}"`); else el.requestFullscreen().catch(e => log(`requestFullscreen: refused: ${e.name}`)); } // HTML's Element.requestFullscreen(); the element reports `fullscreenchange`
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
@@ -823,7 +823,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); releaseGroupedInset(el); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); groupedInset(el, "release"); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -874,7 +874,7 @@ function apply(batch) {
   listSelection?.after();
   syncLists();
   // Focusing can dispatch an action: every node/value of the batch is committed before its focus handler runs.
-  runFocusCommands(focusCommands, { root, ready: inputReady, inertAncestor, log });
+  for (const command of focusCommands) { if (["showPopover", "hidePopover", "togglePopover"].includes(command.name)) popoverCommand(command.name, command.args?.[0], command.args?.[1], log); else runFocusCommands([command], { root, ready: inputReady, inertAncestor, log }); }
   focusAutofocus(); inputHandlers?.arrive(); // then the focus follows the route, unless either set it (input-glue.js; LLP 1115.000 D4.2)
   positionContexts(); presence.live?.after(batch, views); markScrollDocument();
   return batch.timers;
@@ -1338,7 +1338,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   globalThis.exact.pendingSurfaces = [];
   ticker?.dispose(); ticker = null;
   arrange.reset(); motion.reset();
-  for (const el of views.values()) { releaseGroupedInset(el); if (textflow) retiredViews.add(el); }
+  for (const el of views.values()) { groupedInset(el, "release"); if (textflow) retiredViews.add(el); }
   textflow?.dispose(); textflow = null; flowLoading = null; flowContexts = []; flowDue = null; flowFrames = false;
   globalThis.exact?.gpu?.reset(Boolean(bytes));
   for (const el of followedScrolls.keys()) followScroll(el, false);
@@ -1346,7 +1346,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  for (const el of views.values()) { el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
+  for (const el of views.values()) { el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";

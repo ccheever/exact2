@@ -299,6 +299,36 @@ final class NativeButtonsIOSTests: XCTestCase {
         override var view: UIView? { target }
         override func location(in view: UIView?) -> CGPoint { target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view) }
     }
+    func testPopoverActionCommandsAndToggleEvents() throws {
+        let p = presenter(box(1) + native(2, ["id": "trigger"]) + native(3)
+            + box(4, ["popover": "auto", "id": "choices"]) + native(5)
+            + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "children", "id": 4, "ids": [5]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Open"), 3: face("Outside"), 5: face("Item")])
+        let pop = try XCTUnwrap(p.views[4])
+        pop.handlers.insert("toggle")
+        var events: [String] = []
+        p.onClipboard = { _, kind, payload in XCTAssertEqual(kind, 50); events.append(payload) }
+        func delivered(_ count: Int) {
+            let limit = Date(timeIntervalSinceNow: 20)
+            while events.count < count && Date() < limit { RunLoop.main.run(mode: .default, before: limit) }
+            XCTAssertEqual(events.count, count)
+        }
+        p.menus.action("showPopover", ["choices", "trigger"])
+        p.menus.action("showPopover", ["choices", "trigger"])
+        XCTAssertTrue(p.menus.isOpen(pop)); XCTAssertEqual(p.menus.observation()?["source"] as? Int, 2)
+        delivered(1); XCTAssertEqual(events.last, "closed,open")
+        p.menus.lightDismiss(p.views[3]!)
+        delivered(2); XCTAssertEqual(events.last, "open,closed")
+        p.menus.action("togglePopover", ["choices", "trigger"])
+        delivered(3)
+        XCTAssertTrue(p.keyDown(at: p.views[2], "Escape"))
+        delivered(4); XCTAssertEqual(events.last, "open,closed")
+        p.menus.action("showPopover", ["choices"])
+        XCTAssertTrue(p.menus.observation()?["source"] is NSNull)
+        p.menus.action("hidePopover", ["choices"])
+        delivered(5); XCTAssertEqual(events.last, "closed,closed")
+    }
+
     func testProductionTouchesLightDismissAndHideANativeInvokersPopover() throws {
         let p = presenter(box(1) + native(2, ["popovertarget": "choices"]) + native(3)
             + box(4, ["popover": "auto", "id": "choices"]) + native(5, ["popovertarget": "choices", "popovertargetaction": "hide"], handlers: [])

@@ -1,6 +1,7 @@
 # macOS: ⌘Z and Edit › Undo do nothing in a plain `textarea` (the undo reaches the window's manager, not the field's)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** macOS routing was fixed by ad7ebfc2f; MarkupEditorTests and the new UIKit plain-textarea undo/redo regression pass, including input publication and authoritative history reset.
 **Systems:** host/apple macOS, text editing
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -82,5 +83,8 @@ component X63app
 ### PR #327 rebase — 2026-10-11
 
 The macOS textarea now sends Undo and Redo to its own history and publishes
-the restored value. The iOS keyboard and gesture path has not been verified;
-this issue remains open for that acceptance criterion.
+the restored value. Plain UIKit textareas retain `super.undoManager`, so keyboard and gesture
+undo use UIKit's own history. `FieldSelectionIOSTests.testPlainTextAreaKeepsUIKitUndoAndPublishesUndoRedo`
+passes on the iOS 27 simulator: undo and redo restore the value and publish
+input, and an authoritative replacement clears the editor's history.
+`MarkupEditorTests` also passes, including the macOS action and chord paths.

@@ -88,6 +88,9 @@ impl<D: DataSource> Presenter<D> {
                 // The top layer, where a shell presents one (LLP 1115 D6;
                 // LLP 1115.001 D10): a confirmation by its `id`, and its
                 // close. With no windows, the journal names the refusal.
+                name @ ("showPopover" | "hidePopover" | "togglePopover") => {
+                    self.popover_command(name, &c.args)
+                }
                 "showModal" if self.has_windows() => self.show_modal(&c.args, c.source),
                 "close" if self.has_windows() && !c.args.is_empty() => self.close_modal(&c.args),
                 "showModal" => self
@@ -110,6 +113,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.drain_field_select_tasks();
+        self.dispatch_toggles();
         if self.pending_update {
             self.pending_update = false;
             match self.activate_update(data()) {

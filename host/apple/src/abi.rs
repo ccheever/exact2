@@ -78,6 +78,7 @@ pub struct Bridge<D: DataSource> {
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<Rc<std::cell::Cell<u64>>>,
     fonts_ctx: *mut c_void,
+    inline_geometry: Option<Rc<dyn exact_runner::geometry::InlineGeometry>>,
     /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
     /// invocation: what the runner's `delivery` resource says about this
     /// binary's cohort, its update store, and its executors.
@@ -147,6 +148,7 @@ impl<D: DataSource> Bridge<D> {
             button_measure: None,
             measure_revision: None,
             fonts_ctx: std::ptr::null_mut(),
+            inline_geometry: None,
             compat: None,
             delivery: None,
             parked: std::collections::BTreeMap::new(),
@@ -233,8 +235,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// This binary's `compat.json` (LLP 1030 D3a), for the delivery facts
     /// every subsequent boot hands the runner before its first frame. The
-    /// `host!` macro passes the app's `COMPAT` const; nothing crosses the C
-    /// ABI for it.
+    /// `host!` macro passes the app's `COMPAT` const; nothing crosses the C ABI for it.
     pub fn set_compat(&mut self, json: &'static str) {
         self.compat = Some(json);
     }
@@ -452,8 +453,7 @@ impl<D: DataSource> Bridge<D> {
     /// bytes baked into the library — counting the boot first (D11). An
     /// entry whose plan is refused at boot boots entry zero in the same
     /// launch, the refusal journaled and the failure left standing in the
-    /// record, so first pixel does not bless it. `data` makes the source
-    /// for each attempt.
+    /// record, so first pixel does not bless it. `data` makes the source for each attempt.
     pub fn boot_selected(
         &mut self,
         embedded: &'static [u8],
@@ -581,7 +581,7 @@ impl<D: DataSource> Bridge<D> {
                     }
                     host.listen(executor.waker());
                 }
-                self.canvas_hooks(&mut host, &hooks);
+                self.presenter_hooks(&mut host, &hooks);
                 self.executor = executor;
                 self.host = Some(host);
                 self.parked.clear();
@@ -941,7 +941,7 @@ impl<D: DataSource> Bridge<D> {
             }
             candidate.host.listen(executor.waker());
         }
-        self.canvas_hooks(&mut candidate.host, &candidate.hooks);
+        self.presenter_hooks(&mut candidate.host, &candidate.hooks);
         self.executor = executor;
         self.host = Some(candidate.host);
         self.adopt_app_module();
@@ -1023,8 +1023,8 @@ impl<D: DataSource> Bridge<D> {
             // beforeunload, wheel and drop, and a text field's `input`,
             // `change` and `select` with its selection (x2apps codeedit #2),
             // replacement input (48), a key's down (6), up (43) and capture (44) with its code and repeat
-            // and focusin (46) and focusout (47) with their targets (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 => {
+            // toggle (50), and focusin (46) and focusout (47) with their targets (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),

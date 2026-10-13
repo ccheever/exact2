@@ -56,6 +56,7 @@ extension DialogHost {
               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
               let presenter, let window = dialog.window, let target = defaultButton(of: dialog), !target.disabled, !target.inert else { return false }
         let responder = window.firstResponder
+        if let inline = responder as? InlineKeyView, inline.run?.props["href"] != nil { return false }
         if let focus = presenter.keyTarget(responder) {
             if focus.textArea != nil || focus.props["href"] != nil || focus.canvasInput != nil { return false }
             if let field = focus.field {

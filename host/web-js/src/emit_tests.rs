@@ -1,6 +1,20 @@
 //! What the emitted program says about a plan's resources.
 use exact_runner::{DataError, DataSource, Value};
 
+#[test]
+fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
+    let plan = contract::compile(
+        "component App\n  view\n    iframe src=\"app:/data/doc.pdf\" sandbox=\"allow-scripts\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("\"data-app-src\":\"app:/data/doc.pdf\""),
+        "{js}"
+    );
+    assert!(!js.contains("about:blank"), "{js}");
+}
+
 struct Answers;
 impl DataSource for Answers {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {

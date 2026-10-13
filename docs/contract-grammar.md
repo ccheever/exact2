@@ -619,6 +619,12 @@ says. Every roster function has a row and an example, and each example written
 | `elementsFromPoint(x, y)` | `list<string>`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
 | `querySelectorAll(selector)` | `list<string>`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
+On Apple, `frame` of an inline `text` run returns the viewport-space union of
+its line fragments, using the run's own font metrics and excluding hanging
+wrap spaces. An empty run has a zero-width rectangle at its insertion point
+with its font's height. Scrolling moves this rectangle; clipping does not trim
+it. Other native hosts currently report inline runs unavailable.
+
 For `elementsFromPoint`, an id-less hit outside a named ancestor's own box
 includes that ancestor once before lower layers. This keeps its first entry
 equal to `elementFromPoint`'s nearest-id answer; LLP 1001 §1 declares the
@@ -1465,8 +1471,11 @@ On the Mac which elements are stops by kind follows the person's Keyboard naviga
 setting (System Settings ▸ Keyboard), as in every Mac app. Off, the default, Tab moves
 between text fields and what takes keys of its own (a box that is no button with
 `focus`, `blur` or `key` handlers, a canvas that takes input): a `button`, a pressable
-box and a radio group are passed over. On, Tab reaches every control. A `tabindex` you
-write wins either way: `0` or more is always a stop, a negative one never. A button that
+box and a radio group are passed over. On, Tab reaches every control, including
+each inline link or pressable text run inside a paragraph, including in a dialog.
+Return activates a focused inline link before a dialog's default button. Space
+activates a pressable run only when it has no `href`; it never follows a link.
+A `tabindex` you write wins either way: `0` or more is always a stop, a negative one never. A button that
 `focus(id)` or `autofocus` reached while it is no stop still goes on to the next stop
 with Tab, and back to the one before with Shift-Tab. Under the agent the setting is the
 drive's, off unless it says `prefer keyboard-navigation true` (`state.focus.keyboardNavigation`
@@ -1481,7 +1490,8 @@ with nothing focused. The web and iOS focus nothing on load unless `autofocus` s
 to accessibility while keeping its focus and Tab behavior. It accepts a bound
 boolean on a control or an element with a role, including a group. Its `press` still runs,
 as on the web; guard the action in the app when it must do nothing. Descendant
-controls and inline links inherit this state; an explicit
+controls and inline links inherit this state, including toolbar items, grouped-list
+rows and content lifted into a popover; an explicit
 `aria-disabled=false` on a descendant overrides it. Use HTML
 `disabled=true` when the control should leave the Tab order and refuse input.
 
@@ -1521,6 +1531,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/reading.rs) |
+| `showPopover(id, source="trigger")`, `hidePopover(id)`, `togglePopover(id, source="trigger")`: HTML's methods by element id. `source=` is optional and explicit; it need not carry `popovertarget`, and the key handler's node is not inferred. Repeated show/hide is a no-op. Visibility changes immediately in command order, including hide then show during native dismissal. Bad targets or sources are refused in the journal. A popover's `toggle=changed` action may take `e: ToggleEvent`, with `oldState` and `newState` (`"open"` or `"closed"`); events follow logical visibility, coalescing changes in one turn. Without a source the popover has no invoker. A following `focus(id)` in the opening action selects a native menu row on macOS and windowed Linux; AppKit refuses changing the highlight once native tracking begins. UIKit navigation-bar menus still lack command dismissal and toggle observation (issue #319 remaining work). Desktop/headless Linux reports unsupported; windowed Linux uses its existing supported menu/alert shapes. | [menus](../llp/1021-menus.rfc.md) |
 | `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker) and any other `dialog` as a sheet as tall as its content (LLP 1115.000 D11.5), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer, or a `role="alertdialog"` one in the alert's shape as `NSAlert`, a sheet on the window (LLP 1115 D6, LLP 1115.000 D7.6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |

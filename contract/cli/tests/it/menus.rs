@@ -488,3 +488,82 @@ fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
         for id in ids.split_whitespace() { assert!(e.message.contains(id), "{e}"); }
     }
 }
+
+#[test]
+fn popover_action_commands_and_toggle_payload_compile() {
+    let mut r = boot(
+        r#"component App
+  state opened = false
+  action down(k: string)
+    if k == "ArrowDown"
+      showPopover("menu", source="trigger")
+      focus("first")
+  action hide
+    hidePopover("menu")
+  action flip
+    togglePopover("menu", source="trigger")
+  action changed(e: ToggleEvent)
+    opened = e.oldState == "closed" && e.newState == "open"
+  view
+    column
+      button id="trigger" testId="trigger" key=down press=flip
+        text "Menu"
+      column id="menu" testId="menu" popover="auto" toggle=changed
+        button id="first" press=hide
+          text "Done"
+"#,
+    );
+    let trigger = node(&r, "trigger").id;
+    r.dispatch(trigger, exact_runner::Event::Press).unwrap();
+    let commands = r.take_commands();
+    assert_eq!(commands[0].name, "togglePopover");
+    assert_eq!(
+        commands[0].args,
+        vec![Value::str("menu"), Value::str("trigger")]
+    );
+    r.dispatch(
+        trigger,
+        exact_runner::Event::of_host_kind(6, "ArrowDown").unwrap(),
+    )
+    .unwrap();
+    let commands = r.take_commands();
+    assert_eq!(
+        commands.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["showPopover", "focus"]
+    );
+    assert_eq!(
+        commands[0].args,
+        vec![Value::str("menu"), Value::str("trigger")]
+    );
+    assert_eq!(commands[1].args, vec![Value::str("first")]);
+    let menu = node(&r, "menu").id;
+    r.dispatch(
+        menu,
+        exact_runner::Event::of_host_kind(50, "closed,open").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(r.slot("opened"), Some(&Value::Bool(true)));
+    r.dispatch(
+        menu,
+        exact_runner::Event::of_host_kind(50, "open,closed").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(r.slot("opened"), Some(&Value::Bool(false)));
+    assert!(exact_runner::Event::of_host_kind(50, "closed,maybe").is_err());
+}
+
+#[test]
+fn popover_commands_check_their_id_and_source() {
+    for command in [
+        "showPopover()",
+        "showPopover(12)",
+        "showPopover(\"m\", \"trigger\")",
+        "showPopover(\"m\", source=1)",
+        "showPopover(\"m\", source=\"a\", source=\"b\")",
+        "hidePopover(\"m\", source=\"a\")",
+        "togglePopover(\"m\", unknown=true)",
+    ] {
+        let e = contract::compile(&format!("component App\n  action go\n    {command}\n  view\n    button press=go\n      text \"Menu\"\n")).unwrap_err();
+        assert_eq!(e.id, "type-popover-command", "{command}: {e}");
+    }
+}

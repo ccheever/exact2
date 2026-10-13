@@ -14,7 +14,8 @@ impl Event {
     /// (beforeunload), 37 (wheel), 38 (drop), 39 (resize, its
     /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
     /// input, change, select and replacement input), 45 (intersect,
-    /// `0|1,ratio`) or 46 and 47 (focusin, focusout) from its UTF-8 payload.
+    /// `0|1,ratio`), 46 and 47 (focusin, focusout), or 50 (toggle, oldState,newState)
+    /// from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code
@@ -78,6 +79,16 @@ impl Event {
             // DOM's bubbling focusin (46) and focusout (47, #283; 45 is `intersect`):
             // the target's id and the relatedTarget's, if any.
             46 | 47 => Event::focus_payload(kind == 46, payload).ok_or("invalid focus event"),
+            50 => {
+                let (old, new) = payload.split_once(',').ok_or("invalid toggle event")?;
+                if ![old, new].iter().all(|s| matches!(*s, "open" | "closed")) {
+                    return Err("invalid toggle event");
+                }
+                Ok(Event::Toggle {
+                    old_open: old == "open",
+                    new_open: new == "open",
+                })
+            }
             _ => Err("unknown event kind"),
         }
     }

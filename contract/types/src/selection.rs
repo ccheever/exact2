@@ -76,6 +76,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "drop" => Some("DragEvent"),
         "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
+        "toggle" => Some("ToggleEvent"),
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         "selectionchange" => Some("Selection"),
@@ -108,6 +109,13 @@ pub(super) fn declare(shapes: &mut Shapes) {
         vec![
             ("target".into(), Ty::String),
             ("relatedTarget".into(), Ty::Option(Box::new(Ty::String))),
+        ],
+    );
+    shapes.map.insert(
+        "ToggleEvent".into(),
+        vec![
+            ("oldState".into(), Ty::String),
+            ("newState".into(), Ty::String),
         ],
     );
     shapes.map.insert(
@@ -317,4 +325,25 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("duration".into(), maybe()),
         ],
     );
+}
+
+/// HTML's popover methods, with an explicit source element for opening.
+pub(super) fn popover_args(
+    name: &str,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let valid = match args {
+        [id] => infer(id, scope, shapes)? == Ty::String,
+        [id, Expr::NamedArg(option, source, _)] if name != "hidePopover" && option == "source" => {
+            infer(id, scope, shapes)? == Ty::String && infer(source, scope, shapes)? == Ty::String
+        }
+        _ => false,
+    };
+    if valid {
+        return Ok(());
+    }
+    err("type-popover-command", "popover commands take an element id string; showPopover and togglePopover also take source= followed by an element id string", span)
 }

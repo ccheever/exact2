@@ -142,6 +142,7 @@ extension Agent {
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
             focus["responder"] = responder.map { String(describing: Swift.type(of: $0)) } ?? NSNull()
         }
+        if let run = responder as? InlineKeyView { focus["logical"] = Int(run.id) }
         let keyboard: [String: Any] = ["visible": false, "overlap": 0, "policy": "resizes-visual", "interactive": false]
         var navigation: [String: Any] = ["route": NSNull(), "stack": [] as [String], "presentation": NSNull(), "closedby": NSNull(),
                                          "transition": ["interactive": false, "phase": "idle"]]
@@ -179,9 +180,12 @@ extension Agent {
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     package func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
-        let bounds = region ?? v.bounds
+        Self.box(region ?? v.bounds, of: v, viewport: presenter.viewport)
+    }
+
+    static func box(_ bounds: CGRect, of v: NSView, viewport: NSScrollView) -> NSRect {
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
-        let clip = presenter.viewport.contentView
+        let clip = viewport.contentView
         // Where it is seen (`drawnRect`): through the placement of a child a
         // canvas's surface placed (LLP 1014 D5), not the kernel's frame, and
         // through every transformed box on the way (LLP 1077 D8), as
@@ -245,6 +249,8 @@ extension Agent {
             }
             nodes.append(n)
         }
+        nodes.append(contentsOf: inlineLayout())
+        nodes.sort { ($0["id"] as? Int ?? 0) < ($1["id"] as? Int ?? 0) }
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
@@ -280,11 +286,12 @@ extension Agent {
         }
         let clipView = presenter.viewport.contentView
         let rect = { (r: NSRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
-        let b = box(host)
-        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(host.bounds.width), "h": Agent.r2(host.bounds.height)],
+        let local = presenter.inlineText(UInt32(id)).map { host.inlineBounds($0) ?? .zero } ?? host.bounds
+        let b = presenter.inlineFrame(UInt32(id)) ?? box(host, region: local)
+        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(local.width), "h": Agent.r2(local.height)],
                                     "capture": ["scale": Agent.r2(host.window?.backingScaleFactor ?? 1)]]
         if let w = host.window, let content = w.contentView {
-            let inWindow = host.convert(host.bounds, to: nil)
+            let inWindow = host.convert(local, to: nil)
             space["window"] = rect(NSRect(x: inWindow.origin.x, y: content.frame.height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
             let onScreen = w.convertToScreen(inWindow)
             let top = NSScreen.screens.first?.frame.maxY ?? onScreen.maxY
@@ -862,6 +869,8 @@ extension Agent {
                 // Resigning the previous responder can synchronously replace or restrict this node.
                 guard session.natives.inputToken(v) == nativeToken else { return ["error": "native view is unavailable, hidden, inert, disabled or replaced"] }
                 guard session.natives.ownsFocus(v) else { return ["error": "native view no longer owns focus"] }
+            } else if let id = req["id"] as? Int, let inline = v.syncInlineKeyViews().first(where: { Int($0.id) == id }) {
+                if win.firstResponder !== inline { win.makeFirstResponder(inline) }
             } else if v.pageField != nil {
                 // A search input in the window's toolbar (LLP 1115.002 D2): its field there takes the key.
                 let editing = v.field?.currentEditor().map { win.firstResponder === $0 } ?? false

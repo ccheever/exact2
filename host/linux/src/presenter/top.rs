@@ -170,6 +170,7 @@ pub(super) struct State {
     /// The shell's painter: `Some` on a host whose shell makes windows.
     painter: Option<Box<dyn SurfacePainter>>,
     open: Option<Open>,
+    toggles: Vec<(NodeKey, bool, bool)>,
     /// The last serial given.
     last: u32,
     /// The surface the shell shows as it was last told: serial and revision.
@@ -353,7 +354,10 @@ impl<D: DataSource> Presenter<D> {
         // One surface at a time: one that was open ends as its cancel ends
         // it, and the focus will go back to where it was before that one.
         let restore = match self.top.open.take() {
-            Some(old) => old.restore,
+            Some(old) => {
+                self.queue_toggle(old.key, false);
+                old.restore
+            }
             None => self.focus.or(invoker),
         };
         if let Err(e) = self.pointer_cancel(now_ms) {
@@ -390,6 +394,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(open) = self.top.open.as_mut() {
             open.anchor = anchor;
         }
+        self.queue_toggle(key, true);
         self.surface_changed();
         true
     }
@@ -400,6 +405,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(open) = self.top.open.take() else {
             return;
         };
+        self.queue_toggle(open.key, false);
         let back = open.restore.filter(|id| {
             self.host.kernel().node(*id).is_some()
                 && !self.host.route_visibility(*id).1
@@ -533,6 +539,28 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
             _ => {}
+        }
+        true
+    }
+
+    /// An authored focus command selects the row in its shell window,
+    /// leaving the page's focus set aside until the surface closes.
+    pub(super) fn surface_focus(&mut self, id: ViewId) -> bool {
+        let Some(open) = self.top.open.as_mut() else {
+            return false;
+        };
+        let Some(index) = open
+            .layout
+            .targets
+            .iter()
+            .position(|row| row.node == id && row.enabled)
+        else {
+            return false;
+        };
+        if open.focused != Some(index) {
+            open.focused = Some(index);
+            open.revision += 1;
+            self.executor.notify();
         }
         true
     }
@@ -699,6 +727,80 @@ impl<D: DataSource> Presenter<D> {
                 self.invoke(id, now_ms);
             }
             false => self.dispatch_press(id, now_ms, true),
+        }
+    }
+
+    fn queue_toggle(&mut self, key: NodeKey, open: bool) {
+        if let Some((_, _, new)) = self.top.toggles.iter_mut().find(|(k, _, _)| *k == key) {
+            *new = open;
+        } else {
+            self.top.toggles.push((key, !open, open));
+        }
+    }
+
+    pub(super) fn dispatch_toggles(&mut self) {
+        for (key, old_open, new_open) in std::mem::take(&mut self.top.toggles) {
+            let Some(node) = self.host.kernel().node_by_key(key) else {
+                continue;
+            };
+            if node.props.str(PropId::Popover).is_none()
+                || !self
+                    .host
+                    .runner()
+                    .handlers_of(node.id)
+                    .contains(&EventKind::Toggle)
+            {
+                continue;
+            }
+            let id = node.id;
+            if let Some(error) = self
+                .host
+                .dispatch_at(id, Event::Toggle { old_open, new_open }, self.host.now())
+                .or(self.after_commit())
+            {
+                self.host.log(error);
+            }
+        }
+    }
+
+    pub(super) fn popover_command(&mut self, command: &str, args: &[exact_plan::Value]) {
+        if !self.has_windows() {
+            self.host.log(format!(
+                "{command} unsupported: this host has no popover presentation"
+            ));
+            return;
+        }
+        let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
+            return;
+        };
+        let pop = self
+            .host
+            .kernel()
+            .find_by_id(name)
+            .into_iter()
+            .find_map(|key| self.host.kernel().node_by_key(key));
+        if !pop.is_some_and(|node| node.props.str(PropId::Popover).is_some()) {
+            self.host
+                .log(format!("{command} refused: no popover has that id"));
+            return;
+        }
+        let source_name = args.get(1).and_then(exact_plan::Value::as_str);
+        let source = source_name.and_then(|name| {
+            self.host
+                .kernel()
+                .find_by_id(name)
+                .into_iter()
+                .find_map(|key| self.host.kernel().node_by_key(key).map(|n| n.id))
+        });
+        if source_name.is_some() && source.is_none() {
+            self.host
+                .log(format!("{command} refused: no source has that id"));
+            return;
+        }
+        if command == "hidePopover" || command == "togglePopover" && self.surface_named(name) {
+            self.close_modal(args);
+        } else if !self.surface_named(name) {
+            self.present(name, source, None, false, self.host.now());
         }
     }
 

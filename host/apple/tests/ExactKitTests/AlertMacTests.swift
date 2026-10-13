@@ -193,6 +193,20 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(pressed, [11])
     }
 
+    func testPopoverCommandsRetainExplicitSourceWithoutInvoker() throws {
+        let p = fixture(popover: true), trigger = try XCTUnwrap(p.views[2])
+        trigger.props["id"] = "trigger"
+        trigger.props["popovertarget"] = nil
+        p.menus.action("showPopover", ["ask", "trigger"])
+        let owner = try XCTUnwrap(p.alerts.presented)
+        XCTAssertTrue(owner.source === trigger)
+        XCTAssertTrue(p.alerts.valid(owner))
+        p.menus.action("showPopover", ["ask", "trigger"])
+        XCTAssertTrue(p.alerts.presented === owner)
+        p.menus.action("togglePopover", ["ask", "trigger"])
+        XCTAssertNil(p.alerts.presented)
+    }
+
     /// The default (LLP 1115.000 D7.3): exactly one `filled`, non-destructive
     /// button answers Return and is the one AppKit draws so; with several, or
     /// only a destructive one, nothing is.

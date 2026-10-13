@@ -1314,6 +1314,7 @@ impl Em<'_> {
                 | EventKind::Scroll
                 | EventKind::Refresh
                 | EventKind::Pan
+                | EventKind::Toggle
                 | EventKind::Cancel
                 | EventKind::Close
                 | EventKind::Resize

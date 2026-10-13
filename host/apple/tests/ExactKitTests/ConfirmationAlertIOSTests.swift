@@ -108,6 +108,33 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         unsafeBitCast(block, to: Handler.self)(action)
     }
 
+    func testHideThenShowDuringDismissalKeepsCommandOrderAndCoalescesToggle() throws {
+        let (p, controller, scene) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        pop.handlers.insert("toggle")
+        var events: [String] = []
+        p.onClipboard = { _, _, payload in events.append(payload) }
+        p.menus.action("showPopover", ["confirm"])
+        spin(20) { events.count == 1 && (!scene || !p.menus.inTransition) }
+        let first = try XCTUnwrap(controller.presentedViewController)
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertFalse(p.menus.isOpen(pop), "logical visibility closes immediately")
+        p.menus.action("showPopover", ["confirm"])
+        XCTAssertTrue(p.menus.isOpen(pop), "show follows hide before animation completes")
+        let turn = expectation(description: "the command batch's toggle task")
+        DispatchQueue.main.async { turn.fulfill() }
+        wait(for: [turn], timeout: 20)
+        XCTAssertEqual(events, ["closed,open", "open,open"])
+        if scene {
+            spin(20) { !p.menus.inTransition && controller.presentedViewController !== first }
+            XCTAssertNotNil(controller.presentedViewController)
+            XCTAssertTrue(p.menus.isOpen(pop))
+        }
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertFalse(p.menus.isOpen(pop), "a later hide cancels a queued reopen too")
+    }
+
     /// "Remove book?" — the shape of React Native's `Alert.alert`: a
     /// centred alert, titled by the label, its text the message, the
     /// destructive action and the Cancel both drawn.

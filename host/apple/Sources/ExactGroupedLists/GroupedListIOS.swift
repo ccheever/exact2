@@ -376,6 +376,11 @@ final class GroupedListHost: GroupedLists {
     func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)] {
         lists[id]?.scrollAnchors() ?? []
     }
+
+    func logicalParent(of view: UIView) -> UIView? {
+        guard let node = view as? NodeView, presenter.views[node.id] === node else { return nil }
+        return lists.values.lazy.compactMap { $0.carried[node.id]?.parent }.first
+    }
     var carriesRows: Bool { lists.values.contains { !$0.carried.isEmpty } }
 }
 
@@ -1064,6 +1069,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let inert = carried[id]?.inert ?? host.presenter.views[id]?.inert ?? false
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
+        let node = host.presenter.views[id]
+        if node?.disabled == true || node?.ariaUnavailable == true { cell.accessibilityTraits.insert(.notEnabled) }
+        else { cell.accessibilityTraits.remove(.notEnabled) }
     }
     func collectionView(_ view: UICollectionView, shouldSelectItemAt path: IndexPath) -> Bool {
         collectionView(view, shouldHighlightItemAt: path)

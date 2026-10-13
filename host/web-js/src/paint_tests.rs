@@ -716,8 +716,10 @@ fn grouped_separators_follow_visible_siblings_without_dom_boxes() {
 
 component App
   state changed = false
+  state inset = "calc(10% + 2px)"
   action toggle
     changed = not changed
+    inset = changed ? "calc(10% + 2px)" : "calc(20% + 2px)"
   view
     column
       button "Toggle" press=toggle testId="toggle"
@@ -740,7 +742,7 @@ component App
             text "Native button"
       list appearance="auto" width=332 height=170 flex-shrink=0 testId="percent-list"
         section
-          row width=100 height=52 padding-left=(changed ? "calc(20% + 2px)" : "calc(10% + 2px)") padding-right=(changed ? "calc(93px - 20%)" : "calc(93px - 10%)") border-width=0 border-left-width=2 border-right-width=3 border-style="solid" background-color="#ffffff" border-bottom-color="#0000ff" testId="percent-row"
+          row width=100 height=52 padding-left=inset padding-right=(changed ? "calc(93px - 20%)" : "calc(93px - 10%)") border-width=0 border-left-width=2 border-right-width=3 border-style="solid" background-color="#ffffff" border-bottom-color="#0000ff" testId="percent-row"
           row width=100 height=52 padding-left="10%" padding-right="calc(100px - 10%)" background-color="#ffffff" border-bottom-color="#0000ff" testId="static-percent"
           row width=100 height=52 testId="percent-last"
           when changed

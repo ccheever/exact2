@@ -62,3 +62,5 @@ export function releaseGroupedInset(el) {
   el.style.removeProperty(resolved);
 }
 export function reparentGroupedInset(el) { if (rows.has(el)) arrive(el); }
+export const groupedInsets = { observe: observeGroupedInset, release: releaseGroupedInset, reparent: reparentGroupedInset };
+if (globalThis.exact) globalThis.exact.groupedInsets = groupedInsets;

@@ -6,8 +6,9 @@
 // built for the JS target and driven by the agent, as `exact` does; the wasm host takes the same rule
 // (navigation.js `editMenu`), which conformance's `menus` plan compares with this one.
 import { test, expect } from 'bun:test';
+import { chromium as playwrightChromium } from 'playwright-core';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -93,3 +94,67 @@ check('a contextmenu from a checkbox, switch, radio, range, date or time input i
     rmSync(dir, { recursive: true, force: true });
   }
 }, 120000);
+
+// The helper both targets call: real HTML popover methods, including omitted
+// source and the browser's queued, coalesced ToggleEvent (issue #319).
+check('popover commands preserve HTML source, focus, idempotence and toggle coalescing', async () => {
+  const browser = await playwrightChromium.launch({ executablePath: chromium().executable, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<main id="root"><button id="trigger" data-view="1">Menu</button><div popover="auto" id="menu" data-view="2"><button id="first">Done</button></div></main>');
+    const source = readFileSync(resolve(ROOT, 'host/web/navigation.js')).toString('base64');
+    const result = await page.evaluate(async source => {
+      const { popoverCommand: command, navigation } = await import('data:text/javascript;base64,' + source);
+      const menu = document.getElementById('menu'), root = document.getElementById('root'), events = [], errors = [];
+      menu.addEventListener('toggle', e => events.push([e.oldState, e.newState]));
+      const changed = () => new Promise(resolve => menu.addEventListener('toggle', resolve, { once: true }));
+      const run = (method, id, source) => command(method, id, source, message => errors.push(message));
+      let next = changed();
+      run('showPopover', 'menu', 'trigger'); run('showPopover', 'menu', 'trigger');
+      document.getElementById('first').focus();
+      const focus = document.activeElement.id, open = navigation.observation(root).popover;
+      if (errors.length) throw new Error(errors.join('; '));
+      await next;
+      next = changed(); run('hidePopover', 'menu'); await next;
+      next = changed(); run('showPopover', 'menu');
+      const unsourced = navigation.observation(root).popover;
+      run('hidePopover', 'menu');
+      if (errors.length) throw new Error(errors.join('; '));
+      await next;
+      run('showPopover', 'absent'); run('hidePopover', 'trigger'); run('showPopover', 'menu', 'absent');
+      return { focus, open, unsourced, events, errors };
+    }, source);
+    expect(result.focus).toBe('first');
+    expect(result.open).toEqual({ phase: 'open', popover: 2, source: 1 });
+    expect(result.unsourced).toEqual({ phase: 'open', popover: 2, source: null });
+    expect(result.events).toEqual([['closed', 'open'], ['open', 'closed'], ['closed', 'closed']]);
+    expect(result.errors).toHaveLength(3);
+    expect(result.errors.every(message => message.includes('refused:'))).toBe(true);
+  } finally { await browser.close(); }
+}, 60000);
+
+// Exercise the wasm dispatch arm and its end-of-batch queue over real DOM focus.
+check('wasm popover and focus commands preserve authored order', async () => {
+  const glue = readFileSync(resolve(ROOT, 'host/web/glue.js'), 'utf8');
+  const dispatch = glue.slice(glue.indexOf('        else if (op.name === "focus"'), glue.indexOf('        else if (op.name === "preventDefault"'));
+  const drain = glue.slice(glue.indexOf('  // Focusing can dispatch an action:'), glue.indexOf('  focusAutofocus(); inputHandlers?.arrive();'));
+  const browser = await playwrightChromium.launch({ executablePath: chromium().executable, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<main id="root"><button id="trigger">Menu</button><div popover="auto" id="menu"><input id="first" autofocus></div></main>');
+    const navigation = readFileSync(resolve(ROOT, 'host/web/navigation.js')).toString('base64');
+    const result = await page.evaluate(async ({ navigation, dispatch, drain }) => {
+      const { popoverCommand, runFocusCommands, inertAncestor } = await import('data:text/javascript;base64,' + navigation);
+      const root = document.getElementById('root'), log = message => { throw new Error(message); };
+      const apply = new Function('ops', 'root', 'popoverCommand', 'runFocusCommands', 'inertAncestor', 'log',
+        'const inputReady = true, focusCommands = []; for (const op of ops) { if (false) {} ' + dispatch + ' } ' + drain);
+      const command = (name, ...args) => ({ name, args });
+      const run = ops => { apply(ops, root, popoverCommand, runFocusCommands, inertAncestor, log); return document.activeElement.id; };
+      const forward = run([command('focus', 'trigger'), command('showPopover', 'menu')]);
+      document.getElementById('menu').hidePopover();
+      const reverse = run([command('showPopover', 'menu'), command('focus', 'trigger')]);
+      return [forward, reverse];
+    }, { navigation, dispatch, drain });
+    expect(result).toEqual(['first', 'trigger']);
+  } finally { await browser.close(); }
+}, 60000);

@@ -83,7 +83,11 @@ extension Presenter {
     /// `stopPropagation()` is the last. True when one called
     /// `preventDefault()`: the caller skips the default action.
     func keyDown(at target: NodeView?, _ name: String, held: String = "", code: String = "", repeats: Bool = false) -> Bool {
-        keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
+        let prevented = keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
+        #if canImport(UIKit)
+        if !prevented, name == "Escape", !repeats, menus.dismissPopover() { return true }
+        #endif
+        return prevented
     }
     /// The `keyup` handlers at `target` and above hear a key's release, in
     /// the same order (#140). True when one called `preventDefault()`.
@@ -91,17 +95,22 @@ extension Presenter {
     func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "") -> Bool {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
     }
-    private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress) -> Bool {
-        var path: [NodeView] = []
+    private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress, inline: UInt32? = nil) -> Bool {
+        var path: [(id: UInt32, handlers: Set<String>)] = []
+        var run = inline.flatMap(inlineText)
+        while let current = run {
+            if inlineEnabled(current.id) { path.append((current.id, current.handlers)) }
+            run = inlineText(current.parent)
+        }
         var next: KeyPlatformView? = target
         while let view = next {
             if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !node.inert {
-                path.append(node)
+                path.append((node.id, node.handlers))
             }
             next = view.superview
         }
         var prevented = false
-        func deliver(_ node: NodeView, _ press: KeyPress) -> Bool {
+        func deliver(_ node: (id: UInt32, handlers: Set<String>), _ press: KeyPress) -> Bool {
             defaultPrevented = false
             propagationStopped = false
             key(node.id, press)
@@ -155,8 +164,8 @@ extension Presenter {
         guard event.type == .keyDown || event.type == .flagsChanged && KeyCodes.pressed(event) else { return false }
         let responder = (window ?? event.window)?.firstResponder
         if !passesComposition(event, at: responder) { return false }
-        return keyDown(at: keyTarget(responder), NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags),
-                       code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat)
+        return keyEvent("key", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+                        code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat), inline: (responder as? InlineKeyView)?.id)
     }
     /// A keyup at the window's first responder, a modifier's (a flags change
     /// that released it) included (#140): the `keyup` handlers there and
@@ -167,7 +176,8 @@ extension Presenter {
         guard event.type == .keyUp || event.type == .flagsChanged && KeyCodes.released(event) else { return }
         let responder = (window ?? event.window)?.firstResponder
         if !passesComposition(event, at: responder) { return }
-        keyUp(at: keyTarget(responder), NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags), code: KeyCodes.code(event))
+        _ = keyEvent("keyup", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+                     code: KeyCodes.code(event), up: true), inline: (responder as? InlineKeyView)?.id)
     }
     /// Whether a key reaches the handlers while an input method composes
     /// text at `responder` (#140). Without a composition, every key. During
@@ -208,6 +218,7 @@ extension Presenter {
     /// holds (a web view, a native module's) keeps its keys, as an iframe's
     /// never reach the page.
     func keyTarget(_ responder: NSResponder?) -> NodeView? {
+        if let run = responder as? InlineKeyView { return run.owner }
         guard let view = responder as? NSView else { return nil }
         var next: NSView? = view
         while let v = next {

@@ -11,6 +11,22 @@ use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// Register the presenter's inline geometry, kept across plan replacements.
+    pub fn set_inline_geometry(
+        &mut self,
+        read: Option<crate::geometry::InlineFrameFn>,
+        ctx: *mut std::ffi::c_void,
+    ) {
+        self.inline_geometry = read.map(|read| {
+            std::rc::Rc::new(crate::geometry::InlineGeometry { read, ctx })
+                as std::rc::Rc<dyn exact_runner::geometry::InlineGeometry>
+        });
+        if let Some(host) = self.host.as_mut() {
+            host.runner_mut()
+                .set_inline_geometry(self.inline_geometry.clone());
+        }
+    }
+
     /// `exact_route_matches`: whether the location in the input buffer names
     /// a pattern the plan's route table declares (LLP 1038 §7) — a link to
     /// it is followed in the app, as the web's same-document link is; any
@@ -65,9 +81,11 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// A host this bridge boots: its Canvas 2D text measurer (LLP 1056 D8)
-    /// and where its draws run (LLP 1072 §8.5).
-    pub(super) fn canvas_hooks(&self, host: &mut crate::host::Host<D>, hooks: &super::Hooks) {
+    /// A host this bridge boots: inline geometry, Canvas 2D text measurement
+    /// (LLP 1056 D8), and where its draws run (LLP 1072 §8.5).
+    pub(super) fn presenter_hooks(&self, host: &mut crate::host::Host<D>, hooks: &super::Hooks) {
+        host.runner_mut()
+            .set_inline_geometry(self.inline_geometry.clone());
         if let Some(f) = hooks.canvas_text {
             host.set_canvas_text(f, hooks.ctx);
         }
