@@ -19,7 +19,7 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     expect(compiled.status, compiled.stderr).toBe(0);
     server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname.slice(1);
-      if (!path) return new Response(`<link rel="stylesheet" href="/app.css">
+      if (!path) return new Response(`<link rel="stylesheet" href="/app.css"><style>:root{--exact-hairline:.5px}</style>
         <div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`,
       { headers: { 'content-type': 'text/html' } });
       const file = [dir, import.meta.dir, resolve(root, 'host/web')]
@@ -31,6 +31,16 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     await page.goto(server.url.href);
     const nested = page.getByTestId('nested');
     await nested.waitFor({ state: 'attached' });
+    const hairline = page.getByTestId('hairline');
+    const height = element => element.evaluate(e => e.getBoundingClientRect().height);
+    expect(await height(hairline)).toBe(0.5);
+    expect(await height(page.getByTestId('hairline-static'))).toBe(0.5);
+    expect(await hairline.getAttribute('height')).toBe('var(--exact-hairline, 1px)');
+    await page.getByTestId('hairline-toggle').click();
+    expect(await height(hairline)).toBe(10);
+    expect(await hairline.getAttribute('height')).toBe('10px');
+    await page.getByTestId('hairline-toggle').click();
+    expect(await height(hairline)).toBe(0.5);
     const envGeometry = () => page.evaluate(() => ['environment-static', 'environment-bound'].map(id => {
       const e = document.querySelector(`[data-testid="${id}"]`);
       return { attribute: e.getAttribute('height'), height: e.querySelector('rect').getBBox().height };

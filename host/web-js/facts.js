@@ -12,7 +12,7 @@
 //   baked; a JS build links no update store, so nothing is ever staged.
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
-import { data, Resources, commit, R, Refusal, P, sig, W } from "./rt.js";
+import { data, Resources, commit, R, Refusal, P, sig, W, cssText } from "./rt.js";
 import { displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
@@ -37,7 +37,7 @@ function observeFold() {
 }
 export function svgGeometry(e, name, read) {
   P(e, name, () => {
-    const v = read();
+    const v = cssText(name, "", read());
     if (v == null || /^\s*(auto|initial|unset|revert(-layer)?)\s*$/i.test(v)) return null;
     if (!/env\(/i.test(v)) return v;
     // A server render has no environment; the live binding answers at mount.

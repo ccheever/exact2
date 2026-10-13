@@ -756,6 +756,14 @@ pub fn svg_props_of(
             continue;
         }
         let text = match node.style.get(*row) {
+            exact_kernel::RowValue::Dimension(_)
+                if matches!(
+                    node.style.relative.get(*row),
+                    Some((exact_kernel::style::relative::Unit::Hairline, _))
+                ) =>
+            {
+                crate::css::HAIRLINE.into()
+            }
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
                 exact_num::Shortest(v as f64).to_string()
             }
