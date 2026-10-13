@@ -1118,27 +1118,14 @@ package final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !tables.owns($0, in: id) && !isFlying($0) }, in: container)
-                for (i, child) in mounted.enumerated() {
-                    if child.superview !== container {
-                        reparented.insert(child.id)
-                        child.rejoinUnderHold()
-                        child.prepareToMount()
-                        // Appending then moving the first child above nil puts
-                        // it last and needlessly remounts every retained sibling.
-                        if i == 0, let first = container.subviews.first,
-                           container.subviews.allSatisfy({ $0 is NodeView }) {
-                            container.addSubview(child, positioned: .below, relativeTo: first)
-                        } else { container.addSubview(child) }
-                    }
-                    let siblings = container.subviews
-                    if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
-                        child.removeFromSuperview()
-                        child.rejoinUnderHold()
-                        container.addSubview(child, positioned: .above, relativeTo: i > 0 ? mounted[i - 1] : nil)
-                    }
+                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !tables.owns($0, in: id) && !isFlying($0) }
+                for child in mounted where child.superview !== container {
+                    reparented.insert(child.id)
+                    child.rejoinUnderHold()
+                    child.prepareToMount()
+                    container.addSubview(child)
                 }
-                if collections.owns(id) { collections.orderChildren(want, in: container) }
+                orderChildren(want, in: container)
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
@@ -1263,6 +1250,24 @@ package final class Presenter {
         })
         syncAccessibility(changed: changed, disabledRoots: disabledRoots)
         _ = chrome.takeChangedNames()
+    }
+
+    func orderChildren(_ children: [NodeView], in container: NSView) {
+        // Detaching a retained child clears AppKit's first responder. Sort
+        // in place, keeping native decorations below the authored children
+        // and paint ghosts in their existing slots (LLP 1063).
+        let wanted = Set(children.map(ObjectIdentifier.init))
+        let leaving = container.subviews.filter { ($0 as? NodeView).map { !$0.paintGhost } ?? false && !wanted.contains(ObjectIdentifier($0)) }
+        let ordered = container.subviews.filter { !($0 is NodeView) } + NodeView.keepingGhosts(children.filter { $0.superview === container }, in: container) + leaving
+        guard !ordered.elementsEqual(container.subviews, by: { $0 === $1 }) else { return }
+        var ranks = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
+        withUnsafeMutablePointer(to: &ranks) { context in
+            container.sortSubviews({ left, right, raw in
+                let order = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
+                let a = order[ObjectIdentifier(left)]!, b = order[ObjectIdentifier(right)]!
+                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
+            }, context: context)
+        }
     }
 
     private static let accessibilityOps: Set<BatchOp.Kind> = [.create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent]

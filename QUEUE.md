@@ -514,7 +514,6 @@
 
 
 - **Reader memory** (2026-09-24, collection-parity lane): on a 3.2 MB corpus (75 LLP docs) the macOS reader holds 73–75 MB at open where Legend Markdown holds 49–50 MB; the gap is the small malloc zone (51 MB dirty to 25). About 19 MB of it was the document as plan values — 8,862 blocks, 51,462 runs at 208 B each (records and lists are now one `Rc<[Value]>` allocation each, perf/memory, not re-measured here) — and about 19 MB is freed-but-dirty pages left by 410 MB of allocation churn during the load (890k allocations for one document). Smoothness and startup already lead Legend there.
-- **Reordering children detaches retained siblings** (2026-09-24, collection-parity lane): `Presenter.apply`'s `.children` (macOS) removes and re-adds a retained child that is out of place, and for index 0 re-adds it `.above nil`, which is last, so every later sibling is detached too; an AppKit replay detached nine of nine retained rows. A detached first responder hands focus to the window without resigning. Collections reorder in place now (`orderChildren`); every other container still pays it.
 
 - **iOS keyboard focus, after 3a24683c** (2026-09-23, native lane): Tab moves the first responder but does not scroll a focused control into view (the web does); an open sheet does not confine the order (background nodes stay in it). The simulator XCTests (every `*IOSTests` class) now run in the async lane for commits under host/apple (87fa8b61; `bun host/apple/build.mjs --test --ios`).
 

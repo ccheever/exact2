@@ -678,7 +678,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let all = children?.filter { presenter?.views[$0.id] === $0 } ?? rows.map(\.node)
         all.forEach(keep)
         // In the document they are in their order, as the presenter keeps its own.
-        if kept { presenter?.collections.orderChildren(all, in: home) }
+        if kept { presenter?.orderChildren(all, in: home) }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { count }
