@@ -42,8 +42,10 @@ final class T3ComposerChipTips: NSObject, NSViewToolTipOwner {
         switch chip.kind {
         case "mention": return chip.detail.isEmpty ? nil : chip.detail
         case "context":
+            // composer-chips-accessibility G1-8: a terminal excerpt with text shows it in its details on a press
+            // (TerminalContextInlineChip's ContextChipPopover, no tooltip); an expired one says so.
             if let text = styler.terminalText(chip) {
-                return text.isEmpty ? "Terminal context expired. Remove and re-add \(chip.label) to include it in your message." : text
+                return text.isEmpty ? "Terminal context expired. Remove and re-add \(chip.label) to include it in your message." : nil
             }
             guard styler.chipResolved(chip) else { return "This context is no longer available. Remove it or attach it again." }
             switch styler.chipKind(chip) {

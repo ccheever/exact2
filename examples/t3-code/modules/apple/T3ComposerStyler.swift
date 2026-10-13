@@ -50,6 +50,8 @@ final class T3ComposerStyler {
     private(set) var marks: [Mark] = []
     private(set) var tasks: [Task] = []
     private var styled: String?
+    /// The text the chips, marks and hidden runs describe (composer-chips-accessibility: the accessibility projection's source).
+    var styledText: String? { styled }
     private var styling = false
     /// The prompt font and ink Exact authored. NSTextView reports the first
     /// character's, which styling changes, so they are kept from Exact's own
@@ -88,6 +90,7 @@ final class T3ComposerStyler {
         view.addGestureRecognizer(recognizer)
         click = recognizer
         press.attach()
+        T3ComposerAccessibleText.attach(self, to: view)
         baseFont = view.font; baseInk = view.textColor
         authored = [
             view.observe(\.textColor, options: [.new]) { [weak self] _, change in
@@ -107,6 +110,7 @@ final class T3ComposerStyler {
 
     func detach() {
         press.detach()
+        if let view { T3ComposerAccessibleText.detach(view) }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         underlay?.removeFromSuperview(); underlay = nil
@@ -321,6 +325,14 @@ final class T3ComposerStyler {
     /// The skill chip under `point` (text view coordinates): ContextChipPopover's trigger.
     func skillChip(at point: NSPoint) -> T3ComposerChip? {
         chips.first { $0.kind == "skill" && chipRect($0)?.contains(point) == true }
+    }
+    /// composer-chips-accessibility G1-8: a chip whose press opens its details (ContextChipPopover's trigger): a skill, or a
+    /// terminal excerpt that holds text (TerminalContextInlineChip; an expired one is a plain shell).
+    func popoverChip(at point: NSPoint) -> T3ComposerChip? {
+        chips.first { isPopoverTrigger($0) && chipRect($0)?.contains(point) == true }
+    }
+    func isPopoverTrigger(_ chip: T3ComposerChip) -> Bool {
+        chip.kind == "skill" || (terminalText(chip).map { !$0.isEmpty } ?? false)
     }
     /// A file chip's size ("40 KB", text-[10px] of a 14px prompt).
     func suffixFont(_ font: NSFont) -> NSFont { NSFont.systemFont(ofSize: font.pointSize * 10 / 14, weight: .medium) }
