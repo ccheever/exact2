@@ -824,8 +824,9 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 - **One presenter pass for the batches a frame lands together (iOS)** (2026-10-13, from the
   Bluesky clone's quotes fling): most fling frames apply four batches: the app's `scroll=` batch
   (the clone writes state every frame), one or two list fill slices that `landFill` lands inside
-  it to keep the owner's order (T4), and a clock batch. Each non-empty one pays `Presenter.apply`'s
-  fixed pass whatever it holds: NavigationHost `batchApplied`/`prepare`, `onlyListRows`,
+  it to keep the owner's order (T4), and a clock batch. Each that reaches `Presenter.apply`'s full
+  pass (not a collections-only slice `applySnapshots` takes, nor a scroll batch `applyUnlessEmpty`
+  skips) pays its fixed work whatever it holds: NavigationHost `batchApplied`/`prepare`, `onlyListRows`,
   `syncAccessibility`, `ControlHost.sync`, CollectionHost begin/end, about a quarter of the main
   thread's time in that fling (Time Profiler, 1136 samples). Merging the slices landed inside one
   apply into a single pass would pay it once. It touches the T4 ordering code, so parked until a
