@@ -11,9 +11,10 @@
  * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
  * --no-install`) for any range beyond documentation-only edits,
  * the
- * Contract semantics' proofs and differential run (`semantics/README.md`) for a
- * range that changes the Contract language or an implementation it is checked
- * against (`contractTouched`), then
+ * Contract semantics (`semantics/README.md`) as four checks — the Lean proofs,
+ * the extracted VM's proofs, the differential run against the Lean semantics
+ * and the web JS target's against the runner — each skipped when its inputs
+ * are those of a run that passed (scripts/async-inputs.mjs), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
  * moves with the load). A failure that the previous commit did not have is filed with
@@ -25,6 +26,11 @@
  *   bun scripts/async.mjs --once          check what is pending, then exit
  *   bun scripts/async.mjs --from <rev>    start after <rev> instead of the tip
  *   bun scripts/async.mjs --worktree <dir> --interval <s> --branch <ref>
+ *   bun scripts/async.mjs --explain [<rev>]   the semantics checks at <rev> (default
+ *                                         the branch tip): run or skip, and what changed
+ *
+ * The semantics checks' fingerprints and outcomes are kept in
+ * <worktree>/target/async/fingerprints/<check>/ (scripts/async-inputs.mjs).
  *
  * --branch (default origin/main) checks another line of history; the
  * worktree is the script's own and is checked out with --force.
@@ -45,6 +51,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, resolve } from 'node:path';
+import { INPUTS, Store, changedSince, checkEnv, fingerprint, sourcesOf } from './async-inputs.mjs';
 import { main as issue } from './issue.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -83,13 +90,12 @@ export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 export function glueTests(root) {
   const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
-  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs'];
+  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
   const lane = selection.lane ?? laneTests();
   const apple = selection.apple ?? appleTouched(sha, since);
-  const contract = selection.contract ?? contractTouched(sha, since);
   const glue = selection.glue ?? glueTests(WT);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
@@ -126,38 +132,7 @@ export function checks(sha, since, selection = {}) {
     // and signed, installed on nothing (Charlie, 2026-10-12): it needs the tvOS
     // SDK and Rust's tvOS simulator target, and no simulator. Tier 2 installs.
     ...(apple ? [tvosCompile] : []),
-    // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
-    // Lean project builds with every proof checked (the app proofs among
-    // them, over embeddings `difftest apps` checks are current), then the runner against
-    // the semantics over the scripted corpus and a fixed random sweep (fixed
-    // seeds, so a divergence is attributed to the commit that made it), and
-    // the compiler's bytecode on the Lean VM model against the same,
-    // and the Lean type checker against the Rust one on those programs and mutants,
-    // and component expansion against the Lean expander and the component-level semantics.
-    // The corpus and the explored programs also run on the web JS target (`--js`,
-    // the second implementation, against the runner), and a smaller random sweep.
-    // A `sorry` fails it: a proof that is not there is not checked. Every
-    // part runs whatever the one before it found.
-    ...(contract ? [['semantics', 'sh', ['-c', [
-      'export PATH="$HOME/.elan/bin:$PATH"; failed=0',
-      'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
-      'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
-      // The shipped VM machine extracted (Charon, Aeneas) and proved against
-      // Contract/Vm.lean (semantics/vm-extract/README.md); skips, naming the
-      // tool, where Charon or Aeneas is not installed.
-      'sh semantics/vm-extract/check.sh || failed=1',
-      'cargo run -q -p contract-difftest -- apps || failed=1',
-      'cargo run -q -p contract-difftest -- corpus --js || failed=1',
-      'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract --js || failed=1',
-      'cargo run -q -p contract-difftest -- random --seed 1 --count 5000 || failed=1',
-      'cargo run -q -p contract-difftest -- random --seed 1 --count 500 --js-only || failed=1',
-      'cargo run -q -p contract-difftest -- lowering-corpus || failed=1',
-      'cargo run -q -p contract-difftest -- lowering --seed 1 --count 300 || failed=1',
-      'cargo run -q -p contract-difftest -- numbers --count 200000 || failed=1',
-      'cargo run -q -p contract-difftest -- types --seed 1 --count 100 || failed=1',
-      'cargo run -q -p contract-difftest -- expansion semantics/corpus --seed 1 --count 200 || failed=1',
-      'exit $failed',
-    ].join('\n')]]] : []),
+    ...semanticsChecks(),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
 }
@@ -174,19 +149,61 @@ export function appleTouched(sha, since, diff = git) {
   return paths.some(path => path && !documentation(path));
 }
 
-// Difftest observes the kernel's tree and uses the runner's dependencies too.
-// Skip host presentation and documentation edits, but include every local
-// dependency and the toolchain inputs that can change the checked program.
-const CONTRACT_DIRS = ['semantics/', 'contract/', 'runner/', 'plan/', 'route/', 'num/',
-  'kernel/', 'canvas/', 'color/', 'grants/', 'motion/', 'svg-filter/', 'textflow/',
-  'vendor/', 'host/web-js/', 'host/web/', 'scripts/', '.cargo/'];
-const CONTRACT_INPUTS = new Set(['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'package.json', 'bun.lock']);
-export function contractTouched(sha, since, diff = git) {
-  return changedPaths(sha, since, diff).some(path => CONTRACT_INPUTS.has(path) ||
-    (path.startsWith('apps/') && path.endsWith('.contract')) || CONTRACT_DIRS.some(dir => path.startsWith(dir)));
+// The Contract semantics (semantics/README.md; Charlie, 2026-10-03), four
+// checks with their own inputs (scripts/async-inputs.mjs). `lean`: the Lean
+// project builds with every proof checked (the app proofs among them); a
+// `sorry` fails it, since a proof that is not there is not checked.
+// `vm-extract`: the shipped VM machine extracted (Charon, Aeneas) and proved
+// against Contract/Vm.lean (semantics/vm-extract/README.md); where a tool is
+// missing it says so and is unavailable, never a pass. `difftest`: the
+// runner against the semantics over the scripted corpus, the explored
+// programs and a fixed random sweep (fixed seeds, so a divergence is
+// attributed to the commit that made it), the compiler's bytecode on the Lean
+// VM model, the Lean type checker against the Rust one, component expansion
+// against the Lean expander and the component-level semantics, and number
+// printing; Lean's answers are reused for a case whose program, oracle,
+// events and semantics are unchanged (`DIFFTEST_CACHE`). `difftest-js`: the
+// corpus, the explored programs and a smaller sweep on the web JS target (the
+// second implementation) against the runner. Every part of a check runs
+// whatever the one before it found.
+const difftest = args => `cargo run -q -p contract-difftest -- ${args} || failed=1`;
+const script = lines => ['sh', ['-c', ['failed=0', ...lines, 'exit $failed'].join('\n')]];
+export function semanticsChecks(base = process.env) {
+  const env = extra => checkEnv({ ...base, PATH: `${base.HOME}/.elan/bin:${base.PATH}` }, extra);
+  return [
+    ['lean', ...script([
+      'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
+      'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
+    ]), { env: env() }],
+    ['vm-extract', 'sh', ['semantics/vm-extract/check.sh'],
+      { env: env(), outcome: (log, status) => /^vm-extract: skipped:/m.test(log) ? 'unavailable' : status === 0 ? 'pass' : 'fail' }],
+    ['difftest', ...script([
+      'apps', 'corpus', 'explore contract/corpus apps/*/app.contract', 'random --seed 1 --count 5000', 'lowering-corpus',
+      'lowering --seed 1 --count 300', 'numbers --count 200000', 'types --seed 1 --count 100',
+      'expansion semantics/corpus --seed 1 --count 200',
+    ].map(difftest)), { env: env({ DIFFTEST_CACHE: '1' }) }],
+    ['difftest-js', ...script([
+      'corpus --js-only', 'explore contract/corpus apps/*/app.contract --js-only', 'random --seed 1 --count 500 --js-only',
+    ].map(difftest)), { env: env() }],
+  ];
 }
 
-export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos', 'semantics']) {
+/** A gated check's fingerprint at the worktree's checkout, or the error that means it must run. */
+export async function gate(name, command, args, opts, sources) {
+  try {
+    return { fp: fingerprint(name, command, args, opts.env, await INPUTS[name](WT, opts.env, sources)) };
+  } catch (e) {
+    return { error: String(e.message ?? e).slice(0, 2000) };
+  }
+}
+
+/** The outcome a gated check's run records: a pass, a failure, or nothing. */
+export function outcomeOf(opts, log, status, hung) {
+  if (hung) return 'fail';
+  return opts.outcome ? opts.outcome(log, status) : status === 0 ? 'pass' : 'fail';
+}
+
+export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos']) {
   const conditional = new Set(conditionalNames);
   result.failures.push(...previous.filter(f => {
     const name = f.split(': ', 1)[0];
@@ -254,6 +271,9 @@ function prune() {
   console.log(`pruned ${WT}/target/debug to ${(KIB(debug) / 1024 / 1024).toFixed(0)} GiB (was over 80 GiB)`);
 }
 
+/** `f`'s answer to its first call, for every call (one `contract sources` pass per commit). */
+const cached = f => { let answer; return (...args) => (answer ??= f(...args)); };
+
 async function check(sha, since) {
   const dir = resolve(STATE_DIR, sha.slice(0, 12));
   mkdirSync(dir, { recursive: true });
@@ -264,13 +284,34 @@ async function check(sha, since) {
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
   if (installed.status !== 0) result.failures.push(`install: bun install --frozen-lockfile exit ${installed.status}`);
-  for (const [name, command, args] of checks(sha, since)) {
+  const store = new Store(resolve(STATE_DIR, 'fingerprints'));
+  let sources;
+  for (const [name, command, args, opts] of checks(sha, since)) {
+    let gated = null;
+    if (opts) {
+      const start = performance.now();
+      sources ??= cached(sourcesOf(WT, opts.env));
+      gated = await gate(name, command, args, opts, sources);
+      const seconds = (performance.now() - start) / 1000;
+      const passed = gated.fp && store.passed(name, gated.fp);
+      if (passed) {
+        result.checks[name] = { command: [command, ...args].join(' '), skipped: `inputs of ${passed.sha?.slice(0, 12)}'s pass`, fingerprint: gated.fp.digest, seconds };
+        continue;
+      }
+      gated.seconds = seconds;
+    }
     const logPath = resolve(dir, `${name}.log`), fd = openSync(logPath, 'w');
     const load = loadavg()[0], start = performance.now();
-    const r = await run(command, args, env, fd);
+    const r = await run(command, args, opts?.env ?? env, fd);
     closeSync(fd);
     const seconds = (performance.now() - start) / 1000, log = readFileSync(logPath, 'utf8');
     result.checks[name] = { command: [command, ...args].join(' '), status: r.status, seconds, load, ...(r.hung ? { hung: true } : {}) };
+    if (gated) {
+      Object.assign(result.checks[name], gated.fp
+        ? { fingerprint: gated.fp.digest, changed: changedSince(store, name, gated.fp), gateSeconds: gated.seconds }
+        : { gateError: gated.error });
+      if (gated.fp) store.record(name, gated.fp, outcomeOf(opts, log, r.status, r.hung), { sha });
+    }
     result.failures.push(...failures(name, log, r.status));
     if (r.hung) {
       const slow = [...new Set([...log.matchAll(/^test (\S+) has been running for over 60 seconds/gm)].map(m => m[1]))];
@@ -322,6 +363,20 @@ if (import.meta.main) {
   mkdirSync(STATE_DIR, { recursive: true });
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
   if (option('--from')) state.last = git(['rev-parse', option('--from')]);
+  if (process.argv.includes('--explain')) {
+    const at = process.argv[process.argv.indexOf('--explain') + 1];
+    git(['fetch', '-q', 'origin']);
+    const sha = git(['rev-parse', at && !at.startsWith('--') ? at : BRANCH]);
+    git(['checkout', '--detach', '--force', sha], WT);
+    const store = new Store(resolve(STATE_DIR, 'fingerprints'));
+    let sources;
+    for (const [name, command, args, opts] of semanticsChecks()) {
+      sources ??= cached(sourcesOf(WT, opts.env));
+      const { fp, error } = await gate(name, command, args, opts, sources);
+      console.log(`${name}: ${error ? `run (the gate failed: ${error})` : store.passed(name, fp) ? 'skip' : `run (changed: ${changedSince(store, name, fp).join(', ')})`}`);
+    }
+    process.exit(0);
+  }
   const interval = Number(option('--interval', TIER === 2 ? 3600 : 300)) * 1000;
   for (;;) {
     await once(state);
