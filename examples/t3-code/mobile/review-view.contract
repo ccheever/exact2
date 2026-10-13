@@ -48,7 +48,7 @@ component ReviewView
               when row.kind == "file"
                 row margin-left=8 margin-right=8 margin-top=6 margin-bottom=6 min-height=44
                   border-radius=10 background-color=colors.card align-items="center" padding-left=10 padding-right=10 gap=5
-                  button press=action("toggle", row.path, 0) flex=1 min-width=0 aria-label=(row.expanded ? "Collapse " + row.path : "Expand " + row.path)
+                  button press=action("toggle", row.markerId, 0) flex=1 min-width=0 aria-label=(row.expanded ? "Collapse " + row.path : "Expand " + row.path)
                     row align-items="center" gap=7
                       t3-symbol symbol-name=(row.expanded ? "chevron.down" : "chevron.right") point-size=12 symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
                       column flex=1 min-width=0
@@ -57,7 +57,7 @@ component ReviewView
                           text row.detail font-size=11 color=colors.muted line-clamp=1
                   text `+${row.additions}` width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.addition
                   text `-${row.deletions}` width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.deletion
-                  button press=action("viewed", row.path, 0) aria-label=(row.viewed ? "Mark unviewed" : "Mark viewed") width=28 height=32
+                  button press=action("viewed", row.markerId, 0) aria-label=(row.viewed ? "Mark unviewed" : "Mark viewed") width=28 height=32
                     t3-symbol symbol-name=(row.viewed ? "checkmark.circle.fill" : "circle") point-size=16 symbol-weight="regular" symbol-tint=colors.iconMuted width=16 height=16
               else
                 when row.kind == "line"
