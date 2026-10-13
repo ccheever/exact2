@@ -122,7 +122,10 @@ component Markdown
           // A virtualized list's container takes no block-axis padding (its
           // rows are the extent), so the page's top and end space is the
           // first and last rows' own. A block's id is its index.
-          list virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" box-sizing="border-box"
+          // A document is text its reader copies from, so it says so: the
+          // web and the Mac select it anyway, and an iPhone selects only
+          // what its author said (LLP 1115.000 D11.6), one block at a time.
+          list virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" user-select="text" testId="document" box-sizing="border-box"
             each b in doc.blocks key=`${doc.path}:${b.id}`
               view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
                 Blocks(block=b)
