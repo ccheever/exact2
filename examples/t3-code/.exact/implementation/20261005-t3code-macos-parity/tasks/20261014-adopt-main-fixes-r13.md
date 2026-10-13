@@ -75,7 +75,8 @@ reference itself is ambiguous).
 
 ## Adopted main
 
-**`898ca3a09`**, then **`95f2fd3e7`** and **`2ba30e401`** (main's tip at the last merge, 19 commits past round 12's `0b956d63d`):
+**`898ca3a09`**, then **`95f2fd3e7`**, **`2ba30e401`** and **`958523176`** (main's tip at the last merge, 20 commits past
+round 12's `0b956d63d`):
 
 - `48485695b`: this record's first version.
 - Before any merge: the T3 tip `9149492d4`'s bundle built in this worktree and driven (lane `adopt-main-fixes-r13-before`).
@@ -96,6 +97,9 @@ reference itself is ambiguous).
   agent gate, web only; QUEUE). No conflict. Not driven: the clone writes no `focusin=` or `focusout=`, so the Mac change
   has nothing of the clone's to deliver, and the rest is web and QUEUE. The checks, the Bun suite, strict tsc, `contract
   build` and the bundle build ran again on this head.
+- `a2fa638b5`: the records (the third merge, X54's rows, this record's results).
+- `7f37bd614`: `git merge --no-ff origin/main` at `958523176` (one commit, `QUEUE.md` only), reached after the checks. No
+  conflict; nothing to check again.
 
 On the final head after a fresh fetch: `git merge-base --is-ancestor origin/main HEAD`, `git rev-list --count
 HEAD..origin/feat(example)/t3-code` and `git diff origin/main HEAD -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'`
@@ -113,7 +117,7 @@ main from the branch's ancestry.
 | The date and place at launch (locale, zone, seed before each boot) | `115c3aada`, `5ccb7d797`, `6233c4cc2`, `95f2fd3e7` (second merge) | The clone's first settle reads the real locale and zone; the drive (agent facts `--time-zone Asia/Seoul`, a fixed epoch) is pixel-equal to the first merge's on all 15 screens, the relative ages ("3d", "8d") included | none |
 | A wrapper removed by blur still hears its `focusout` (X54's issue closed) | `1bcf7436f` (third merge) | X54 (KW-12): the clone writes no `focusin=` or `focusout=` (0 sites), so nothing it runs changes. Its stand-ins ("Show full comment" as a Tab stop before a long comment's held body, the remark pencil shown while itself focused, `KmDoor` in `menu-keys.contract`) need `focusin` on their wrappers to retire: a rework of the pull request threads and of `menu-keys.contract`'s door, kept (`EXACT2-GAPS.md` X54) | none |
 | The JS target's agent gate in lazily copied production web modules | `89a5b5e29` (third merge) | web only | none |
-| QUEUE, LLP and review records | `22cf1cd6b`, `2ba30e401` and the rest | nothing on the clone's path | none |
+| QUEUE, LLP and review records | `22cf1cd6b`, `2ba30e401`, `958523176` (fourth merge) and the rest | nothing on the clone's path | none |
 
 ## Cause and fix
 
@@ -128,7 +132,7 @@ main from the branch's ancestry.
   five and ⌘2 Sweep four under the held press (state: `…:sweep-4`), the up lands, Settings opens, Back returns. The
   reference does the same (CDP: the press held below the reply, ⌘1 `sweep-5`, ⌘2 `sweep-4`, the up, Settings ›
   General, Escape back to Sweep four). No clone source changed.
-- **RT-2 (nothing to retire).** Main's 19 commits since `0b956d63d`, each read against `EXACT2-GAPS.md` and the 13 rows
+- **RT-2 (nothing to retire).** Main's 20 commits since `0b956d63d`, each read against `EXACT2-GAPS.md` and the 13 rows
   of [r12-kept-workarounds](20261013-r12-kept-workarounds.md) ("Each item" above): #523 closes X87, which had no
   workaround; `1bcf7436f` closes X54's issue, whose stand-ins need a rework to move to `focusin` (KW-12), not a
   one-attribute retirement; the intersection fix extends X22's `intersect=`, which the clone does not write (KW-12's hooks stay a
@@ -145,8 +149,8 @@ states, pixels, the contract build, RT-2 commit by commit).
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| AD-1: the branch contains main | pass at the final merge (main `2ba30e401`) | Adopted main; Checks |
-| AD-1: the framework tree is main's | pass: empty after `62a7c3c1d`, `534b9613c`, `37540190c` and on the final head | Adopted main; Checks |
+| AD-1: the branch contains main | pass at the final merge (main `958523176`) | Adopted main; Checks |
+| AD-1: the framework tree is main's | pass: empty after `62a7c3c1d`, `534b9613c`, `37540190c`, `7f37bd614` and on the final head | Adopted main; Checks |
 | AD-1: the checks pass | see Checks | Checks |
 | AD-1: the clone works | pass: session 1 (the shell, Settings General, Appearance, Providers, Usage and back, the fixture thread, the right panel's file viewer, Settings from it, Back) exits 0 on both builds; all 11 screens pixel-equal before and after; the final bundle (after2) pixel-equal to the after on all 15 screens of both sessions | [smoke](https://raw.githubusercontent.com/ccheever/exact2/d21e799f5ea9141efddbeb0d8fb846198def98cb/adopt-main-fixes-r13/ad1-smoke.png), readouts |
 | RT-1 (X87) | pass: session 2, before SIGABRT at ⌘1's batch (op 12 of 26, X87's frames); after and after2 every op runs (exit 0): Sweep five, Sweep four under the held press, the up, Settings, Back; the reference the same | [image](https://raw.githubusercontent.com/ccheever/exact2/7dd69a98a9c5f5041bf1440cd42178394fa77386/adopt-main-fixes-r13/rt1-x87.png), readouts |
@@ -178,7 +182,29 @@ lane copy seeded as `lane.sh` seeds it, window 1280×840. Never send a message.
 
 ## Checks
 
-CHECKS_TABLE
+Once, on `37540190c` (the head after the third merge, main `2ba30e401`; `target/r13/checks.sh`). The first pass ran on
+`534b9613c` (main `95f2fd3e7`), every check exit 0 (`cargo test` 4,351 passed); main moved while it ran, so the third merge
+followed and every check ran again. The fourth merge (`7f37bd614`, main `958523176`) changes only `QUEUE.md`.
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,856 pass, 1 skip, 0 fail (328 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6,470 slots, 120,810 nodes, 48 resources, 33,309,129 bytes (round 12's plan); 233 `lower-colour-one-scheme` and 20 `lower-dialog-role` shown (the cap), nothing new. `app.contract` 1,453 lines |
+| `cargo test -p t3-code-macos --lib` | 0 | 25 passed |
+| AppKit binaries | — | none touched (no clone Swift changed) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,353 passed, 0 failed, 46 ignored (105 suites) |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `cargo check --workspace --all-targets --keep-going` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | four times: the before (`9149492d4`), the live drive's (`62a7c3c1d`), the retry's (`534b9613c`) and this head's |
+
+After a fresh fetch on the final head (`7f37bd614`): `git merge-base --is-ancestor origin/main HEAD` yes (main
+`958523176`); `git rev-list --count HEAD..origin/feat(example)/t3-code` 0; `git diff origin/main HEAD -- ':!examples/t3-code'
+':!Cargo.lock' ':!Cargo.toml'` empty.
 
 ## Attempts and evidence
 
