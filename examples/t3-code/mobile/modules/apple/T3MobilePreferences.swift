@@ -316,11 +316,12 @@ final class T3SettingsNavigation {
     }
     fileprivate func bind(_ port: T3SettingsHeaderPort, key: String) { ports[key] = PortRef(port); if let route = routes[key]?.value { port.attach(route) } }
     fileprivate func unbind(_ port: T3SettingsHeaderPort, key: String) { if ports[key]?.value === port { ports.removeValue(forKey: key) } }
+    fileprivate func isBound(_ port: T3SettingsHeaderPort, key: String) -> Bool { ports[key]?.value === port }
 }
 private struct T3SettingsHeaderConfig: Decodable {
     struct Environment: Decodable { let id: String; let label: String; let subtitle: String; let symbol: String; let selected: Bool }
     struct Project: Decodable { let id: String; let label: String; let selected: Bool }
-    let routeKey: String; let close: Bool; let back: Bool; let filtered: Bool; let all: Bool
+    let routeKey: String; let visitToken: String; let close: Bool; let back: Bool; let filtered: Bool; let all: Bool
     let selectedCount: Int; let projectKey: String; let projectLabel: String
     let environments: [Environment]; let projects: [Project]
     let addActionID: String?; let addEnabled: Bool?; let compactRoot: Bool?
@@ -337,7 +338,7 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
     override var view: UIView { port }
     init(owner: T3SettingsNavigation, events: ExactNativeEvents) { self.owner = owner; super.init(events: events); port.isUserInteractionEnabled = false }
     override func setProps(_ props: [String: String]) throws {
-        guard let data = props["configuration"]?.data(using: .utf8), let next = try? JSONDecoder().decode(T3SettingsHeaderConfig.self, from: data), !next.routeKey.isEmpty else { throw ExactNativeRefusal("Settings header needs a valid configuration and route key.") }
+        guard let data = props["configuration"]?.data(using: .utf8), let next = try? JSONDecoder().decode(T3SettingsHeaderConfig.self, from: data), !next.routeKey.isEmpty, !next.visitToken.isEmpty else { throw ExactNativeRefusal("Settings header needs a valid configuration, route key and visit token.") }
         if key != next.routeKey { detach(); owner?.unbind(self, key: key); key = next.routeKey }
         config = next; owner?.bind(self, key: key)
     }
@@ -345,7 +346,10 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         if self.route !== route { detach(); self.route = route }
         guard let config, route.isLive else { return }
         func action(_ title: String, subtitle: String? = nil, symbol: String? = nil, selected: Bool, kind: String, value: String = "") -> UIAction {
-            UIAction(title: title, subtitle: subtitle, image: symbol.flatMap { UIImage(systemName: $0) }, state: selected ? .on : .off) { [weak self] _ in self?.emit(kind, value) }
+            UIAction(title: title, subtitle: subtitle, image: symbol.flatMap { UIImage(systemName: $0) }, state: selected ? .on : .off) { [weak self, weak route] _ in
+                guard let route else { return }
+                self?.emit(kind, value, key: config.routeKey, token: config.visitToken, route: route)
+            }
         }
         let environments = [action("All connected environments", selected: config.all, kind: "all")]
             + config.environments.map { action($0.label, subtitle: $0.subtitle.isEmpty ? nil : $0.subtitle, symbol: $0.symbol, selected: $0.selected, kind: "environment", value: $0.id) }
@@ -358,12 +362,19 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         filter.accessibilityLabel = "Filter settings environments and projects"; filter.accessibilityIdentifier = "settings-scope"
         right = [filter]
         if let id = config.addActionID {
-            let add = UIBarButtonItem(image: UIImage(systemName: "plus"), primaryAction: UIAction { [weak route] _ in route?.element(id)?.click() })
+            let add = UIBarButtonItem(image: UIImage(systemName: "plus"), primaryAction: UIAction { [weak self, weak route] _ in
+                guard let self, let route, self.currentBinding(key: config.routeKey, token: config.visitToken, route: route),
+                      self.config?.addActionID == id, self.config?.addEnabled == true else { return }
+                route.element(id)?.click()
+            })
             add.accessibilityLabel = "New scheduled task"; add.isEnabled = config.addEnabled == true
             right.insert(add, at: 0)
         }
         if config.close {
-            let close = UIBarButtonItem(image: UIImage(systemName: "xmark"), primaryAction: UIAction { [weak self] _ in self?.emit("close") })
+            let close = UIBarButtonItem(image: UIImage(systemName: "xmark"), primaryAction: UIAction { [weak self, weak route] _ in
+                guard let route else { return }
+                self?.emit("close", key: config.routeKey, token: config.visitToken, route: route)
+            })
             close.accessibilityLabel = "Close settings"; close.accessibilityIdentifier = "settings-close"
             if config.compactRoot == true { right.append(close) } else { right.insert(close, at: 0) }
         }
@@ -379,14 +390,31 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
             restoreCompactLeading(item)
         }
         if config.back {
-            let back = UIBarButtonItem(image: UIImage(systemName: "chevron.left"), primaryAction: UIAction { [weak self] _ in self?.emit("back") })
+            let back = UIBarButtonItem(image: UIImage(systemName: "chevron.left"), primaryAction: UIAction { [weak self, weak route] _ in
+                guard let route else { return }
+                self?.emit("back", key: config.routeKey, token: config.visitToken, route: route)
+            })
             back.accessibilityLabel = "Go back"; left = back; route.controller.navigationItem.leftBarButtonItem = back
         } else if route.controller.navigationItem.leftBarButtonItem === left {
             route.controller.navigationItem.leftBarButtonItem = nil; left = nil
         }
     }
-    private func emit(_ kind: String, _ value: String = "") {
-        guard let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value]) else { return }
+    private func currentBinding(key: String, token: String, route: ExactRoute) -> Bool {
+        self.key == key && self.route === route && route.key == key && route.isLive
+            && config?.routeKey == key && config?.visitToken == token && owner?.isBound(self, key: key) == true
+    }
+    private func emit(_ kind: String, _ value: String = "", key: String, token: String, route: ExactRoute) {
+        guard currentBinding(key: key, token: token, route: route), let config else { return }
+        let permitted: Bool
+        switch kind {
+        case "all": permitted = value.isEmpty
+        case "environment": permitted = config.environments.contains { $0.id == value }
+        case "project": permitted = value.isEmpty || config.projects.contains { $0.id == value }
+        case "close": permitted = config.close && value.isEmpty
+        case "back": permitted = config.back && value.isEmpty
+        default: permitted = false
+        }
+        guard permitted, let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value, "requestRoute": key, "visitToken": token]) else { return }
         events.change(String(decoding: data, as: UTF8.self))
     }
     private func restoreCompactLeading(_ item: UINavigationItem) {

@@ -280,12 +280,6 @@ export function mobileSettingsScope(environments: SettingsEnvironment[], selecti
   return { available, selected, scoped, projects: selectable, projectLabel: project?.title ?? 'Unavailable project',
     selection, filtered: selection.environmentIds !== null || selection.projectKey !== '' };
 }
-export function toggleSettingsEnvironment(selection: SettingsScopeSelection, available: SettingsEnvironment[], environmentId: string): SettingsScopeSelection {
-  const ids = available.map(environment => environment.environmentId);
-  const next = new Set(ids.filter(id => selection.environmentIds === null || selection.environmentIds.includes(id)));
-  if (ids.includes(environmentId)) { if (next.has(environmentId)) next.delete(environmentId); else next.add(environmentId); }
-  return { ...selection, environmentIds: ids.every(id => next.has(id)) ? null : [...next] };
-}
 export interface SettingsRootInput {
   savedEnvironmentCount: number;
   enabledRoutes: readonly string[];
@@ -325,21 +319,22 @@ export function settingsRootView(input: SettingsRootInput) {
     ],
   };
 }
-export function settingsHeaderConfiguration(routeKey: string, compact: boolean, scope: ReturnType<typeof mobileSettingsScope>) {
+export function settingsHeaderConfiguration(routeKey: string, compact: boolean, scope: ReturnType<typeof mobileSettingsScope>, visitToken: string) {
   const symbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
-  return JSON.stringify({ routeKey, close: compact, back: !compact, filtered: scope.filtered,
+  return JSON.stringify({ routeKey, visitToken, close: compact, back: !compact, filtered: scope.filtered,
     all: scope.selection.environmentIds === null, selectedCount: scope.selected.length, projectKey: scope.selection.projectKey,
     projectLabel: !scope.selection.projectKey ? 'All projects' : scope.projects.find(project => project.key === scope.selection.projectKey)?.title ?? 'Unavailable project',
     environments: scope.available.map(environment => ({ id: environment.environmentId, label: environment.label,
       subtitle: environment.origin, symbol: symbols[environment.machine] || 'desktopcomputer', selected: scope.selected.some(target => target.environmentId === environment.environmentId) })),
     projects: scope.projects.map(project => ({ id: project.key, label: project.title, selected: project.key === scope.selection.projectKey })) });
 }
-export function decodeSettingsHeaderEvent(text: string): { kind: 'all' | 'environment' | 'project' | 'close' | 'back'; value: string } | null {
+export function decodeSettingsHeaderEvent(text: string): { kind: 'all' | 'environment' | 'project' | 'close' | 'back'; value: string; visitToken: string; requestRoute: string } | null {
   let object: unknown;
   try { object = JSON.parse(text); } catch { return null; }
   if (!object || typeof object !== 'object') return null;
   const event = object as Record<string, unknown>;
-  if (typeof event.value !== 'string') return null;
+  if (typeof event.value !== 'string' || typeof event.visitToken !== 'string' || !event.visitToken
+    || typeof event.requestRoute !== 'string' || !event.requestRoute) return null;
   return event.kind === 'all' || event.kind === 'environment' || event.kind === 'project' || event.kind === 'close' || event.kind === 'back'
-    ? { kind: event.kind, value: event.value } : null;
+    ? { kind: event.kind, value: event.value, visitToken: event.visitToken, requestRoute: event.requestRoute } : null;
 }

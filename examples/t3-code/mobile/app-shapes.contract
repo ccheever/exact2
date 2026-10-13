@@ -22,14 +22,22 @@ shape Appearance
   terminalFontSize: number
   groupingMode: string
 shape SettingsView
+  visitToken: string
   serverScope: string
   environmentIds: string
   root: SettingsRootData
   header: string
   projectHeader: string
 shape SettingsScopeEvent
-  selection: string
-  close: bool
+  visitToken: string
+  requestRoute: string
+  kind: string
+  value: string
+  availableEnvironmentIds: list<string>
+shape SettingsSelection
+  allEnvironments: bool
+  environmentIds: list<string>
+  projectKey: string
 shape MobileLayout
   displayScale: number
   windowHeight: number

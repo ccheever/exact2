@@ -4,7 +4,8 @@ use NewTaskFlowResult from "./new-task-flow.contract"
 // Pure presentation transitions. App retains requests, guards and route commits.
 use ArchiveChromeEvent from "./archive-chrome.contract"
 use AttachmentDocumentAction from "./attachment-document.contract"
-use HomeActionResult, MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent, Change from "./app-shapes.contract"
+use HomeActionResult, MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent, SettingsSelection, Change from "./app-shapes.contract"
+use WorkspaceEntry from "./mobile-workspace.contract"
 
 shape HomeReplyPlan
   archiveRefresh: number
@@ -29,9 +30,41 @@ fn pairingUiScan(previous: PairingUi, reply: option<PairingFields>): PairingUi =
   case some(result) => PairingUi(previous, host=result.host, code=result.code, scannerOpen=false),
   case none => PairingUi(previous, scannerOpen=false)
 }
-fn settingsEventPlan(previous: string, reply: option<SettingsScopeEvent>): SettingsScopeEvent = match reply {
-  case some(event) => event,
-  case none => SettingsScopeEvent(selection=previous, close=false)
+shape SettingsVisitOwner
+  visitToken: string
+  routeKey: string
+shape SettingsVisit
+  visitToken: string
+  selection: SettingsSelection
+shape SettingsVisitPlan
+  records: list<SettingsVisit>
+  close: bool
+fn settingsContentRoute(name: string): bool = includes(["settingsNotifications", "settingsThreads", "settingsProjectOverview", "settingsServer", "settingsProviders", "settingsAppearance", "settingsChoice", "settingsScheduledTasks", "settingsScheduledNew", "settingsScheduledEdit", "settingsScheduledModel", "settingsScheduledBranch", "settingsAbout", "settingsClientStorage", "settingsDiagnostics", "settingsOpenSourceLicenses", "settingsOpenSourceLicense", "settingsUsage", "settingsUsageAccount", "archive", "environments", "environmentDetail"], name)
+fn settingsRootOwner(roots: list<WorkspaceEntry>, content: list<WorkspaceEntry>): SettingsVisitOwner = match first(slice(roots, length(roots) - 1, length(roots))) {
+  case some(root) => SettingsVisitOwner(visitToken=`root:${root.id}`, routeKey=root.id),
+  case none => match first(content) { case some(child) => SettingsVisitOwner(visitToken=`content:${child.id}`, routeKey=child.id), case none => SettingsVisitOwner(visitToken="", routeKey="") }
+}
+fn settingsPrefixOwner(entries: list<WorkspaceEntry>): SettingsVisitOwner = settingsRootOwner(filter(entries, entry => entry.name == "settings"), filter(entries, entry => settingsContentRoute(entry.name)))
+fn settingsVisitOwner(entries: list<WorkspaceEntry>, routeKey: string): SettingsVisitOwner = settingsPrefixOwner(slice(entries, 0, indexOf(map(entries, entry => entry.id), routeKey) + 1))
+fn settingsLiveTokens(entries: list<WorkspaceEntry>): list<string> = map(filter(entries, entry => entry.name == "settings" or settingsContentRoute(entry.name)), entry => settingsVisitOwner(entries, entry.id).visitToken)
+fn settingsDefaultSelection(): SettingsSelection = SettingsSelection(allEnvironments=true, environmentIds=slice([""], 0, 0), projectKey="")
+fn settingsVisitSelection(records: list<SettingsVisit>, token: string): SettingsSelection = match first(filter(records, record => record.visitToken == token)) { case some(record) => record.selection, case none => settingsDefaultSelection() }
+fn settingsLiveRecords(records: list<SettingsVisit>, entries: list<WorkspaceEntry>): list<SettingsVisit> = filter(records, record => includes(settingsLiveTokens(entries), record.visitToken))
+fn settingsEnvironmentSelection(previous: SettingsSelection, available: list<string>, selected: list<string>): SettingsSelection = SettingsSelection(previous, allEnvironments=length(filter(available, id => not includes(selected, id))) == 0, environmentIds=selected)
+fn settingsToggledIds(selected: list<string>, id: string): list<string> = includes(selected, id) ? filter(selected, candidate => candidate != id) : concat(selected, [id])
+fn settingsApplyOperation(previous: SettingsSelection, event: SettingsScopeEvent): SettingsSelection = (
+  event.kind == "all" ? SettingsSelection(previous, allEnvironments=true, environmentIds=slice([""], 0, 0)) :
+  event.kind == "project" ? SettingsSelection(previous, projectKey=event.value) :
+  event.kind == "environment" and includes(event.availableEnvironmentIds, event.value) ? settingsEnvironmentSelection(previous, event.availableEnvironmentIds, settingsToggledIds(filter(event.availableEnvironmentIds, id => previous.allEnvironments or includes(previous.environmentIds, id)), event.value)) : previous
+)
+fn settingsOperationRecords(previous: list<SettingsVisit>, entries: list<WorkspaceEntry>, event: SettingsScopeEvent): list<SettingsVisit> = (
+  includes(settingsLiveTokens(entries), event.visitToken) and includes(["all", "environment", "project"], event.kind)
+    ? concat(filter(settingsLiveRecords(previous, entries), record => record.visitToken != event.visitToken), [SettingsVisit(visitToken=event.visitToken, selection=settingsApplyOperation(settingsVisitSelection(previous, event.visitToken), event))])
+    : settingsLiveRecords(previous, entries)
+)
+fn settingsEventPlan(previous: list<SettingsVisit>, reply: option<SettingsScopeEvent>, entries: list<WorkspaceEntry>, routeKey: string): SettingsVisitPlan = match reply {
+  case some(event) => SettingsVisitPlan(records=settingsOperationRecords(previous, entries, event), close=includes(settingsLiveTokens(entries), event.visitToken) and event.requestRoute == routeKey and (event.kind == "close" or event.kind == "back")),
+  case none => SettingsVisitPlan(records=settingsLiveRecords(previous, entries), close=false)
 }
 shape PairingCameraPlan
   next: PairingUi
