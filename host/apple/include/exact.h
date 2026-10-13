@@ -400,6 +400,8 @@ uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
  * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
  *      true|false for repeat;
+ * 46 = focusin, 47 = focusout (#283): UTF-8 `<target byte length>:<target id>`
+ *      then `0` (no relatedTarget) or `1<related id>`;
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input

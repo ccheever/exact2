@@ -11,9 +11,10 @@ impl Event {
     /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease, LLP
     /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
-    /// (beforeunload), 37 (wheel), 38 (drop) or 39 (resize, its
-    /// `contentRect` as `x,y,width,height`), or 45 (intersect, `0|1,ratio`)
-    /// from its UTF-8 payload.
+    /// (beforeunload), 37 (wheel), 38 (drop), 39 (resize, its
+    /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
+    /// input, change, select and replacement input), 45 (intersect,
+    /// `0|1,ratio`) or 46 and 47 (focusin, focusout) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code
@@ -74,6 +75,9 @@ impl Event {
             // A text field's `input`, `change` and `select` with its
             // selection (x2apps codeedit #2).
             40..=42 | 48 => Event::field_payload(kind, payload).ok_or("invalid field selection"),
+            // DOM's bubbling focusin (46) and focusout (47, #283; 45 is `intersect`):
+            // the target's id and the relatedTarget's, if any.
+            46 | 47 => Event::focus_payload(kind == 46, payload).ok_or("invalid focus event"),
             _ => Err("unknown event kind"),
         }
     }
@@ -193,6 +197,17 @@ mod tests {
                 "{refused}"
             );
         }
+        assert_eq!(
+            Event::of_host_kind(47, "1:a1b"),
+            Ok(Event::Focusout {
+                target: "a".into(),
+                related_target: Some("b".into())
+            })
+        );
+        assert_eq!(
+            Event::of_host_kind(46, "typed").err(),
+            Some("invalid focus event")
+        );
         assert_eq!(
             Event::of_host_kind(99, "").err(),
             Some("unknown event kind")

@@ -233,6 +233,10 @@ package final class Runtime {
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
     func blur(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 5, 0, now)) } }
+    func focusEvent(_ view: UInt32, entering: Bool, target: String, related: String?, now: Double) -> Batch {
+        let payload = "\(target.utf8.count):\(target)" + (related.map { "1\($0)" } ?? "0")
+        return on { read(exact_dispatch(rt, view, entering ? 46 : 47, write(payload), now)) }
+    }
     func contextmenu(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 10, 0, now)) } }
     /// DOM's `beforeunload` (36) at a node that hears it (studio diary R17).
     func beforeunload(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 36, 0, now)) } }

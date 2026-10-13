@@ -423,6 +423,13 @@ amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
 
 **Runtime**
 
+**Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
+DOM `focusin`/`focusout` with target and related target information bubble to
+an ancestor without adding a Tab stop. The clipped content and row action
+wrappers in `issues/20261009-bubbling-focus-events.md` are the consumers.
+Moves between descendants and removal also dispatch. The approved ruling
+names no take; `:focus-within` remains out.
+
 - GPU / WebGPU substrate. The old repo carries ~139,000 lines of Rust adapter code
   across two files, neither marked generated. The door stays open the way React's
   does — we design nothing that closes it: an owned-pixel surface is a leaf node

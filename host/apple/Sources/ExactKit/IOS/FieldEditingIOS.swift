@@ -55,7 +55,7 @@ extension NodeView {
                 UIView.animate(withDuration: 0.25) { p.reveal(self) }
             }
         }
-        if handlers.contains("focus") { presenter?.focus(id) }
+        presenter?.focus(id)
     }
     /// The selection moved: a person's non-collapsed one is a `select`
     /// (x2apps codeedit #2, `FieldSelections`).
@@ -64,7 +64,7 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         if presenter?.editing === self { presenter?.editing = nil }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
 }
 #endif

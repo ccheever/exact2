@@ -66,7 +66,8 @@ pub(super) struct State {
 }
 
 impl<D: DataSource> Presenter<D> {
-    /// The focus leaves a node that is gone, or inert under its route.
+    /// The focus leaves a node that is gone, or inert under its route
+    /// (`clear_removed_focus` sends its `focusout` first, #283).
     pub(super) fn release_focus(&mut self) {
         let Some(focus) = self.focus else {
             return;
@@ -80,8 +81,9 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The first `autofocus` node not yet offered that can take the focus
-    /// takes it, when nothing has it (LLP 1035.000 D9).
-    pub(super) fn autofocus(&mut self) {
+    /// takes it, when nothing has it or a surface's focus handed it on
+    /// (LLP 1035.000 D9), with its `focus` and bubbling `focusin` (#283).
+    pub(super) fn autofocus(&mut self) -> Option<String> {
         // Only autofocus nodes matter: a walk that keeps those, in
         // preorder, not an export row per node of every mounted row.
         let kernel = self.host.kernel();
@@ -89,7 +91,7 @@ impl<D: DataSource> Presenter<D> {
             self.autofocus_processed.retain(|id| attached(kernel, *id));
         }
         if !kernel.has_prop(PropId::Autofocus) {
-            return;
+            return None;
         }
         let candidates = kernel.preorder_where(&kernel.roots(), |_, props| {
             props.bool(PropId::Autofocus) == Some(true)
@@ -108,12 +110,12 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             }
             self.autofocus_processed.insert(id);
-            if self.focus.is_none() {
-                self.focus = Some(id);
-                self.dirty = true;
+            if self.focus.is_none() || self.focus == self.autofocus_from {
+                return self.set_focus(Some(id), self.host.now());
             }
             break;
         }
+        None
     }
 
     /// Whether `id` is what a press presses: a button, a link or a tab

@@ -867,6 +867,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
+| Zero or one `FocusEvent` (the action takes it or leaves it) | `focusin`, `focusout`: `target` is the focused element's `id` (or `""`); `relatedTarget` is `some(id)` for the other element or `none` |
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
@@ -1239,6 +1240,20 @@ textarea id="editor" value=source input=edited select=selected
 ```
 
 ### Keys
+
+`focusin` and `focusout` bubble from the element that gains or loses focus to
+each ancestor handler. A wrapper with either handler gains no Tab stop. Both
+offer an optional `FocusEvent`: `target` is the focused element's `id` (empty
+when it has none), and `relatedTarget` is `some(id)` for the other element or
+`none` when there is none. `focusout` fires even when focus moves to another
+descendant of the same wrapper; compare `relatedTarget` to decide whether
+focus left the subtree. `stopPropagation()` stops the current event from
+reaching further ancestor handlers. Autofocus also delivers focus transitions;
+IDs reflect their value when focus moves.
+Web, AppKit, UIKit and Linux dispatch these transitions. An edited field sends
+`change`, `blur`, `focusout`, then the next field's `focus`, `focusin`. Native
+limitation: a wrapper destroyed by `blur` does not receive the later `focusout`;
+Chrome can still deliver it inside the detached subtree (issue #283).
 
 `key` is the DOM's `keydown` and `keyup` its `keyup`, on every host (web,
 macOS, iOS and iPadOS with a hardware keyboard, Linux):

@@ -1015,6 +1015,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **`conform.mjs --help` starts conformance.** It has no help flag; an unknown
   flag does not stop the run. Read its usage comment instead. A run against a
   shared wasm root may spawn app builds, which can outlive an interrupted parent.
+- **A synthetic conformance fixture crashes with `ENOENT` under the wasm root.**
+  Its `// data: <app>` line named an app without a web host (the focus fixture
+  first named `hello`), so `--build` made no wasm dist for it. Name an app with
+  a web host, and a Linux host when using `--linux` (`caltrain` for the focus
+  fixture). (`focus-bubble` conformance, 2026-10-12.)
 - **A web size or speed number is inflated.** Cause: a development web build
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,

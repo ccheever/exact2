@@ -276,7 +276,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         presenter.typed(field.id, text, input: field.handlers.contains("input"))
     }
     func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
-        guard let field, field.handlers.contains("focus") else { return }
+        guard let field else { return }
         host?.presenter.focus(field.id)
     }
     /// The keyboard's Search key is this field's Return (LLP 1115.000 D9.2):
@@ -292,7 +292,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
         guard let field else { return }
         host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
-        if field.handlers.contains("blur") { host?.presenter.blur(field.id) }
+        host?.presenter.blur(field.id)
     }
 }
 

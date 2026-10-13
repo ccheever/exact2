@@ -27,6 +27,7 @@ package final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     package let viewport = PageScrollView(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
+    lazy var focusEvents = FocusEvents(self)
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
     /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
@@ -601,6 +602,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        focusEvents.reset()
         pointerHeld = nil
         pointerSource = nil
         elements.reset()
@@ -746,8 +748,7 @@ package final class Presenter {
 
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
-    var onFocus: ((UInt32) -> Void)?
-    var onBlur: ((UInt32) -> Void)?
+    var onFocus, onBlur: ((UInt32) -> Void)?
     /// A `key` or `keyup` (`KeyPress.up`) at a node (KeyEvents.swift).
     var onKey: ((UInt32, KeyPress) -> Void)?
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
@@ -806,6 +807,7 @@ package final class Presenter {
     /// view (LLP 1063) does not until its exit ends.
     @discardableResult
     func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        focusEvents.removed(id)
         // A held node that goes has no handler left to hear its up.
         if pointerHeld == id { pointerHeld = nil }
         mouseSwipe.retire(id)
@@ -977,8 +979,6 @@ package final class Presenter {
             setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
         }
     }
-    func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
-    func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }

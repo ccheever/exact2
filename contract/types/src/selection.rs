@@ -82,6 +82,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         // The target as HTML's `input` and `change` leave it (x2apps
         // codeedit #2, survey #2): its value, checked state and selection.
         "input" | "change" => Some("InputEvent"),
+        "focusin" | "focusout" => Some("FocusEvent"),
         "resize" => Some("DOMRectReadOnly"),
         "intersect" => Some("IntersectionObserverEntry"),
         "reorderdrop" => Some("ReorderEvent"),
@@ -100,6 +101,13 @@ pub(super) fn declare(shapes: &mut Shapes) {
         vec![
             ("isIntersecting".into(), Ty::Bool),
             ("intersectionRatio".into(), Ty::Number),
+        ],
+    );
+    shapes.map.insert(
+        "FocusEvent".into(),
+        vec![
+            ("target".into(), Ty::String),
+            ("relatedTarget".into(), Ty::Option(Box::new(Ty::String))),
         ],
     );
     shapes.map.insert(

@@ -321,6 +321,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if name == "resize" {
             println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
         }
+        if matches!(name, "focusin" | "focusout") {
+            println!("  bubbles from the focused child without making this node a Tab stop; an action may take `FocusEvent(target: string, relatedTarget: option<string>)` on every host (`focusout` also fires on a move between descendants and on the focused node's removal)");
+        }
         if name == "title" {
             println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
         }

@@ -31,7 +31,7 @@ final class ClickFocusMacTests: XCTestCase {
             [["op": "create", "id": id, "kind": kind, "props": props, "handlers": handlers, "style": style],
              ["op": "frame", "id": id, "x": 10, "y": y, "w": 200, "h": 30]]
         }
-        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 500]]
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view", "handlers": ["focusin", "focusout"]], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 500]]
         ops += row(2, "input", ["value": "", "id": "field"], handlers: ["input", "change", "blur"], y: 10)
         ops += row(3, "control", ["type": "button", "id": "native"], handlers: ["press"], style: ["appearance": "auto"], y: 50)
         ops += row(4, "button", ["id": "custom"], handlers: ["press"], y: 90)
@@ -103,6 +103,53 @@ final class ClickFocusMacTests: XCTestCase {
         let field = try XCTUnwrap(p.views[2]?.field)
         if field.currentEditor() == nil { XCTAssertTrue(window.makeFirstResponder(field)) }
         return try XCTUnwrap(field.currentEditor() as? NSTextView)
+    }
+
+    func testFocusRemovalPreservesTheEnclosingKeysStopFlag() throws {
+        for hearsFocus in [false, true] {
+            let p = fixture()
+            let child = try XCTUnwrap(p.views[6]), wrapper = try XCTUnwrap(p.views[1])
+            wrapper.handlers = hearsFocus ? ["key", "focusout"] : ["key"]
+            XCTAssertTrue(window.makeFirstResponder(child))
+            var heard: [UInt32] = []
+            p.onKey = { id, _ in
+                heard.append(id)
+                if id == 6 {
+                    p.propagationStopped = true
+                    p.apply(wireBatch([["op": "destroy", "id": 6]]))
+                }
+            }
+            _ = p.keyDown(at: child, "Escape")
+            XCTAssertEqual(heard, [6], "nested focusout must not restart key bubbling")
+            window.close()
+        }
+    }
+
+    func testFocusTransitionUsesTheRenamedId() throws {
+        let p = fixture()
+        _ = try edit(p)
+        var heard: [String] = []
+        p.onFocusEvent = { _, kind, target, related in heard.append("\(kind):\(target):\(related ?? "-")") }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["id": "renamed"]]]))
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[4])))
+        XCTAssertEqual(heard, ["focusout:renamed:custom", "focusin:custom:renamed"])
+    }
+
+    func testPassiveAncestorHearsFocusMoveBetweenChildren() throws {
+        let p = fixture()
+        var heard: [String] = []
+        p.onFocusEvent = { at, kind, target, related in
+            heard.append("\(at):\(kind):\(target):\(related ?? "-")")
+        }
+        XCTAssertFalse(try XCTUnwrap(p.views[1]).acceptsFirstResponder)
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[4])))
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[6])))
+        XCTAssertEqual(heard, ["1:focusout:field:custom", "1:focusin:custom:field", "1:focusout:custom:keys", "1:focusin:keys:custom"])
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[4])))
+        heard.removeAll()
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 3, 5, 6, 7, 8, 10, 12]], ["op": "destroy", "id": 4]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        XCTAssertEqual(heard, ["1:focusout:custom:-"])
     }
 
     func testAClickOnAButtonAPressableOrTheGroundLeavesTheFieldItsEditor() throws {

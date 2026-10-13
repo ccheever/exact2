@@ -106,6 +106,15 @@ package final class TextArea: UITextView {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
+    package override func becomeFirstResponder() -> Bool {
+        let wasFirst = isFirstResponder
+        let focused = super.becomeFirstResponder()
+        // Read-only selection has no editing-began delegate callback.
+        if focused, !wasFirst, isFirstResponder, let owner {
+            owner.presenter?.focus(owner.id)
+        }
+        return focused
+    }
     package override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
@@ -115,11 +124,11 @@ package final class TextArea: UITextView {
         // transient selection surface after focus moves elsewhere.
         #if os(tvOS)
         // tvOS text views do not edit, so every session is read-only.
-        if resigned, wasFirst, let owner, owner.handlers.contains("blur") {
+        if resigned, wasFirst, let owner {
             owner.presenter?.blur(owner.id)
         }
         #else
-        if resigned, wasFirst, !isEditable, let owner, owner.handlers.contains("blur") {
+        if resigned, wasFirst, !isEditable, let owner {
             owner.presenter?.blur(owner.id)
         }
         #endif
@@ -367,14 +376,14 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
         presenter?.fieldSelections.focused(self)
-        if handlers.contains("focus") { presenter?.focus(id) }
+        presenter?.focus(id)
         presenter?.reveal(self)
         publishMarkupSelection(force: true)
     }
     package func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }
         presenter?.commitEdit(id, textView.text ?? "", change: handlers.contains("change"))
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
 }
 #endif

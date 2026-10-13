@@ -94,6 +94,81 @@ fn log<D: DataSource>(p: &Presenter<D>) -> String {
 }
 
 #[test]
+fn focus_bubbles_into_within_and_out_of_a_wrapper() {
+    let source = include_str!("../../../../contract/corpus/focus-bubble.contract");
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let before = id(&p, "before");
+    let a = id(&p, "a");
+    let b = id(&p, "b");
+    let after = id(&p, "after");
+    let wrapper = id(&p, "wrapper");
+    assert!(
+        !p.focusable(wrapper),
+        "an ancestor listener is no focus stop"
+    );
+    // The corpus steps (focus-bubble.steps): a click, Tab past the wrapper
+    // onto its first child, moves within and out of it, `focus()`, and the
+    // focused child's removal.
+    p.tap(before).unwrap();
+    p.type_key(before, "Tab", "Tab", true, false).unwrap();
+    assert_eq!(p.focus, Some(a), "Tab skips the listening wrapper");
+    p.tap(b).unwrap();
+    p.tap(a).unwrap();
+    p.tap(after).unwrap();
+    p.tap(id(&p, "programmatic")).unwrap();
+    p.run_commands(|| Keeps);
+    // The button has no `id`: relatedTarget is some(""), as the DOM's.
+    assert_eq!(p.focus, Some(b));
+    p.tap(a).unwrap();
+    p.type_key(a, "Enter", "Enter", true, false).unwrap();
+    assert!(p.host().kernel().node(a).is_none());
+    assert_eq!(
+        log(&p),
+        "in:a:before;out:a:b;in:b:a;out:b:a;in:a:b;out:a:after;\
+         in:b:;out:b:a;in:a:b;out:a:-;"
+    );
+}
+
+#[test]
+fn a_pressed_button_that_removes_itself_sends_focusout_to_its_wrapper() {
+    let source = r#"component App
+  state shown = true
+  state log = ""
+  action left(e: FocusEvent)
+    log = `${log}out:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
+  action hide
+    shown = false
+  view
+    column focusout=left width=200
+      when shown
+        button "Hide" id="hide" press=hide testId="hide" height=32
+      text log testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.tap(id(&p, "hide")).unwrap();
+    assert_eq!(log(&p), "out:hide:-;");
+    assert_eq!(p.focus, None);
+}
+
+#[test]
 fn cursor_resolves_inheritance_hud_override_stationary_changes_and_unmount() {
     let source = r#"component CursorTest
   state armed = false

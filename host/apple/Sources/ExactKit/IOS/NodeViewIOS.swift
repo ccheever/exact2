@@ -327,7 +327,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
         let ok = super.becomeFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
-        if ok, handlers.contains("focus"), presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
+        if ok, presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
         return ok
     }
     package override func resignFirstResponder() -> Bool {
@@ -335,7 +335,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
-        if ok, handlers.contains("blur"), presenter?.menus.focus.quiet != true { presenter?.blur(id) }
+        if ok, presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
     #if os(iOS)

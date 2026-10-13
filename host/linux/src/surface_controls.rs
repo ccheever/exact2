@@ -685,9 +685,6 @@ impl<D: DataSource> Presenter<D> {
         // activation yields focus to commit autofocus; keyboard activation keeps
         // a surviving button focused. Never clear an editor or explicit focus.
         let fallback = (self.focus == Some(target)).then(|| {
-            if pointer {
-                self.focus = None;
-            }
             let node = self.host.kernel().node(target);
             let hud = node.is_some_and(|n| {
                 n.props.str(PropId::AccessibilityRole) == Some("button")
@@ -709,13 +706,27 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
+        let prior_autofocus = self.autofocus_from;
+        if pointer && fallback.is_some() {
+            self.autofocus_from = Some(target);
+        }
         if let Some(e) = self.after_commit() {
             eprintln!("exact: {e}");
         }
-        if self.focus.is_none() {
-            self.focus = fallback.filter(|id| {
-                self.host.kernel().node(*id).is_some() && !self.host.route_visibility(*id).1
-            });
+        self.autofocus_from = prior_autofocus;
+        if self.focus.is_none()
+            || (pointer && self.focus == Some(target) && fallback != Some(target))
+        {
+            self.focus = fallback;
+            // A pressed button its own handler removed: `focusout` at the
+            // ancestors still mounted, as the web's focused node removal.
+            let (sent, mut error) = self.clear_removed_focus();
+            if sent {
+                error = error.or(self.after_commit());
+            }
+            if let Some(e) = error {
+                eprintln!("exact: {e}");
+            }
         }
     }
 }

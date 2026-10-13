@@ -439,6 +439,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),
+        "focusin" => AttrTarget::Handler("focusin"),
+        "focusout" => AttrTarget::Handler("focusout"),
         "key" => AttrTarget::Handler("key"),
         "keycapture" => AttrTarget::Handler("keycapture"),
         // DOM's `keyup`: a key's release, bubbling as `key` does (#140).

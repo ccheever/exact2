@@ -6,6 +6,98 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// A restart with carried state (a dev reload, a delivered update)
+    /// replaces the tree. Focus follows the focused node's place in the
+    /// runner's tree — its index among its siblings at each level, and its
+    /// type — and the restarted tree autofocuses nothing; a node mounted
+    /// later still may.
+    pub(super) fn focus_place(&self) -> Option<(Vec<usize>, NodeType)> {
+        let (kernel, roots) = (self.host.kernel(), self.host.runner().roots());
+        let node_type = kernel.node(self.focus?)?.node_type;
+        let (mut path, mut at) = (Vec::new(), self.focus?);
+        loop {
+            let parent = kernel.node(at)?.parent;
+            let siblings = parent.map_or(Some(roots.clone()), |p| {
+                kernel.node(p).map(|n| n.children())
+            })?;
+            path.push(siblings.iter().position(|&id| id == at)?);
+            let Some(parent) = parent else { break };
+            at = parent;
+        }
+        path.reverse();
+        Some((path, node_type))
+    }
+    pub(super) fn restore_focus(&mut self, kept: Option<(Vec<usize>, NodeType)>) {
+        let kernel = self.host.kernel();
+        let rows = kernel.rows(None).unwrap_or_default();
+        self.autofocus_processed = rows.iter().map(|r| r.id).collect();
+        self.route_focus = Default::default();
+        let target = kept.and_then(|(path, node_type)| {
+            let (mut ids, mut id) = (self.host.runner().roots(), None);
+            for index in path {
+                let at = *ids.get(index)?;
+                ids = kernel.node(at)?.children();
+                id = Some(at);
+            }
+            id.filter(|&id| kernel.node(id).is_some_and(|n| n.node_type == node_type))
+        });
+        self.focus = target.filter(|&id| self.focusable(id) && !self.host.route_visibility(id).1);
+        self.focus_out = self
+            .focus
+            .map(|id| self.host.runner().focus_bubble(id, None, false))
+            .unwrap_or_default();
+    }
+
+    /// A removed (or route-hidden) focused node still sends `focusout` to
+    /// its ancestors that remain mounted, on the path snapshotted before
+    /// the commit removed it. True when a handler ran: that handler's commit
+    /// has then been serviced.
+    pub(crate) fn clear_removed_focus(&mut self) -> (bool, Option<String>) {
+        let Some(id) = self.focus else {
+            return (false, None);
+        };
+        if self.host.kernel().node(id).is_some() && !self.host.route_visibility(id).1 {
+            self.focus_out = self.host.runner().focus_bubble(id, None, false);
+            return (false, None);
+        }
+        // Gone, or inert under its route (`arrive.rs` keeps which).
+        self.release_focus();
+        let mut error = None;
+        let mut sent = false;
+        let now = self.host.now();
+        for (at, event) in std::mem::take(&mut self.focus_out) {
+            if self.host.kernel().node(at).is_some() {
+                error = error.or(self.host.dispatch_at(at, event, now));
+                sent = true;
+                if self.take_focus_commands() {
+                    break;
+                }
+            }
+        }
+        // Finish the outgoing path before a replacement can autofocus.
+        // Inside service_commit: no recursive collection refinement.
+        if sent {
+            error = error.or(self.sync_commit());
+        }
+        (sent, error)
+    }
+
+    // Keep this event's flags out of commits that can dispatch another focus
+    // event. Other commands retain their order and wake the host as usual.
+    fn take_focus_commands(&mut self) -> bool {
+        let commands = self.host.take_commands();
+        let stopped = commands.iter().any(|c| c.name == "stopPropagation");
+        if !commands.is_empty() {
+            self.executor.notify();
+        }
+        self.commands.extend(
+            commands
+                .into_iter()
+                .filter(|c| c.name != "stopPropagation" && c.name != "preventDefault"),
+        );
+        stopped
+    }
+
     /// CSS cursor at the current painted hit. Hosts choose the system cursor;
     /// `auto` leaves their existing control/default behavior intact.
     pub fn cursor_at(&mut self, x: f32, y: f32) -> exact_kernel::Cursor {
@@ -69,15 +161,23 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
-    /// Move the focus: `blur` at the node that loses it, then `focus` at the
-    /// node that gains it — each at its own handler, since the web's focus
-    /// events do not bubble.
+    /// Move the focus in DOM order, with both bubbling paths fixed before an
+    /// action on either path can change the tree.
     pub(crate) fn set_focus(&mut self, next: Option<ViewId>, now_ms: f64) -> Option<String> {
         let previous = self.focus;
         if previous == next {
             return None;
         }
+        let out = previous
+            .map(|id| self.host.runner().focus_bubble(id, next, false))
+            .unwrap_or_default();
+        let incoming = next
+            .map(|id| self.host.runner().focus_bubble(id, previous, true))
+            .unwrap_or_default();
         self.focus = next;
+        self.focus_out = next
+            .map(|id| self.host.runner().focus_bubble(id, None, false))
+            .unwrap_or_default();
         self.dirty = true;
         // A typed field commits as it loses the focus, before its `blur`.
         let (mut error, mut dispatched) = match previous {
@@ -87,13 +187,47 @@ impl<D: DataSource> Presenter<D> {
             },
             None => (None, false),
         };
-        for (id, event, kind) in [
-            (previous, Event::Blur, EventKind::Blur),
-            (next, Event::Focus, EventKind::Focus),
-        ] {
-            if let Some(id) = id.filter(|&id| self.host.runner().handlers_of(id).contains(&kind)) {
+        let mut events = Vec::new();
+        if let Some(id) = previous.filter(|&id| {
+            self.host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Blur)
+        }) {
+            events.push((id, Event::Blur));
+        }
+        events.extend(out);
+        if let Some(id) = next.filter(|&id| {
+            self.host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Focus)
+        }) {
+            events.push((id, Event::Focus));
+        }
+        events.extend(incoming);
+        let mut stage = 0;
+        let mut stopped = false;
+        for (id, event) in events {
+            let next_stage = match event {
+                Event::Focusout { .. } => 1,
+                Event::Focus => 2,
+                Event::Focusin { .. } => 3,
+                _ => 0,
+            };
+            if next_stage != stage {
+                stage = next_stage;
+                stopped = false;
+            }
+            if stopped {
+                continue;
+            }
+            if self.host.kernel().node(id).is_some() {
                 error = error.or(self.host.dispatch_at(id, event, now_ms));
                 dispatched = true;
+                let stop = self.take_focus_commands();
+                error = error.or(self.after_commit());
+                stopped = stop && (stage == 1 || stage == 3);
             }
         }
         if dispatched {

@@ -527,6 +527,8 @@ fn refine_params_from_view(
                             | "hover"
                             | "focus"
                             | "blur"
+                            | "focusin"
+                            | "focusout"
                             | "key"
                             | "keycapture"
                             | "keyup"

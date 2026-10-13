@@ -825,3 +825,76 @@ test('native button WebKit allowance ends at exactly 6.00 px', () => {
   for (const delta of ['0.00', '4.99', '5.99', '6.00']) expect(pattern.test(`(delta ${delta} px, tolerance 4 px)`)).toBe(true);
   for (const delta of ['6.01', '6.99', '7.00', '16.00']) expect(pattern.test(`(delta ${delta} px, tolerance 4 px)`)).toBe(false);
 });
+
+// These event probes need only Chrome and the production document entry.
+async function withFocusDocument(drive, {html, files = {}}) {
+  const {chromium} = await import('playwright-core');
+  const server = Bun.serve({port: 0, hostname: '127.0.0.1', fetch(req) {
+    const path = new URL(req.url).pathname;
+    return new Response(path === '/' ? html : files[path] ?? '',
+      {headers: {'content-type': path === '/' ? 'text/html' : 'text/javascript'}});
+  }});
+  let browser;
+  try {
+    browser = await chromium.launch({executablePath: chrome, headless: true});
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${server.port}`);
+    const session = await page.context().newCDPSession(page);
+    const live = expression => page.evaluate(expression);
+    live.until = expression => page.waitForFunction(expression);
+    live.call = (method, params) => session.send(method, params);
+    await drive(async () => live);
+  } finally { await browser?.close(); server.stop(true); }
+}
+
+browserCheck('early focus replay stops at the inner handler for each transition', async () => {
+  const html = `<!doctype html><div id="exact-root">
+    <div data-view="1" data-exact-on="focusin focusout"><div data-view="2" data-exact-on="focusin focusout">
+    <input id="a" data-view="3"><input id="b" data-view="4"></div></div></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__events = [];
+      const views = new Map([...document.querySelectorAll('[data-view]')].map(el => {
+        el.exactHandlers = (el.dataset.exactOn ?? '').split(' '); return [Number(el.dataset.view), el];
+      }));
+      const page = exact.documentPage.connect({ views, log: console.warn,
+        dispatch: (id, kind, value, event) => { __events.push([id, kind, value]); if (id === 2 && event) event.exactStopped = true; } });
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+  };
+  await withFocusDocument(async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live("document.getElementById('a').focus(); document.getElementById('b').focus()");
+    await live.until('!!globalThis.__release', 'runtime connection');
+    await live('__release()');
+    expect(await live('__events')).toEqual([[2,46,'1:a0'],[2,47,'1:a1b'],[2,46,'1:b1a']]);
+  }, {html, files});
+}, 180000);
+
+browserCheck('Chrome orders edited focus transitions including wrapper removal during blur', async () => {
+  await withFocusDocument(async tab => {
+    const live = await tab(true);
+    await live.until('!!document.getElementById("b")', 'fields');
+    const prepare = remove => live(`(() => {
+      globalThis.heard = [];
+      const a = document.getElementById('a'), b = document.getElementById('b'), wrapper = document.getElementById('wrapper');
+      for (const el of [a,b]) for (const kind of ['change','blur','focusout','focus','focusin'])
+        el.addEventListener(kind, () => heard.push(el.id + ':' + kind));
+      wrapper.addEventListener('focusout', () => heard.push('wrapper:focusout'));
+      if (!${remove}) document.body.addEventListener('focusout', () => heard.push('body:focusout'));
+      if (${remove}) a.addEventListener('blur', () => wrapper.remove());
+      a.focus(); heard.length = 0;
+    })()`);
+    await prepare(false);
+    await live.call('Input.insertText', {text:'edited'});
+    await live("document.getElementById('b').focus()");
+    expect(await live('heard')).toEqual(['a:change','a:blur','a:focusout','wrapper:focusout','body:focusout','b:focus','b:focusin']);
+    await live("document.body.innerHTML = '<div id=wrapper><input id=a></div><input id=b>'");
+    await prepare(true);
+    await live.call('Input.insertText', {text:'edited'});
+    await live("document.getElementById('b').focus()");
+    expect(await live('heard')).toEqual(['a:change','a:blur','a:focusout','wrapper:focusout','b:focus','b:focusin']);
+  }, {html:'<!doctype html><div id="wrapper"><input id="a"></div><input id="b">'});
+}, 180000);

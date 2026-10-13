@@ -1116,3 +1116,23 @@ test('clipboard handlers preserve the default unless prevented and restore the e
   outerListener(outer);
   expect(outer.defaultPrevented).toBe(true);
 });
+
+test('focus handlers stop bubbling while a view transition holds their commit', async () => {
+  globalThis.requestAnimationFrame = f => setTimeout(f, 0);
+  globalThis.document = { getElementById: () => ({}) };
+  try {
+    const { on, onFocusWithin, act, C, pr, pieces } = await import(`${resolve(dir, 'rt.js')}?focus-events`);
+    pr({}); await pieces();
+    for (const kind of ['focusin', 'focusout']) {
+      const listeners = [], heard = [];
+      const inner = { addEventListener: (_, f) => listeners.push(f) };
+      const outer = { addEventListener: (_, f) => listeners.push(f) };
+      on(inner, kind, act(e => { heard.push(e); C('stopPropagation', []); }), onFocusWithin);
+      on(outer, kind, act(() => heard.push('outer')), onFocusWithin);
+      const ev = { type: kind, target: { id: 'a' }, relatedTarget: { id: 'b' } };
+      for (const f of listeners) f(ev);
+      expect(heard).toEqual([['a', 'b']]);
+      expect(ev.$stopped).toBe(true);
+    }
+  } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
+});

@@ -280,19 +280,43 @@ handler: the web's implicit submission (HTML forms §4.10.21.2) without a
 form, so an action need not branch on a key. `Contextmenu` and `Dblclick`
 (2026-09-09, Messages) carry no payload: the platform recognizes secondary
 activation / a long press and a double click / tap. The `EventKind`s are
-`plan/tables/format.json`'s. Not events
+`plan/tables/format.json`'s.
+
+**Bubbling focus events** (Charlie, 2026-10-08; implementer: focus lane,
+2026-10-12). `focusin` and `focusout` follow DOM focus transitions: the old
+target's `focusout` bubbles before the new target's `focusin`, including a move
+between descendants of the same wrapper. Both offer an optional `FocusEvent`
+record with `target` (the focused element's `id`, or `""`) and `relatedTarget`
+(`some(id)` for the other focused element, including `some("")` when it has no
+`id`, or `none` when focus enters from or leaves to no element). A handler on
+an ancestor does not make that ancestor focusable or a Tab stop. Programmatic,
+pointer and Tab moves use the same transition; removing the focused node
+delivers `focusout` through ancestors still connected when removal begins.
+The web targets use DOM focus events; native hosts dispatch the same path
+from their focus transition, retaining the old path for a removed node.
+Autofocus uses that transition too. IDs are read
+at the transition, including an ID changed while focused. `stopPropagation()`
+stops either bubbling event at its current handler; it does not stop the other
+event in the transition or an enclosing event. Early web focus replay preserves
+that event scope too (focus lane review fixes, 2026-10-12). An edited field's
+transition follows Chrome's observed `change`, `blur`, `focusout`, `focus`,
+`focusin` order. UIKit read-only textarea selection sessions announce responder
+entry even when UIKit omits its editing delegate callback. The host ABI kinds
+are 46 (`focusin`) and 47 (`focusout`), after 45 (`intersect`).
+
+**Declared native deviation (2026-10-12, issue #283):** if a `blur` handler
+destroys its wrapper, Apple and Linux skip that destroyed wrapper's later
+`focusout` handler while retaining surviving ancestors from the old path.
+Chrome instead dispatches within the detached subtree, without its former
+connected ancestors.
+Keeping destroyed native handler bindings alive through that event is not
+implemented; the issue remains open for this case.
+
+Not events
 (2026-08-30, the minimal set first): pointer coordinates and moves (a drag)
 and a wheel's offsets reaching the runner (a scroll
 container's position is the host's, LLP 1007 §6); `keyup` became one on
 2026-10-07 (§9).
-
-**Approved next, not implemented** (Charlie, 2026-10-11; #283):
-`focusin` and `focusout` bubble from the element whose focus changes through
-its ancestors, with the DOM event's target and relatedTarget available to
-handlers. `focusout` fires even when focus moves between descendants of the
-same ancestor. A handler on an ancestor adds no Tab stop. Programmatic,
-click, Tab and removal transitions must agree with Chrome; the open issue
-`issues/20261009-bubbling-focus-events.md` tracks implementation.
 
 `Scroll` (2026-09-09, Messages) appends two number arguments, `scrollLeft`
 and `scrollTop`, in CSS pixels, after the authored arguments. It reports the

@@ -43,14 +43,14 @@ extension NodeView {
         focusVisible = !isNativeButton && nativeValueControl == nil && presenter?.focusByPointer != true
         presenter?.collections.pinsChanged()
         presenter?.selection.focusEntered(self)
-        if handlers.contains("focus") { presenter?.focus(id) }
+        presenter?.focus(id)
     }
     func focusLeft() {
         focusVisible = false
         presenter?.selection.focusLeft()
         presenter?.collections.pinsChanged()
         if !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
     /// Dates and selects have the same single native focus owner as a field.
     /// An appearance:none control falls back to its authored node.

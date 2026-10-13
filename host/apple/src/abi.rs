@@ -956,6 +956,7 @@ impl<D: DataSource> Bridge<D> {
     /// 8 = load, 9 = message (the payload — a change's text, a key's chord
     /// (`Event::key`), or a guest message — is the input buffer's first `len`
     /// bytes, UTF-8).
+    /// Kinds 43/44 are `keyup`/`keycapture`; 46/47 are `focusin`/`focusout` (#283).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
     /// and `input`, the payload `true` or `false` (LLP 1069.001 D4); 40 and
@@ -1010,9 +1011,9 @@ impl<D: DataSource> Bridge<D> {
             // the clipboard's three, a text's selectionchange, and
             // beforeunload, wheel and drop, and a text field's `input`,
             // `change` and `select` with its selection (x2apps codeedit #2),
-            // replacement input (48), and a key's down (6), up (43) and capture (44) with its code and repeat
-            // (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 48 => {
+            // replacement input (48), a key's down (6), up (43) and capture (44) with its code and repeat
+            // and focusin (46) and focusout (47) with their targets (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),

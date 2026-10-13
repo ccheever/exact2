@@ -989,7 +989,21 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    for kind in [99, u32::MAX] {
+    // focusin and focusout (#283) carry a length-prefixed target and an
+    // optional related id; a payload that does not parse is refused.
+    for kind in [46, 47] {
+        let len = bridge.input_write(b"5:field0");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        // Decoded and named: the field has no such handler, not a bad kind.
+        assert!(out.contains("NoHandler"), "{out}");
+        let len = bridge.input_write(b"typed");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("invalid focus event"), "{out}");
+        assert_eq!(slots(&bridge), hello);
+    }
+    for kind in [45, 99, u32::MAX] {
         let len = bridge.input_write(b"typed");
         let n = bridge.dispatch(view, kind, len, 0.);
         let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();

@@ -31,7 +31,7 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         showFieldFocus(false)
         presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
     @objc package func controlTextDidChange(_ obj: Notification) {
         // What AppKit says of the app's own value going in is not typing.

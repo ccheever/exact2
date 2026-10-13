@@ -32,6 +32,19 @@ fn a_constant_template_family_emits_as_a_literal_stack() {
     crate::emit::emit(&plan, false, false).unwrap();
 }
 
+#[test]
+fn bubbling_focus_uses_the_dom_binder_without_a_wrapper_tab_stop() {
+    let plan = contract::compile(
+        "component App\n  state target = \"\"\n  action heard(e: FocusEvent)\n    target = e.target\n  view\n    column focusin=heard focusout=heard testId=\"wrapper\"\n      input id=\"child\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("onFocusWithin"), "{js}");
+    assert!(js.contains("\"focusin\""), "{js}");
+    assert!(js.contains("\"focusout\""), "{js}");
+    assert!(!js.contains("\"tabindex\""), "{js}");
+}
+
 /// Review B4: an `else` row's build-time answer is the bake's for every
 /// launch (the runner never asks it again), so the JS target receives it
 /// settled (`res`'s last argument), while the resource it stands in for

@@ -6,6 +6,7 @@ use exact_plan::{ActionsId, Code, EventKind, HandlersId, NodesId, Opcode, TypeKi
 use std::fmt::Write as _;
 use std::rc::Rc;
 
+mod focus;
 mod keyboard;
 pub use keyboard::KeyboardEvent;
 
@@ -217,6 +218,20 @@ pub enum Event {
     Focus,
     /// The view lost the focus.
     Blur,
+    /// A focus transition heard at the target or an ancestor.
+    Focusin {
+        /// The newly focused element's authored id, or empty.
+        target: String,
+        /// The previously focused element's id, if any.
+        related_target: Option<String>,
+    },
+    /// A focus transition heard at the target or an ancestor.
+    Focusout {
+        /// The previously focused element's authored id, or empty.
+        target: String,
+        /// The newly focused element's id, if any.
+        related_target: Option<String>,
+    },
     /// A key went down while the view had the focus (DOM's `keydown`): the
     /// key's name as the web spells it (`"Enter"`, `"ArrowDown"`, `"a"`),
     /// the modifiers held, the physical key and whether it is an auto-repeat.
@@ -434,6 +449,29 @@ impl KeyModifiers {
 }
 
 impl Event {
+    /// Decode a DOM focus event's target id and optional related id. The
+    /// byte length keeps arbitrary UTF-8 ids, including newlines, unambiguous.
+    pub fn focus_payload(entering: bool, payload: &str) -> Option<Self> {
+        let (len, rest) = payload.split_once(':')?;
+        let len = len.parse::<usize>().ok()?;
+        let target = rest.get(..len)?.to_owned();
+        let related_target = match rest.get(len..)? {
+            "0" => None,
+            rest => Some(rest.strip_prefix('1')?.to_owned()),
+        };
+        Some(if entering {
+            Self::Focusin {
+                target,
+                related_target,
+            }
+        } else {
+            Self::Focusout {
+                target,
+                related_target,
+            }
+        })
+    }
+
     /// A press with the modifiers a host held ([`KeyModifiers::held`]):
     /// `Press` when none is; `None` for a word DOM does not name.
     pub fn press(held: &str) -> Option<Self> {
@@ -511,6 +549,19 @@ impl Event {
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
             Event::Media(kind, payload) => super::media_session::record(*kind, payload),
+            Event::Focusin {
+                target,
+                related_target,
+            }
+            | Event::Focusout {
+                target,
+                related_target,
+            } => Some(Value::record(vec![
+                Value::str(target),
+                related_target
+                    .as_ref()
+                    .map_or(Value::NONE, |id| Value::some(Value::str(id))),
+            ])),
             _ => None,
         }
     }
@@ -975,6 +1026,8 @@ impl<D: DataSource> Runner<D> {
                 Event::Hover(false) => "hover out",
                 Event::Focus => "focus",
                 Event::Blur => "blur",
+                Event::Focusin { .. } => "focusin",
+                Event::Focusout { .. } => "focusout",
                 Event::Key(..) => "key",
                 Event::Keycapture(..) => "keycapture",
                 Event::Keyup(..) => "keyup",
@@ -1091,6 +1144,8 @@ impl<D: DataSource> Runner<D> {
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
+            Event::Focusin { .. } => (EventKind::Focusin, None, "focusin"),
+            Event::Focusout { .. } => (EventKind::Focusout, None, "focusout"),
             Event::Key(k) => (EventKind::Key, Some(Value::str(&k.key)), "key"),
             Event::Keycapture(k) => (
                 EventKind::Keycapture,

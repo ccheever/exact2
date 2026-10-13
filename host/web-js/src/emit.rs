@@ -1267,6 +1267,8 @@ impl Em<'_> {
                 | EventKind::Hover
                 | EventKind::Focus
                 | EventKind::Blur
+                | EventKind::Focusin
+                | EventKind::Focusout
                 | EventKind::Key
                 | EventKind::Keycapture
                 | EventKind::Keyup

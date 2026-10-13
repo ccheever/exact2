@@ -52,6 +52,7 @@ package final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     package let viewport: ScrollView = Viewport(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
+    lazy var focusEvents = FocusEvents(self)
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
     var leaving: [UInt32: Leaving] = [:]
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsIOS.swift`).
@@ -352,6 +353,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        focusEvents.reset()
         // Every hatched node ends first, its view and platform object there.
         elements.reset()
         resetFlights()
@@ -566,8 +568,7 @@ package final class Presenter {
 
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
-    var onFocus: ((UInt32) -> Void)?
-    var onBlur: ((UInt32) -> Void)?
+    var onFocus, onBlur: ((UInt32) -> Void)?
     /// A `key` or `keyup` (`KeyPress.up`) at a node (KeyEvents.swift).
     var onKey: ((UInt32, KeyPress) -> Void)?
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
@@ -679,8 +680,6 @@ package final class Presenter {
             send(view.id) { [self] in onHover?(view.id, false) }
         }
     }
-    func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
-    func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
@@ -1038,6 +1037,7 @@ package final class Presenter {
     /// parked row, `NodePool`).
     @discardableResult
     func release(_ id: UInt32, _ leaving: (NodeView) -> Void) -> NodeView? {
+        focusEvents.removed(id)
         session?.canvases.destroy(view: id)
         svg.forget(id)
         canvas2d.forget(id)

@@ -61,9 +61,9 @@ final class NativeButtonIOS: UIButton {
         if context.nextFocusedItem === self {
             presenter.focusKey = owner.props["testId"]
             presenter.focusGuides.focused(owner)
-            if owner.handlers.contains("focus") { presenter.focus(owner.id) }
+            presenter.focus(owner.id)
         }
-        if context.previouslyFocusedItem === self, owner.handlers.contains("blur") { presenter.blur(owner.id) }
+        if context.previouslyFocusedItem === self { presenter.blur(owner.id) }
     }
     #endif
 }

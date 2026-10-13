@@ -153,6 +153,10 @@ pub struct Presenter<D: DataSource> {
     /// when another replaces the one it measured (LLP 1079 D3).
     pub(crate) hosts: u64,
     pub(crate) focus: Option<ViewId>,
+    /// Last connected path from the focused node, for a removal commit.
+    focus_out: Vec<(ViewId, Event)>,
+    /// The current pointer press may yield its focus to a newly mounted field.
+    pub(crate) autofocus_from: Option<ViewId>,
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
@@ -442,6 +446,8 @@ impl<D: DataSource> Presenter<D> {
             compat: String::new(),
             hosts: 0,
             focus: None,
+            focus_out: Vec::new(),
+            autofocus_from: None,
             edited: None,
             fields: BTreeMap::new(),
             held: 0,
@@ -586,44 +592,6 @@ impl<D: DataSource> Presenter<D> {
         self.restore_focus(kept);
         let e = self.after_commit();
         Ok(e)
-    }
-
-    /// A restart with carried state (a dev reload, a delivered update)
-    /// replaces the tree. Focus follows the focused node's place in the
-    /// runner's tree — its index among its siblings at each level, and its
-    /// type — and the restarted tree autofocuses nothing; a node mounted
-    /// later still may.
-    fn focus_place(&self) -> Option<(Vec<usize>, NodeType)> {
-        let (kernel, roots) = (self.host.kernel(), self.host.runner().roots());
-        let node_type = kernel.node(self.focus?)?.node_type;
-        let (mut path, mut at) = (Vec::new(), self.focus?);
-        loop {
-            let parent = kernel.node(at)?.parent;
-            let siblings = parent.map_or(Some(roots.clone()), |p| {
-                kernel.node(p).map(|n| n.children())
-            })?;
-            path.push(siblings.iter().position(|&id| id == at)?);
-            let Some(parent) = parent else { break };
-            at = parent;
-        }
-        path.reverse();
-        Some((path, node_type))
-    }
-    fn restore_focus(&mut self, kept: Option<(Vec<usize>, NodeType)>) {
-        let kernel = self.host.kernel();
-        let rows = kernel.rows(None).unwrap_or_default();
-        self.autofocus_processed = rows.iter().map(|r| r.id).collect();
-        self.route_focus = Default::default();
-        let target = kept.and_then(|(path, node_type)| {
-            let (mut ids, mut id) = (self.host.runner().roots(), None);
-            for index in path {
-                let at = *ids.get(index)?;
-                ids = kernel.node(at)?.children();
-                id = Some(at);
-            }
-            id.filter(|&id| kernel.node(id).is_some_and(|n| n.node_type == node_type))
-        });
-        self.focus = target.filter(|&id| self.focusable(id) && !self.host.route_visibility(id).1);
     }
 
     /// The host.
@@ -814,14 +782,18 @@ impl<D: DataSource> Presenter<D> {
                     .map(|reason| format!("selected asset refused: {reason}"))
             });
         }
-        self.release_focus();
+        let (focus_sent, focus_error) = self.clear_removed_focus();
+        error = error.or(focus_error);
+        if focus_sent {
+            return error;
+        }
         self.sync_authored_scroll();
         self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
         // The focus a commit leaves: its `autofocus`, then the route's.
-        self.autofocus();
+        error = error.or(self.autofocus());
         self.arrive();
         error
     }

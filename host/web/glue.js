@@ -513,11 +513,11 @@ function syncViewportFit() {
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
-  el.exactFlowEvents = [...new Set(handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], key: ["keydown"], keycapture: ["keydown"] }[k] ?? [])))];
+  el.exactFlowEvents = [...new Set(handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], focusin: ["focusin"], focusout: ["focusout"], key: ["keydown"], keycapture: ["keydown"] }[k] ?? [])))];
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle, capture = false) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load") && !(page?.restoringFocus && (event === "focus" || event === "blur"))) handle(e);
+    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load") && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
   }, capture);
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
     on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
@@ -575,10 +575,10 @@ function attach(el, id, handlers) {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
       on("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
       on("pointerleave", () => send(wasm.exact_dispatch(id, 3, 0, now())));
-    } else if (kind === "focus") {
-      on("focus", () => send(wasm.exact_dispatch(id, 4, 0, now())));
-    } else if (kind === "blur") {
-      on("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
+    } else if (kind === "focusin" || kind === "focusout") {
+      on(kind, e => { if (e.exactStopped) return; const target = e.target?.id ?? "", related = e.relatedTarget?.id, outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, kind === "focusin" ? 46 : 47, writeIn(`${encoder.encode(target).length}:${target}${related === undefined ? "0" : `1${related}`}`), now())); } finally { keyEvent = outer; } });
+    } else if (kind === "focus" || kind === "blur") {
+      on(kind, () => send(wasm.exact_dispatch(id, kind === "focus" ? 4 : 5, 0, now())));
     } else if (kind === "key" || kind === "keycapture" || kind === "keyup") {
       // `keycapture` (kind 44) hears keydown outermost first; `key` (6) and `keyup` (43) bubble with the web's key name (`e.key`).
       on(kind === "keyup" ? "keyup" : "keydown", (e) => { if (e.exactStopped) return; const outer = keyEvent; keyEvent = e; try { const n = writeIn(keyChord(e)); send(wasm.exact_dispatch(id, kind === "keycapture" ? 44 : kind === "key" ? 6 : 43, n, now())); } finally { keyEvent = outer; } }, kind === "keycapture");
@@ -1425,7 +1425,7 @@ function loadGpuIfNeeded() {
   gpuLoading = loadAfterPaint(globalThis.exact.compat?.inputs?.gpuModules ? './gpu-modules.js' : './gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error)); // @ref LLP 1009 D6
 }
 async function main() {
-  if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "", event = null) => { const outer = keyEvent; if (event) keyEvent = event; try { send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())); } finally { keyEvent = outer; } } }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
+  if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "", event = null) => { const outer = keyEvent; keyEvent = event; try { send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())); } finally { keyEvent = outer; } } }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
   // A served document's download began at its first paint (LLP 1048.000 D6).
   // A navigation that leaves the page stops it, or the glue's own, and their
   // preload, so the next document has the link. A page that stays downloads it
