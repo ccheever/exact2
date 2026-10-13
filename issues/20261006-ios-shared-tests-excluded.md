@@ -14,3 +14,26 @@ For example, `SurfaceControlTests.swift` imports AppKit on macOS and UIKit other
 Select all tests actually admitted for the destination, with platform-specific test availability handled in Swift or explicit destination metadata. Do not indiscriminately include macOS-only classes.
 
 Acceptance: `bun host/apple/build.mjs --test --ios` lists and runs the shared UIKit methods, including SurfaceControlTests; a deliberate failing shared UIKit assertion makes the command fail. Record the previously skipped tests' real simulator results and fix or file any failures without relaxing assertions.
+
+## Implementation and verification, 2026-10-13
+
+The filename selector and its `-only-testing` arguments are removed. Xcode runs
+all tests compiled for the destination; Swift's existing platform guards remain
+the authority. The runner retains its original two workers.
+
+The full iOS 27.0 simulator run compiled successfully and executed shared classes,
+including the previously excluded HDR, colour and segment tests.
+It found eight failing shared HDR/picker/raster methods, recorded in
+`20261013-shared-uikit-hdr-tests-fail-on.md`. Existing navigation/scroll assertions
+and a stall in ShareIOSTests are recorded separately in
+`20261013-uikit-navigation-and-scroll-settle-assertions.md`. No assertion was relaxed.
+
+The first run used a temporary serial override and a deliberately failing
+SurfaceControlTests canary. It stalled in ShareIOSTests before reaching that class
+and was interrupted; a targeted retry failed before execution when Xcode timed
+out booting the same simulator. The canary and serial override have been removed.
+The selection fix is present, but this issue remains open until the canary and
+remaining shared classes have completed on a functioning simulator.
+
+Evidence: `target/iostooling-verification/ios-canary.log` and
+`target/iostooling-verification/ios-canary-targeted.log`.

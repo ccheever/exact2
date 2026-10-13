@@ -42,6 +42,14 @@ final class GpuModule {
     static func loadName(artifact: String) -> String {
         artifact.isEmpty ? "libexact_gpu.dylib" : "libexact_gpu_\(artifact.replacingOccurrences(of: "-", with: "_")).dylib"
     }
+    static func frameworkName(artifact: String) -> String {
+        artifact.isEmpty ? "ExactGpu" : "ExactGpu_\(artifact.replacingOccurrences(of: "-", with: "_"))"
+    }
+    static func embeddedPath(directory: String, artifact: String) -> String {
+        let name = frameworkName(artifact: artifact)
+        let wrapped = directory + "/\(name).framework/\(name)"
+        return FileManager.default.fileExists(atPath: wrapped) ? wrapped : directory + "/" + loadName(artifact: artifact)
+    }
 
     static var bakedCompatibility: [String: Any] { BakedCompatibility.json }
     static func modulePath(defaultPath: String, compat: [String: Any], environment: [String: String]) -> String {

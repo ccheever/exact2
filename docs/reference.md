@@ -339,6 +339,18 @@ with its release identity. Resource changes require a new binary, not an asset
 update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
 module. This field applies only to macOS bundles.
 
+Mach-O code in content-addressed `assets/`, `deck/` or `shaders/` is refused
+when assembling a Mac bundle: place helpers in `host.macos.resources` instead.
+The release signs GPU modules before baking their digests and preserves those
+signatures through packaging. iOS archives package primary and named GPU modules
+as signed frameworks; development builds keep their loose dylibs.
+Combining `--device --archive out.ipa --embed` produces both the IPA and the
+embed directory without a connected phone. The embed directory contains the
+static library, C header, assets, shaders, compatibility and capability metadata,
+receipt, and signed GPU frameworks (primary and named modules). Copy those
+frameworks intact into the embedding app's `Frameworks/`; their binaries must
+retain the baked digests.
+
 ## Open the same development URL on Apple hosts
 
 Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build
