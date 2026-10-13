@@ -393,6 +393,24 @@ pub struct ScrollEvent {
     pub client_height: f64,
 }
 
+impl ScrollEvent {
+    fn value(&self, anchor: Option<(Value, f64)>) -> Value {
+        let (key, offset) = anchor.map_or((Value::NONE, 0.0), |(key, offset)| {
+            (Value::some(key), offset)
+        });
+        Value::record(vec![
+            Value::Number(self.left),
+            Value::Number(self.top),
+            Value::Number(self.width),
+            Value::Number(self.height),
+            Value::Number(self.client_width),
+            Value::Number(self.client_height),
+            key,
+            Value::Number(offset),
+        ])
+    }
+}
+
 /// The modifier keys held as a key went down: `KeyboardEvent`'s
 /// `shiftKey`, `ctrlKey`, `altKey` and `metaKey` (chat F2, kanban F27 in the
 /// x2apps diaries: Shift+Enter and ⌘S were not expressible).
@@ -543,18 +561,7 @@ impl Event {
                 Value::Bool(*is_intersecting),
                 Value::Number(*intersection_ratio),
             ])),
-            Event::Scroll(s) => Some(Value::record(
-                [
-                    s.left,
-                    s.top,
-                    s.width,
-                    s.height,
-                    s.client_width,
-                    s.client_height,
-                ]
-                .map(Value::Number)
-                .to_vec(),
-            )),
+            Event::Scroll(s) => Some(s.value(None)),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
             Event::SelectionChange {
                 text,
@@ -1253,6 +1260,24 @@ impl<D: DataSource> Runner<D> {
         let record = match &event {
             Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
             Event::Input(_) | Event::Change(_) => record,
+            Event::Scroll(s)
+                if self.plan.action(handler.action).params.len as usize > args.len() + 2 =>
+            {
+                let anchor = self.links.lists.and_then(|lists| {
+                    self.tree.as_ref().and_then(|tree| {
+                        (lists.scroll_anchor)(
+                            tree,
+                            &self.kernel,
+                            view,
+                            s.left,
+                            s.top,
+                            s.client_width,
+                            s.client_height,
+                        )
+                    })
+                });
+                Some(s.value(anchor))
+            }
             _ => event.record(),
         };
         match event {

@@ -811,3 +811,83 @@ fn ordered_seeks_keep_retained_rows_held_until_the_host_shows_them() {
             .any(|r| r.receipt.revealed.contains(&key)));
     }
 }
+
+#[test]
+fn scroll_anchor_snapshots_use_the_event_axis_and_padding_and_restore_signed_offsets() {
+    for horizontal in [false, true] {
+        let mut source = APP.replace("  view\n", "  state first = none\n  state within = 0\n  action moved(x: number, y: number, e: ScrollEvent)\n    first = e.firstVisibleKey\n    within = e.firstVisibleOffset\n  view\n")
+            .replace("reachend=onEnd", "reachend=onEnd scroll=moved scroll-padding-top=24 scroll-padding-left=24")
+            .replace("scrollIntoView(\"feed\", n, block=\"start\")", "scrollIntoView(\"feed\", 0, offset=n)");
+        if horizontal {
+            source = source.replace("height=600 width=400 overflow-x=\"hidden\" estimated-item-height=100 padding-top=92 padding-bottom=", "height=400 width=600 display=\"flex\" flex-direction=\"row\" overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100 padding-left=92 padding-right=")
+                .replace("height=100 width=\"100%\"", "width=100 height=\"100%\"");
+        }
+        let mut r = boot(&source);
+        host(&mut r, 0.0);
+        let view = list(&r).view;
+        let report = |r: &mut Runner<Data>, at: f64, port: f64| {
+            let event = exact_runner::ScrollEvent {
+                left: if horizontal { at } else { 0.0 },
+                top: if horizontal { 0.0 } else { at },
+                width: 20000.0,
+                height: 20000.0,
+                client_width: if horizontal { port } else { 400.0 },
+                client_height: if horizontal { 400.0 } else { port },
+            };
+            r.dispatch(view, exact_runner::Event::Scroll(event))
+                .unwrap();
+        };
+        // Before any new collection report, the event's offset wins.
+        report(&mut r, TOP + 161.0, PORT);
+        assert_eq!(r.slot("first"), Some(&Value::some(Value::str("1"))));
+        assert_eq!(r.slot("within"), Some(&Value::Number(61.0)));
+        report(&mut r, 50.0, PORT);
+        assert_eq!(r.slot("first"), Some(&Value::some(Value::str("0"))));
+        assert_eq!(r.slot("within"), Some(&Value::Number(-42.0)));
+        r.act("go", vec![Value::Number(-42.0)]).unwrap();
+        assert!((host(&mut r, 0.0) - 50.0).abs() <= 0.5);
+        r.act("go", vec![Value::Number(0.0)]).unwrap();
+        assert!((host(&mut r, 0.0) - TOP).abs() <= 0.5);
+        // offset=0 overrides scroll-padding and the horizontal nearest default.
+        report(&mut r, 0.0, 20.0);
+        assert_eq!(
+            r.slot("first"),
+            Some(&Value::NONE),
+            "only padding is visible"
+        );
+        assert_eq!(r.slot("within"), Some(&Value::Number(0.0)));
+        r.act("more", vec![Value::Number(-100.0)]).unwrap();
+        report(&mut r, 0.0, PORT);
+        assert_eq!(r.slot("first"), Some(&Value::NONE), "empty list");
+    }
+}
+
+#[test]
+fn native_scroll_anchors_subtract_the_resolved_content_origin_on_both_axes() {
+    for horizontal in [false, true] {
+        let mut source = APP.replace("  view\n", "  state first = none\n  state within = 0\n  action moved(x: number, y: number, e: ScrollEvent)\n    first = e.firstVisibleKey\n    within = e.firstVisibleOffset\n  view\n")
+            .replace("reachend=onEnd", "reachend=onEnd scroll=moved border-top=\"10px solid black\" border-left=\"10px solid black\"");
+        if horizontal {
+            source = source.replace("height=600 width=400 overflow-x=\"hidden\" estimated-item-height=100 padding-top=92 padding-bottom=", "height=400 width=600 display=\"flex\" flex-direction=\"row\" overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100 padding-left=92 padding-right=")
+                .replace("height=100 width=\"100%\"", "width=100 height=\"100%\"");
+        }
+        let mut r = boot(&source);
+        host(&mut r, 0.0);
+        let view = list(&r).view;
+        let at = TOP + 10.0 + 161.0;
+        r.dispatch(
+            view,
+            exact_runner::Event::Scroll(exact_runner::ScrollEvent {
+                left: if horizontal { at } else { 0.0 },
+                top: if horizontal { 0.0 } else { at },
+                width: 20000.0,
+                height: 20000.0,
+                client_width: 400.0,
+                client_height: 400.0,
+            }),
+        )
+        .unwrap();
+        assert_eq!(r.slot("first"), Some(&Value::some(Value::str("1"))));
+        assert_eq!(r.slot("within"), Some(&Value::Number(61.0)));
+    }
+}

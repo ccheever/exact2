@@ -275,7 +275,12 @@ pub(super) fn declare(shapes: &mut Shapes) {
             "clientHeight",
         ]
         .map(|f| (f.into(), Ty::Number))
-        .to_vec(),
+        .into_iter()
+        .chain([
+            ("firstVisibleKey".into(), Ty::Option(Box::new(Ty::String))),
+            ("firstVisibleOffset".into(), Ty::Number),
+        ])
+        .collect(),
     );
     // What a `resize` handler's action hears after the content box's width
     // and height when it takes one more parameter, in the order

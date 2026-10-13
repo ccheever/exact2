@@ -47,6 +47,8 @@ pub struct IntoView {
     /// `behavior="smooth"` (LLP 1070.000 §6.2): the host animates to the
     /// destination; the window is built there at once, as for `auto`.
     pub smooth: bool,
+    /// Explicit pixels into the row wrapper; overrides main-axis alignment.
+    pub offset: Option<f64>,
 }
 
 /// Correcting reports a request may take before it ends `unconverged`.
@@ -58,6 +60,7 @@ pub(super) struct Target {
     key: Rc<str>,
     align: Align,
     smooth: bool,
+    offset: Option<f64>,
 
     reports: u8,
     /// Consecutive reports that said the port was travelling.
@@ -150,7 +153,19 @@ impl Collection {
     /// within the port less its `scroll-padding`, as CSS aligns in the
     /// snapport (@ref LLP 1010 §6.9). It may be negative, down to the padding
     /// before the first row: `scrollTop` 0.
-    fn aligned(&self, u: &Update<'_>, position: usize, align: Align, current: f64) -> f64 {
+    fn aligned(
+        &self,
+        u: &Update<'_>,
+        position: usize,
+        align: Align,
+        current: f64,
+        offset: Option<f64>,
+    ) -> f64 {
+        if let Some(offset) = offset {
+            let port = self.geometry.as_ref().map_or(0.0, |g| g.port_main);
+            return (self.index.prefix(position).unwrap_or(0.0) + offset)
+                .clamp(-self.index.leading(), self.index.max_offset(port));
+        }
         let (before, after) = self.root_margins(u.env.plan, position);
         let start = self.index.prefix(position).unwrap_or(0.0) + before;
         let size = (self.index.height(position).unwrap_or(0.0) - before - after).max(0.0);
@@ -189,19 +204,21 @@ impl Collection {
         key: &str,
         align: Align,
         smooth: bool,
+        within: Option<f64>,
     ) -> Result<(), InstanceError> {
         let position = self.index.position(key).expect("resolved");
         let current = self
             .geometry
             .as_ref()
             .map_or(self.start_offset, |g| g.offset);
-        let offset = self.aligned(u, position, align, current);
+        let offset = self.aligned(u, position, align, current, within);
         self.restored_at = None;
         self.at_end = false;
         self.target = Some(Target {
             key: self.index.shared_key(position).expect("resolved").clone(),
             align,
             smooth,
+            offset: within,
             reports: 0,
             travelling: 0,
             aligned: 0,
@@ -282,7 +299,7 @@ impl Collection {
         let g = self.geometry.as_ref()?;
         // Judged where the host says the port is, not where the runner
         // last asked it to be.
-        let desired = self.aligned(u, position, target.align, reported);
+        let desired = self.aligned(u, position, target.align, reported, target.offset);
         // Every mounted row up to it: one above the port, laid out at its
         // real size but still an estimate here, puts the target elsewhere.
         let first = self
@@ -432,6 +449,13 @@ impl Collection {
                 }
             }
         }
+        if let Some(s) = key.as_str() {
+            if let Ok(b) = s.parse::<bool>() {
+                if let Ok(found) = self.resolve_exactly(&Value::Bool(b)) {
+                    return Ok(found);
+                }
+            }
+        }
         self.resolve_exactly(key)
     }
     fn resolve_exactly(&self, key: &Value) -> Result<String, String> {
@@ -482,7 +506,7 @@ impl Tree {
             return Ok(true);
         }
         let status = list.into_view_status.take();
-        list.begin_into_view(u, &frames, &key, Align::Nearest, false)?;
+        list.begin_into_view(u, &frames, &key, Align::Nearest, false, None)?;
         // This window is provisional. The host focuses its chosen descendant
         // before reporting geometry; ordinary focus reveal sets the offset.
         list.target = None;
@@ -501,6 +525,11 @@ impl Tree {
         continuation: &mut Option<IntoView>,
     ) -> Result<IntoViewStatus, InstanceError> {
         let plan = u.env.plan;
+        if request.offset.is_some_and(|n| !n.is_finite()) {
+            return Ok(IntoViewStatus::Refused(
+                "offset must be a finite number of CSS pixels".into(),
+            ));
+        }
         if let Some(view) = request.view {
             let Some((list, frames)) = by_view(&mut self.children, view, &[]) else {
                 return Ok(IntoViewStatus::Refused(format!(
@@ -512,7 +541,7 @@ impl Tree {
                 Err(why) => return Ok(IntoViewStatus::Refused(why)),
             };
             let align = list.align_for(request);
-            list.begin_into_view(u, &frames, &key, align, request.smooth)?;
+            list.begin_into_view(u, &frames, &key, align, request.smooth, request.offset)?;
             return Ok(IntoViewStatus::Pending);
         }
         let mut found = Vec::new();
@@ -532,7 +561,7 @@ impl Tree {
                 Err(why) => return Ok(IntoViewStatus::Refused(why)),
             };
             let align = list.align_for(request);
-            list.begin_into_view(u, &frames, &key, align, request.smooth)?;
+            list.begin_into_view(u, &frames, &key, align, request.smooth, request.offset)?;
             return Ok(IntoViewStatus::Pending);
         };
         // An inner list: the outer list whose rows hold lists with this id,
@@ -548,7 +577,7 @@ impl Tree {
         };
         let row_key = outer.resolve(row).expect("resolved");
         let align = outer.align_for(request);
-        outer.begin_into_view(u, &frames, &row_key, align, request.smooth)?;
+        outer.begin_into_view(u, &frames, &row_key, align, request.smooth, None)?;
         let Some(mounted) = outer.mounted.iter_mut().find(|m| {
             super::super::ident(&m.row.key, m.row.dup).as_deref() == Some(row_key.as_str())
         }) else {

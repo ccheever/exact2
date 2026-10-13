@@ -38,6 +38,9 @@ component App
 - A virtualized `list` (rows not built yet) scrolls to a row by its key:
   `scrollIntoView("list-id", key, block="center")`. A chat opens at its newest row with
   `scroll-start="end"` on the `list`, and `scrollFollowEnd=true` keeps it there.
+  To restore after remount, save `ScrollEvent.firstVisibleKey` and
+  `firstVisibleOffset` in the app, then call `scrollIntoView("list-id", key, offset=within)`.
+  The optional key is text; the offset is signed CSS pixels into the row on the list's axis.
 - `scrollTop=y` on a scroller moves it only when `y` changes, so a second "top" does
   nothing; `scroll=moved` reports the offset (`action moved(x: number, y: number)`).
 

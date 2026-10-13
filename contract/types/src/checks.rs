@@ -755,11 +755,11 @@ fn into_view_args(
         }
         if let Some(Expr::NamedArg(_, _, at)) = args
             .iter()
-            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row" || name == "offset"))
         {
             return err(
                 "type-scroll-into-view",
-                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                "`row=` and `offset=` go with a list's `id` and a row's key",
                 *at,
             );
         }
@@ -798,6 +798,16 @@ fn into_view_options(
         let allowed: &[&str] = match name.as_str() {
             "block" | "inline" => &["start", "center", "end", "nearest"],
             "behavior" => &["auto", "instant", "smooth"],
+            "offset" => {
+                if infer(value, scope, shapes)? != Ty::Number {
+                    return err(
+                        "type-scroll-into-view",
+                        "`offset` is a number of CSS pixels into the row",
+                        *at,
+                    );
+                }
+                continue;
+            }
             "row" => {
                 infer(value, scope, shapes)?;
                 continue;

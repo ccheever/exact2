@@ -33,6 +33,7 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         out.extend(["block", "inline", "behavior"].map(named));
         if !element {
             out.push(named("row"));
+            out.push(named("offset"));
         }
         return out;
     }

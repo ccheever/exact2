@@ -27,19 +27,17 @@ pub use deps::RowWrites;
 use deps::{Bits, Reads, Seen};
 pub(crate) use deps::{Deps, Input, Reads as DepReads};
 pub use document::{DocNode, DocTree, DocTreeError};
-use exact_kernel::{NodeType, Op, StyleProps, ViewId};
+use exact_kernel::{Kernel, NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
 pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-/// The list engine's entries (LLP 1047 D3; LLP 1047.000 §9): the core
-/// reaches virtualized collections only through this table, and only
-/// [`LISTS`] names it. `RunnerLinks::ALL` and the web's collections
-/// capability are what name `LISTS`, so an artifact whose plan virtualizes
-/// no list carries no engine. Admission (D6) refuses a plan that
-/// virtualizes a list where the table is absent.
+/// List engine entries (LLP 1047 D3; LLP 1047.000 §9), reached only through
+/// [`LISTS`]. `RunnerLinks::ALL` and the web collections capability name it;
+/// artifacts without virtualized lists carry no engine. Admission (D6)
+/// refuses virtualized lists when this table is absent.
 pub struct ListLinks {
     create: CreateList,
     update: fn(
@@ -54,6 +52,7 @@ pub struct ListLinks {
     pub(crate) into_view: IntoViewLink,
     /// A logical row needed for a host's keyboard focus traversal.
     pub(crate) reveal_index: RevealIndexLink,
+    pub(crate) scroll_anchor: ScrollAnchorLink,
     /// `state.scrollIntoView`: each list's latest request.
     pub(crate) into_view_json: fn(&Tree) -> String,
     /// `state.kept`: inner lists' kept positions (LLP 1070 §4.2).
@@ -67,6 +66,7 @@ type IntoViewLink = fn(
     &mut Option<collection::IntoView>,
 ) -> Result<collection::IntoViewStatus, InstanceError>;
 
+type ScrollAnchorLink = fn(&Tree, &Kernel, ViewId, f64, f64, f64, f64) -> Option<(Value, f64)>;
 type RevealIndexLink = fn(&mut Tree, &mut Update<'_>, ViewId, usize) -> Result<bool, InstanceError>;
 
 type CreateList = fn(
@@ -86,6 +86,7 @@ pub static LISTS: ListLinks = ListLinks {
     into_view: Tree::scroll_into_view,
     reveal_index: Tree::reveal_collection_index,
     into_view_json: Tree::into_view_json,
+    scroll_anchor: Tree::collection_scroll_anchor,
     kept_json: Tree::kept_positions_json,
 };
 
