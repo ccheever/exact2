@@ -5,7 +5,7 @@
 **Systems:** Plan, Runner, Kernel (seam), Data seam
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
-**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership and regression reconciliation (§Scroll completion); implementation remains parked.
+**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership, bounded catch-up and regression reconciliation (§Scroll completion); implementation remains parked.
 **Implementer:** Claude (Fable 5), landing 2026-08-28 (this document transcribes the landing)
 **Related:** LLP 1004 (the decisions this executes), LLP 1006 (the compiler that emits this format), LLP 1001 (the kernel the runner drives), LLP 1002 (the clock discipline the runner shares), LLP 0485 (the flat plan; research)
 
@@ -768,8 +768,11 @@ Measured on this worktree at `64e779683`, 2026-10-13, with Bun 1.4.2,
 `scripts/agent-launch.mjs`'s `chromium()`. The throwaway probe and JSON trace
 are `target/scrollend-rule/chrome-scrollend.mjs` and `chrome-results.json`;
 run `bun target/scrollend-rule/chrome-scrollend.mjs`. They are local
-measurement artifacts, not a new check. There are 37 cases, each in its own
-browser context. The fixture has two 200 × 100 CSS-pixel overflow ports,
+measurement artifacts, not a new check. That trace has 37 cases, each in
+its own browser context. The wheel follow-up at `353c9a715`, on the same
+Chrome and Bun versions, is `chrome-wheel-results.json`: run
+`bun target/scrollend-rule/chrome-scrollend.mjs --wheels` for the single
+notch, three spaced notches and two six-notch bursts. The fixture has two 200 × 100 CSS-pixel overflow ports,
 2,000-pixel children and `overflow-anchor: none`. Listeners record event,
 offset, layout-box existence, connectedness, `performance.now()` and an
 animation-frame counter. Positive cases await events; absence is observed
@@ -785,13 +788,14 @@ a runtime probe, not a compiled app drive.
 
 | Case and drive | Chrome observation |
 |---|---|
-| Wheel notches: Playwright `mouse.wheel(0, 60)`, once and three times separated by two animation frames | Each injected notch produced `S E` in one rendering turn, not one end 100 ms after the burst. This measures injected wheel input, not a physical trackpad's gesture phases or momentum. |
+| Wheel notches: Playwright `mouse.wheel(0, 60)`, once and three times separated by two animation frames | In `chrome-wheel-results.json`, `wheel-1` arrived at 51.5 ms and produced `S E` at 74.6 ms. `wheel-3` arrived at 49.8, 118.0 and 179.1 ms, ending separately at 78.7, 130.2 and 196.8 ms. Each notch ended on its own, despite gaps below 100 ms. |
+| Fast wheel bursts: six 60-pixel ticks | `wheel-fast-burst` sends serial Playwright calls without deliberate waits: six `S E` pairs, offsets 60 through 360, with observed wheel spacing 28.7–35.5 ms. `wheel-frame-burst` sends CDP ticks on six consecutive rAFs: wheels at 50.2–133.3 ms, about 16.7 ms apart, six `S E` pairs at 66.8–151.1 ms. No quiet-window merging in either burst. These are discrete injected ticks, not a physical trackpad's phases or momentum. |
 | Programmatic jump: `scrollTop = 120` | Assignment returned at 1.4 ms; `S E` arrived at 20.7 ms in the next rendering turn. Neither event was synchronous; completion did not wait 100 ms. |
 | Animated scroll: `scrollTo({top: 600, behavior: "smooth"})` | Many `S`, then one `E`, about 450 ms after the call and 30–40 ms after the last `S`. No 100 ms wait. Native duration is not a cross-host constant. |
 | Key handler: prevent ArrowDown's default and call `scrollBy(0, 120)` | The same `S E` as an instant API jump. A key invoking an API is not a held native keyboard-scrolling gesture. |
 | A `scroll` handler jumps another 120 pixels, once | After an instant first jump: `S₁ [jump₂] E₁`, then `S₂ E₂` next turn. `E₁` reads the new offset. After the first sample of a smooth scroll: the jump interrupts the animation; `S₂ E` follows, with only one end. |
 | A `scrollend` handler jumps another 120 pixels, once | `S₁ E₁ [jump₂]`, then `S₂ E₂`, for both instant and smooth first scrolls. The first end does not consume the next scroll's end. |
-| Timer before the next frame; delayed delivery | A zero-delay JS timer scheduled after an instant jump in rAF ran before its `S E`. With a 105 ms timer and the main thread held for 140 ms, raw DOM delivered the overdue timer at 155.6 ms, before `S E` at 155.9 ms; the earlier run delivered them in the opposite order. Exact's live JS binding ran the overdue **runner timer before the Contract end handler** in both runs. Neither a universal 100 ms deadline nor stable overdue DOM/timer ordering follows from these probes. |
+| Timer before the next frame; delayed delivery | In `timer-before-next-frame`, a zero-delay JS timer scheduled after an instant jump in rAF ran before its `S E`. In `blocked-event-loop`, the 105 ms timer, overdue after a 140 ms block, ran at 155.6 ms before DOM `S E` at 155.9 ms. In `live-runtime-late-timer`, DOM `S E` arrived at 173.9 ms; the binding ran the overdue runner timer at 174.3 ms before the Contract end handler at 174.5 ms. These are separate traces in `chrome-results.json`; neither proves a universal 100 ms completion deadline. |
 | Layout clamp after an ended scroll: offset 700, then child height 160 | Offset became 60 and another `S` arrived; no second `E` in 400 ms. |
 | Clamp during a smooth scroll to 600: shrink child to height 100 at the first `S` | First `S` at 32.6 ms, clamp to zero at 32.8 ms, another `S` at 54.5 ms, one `E` at 483.4 ms. The clamp did not finish the animation: its end remained about 450 ms later. |
 | Viewport growth after an ended scroll: port height 500 → 900, content height 1,000 | Offset 400 clamped to 100; another `S`, no additional `E` in 400 ms. The same held when delaying growth to the next rAF. Chrome exposes no counterpart to Linux's explicit display acknowledgement. |
@@ -862,21 +866,23 @@ notification is not evidence about momentum.
 2. **Finish when the scroll mechanism finishes.** Use the browser's or
    platform's completion for a gesture, coast or animation. A known instant
    command finishes when its move is applied; queue its events for delivery
-   after the command, without inventing 100 ms of animation. For a stream
-   of offset samples with no gesture phases or completion signal, the native
-   fallback is 100 ms after the last actual scrolling move. This is an
-   explicit approximation: such a stream cannot reveal when the person's
-   gesture ended. It may merge Chrome's separate notches. A known animation
-   or instant command does not need that approximation.
+   after the command, without inventing 100 ms of animation. A discrete
+   Linux `wheel_at` notch is such a completed move: queue one `scroll` and
+   one `scrollend` at the notch's instant, with no quiet window. This follows
+   LLP 1070 §2's rule that a phase-less wheel tick is its own gesture.
+   Only the Android reader's offset sample stream, which has no gesture
+   phases or completion signal, uses 100 ms after its last actual scrolling
+   sample as a fallback. That approximation must not merge discrete wheel
+   notches or delay known instant commands and animations.
 3. **Keep pending completion distinct from unfinished scrolling.** Queue
    `scroll` before its corresponding end, coalescing repeated pending events
    of the same target/type in a turn. Process a snapshot in enqueue order;
    handler-caused events go to the next turn. Run each handler's commands
    and layout before the next event; scroll payloads read the current
-   stored offset, subject to the hidden-layout rule below. A handler's new
-   move does not retract an end already in the snapshot. Before a quiet
-   fallback has completed, however, a new actual
-   scroll move rearms its deadline. Live handler-created events wait for a
+   DOM-equivalent offset, subject to the hidden-layout rule below. A
+   handler's new move does not retract an end already in the snapshot.
+   Before a quiet fallback has completed, however, a new actual scroll move
+   rearms its deadline. Live handler-created events wait for a
    subsequent platform event/rendering turn; time, timers and input keep
    receiving service. Only agent clock drives drain successive virtual
    turns at one instant, within the separate bound below.
@@ -885,18 +891,21 @@ notification is not evidence about momentum.
    ancestor, even if shown before its former deadline. Showing restores
    position, not the cancelled scroll. Inertness and modal coverage alone
    cancel nothing. An end already queued for a still-mounted hidden node
-   survives, as Chrome's does. The corresponding queued `scroll` payload
-   carries the retained pre-hide offset (600 in the instant-hide probe,
-   120 for hidden B), not the raw DOM read of zero; `scrollend` remains
-   argumentless. The native extent's collapse is not a scroll:
-   never feed it back into the saved position, a binding or collection
-   state. Showing restores the stored position without another `scroll`
-   or `scrollend`. This deliberate payload deviation follows Apple's
-   existing position retention; the web binding must also retain that
-   position rather than expose the temporary zero as a move.
+   survives, as Chrome's does. The corresponding queued `scroll` carries
+   the DOM read of **zero** while hidden; `scrollend` remains argumentless.
+   Keep the retained position separately (600 in the instant-hide probe,
+   120 for hidden B). Neither the native extent's collapse nor delivery of
+   that queued event is a new move: the host must not feed the temporary
+   zero into its position, scroll binding or collection feedback. An authored
+   handler recording the event's argument does see zero, as on the web;
+   this does not itself change the retained position. An explicit authored
+   write is separate from host feedback. Showing restores the retained
+   position without another `scroll` or `scrollend`. The existing web
+   `glue.js` and `rt.js` already send the live DOM read; Apple retains the
+   position but must stop suppressing an already queued event while hidden.
    Check node identity before every dispatch; removal/reuse cancels Exact
-   delivery, even for a queued end. Dropping the
-   raw DOM event on a destroyed Contract scope is a deliberate lifetime
+   delivery, even for a queued end. Dropping the raw DOM event on a
+   destroyed Contract scope is a deliberate lifetime
    deviation, shared with the web binding; retaining dead scopes for this
    event is not admitted.
 5. **Order on the clock the host actually owns.** If the host knows a
@@ -911,8 +920,8 @@ notification is not evidence about momentum.
    virtual turns instead deliver it at the command instant. When only a
    native callback tells the host that scrolling finished, the current
    session time at delivery is the event time; due runner timers run first
-   at that time. Neither Chrome's earlier
-   compositor instant nor an unreported UIKit/AppKit instant can be
+   at that time. Neither Chrome's earlier compositor instant nor an
+   unreported UIKit/AppKit instant can be
    reconstructed. This native timing deviation is not permission to stamp
    a known Linux deadline at the next frame.
 6. **Settle includes delivery and consequences.** `clock settle` must
@@ -932,9 +941,9 @@ notification is not evidence about momentum.
 Native scrolling's curve, duration and gesture recognition remain the
 platform's (LLP 1115). Apple's unbracketed 100 ms fallback remains a
 current implementation difference; where the host knows it applied an
-instant command, delaying it is avoidable. Clamp ends, stale ends revived
-by showing, and an early `settled: true` are defects, not additional
-permitted deviations. None is fixed by this document.
+instant command or discrete wheel notch, delaying it is avoidable. Clamp
+ends, stale ends revived by showing, and an early `settled: true` are
+defects, not additional permitted deviations. None is fixed by this document.
 
 ### Linux: one owner of time
 
@@ -953,13 +962,51 @@ a shell tick at 140 cannot skip an end due at 100 and a timer due at 105.
 
 The driver's next instant is the earliest `Runner::timer_due_ms()`,
 host-owned completion deadline, eligible queued event time or requested
-destination. Advance to **one due time, not one timer action**. Keep
-`Runner::advance_within` unchanged: it executes every due `then`, `next`
-and timer through that time before returning. Equal-time actions keep its
-existing order (`then`, `next`, timers; index order within ties, with the
-existing reorder-deadline handling). `Runner::land_then` likewise batches
+destination. Advance to **one due time, not one timer action**. Preserve
+`Runner::advance_within`'s batching: it executes every due `then`, `next`
+and timer through that time, subject to the shared budget below. Equal-time
+actions keep its existing order (`then`, `next`, timers; index order within
+ties, with the existing reorder-deadline handling). `Runner::land_then` likewise batches
 landed continuations. `advance_until_request` stops only at an action
 issuing a request, not after each action.
+
+**Preserve bounded catch-up across steps.** One top-level agent operation
+or live wake owns an `AdvanceBudget` of `TIMER_FIRE_LIMIT` (4,096) scheduled
+actions, shared across all the driver's internal steps, request resumes,
+and wrappers invoked in that wake. Neither reaching a new due time nor
+returning from a runner call replenishes it. It is independent of
+`scroll_turns`, `rounds` and `hatch_drains`. A later external operation or
+live wake gets a fresh allowance.
+
+This needs a runner change, not just a Presenter receipt counter. Add
+`&mut AdvanceBudget` to private `Runner::advance_within`, and expose
+`advance_timed_with_budget`, `advance_until_request_with_budget`,
+`land_then_with_budget` and `frame_with_budget` for the driver. Their
+existing standalone entry points create a fresh budget and delegate.
+Each scheduled timer, `then` or `next` spends one unit;
+virtual frame ticks and reorder-timeout receipts also count. Check the
+shared remaining allowance before advancing to or consuming the next
+action, including inside a same-time batch. Actual presented frame actions
+and direct event dispatch keep their existing semantics; their internal
+catch-up calls must use the shared budget. Counting only after a returned
+batch can already have exceeded the remaining allowance.
+
+If another scheduled action is due within the requested seek but the
+allowance is exhausted, return `TimerFireLimit { limit: 4096 }` with the
+runner's **landed clock**, not the candidate next deadline or requested
+destination. Apply receipts already returned; keep unconsumed timers,
+continuations and queued events pending. Do not dispatch the new input or
+present the requested frame after this error. Inside this driver, bounded
+`Host::dispatch_at` uses `Runner::dispatch` only after budgeted catch-up
+has succeeded at the event's instant. It must not call `Runner::dispatch_at`,
+which creates a fresh allowance and dispatches even after a timer refusal.
+The standalone runner method's behavior need not change. Host and
+Presenter must not seek ahead of the runner's returned time. Report the
+error and landed clock in the agent reply (`settled: false` for settle).
+If no further scheduled action is due through the destination, using the
+last unit alone is not an error. Same-time ordering and request stops stay
+unchanged; a budget stop can split a batch, just as the runner's current
+local limit can.
 
 Apply the returned receipts in order through `Host::commit_effects`, then
 `after_commit`'s layout/clamps and `run_commands`, before selecting a later
@@ -973,8 +1020,8 @@ the final hidden/destroyed tree; if no move was applied, no end is owed.
 Any earlier unfinished scroll is cancelled by that loss of layout/lifetime;
 an already queued end survives hiding, but not removal. This preserves the
 runner's existing semantics; it is not a claim that two arbitrary browser
-tasks batch their effects. Interleaving host effects between such actions
-would require a runner API change and is outside this design.
+tasks batch their effects. The budget change does not add single-action
+stepping between equal-time actions.
 
 After that batch, revalidate completions and dispatch a snapshot in enqueue
 order, applying each event handler's receipts, layout and commands before
@@ -1031,12 +1078,15 @@ new input can change offsets. Timestamp a live arrival without assigning
 it to `Host.now` until earlier known work has run. Raw `Host::dispatch_at`
 must be private to this path, called only at the already landed instant;
 its internal runner advance cannot provide presenter catch-up. Classify
-offset changes at their source: input samples, instant command/binding, animation, layout
-clamp or restoration. `clamp_scroll` reports position without calling the
+offset changes at their source: input samples, instant command/binding,
+animation, layout clamp or restoration. `clamp_scroll` reports position without calling the
 same completion arming path as `scrollBy`; collection feedback does not
-redate the move it reports. Linux's phase-less wheel/Android reader stream
-uses the 100 ms fallback; known instant commands queue completion at the
-command's instant. An owned animation supplies its own end.
+redate the move it reports. Linux's discrete `wheel_at`/`wheel_at_time`
+notches and known instant commands queue completion at their application
+instant. The Android reader sample stream alone uses the 100 ms fallback.
+An owned animation supplies its own end.
+All bounded Host calls use the budget-taking runner variants; no helper
+may create a fresh allowance within the same driver operation.
 
 `Host::timer_due_ms` (or the loop's forwarding wake query) returns the
 minimum of runner and eligible completion/event deadlines. Sleeping shells
@@ -1044,9 +1094,9 @@ need that deadline even if no frame is wanted. Deferred live continuations
 request the next event/rendering turn, never advertise their old command
 time as an overdue wake deadline. `agent.rs`'s `settle`/`clock` uses the
 same driver and its pending-work query, rather than a maximum-deadline jump
-followed by `run_commands`. For example, fallback scroll A due at 100 and B
-due at 150 must process A's handler at 100; if it starts another phase-less
-scroll, that end is due at 200, not 250. A handler's instant `scrollBy`
+followed by `run_commands`. For example, reader-stream scroll A due at 100
+and B due at 150 must process A's handler at 100; a new reader sample at
+100 would owe an end at 200, not 250. A handler's instant `scrollBy`
 instead completes in the next **agent** event turn at 100. Stepped and
 single-jump agent drives must agree on delivered events and timestamps;
 their final clocks differ if one explicitly seeks past the last work.
@@ -1062,9 +1112,12 @@ parked lane's failure evidence, not a run of corrected tests in this
 documentation change. Reconcile all 14 below; keep every scenario, change
 the false premises rather than dropping coverage. Times are Linux logical
 milliseconds. `S(y)@t` names the reported offset and event time; `E@t` names
-the completion time. Chrome supports event/lifetime behavior; its injected
-wheel finishes each notch, so the exact 100 ms values below qualify Linux's
-declared phase-less fallback, not Chrome.
+the completion time. Every discrete wheel below follows the instant rule:
+E at its application time, delivered in an event turn, with no 100 ms debt.
+The late-wake fixtures instead use an Android reader sample with a known
+quiet deadline, or an owned animation end. Those absolute deadlines test
+the host's clock discipline; they are not Chrome wheel timings. No claim
+that the parked log's wheel deadline of 100 was correct survives this rule.
 
 For rows 5–7, queue the initial binding jump at 0 without dispatching its
 events, then drive the first delivery turn to 100. Live continuation uses
@@ -1074,49 +1127,70 @@ delivery from agent fixed-point delivery.
 
 | # | Supplied test (`round3_` prefix omitted) | Disposition and corrected expectation | Chrome evidence / limit |
 |---|---|---|---|
-| 1 | `shrink_rearms_a_pending_completion` | **Change.** Wheel to 800 at 0, shrink at 50 to offset 200: `S(800)@0 S(200)@50 E@100`. Deadline stays 100, not 150; two moves, one end. An explicit seek to 150 still returns clock 150, with `endedAt = 100`. The log's deadline 100 was correct. | `clamp-during-smooth`: a clamp leaves the original completion in force. Keeping 100 is the fallback equivalent. |
-| 2 | `shrink_after_completion_owes_another` | **Change.** `S(800)@0 E@100 S(200)@150`; no new deadline or end at 250. One total end, `endedAt = 100`, two moves. The log's absent deadline was correct. | `clamp-after-end`: clamp changes position and emits `S`, not another `E`. |
-| 3 | `viewport_growth_rearms_completion` | **Change.** Wheel to 400 at 0, grow port at 50, clamp to 100. Original end stays due at 100, not 150; add delivery assertion `E@100`, count one. The log's deadline 100 was correct. | Both `viewport-growth-*` probes emit a clamp `S` without an extra end; `clamp-during-smooth` retains an unfinished operation's end. |
-| 4 | `acknowledged_growth_rearms_completion` | **Change.** Keep presented offset 400 until `display_complete`, then 100; acknowledgement at clock 50 leaves `E@100`, not 150. Add end-count/time assertions. The log's deadline 100 was correct. | Same clamp evidence as row 3. Chrome has no display-ack API; keeping the prior presented value until acknowledgement is a host presentation assertion, not browser parity. |
+| 1 | `shrink_rearms_a_pending_completion` | **Change.** Wheel to 800 at 0: `S(800)@0 E@0`, then `S(200)@50` from shrink. No pending end remains at 50; neither deadline 100 nor 150 is correct. Two moves, one end, `endedAt = 0`; seeking to 150 returns clock 150 without another end. Use the separate owned-animation clamp regression below for a genuinely unfinished scroll. | `wheel-1` and both bursts: a notch completes by itself. `clamp-after-end`: the later clamp emits only S. |
+| 2 | `shrink_after_completion_owes_another` | **Change.** `S(800)@0 E@0 S(200)@150`; no new deadline or end at 250. One total end, `endedAt = 0`, two moves. The logged absence of a post-clamp deadline is valid, but an original end delayed to 100 is not. | `wheel-1` and `clamp-after-end`. |
+| 3 | `viewport_growth_rearms_completion` | **Change.** `S(400)@0 E@0`, then growth at 50 clamps to 100 and emits S@50. One end already delivered before growth, `endedAt = 0`; no deadline after growth, rather than the logged 100 or asserted 150. | `wheel-1` plus both `viewport-growth-*` probes: growth changes position without a second end. |
+| 4 | `acknowledged_growth_rearms_completion` | **Change.** Wheel's E@0 is delivered by the seek to 50. Keep presented offset 400 until `display_complete`, then 100; acknowledgement at clock 50 creates no end/deadline. Assert one total end at 0. Both logged 100 and asserted 150 are wrong. | Same wheel/clamp evidence as row 3. Chrome has no display-ack API; keeping the prior presented value until acknowledgement is a host presentation assertion. |
 | 5 | `clock_drains_recursive_scroll_before_end` | **Change.** Agent seek to 100 drains `S₁ E₁ S₂ E₂` (`"sese"`), both ends at 0, final offset 200, no queued events. Clock finishes at 100; pumping there adds nothing. Drop `"sse"` and the single-end premise. | `instant-scroll-scrolls-again` preserves E₁ before the handler-created S₂ E₂. Agent virtual turns compress Chrome's separate rendering turns. |
 | 6 | `advance_drains_recursive_scroll_before_end` | **Change.** Live `advance(100)` gives `"se"`, E₁ at 0, offset already 200 and S₂ E₂ retained. A pump/tick in that same turn must leave `"se"`; a new live turn at 116 gives `"sese"`, E₂ at 116, no pending work. The log's first `"se"` alone is not a failure of this rule. | `instant-scroll-scrolls-again` defers handler-created events to the next rendering turn. Their live delivery time advances. |
 | 7 | `frame_drains_recursive_scroll_before_end` | **Change.** Same expectations as row 6 through `animation_frame`: E₁ at 0 in the first late drive to 100, E₂ at the new frame at 116; `"se"` then `"sese"`. Frame tasks run only at 100 and 116, not at the replayed event time 0. | Same reentry probe; frame scheduling must not change snapshot semantics. |
-| 8 | `two_scrollers_settle_matches_stepped_clock` | **Change.** A's fallback E@100 starts an instant jump to 40, whose S and second E occur at 100 in the next agent turn. B's E@150 sees 40: `"aab"`, `aEndedAt = 100`, `bSaw = 40`. Settle returns clock 150; the supplied explicit seeks through 200 return 200. Compare the event fields, not those unequal final clocks, or stop the stepped drive at 150. Replace both `"aba"` and A's second end at 200; the log's settle-at-250 result is also wrong. | `instant-scrollend-scrolls-again` and `two-staggered-with-reentry`: the instant continuation owes its own end without another quiet interval. Exact owns the 100/150 timestamps. |
-| 9 | `pump_keeps_the_deadline_before_a_timer_in_the_gap` | **Keep.** Wheel at 1000: `S@1000 E@1100 T@1105`, order `"set"`, final clock 1116. Pump/advance at 1116 cannot stamp E at 1116 as in the log. | Delayed-loop probes show no portable DOM/timer order; this asserts the stronger ordering of a deadline Linux owns. |
+| 8 | `two_scrollers_settle_matches_stepped_clock` | **Change.** A's wheel E@0 starts an instant jump to 40; the seek to 50 drains its S and second E at 0 in the next agent turn. B's wheel E@50 sees 40: `"aab"`, `aEndedAt = 0`, `bSaw = 40`. Settle returns clock 50; the supplied explicit seeks through 200 return 200. Compare event fields, or stop the stepped drive at 50. Neither wheel owes a later quiet deadline; replace `"aba"` and all 100/150/200 end expectations. | Wheel probes plus `instant-scrollend-scrolls-again` and `two-staggered-with-reentry`: each completed move owes its end without another quiet interval. |
+| 9 | `pump_keeps_the_deadline_before_a_timer_in_the_gap` | **Change source, keep late-wake assertion.** Replace wheel with an Android reader sample at 1000, no subsequent sample: `S@1000 E@1100 T@1105`, `"set"`, clock 1116. Pump/advance at 1116 must service E@1100. Also run an owned animation ending at 1100, with its final S before E. A wheel version instead requires E@1000 and tests instant delivery, not a delayed deadline. | `smooth` demonstrates a separate animation completion; the reader's quiet deadline is an explicit approximation. The delayed-loop traces do not override ordering on the clock Linux owns. |
 | 10 | `queued_scroll_cannot_jump_past_its_deadline` | **Change.** The binding jump is instant: `S@1000 E@1000 T@1105`, `"set"`, final clock 1116. Replace expected E@1100 with E@1000; the logged E@1116 is also wrong. Collection feedback must not redate 1000. | `instant`: next-turn S E about 19 ms after assignment, no 100 ms quiet wait. Exact's agent/owned-clock projection uses the command instant. |
-| 11 | `presented_clock_keeps_the_deadline_before_a_timer` | **Keep order/times, change entry point.** `S@1000 E@1100 T@1105`, `"set"`, final clock 1116. Give 1116 to the Presenter driver as an arrival; `Host::observe_time` must not advance independently. Also exercise the `Presenter::tick` wrapper. The log's E@1116 is wrong. | Same owned-deadline limitation as row 9; Chrome does not justify bypassing the presenter. |
-| 12 | `host_dispatch_cannot_jump_past_a_completion` | **Keep order/times, change entry point.** Drive the press through Presenter, which drains `S@1000 E@1100 T@1105` before press@1116: `"setp"`. Restrict raw `Host::dispatch_at` to the landed instant; do not keep a public bypass and repair it with a later `after_commit`. The log's E@1116 is wrong. | Same limitation as row 9. Known earlier work must precede later input on the owned clock. |
-| 13 | `visible_inert_ancestor_preserves_completion` | **Keep.** Wheel at 0, inert ancestor at 50: deadline 100, one E@100. Preserve `(input eligible: false, layout box: true)`. The log's absent deadline is wrong. | `inert`: the ongoing smooth scroll reaches 600 and ends despite blocked input. |
-| 14 | `visible_route_below_modal_preserves_completion` | **Keep.** Wheel at 0, modal opens at 50: deadline 100, one E@100 for the covered but laid-out port. The log's absent deadline is wrong. | `modal`: a visible scroller under `showModal()` still completes. Linux's route must retain its box for this fixture. |
+| 11 | `presented_clock_keeps_the_deadline_before_a_timer` | **Change source and entry point.** Use row 9's reader sample or owned animation, not a wheel: E@1100 before T@1105, final clock 1116. For the one-sample fixture the order is `"set"`. Give 1116 to the Presenter driver as an arrival; `Host::observe_time` cannot advance independently. Exercise `Presenter::tick` too. | Same owned-deadline evidence/limit as row 9; Chrome does not justify bypassing the presenter. |
+| 12 | `host_dispatch_cannot_jump_past_a_completion` | **Change source and entry point.** Use row 9's reader sample or owned animation. Presenter drains E@1100 and T@1105 before press@1116; the one-sample order is `"setp"`. Raw `Host::dispatch_at` is restricted to the landed instant. A wheel here would end at 1000, not 1100. | Same limitation as row 9. Known earlier work must precede later input on the owned clock. |
+| 13 | `visible_inert_ancestor_preserves_completion` | **Change.** The original wheel has S E@0, before inertness at 50; one end, no deadline at 50. To test preservation of unfinished work, add an owned animation ending at 100: make the ancestor inert at 50 and require E@100. Preserve `(input eligible: false, layout box: true)`. The log's absent deadline alone cannot establish whether E was delivered. | Wheel probes for E@0; `inert` for an ongoing animation completing despite blocked input. |
+| 14 | `visible_route_below_modal_preserves_completion` | **Change.** The original wheel ends at 0, before the modal opens at 50; one end, no deadline at 50. Add an owned animation ending at 100, open the modal at 50 and require E@100 for the covered but laid-out port. | Wheel probes for instant completion; `modal` for preserving an ongoing animation. The route must retain its layout box. |
 
 The committed parked tests and the new distinctions also require these
 regressions when implementation resumes:
 
+- Drive discrete `wheel_at` ticks at 0, 16 and 32: three S E pairs at
+  those instants and no quiet deadline at 132. Exercise both live pumps
+  and the agent drive. A notch clamped at an edge with no movement owes
+  no events. This pins the fast-burst result independently of clamp tests.
 - In `scrollend_follows_a_programmatic_scroll_and_drops_a_removed_target`,
-  the binding jump at clock **5000** queues S E at **5000**. Drain an agent
-  turn there and assert one end, no fallback deadline, then no additional
-  end at 5099 or 5100. Remove the assertions that forbid an end until 5100.
-  Make the same correction for key-driven `scrollBy`. Keep the later
-  removed-target suppression. Preserving the move's time means collection
-  feedback cannot redate that original 5000 instant.
+  keep the actual live path: `pump(5000)`, tap the binding jump, then
+  **`pump(5000)` delivers S E at 5000**. Replace both the post-jump
+  `timer_due = 5100` assertion and the post-pump assertion that expects no
+  end: after the pump, one end has fired and no deadline remains. There is
+  no additional end at 5099 or 5100. Make this same live-pump correction in
+  the key-driven `scrollBy` test; an agent-only replacement misses this
+  path. Keep removed-target suppression using an unfinished animation or
+  reader scroll, since a wheel now completes at its own instant. Preserving
+  the move's time means collection feedback cannot redate 5000.
 - For an owned smooth animation with known finish A, clamp at C < A and
   assert no end at C or between C and A, then exactly one E@A. Retain the
   clamp's `scroll`. Chrome's 32.8 ms clamp and 483.4 ms end demonstrate why
   an end count alone misses an animation stopped about 450 ms early.
 - Hide self/ancestor during unfinished scrolling, including hide/show
   before the old deadline: cancel that end. Hide after an instant end is
-  queued: deliver its retained offset, restore that offset on show and emit
-  nothing for the collapse/restore. Include A's end hiding B before B's
-  queued events. Keep removal and incarnation checks distinct from hiding.
+  queued: deliver the queued S with zero while hidden, then E; retain 600
+  internally (120 for B), restore it on show and emit nothing for the
+  collapse/restore itself. A recording handler must see zero, while host
+  binding/collection feedback must not overwrite the retained position.
+  Include A's end hiding B before B's queued events. Keep removal and
+  incarnation checks distinct from hiding.
 - At one due time, two timers (and separately two landed `then`s) issue a
   command then hide/remove its target. Assert the second action sees the
   pre-command offset, apply the batch before revalidating ends, and check
   the hidden-versus-removed queued-end distinction. This tests the actual
   runner batch boundary, not nonexistent single-action stepping.
 - Exercise `tick` alone and `advance` followed by `tick` at 140 with a
-  fallback end due at 100 and timer at 105: E@100 then T@105, clock 140.
+  reader sample at 0 owing an end at 100, and separately an owned animation
+  ending at 100, plus a timer at 105: E@100 then T@105, clock 140. Neither
+  fixture may use a wheel to manufacture the 100 ms deadline.
   Also test an earlier timer that scrolls/hides/removes and the timer/end
   tie at 100. Runner actions and their batch effects win that tie.
+- At Presenter level, boot a repeating 1 ms timer with its first tick at
+  1, no scroll events and no other scheduled work. Seek to 1,000,000 in
+  one agent call: exactly 4,096 timer actions, `TimerFireLimit`, runner and
+  host clock 4096, next timer still due at 4097, requested destination not
+  reached. A new call to 4097 fires that tick once. Check that `scroll_turns`
+  remains unused. Also exhaust the aggregate allowance inside a same-time
+  batch to verify the remaining allowance is enforced before action 4,097,
+  rather than counting the batch after it ran. This preserves the bounded
+  catch-up in `runner/tests/it/now_screen/timer.rs` across Presenter steps.
 - Live reentry alternating two offsets, stopped by a runner timer at 500:
   use successive live turns, assert the timer runs at 500 and the final
   queued end drains without generating another move. A separate input in
