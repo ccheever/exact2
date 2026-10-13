@@ -36,8 +36,8 @@ shape Forecast
   message: string
   updated: string
   current: Hour
-  hours: list<Hour>
-  days: list<Day>
+  hours: Hour[]
+  days: Day[]
 shape Place
   id: string
   name: string
@@ -45,7 +45,7 @@ shape Place
   lat: number
   lon: number
 shape Places
-  items: list<Place>
+  items: Place[]
   message: string
 shape HourCard
   id: string
@@ -82,8 +82,8 @@ shape Outlook
   day: number
   hour: number
   speed: number
-  hours: list<HourCard>
-  days: list<DayCard>
+  hours: HourCard[]
+  days: DayCard[]
 
 // @ref LLP 1039 — the media queries: a wide landscape viewport puts the
 // look-ahead and the elements in a column beside the sky; no pointer (a TV's
@@ -190,7 +190,7 @@ component Weatherlight
               text "Tokyo" font-size=(12 * k) color="#405b69"
             button press=choose("Reykjavík", "Iceland", 64.1466, -21.9426) testId="city-reykjavik" padding=8 border-radius=16 background-color=(city == "Reykjavík" ? "#dce5dd" : "#f4f5f2")
               text "Reykjavík" font-size=(12 * k) color="#405b69"
-        when searching
+        if searching
           column padding=20 gap=14 background-color="#ffffff" border-radius=18 border-style="solid" border-width=1 border-color="#dce3de" testId="search-panel"
             row justify-content="space-between" align-items="center"
               text "Where shall we go?" font-family="serif" font-size=(24 * k)
@@ -200,11 +200,11 @@ component Weatherlight
               input appearance="none" id="city-query" testId="city-query" value=query input=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#c7d2ce" font-size=(16 * k)
               button press=search testId="search-city" padding=12 border-radius=8 background-color="#183444"
                 text "Search" font-size=(16 * k) color="#ffffff"
-            when pending(places)
+            if pending(places)
               text "Looking for places…" color="#536b78" font-size=(13 * k)
             else
               text places.message color="#536b78" font-size=(13 * k) testId="search-message"
-            each place in places.items key=place.id
+            for place in places.items key=place.id
               button press=choose(place.name, place.detail, place.lat, place.lon) testId=`place-${place.id}` padding=12 border-radius=8 background-color="#f4f5f2"
                 row justify-content="space-between" gap=12 flex-wrap="wrap"
                   text place.name font-size=(16 * k) font-weight=600
@@ -226,10 +226,10 @@ component Weatherlight
                 text outlook.range font-size=(13 * k) color="#d5e3e9" margin-top=8
               row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=12
                 text (outlook.ready ? outlook.summary : "The forecast will appear here when it arrives.") font-size=(13 * k) color="#e2eced" max-width=650
-                when selected != "now"
+                if selected != "now"
                   button press=explore("now") testId="back-now" padding=10 border-radius=18 background-color="#17374e"
                     text "↶ Back to now" font-size=(12 * k) color="#ffffff"
-            when forecast.message != "" and not pending(forecast)
+            if forecast.message != "" and not pending(forecast)
               row gap=12 justify-content="space-between" align-items="center" padding=14 border-radius=12 background-color="#f5e8d7" testId="network-notice"
                 text forecast.message color="#825227" font-size=(13 * k) flex=1
                 button appearance="none" press=reloadWeather testId="retry-weather" padding=8
@@ -249,7 +249,7 @@ component Weatherlight
                       text "◉" font-size=(22 * k) color="#c78c54"
                       text (outlook.ready ? "Live" : "—") font-size=(16 * k) font-weight=600 color=(selected == "now" ? "#ffffff" : "#183444")
                       text "Today" font-size=(10 * k) color=(selected == "now" ? "#b8cfda" : "#71818a")
-                  each hour in outlook.hours key=hour.id
+                  for hour in outlook.hours key=hour.id
                     button press=explore(hour.id) disabled=(not outlook.ready) testId=`hour-${hour.id}` aria-label=`${hour.label}, ${hour.temp}, ${hour.chance} chance of precipitation` scale=(selected == hour.id ? 1.025 : 1) transition="scale 180ms ease" height=(150 * k) width=(88 * k) flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == hour.id ? "#183444" : "#ffffff")
                       column gap=13 align-items="center"
                         text hour.label font-size=(12 * k) color=(selected == hour.id ? "#ffffff" : "#536b78")
@@ -283,7 +283,7 @@ component LookAhead
     column flex=1 min-width=290 gap=16 padding=22 box-sizing="border-box" background-color="#ffffff" border-radius=20 testId="seven-day"
       text "A look ahead" font-family="serif" font-size=(25 * k) letter-spacing=-0.5
       text "7-DAY FORECAST" font-size=(9 * k) letter-spacing=2 color="#71818a"
-      each day in outlook.days key=day.id
+      for day in outlook.days key=day.id
         row align-items="center" gap=10 height=(41 * k) box-sizing="border-box" padding-top=9 padding-bottom=9
           text day.label width=(48 * k) font-size=(13 * k) font-weight=600
           text day.icon width=(23 * k) font-size=(19 * k) color="#c78c54" aria-label=day.condition

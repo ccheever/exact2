@@ -43,9 +43,9 @@ const SOURCE: &str = r#"component Player
       button "both" press=both testId="both"
       button "trailer" press=toggleTrailer testId="toggle"
       button "episode" press=showEpisode testId="episode"
-      when trailer
+      if trailer
         video "assets/t.mp4" testId="trailer" width=160 height=90 metadata=MediaMetadata(title="Trailer", artist="", album="", artwork="") nexttrack=next press=press
-      when episode
+      if episode
         audio "assets/ep.mp3" testId="audio" controls=true metadata=MediaMetadata(title="Episode 1", artist="Show", album="", artwork="assets/art.png") seekforwardOffset=30 seekforward=skipBy(1) seekbackward=skipBy(-1) seekto=seekAt previoustrack=next press=press
 "#;
 

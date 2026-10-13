@@ -1,6 +1,7 @@
 # Text fields: selectionchange on caret moves, setRangeText and a cancelable beforeinput (rest of #125)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Field selectionchange and cancelable beforeinput carry edit metadata on both web targets, AppKit, UIKit and Linux, including UIKit header searches, clear buttons and resolved paste on all plain input types; compiler/runner, browser and native field regressions cover the events, with the documented UIKit undo and Linux history limits.
 **Systems:** Contract, GUI hosts, text editing
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -9,7 +10,48 @@
 
 ## Current scope
 
-Field selectionchange/beforeinput remain open. Native range-edit execution is implemented; its verification limits are recorded below. The original requested undo step is superseded; Charlie's ruling and the web slice are recorded below. Preserve selectionMode, document deviations, and test IME/noncancelable edits in the remaining work.
+The scoped field events and native range-edit execution are implemented.
+Charlie's ruling below supersedes the original request for a setRangeText undo
+step. Windows, Android, terminal and Markdown editing remain outside this scope.
+
+### Field events — 2026-10-13
+
+Plain inputs and textareas accept `selectionchange` with their `InputEvent`
+selection offsets, independently of a text reader's `Selection` record.
+`beforeinput` reports the proposed `inputType`, nullable `data`, `cancelable`
+and `isComposing`; synchronous `preventDefault()` stops a cancelable edit.
+Applied inputs carry the edit metadata on both web targets, AppKit, UIKit
+and Linux. Native composition edits are noncancelable. AppKit undo/redo
+commands report their history types and can be canceled. UIKit undo that
+bypasses its delegate remains unobservable, and Linux has no field undo
+history, as permitted by the original acceptance's native limit.
+
+Compiler, runner, Chrome and Linux regressions first reproduced the missing
+events. AppKit passes 16 field-selection tests, including a mounted Contract
+session and cancelable undo. UIKit passes 13 on iPhone 18 Pro Max / iOS 27.
+Its direct UIKeyInput path bypasses delegates, so the edit entry points also
+make the beforeinput decision. Its asynchronous paste uses UITextPasteDelegate's
+resolved-string callback; XCTest denies pasteboard access, so the regression
+checks registration and calls that callback with the resolved text. Native
+marked-text API tests and a browser noncancelable event cover composition;
+these do not claim physical keyboard or input-method verification.
+
+Chrome passes 11 tests / 319 assertions; the rebuilt JS/wasm fixture agrees
+on all 21 steps. All touched Rust crates' tests, Clippy and formatting pass.
+`contract-difftest quick` could not run because `lake`/Lean is absent.
+The simulator booted for final verification was shut down. LLP 1069.001 and
+the author guides describe the records, ABI and native limits.
+
+UIKit review coverage: `FieldSelectionIOSTests` reproduces and covers header
+search cancellation and its live caret, cancelable clear-button deletion,
+and resolved paste on text, search, URL, telephone, password, email, number
+and unknown-type text inputs. The clear and keyboard checks call the
+registered UIKit permission delegates; programmatic `UISearchTextField.insertText`
+does not call those delegates. Paste checks invoke the registered resolved-string
+delegate because the XCTest host cannot access the pasteboard. These checks
+claim neither physical-keyboard nor system-pasteboard operation. On iPhone 17 /
+iOS 27, all 16 field tests pass; the 26 navigation tests have no failures and
+one existing scene-dependent skip. The three new tests failed before the fixes.
 
 ### Rangeedit first slice — 2026-10-12
 
@@ -201,7 +243,7 @@ confirmed it was already in `Shutdown`. `cargo test -p exact-apple --lib --tests
 --no-fail-fast` passed 406 tests (16 ignored); `cargo clippy -p exact-apple
 --all-targets -- -D warnings` and `cargo fmt --all -- --check` passed.
 
-**What remains (issue stays open):**
+**Scope carried into the field-events slice above:**
 
 - Field `selectionchange` with `InputEvent` selection offsets on caret and
   pointer moves, independent of a text reader's `Selection` event.

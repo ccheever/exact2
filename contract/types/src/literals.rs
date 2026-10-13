@@ -27,8 +27,8 @@ pub(crate) fn literal_argument(
     err(
         "type-format-style",
         format!(
-            "argument {} of `{name}` is one of {}, written as a string literal; given {written}",
-            i + 1,
+            "{} is one of {}, written as a string literal; given {written}",
+            contract_syntax::idioms::argument(name, i),
             spec.split(" | ")
                 .map(|c| format!("`{c}`"))
                 .collect::<Vec<_>>()
@@ -62,8 +62,8 @@ pub(crate) fn digits_argument(
     err(
         "type-literal-digits",
         format!(
-            "argument {} of `{name}` is a whole number from {lo} to {hi}, written as a number literal; given {written}",
-            i + 1
+            "{} is a whole number from {lo} to {hi}, written as a number literal; given {written}",
+            contract_syntax::idioms::argument(name, i)
         ),
         arg.span(),
     )

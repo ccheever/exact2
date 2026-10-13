@@ -28,7 +28,7 @@ final class SheetFixture {
       state tag = ""
       state discarded = 0
       action more
-        notes = concat(notes, [length(notes)])
+        notes = notes.concat([notes.length])
       action save
         saved = saved + 1
         close("book")
@@ -57,7 +57,7 @@ final class SheetFixture {
               text "New Book" testId="heading"
               input testId="title" placeholder="Title" value=name input=rename width=380 height=24
               input testId="author" placeholder="Author" width=380 height=24
-              each i in notes key=i
+              for i in notes key=i
                 box height=30 testId=`note-${i}`
               row gap=8 justify-content="flex-end"
                 button testId="more" press=more width=60 height=28

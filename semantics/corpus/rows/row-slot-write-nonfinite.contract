@@ -7,12 +7,12 @@ shape Item
 
 component App
   state show = true
-  resource items = items(1) as shape list<Item>
+  resource items = items(1) as shape Item[]
   view
     column
-      when show
+      if show
         Cell(index=0)
-      each it, i in items key=i
+      for it, i in items key=i
         Cell(index=i + 1)
 
 component Cell

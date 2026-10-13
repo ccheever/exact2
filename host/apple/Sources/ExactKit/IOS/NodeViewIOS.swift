@@ -997,6 +997,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if style["mask_image"] != nil { applyBoxMask() }
     }
     var kernelContentBox: CGRect?
+    /// The padding layout resolved and sent with `kernelContentBox`: top,
+    /// right, bottom, left (`nil` on a native button's unsaid side).
+    var kernelPadding: [CGFloat?]?
     var pendingScrollLeft: Double? {
         get { extras?.pendingScrollLeft }
         set { if newValue != nil || extras != nil { more.pendingScrollLeft = newValue; more.pendingScrollTransfer = false }; presenter?.pendingScrolls.insert(id) }
@@ -1035,6 +1038,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateMaterial()
         applyTextArea()
         if let f = field {
+            #if os(iOS)
+            f.pasteDelegate = FieldSelections.tracks(self) ? self : nil
+            #endif
             f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
             if let v = props["value"] { writeValue(v, into: f) }
@@ -1157,7 +1163,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if superview != nil { syncVibrancy() }
     }
     func applyStyle(_ s: NodeStyle) {
-        defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
+        defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         let origin = style["transform_origin"]
         let old = style
         style = s
@@ -1307,6 +1313,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()
         layoutSymbol()
+        layoutContent()
     }
 
     /// The reduced radii; the layer fast path additionally requires circles.

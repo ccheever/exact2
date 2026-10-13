@@ -399,23 +399,23 @@ final class TextSelectionMacTests: XCTestCase {
           view
             main width="100%" height="100%" display="flex" flex-direction="column" gap=8
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     text `L${n}` user-select="none" width=24
                     text `vcode ${n} body`
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     text `wcode ${n} body`
                     text `L${n}` user-select="none" width=24
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     view role="button"
                       text `R${n}`
                     text `rcode ${n} body`
               list virtualized=true height=140 width=360 estimated-item-height=36
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=36 align-items="center" gap=12
                     button
                       text `B${n}`

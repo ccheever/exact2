@@ -510,7 +510,7 @@ interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
 statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 `fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
 `grants` string. The TypeScript module always receives `storage`, including
-when no storage grants are declared. Once storage is available, ungranted
+if no storage grants are declared. Once storage is available, ungranted
 operations reject with `Unavailable` and code `denied`, without loading the
 browser storage adapters. A drive without a scratch store still gets `agent`
 for app-storage operations; `doc:/` handles do not need that store.
@@ -834,7 +834,7 @@ the platform would call (`delivery: "substituted"`).
 
 An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
 `multiple` allows more than one. `showPicker(id)` opens it, and `change`
-receives `list<Picked>` with each file's name, type, size and
+receives `Picked[]` with each file's name, type, size and
 `app:/tmp/picked/` path. A specific `accept` list is limited to media types
 and types in the app's `file_handlers`. The live Linux picker is unavailable;
 its agent substitute accepts any file. Image pixel and Canvas readback remain
@@ -1428,6 +1428,26 @@ It records raw command acknowledgments and executable identity; AppKit window
 resizing and Linux headless presenter resizing do not measure physical refresh.
 
 ### Intersection visibility
+
+`reachstart` and `reachend` belong only to `list virtualized=true` with one
+direct `each` (LLP 1010). Only a non-empty collection has edges: its geometric
+window reaches the first or last supplied row. An empty collection fires neither
+event. A plain list lays out all its children and has no collection window;
+the Contract compiler refuses either handler there, on every target.
+
+For a plain feed or masonry, use `intersect=` on a marker at the end of the
+content, after the columns, inside the same scroller:
+
+```text
+view intersect=loadMore intersect-margin="0px 0px 800px 0px"
+  height=1
+```
+
+`loadMore(entry: IntersectionObserverEntry)` should load only when
+`entry.isIntersecting` is true, a next page exists, and no request is pending.
+The bottom margin starts loading up to 800px before the marker enters the
+scrollport. This observes the marker, not the last row of each column.
+See [paging columns](recipes/responsive-columns.md#paging-columns) for a complete example.
 
 `intersect=action` on a node offers a final `IntersectionObserverEntry` record
 (`isIntersecting: bool`, `intersectionRatio: number`) after authored arguments.

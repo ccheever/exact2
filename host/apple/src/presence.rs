@@ -395,7 +395,6 @@ impl<D: DataSource> Host<D> {
         for (view, inherits) in colored {
             self.present_colors(view, batch, inherits);
         }
-        self.svg.emit(self.runner.kernel(), &self.engine, batch);
         self.land_flights(batch);
     }
 }

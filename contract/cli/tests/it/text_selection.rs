@@ -84,7 +84,7 @@ fn selection_rectangles_and_commands_reach_actions() {
     let source = READER
         .replace(
             "picked = `${para}:${s.start}-${s.end}:${s.text}`",
-            "picked = `${s.text}:${length(s.rects)}`",
+            "picked = `${s.text}:${s.rects.length}`",
         )
         .replace(
             "changes = changes + 1",

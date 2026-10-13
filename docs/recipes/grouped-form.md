@@ -13,7 +13,7 @@ component Profile
   state reminders = true
   state birthday = ""
   state submitted = false
-  derive nameError = trim(name) == "" ? "Enter your name." : ""
+  derive nameError = name.trim() == "" ? "Enter your name." : ""
   action editName(v: string)
     name = v
   action editQty(v: string)
@@ -26,7 +26,7 @@ component Profile
     submitted = true
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="form" position="absolute" inset=0
           display="flex" flex-direction="column"
           header display="flex" align-items="center" padding="8px 16px"
@@ -39,7 +39,7 @@ component Profile
                 column flex=1 min-width=0 gap=4
                   input value=name input=editName submit=save placeholder="Name" aria-label="Name"
                     autocomplete="name" aria-invalid=(submitted and nameError != "") testId="name"
-                  when submitted and nameError != ""
+                  if submitted and nameError != ""
                     text nameError font="-exact-footnote" color="-exact-system-red" testId="name-error"
             section
               row

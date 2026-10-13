@@ -18,7 +18,8 @@ theorem paused_bool : ∀ c, Reachable videoPlayer c → SlotIn "paused" IsBool 
       simp only [videoPlayer, List.mem_cons, List.mem_nil_iff, or_false] at ha
       -- One case per action, however many the app declares.
       repeat' first | (rcases ha with rfl | ha) | subst ha
-      all_goals simp [wp, assignPre, Keeps, Effects.write, Effects.rowWrite, Effects.command, IsBool]
+      -- `Assn.outer`: what follows a `let` (settle's `nextQuiet`) is proved under it.
+      all_goals simp [wp, assignPre, Keeps, Assn.outer, Effects.write, Effects.rowWrite, Effects.command, IsBool]
       -- `toggle` writes `not paused`, a bool whatever it read.
       intro v hv _
       rcases hv with ⟨-, rfl⟩ | ⟨-, rfl⟩ <;> simp

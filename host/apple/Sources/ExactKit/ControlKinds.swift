@@ -260,3 +260,4 @@ struct ButtonFaceRows: Equatable {
         imageGap = (object["imageGap"] as? NSNumber).map { CGFloat($0.doubleValue) }
     }
 }
+"

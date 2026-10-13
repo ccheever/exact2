@@ -22,7 +22,7 @@ final class Canvas2DReplayTests: XCTestCase {
 
     private func op(_ lists: [Data], fresh: Bool) -> [String: Any] {
         ["lifetime": 1, "generation": 0, "fresh": fresh, "w": 300, "h": 200, "scale": 2.0,
-         "stretch": true, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": lists]
+         "stretch": true, "lists": lists]
     }
 
     /// The shown bitmap's first pixel, as RGB bytes.

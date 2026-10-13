@@ -468,3 +468,46 @@ fn range_replacement_select_tasks_observe_both_commands() {
     p.run_commands(NoData::default);
     assert_eq!(text(&p, "log"), "input:A input:AB select:AB select:AB ");
 }
+
+#[test]
+fn beforeinput_cancels_paste_and_selectionchange_hears_a_caret_move() {
+    let source = r#"component App
+  state body = "abc"
+  state caret = 0
+  state kind = ""
+  action before(e: InputEvent)
+    kind = e.inputType
+    if e.inputType == "insertFromPaste"
+      preventDefault()
+  action input(v: string, e: InputEvent)
+    body = v
+    kind = e.inputType
+  action moved(e: InputEvent)
+    caret = e.selectionStart
+  view
+    column width=400 height=300
+      textarea value=body beforeinput=before input=input selectionchange=moved testId="editor"
+      text `${body}:${caret}:${kind}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        (400., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let editor = id(&p, "editor");
+    p.press_field(editor);
+    p.field_key(editor, "ArrowLeft", 0.);
+    assert_eq!(text(&p, "result"), "abc:2:");
+    p.paste_field(editor, "PASTE", 0.);
+    assert_eq!(p.field_text(editor), "abc");
+    assert_eq!(text(&p, "result"), "abc:2:insertFromPaste");
+    p.field_key(editor, "x", 0.);
+    assert_eq!(text(&p, "result"), "abxc:3:insertText");
+    p.field_key(editor, "Backspace", 0.);
+    assert_eq!(text(&p, "result"), "abc:2:deleteContentBackward");
+}

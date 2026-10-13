@@ -1,19 +1,19 @@
-Exact card: what an app writes. `contract vocab <name> …` answers a name left out; `--all` lists every name.
+Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 functions: call -> result
-  at(list<T>, i) -> option<T>  (none past the end; -1 is the last)
+  xs.at(i) -> option<T>  (none past end; -1 is last)
   back(router) -> Router
-  calendarDiff(from, to, "years" or "months") -> option<number>  (whole years or months between two YYYY-MM-DD dates)
+  calendarDiff(from, to, "years" or "months") -> option<number>  (whole years/months between YYYY-MM-DD dates)
   ceil(n) -> number
-  concat(list<T>, list<T>) -> list<T>
+  xs.concat(ys) -> T[]
   depth(router) -> number
   elementFromPoint(x, y) -> option<string>
-  elementsFromPoint(x, y) -> list<string>
+  elementsFromPoint(x, y) -> string[]
   encodeRouteSegment(text) -> string
   encodeURIComponent(text) -> string
-  endsWith(text, suffix) -> bool
-  filter(list<T>, x => bool) -> list<T>
-  first(list<T>) -> option<T>
+  text.endsWith(suffix) -> bool
+  xs.filter(x => bool) -> T[]
+  first(xs) -> option<T>
   floor(n) -> number
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
   formatDecimal(units, digits) -> string  (cents to "12.34"; digits a literal)
@@ -21,36 +21,36 @@ functions: call -> result
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
   frame(id) -> Geometry  (in an action)
   go(router, location) -> Router
-  includes(text|list, x) -> bool
-  indexOf(text|list, x) -> number  (-1 for none)
-  isEmpty(text|list) -> bool
-  join(list<string|number|bool>, sep) -> string
-  length(text|list) -> number
-  map(list<T>, x => U) -> list<U>
+  s.includes(x) -> bool  (text or list)
+  s.indexOf(x) -> number  (-1 for none)
+  s.isEmpty() -> bool
+  xs.join(sep) -> string
+  s.length -> number  (text or list)
+  xs.map(x => U) -> U[]
   max(a, b) -> number
   measure("id") -> Geometry  (in an action)
   min(a, b) -> number
   open(router, location) -> Router
-  params(router, parameterName) -> list<string>
+  params(router, parameterName) -> string[]
   parseNumber(text) -> option<number>  (none for "", "12px", "1.2.3")
   performanceNow() -> number  (ms since launch)
   push(router, location) -> Router
-  querySelectorAll(selector) -> list<string>
+  querySelectorAll(selector) -> string[]
   replace(router, location) -> Router
-  replaceAll(text, find, with) -> string
+  text.replaceAll(find, with) -> string
   round(n) -> number  (half up)
   searchParam(entry, name) -> string
   select(router, tabName) -> Router
-  slice(text|list, start, end?) -> text|list
-  split(text, separator) -> list<string>
-  stack(router) -> list<Entry>
-  startsWith(text, prefix) -> bool
+  s.slice(start, end?) -> text|list
+  text.split(separator) -> string[]
+  stack(router) -> Entry[]
+  text.startsWith(prefix) -> bool
   t("key", name=value) -> string  (the locale's table)
-  toFixed(n, digits) -> string  (digits a literal, 0 to 100)
-  toLowerCase(text) -> string
+  n.toFixed(digits) -> string  (digits a literal, 0 to 100)
+  text.toLowerCase() -> string
   top(router) -> Entry
-  toString(x) -> string
-  trim(text) -> string
+  x.toString() -> string
+  text.trim() -> string
   pending(resourceOrMutationName)  failed(resourceName)  failure(resourceName)  path("routeName", args…)  empty(field=constant, …)  some(expr)  DeclaredShape(field=value, …)
 
 tags: attributes; on events. Every tag takes CSS's style attributes (flex gap padding font-size …) and colour roles (-exact-label); `contract vocab <name>` gives a style's values
@@ -59,8 +59,8 @@ tags: attributes; on events. Every tag takes CSS's style attributes (flex gap pa
   image "…": alt; on load
   button: disabled buttonStyle destructive; on press
   link: href; on press
-  input: value type inputmode min max step maxlength placeholder enterkeyhint autocomplete autocapitalize autofocus disabled readonly checked name accept multiple; on input change submit
-  textarea: value placeholder maxlength enterkeyhint; on input change select
+  input: value type inputmode min max step maxlength placeholder enterkeyhint autocomplete autocapitalize autofocus disabled readonly checked name accept multiple; on input change submit select selectionchange beforeinput
+  textarea: value placeholder maxlength enterkeyhint; on input change select selectionchange beforeinput
   select: value disabled; on change
   option "…": value
   progress: value max
@@ -100,7 +100,7 @@ ops: a target is a testId, else a view's exact text or label
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>
 
 how (snippets compile)
-a second screen, a sheet: A screen is a route, never a `when` on state; a sheet's root adds `navigationPresentation="modal"`, its Cancel the `id` `navigationBack` names. `pattern list-detail` is the whole.
+a second screen, a sheet: A screen is a route, never an `if` on state; a sheet's root adds `navigationPresentation="modal"`, its Cancel the `id` `navigationBack` names. `pattern list-detail` is the whole.
   routes nav
     home "/"
       edit "/edit"
@@ -111,14 +111,14 @@ a second screen, a sheet: A screen is a route, never a `when` on state; a sheet'
   action save
     nav = back(nav)
   main navigationKey=`${top(nav).id}` navigationBack="back"
-    each e in stack(nav) key=e.id
-      when e.name == "home"
+    for e in stack(nav) key=e.id
+      if e.name == "home"
         column navigationKey=`${e.id}` position="absolute" inset=0
           header
             text "Notes" role="heading" aria-level=1
             button press=open
               text "New"
-      when e.name == "edit"
+      if e.name == "edit"
         column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
           header
             button id="back" press=back
@@ -154,11 +154,11 @@ colour: Say the accent once, on the root, and leave controls unpainted; elsewher
 reading and writing data: `loadItems` and `addItem` are in app.ts and answer exactly their shape; a refusal is a reply (`ok: false, error`), not a throw. `then act` after `refreshes` clears the field on an ok reply; `pending(added)` stops a second send.
   shape Reply
     ok: bool
-  resource items = loadItems() as shape list<string> else empty()
+  resource items = loadItems() as shape string[] else empty()
   mutation added as shape Reply refreshes items
   action add
     send added = addItem("Milk")
-  text join(items, ", ")
+  text items.join(", ")
 a dated record: The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 at each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
   shape Time
     epochAtZero: number
@@ -167,7 +167,7 @@ a dated record: The write reads the clock itself, not a ticked `now`, and stores
   resource time = exactTime() as shape Time
   action log
     let at = time.epochAtZero + performanceNow()
-    days = concat(days, [formatDate(at, time.utcOffset, "iso")])
+    days = days.concat([formatDate(at, time.utcOffset, "iso")])
 a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` copies the screenshots to look at. A screen no test ends on is unchecked.
   test "a pick survives a relaunch"
     tap "pick"
@@ -203,6 +203,6 @@ component App
 - A number field's `min`, `max`, `step` take numbers, negative bare (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - A symbol is `"symbol:<role>"`, never a made-up name; `symbol:sf/<name>` passes an SF Symbols name to Apple.
 - Not in Contract, each with what to write in `contract vocab <name>`: abs pow sqrt sort reduce find some every contains toUpperCase padStart parseInt.
-- `a - b` subtracts with spaces; a unit is quoted (`width="50%"`); `when` and `else` choose in a view.
-idioms, whole with their code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match each when let fn shape props derive action stepper gradients menubar ::placeholder
+- `a - b` subtracts with spaces; a unit is quoted (`width="50%"`); a view repeats with `for x in xs key=…`.
+idioms, whole with their code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menubar ::placeholder
 symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles

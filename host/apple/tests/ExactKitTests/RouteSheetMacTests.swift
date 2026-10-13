@@ -42,7 +42,7 @@ final class RouteSheetMacTests: XCTestCase {
       action search(v: string)
         query = v
       action more
-        rows = concat(rows, [length(rows)])
+        rows = rows.concat([rows.length])
       view
         column testId="root" navigationKey=screen navigationBack="back" width="100%" height="100%" position="relative"
           column navigationKey="home" testId="home" position="absolute" inset=0 padding=20 gap=12
@@ -65,7 +65,7 @@ final class RouteSheetMacTests: XCTestCase {
               button testId="open-kept" press=open("kept")
                 text "Kept"
             text `saved ${saved} cancelled ${cancelled} name ${name} query ${query}` testId="status"
-          when screen == "add" or screen == "over"
+          if screen == "add" or screen == "over"
             column navigationKey="add" navigationPresentation="modal" testId="add" position="absolute" inset=0 display="flex" flex-direction="column"
               header testId="add-header" display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
                 button id="back" press=cancel testId="add-cancel"
@@ -76,7 +76,7 @@ final class RouteSheetMacTests: XCTestCase {
               column padding=20 gap=12 testId="add-body"
                 input testId="add-title" placeholder="Title" value=name input=rename width=380 height=24 autofocus=true
                 input testId="add-author" placeholder="Author" width=380 height=24
-                each i in rows key=i
+                for i in rows key=i
                   box height=30 testId=`row-${i}`
                 row gap=8
                   button testId="add-more" press=more
@@ -85,21 +85,21 @@ final class RouteSheetMacTests: XCTestCase {
                     text "Over"
                   button testId="add-ask" commandfor="confirm" command="show-modal"
                     text "Ask"
-          when screen == "over"
+          if screen == "over"
             column navigationKey="over" navigationPresentation="modal" testId="over" position="absolute" inset=0
               header display="flex" padding="8px 16px"
                 text "Over" role="heading"
                 button id="back" press=open("add") testId="over-done"
                   text "Done"
               box width=200 height=80 testId="over-body"
-          when screen == "sized"
+          if screen == "sized"
             column navigationKey="sized" navigationPresentation="modal" testId="sized" position="absolute" inset=0 width=480 height=300
               header display="flex" padding="8px 16px"
                 button id="back" press=cancel testId="sized-cancel"
                   text "Cancel"
                 text "Sized" role="heading"
               box flex=1 testId="sized-body"
-          when screen == "search"
+          if screen == "search"
             column navigationKey="search" navigationPresentation="modal" testId="search" position="absolute" inset=0
               header testId="search-header" display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
                 button id="back" press=cancel testId="search-cancel"
@@ -114,7 +114,7 @@ final class RouteSheetMacTests: XCTestCase {
               column id="search-menu" popover="auto" role="menu" aria-label="More"
                 button press=more popovertarget="search-menu" popovertargetaction="hide" testId="search-menu-more"
                   text "More rows"
-          when screen == "pressable"
+          if screen == "pressable"
             column navigationKey="pressable" navigationPresentation="modal" testId="pressable" position="absolute" inset=0
               header display="flex" padding="8px 16px"
                 button id="back" press=cancel testId="pressable-cancel"
@@ -122,21 +122,21 @@ final class RouteSheetMacTests: XCTestCase {
                 box press=more testId="pressable-title"
                   text "Pressed" role="heading"
               box width=300 height=80 testId="pressable-body"
-          when screen == "none"
+          if screen == "none"
             column navigationKey="none" navigationPresentation="modal" closedby="none" testId="none" position="absolute" inset=0
               header display="flex" padding="8px 16px"
                 button id="back" press=cancel testId="none-cancel"
                   text "Cancel"
                 text "None" role="heading"
               box width=300 height=80
-          when screen == "any"
+          if screen == "any"
             column navigationKey="any" navigationPresentation="modal" closedby="any" testId="any" position="absolute" inset=0
               header display="flex" padding="8px 16px"
                 button id="back" press=cancel testId="any-cancel"
                   text "Cancel"
                 text "Any" role="heading"
               box width=300 height=80
-          when screen == "plain"
+          if screen == "plain"
             column navigationKey="plain" navigationPresentation="modal" testId="plain" position="absolute" inset=0 padding=20 gap=12
               text "No header here" testId="plain-text"
               button id="back" press=cancel testId="plain-close"

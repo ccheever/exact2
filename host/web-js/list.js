@@ -661,13 +661,12 @@ class Collection {
     if (key === "true" || key === "false") { const r = exactly(key === "true"); if (r[0]) return r; }
     return exactly(key);
   }
-  /** The row root's margins on this axis: its wrapper encloses them, and the
-   * web aligns the element's border box. */
+  /** Insets from the row wrapper to its border box, expanded by scroll margins. */
   margins(p) {
     const m = this.mounted.find(m => m.position === p), root = m?.wrapper.firstElementChild;
     if (!root) return [0, 0];
     const cs = getComputedStyle(root), n = v => parseFloat(v) || 0;
-    return this.axis === "y" ? [n(cs.marginTop), n(cs.marginBottom)] : [n(cs.marginLeft), n(cs.marginRight)];
+    return this.axis === "y" ? [n(cs.marginTop) - n(cs.scrollMarginTop), n(cs.marginBottom) - n(cs.scrollMarginBottom)] : [n(cs.marginLeft) - n(cs.scrollMarginLeft), n(cs.marginRight) - n(cs.scrollMarginRight)];
   }
   /** The list's scroll-padding at each end on this axis, read when it aligns, as CSSOM View reads it. */
   scrollPadding() {

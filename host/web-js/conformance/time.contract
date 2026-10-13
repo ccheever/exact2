@@ -1,6 +1,6 @@
 // Synthetic conformance plan: `exactTime`, the runner's reserved source
 // (runner/src/time.rs), which the JS runtime answers itself; and a press
-// under `when … else` on one position, each branch its own action.
+// under `if … else` on one position, each branch its own action.
 shape Time
   epochAtZero: number
   utcOffset: number
@@ -22,7 +22,7 @@ component Time
       text `${time.epochAtZero} ${time.utcOffset} ${time.locale} ${time.timeZone} ${time.seed}` testId="time"
       button press=flip testId="flip"
         text signup ? "to sign in" : "to sign up"
-      when signup
+      if signup
         button press=register testId="submit"
           text "Sign up"
       else

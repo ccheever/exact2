@@ -4,6 +4,7 @@ mod action_related;
 mod ancestor_row_state;
 mod animation_trigger;
 mod announce;
+mod app_action_snapshots;
 mod aria;
 mod at;
 mod auth;

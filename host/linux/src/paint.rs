@@ -1288,8 +1288,8 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// block containers do not always count end-edge padding), never less than
 /// the box itself.
 pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    // Read the end padding as layout resolved it
-    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    // Read the end padding the engine laid out with, a bar's cover included
+    let (_, _, pad_right, pad_bottom) = kernel.layout_padding(node.key).unwrap_or_default();
     let mut w = node.frame.width.max(node.content.0);
     let mut h = node.frame.height.max(node.content.1);
     for child in node.children() {

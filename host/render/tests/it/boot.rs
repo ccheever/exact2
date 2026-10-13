@@ -19,13 +19,13 @@ routes nav
   notfound render=build
 
 component Cards
-  resource cards = cards(params(nav, "speed")) as shape list<string>
+  resource cards = cards(params(nav, "speed")) as shape string[]
   view
     column
       head title="Cards"
-      when length(cards) == 0
+      if cards.length == 0
         text "Loading cards" testId="loading"
-      each c in cards key = c
+      for c in cards key = c
         text c
 "#;
 

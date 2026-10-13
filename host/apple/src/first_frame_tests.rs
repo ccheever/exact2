@@ -199,7 +199,7 @@ component A
     column
       button press=hide testId="hide"
         text "Hide"
-      when shown
+      if shown
         box testId="gone" width=24 height=24 -exact-exit-animation="leave 300ms linear both"
 "##;
     let plan = contract::compile(LEAVE).unwrap().encode();

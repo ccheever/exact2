@@ -15,7 +15,7 @@ const SOURCE: &str = r##"shape Run
   s: string
 shape Para
   id: string
-  runs: list<Run>
+  runs: Run[]
 shape Reaction
   emoji: string
   count: number
@@ -23,11 +23,11 @@ shape Message
   id: string
   author: string
   minutesAgo: number
-  paragraphs: list<Para>
+  paragraphs: Para[]
   quote: option<string>
-  reactions: list<Reaction>
+  reactions: Reaction[]
 shape Feed
-  rows: list<Message>
+  rows: Message[]
 component App
   resource initial = messages() as shape Feed
   mutation changed as shape Feed
@@ -37,15 +37,15 @@ component App
   view
     column width="100%" height="100%" overflow="hidden"
       list testId="messages" virtualized=true estimated-item-height=160 flex=1 min-height=0 width="100%"
-        each m in feed.rows key=m.id
+        for m in feed.rows key=m.id
           column width="100%"
             text m.author
-            each p in m.paragraphs key=p.id
+            for p in m.paragraphs key=p.id
               text
-                each r in p.runs key=r.id
+                for r in p.runs key=r.id
                   text r.t
             row
-              each r in m.reactions key=r.emoji
+              for r in m.reactions key=r.emoji
                 text `${r.emoji} ${r.count}`
 "##;
 
@@ -213,11 +213,11 @@ fn unchanged_key_sequences_keep_duplicate_rows_and_rebind_their_contents() {
   shown: bool
 component App
   state rows = [Item(id=0, label="a", shown=false), Item(id=0, label="b", shown=false), Item(id=1, label="c", shown=false)]
-  action replace(items: list<Item>)
+  action replace(items: Item[])
     rows = items
   view
     column
-      each item, i in rows key=item.id
+      for item, i in rows key=item.id
         Card(item=item, position=i)
 component Card
   props
@@ -229,7 +229,7 @@ component Card
   view
     column
       text `${item.label}:${taps}:${position}:${1 / item.id > 0}` testId=item.label press=bump
-      when item.shown
+      if item.shown
         text "extra" testId=`${item.label}-extra`
 "#;
     struct Unused;
@@ -312,11 +312,11 @@ fn positional_rows_match_general_keys_through_replacement_growth_and_removal() {
 
     let source = r#"component App
   state rows = ["a", "b"]
-  action replace(items: list<string>)
+  action replace(items: string[])
     rows = items
   view
     column
-      each item, i in rows key=KEY
+      for item, i in rows key=KEY
         Card(item=item, position=i)
 component Card
   props
@@ -329,7 +329,7 @@ component Card
   view
     column
       text `${item}:${initial}:${taps}:${position}` testId=`row-${position}` press=bump
-      when item == "extra"
+      if item == "extra"
         text "extra" testId=`extra-${position}`
 "#;
     struct Unused;
@@ -395,16 +395,16 @@ fn nested_row_state_does_not_visit_an_unrelated_stateless_parent_subtree() {
 
     let source = r#"shape Group
   id: number
-  labels: list<string>
+  labels: string[]
 component App
   state groups = [Group(id=0, labels=["target"]), Group(id=1, labels=["other"])]
-  action replace(items: list<Group>)
+  action replace(items: Group[])
     groups = items
   view
     column
-      each group, i in groups key=KEY
+      for group, i in groups key=KEY
         column
-          each label in group.labels key=label
+          for label in group.labels key=label
             Counter(label=label)
 component Counter
   props

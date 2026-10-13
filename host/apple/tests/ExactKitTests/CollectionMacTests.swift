@@ -30,6 +30,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
             ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 72.0],
+            contentOp(1, 300, 200, padding: [20, 10, 0, 10]),
             ["op": "content", "id": 1, "w": 300.0, "h": 3020.0]
         ]))
         return (p, p.views[1]!)
@@ -69,9 +70,9 @@ final class CollectionMacTests: XCTestCase {
               button press=restore testId="restore"
                 text "Restore"
               text `${within}` testId="within"
-              when shown
+              if shown
                 list id="feed" testId="feed" virtualized=true estimated-item-height=100 height=300 width=400 border-top="10px solid black" scroll=moved
-                  each n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
+                  for n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
                     text `${n}` height=100
 
         """
@@ -343,6 +344,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 132.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 8.0, "w": 150.0, "h": 116.0],
+            contentOp(1, 400, 132, padding: [8, 0, 8, 0]),
             ["op": "content", "id": 1, "w": 3000.0, "h": 132.0]
         ]))
         let list = try XCTUnwrap(p.views[1])
@@ -670,6 +672,59 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(list.container.subviews.compactMap { $0 as? NodeView }.first).paintGhost, "the leaving row is a paint ghost")
         p.apply(batch([["op": "destroy", "id": 2]]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
+    }
+
+    func testReorderingOrdinaryChildrenKeepsMountsAndFieldFocus() throws {
+        for decorated in [false, true] {
+            _ = NSApplication.shared
+            let p = Presenter()
+            defer { p.reset() }
+            p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+            p.apply(batch([
+                ["op": "create", "id": 1, "kind": "view", "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 2, "kind": "view"],
+                ["op": "create", "id": 3, "kind": "input", "props": ["value": "retained text"]],
+                ["op": "create", "id": 4, "kind": "view"],
+            ]))
+            let parent = try XCTUnwrap(p.views[1])
+            let container = MountObservedView()
+            try XCTUnwrap(parent.scroll).documentView = container
+            XCTAssertFalse(p.collections.owns(parent.id))
+            p.apply(batch([
+                ["op": "children", "id": 1, "ids": [2, 3, 4]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 300],
+                ["op": "frame", "id": 3, "x": 0, "y": 40, "w": 200, "h": 30],
+                ["op": "content", "id": 1, "w": 400, "h": 300],
+            ]))
+            let decoration = NSView()
+            if decorated { container.addSubview(decoration, positioned: .below, relativeTo: p.views[3]) }
+            let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = p.viewport
+            defer { window.makeFirstResponder(nil); window.close() }
+            let field = try XCTUnwrap(p.views[3]?.field)
+            XCTAssertTrue(window.makeFirstResponder(field))
+            let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+            let selection = NSRange(location: 2, length: 4)
+            editor.setSelectedRange(selection)
+            container.added.removeAll(); container.removed.removeAll()
+
+            for ids in [[4, 2, 3], [4, 3, 2], [2, 3, 4]] {
+                p.apply(batch([["op": "children", "id": 1, "ids": ids]]))
+                XCTAssertEqual(container.subviews.compactMap { ($0 as? NodeView)?.id }, ids.map(UInt32.init))
+                XCTAssertEqual(container.removed, [], "retained siblings must never detach")
+                XCTAssertEqual(container.added, [], "retained siblings must never remount")
+                XCTAssertTrue(window.firstResponder === editor)
+                XCTAssertTrue(field.currentEditor() === editor)
+                XCTAssertEqual(editor.selectedRange(), selection)
+                XCTAssertEqual(editor.string, "retained text")
+                if decorated { XCTAssertTrue(container.subviews.first === decoration) }
+            }
+            p.apply(batch([["op": "children", "id": 1, "ids": [2, 3]]]))
+            XCTAssertEqual(container.removed, [4], "only a child removed from the tree detaches")
+            XCTAssertTrue(window.firstResponder === editor)
+        }
     }
 
     func testPrependingANewNativeChildKeepsRetainedSiblingsMounted() throws {

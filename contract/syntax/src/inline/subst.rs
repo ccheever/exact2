@@ -53,7 +53,7 @@ pub(super) struct Subst<'m, T> {
     binders: Vec<(String, Option<String>)>,
     /// Whether a call's name is replaced too. Renamed locals (a view's loop
     /// and `match` variables) are values, never callable, so a call that
-    /// spells one names a function (`t("key")` beside `each t in …`).
+    /// spells one names a function (`t("key")` beside `for t in …`).
     calls: bool,
     /// The declared record constructors: shapes that are not `fn`s. A call
     /// spelling one constructs that record ahead of any scoped name (LLP

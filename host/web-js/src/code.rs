@@ -33,7 +33,7 @@ pub struct Scope {
     /// Whether this is an action body (writes and commands are allowed).
     pub action: bool,
     /// The JavaScript object holding the row slots in force (LLP 1017 P4c:
-    /// a slot owned by an `each` lives on its row), by slot index.
+    /// a slot owned by a `for` lives on its row), by slot index.
     pub rows: Option<String>,
 }
 

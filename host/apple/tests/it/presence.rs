@@ -191,7 +191,7 @@ fn boot_source(source: &str) -> Host<NoData> {
 #[test]
 fn a_box_that_grows_starts_its_surface_at_its_old_size() {
     let mut host = boot_source(
-        "component App\n  state open = false\n  action toggle\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" -exact-layout-transition=\"400ms linear\"\n        text \"Title\"\n        when open\n          view height=120\n",
+        "component App\n  state open = false\n  action toggle\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" -exact-layout-transition=\"400ms linear\"\n        text \"Title\"\n        if open\n          view height=120\n",
     );
     let (card, toggle) = (view(&host, "card").unwrap(), view(&host, "toggle").unwrap());
     let before = host.runner().kernel().node(card).unwrap().frame;
@@ -215,7 +215,7 @@ fn a_box_that_grows_starts_its_surface_at_its_old_size() {
 #[test]
 fn a_node_that_gains_the_row_animates_its_first_move() {
     let mut host = boot_source(
-        "component App\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      when not on\n        view height=50\n      text \"B\" testId=\"b\" -exact-layout-transition=(on ? \"200ms linear\" : \"none\")\n",
+        "component App\n  state on = false\n  action go\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      if not on\n        view height=50\n      text \"B\" testId=\"b\" -exact-layout-transition=(on ? \"200ms linear\" : \"none\")\n",
     );
     let (b, go) = (view(&host, "b").unwrap(), view(&host, "go").unwrap());
     // One commit gains the row and moves the node: as a CSS transition
@@ -242,7 +242,7 @@ impl DataSource for Keys {
 #[test]
 fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
     let plan = contract::compile(
-        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        each k in keys key=k.id\n          text k.id testId=`row-${k.id}` height=40 -exact-layout-transition=\"200ms linear\" -exact-exit-animation=\"leave 100ms linear both\"\n",
+        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut\n    short = true\n  resource keys = keys(short) as shape Item[]\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        for k in keys key=k.id\n          text k.id testId=`row-${k.id}` height=40 -exact-layout-transition=\"200ms linear\" -exact-exit-animation=\"leave 100ms linear both\"\n",
     )
     .unwrap();
     let (mut host, _) = Host::boot(

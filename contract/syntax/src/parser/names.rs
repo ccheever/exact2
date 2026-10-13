@@ -8,14 +8,14 @@
 //! a section line, `refresh` before a name in a body) and a name everywhere
 //! else. A shape field, a named argument, a member after `.` and an
 //! attribute name can never head an expression, so they admit every word.
-//! A state's or derive's name takes no type annotation: its type is inferred
-//! (`type_annotation`).
+//! A state's name may declare its type (`state x: T = …`); a derive's takes
+//! none: its type is its expression's (`type_annotation`).
 
 use super::*;
 
 /// The words no binder may be.
 pub(super) const RESERVED: [&str; 16] = [
-    "when", "if", "else", "each", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
+    "when", "if", "else", "for", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
     "false", "none", "some",
 ];
 
@@ -60,10 +60,10 @@ pub(super) fn section_hint(word: &str) -> String {
 }
 
 /// A view's `else` or `case` with nothing to belong to, and where it goes (authoring
-/// bench: an `else` indented one level under its `when`).
+/// bench: an `else` indented one level under its `if`).
 pub(super) fn stray(word: &str) -> String {
     let goes = if word == "else" {
-        "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+        "an `else` sits at its `if`'s indentation, on the line after the `if`'s block"
     } else {
         "a `case` arm sits indented under its `match`"
     };
@@ -107,7 +107,7 @@ impl Parser {
         })
     }
 
-    /// A plain `else` ends its line. `else if` and `else when` are parsed by
+    /// A plain `else` ends its line. `else if` is parsed by
     /// the caller first: an `else` around one nested branch (the chess,
     /// kanban2 and spreadsheet diaries). The indented form under `else` is
     /// the same tree.
@@ -135,16 +135,14 @@ impl Parser {
     /// written (LLP 1116.014 D1).
     pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
         let state = w == "state";
+        // A state's `: T` is its declared type (LLP 1116.015 D2); a derive's is its expression's.
         if form == ":" && self.at_punct(":") {
-            let from = if state {
-                "a state's type is inferred (an empty start is `none` or `[]`, and the writes \
-                 give it its type)"
-            } else {
-                "a derive's type is its expression's"
-            };
             return self.err(
                 "syntax-expected",
-                format!("drop `: {}`; {from}", self.written_type()),
+                format!(
+                    "drop `: {}`; a derive's type is its expression's",
+                    self.written_type()
+                ),
             );
         }
         if form.starts_with("as") && self.at_ident("as") {

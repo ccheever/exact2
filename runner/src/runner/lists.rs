@@ -96,10 +96,12 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let rows = std::mem::take(&mut self.row_writes);
         let result = {
+            let scroll_margin = |view| super::collection::scroll_margin(&self.kernel, view);
             let scroll_padding = |view| super::collection::scroll_padding(&self.kernel, view);
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             u.fonts = Some(self.fonts.clone());
             u.scroll_padding = Some(&scroll_padding);
+            u.scroll_margin = Some(&scroll_margin);
             u.full = self.full;
             u.discard = self.kernel.is_detached();
             u.rows = rows;
