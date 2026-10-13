@@ -15,8 +15,8 @@ carries the **`popover`** attribute, a `button` names it with
 **`popovertarget`** (by **`id`**, HTML's reference), and the host owns the
 top layer — light dismiss, one auto popover at a time, Escape closes,
 anchored to the invoker. Open state is **host state**, never plan state,
-the way scroll offset is (LLP 1008): opening a menu causes no relayout and
-no commit, and an app declares no `menuOpen` slot.
+the way scroll offset is (LLP 1008): opening a menu causes no relayout.
+An optional `toggle` handler observes it; no `menuOpen` slot controls it.
 
 When a popover's content is **menu-shaped** — `button` rows and `hr`
 separators, nothing else — an Apple host may present it as the platform's
@@ -119,10 +119,41 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
 The kernel lays the popover subtree out on every commit regardless of
 visibility — a hidden layer, anchored: top-left at the invoker's
 bottom-left, clamped to the viewport, sized by content. The host shows
-and hides it; opening is **no relayout and no dispatch**, the instant-menu
+and hides it; opening is **no relayout**, the instant-menu
 property, and the same discipline as scroll offset (LLP 1008: host state,
 never plan state). Light dismiss, the one-auto-popover rule, and Escape
 are the host's, per the spec.
+
+**Action commands and observation (issue #319, 2026-10-12).**
+`showPopover(id)`, `hidePopover(id)` and `togglePopover(id)` use that same
+lifetime. The showing methods take optional `source="element-id"`, HTML's
+explicit source; no action target or focused node is inferred. Without a
+source there is no invoker, and a painted Apple popover is centred. Showing
+an open popover or hiding a closed one does nothing. A missing/non-popover
+target or missing named source is refused in the journal. Commands run after
+the action's tree commit, in order, so a following `focus(id)` can enter it.
+For an AppKit menu, `focus` in that opening action selects its initial native
+highlight; once AppKit is tracking, its highlight is keyboard-controlled and
+a later programmatic `focus` is refused in the journal. Windowed Linux selects
+the shell menu's row and returns focus to the invoker when it closes. An
+explicit source need not carry `popovertarget`, including a chooser's source.
+UIKit page pull-downs and context menus share the command lifetime too. The
+navigation bar's separate `UIBarButtonItem.menu` still lacks command visibility,
+dismissal and toggle observation (issue #319, remaining work). A confirmation
+closes logically as soon as `hidePopover` runs; a following show reopens logically
+in that same turn and presents again after UIKit's dismissal completes.
+
+`toggle=action` optionally passes a `ToggleEvent` with `oldState` and
+`newState`, each `"open"` or `"closed"`; host kind 49 carries their
+UTF-8 `oldState,newState` payload. Invokers, commands, Escape and light
+dismiss use the same notification. The host queues it after the visibility
+change; changes in one turn keep the first old state and last new state,
+including a closed-to-closed round trip. A recycled view's next incarnation
+never receives or coalesces with the previous row's queued event (LLP 1068 §4.9).
+Open state remains the host's;
+only a declared handler dispatches. There is no cancelable `beforetoggle`
+action or `interestfor` admission. Desktop/headless Linux still has no
+popover presentation; the windowed host uses LLP 1115.001 D10's shapes.
 
 Declared deviation (LLP 1001's ledger): a bare `[popover]` on the web is
 a *centered* fixed box (`inset:0; margin:auto`). v1's popovers are

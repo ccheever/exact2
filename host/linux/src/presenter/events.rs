@@ -149,6 +149,7 @@ impl<D: DataSource> Presenter<D> {
             });
         let reason = match found {
             None => "no live node with that id",
+            Some(id) if self.surface_focus(id) => return Some(id),
             Some(id) if !self.focusable(id) => "not focusable",
             Some(id) => {
                 if let Some(e) = self.set_focus(Some(id), self.host.now()) {

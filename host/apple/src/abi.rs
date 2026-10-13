@@ -1023,8 +1023,8 @@ impl<D: DataSource> Bridge<D> {
             // beforeunload, wheel and drop, and a text field's `input`,
             // `change` and `select` with its selection (x2apps codeedit #2),
             // replacement input (48), a key's down (6), up (43) and capture (44) with its code and repeat
-            // and focusin (46) and focusout (47) with their targets (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 => {
+            // toggle (50), and focusin (46) and focusout (47) with their targets (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),

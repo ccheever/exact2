@@ -199,6 +199,13 @@ pub enum Event {
     Cancel,
     /// A dialog closed, after its focus was restored.
     Close,
+    /// A popover changed visibility; HTML coalesces these on the host's event loop.
+    Toggle {
+        /// Whether it was open before the first change in this turn.
+        old_open: bool,
+        /// Whether it is open after the last change in this turn.
+        new_open: bool,
+    },
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
     /// #2): its text, and the selection its `InputEvent` reports.
     FieldSelect(String, super::FieldSelection),
@@ -499,6 +506,10 @@ impl Event {
     /// `DragEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
+            Event::Toggle { old_open, new_open } => Some(Value::record(vec![
+                Value::str(if *old_open { "open" } else { "closed" }),
+                Value::str(if *new_open { "open" } else { "closed" }),
+            ])),
             Event::Key(k) | Event::Keycapture(k) | Event::Keyup(k) => Some(k.value()),
             Event::Pointerdown(p)
             | Event::Pointerup(p)
@@ -1024,6 +1035,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Change(_) => "change",
                 Event::Cancel => "cancel",
                 Event::Close => "close",
+                Event::Toggle { .. } => "toggle",
                 Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
@@ -1135,6 +1147,7 @@ impl<D: DataSource> Runner<D> {
             Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
             Event::Close => (EventKind::Close, None, "close"),
+            Event::Toggle { .. } => (EventKind::Toggle, None, "toggle"),
             Event::Select {
                 formats,
                 mixed,

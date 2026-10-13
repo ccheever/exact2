@@ -120,6 +120,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `id`, from an action; `close(id)` closes it (bare `close()` is still
     // the window's).
     "showModal",
+    "showPopover",
+    "hidePopover",
+    "togglePopover",
     "share",
     // Local notifications by the Notification API's names (rules/DEFERRED.md,
     // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and

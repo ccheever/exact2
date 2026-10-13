@@ -688,6 +688,7 @@ package final class Presenter {
     /// The ⌘ chord that last ended a composition (`endComposition`, KeyEvents.swift).
     var composedChord: NSEvent?
 
+    lazy var popoverEvents = PopoverEvents(self)
     /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
     /// `dialog` by its id, in the session's top layer as its invoker's
     /// `command="show-modal"` puts it (DialogsMac).
@@ -705,6 +706,7 @@ package final class Presenter {
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+        if !selectText, menus.focus(target) { return }
         // A search input the window's toolbar hosts has no box in the page
         // (LLP 1115.002 D2): the caret goes to its field in the bar.
         if target.pageField != nil {

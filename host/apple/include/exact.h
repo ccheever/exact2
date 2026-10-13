@@ -416,6 +416,7 @@ uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
  *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
  *      the whole value verbatim; x2apps codeedit #2);
  * 48 = range replacement input (same payload as 40, inputType insertReplacementText);
+ * 49 = close (dialog); 50 = toggle: UTF-8 oldState,newState (open or closed).
  * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
  *      true|false for repeat;

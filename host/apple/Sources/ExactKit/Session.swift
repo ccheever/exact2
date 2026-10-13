@@ -1108,6 +1108,7 @@ public final class ExactSession {
                     continue
                 }
                 if name == "blur" { app.deliver { [weak self] in self?.presenter.blurElement(args) }; continue }
+                if ["showPopover", "hidePopover", "togglePopover"].contains(name) { app.deliver { [weak self] in self?.presenter.menus.action(name, args) }; continue }
                 if name == "showModal" || (name == "close" && args.first is String) { let id = args.first as? String ?? ""; app.deliver { [weak self] in self?.presenter.dialogCommand(name, id) }; continue } // a dialog's, by id (LLP 1115 D6); bare `close()` is the window's
                 if name == "scrollIntoView" {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }

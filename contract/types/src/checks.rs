@@ -855,6 +855,9 @@ pub(super) fn check_command(
             span,
         );
     }
+    if matches!(name, "showPopover" | "hidePopover" | "togglePopover") {
+        return super::selection::popover_args(name, args, scope, shapes, span);
+    }
     if name == "close" && args.len() > 1 {
         return err(
             "type-close",

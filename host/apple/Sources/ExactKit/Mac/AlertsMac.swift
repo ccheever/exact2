@@ -44,8 +44,9 @@ final class AlertHost {
         let alert = NSAlert()
         weak var node: NodeView?
         weak var source: NodeView?
-        /// Opened by an invoker, not by `showModal` or a dialog's command.
+        /// A source element, whether an invoker or an explicit `source=`.
         let sourced: Bool
+        let invoked: Bool
         weak var window: NSWindow?
         let rows: [Row]
         /// Which row Return presses, when one does.
@@ -53,8 +54,9 @@ final class AlertHost {
         /// Ended by this host (a batch changed what it shows, `close(id)`, a
         /// reset), not by a button: nothing is pressed.
         var withdrawn = false
-        init(node: NodeView, source: NodeView?, window: NSWindow, rows: [Row], defaultRow: Int?) {
+        init(node: NodeView, source: NodeView?, invoked: Bool, window: NSWindow, rows: [Row], defaultRow: Int?) {
             self.node = node; self.source = source; sourced = source != nil; self.window = window
+            self.invoked = invoked
             self.rows = rows; self.defaultRow = defaultRow
         }
     }
@@ -137,7 +139,8 @@ final class AlertHost {
         guard let presenter, presented == nil, presenter.menus.live(pop), let window = presenter.frontWindow,
               window.attachedSheet == nil, let plan = plan(of: pop) else { return false }
         let menus = presenter.menus, rows = plan.rows
-        let owner = Presented(node: pop, source: source, window: window, rows: rows, defaultRow: plan.defaultRow)
+        let owner = Presented(node: pop, source: source, invoked: source.map { menus.opens($0, pop) } ?? false,
+                              window: window, rows: rows, defaultRow: plan.defaultRow)
         owner.alert.messageText = plan.title
         owner.alert.informativeText = plan.message
         for (index, row) in rows.enumerated() {
@@ -155,6 +158,7 @@ final class AlertHost {
         // Other popovers end as they do under a dialog.
         if source == nil { menus.reset() }
         presented = owner
+        presenter.popoverEvents.changed(pop, open: true)
         owner.alert.beginSheetModal(for: window) { [weak self, owner] response in
             // Off the window now, before the press's batch (Apple's own
             // advice for work in this handler).
@@ -169,7 +173,7 @@ final class AlertHost {
     /// next turn, once, if the alert still showed what is there; the cancel
     /// has nothing to press.
     private func ended(_ owner: Presented, _ response: NSApplication.ModalResponse) {
-        if presented === owner { presented = nil }
+        if presented === owner { presented = nil; if let pop = owner.node { presenter?.popoverEvents.changed(pop, open: false) } }
         presenter?.shortcuts.sync()
         let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         guard !owner.withdrawn else { return }
@@ -193,7 +197,7 @@ final class AlertHost {
         guard let presenter, let pop = owner.node, presenter.menus.live(pop), presenter.hosts(owner.window),
               plan(of: pop) != nil else { return false }
         if owner.sourced {
-            guard let source = owner.source, presenter.menus.invokes(source, pop) else { return false }
+            guard let source = owner.source, presenter.menus.invokes(source, pop, requiringTarget: owner.invoked) else { return false }
         }
         return owner.rows.allSatisfy { row in
             guard let node = row.node, presenter.menus.live(node), node.isDescendant(of: pop), closes(node, pop),
@@ -205,7 +209,7 @@ final class AlertHost {
     /// End the sheet with nothing pressed.
     private func withdraw(_ owner: Presented) {
         owner.withdrawn = true
-        if presented === owner { presented = nil }
+        if presented === owner { presented = nil; if let pop = owner.node { presenter?.popoverEvents.changed(pop, open: false) } }
         if let window = owner.window, window.attachedSheet === owner.alert.window { window.endSheet(owner.alert.window, returnCode: .abort) }
         owner.alert.window.orderOut(nil)
     }

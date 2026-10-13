@@ -2,7 +2,7 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
-import { setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
+import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
@@ -46,6 +46,9 @@ export const commands = say => ({
   // `showModal(id)` from an action (LLP 1115 D6): the dialog's own, or an
   // alertdialog popover's showPopover, as the native hosts present either.
   showModal: id => modal(id, say, "showModal"),
+  showPopover: (id, source) => popoverCommand("showPopover", id, source, say),
+  hidePopover: id => popoverCommand("hidePopover", id, null, say),
+  togglePopover: (id, source) => popoverCommand("togglePopover", id, source, say),
   // A JS build links no update store (facts.js `exactDelivery`): the page
   // loaded the newest root, and nothing is ever staged.
   deliveryCheck: () => say("delivery: no update store on the web; the page loaded the newest root"),

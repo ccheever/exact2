@@ -436,6 +436,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "maxlength" => AttrTarget::Prop(p("maxlength")),
         "cancel" => AttrTarget::Handler("cancel"),
         "close" => AttrTarget::Handler("close"),
+        "toggle" => AttrTarget::Handler("toggle"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),

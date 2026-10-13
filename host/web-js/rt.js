@@ -946,7 +946,7 @@ export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
 export const onFocus = (e, kind, f, l) => { return l(kind, () => queueMicrotask(() => e.isConnected && f())); };
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
-// its part of the page's selection, the `Selection` record (navigation.js)
+export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
 export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b) => f([text, a, b])); };
 
 // ---------------------------------------------------------------- presence (LLP 1063)

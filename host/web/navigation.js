@@ -66,7 +66,6 @@ function historyURL(path) {
   return url.href;
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
-
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) : undefined;
 // @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws UIKit's system Back button
@@ -134,7 +133,6 @@ function pressBack(nav) {
     return `its id="${control.id}" control is disabled, inert or not shown`;
   control.click();
 }
-
 function go(to, from, finish = () => {}) {
   const index = browserIndex();
   const current = index !== null && originIndex !== null ? index - originIndex : from;
@@ -142,7 +140,6 @@ function go(to, from, finish = () => {}) {
   echo = { index: to, finish };
   history.go(to - current);
 }
-
 function commit(op) {
   for (const id of op.removed) gone.add(id);
   if (first === null) {
@@ -172,7 +169,6 @@ function commit(op) {
     history.pushState(written[cursor], "", historyURL(op.url));
   }
 }
-
 function popped({ j, state, url }) {
   const entry = written[j];
   const owned = entry && state?.exact === j && state.id === entry.id && state.url === entry.url;
@@ -212,15 +208,12 @@ function popped({ j, state, url }) {
     }
   } finally { pop = null; }
 }
-
 function drain() {
   if (draining || echo !== null) return;
   draining = true;
   try { for (let item; queue.length && echo === null;) { item = queue.shift(); if (item.op) commit(item.op); else popped(item); } } finally { draining = false; }
 }
-
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
-
 export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
   connect(hostRoot, dispatch, journal, back = null, goTo = null) {
@@ -353,10 +346,10 @@ export const navigation = {
       source: selected?.getAttribute("navigationSource") ?? null,
       closedby: selected?.getAttribute("closedby") ?? null,
       transition: { interactive: false, phase: "idle" },
+      popover: popoverObservation(root),
     };
   },
 };
-
 // @ref LLP 1047 D5 — springs, holds and drags (`motion-glue.js`) and virtualized collections
 // (`collection-glue.js`) are after-paint pieces, fetched when a batch first needs one. Until they arrive
 // their calls wait in order and replay then; before any use, a call with nothing to reconcile is dropped,
@@ -427,7 +420,6 @@ export function afterPaintPieces(load, o) {
     return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
   } };
 }
-
 // @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
 // `presence-glue.js`, fetched when a batch first carries either row. A batch
 // with an exit that arrives before the module does waits for it, and every
@@ -453,7 +445,6 @@ export function presenceLoader(load, root, apply, log) {
     },
   };
 }
-
 // The agent's browser clock (LLP 1012): author-paused animations keep their
 // own time (LLP 1055 D10); every other animation follows the runner's clock.
 export function animationClock(now, settled, synced) {
@@ -488,7 +479,6 @@ export function animationClock(now, settled, synced) {
     },
   };
 }
-
 // Synced animations (LLP 1055.002): a node whose `animation-timeline` is
 // `clock(Name)` carries `--exact-animation-clock:Name` (css.rs), and each CSS
 // animation on it joins that clock. A clock is one origin, set when an
@@ -549,7 +539,6 @@ export function animationClocks(root) {
     },
   };
 }
-
 // The eager scrollFollowEnd projection also belongs to this DOM controller.
 export function scrollFollowers(positionContexts) {
 // An explicit chat/log policy, not CSS overflow anchoring: keep the end
@@ -591,7 +580,6 @@ function followScroll(el, enabled) {
 }
   return { followedScrolls, followScroll, settleFollow, rememberScroll };
 }
-
 // A `markup="markdown"` text node's pieces, as the wasm emitted them
 // (`[text, scale, weight, flags, href, indent]`; flags italic 1, mono 2, strike 4,
 // link 8, quiet 16, hanging marker 32), built into spans with textContent — never HTML. Lives here because it
@@ -654,7 +642,6 @@ export function renderMarkup(el, json) {
     });
   }
 }
-
 // @ref LLP 1007 §6 — a page the dev server serves names its current generation, and its first boot is that one, not
 // app.wasm's older baked plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked (glue.js asks
 // when the wasm is up); without it, or with none in 5 s, the page boots the baked plan.
@@ -667,7 +654,6 @@ export function devFirst() {
     if (slot.provide) ask(); else slot.ready = ask;
   });
 }
-
 // Refusals and malformed request bodies are known while their enclosing batch is still applying. Deliver them on the
 // next microtask so their commits cannot re-enter `apply` halfway through that batch; in flight until then, so a wait
 // sees what their parse asks for next.
@@ -716,7 +702,6 @@ export function focusController({ready, elements, inert}) {
     } finally {pointerTarget = previous;}
   }};
 }
-
 // Field and focus commands run after the batch's nodes and values commit; their handlers may dispatch an action.
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
@@ -744,7 +729,6 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
     if (selectText && document.activeElement === el) el.select();
   }
 }
-
 // The nearest inert ancestor (a modal dialog ends the search: its subtree is live).
 export function inertAncestor(el) {
   for (let node = el; node; node = node.parentElement) {
@@ -753,7 +737,6 @@ export function inertAncestor(el) {
   }
   return null;
 }
-
 // The page's environment: the safe-area insets from a hidden probe's padding, and the
 // keyboard's height as the visual viewport reports it.
 let probe;
@@ -1496,4 +1479,21 @@ export function onSelection(e, report) {
     }
   });
   selectedTexts.set(e, { report, a: 0, b: 0 });
+}
+// HTML's methods and source, shared by both web targets (LLP 1021 §4).
+export function popoverCommand(method, id, source, say) {
+  const pop = document.getElementById(id), anchor = source == null ? null : document.getElementById(source);
+  if (!pop?.hasAttribute("popover")) return say(`${method} "${id}" refused: no popover has that id`);
+  if (source != null && !anchor) return say(`${method} "${id}" refused: no source has id "${source}"`);
+  try { pop[method](method === "hidePopover" || !anchor ? undefined : { source: anchor }); }
+  catch (e) { say(`${method} "${id}" refused: ${e.name}`); }
+}
+const popoverSources = new WeakMap();
+globalThis.document?.addEventListener?.("beforetoggle", e => {
+  if (e.target.hasAttribute("popover") && e.newState === "open") popoverSources.set(e.target, e.source ?? null);
+}, true);
+function popoverObservation(root) {
+  const pop = [...root.querySelectorAll("[popover]:popover-open")].at(-1), source = pop && popoverSources.get(pop);
+  const id = el => globalThis.exact?.viewId?.(el) ?? Number(el.dataset.view);
+  return pop ? { phase: "open", popover: id(pop), source: source ? id(source) : null } : null;
 }

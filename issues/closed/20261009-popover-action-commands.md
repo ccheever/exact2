@@ -1,6 +1,7 @@
 # `showPopover(id)`, `hidePopover(id)`, `togglePopover(id)` from an action and a popover `toggle` event (the popover sibling of #282)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Added popover commands and coalesced ToggleEvent observations; review regressions cover native context-menu command visibility, wasm focus/popover ordering, and recycled-row event identity, alongside the earlier chooser, confirmation and menu-focus tests. UIKit navigation-bar menu lifecycle remains incomplete; see Remaining work.
 **Systems:** Contract, GUI hosts, menus
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -12,6 +13,23 @@
 Select showPopover/hidePopover/togglePopover and toggle payloads through the existing popover lifetime. Pin anchoring, errors, idempotence, ordering and focus against HTML: inferred key-handler anchoring is a proposed extension. Coordinate #282/#281; interestfor stays out.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
+
+## Remaining work
+
+- UIKit navigation-bar menus (`NavigationBarIOS.barItem`) use a separate
+  `UIBarButtonItem.menu`: opening/dismissal do not notify `PopoverEvents`, and
+  `MenuHost.isOpen`/`hidePopover` do not track or dismiss them (review round 2,
+  finding 2). The SDK exposes no menu lifecycle delegate on `UIBarButtonItem`;
+  connecting this path while preserving native bar presentation needs a separate
+  bounded implementation. The attempted `NavigationBarIOSTests` callback probe
+  could not run because both selected shutdown iOS 27 simulators stalled during
+  boot; this finding is confirmed by code inspection, not a runtime reproduction.
+
+Rebase verification (2026-10-13): the five requested UIKit classes executed on
+iOS 27 simulator C25DD7E7 with 61 passes, four existing scene-dependent skips,
+and no failures. All five new lane regressions passed, including
+`NodePoolIOSTests.testQueuedPopoverEventsDoNotFollowARecycledRow`. The three
+AppKit classes passed 54 tests; web menu conformance matched all 27 steps.
 
 ## Original report
 

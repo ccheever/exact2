@@ -372,7 +372,7 @@ package final class Runtime {
     }
     /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its
     /// plain text; a `contextmenu` (10) with its pointer line, a `wheel`
-    /// (37) or a `drop` (38) with theirs (`Event::of_host_kind`).
+    /// (37), a `drop` (38), or a popover `toggle` (50) with theirs (`Event::of_host_kind`).
     func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }
