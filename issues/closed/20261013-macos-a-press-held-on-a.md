@@ -1,6 +1,7 @@
 # macOS: a press held on a scroll view's empty port aborts the app when the scroll view leaves with its freed parent
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #523
 **Systems:** host/apple macOS
 **Severity:** P1
 **Author:** Daehyeon Mun (via the T3 Code clone, X87)
