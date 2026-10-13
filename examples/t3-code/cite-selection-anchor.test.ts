@@ -172,7 +172,8 @@ describe('G4-03b: the answer offers Cite as observeSelectionActions does', () =>
   test('a drag: Cite hides at the press, waits through the drag, and is offered at the release point', () => {
     const a = answer();
     a.md.call('down', a.state, a.scope('["t","a"]'), [{ buttons: 1, clientX: 280.5, clientY: 362.8 }]);
-    expect(a.calls.slice(0, 2)).toEqual([['windowDown', { buttons: 1, clientX: 280.5, clientY: 362.8 }], ['withdraw', '["t","a"]']]);
+    // The window hears the press (and hides Cite there: below).
+    expect(a.calls).toEqual([['windowDown', { buttons: 1, clientX: 280.5, clientY: 362.8 }]]);
     expect(a.state).toMatchObject({ held: true, moved: false });
     a.md.call('selected', a.state, a.scope(), ['2', '', a.selection('A closing paragraph', 0, 19, [geometry(280, 352.5, 140, 21)])]);
     a.md.call('selected', a.state, a.scope(), ['2', '', a.selection('A closing … last line.', 0, 140, a.line2)]);
@@ -192,7 +193,7 @@ describe('G4-03b: the answer offers Cite as observeSelectionActions does', () =>
     a.md.call('down', a.state, a.scope('["t","a"]'), [{ buttons: 1, clientX: 900, clientY: 300 }]);
     a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 900, clientY: 300 }]);
     expect(a.offers()).toEqual([]);
-    expect(a.calls.map(c => c[0])).toEqual(['windowDown', 'withdraw', 'windowUp']);
+    expect(a.calls.map(c => c[0])).toEqual(['windowDown', 'windowUp']);
   });
 
   test('a selection made without the pointer is offered at once at its last line; cleared, it is withdrawn', () => {
@@ -246,6 +247,17 @@ describe('G4-03a: a plain Tab focuses Cite (AssistantSelectionToolbar.tsx:87-107
     button.call('keys', { hovering: false }, { preventDefault: () => calls.push('preventDefault'), dismiss: () => calls.push('dismiss') }, ['Escape']);
     expect(calls).toEqual(['preventDefault', 'dismiss']);
   });
+
+  test('the Tab\'s focus draws Cite\'s ring (focus-visible:ring-2 ring-offset-1); the ring goes with the focus', () => {
+    const button = contractComponent('diff-cite.contract', 'CiteAction');
+    const state: Env = { hovering: false, focused: false };
+    button.call('focusChanged', state, {}, [true]);
+    expect(state.focused).toBe(true);
+    button.call('focusChanged', state, {}, [false]);
+    expect(state.focused).toBe(false);
+    expect(source('diff-cite.contract')).toContain('focus=focusChanged(true) blur=focusChanged(false) disabled=tooLong');
+    expect(source('diff-cite.contract')).toContain('box-shadow=(focused ? "0 0 0 1px light-dark(#fcfcfc, #0a0a0a), 0 0 0 3px light-dark(#1b4ed8, #346bf1), 0 8px 24px -12px #00000059" : "0 8px 24px -12px #00000059")');
+  });
 });
 
 describe('the window draws Cite and sends it (app-window.contract)', () => {
@@ -264,6 +276,18 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=citeScrolled');
   });
 
+  test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {
+    const at = (x: number, y: number) => {
+      const state: Env = { outsideDown: false, citeFor: '["t","a"]' };
+      window.call('outsidePressDown', state, { chipShown: false, detailsOpen: false, frame: (id: string) => id === 'cite-action' ? geometry(501, 385, 65.3, 28) : geometry(0, 0, 0, 0) },
+        [{ buttons: 1, clientX: x, clientY: y }]);
+      return state;
+    };
+    expect(at(530, 399)).toMatchObject({ outsideDown: true, citeFor: '["t","a"]' });
+    expect(at(300, 362)).toMatchObject({ outsideDown: true, citeFor: '' });
+    expect(at(1200, 30)).toMatchObject({ citeFor: '' });
+  });
+
   test('the press sends the parts with the last line measured again, then clears the selection (removeAllRanges after onCite)', () => {
     const calls: unknown[][] = [];
     const state: Env = { citeOffer: offer, citeFor: '["t","a"]', citeThread: 't' };
@@ -276,7 +300,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   test('Cite is drawn by the window above the timeline (the reference portals it to the body), not inside the answer', () => {
     expect(source('app-window.contract')).toContain('when citeShows\n          CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))');
     expect(source('markdown.contract')).toContain('column width="100%" pointerdown=down pointerup=up keycapture=keys\n      DiagramBlocks(');
-    expect(source('diff-cite.contract')).toMatch(/button id="cite-action" retainFocus=true press=press key=keys hover=hover disabled=tooLong aria-label=\(tooLong \? "Selection is too long to cite" : "Cite selection in composer"\) testId=`cite-\$\{offer.source\}` position="absolute" left=citeActionLeft\(offer.x, viewportWidth, tooLong\) top=citeActionTop\(offer.y, viewportHeight\) z-index=50/);
+    expect(source('diff-cite.contract')).toMatch(/button id="cite-action" retainFocus=true press=press key=keys hover=hover focus=focusChanged\(true\) blur=focusChanged\(false\) disabled=tooLong aria-label=\(tooLong \? "Selection is too long to cite" : "Cite selection in composer"\) testId=`cite-\$\{offer.source\}` position="absolute" left=citeActionLeft\(offer.x, viewportWidth, tooLong\) top=citeActionTop\(offer.y, viewportHeight\) z-index=50/);
   });
 });
 
