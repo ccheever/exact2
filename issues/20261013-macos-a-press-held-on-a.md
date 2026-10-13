@@ -52,8 +52,10 @@ RT-1 session 2).
 ## Reproduction
 
 `ScrollRoutingTests.testAnEmptyScrollPortFreedUnderAPressGoesWithItsNode`: a press on the empty port of a scroll node
-inside a panel, a batch that replaces the panel and destroys both nodes, the up, then a click on the new panel. Both
-shapes above.
+inside a panel, a batch that replaces the panel and destroys both nodes, then a click on the new panel (AppKit sends the
+first up to no view). Both shapes above raise the exception on main `c016978a6`. A scratch app driven in agent mode
+(`tap transcript down at 60 150`, then `type field x`, whose `input` action swaps the panel) exits with SIGABRT at the
+`type` (shape 1), or, with the scroll node in a column that hears `pointerdown`, at the next click's up (shape 2).
 
 ## Current scope
 
