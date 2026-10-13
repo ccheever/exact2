@@ -272,14 +272,14 @@ final class TableFeedKeyMacTests: XCTestCase {
             nav = go(nav, url)
           view
             main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
-              each e in stack(nav) key=e.id
-                when e.name == "items"
+              for e in stack(nav) key=e.id
+                if e.name == "items"
                   column navigationKey=`${e.id}` position="absolute" inset=0
                     list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
-                      each r in rows key=`k${r}`
+                      for r in rows key=`k${r}`
                         \(row) testId=`row-${r}` padding="6px 0" width="100%"
                           text `Row ${r}` testId=`title-${r}`
-                when e.name == "item"
+                if e.name == "item"
                   column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
                     text `Item ${e.params.id}` testId="detail"
                     button id="back" press=back testId="back"
@@ -367,7 +367,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         column width="100%" height="100%"
           text `log ${log}` testId="status"
           list virtualized=true estimated-item-height=44 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" key=listKey aria-label="Twenty rows" testId="rows"
-            each r in rows key=`k${r}`
+            for r in rows key=`k${r}`
               row press=open(r) contextmenu=aim(r) dblclick=twice(r) key=rowKey testId=`row-${r}` align-items="center" gap=8 padding="6px 0" width="100%"
                 image "symbol:star" testId=`star-${r}`
                 column flex=1 min-width=0

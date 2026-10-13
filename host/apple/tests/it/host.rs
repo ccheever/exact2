@@ -1198,9 +1198,9 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     every(100, tick)
   view
     column testId="parent"
-      when phase == 1
+      if phase == 1
         text "typing"
-      when phase >= 2
+      if phase >= 2
         text "reply" testId="reply"
 "#,
     )
@@ -1339,7 +1339,7 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
     phase = phase + 1
   view
     column
-      when phase == 1
+      if phase == 1
         column
           text "next" press=next contextmenu=next testId="go"
           text "plain" testId="plain"

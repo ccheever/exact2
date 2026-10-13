@@ -1047,7 +1047,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(Ty::Bool) => {}
                     Ok(_) => sink.push(TypeError {
                         id: "type-condition",
-                        message: "`when` needs a bool".into(),
+                        message: "`if` needs a bool".into(),
                         span: cond.span(),
                     }),
                     Err(e) => sink.push(e),
@@ -1064,12 +1064,12 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 ..
             } => {
                 let item = match infer(list, scope, shapes) {
-                    // `each x in []`: nothing says what `x` would be.
+                    // `for x in []`: nothing says what `x` would be.
                     Ok(Ty::List(item)) if !item.is_complete() => {
                         sink.push(TypeError {
                             id: "type-cannot-infer",
                             message: format!(
-                                "cannot infer what `{}` holds: `each` needs a typed list, and `[]` shows nothing",
+                                "cannot infer what `{}` holds: `for` needs a typed list, and `[]` shows nothing",
                                 var
                             ),
                             span: list.span(),
@@ -1080,7 +1080,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(lt) => {
                         sink.push(TypeError {
                             id: "type-each-list",
-                            message: format!("`each` needs a list, given `{lt}`"),
+                            message: format!("`for` needs a list, given `{lt}`"),
                             span: list.span(),
                         });
                         continue;

@@ -252,7 +252,7 @@ component RealWorld
       // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
       // keeps one <Home> mounted: going to a tag changes the feed and the
       // tabs, not the page.
-      when current.name == "home" or current.name == "tag"
+      if current.name == "home" or current.name == "tag"
         column navigationKey=`${current.id}` flex=1 testId=`page-${current.name}`
           head title="Home — Conduit"
           HomePage(
@@ -274,19 +274,19 @@ component RealWorld
       // is `current.id` and hides the rest and makes them inert. So each
       // entry's page, and the drafts its components hold (a child's state
       // lives as long as its instance, LLP 1017 P4c), survives Back.
-      each e in stack(nav) key = e.id
-        when e.name != "home" and e.name != "tag"
+      for e in stack(nav) key = e.id
+        if e.name != "home" and e.name != "tag"
           column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
-            when e.name == "login"
+            if e.name == "login"
               head title="Sign in — Conduit"
               AuthPage(signup=false, auth=auth, go=go, login=login, register=register)
-            when e.name == "register"
+            if e.name == "register"
               head title="Sign up — Conduit"
               AuthPage(signup=true, auth=auth, go=go, login=login, register=register)
-            when e.name == "settings"
+            if e.name == "settings"
               head title="Settings — Conduit"
               SettingsPage(me=me, auth=auth, save=saveSettings, logout=logout)
-            when e.name == "editor" or e.name == "edit"
+            if e.name == "editor" or e.name == "edit"
               head title="Editor — Conduit"
               EditorPage(
                 post=post,
@@ -299,7 +299,7 @@ component RealWorld
                 removeTag=removeTag,
                 publish=publish
               )
-            when e.name == "article"
+            if e.name == "article"
               head title=`${post.title} — Conduit`
               ArticlePage(
                 me=me,
@@ -317,7 +317,7 @@ component RealWorld
                 postComment=postComment,
                 uncomment=uncomment
               )
-            when e.name == "profile" or e.name == "favorites"
+            if e.name == "profile" or e.name == "favorites"
               head title=`${e.params.username} — Conduit`
               ProfilePage(
                 me=me,
@@ -333,7 +333,7 @@ component RealWorld
                 favorite=favorite,
                 follow=follow
               )
-            when e.name == "notfound"
+            if e.name == "notfound"
               head title="Not found — Conduit" status=404
               column class=Container padding-top=24
                 text "This page doesn't exist." font-size=24
@@ -361,7 +361,7 @@ component Header
             color=(current.name == "home" ? "#000000cc": "#0000004d")
             testId="nav-home"
             text "Home"
-          when me.signedIn
+          if me.signedIn
             link href="/editor" press=go("/editor")
               class=NavLink
               color=(current.name == "editor" ? "#000000cc": "#0000004d")
@@ -457,7 +457,7 @@ component Previews
     favorite: action
   view
     column
-      when loading and not feed.ready
+      if loading and not feed.ready
         text "Loading articles..." padding-top=24
           padding-bottom=24
           border-top-style="solid"
@@ -465,14 +465,14 @@ component Previews
           border-color="#eeeeee"
           testId="feed-loading"
       else
-        when feed.message != ""
+        if feed.message != ""
           text feed.message padding-top=24
             padding-bottom=24
             border-top-style="solid"
             border-top-width=1
             border-color="#eeeeee"
             testId="feed-empty"
-      each a in feed.articles key = a.slug
+      for a in feed.articles key = a.slug
         article padding-top=24
           padding-bottom=24
           border-top-style="solid"
@@ -483,7 +483,7 @@ component Previews
             Meta(author=a.author, date=a.date, go=go)
             // Signed out, the ♥ goes to sign up: a link, so it works
             // before the runtime loads.
-            when me.signedIn
+            if me.signedIn
               Heart(slug=a.slug, favorited=a.favorited, count=a.favoritesCount, favs=favs, favorite=favorite)
             else
               link href="/register" press=go("/register")
@@ -506,16 +506,16 @@ component Previews
               color="#bbbbbb"
               text "Read more..."
             row flex-wrap="wrap" justify-content="flex-end" max-width="50%"
-              each t in a.tags key = t
+              for t in a.tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
                   font-weight=300
                   background-color="#ffffff"
                   text t
-      when length(feed.pages) > 0
+      if length(feed.pages) > 0
         row flex-wrap="wrap" margin-top=16 margin-bottom=16 testId="pagination"
-          each p in feed.pages key = p.n
+          for p in feed.pages key = p.n
             button press=showPage(p.n)
               padding-top=8
               padding-bottom=8
@@ -559,7 +559,7 @@ component HomePage
           // The tabs are links, as React's are: Your Feed and Global Feed
           // push their URL; a tag's own tab is where you are.
           row class=Tabs
-            when me.signedIn
+            if me.signedIn
               link href="/?feed=following" press=go("/?feed=following")
                 padding-top=8
                 padding-bottom=8
@@ -584,7 +584,7 @@ component HomePage
               background-color="#ffffff"
               testId="tab-global"
               text "Global Feed"
-            when tag != ""
+            if tag != ""
               link href=`/tag/${encodeURIComponent(tag)}`
                 padding-top=8
                 padding-bottom=8
@@ -614,10 +614,10 @@ component HomePage
             border-color="#eeeeee"
             testId="sidebar"
             text "Popular Tags" margin-bottom=3
-            when tagsLoading and length(tags) == 0
+            if tagsLoading and length(tags) == 0
               text "Loading tags..." color="#999999"
             row flex-wrap="wrap"
-              each t in tags key = t
+              for t in tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#222222"
@@ -630,7 +630,7 @@ component Errors
     errors: list<string>
   view
     column class=Error testId="errors"
-      each m in errors key = m
+      for m in errors key = m
         text `• ${m}`
 
 component AuthPage
@@ -664,12 +664,12 @@ component AuthPage
           text(signup ? "Have an account?": "Need an account?")
         match auth
           case some(a)
-            when not a.ok
+            if not a.ok
               Errors(errors=a.errors)
           case none
             box
         column
-          when signup
+          if signup
             input value=username
               input=setUsername
               placeholder="Username"
@@ -689,7 +689,7 @@ component AuthPage
             aria-label="Password"
             class=FieldLg
             testId="password"
-          when signup
+          if signup
             button press=register(username, email, password) class=BtnLg testId="submit"
               text "Sign up"
           else
@@ -740,7 +740,7 @@ component SettingsPage
           text-align="center"
         match auth
           case some(a)
-            when not a.ok
+            if not a.ok
               Errors(errors=a.errors)
           case none
             box
@@ -829,7 +829,7 @@ component EditorPage
       column width="100%" max-width=950
         match change
           case some(c)
-            when not c.ok and c.kind == "publish"
+            if not c.ok and c.kind == "publish"
               Errors(errors=c.errors)
           case none
             box
@@ -861,7 +861,7 @@ component EditorPage
           margin-bottom=4
           testId="tags"
         row flex-wrap="wrap" margin-bottom=16
-          each t in tags key = t
+          for t in tags key = t
             row class=Tag
               align-items="center"
               gap=4
@@ -898,7 +898,7 @@ component ArticleActions
   view
     row align-items="center" flex-wrap="wrap" gap=8
       Meta(author=post.author, date=post.date, go=go)
-      when me.signedIn and me.username == post.author.username
+      if me.signedIn and me.username == post.author.username
         button press=go(`/editor/${encodeURIComponent(post.slug)}`)
           class=BtnSm
           border-color="#cccccc"
@@ -916,7 +916,7 @@ component ArticleActions
       else
         // Signed out, both go to sign up: links, so they work before the
         // runtime loads.
-        when me.signedIn
+        if me.signedIn
           button press=follow(post.author.username, not following)
             class=BtnSm
             border-color="#cccccc"
@@ -965,7 +965,7 @@ component ArticlePage
     uncomment: action
   view
     column
-      when not post.found
+      if not post.found
         column class=Container padding-top=24
           text(loading ? "Loading article...": "This article doesn't exist.") testId="article-loading"
       else
@@ -996,7 +996,7 @@ component ArticlePage
               line-height="28.8px"
               testId="article-body"
             row flex-wrap="wrap" margin-top=16
-              each t in post.tags key = t
+              for t in post.tags key = t
                 link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
@@ -1021,7 +1021,7 @@ component ArticlePage
                 light=false
               )
             column width="100%" max-width=620 margin-left="auto" margin-right="auto"
-              when me.signedIn
+              if me.signedIn
                 column border-style="solid"
                   border-width=1
                   border-color="#eeeeee"
@@ -1069,7 +1069,7 @@ component ArticlePage
                   link href="/register" press=go("/register") color="#33aa44"
                     text "sign up"
                   text "to add comments on this article."
-              each c in thread key = c.id
+              for c in thread key = c.id
                 column border-style="solid"
                   border-width=1
                   border-color="#eeeeee"
@@ -1098,7 +1098,7 @@ component ArticlePage
                       color="#33aa44"
                       text c.author.username
                     text c.date color="#bbbbbb"
-                    when c.mine
+                    if c.mine
                       button press=uncomment(post.slug, c.id)
                         margin-left="auto"
                         color="#333333"
@@ -1149,8 +1149,8 @@ component ProfilePage
             max-width=450
             text-align="center"
             margin-bottom=8
-          when person.found
-            when me.signedIn and me.username == person.username
+          if person.found
+            if me.signedIn and me.username == person.username
               button press=go("/settings")
                 class=BtnSm
                 align-self="flex-end"
@@ -1160,7 +1160,7 @@ component ProfilePage
                 testId="edit-settings"
                 text "⚙ Edit Profile Settings"
             else
-              when me.signedIn
+              if me.signedIn
                 button press=follow(person.username, not following)
                   class=BtnSm
                   align-self="flex-end"

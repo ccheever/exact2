@@ -377,12 +377,12 @@ impl Collection {
         }
         let child_sites = u.sites.children(Some(node), descriptor.arm);
         let [(_, Site::Region(region))] = child_sites else {
-            return Err(invalid("collection needs one direct each"));
+            return Err(invalid("collection needs one direct `for`"));
         };
         let region = *region;
         let row = plan.region(region);
         if row.kind != RegionKind::Each || row.arms.len != 1 {
-            return Err(invalid("collection needs one each arm"));
+            return Err(invalid("collection needs one `for` arm"));
         }
         if !matches!(
             u.sites.children(None, row.arms.iter().next()),
@@ -687,7 +687,7 @@ impl Collection {
                 });
             }
             // A repeated key is the data's error: the repeat takes the
-            // next identity in order (as an `each` does).
+            // next identity in order (as a `for` does).
             let mut dup = 0;
             let ident: Rc<str> = if unique.contains_key(text.as_str()) {
                 let mut ident = text.clone();

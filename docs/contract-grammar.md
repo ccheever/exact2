@@ -32,7 +32,7 @@ syntax, `{ … }` for repetition, and quoted text for literal tokens. `NL`, `IND
 and `DEDENT` describe logical line boundaries. `block(X)` means an indented run of
 `X` entries, `NL [ INDENT { X } DEDENT ]`; blank and comment-only lines do not
 count as entries. Most bodies may be empty (a shape, a style, `props`, an action,
-an `each` body, a `case` arm, a test). The bodies of `if`/`else` and `when`/`else`,
+a `for` body, a `case` arm, a test). The bodies of `if`/`else`,
 a `keyframes` or `font` block, and a component need at least one entry.
 
 - A name starts with `[A-Za-z_]`, followed by ASCII alphanumerics/underscores or
@@ -70,10 +70,10 @@ a `keyframes` or `font` block, and a component need at least one entry.
 
 The lexer reserves no separate keyword token kind. Sixteen words are reserved,
 and only where a name is bound ([`names.rs`](../contract/syntax/src/parser/names.rs),
-LLP 1088 D5): `when`, `if`, `else`, `each`, `in`, `match`, `case`, `as`, `fn`,
+LLP 1088 D5): `when`, `if`, `else`, `for`, `in`, `match`, `case`, `as`, `fn`,
 `and`, `or`, `not`, `true`, `false`, `none`, `some`. A binder is a component's
 props, injects and provided names; states, derives, resources, mutations and actions; action and
-`fn` parameters and `fn` names; `let`, an `each` item and index, `case some(x)`,
+`fn` parameters and `fn` names; `let`, a `for` item and index, `case some(x)`,
 an arrow parameter; and a shape name (a shape name builds the shape, so
 `shape none` is refused). There a reserved word is refused as "`in` is reserved
 in Contract (it shapes an expression); choose another name", and is never a value.
@@ -188,7 +188,7 @@ component remains the root. A name both declared and used
 
 A route pattern is an absolute path with literal or whole `:name` segments.
 Indentation determines its parent. The optional fallback is `notfound` without
-a path; with none, the compiler writes it and its screen (a navigation root drawing `each e in stack(nav)`). Route policy fields use attribute syntax and are validated by the
+a path; with none, the compiler writes it and its screen (a navigation root drawing `for e in stack(nav)`). Route policy fields use attribute syntax and are validated by the
 [route/document compiler](../contract/lower/src/routes.rs).
 
 ## Components and actions
@@ -235,15 +235,16 @@ There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks. A task's
 body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
 timer only while `cond` holds, armed from the commit that made it true; `key=`
-re-arms it from the commit that changed the key (compared as an `each` key),
+re-arms it from the commit that changed the key (compared as a `for` key),
 and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
 key a string, number or bool (`type-task-key`), and neither reads `performanceNow()`,
 directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
 
-`else if c` is `else` around one nested `if c`, and `else when c` in a view
-is `else` around one nested `when c`: the same tree, so the same plan. The
-keyword after `else` is its construct's own (`syntax-else-keyword`).
+`else if c` is `else` around one nested `if c`, in an action and in a view
+alike: the same tree, so the same plan. A view refuses `when` and `each`
+(`syntax-view-keyword`) and `else when` (`syntax-else-keyword`), naming the
+edit.
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
 or awaits. A standalone call statement `name(args)` is a host command when `name`
@@ -284,7 +285,7 @@ Component `contract` sections are also refused.
 ## Views
 
 ```ebnf
-node          = element | component-use | when | each | view-match | children ;
+node          = element | component-use | view-if | for | view-match | children ;
 element       = TAG { attribute | expr | special-word } NL [ element-body ] ;
 attribute     = FIELD "=" expr | "autofocus" ;
 element-body  = INDENT { continuation | element-part } { node } DEDENT ;
@@ -293,8 +294,8 @@ element-part  = "::" "placeholder" NL block(continuation) ;
 component-use = CAPITALIZED_IDENT "(" [ named-args ] ")" NL [ node-children ] ;
 named-args    = FIELD "=" expr { "," FIELD "=" expr } [ "," ] ;
 node-children = INDENT node { node } DEDENT ;
-when          = "when" expr block(node) [ "else" ( when | block(node) ) ] ;
-each          = "each" IDENT [ "," IDENT ] "in" expr "key" "=" expr block(node) ;
+view-if       = "if" expr block(node) [ "else" ( view-if | block(node) ) ] ;
+for           = "for" IDENT [ "," IDENT ] "in" expr "key" "=" expr block(node) ;
 view-match    = "match" expr block(view-case) ;
 view-case     = "case" "some" "(" IDENT ")" block(node)
               | "case" "none" block(node) ;
@@ -314,9 +315,9 @@ to the children's level.
 A repeated attribute on one element is refused. A component use takes named
 arguments; its name starts uppercase to distinguish it from an element.
 
-An `each` key is a string, number, or boolean, with unique stable values required
+A `for` key is a string, number, or boolean, with unique stable values required
 for useful row identity. Its optional second binding is the numeric row index.
-`when` conditions are boolean and `match` subjects are options. Root regions are
+`if` conditions are boolean and `match` subjects are options. Root regions are
 refused: wrap them in an element. `children` requires a declared slot.
 
 ## Expressions and types
@@ -1230,7 +1231,7 @@ refused, a radio being unchecked only by checking another.
 ```text
 action pick(value: string)
   color = value
-each c in colors key=c
+for c in colors key=c
   input type="radio" name="color" value=c checked=color == c change=pick aria-label=c
 ```
 
@@ -1465,7 +1466,7 @@ task release when hints and not page.hasFocus
 ```
 
 `resource page = exactPage() as shape Page` (`hasFocus: bool`), `column
-key=down keyup=up`, and `when hints and page.hasFocus` around the hints. The
+key=down keyup=up`, and `if hints and page.hasFocus` around the hints. The
 driver holds and releases a key with `type "list" key "Meta" down` and `key
 "Meta" up`, takes the focus away with `prefer has-focus false` (then `clock
 +1` for the task), and `key "a" for 1200` repeats a key while held, as a

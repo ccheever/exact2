@@ -889,7 +889,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     }
     #else
     /// A row's switch as its control now stands: the row's current target
-    /// (a `when` may have replaced it), its committed `checked`, whether it
+    /// (an `if` may have replaced it), its committed `checked`, whether it
     /// or the row is disabled, its accent and name.
     private func refresh(_ id: UInt32, _ toggle: UISwitch) {
         let node = rows[id]?.target.flatMap { host.presenter.views[$0] }

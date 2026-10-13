@@ -30,12 +30,12 @@ component Chat
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" interactive-widget="resizes-content"
       width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
           header
             text "Ada" role="heading" aria-level=2
           list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
-            each m in thread key=m.id
+            for m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
                 row position="relative" overflow="hidden" border-radius=18 max-width="75%"
                   view position="absolute" inset=0 opacity=(m.mine ? 0.35 : 1)

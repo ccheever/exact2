@@ -88,14 +88,14 @@ component App
     column
       text `${d}` testId="d"
       text `${e}` testId="e"
-      when e > 0
+      if e > 0
         text "some" testId="when"
       match s
         case some(p)
           text `${p.n}` testId="match"
         case none
           text "none" testId="match"
-      each p in l key=toString(p.n)
+      for p in l key=toString(p.n)
         text `${p.n}` testId="each"
 "#,
     );

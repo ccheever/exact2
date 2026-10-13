@@ -56,12 +56,14 @@ final class ZoomAlignmentIOSTests: XCTestCase {
         // content box, as it is drawn.
         image.removeFromSuperview(); zoomed.addSubview(image); image.frame = zoomed.bounds
         image.applyStyle(["object_fit": .string("contain"), "padding_left": 20, "padding_right": 20, "border_width": 1])
+        image.applyContentBox(padding: [0, 20, 0, 20], border: [1, 1, 1, 1])
         let padded = ModalHost.zoomAlignment(target: image, fallbackNatural: nil, in: zoomed)
         XCTAssertEqual(padded.minX, 21, accuracy: 0.01, "inside the border and the padding")
         XCTAssertEqual(padded.width, 360, accuracy: 0.01)
         XCTAssertEqual(padded.height, 270, accuracy: 0.01, "contained in 360 wide")
         // An image deeper in: a holder's child's child.
         image.applyStyle(["object_fit": .string("contain")])
+        image.applyFieldContent(["rect": NSNull()])
         let outer = NodeView(id: 4, kind: "view", presenter: p), inner = NodeView(id: 5, kind: "view", presenter: p)
         p.views[4] = outer; p.views[5] = inner
         zoomed.addSubview(outer); outer.frame = zoomed.bounds

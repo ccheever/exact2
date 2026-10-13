@@ -512,7 +512,7 @@ fn clip(s: &str) -> &str {
 
 /// What the apps may not exercise: row-owned state, `performanceNow()` read by a
 /// binding under a timer, nested lists reading the outer item,
-/// `when`/`match` inside rows, both windowed lists (one scrolled by a
+/// `if`/`match` inside rows, both windowed lists (one scrolled by a
 /// binding), and a list reordered by its rows' grips.
 const DECK: &str = r#"
 shape Tag
@@ -562,23 +562,23 @@ component Deck
       button press=jump
         text "jump"
       list virtualized=true estimated-item-height=24 height=200 scrollTop=scrollTo
-        each it in items key=it.id
+        for it in items key=it.id
           column width="100%"
             text `${it.label} ${picked}`
       list virtualized=true height=200
-        each it in items key=it.id
+        for it in items key=it.id
           column width="100%"
             text `${it.n} ${picked}`
             text join(map(it.tags, (t, i) => `${i}:${t.name}`), ",")
       text moved
       list id="deck-list" reorderdrop=moveItem virtualized=true height=200
-        each it in items key=it.id
+        for it in items key=it.id
           column width="100%"
             box reorderFor="deck-list" padding=4
               text it.label
-      when shown
+      if shown
         column
-          each it in items key=it.id
+          for it in items key=it.id
             column
               Card(item=it, picked=picked)
               text join(filter(map(it.tags, t => t.name), n => n != picked), " ")
@@ -598,8 +598,8 @@ component Card
       button press=flip
         text `${item.label} ${taps}`
       text (picked == item.id ? "picked" : "")
-      when open
-        each t in item.tags key=t.id
+      if open
+        for t in item.tags key=t.id
           text `${t.name} ${item.n} ${taps}`
       match item.note
         case some(s)

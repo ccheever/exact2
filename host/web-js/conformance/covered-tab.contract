@@ -30,15 +30,15 @@ component CoveredTab
   view
     main navigationKey=`${current.id}` navigationBack="back" testId="root" width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            each e in t.stack key=e.id
+            for e in t.stack key=e.id
               column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column" background-color="#ffffff"
-                when e.name == "home"
+                if e.name == "home"
                   text `${asks} asks, ${hi} rows` testId="count"
-                when e.name == "saved"
+                if e.name == "saved"
                   list virtualized=true reachend=more testId="feed" flex=1 min-height=0 width="100%"
-                    each c in rows key=c.id
+                    for c in rows key=c.id
                       row testId=`row-${c.n}` height=(c.n == 1999 ? 40 : 150) box-sizing="border-box" padding-left=12 align-items="center"
                         text (c.n == 1999 ? "Loading…" : c.label) font-size=14
       row role="tablist" flex-shrink=0 height=56

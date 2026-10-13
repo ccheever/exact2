@@ -85,7 +85,7 @@ const LONG: &str = r#"component Long
   derive rows = split("0 1 2 3 4 5 6 7 8 9 10 11", " ")
   view
     scroll testId="list" width=300 height=200
-      each n in rows key=n
+      for n in rows key=n
         input testId=`f${n}` height=20
 "#;
 

@@ -14,7 +14,7 @@ component App
   view
     column
       button "toggle" press=toggle testId="toggle"
-      each it, i in items key=(it.on != flip)
+      for it, i in items key=(it.on != flip)
         Row(index=i)
 
 component Row

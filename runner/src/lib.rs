@@ -23,8 +23,8 @@
 //!   delivery (LLP 1030 D7): one resource the runner answers itself.
 //! - [`device`] — `device.*` grants and the one table every host's
 //!   permission spelling derives from (LLP 1069.008).
-//! - [`instance`] — the instance tree: nodes, `when`/`match` arms, keyed
-//!   `each` rows, and the ops that keep the kernel equal to it.
+//! - [`instance`] — the instance tree: nodes, `if`/`match` arms, keyed
+//!   `for` rows, and the ops that keep the kernel equal to it.
 //! - [`runner`] — boot, actions, events, resources, timers, the clock.
 //! - [`agent`] — the agent API's read operations (`tree`, `state`, `logs`),
 //!   answered from the runner and kernel for every host.

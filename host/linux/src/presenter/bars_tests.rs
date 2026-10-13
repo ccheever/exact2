@@ -74,10 +74,10 @@ component App
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
-        each t in nav.tabs key = t.name
+        for t in nav.tabs key = t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            each e in t.stack key = e.id
-              when e.name == "home"
+            for e in t.stack key = e.id
+              if e.name == "home"
                 column navigationKey=`${e.id}` testId="route-home" position="absolute" inset=0 display="flex" flex-direction="column"
                   header display="flex" padding="8px 16px" testId="home-header"
                     text "Home" role="heading" aria-level=1 flex=1 testId="home-title"
@@ -92,7 +92,7 @@ component App
                       text "Quiet"
                     column height=2000
                       text "Tall"
-              when e.name == "detail"
+              if e.name == "detail"
                 column navigationKey=`${e.id}` testId="route-detail" position="absolute" inset=0 display="flex" flex-direction="column"
                   header display="flex" testId="detail-header"
                     button id="back" press=back testId="back"
@@ -101,14 +101,14 @@ component App
                     button press=edit testId="edit"
                       text "Edit"
                   text "Body" testId="body"
-              when e.name == "bare"
+              if e.name == "bare"
                 column navigationKey=`${e.id}` testId="route-bare" position="absolute" inset=0
                   text "No header here" testId="bare-body"
-              when e.name == "quiet"
+              if e.name == "quiet"
                 column navigationKey=`${e.id}` navigationBar="none" testId="route-quiet" position="absolute" inset=0
                   header testId="quiet-header"
                     text "Quiet" role="heading" testId="quiet-title"
-              when e.name == "other"
+              if e.name == "other"
                 column navigationKey=`${e.id}` testId="route-other" position="absolute" inset=0 display="flex" flex-direction="column"
                   header
                     text "Other" role="heading" aria-level=1

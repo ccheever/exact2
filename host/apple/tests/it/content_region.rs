@@ -247,11 +247,11 @@ fn selected_native_subtree_waits_for_b_while_outside_composer_commits() {
     draft = "Reply selected row"
   view
     column width="100%" height="100%"
-      when mounted
+      if mounted
         view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
           view id="content" width="100%" height="100%"
             column testId="bubble" padding=10 border-radius=12 background-color="#e6f0ff"
-              when sender
+              if sender
                 text "Sender" testId="sender"
               text body testId="body" font-size=14 line-height=1.45
               text "12:34" testId="meta"
@@ -412,7 +412,7 @@ fn native_collection_epochs_stay_with_selected_rows_until_complete() {
       view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
         view id="content" width="100%" height="100%"
           list virtualized=true testId="list" width="100%" height="100%"
-            each item in numbers key=item
+            for item in numbers key=item
               column width="100%" padding=4
                 text textValue
                 button press=revise
@@ -817,7 +817,7 @@ fn native_region_promotes_and_clears_the_fields_editor_rect() {
     assert!(!ops(&host.resize(400., 300.))
         .iter()
         .any(|op| op["op"] == "fieldContent"));
-    // Producer-level appearance change exercises the clearing protocol without
+    // Producer-level appearance change exercises the change of meaning without
     // introducing a bound appearance into Contract (which refuses it).
     let mut patch = exact_kernel::StyleProps::default();
     patch
@@ -842,10 +842,13 @@ fn native_region_promotes_and_clears_the_fields_editor_rect() {
         let metrics = request.with_request(|r| MonospaceMeasurer::default().measure(r));
         batch = host.complete_region_text(id, metrics, Rc::new(()));
     }
+    // A bare field's box is its CSS content box, here the editor rect it
+    // had (no chrome measured): what the presenter holds stays, never cleared
+    let last = ops(&batch)
+        .into_iter()
+        .rfind(|op| op["op"] == "fieldContent" && op["id"] == id);
     assert!(
-        ops(&batch)
-            .iter()
-            .any(|op| op["op"] == "fieldContent" && op["id"] == id && op["rect"].is_null()),
+        last.is_none_or(|op| op["rect"] == editor["rect"]),
         "{batch}"
     );
 }

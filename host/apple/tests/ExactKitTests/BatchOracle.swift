@@ -264,3 +264,21 @@ func wireBatch(_ ops: [[String: Any]]) -> Batch {
     precondition(batch.error == nil, "a test batch did not decode: \(ops)")
     return batch
 }
+
+/// The `fieldContent` op layout sends a `width` by `height` box with
+/// `padding` and `border` (top, right, bottom, left): its content box and the
+/// padding it resolved, which the presenter places content and insets by.
+/// `button`: a native button's, whose author wrote only its nonzero sides.
+func contentOp(_ id: Int, _ width: Double, _ height: Double, padding: [Double], border: [Double] = [0, 0, 0, 0], button: Bool = false) -> [String: Any] {
+    let inset = zip(padding, border).map(+)
+    let sent: [Any] = button ? padding.map { $0 == 0 ? NSNull() : $0 as Any } : padding
+    return ["op": "fieldContent", "id": id, "rect": [inset[3], inset[0], width - inset[1] - inset[3], height - inset[0] - inset[2]], "padding": sent]
+}
+
+extension NodeView {
+    /// Applies what layout sends a box of these bounds with `padding` and
+    /// `border` (`contentOp`), for a view a test makes without a presenter
+    func applyContentBox(padding: [Double], border: [Double] = [0, 0, 0, 0]) {
+        applyFieldContent(contentOp(Int(id), bounds.width, bounds.height, padding: padding, border: border))
+    }
+}

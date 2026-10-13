@@ -42,7 +42,7 @@ const APP: &str = r#"component App
         text "hide"
       input value=draft input=edit testId="input" height=32
       text `${count}` testId="count" height=24
-      when showing
+      if showing
         view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"
           scroll id="content" testId="scroll" width=400 height=200
             view height=600
@@ -632,7 +632,7 @@ fn natural_scroll_fixture(short: bool) -> Presenter<Empty> {
         text "Toggle"
       view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"
         view id="content" width="100%" height="100%" display="flex" flex-direction="column"
-          when showing
+          if showing
             scroll testId="natural-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
               column width="100%" padding=8 box-sizing="border-box"
                 text text testId="natural-text" font-size=20

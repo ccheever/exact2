@@ -1,5 +1,5 @@
 // Accept fixture: per-instance state (LLP 1017 P4c) — a child component
-// owns `state`, `derive`, and `action`. Used under an `each`, they are the
+// owns `state`, `derive`, and `action`. Used under a `for`, they are the
 // row's: kept with its key across reorders, dropped with the row, started
 // from the initializer when the row is created. Used once, they are that
 // use's own root slots, carried by name across a reload like any other.
@@ -16,7 +16,7 @@ component App
     column testId="root"
       Counter(label="a")
       Counter(label="b")
-      each s in stations key=s.id
+      for s in stations key=s.id
         StationRow(station=s)
       button press=flip testId="flip"
         text "flip"

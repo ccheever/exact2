@@ -17,7 +17,7 @@ component App
   view
     column
       button "toggle" press=toggle testId="toggle"
-      each it, i in shown key=`${it.id}/${it.on}`
+      for it, i in shown key=`${it.id}/${it.on}`
         Row(index=i)
 
 component Row

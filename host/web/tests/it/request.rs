@@ -23,7 +23,7 @@ component App
       input value=who change=setWho testId="who"
       button press=submit aria-label="Log in" testId="login"
         text "Log in"
-      when busy
+      if busy
         text "Logging in…" testId="busy"
       match session
         case some(s)

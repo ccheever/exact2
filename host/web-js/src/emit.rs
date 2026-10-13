@@ -1327,6 +1327,9 @@ impl Em<'_> {
                 | EventKind::Transformgeometry
                 | EventKind::Transformrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
+                EventKind::Reachstart | EventKind::Reachend => {
+                    return Err(contract::collection_edge_refusal(h.event.name()))
+                }
                 EventKind::Reorderdrop if virtualized => self.motion = true,
                 k => {
                     return Err(format!(
@@ -1378,12 +1381,12 @@ impl Em<'_> {
             let opts = self.list_options(i, scope, &edges)?;
             let &[Site::Region(r)] = self.sites.of_node(i) else {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             };
             if plan.regions[r as usize].kind != RegionKind::Each {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             }
             self.list = true;

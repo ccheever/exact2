@@ -408,7 +408,7 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}`
           text e.name
 "#;
@@ -444,9 +444,9 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      each t in nav.tabs key=t.name
+      for t in nav.tabs key=t.name
         column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}`
-          each e in t.stack key=e.id
+          for e in t.stack key=e.id
             column navigationKey=`${e.id}` data-screen=e.name testId=`route-${e.name}`
               text e.name
       row role="tablist"
@@ -498,7 +498,7 @@ component App
     column testId="page"
       head title=`Count ${n}` description="Counting"
       button press=bump testId="bump" width=10 height=10
-      when n > 0
+      if n > 0
         head title="Counted"
 "#;
     let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();

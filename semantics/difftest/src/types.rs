@@ -35,7 +35,7 @@ pub enum Kind {
     ArgType,
     /// `==`/`!=` with a right operand of another type.
     Eq,
-    /// A condition (`?:`, `if`, `when`) that is a number.
+    /// A condition (`?:`, `if`) that is a number.
     Cond,
 }
 

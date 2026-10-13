@@ -369,7 +369,7 @@ region, use and `children` node numbered within its component.
 
 **Its meaning** (`Contract.CompSem`) is given directly, not by expanding.
 A use is an *instance*, identified by its path from the root: every use,
-region arm (`when`/`match` arm, `each` row by key and duplicate count) and
+region arm (`if`/`match` arm, `for` row by key and duplicate count) and
 `children` node on the way. Its states live in a store under that path,
 initialized in the instance's frame the first time it renders, kept while
 it renders, dropped when a render leaves it out. Names are read in a
@@ -475,7 +475,7 @@ is now a case in `corpus/components/` and a runner test in
 `contract/cli/tests/it/child_state_lifetime.rs`.
 
 1. A stateful child in a slot fill, the slot component showing `children`
-   under a `when`, kept its state across hide and show: the fill was
+   under an `if`, kept its state across hide and show: the fill was
    inlined before the slot component's view, so its uses were owned by the
    *use site's* region. The fill is now inlined at `children`, under the
    arms around it (`fill-state-when`).
@@ -483,7 +483,7 @@ is now a case in `corpus/components/` and a runner test in
    and region tags between the copies (the fill was inlined once and
    copied). Each `children` now inlines the fill afresh: its own instances,
    numbers and tags (`fill-twice`).
-3. A slot component repeating `children` per `each` row shared one
+3. A slot component repeating `children` per `for` row shared one
    instance across the rows, for the same reason; each row now owns its
    copy (`fill-per-row`).
 4. A child whose prop held a number that is not finite had all its actions

@@ -116,7 +116,7 @@ component App
   view
     column navigationBack="entry"
       input id="entry" testId="entry-test" value=textValue change=edit
-      each item in items key=item.id
+      for item in items key=item.id
         Row(item=item, onPick=save)
       match choice
         case some(textValue)
@@ -221,7 +221,7 @@ fn field_references_use_the_inferred_shape_and_component_arguments_name_props() 
     assert_eq!(target(&graph, item_refs[0])["kind"], "prop");
     assert_eq!(target(&graph, item_refs[0])["component"], "Row");
     assert_eq!(target(&graph, item_refs[1])["kind"], "local");
-    let field = at_line(&graph, "id", line(SOURCE, "each item"));
+    let field = at_line(&graph, "id", line(SOURCE, "for item"));
     assert_eq!(target(&graph, field[0])["owner"], "Item");
 }
 

@@ -82,7 +82,7 @@ export function install(exact) {
   };
   // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16).
   const all = () => {
-    const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(unselected));
+    const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(nav => unselected(nav)));
     const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
     kids(root).forEach(el => walk(el, 0, false));
     return out;

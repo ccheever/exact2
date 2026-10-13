@@ -86,7 +86,7 @@ component App
 component A
   state n = 1
   view
-    each x in n key=x
+    for x in n key=x
       text "a"
 ---
 == type-match-subject
@@ -380,7 +380,7 @@ component A
 component A
   state on = true
   view
-    when on
+    if on
       text "a"
     else
       text "b"
@@ -551,7 +551,7 @@ component A
 == syntax-empty-block
 component A
   view
-    when true
+    if true
     text "always"
 ---
 == type-unknown
@@ -878,7 +878,7 @@ component A
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
       column align-items="center"
-        each e in stack(nav) key=e.id
+        for e in stack(nav) key=e.id
           column navigationKey=`${e.id}`
             text e.url
 ---
@@ -891,7 +891,7 @@ component A
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
           scroll id="feed" height=400
             text e.url
@@ -918,7 +918,7 @@ component App
   resource items = items() as shape list<Item>
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(item=item, pick=choose)
 component Row
   props
@@ -1248,15 +1248,31 @@ component A
     text join(xs.map(x => x * 2), ",")
 ---
 == syntax-map-view
-# The JSX habit: children repeat with `each`.
+# The JSX habit: children repeat with `for`.
 component A
   resource xs = xs() as shape list<string>
   view
     column
       map(xs, x => text x)
 ---
+== syntax-view-keyword
+# LLP 1116.015 D1: a view chooses with `if`, not `when`.
+component A
+  state n = 0
+  view
+    when n > 0
+      text "a"
+---
+== syntax-view-keyword
+# LLP 1116.015 D1: a view repeats with `for`, not `each`.
+component A
+  state xs = ["a"]
+  view
+    each x in xs key=x
+      text x
+---
 == syntax-else-keyword
-# An action branches with `if`, a view with `when`: `else if` here.
+# `else when` is not a construct: `else if` here.
 component A
   state n = 0
   action a
@@ -1437,7 +1453,7 @@ component A
     moved = item
   view
     list id="cities" reorderdrop=drop height=300
-      each city in rows key=city
+      for city in rows key=city
         row
           box reorderFor="cities" width=24 height=24
           text city

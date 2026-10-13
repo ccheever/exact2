@@ -37,15 +37,15 @@ component App
   view
     column width="100%" height="100%" overflow="hidden"
       list testId="messages" virtualized=true estimated-item-height=160 flex=1 min-height=0 width="100%"
-        each m in feed.rows key=m.id
+        for m in feed.rows key=m.id
           column width="100%"
             text m.author
-            each p in m.paragraphs key=p.id
+            for p in m.paragraphs key=p.id
               text
-                each r in p.runs key=r.id
+                for r in p.runs key=r.id
                   text r.t
             row
-              each r in m.reactions key=r.emoji
+              for r in m.reactions key=r.emoji
                 text `${r.emoji} ${r.count}`
 "##;
 
@@ -217,7 +217,7 @@ component App
     rows = items
   view
     column
-      each item, i in rows key=item.id
+      for item, i in rows key=item.id
         Card(item=item, position=i)
 component Card
   props
@@ -229,7 +229,7 @@ component Card
   view
     column
       text `${item.label}:${taps}:${position}:${1 / item.id > 0}` testId=item.label press=bump
-      when item.shown
+      if item.shown
         text "extra" testId=`${item.label}-extra`
 "#;
     struct Unused;
@@ -316,7 +316,7 @@ fn positional_rows_match_general_keys_through_replacement_growth_and_removal() {
     rows = items
   view
     column
-      each item, i in rows key=KEY
+      for item, i in rows key=KEY
         Card(item=item, position=i)
 component Card
   props
@@ -329,7 +329,7 @@ component Card
   view
     column
       text `${item}:${initial}:${taps}:${position}` testId=`row-${position}` press=bump
-      when item == "extra"
+      if item == "extra"
         text "extra" testId=`extra-${position}`
 "#;
     struct Unused;
@@ -402,9 +402,9 @@ component App
     groups = items
   view
     column
-      each group, i in groups key=KEY
+      for group, i in groups key=KEY
         column
-          each label in group.labels key=label
+          for label in group.labels key=label
             Counter(label=label)
 component Counter
   props

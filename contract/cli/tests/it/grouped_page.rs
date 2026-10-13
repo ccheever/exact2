@@ -25,7 +25,7 @@ const SCREEN: &str = "routes nav
 component App
   view
     main navigationKey=`${top(nav).id}` navigationBack=\"back\" testId=\"root\"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` NAMED ROUTE position=\"absolute\" inset=0 testId=\"route\"
           header
             text \"Polls\" role=\"heading\" aria-level=1
@@ -92,7 +92,7 @@ fn the_scroll_is_found_as_the_hosts_find_it() {
     let r = boot(&screen("navigationScroll=\"l\"", "", "", &flat));
     assert_eq!(fill(&r, "route"), grouped());
     // Under control flow, which is no box.
-    let when = format!("when true\n            {LIST}");
+    let when = format!("if true\n            {LIST}");
     let r = boot(&screen("navigationScroll=\"l\"", "", "", &when));
     assert_eq!(fill(&r, "route"), grouped());
     // A list written without a style is the default, inset-grouped.

@@ -16,7 +16,7 @@ component App
   view
     column
       text `${beat}` testId="beat"
-      each it, i in items key=i
+      for it, i in items key=i
         Row(index=i, beat=beat)
 
 component Row

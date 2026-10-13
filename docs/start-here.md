@@ -91,12 +91,12 @@ component Groceries
           column flex=1 min-width=0 gap=4
             input value=draft input=edit submit=add placeholder="Add an item"
               aria-label="New item" testId="draft"
-            when addError != "" and not pending(added)
+            if addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
           button press=add disabled=(trim(draft) == "") buttonStyle="filled" testId="add"
             text "Add"
       section
-        each i in groceries key=i.id
+        for i in groceries key=i.id
           row
             input type="checkbox" checked=i.done change=toggle(i.id) aria-label=i.title testId=`done-${i.id}`
             text i.title flex=1
@@ -105,8 +105,8 @@ component Groceries
 ```
 
 - **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
-  Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `when`/`else`,
-  never `if`; no `form` (a field's Enter is its `submit`).
+  Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
+  an action does, and repeats with `for x in xs key=…`; no `form` (a field's Enter is its `submit`).
 - **Expressions.** No truthiness. A record copy is `Shape(old, field=value)`. An event
   passes its captured arguments, then the payload (`toggle(i.id)` gets the bool).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a

@@ -6,7 +6,7 @@
 //!
 //! Each is read from the checked file's expanded root, as lowering reads
 //! it, and gives what it cannot see through the benefit of the doubt, as
-//! `routes.rs`'s `check_scroll` does: a `when`, `each` or `match`, a use
+//! `routes.rs`'s `check_scroll` does: an `if`, `for` or `match`, a use
 //! or a slot, a computed role or type.
 
 use crate::tags::AttrTarget;
@@ -161,7 +161,7 @@ const BOXES: &[&str] = &[
 
 /// What the iOS bar makes of one node in a route's header.
 enum Part {
-    /// A `when`, `each`, `match`, use or slot, or a computed role or type:
+    /// An `if`, `for`, `match`, use or slot, or a computed role or type:
     /// the benefit of the doubt.
     Doubt,
     /// Not shown in the header on any host: `display="none"`, or a popover
@@ -279,7 +279,7 @@ struct Bar<'a> {
     headings: usize,
     /// The last heading counted: the bar's title when it is the one.
     title: Option<&'a Node>,
-    /// A `when`, `each`, `match`, use or slot, or a computed role: the
+    /// An `if`, `for`, `match`, use or slot, or a computed role: the
     /// headings counted may not be all.
     doubt: bool,
     /// The heading has been passed, in document order.
@@ -307,10 +307,10 @@ const OR_NO_BAR: &str =
 /// tablist and the buttons that press or open a popover; the rest of the
 /// header is hidden with it. With no heading or with two, the bar takes
 /// nothing and the header is shown as written, so nothing is dropped; that
-/// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). A `when` first
+/// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). An `if` first
 /// among the route's children is read branch by branch: a branch's first
 /// node is the route's first child while it is taken, and `after` the
-/// route's nodes past that `when`.
+/// route's nodes past that `if`.
 fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
     if let Some(Node::When {
         then, otherwise, ..
@@ -416,7 +416,7 @@ fn has_press(node: &Node) -> bool {
 }
 
 /// The `header`s that may be a route's first child: its first node, or the
-/// first node of a branch of the `when`s and `match`es it opens with, each
+/// first node of a branch of the `if`s and `match`es it opens with, each
 /// of which may yield nothing and leave the next to be first.
 fn first_headers<'a>(children: &'a [Node], out: &mut Vec<&'a Node>) {
     for node in children {

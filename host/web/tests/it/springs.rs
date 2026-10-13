@@ -202,9 +202,9 @@ fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset
       button press=toggle testId="toggle"
         text "Toggle"
       text "survivor" testId="survivor" scale=(big ? 1.5 : 1) transition="scale -exact-spring(180, 12, 1)"
-      when shown
+      if shown
         list virtualized=true height=180
-          each x in rows key=x
+          for x in rows key=x
             column height=32
               text `${x}` scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale -exact-spring(180, 12, 1), opacity -exact-spring(180, 12, 1)"
 "#;

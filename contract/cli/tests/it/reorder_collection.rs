@@ -35,7 +35,7 @@ component App
     column
       input value=draft change=edit
       list id="arrange" testId="list" virtualized=true height=100 reorderdrop=receive
-        each x in rows key=x
+        for x in rows key=x
           column reorderFor="arrange" disabled=disabled testId=`grip-${x}` height=20
             text x
 "#;
@@ -676,7 +676,7 @@ fn source_exclusion_right_biases_and_certifies_zero_ties_after_normalization() {
 fn terminal_source_key_survives_grip_replacement_and_a_second_reconciliation() {
     let source=SOURCE.replace("state count = 0","state count = 0\n  state grip = true\n  action removeGrip\n    grip = false")
         .replace("column reorderFor=\"arrange\" disabled=disabled testId=`grip-${x}` height=20\n            text x",
-            "column height=20\n            when grip\n              view reorderFor=\"arrange\" testId=`grip-${x}`\n            text `${x} ${disabled}`");
+            "column height=20\n            if grip\n              view reorderFor=\"arrange\" testId=`grip-${x}`\n            text `${x} ${disabled}`");
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),
         Rows {
@@ -744,7 +744,7 @@ fn beneath_empty_when_arms() -> String {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{head}      when shown\n        when windowed\n{list}")
+    format!("{head}      if shown\n        if windowed\n{list}")
 }
 fn boot_source(source: &str) -> Runner<Rows> {
     Runner::boot(

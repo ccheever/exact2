@@ -68,15 +68,15 @@ final class TableFixture {
                 button press=prepend testId="prepend"
                   text "Prepend"
               list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" overflow-x="hidden" testId="rows"
-                each r in rows key=`k${r}`
+                for r in rows key=`k${r}`
                   row press=open(r) testId=`row-${r}` align-items="center" gap=8 padding="6px 0" width="100%"
                     column flex=1 min-width=0
                       text `Row ${r}` testId=`title-${r}`
-                      when r % 5 == 0
+                      if r % 5 == 0
                         text `A second paragraph for row ${r}, long enough that it wraps when the list is narrow and makes this row taller than its neighbours` font-size=11
-                      when r == grown
+                      if r == grown
                         box height=60 testId="extra"
-                    when r % 10 == 3
+                    if r % 10 == 3
                       button press=bump testId=`bump-${r}`
                         text "Bump"
                       input type="checkbox" checked=on change=check aria-label="On" testId=`check-${r}`

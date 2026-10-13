@@ -18,7 +18,7 @@ component App
     column
       button "load" press=load testId="load"
       text `${length(items)}` testId="count"
-      each it, i in items key=(z / z)
+      for it, i in items key=(z / z)
         text it.id testId=`row-${i}`
 
 test "nan keys"

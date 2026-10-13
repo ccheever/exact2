@@ -27,9 +27,9 @@ component Habit
     column padding=16 gap=8
       text formatDate(shown, time.utcOffset, "medium") role="heading" aria-level=2 testId="today"
       text `Updated ${formatTime(shown, time.utcOffset, "short")}` color="-exact-secondary-label" testId="updated"
-      when includes(doneDays, today)
+      if includes(doneDays, today)
         text "Done today" testId="status"
-      else when includes(doneDays, yesterday)
+      else if includes(doneDays, yesterday)
         text "Done yesterday" testId="status"
       else
         text "Not done yet" testId="status"

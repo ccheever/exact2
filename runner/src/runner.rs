@@ -341,7 +341,7 @@ struct Timer {
     next_ms: f64,
     /// Whether the task's gate holds (always, for `mount`).
     armed: bool,
-    /// The key it was armed with (`key=`), as `each` compares keys.
+    /// The key it was armed with (`key=`), as `for` compares keys.
     key: Option<String>,
     /// A frame task's last presented frame (or mount) …
     base: f64,
@@ -1244,7 +1244,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The plan site a view was instantiated from and the instance path to
-    /// it — the `each` keys and active arms crossed — for `layout <node>`
+    /// it — the `for` keys and active arms crossed — for `layout <node>`
     /// (LLP 1035.002 D6). `None` for a view the instance tree does not own.
     pub fn site_of(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
         self.tree.as_ref().and_then(|t| t.site(view))

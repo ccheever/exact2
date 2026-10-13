@@ -59,7 +59,7 @@ component App
     column
       text log testId="log"
       text pending(wrote) ? "busy" : "idle" testId="busy"
-      each a in big key=a.op
+      for a in big key=a.op
         text a.op + a.op
 "#;
 

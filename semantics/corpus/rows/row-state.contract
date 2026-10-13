@@ -1,4 +1,4 @@
-// A child component's state inside `each` rows: every row has its own;
+// A child component's state inside `for` rows: every row has its own;
 // hiding a row and showing it again starts it fresh; rows are keyed by
 // index here, so the surviving rows keep theirs.
 shape Item
@@ -26,7 +26,7 @@ component App
   view
     column
       text `${length(visible)}` testId="count"
-      each it, i in visible key=i
+      for it, i in visible key=i
         Row(item=it, index=i)
       button "hide" press=hide testId="hide"
       button "one" press=showOne testId="one"

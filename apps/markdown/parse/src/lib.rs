@@ -52,7 +52,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The name Contract switches on (`when b.kind == "heading"`).
+    /// The name Contract switches on (`if b.kind == "heading"`).
     pub fn name(self) -> &'static str {
         match self {
             Kind::Heading => "heading",

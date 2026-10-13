@@ -65,8 +65,8 @@ component Runs
     size: number
     weight: number
   view
-    each r in runs key=r.id
-      when r.mono
+    for r in runs key=r.id
+      if r.mono
         text r.text font-family="ui-monospace" font-size=(size * 0.92) font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant color=theme.code href=r.href
       else
         text r.text font-size=size font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant href=r.href
@@ -86,7 +86,7 @@ component SchemeButton
     press: action
   view
     button press=press(name) aria-label=label testId=`scheme-${name}` padding=4 border-radius=7
-      when chosen == name
+      if chosen == name
         view padding=4 border-radius=7 background-color=theme.pill
           image `${icon}${icons}.png` width=16 height=16 object-fit="contain" aria-label=label
       else

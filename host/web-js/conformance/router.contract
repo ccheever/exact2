@@ -53,6 +53,6 @@ component Router
             text "refused"
           button press=back testId="back"
             text "back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationPresentation=(e.name == "ask" ? "modal" : "") testId=`route-${e.name}` padding=8
           text `${e.id} ${e.name} ${e.url} ${e.tab}` testId=`entry-${e.name}`

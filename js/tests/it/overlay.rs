@@ -26,7 +26,7 @@ component App
     send refused = refusals()
   view
     column
-      each item in items key=item.text
+      for item in items key=item.text
         text item.text
 "#;
 

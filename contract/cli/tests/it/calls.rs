@@ -81,7 +81,7 @@ const VIEWER: &str = r#"component App
     last = why
   view
     column
-      when open
+      if open
         Viewer(hide=dismiss)
       text `${closes} ${last} ${open}` testId="closes"
 
@@ -475,7 +475,7 @@ fn a_child_calls_its_own_action_in_a_row() {
   resource items = items() as shape list<Item>
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id)
 
 component Row
@@ -510,7 +510,7 @@ fn a_prop_called_from_a_same_component_callee_runs_the_owners_action_in_the_row(
     picked = id
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id, choose=pick(item.id))
       text picked testId="picked"
 
@@ -626,7 +626,7 @@ fn curried_and_payload_arguments_are_passed_explicitly() {
     flip(id, checked)
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id, set=toggled(item.id))
       text seen testId="seen"
 

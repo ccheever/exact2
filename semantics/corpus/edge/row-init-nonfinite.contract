@@ -15,7 +15,7 @@ component App
     column
       text `${shown}` testId="shown"
       button "more" press=more testId="more"
-      each it, i in visible key=i
+      for it, i in visible key=i
         Inv(item=it, index=i)
 
 component Inv

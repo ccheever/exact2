@@ -13,7 +13,7 @@ component App
   view
     column
       button "louder" press=louder testId="louder"
-      each it, i in items key=i
+      for it, i in items key=i
         Folding(index=i)
           text `${it.id}${suffix}` testId=`fill-${i}`
 
@@ -27,7 +27,7 @@ component Folding
   view
     column
       button "t" press=toggle testId=`fold-${index}`
-      when open
+      if open
         children
 
 test "fills per row"

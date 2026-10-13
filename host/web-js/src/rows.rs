@@ -784,7 +784,7 @@ mod tests {
     list appearance="auto" flex=1
       section
         button press=flip destructive=gone testId="row"
-          when gone
+          if gone
             image "symbol:sf/trash"
           text "Remove"
 "#,

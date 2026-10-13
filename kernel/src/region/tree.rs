@@ -246,7 +246,7 @@ impl BoxFacts {
         if let Some(basis) = tree.button_containing_width(n).filter(|_| !hidden) {
             self.button_bases.insert(key, basis);
         }
-        let inset = crate::id::BoxInset::of(tree.layout(n));
+        let inset = crate::id::BoxInset::of(arena, s, tree.layout(n));
         if inset != crate::id::BoxInset::default() {
             self.insets.insert(key, inset);
         }

@@ -24,7 +24,7 @@ impl DataSource for NoData {
 /// and of a column inside it beside the route's text.
 fn stack(route: &str, inner: &str) -> String {
     format!(
-        "routes nav\n  home \"/\"\n    item \"/item\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` testId=`route-${{e.name}}` position=\"absolute\" inset=0 {route}\n          text e.name\n          column testId=`own-${{e.name}}` {inner}\n            text \"Pick one\"\n"
+        "routes nav\n  home \"/\"\n    item \"/item\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` testId=`route-${{e.name}}` position=\"absolute\" inset=0 {route}\n          text e.name\n          column testId=`own-${{e.name}}` {inner}\n            text \"Pick one\"\n"
     )
 }
 
@@ -105,7 +105,7 @@ fn a_button_in_the_placeholder_is_no_zero_size_button_to_the_bake() {
 fn rows(route: &str, rows: &str) -> String {
     let rows: String = rows.lines().map(|l| format!("          {l}\n")).collect();
     format!(
-        "routes nav\n  home \"/\"\n    item \"/item\"\ncomponent App\n  state picked = \"\"\n  action pick(id: string)\n    picked = id\n  action open(id: string)\n    nav = push(nav, \"/item\")\n  action choose(id: string)\n    picked = id\n    open(id)\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` testId=`route-${{e.name}}` position=\"absolute\" inset=0 {route}\n{rows}"
+        "routes nav\n  home \"/\"\n    item \"/item\"\ncomponent App\n  state picked = \"\"\n  action pick(id: string)\n    picked = id\n  action open(id: string)\n    nav = push(nav, \"/item\")\n  action choose(id: string)\n    picked = id\n    open(id)\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${{e.id}}` testId=`route-${{e.name}}` position=\"absolute\" inset=0 {route}\n{rows}"
     )
 }
 
@@ -142,8 +142,8 @@ fn a_chevron_on_rows_that_push_nowhere_is_decoration_and_keeps_one_column() {
         // Another spelling of the chevron is the same chevron.
         "button press=pick(\"a\")\n  text \"A\"\n  image \"symbol:chevron-right\"",
         "button press=pick(\"a\")\n  text \"A\"\n  image \"symbol:sf/chevron.forward\"",
-        // A row nested in a box, under a `when`, beside a button that does push.
-        "button press=open(\"x\")\n  text \"Create\"\ncolumn\n  when true\n    row press=pick(\"a\")\n      text \"A\"\n      image \"symbol:forward-chevron\"",
+        // A row nested in a box, under an `if`, beside a button that does push.
+        "button press=open(\"x\")\n  text \"Create\"\ncolumn\n  if true\n    row press=pick(\"a\")\n      text \"A\"\n      image \"symbol:forward-chevron\"",
     ];
     for body in decorative {
         assert_eq!(split_of(&rows("", body)).as_deref(), Some("none"), "{body}");

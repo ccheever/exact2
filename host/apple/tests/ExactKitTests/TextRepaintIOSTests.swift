@@ -79,8 +79,8 @@ final class TextRepaintIOSTests: XCTestCase {
         XCTAssertEqual(status.bounds.width, 0, "a collapsed space lays out to nothing")
         XCTAssertNil(status.textRasterLayer?.superlayer, "the empty status line keeps no raster layer")
         XCTAssertEqual(ink(page, rects[0]), 0, "'3 laps' is gone from the screen with the text")
-        // The `when`'s line left the page, and its pixels with it.
-        XCTAssertNil(lap.window, "the `when` removed 'Lap 3'")
+        // The `if`'s line left the page, and its pixels with it.
+        XCTAssertNil(lap.window, "the `if` removed 'Lap 3'")
         XCTAssertEqual(ink(page, rects[2]), 0, "'Lap 3' is gone from the screen")
         // The count shows its new text, not its old pixels.
         XCTAssertGreaterThan(ink(page, rects[1]), 50, "the count is painted after Reset")

@@ -39,10 +39,10 @@ component Lists
           text "jump"
         text `${lo}–${hi}, ${length(shown)} rows, ${length(lines)} lines` testId="summary"
       list virtualized=true reachstart=earlier reachend=later estimated-item-height=48 scrollTop=top testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each c in shown key=c.id
+        for c in shown key=c.id
           row testId=`row-${c.n}` height=48 box-sizing="border-box" padding-left=12 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
             column width=12 height=12 border-radius=6 background-color=c.color
             text c.label font-size=14
       list virtualized=true scrollFollowEnd=true testId="transcript" height=140 flex-shrink=0 width="100%" overflow-x="hidden" background-color="#f1f5fa"
-        each c in lines key=c.id
+        for c in lines key=c.id
           text `${c.label}, ${c.width} wide` testId=`line-${c.n}` padding=(4 + c.width / 40) font-size=13

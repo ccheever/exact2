@@ -225,7 +225,7 @@ impl Parser {
             }
             TokenKind::Eof => Ok(()),
             other => {
-                // `when filter = "all"`: a comparison was meant.
+                // `if filter = "all"`: a comparison was meant.
                 let hint = if matches!(other, TokenKind::Punct("=")) {
                     "; `==` compares, and only a statement assigns"
                 } else {
@@ -947,10 +947,7 @@ impl Parser {
                 if self.at_ident("if") {
                     otherwise = vec![self.stmt()?];
                 } else if self.at_ident("when") {
-                    return self.err(
-                        "syntax-else-keyword",
-                        "an action branches with `if`; `when` is a view's: write `else if`",
-                    );
+                    return self.err("syntax-else-keyword", "write `else if`");
                 } else {
                     self.after_else("if")?;
                     otherwise = self.required_block(span, "else", |p| p.stmt())?;
@@ -1120,14 +1117,11 @@ impl Parser {
                 self.newline()?;
                 Ok(Node::Children { span })
             }
-            // An action's `if` written in a view (authoring bench).
-            "if" => self.err(
-                "syntax-stray-keyword",
-                "`if` is an action's statement: a view chooses with `when <condition>`, \
-                 and an `else` after its block at the same indent",
-            ),
-            "when" => self.node_when(span),
-            "each" => self.node_each(span),
+            "if" => self.node_if(span),
+            "for" => self.node_for(span),
+            // @ref LLP 1116.015 D1 — the view's former words, refused with the edit.
+            "when" => self.err("syntax-view-keyword", "a view chooses with `if`: write `if <condition>`, and `else if` for `else when`"),
+            "each" => self.err("syntax-view-keyword", "a view repeats with `for`: write `for x in xs key=x.id`"),
             "match" => self.node_match(span),
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
@@ -1135,7 +1129,7 @@ impl Parser {
             ),
             "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
                 "syntax-map-view",
-                format!("`{word}` makes a value, not view nodes: repeat children with `each x in xs key=x.id` (LLP 1017.003)"),
+                format!("`{word}` makes a value, not view nodes: repeat children with `for x in xs key=x.id` (LLP 1017.003)"),
             ),
             _ if word.chars().next().is_some_and(char::is_uppercase) => self.node_use(word, span),
             _ => self.node_element(word, span),

@@ -48,9 +48,9 @@ component App
       button press=grow testId="grow"
         text "Grow"
       text typed testId="echo"
-      when shown
+      if shown
         list virtualized=true height=180 width=320 testId="list"
-          each x in rows key=x.index
+          for x in rows key=x.index
             column height=rowHeight
               input value=typed change=edit testId=`row-${x.index}` height=16
               text `${x.index}` height=16
@@ -177,7 +177,7 @@ component App
     column
       text (reached ? "edge committed" : "before") testId="status"
       list virtualized=true height=180 width=320 reachend=end
-        each x in rows key=x.index
+        for x in rows key=x.index
           text `${{x.index}}` height=32
 "#
         );
@@ -275,7 +275,7 @@ component App
       text `${first}` testId="steps"
       text `${ended}` testId="ends"
       list virtualized=true height=180 width=320 reachstart=start reachend=end testId="list"
-        each x in rows key=x.index + first * 2
+        for x in rows key=x.index + first * 2
           text `${x.index + first * 2}` height=1
 "#;
     for (case, source) in [
@@ -329,7 +329,7 @@ component App
       button press=go testId="go"
         text "Go"
       list virtualized=true height=180 width=320 scrollTop=target testId="list"
-        each x in rows key=x.index
+        for x in rows key=x.index
           text `${x.index}` height=32
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

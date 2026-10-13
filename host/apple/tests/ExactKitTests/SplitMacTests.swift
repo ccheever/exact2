@@ -22,7 +22,7 @@ final class SplitMacTests: XCTestCase {
     /// same stack with no tab bar.
     private func app(tabs: Bool) -> String {
         let routes = """
-                      when e.name == "library"
+                      if e.name == "library"
                         column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column" testId="route-library"
                           header display="flex" align-items="center"
                             text "Library" role="heading" aria-level=1 flex=1
@@ -30,10 +30,10 @@ final class SplitMacTests: XCTestCase {
                               image "symbol:add"
                             input type="search" value=query input=search placeholder="Search" testId="search"
                           list testId="books" flex=1 min-height=0
-                            each id in ["a", "b", "c"] key=id
+                            for id in ["a", "b", "c"] key=id
                               link href=path("book", id) testId=`row-${id}`
                                 text `Book ${id}`
-                      when e.name == "book"
+                      if e.name == "book"
                         column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column" testId=`route-book-${e.params.id}`
                           header display="flex" align-items="center"
                             text `About ${e.params.id}` role="heading" aria-level=2 flex=1 testId=`title-${e.params.id}`
@@ -43,17 +43,17 @@ final class SplitMacTests: XCTestCase {
                               image "symbol:delete"
                           box testId=`half-${e.params.id}` width="50%" height=40 background-color="#f9ab00"
                           input value=query input=search testId=`field-${e.params.id}`
-                      when e.name == "notes"
+                      if e.name == "notes"
                         column navigationKey=`${e.id}` position="absolute" inset=0 testId="route-notes"
                           text "Notes on the book"
-                      when e.name == "add"
+                      if e.name == "add"
                         column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0 testId="route-add"
                           header display="flex" align-items="center"
                             button id="back" press=back testId="add-cancel"
                               text "Cancel"
                             text "New Book" role="heading"
                           text "A form"
-                      when e.name == "stats"
+                      if e.name == "stats"
                         column navigationKey=`${e.id}` position="absolute" inset=0 testId="route-stats"
                           text "Stats"
         """
@@ -85,13 +85,13 @@ final class SplitMacTests: XCTestCase {
         """
         if !tabs {
             let dedented = routes.split(separator: "\n", omittingEmptySubsequences: false).map { String($0.dropFirst(6)) }.joined(separator: "\n")
-            return head + "      each e in stack(nav) key=e.id\n" + dedented + "\n"
+            return head + "      for e in stack(nav) key=e.id\n" + dedented + "\n"
         }
         return head + """
               column flex=1 min-height=0 position="relative" testId="panels"
-                each t in nav.tabs key=t.name
+                for t in nav.tabs key=t.name
                   column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-                    each e in t.stack key=e.id
+                    for e in t.stack key=e.id
 
         """ + routes + """
 
@@ -155,6 +155,24 @@ final class SplitMacTests: XCTestCase {
         window.layoutIfNeeded()
     }
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
+
+    func testAnUnsplitStackClosesADetailPaneRestoredByAppKit() throws {
+        let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
+        try press("tab-stats")
+        let view = ExactView(session: session)
+        let columns = compose(view, width: 1100, sidebar: true)
+        let window = try XCTUnwrap(self.window), detail = try XCTUnwrap(columns.splitViewItems.last)
+        XCTAssertFalse(session.presenter.navigation.split.active)
+        XCTAssertFalse(columns.splits)
+        // AppKit can restore a divider after the controller's initial collapse.
+        detail.isCollapsed = false
+        window.layoutIfNeeded()
+        session.presenter.navigation.split.sync()
+        window.layoutIfNeeded()
+        XCTAssertTrue(detail.isCollapsed)
+        XCTAssertFalse(columns.splits)
+        XCTAssertEqual(view.frame.width, window.contentView!.bounds.width - columns.sidebarWidth - columns.splitView.dividerThickness, accuracy: 1)
+    }
 
     private func listeningDetail() throws -> (Presenter, NSWindow, [NodeView]) {
         let handlers = "focusin=heardFocus focusout=heardFocus keycapture=heardKey key=heardKey keyup=heardKey"
@@ -438,9 +456,9 @@ final class SplitMacTests: XCTestCase {
           view
             main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
               width="100%" height="100%"
-              each e in stack(nav) key=e.id
+              for e in stack(nav) key=e.id
                 column navigationKey=`${e.id}` navigationSplit=splitWidth position="absolute" inset=0
-                  when e.name == "library"
+                  if e.name == "library"
                     button press=change("hidden") testId="hide"
                       text "Hide"
                     button press=change("shown") testId="show"
@@ -459,19 +477,19 @@ final class SplitMacTests: XCTestCase {
                       text "Empty"
                     button press=refill testId="refill"
                       text "Refill"
-                    when mode != "removed"
+                    if mode != "removed"
                       list testId="changing-list" appearance="none" width=100 height=100 display=(mode == "hidden" ? "none" : "flex")
                         flex-direction=(mode == "sideways" ? "row" : "column")
-                        when mode != "commands"
-                          each id in ids key=id
+                        if mode != "commands"
+                          for id in ids key=id
                             link href=path("book", id) display="block" width=50 height=50 testId=`row-${id}`
                               text id
-                        when mode == "commands"
+                        if mode == "commands"
                           button press=refill
                             text "Local command"
-                        when length(ids) == 0
+                        if length(ids) == 0
                           text "No Results"
-                  when e.name == "book"
+                  if e.name == "book"
                     text "Detail"
         """
         let session = try boot(tabs: false, size: CGSize(width: 900, height: 500), source: source)

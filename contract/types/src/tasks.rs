@@ -1,6 +1,6 @@
 //! A task's schedule and, for a gated task (LLP 1092 D7, D9), its gate and
-//! key: `when` takes a bool, and a key is a string, number or bool, as an
-//! `each` key is.
+//! key: `when` takes a bool, and a key is a string, number or bool, as a
+//! `for` key is.
 
 use super::{infer, Scope, Shapes, Sink, Ty, TypeError};
 use contract_syntax::{Component, Expr};
@@ -34,7 +34,7 @@ pub(crate) fn check_tasks(c: &Component, scope: &Scope, shapes: &Shapes, sink: &
                 Ok(ty) => sink.push(TypeError {
                     id: "type-task-key",
                     message: format!(
-                        "a task's `key=` is a string, number or bool, as an `each` key is; this one is {ty}"
+                        "a task's `key=` is a string, number or bool, as a `for` key is; this one is {ty}"
                     ),
                     span: key.span(),
                 }),

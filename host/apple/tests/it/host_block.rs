@@ -32,7 +32,7 @@ const PAGE: &str = r##"component Proof
             box width=120 height=30
           box press=more testId="more" height=44
             text "More"
-          each i in rows key=i
+          for i in rows key=i
             row height=44
               text `Row ${i}`
       text "Footer" testId="footer"
