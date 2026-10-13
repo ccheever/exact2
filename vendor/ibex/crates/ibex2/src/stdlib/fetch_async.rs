@@ -288,7 +288,8 @@ impl FetchTask {
         task
     }
 
-    /// Abort: the outcome is Aborted now, then the exchange is cancelled.
+    /// Abort: the outcome is Aborted now, reported, then the exchange is
+    /// cancelled, so the report comes before the hop's physical end.
     fn abort(&self) {
         let released = {
             let mut state = self.state.lock().unwrap();
@@ -298,11 +299,16 @@ impl FetchTask {
             released.exchange = state.exchange.take();
             released
         };
-        if let Some(exchange) = &released.exchange {
+        let Released {
+            upload,
+            exchange,
+            body,
+        } = released;
+        drop((upload, body));
+        self.events.outcome(Err(aborted()));
+        if let Some(exchange) = exchange {
             exchange.cancel();
         }
-        drop(released);
-        self.events.outcome(Err(aborted()));
     }
 
     /// Decide `result` as the outcome, if nothing has, and report it. The

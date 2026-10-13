@@ -52,6 +52,11 @@ NSString *endpoint(NSString *address, NSNumber *port) {
 // When the task was resumed: the platform's queueing is measured from here
 // (taskInterval starts when the task was made).
 @property(nonatomic, strong) NSDate *resumed;
+// On the lane's queue: the exchange was activated. A task the session
+// completed before that (its invalidation) keeps its end until then.
+@property(nonatomic, assign) BOOL activated;
+@property(nonatomic, assign) BOOL early;
+@property(nonatomic, copy) NSString *earlyFailure;
 @end
 
 @implementation Ibex2TaskDelegate
@@ -67,7 +72,8 @@ NSString *endpoint(NSString *address, NSNumber *port) {
               dataTask:(NSURLSessionDataTask *)task
     didReceiveResponse:(NSURLResponse *)response
      completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
-  if (self.ctx == nullptr || self.stopped || ![response isKindOfClass:[NSHTTPURLResponse class]]) {
+  if (self.ctx == nullptr || self.stopped || !self.activated ||
+      ![response isKindOfClass:[NSHTTPURLResponse class]]) {
     self.stopped = YES;
     completionHandler(NSURLSessionResponseCancel);
     return;
@@ -89,7 +95,7 @@ NSString *endpoint(NSString *address, NSNumber *port) {
 - (void)URLSession:(NSURLSession *)session
           dataTask:(NSURLSessionDataTask *)task
     didReceiveData:(NSData *)data {
-  if (self.ctx == nullptr || self.stopped) return;
+  if (self.ctx == nullptr || self.stopped || !self.activated) return;
   __block BOOL stop = NO;
   [data enumerateByteRangesUsingBlock:^(const void *bytes, NSRange range, BOOL *done) {
     if (ibex2_async_data(self.ctx, (const unsigned char *)bytes, range.length) != kContinue) {
@@ -105,13 +111,22 @@ NSString *endpoint(NSString *address, NSNumber *port) {
 - (void)URLSession:(NSURLSession *)session
                     task:(NSURLSessionTask *)task
     didCompleteWithError:(NSError *)error {
+  NSString *failure = error == nil ? nil
+      : [NSString stringWithFormat:@"TypeError: Failed to fetch — %@", error.localizedDescription];
+  if (!self.activated) {
+    // Completed by the session before activation: told at activation.
+    self.early = YES;
+    self.earlyFailure = failure ?: @"TypeError: Failed to fetch — cancelled";
+    return;
+  }
+  [self endWith:failure];
+}
+// On the lane's queue, once activated: the end, then the sink's release
+// once metrics have come or had their second.
+- (void)endWith:(NSString *)failure {
   if (self.ended) return;
   self.ended = YES;
-  if (self.ctx != nullptr) {
-    NSString *failure = error == nil ? nil
-        : [NSString stringWithFormat:@"TypeError: Failed to fetch — %@", error.localizedDescription];
-    ibex2_async_end(self.ctx, utf8(failure));
-  }
+  if (self.ctx != nullptr) ibex2_async_end(self.ctx, utf8(failure));
   if (self.measured) {
     [self release_];
     return;
@@ -129,6 +144,8 @@ NSString *endpoint(NSString *address, NSNumber *port) {
     didFinishCollectingMetrics:(NSURLSessionTaskMetrics *)metrics {
   if (self.measured) return;
   self.measured = YES;
+  // Before activation nothing was sent: no metrics to tell.
+  if (!self.activated) return;
   if (self.ctx != nullptr) {
     NSURLSessionTaskTransactionMetrics *first = metrics.transactionMetrics.firstObject;
     NSURLSessionTaskTransactionMetrics *last = metrics.transactionMetrics.lastObject;
@@ -295,13 +312,21 @@ void ibex2_darwin_task_activate(void *handle) {
       start.activated = YES;
       cancelled = start.cancelled;
     }
-    if (task == nil) {
-      [delegate.queue addOperationWithBlock:^{
-        delegate.ended = YES;
+    // Ahead of anything a resume makes the task call back, on the same
+    // serial queue: from here the sink may hear, and an end the session
+    // made before (its invalidation) is told now.
+    [delegate.queue addOperationWithBlock:^{
+      delegate.activated = YES;
+      if (task == nil) {
         delegate.measured = YES;
-        ibex2_async_end(delegate.ctx, utf8(refusal));
-        [delegate release_];
-      }];
+        [delegate endWith:refusal];
+      } else if (delegate.early) {
+        delegate.measured = YES;
+        [delegate endWith:delegate.earlyFailure];
+      }
+    }];
+    if (task == nil) {
+      return;
     } else if (cancelled) {
       // Never resumed: it completes as cancelled, sending nothing.
       [task cancel];

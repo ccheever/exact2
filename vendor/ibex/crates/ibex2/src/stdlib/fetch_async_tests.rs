@@ -649,6 +649,11 @@ fn a_cancellation_ending_on_the_abort_stack_stays_aborted() {
         CAPS,
         events.clone(),
     );
+    // Reported before the cancellation's end, which comes on its stack.
+    *events.on_end.lock().unwrap() = Some(Box::new({
+        let events = events.clone();
+        move || assert!(!events.none(), "the outcome came first")
+    }));
     abort.abort();
     assert_eq!(events.outcome().unwrap_err(), aborted());
     assert_eq!(events.ended.load(Ordering::SeqCst), 1);

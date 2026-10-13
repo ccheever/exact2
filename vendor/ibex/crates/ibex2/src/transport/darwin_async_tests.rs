@@ -155,7 +155,10 @@ fn a_response_arrives_as_head_data_end_and_metrics() {
     });
     let metrics = metrics.expect("metrics, before or after the end");
     assert_eq!(metrics.protocol.as_deref(), Some("http/1.1"));
-    assert!(metrics.remote.as_ref().is_some_and(|r| r.contains("127.0.0.1")));
+    assert!(metrics
+        .remote
+        .as_ref()
+        .is_some_and(|r| r.contains("127.0.0.1")));
     // Queued from resume, not from the task's creation: small on localhost.
     assert!(
         metrics.queued_ms.is_some_and(|q| q < 1_000.0),
@@ -453,6 +456,74 @@ fn a_cancel_before_activation_sends_nothing_and_still_ends() {
     listener.set_nonblocking(true).unwrap();
     let url = format!("http://{}/", listener.local_addr().unwrap());
     let lane = DarwinLane::new(0);
+    let drops = Arc::new(AtomicUsize::new(0));
+    let (events, received) = mpsc::channel();
+    let sink = Counted(
+        Recorder {
+            events,
+            flow: Flow::Continue,
+        },
+        Dropped(drops.clone()),
+    );
+    let exchange = lane.start(get(&url), Box::new(sink));
+    exchange.cancel();
+    assert!(
+        received.recv_timeout(Duration::from_millis(300)).is_err(),
+        "nothing before activation"
+    );
+    exchange.activate();
+    let seen = until_end(&received);
+    assert!(
+        seen.iter().any(|e| matches!(e, Event::End(Err(_)))),
+        "{seen:?}"
+    );
+    assert!(listener.accept().is_err(), "no connection was made");
+    // Past the second metrics get: the sink went once.
+    thread::sleep(Duration::from_millis(1200));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_lane_dropped_before_activation_tells_its_sink_once_activated() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let lane = DarwinLane::new(0);
+    let drops = Arc::new(AtomicUsize::new(0));
+    let (events, received) = mpsc::channel();
+    let sink = Counted(
+        Recorder {
+            events,
+            flow: Flow::Continue,
+        },
+        Dropped(drops.clone()),
+    );
+    let exchange = lane.start(get(&url), Box::new(sink));
+    drop(lane);
+    assert!(
+        received.recv_timeout(Duration::from_millis(300)).is_err(),
+        "nothing before activation"
+    );
+    exchange.activate();
+    let seen = until_end(&received);
+    let ends = seen.iter().filter(|e| matches!(e, Event::End(_))).count();
+    assert_eq!(ends, 1, "{seen:?}");
+    assert!(
+        !seen.iter().any(|e| matches!(e, Event::Metrics(_))),
+        "{seen:?}"
+    );
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert!(listener.accept().is_err(), "no connection was made");
+}
+
+#[test]
+fn queued_time_counts_from_activation_not_from_the_tasks_creation() {
+    let (url, server) = server(0, |mut stream, _| {
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx")
+            .unwrap();
+    });
+    let lane = DarwinLane::new(0);
     let (events, received) = mpsc::channel();
     let exchange = lane.start(
         get(&url),
@@ -461,13 +532,13 @@ fn a_cancel_before_activation_sends_nothing_and_still_ends() {
             flow: Flow::Continue,
         }),
     );
-    exchange.cancel();
-    assert!(
-        received.recv_timeout(Duration::from_millis(300)).is_err(),
-        "nothing before activation"
-    );
+    thread::sleep(Duration::from_millis(400));
     exchange.activate();
     let seen = until_end(&received);
-    assert!(seen.iter().any(|e| matches!(e, Event::End(Err(_)))), "{seen:?}");
-    assert!(listener.accept().is_err(), "no connection was made");
+    let queued = seen.iter().find_map(|e| match e {
+        Event::Metrics(m) => m.queued_ms,
+        _ => None,
+    });
+    assert!(queued.is_some_and(|q| q < 300.0), "{seen:?}");
+    server.join().unwrap();
 }
