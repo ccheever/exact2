@@ -351,6 +351,7 @@ final class MenuHost {
         guard confirmation === owner, !owner.finishing else { return }
         owner.finishing = true
         confirmation = nil
+        owner.popover?.queueDialogClose()
     }
     /// `chosen` is the selected action, nil for the cancel.
     private func finish(_ owner: Confirmation, chosen: NodeView?) {
@@ -368,6 +369,7 @@ final class MenuHost {
                 self.confirmation = nil
                 if let action { self.presenter?.press(action.id) }
             }
+            owner.popover?.queueDialogClose()
         }
     }
     private func resetConfirmation() {
@@ -637,7 +639,7 @@ final class MenuHost {
         guard isConfirmation(pop) else {
             presenter?.session?.log("showModal \(name) refused: iOS presents a dialog, or a role=alertdialog popover as its alert"); return
         }
-        if confirmation?.popover === pop || sheets.owns(pop) { return } // HTML: showModal on an open modal dialog does nothing
+        if confirmation?.popover === pop || sheets.owns(pop) { presenter?.session?.log("showModal \(name) ignored: dialog is already open"); return }
         if confirmation == nil, showable(pop), let controller = controller(for: pop), busy(controller), attempt < 20 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.showModal(name, attempt: attempt + 1) }
             return

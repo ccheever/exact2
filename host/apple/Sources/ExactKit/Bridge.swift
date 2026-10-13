@@ -448,6 +448,10 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, 26, n, now))
         }
     }
+    /// A dialog closed after restoring its focus (LLP 1021).
+    func dialogClose(_ view: UInt32, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 49, write(""), now)) }
+    }
     /// A file input's picker was dismissed: HTML's `cancel` (LLP 1069.002 D2).
     func pickerCancel(_ view: UInt32, now: Double) -> Batch {
         return on {

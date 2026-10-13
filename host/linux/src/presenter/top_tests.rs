@@ -373,6 +373,15 @@ fn a_host_with_no_shell_has_no_top_layer_and_keeps_what_it_did() {
     );
     tap(&mut p, "ask").unwrap();
     tap(&mut p, "shut").unwrap();
+    let journal = crate::agent::handle(&mut p, r#"{"op":"logs"}"#);
+    for command in ["showModal", "close"] {
+        assert!(
+            journal.contains(&format!(
+                "{command} refused: dialogs unsupported on the headless/DRM host"
+            )),
+            "{journal}"
+        );
+    }
     assert!(p.surface().is_none());
     assert!(
         !p.long_press(100.0, 290.0, 0.0),

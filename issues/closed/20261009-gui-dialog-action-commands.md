@@ -1,6 +1,7 @@
 # `showModal(id)` and `close(id)` from an action on macOS and the web
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Added queued dialog close handlers on Apple and both web targets, already-open journal lines, and explicit headless Linux refusals; Contract, AppKit, UIKit callback, and browser regressions verify delivery, focus restoration, repeated-close behavior, stale-action dismissal, and suppression after the render scope ends.
 **Systems:** Contract, GUI hosts, menus
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

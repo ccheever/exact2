@@ -267,9 +267,29 @@ test('action dialog commands keep modal focus and preserve bare close as window 
     await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
     const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*;$/m, '').replace('export const commands', 'const commands');
     await page.addScriptTag({content: `${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
+    const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
+    const runtime = readFileSync(new URL('../../web-js/rt.js', import.meta.url), 'utf8');
+    await page.addScriptTag({content: `(() => {
+      const el = document.querySelector('#form'), views = new Map([[1, el]]), retiredViews = new Set(), inputReady = true, page = null;
+      window.wasmClosed = []; window.jsClosed = [];
+      const now = () => 0, send = () => {}, wasm = {exact_dispatch: (id, kind) => wasmClosed.push([id, kind])};
+      ${glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('))}
+      attach(el, 1, ['close']);
+      const clock = {agent: true, now: 0, timers: []}, start = 0, Mutations = [], OnHooks = {}, Owner = null;
+      const onEnd = () => {};
+      ${runtime.slice(runtime.indexOf('export function on('), runtime.indexOf('// Each event family')).replace('export function', 'function')}
+      on(el, 'close', () => jsClosed.push(document.activeElement.id));
+    })();`});
+    const closed = async n => {
+      await page.waitForFunction(n => wasmClosed.length === n && jsClosed.length === n, n);
+      expect(await page.evaluate(() => wasmClosed.every(([id, kind]) => id === 1 && kind === 49))).toBe(true);
+      expect(await page.evaluate(() => jsClosed.every(id => id === 'opener'))).toBe(true);
+    };
     await page.focus('#opener');
     await page.evaluate(() => hostCommands.showModal('form'));
     expect(await page.evaluate(() => [document.querySelector('#form').matches(':modal'), document.activeElement.id])).toEqual([true, 'first']);
+    await page.evaluate(() => hostCommands.showModal('form'));
+    expect(await page.evaluate(() => journal.splice(0))).toEqual(['showModal "form" ignored: dialog is already open']);
     const trace = async () => {
       const focus = [];
       for (const key of ['Shift+Tab', 'Tab', 'Tab', 'Tab']) {
@@ -279,7 +299,8 @@ test('action dialog commands keep modal focus and preserve bare close as window 
       return focus;
     };
     const actual = await trace();
-    await page.evaluate(() => hostCommands.close('form'));
+    await page.evaluate(() => { hostCommands.close('form'); hostCommands.close('form'); });
+    await closed(1);
     await page.focus('#opener');
     await page.evaluate(() => document.querySelector('#form').showModal());
     const reference = await trace();
@@ -292,11 +313,56 @@ test('action dialog commands keep modal focus and preserve bare close as window 
     expect(await page.evaluate(() => document.activeElement.id)).toBe('first');
     await page.evaluate(() => hostCommands.close('form'));
     expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id, quit])).toEqual([false, 'opener', 0]);
+    await closed(2);
     await page.evaluate(() => hostCommands.showModal('form'));
     await page.keyboard.press('Escape');
     expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id])).toEqual([false, 'opener']);
+    await closed(3);
     await page.evaluate(() => { hostCommands.showModal('box'); hostCommands.showModal('missing'); hostCommands.close(); });
     expect(await page.evaluate(() => [journal.length, quit])).toEqual([2, 1]);
     expect(await page.evaluate(() => journal.every(line => line.includes('refused')))).toBe(true);
   } finally { await browser.close(); }
-}, 20000);
+}, 60000);
+
+test('a queued dialog close cannot act after its conditional scope ends', async () => {
+  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
+  const {chromium} = await import('playwright-core');
+  const server = Bun.serve({port: 0, hostname: '127.0.0.1', async fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === '/') return new Response('<div id="exact-root"><button id="opener">Open</button><div id="branch"></div></div>', {headers: {'Content-Type': 'text/html'}});
+    if (path === '/host/web-js/names.js') return new Response('export const sourceTypes = [];', {headers: {'Content-Type': 'text/javascript'}});
+    if (!path.startsWith('/host/')) return new Response(null, {status: 404});
+    const local = Bun.file(new URL(`../../..${path}`, import.meta.url));
+    const file = await local.exists() ? local : Bun.file(new URL(`../../..${path.replace('/web-js/', '/web/')}`, import.meta.url));
+    return await file.exists() ? new Response(file) : new Response(null, {status: 404});
+  }});
+  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  try {
+    const page = await browser.newPage();
+    for (const retain of [false, true]) {
+      await page.goto(server.url.href);
+      const result = await page.evaluate(async retain => {
+        const {scope, when, sig, write, commit, on} = await import('/host/web-js/rt.js');
+        const mounted = sig(true), opener = document.querySelector('#opener');
+        let closed = 0, dialog;
+        scope(() => when(document.querySelector('#branch'), mounted, parent => {
+          dialog = document.createElement('dialog');
+          dialog.innerHTML = '<button autofocus>Close</button>';
+          parent.append(dialog);
+          on(dialog, 'close', () => closed++);
+        }));
+        opener.focus();
+        dialog.showModal();
+        opener.addEventListener('focus', () => commit(() => write(mounted.n, false)), {once: true});
+        const delivered = new Promise(resolve => dialog.addEventListener('close', resolve, {once: true}));
+        dialog.close();
+        const detached = !dialog.isConnected;
+        // An exit animation can retain a retired element in the DOM.
+        if (retain) document.body.append(dialog);
+        await delivered;
+        return {closed, detached, focused: document.activeElement.id};
+      }, retain);
+      expect(result).toEqual({closed: 0, detached: true, focused: 'opener'});
+    }
+  } finally { await browser.close(); server.stop(true); }
+}, 60000);

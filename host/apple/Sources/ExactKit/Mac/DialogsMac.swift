@@ -136,7 +136,7 @@ final class DialogHost {
         // holds that it has one), so it is given again.
         if entry.sheet != nil, begin(entry) { syncDefaultButton() }
     }
-    func close(_ dialog: NodeView, restoreFocus: Bool = true) {
+    func close(_ dialog: NodeView, restoreFocus: Bool = true, notify: Bool = true) {
         if presenter?.alerts.close(dialog) == true { return }
         guard entries.contains(where: { $0.dialog === dialog }) else { return }
         // What stands on its sheet leaves first: an alert, a dialog opened over it.
@@ -179,13 +179,14 @@ final class DialogHost {
         }
         presenter?.syncAccessibility()
         presenter?.shortcuts.sync()
+        if notify, !entry.route { dialog.queueDialogClose() }
     }
     func reset() {
         presenter?.alerts.reset()
         // A route's sheet is not brought back by the batch its leaving sends: navigation still names its route.
         let was = routeSync.running
         routeSync.running = true
-        while let dialog = active { close(dialog, restoreFocus: false) }
+        while let dialog = active { close(dialog, restoreFocus: false, notify: false) }
         routeSync = (was, false)
     }
     /// A children op still addresses the authored parent, even while a dialog
@@ -193,7 +194,7 @@ final class DialogHost {
     func children(_ parent: NSView, _ wanted: [NodeView]) {
         // A route's sheet leaves after the batch (`syncRoutes`), never inside it.
         for entry in entries where !entry.route && (entry.parent === parent) != wanted.contains(where: { $0 === entry.dialog }) {
-            close(entry.dialog)
+            close(entry.dialog, notify: false)
         }
     }
     func frame(_ node: NodeView, _ frame: NSRect) -> Bool {
@@ -212,7 +213,7 @@ final class DialogHost {
             let connected = parent === presenter.root || parent?.isDescendant(of: presenter.root) == true
                 || entries.contains { other in other !== entry && (parent === other.dialog || parent?.isDescendant(of: other.dialog) == true) }
             if !live(entry.dialog) || entry.dialog.props["semanticTag"] != "dialog" || !connected || presenter.viewport.window == nil {
-                close(entry.dialog)
+                close(entry.dialog, notify: false)
             }
         }
         var changed = false

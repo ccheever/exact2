@@ -59,8 +59,7 @@ impl Hooks {
 }
 /// The alert shape (LLP 1115 D6), the kernel's rule
 /// (`exact_kernel::confirmation`), for the presenter's Swift
-/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read
-/// one rule.
+/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read one rule.
 pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
     exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
 }
@@ -994,6 +993,7 @@ impl<D: DataSource> Bridge<D> {
                 Event::Change(exact_runner::ControlValue::Files(files))
             }
             27 => Event::Cancel,
+            49 => Event::Close,
             23 => Event::Input(payload.into()),
             24 | 25 => {
                 let Some(on) = Event::checked_payload(&payload) else {

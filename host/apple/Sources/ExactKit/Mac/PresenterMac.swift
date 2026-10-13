@@ -672,7 +672,7 @@ package final class Presenter {
         viewport.syncElasticity()
         viewport.acceptDocumentFit()
     }
-    var onPress: ((UInt32) -> Void)?
+    var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
     /// Images' intrinsic sizes, several at once under one layout.
     var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
@@ -696,7 +696,9 @@ package final class Presenter {
             if name == "showModal" { session?.log("showModal \(id) refused: no dialog has that id") }
             return
         }
-        if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
+        if name == "showModal", dialogs.owns(dialog) || alerts.isOpen(dialog) {
+            session?.log("showModal \(id) ignored: dialog is already open")
+        } else if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.

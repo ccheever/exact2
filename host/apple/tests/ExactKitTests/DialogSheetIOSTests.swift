@@ -57,14 +57,13 @@ final class DialogSheetIOSTests: XCTestCase {
     /// (`closerequest`, LLP 1115.000 D13.4) unless `confirmClosedby` says
     /// another. A presentation completes only in a scene's window.
     private func page(dialog: [String: String] = [:], handlers: [String] = [], field: [String: String] = [:],
-                      confirmClosedby: String = "closerequest") -> (Presenter, UIViewController, Bool) {
+                      confirmClosedby: String = "closerequest", controller: UIViewController = UIViewController()) -> (Presenter, UIViewController, Bool) {
         let p = Presenter()
         kept = p
         p.buttonFace = { id in var f = ButtonFace(); f.title = [4: "Save", 5: "Cancel", 22: "Remove", 23: "Cancel"][id]; return f }
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
         window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
-        let controller = UIViewController()
         window.rootViewController = controller
         window.makeKeyAndVisible()
         p.viewport.frame = controller.view.bounds
@@ -230,7 +229,10 @@ final class DialogSheetIOSTests: XCTestCase {
     /// The alert's shape is the alert and never a sheet: the same page, its
     /// confirmation asked for first.
     func testADialogInTheAlertsShapeIsStillTheAlert() throws {
-        let (p, controller, _) = page()
+        let (p, controller, scene) = page()
+        p.views[20]?.handlers.insert("close")
+        var closed: [UInt32] = []
+        p.onClose = { closed.append($0) }
         p.dialogCommand("showModal", "confirm")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController, "the alert shape is not a sheet")
         XCTAssertEqual(alert.preferredStyle, .alert)
@@ -240,6 +242,52 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.observation()?["kind"] as? String, "confirmation")
         XCTAssertTrue(p.menus.ownsConfirmationNode(try XCTUnwrap(p.views[22])))
         XCTAssertTrue(try XCTUnwrap(p.views[20]).isHidden, "its rows are the alert's, never shown")
+        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        settle { !p.menus.inTransition }
+        p.dialogCommand("close", "confirm")
+        settle { closed.count == 1 }
+        XCTAssertEqual(closed, [20])
+    }
+
+    /// Capture without presenting: UIKit may deliver the action callback
+    /// after dismissing the alert. This tests that path without a scene.
+    private final class DismissedAlertController: UIViewController {
+        var alert: UIAlertController?
+        override func present(_ viewControllerToPresent: UIViewController, animated: Bool, completion: (() -> Void)? = nil) {
+            alert = viewControllerToPresent as? UIAlertController
+            completion?()
+        }
+    }
+
+    func testDismissalStillClosesWhenTheChosenActionChangesBeforeItsTurn() throws {
+        let controller = DismissedAlertController()
+        let (p, _, _) = page(controller: controller)
+        p.views[20]?.handlers.insert("close")
+        var pressed: [UInt32] = [], closed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.onClose = { closed.append($0) }
+        func choose() throws {
+            p.dialogCommand("showModal", "confirm")
+            let action = try XCTUnwrap(controller.alert?.actions.first)
+            typealias Handler = @convention(block) (UIAlertAction) -> Void
+            let block = try XCTUnwrap(action.value(forKey: "handler") as AnyObject?)
+            unsafeBitCast(block, to: Handler.self)(action)
+        }
+        func drain() {
+            let turned = expectation(description: "dismissal callbacks drained")
+            DispatchQueue.main.async { DispatchQueue.main.async { turned.fulfill() } }
+            wait(for: [turned], timeout: 5)
+        }
+        try choose()
+        drain()
+        XCTAssertEqual(pressed, [22])
+        XCTAssertEqual(closed, [20])
+        pressed = []; closed = []
+        try choose()
+        p.apply(wireBatch([["op": "props", "id": 22, "set": ["disabled": "true"], "clear": []]]))
+        drain()
+        XCTAssertEqual(pressed, [], "a stale action must not press")
+        XCTAssertEqual(closed, [20], "the mounted dialog already closed")
     }
 
     /// `closedby` is the sheet's dismissal, as a modal route's: `none`
@@ -300,13 +348,17 @@ final class DialogSheetIOSTests: XCTestCase {
     }
     /// The app's own `close(id)` is no cancel.
     func testTheAppsOwnCloseIsNoCancel() throws {
-        let (p, controller, _) = page(dialog: ["closedby": "any"], handlers: ["cancel"])
+        let (p, controller, _) = page(dialog: ["closedby": "any"], handlers: ["cancel", "close"])
+        var closed: [UInt32] = []
+        p.onClose = { closed.append($0) }
         var cancelled: [UInt32] = []
         p.menus.sheets.onCancel = { cancelled.append($0) }
         p.dialogCommand("showModal", "form")
         _ = try sheet(controller)
         p.dialogCommand("close", "form")
         XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[2])))
+        spin { closed.count == 1 }
+        XCTAssertEqual(closed, [2])
         XCTAssertEqual(cancelled, [])
     }
 

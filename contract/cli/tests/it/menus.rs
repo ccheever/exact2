@@ -50,6 +50,34 @@ fn refused(body: &str) -> (String, String) {
     (e.id.to_string(), e.message)
 }
 
+#[test]
+fn dialog_close_handler_compiles_with_action_commands() {
+    let src = r#"component App
+  state count = 0
+  action opened
+    showModal("form")
+  action dismissed
+    close("form")
+  action closed
+    count = count + 1
+  view
+    column
+      button press=opened testId="open"
+        text "Open"
+      text `${count}` testId="count"
+      dialog id="form" close=closed testId="form"
+        button press=dismissed
+          text "Close"
+"#;
+    let mut r = boot(src);
+    let dialog = node(&r, "form").id;
+    r.dispatch(dialog, exact_runner::Event::Close).unwrap();
+    assert_eq!(node(&r, "count").props.str(PropId::Text), Some("1"));
+    let opener = node(&r, "open").id;
+    r.dispatch(opener, exact_runner::Event::Close).unwrap();
+    assert_eq!(node(&r, "count").props.str(PropId::Text), Some("1"));
+}
+
 /// LLP 1115.000 D10.3: an `hr` is one hairline with no margin of its own:
 /// a solid top edge `-exact-hairline` thick in the separator role, where it
 /// was Chrome's `margin: 0.5em auto` around a 1px edge. The rows are the

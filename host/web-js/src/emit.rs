@@ -1314,6 +1314,7 @@ impl Em<'_> {
                 | EventKind::Refresh
                 | EventKind::Pan
                 | EventKind::Cancel
+                | EventKind::Close
                 | EventKind::Resize
                 | EventKind::Intersect
                 | EventKind::Select => {}

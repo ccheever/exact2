@@ -274,3 +274,12 @@ fn aria_disabled_is_an_attribute_for_static_and_bound_values() {
         "the bound value uses the same DOM attribute: {js}"
     );
 }
+
+#[test]
+fn a_dialog_close_handler_uses_the_dom_event() {
+    let plan = contract::compile(
+        "component App\n  state count = 0\n  action closed\n    count = count + 1\n  view\n    dialog id=\"form\" close=closed\n      text \"Form\"\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("\"close\""), "{js}");
+}

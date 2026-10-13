@@ -884,9 +884,10 @@ function imageEvent(e, kind, f) {
 }
 export function on(e, kind, f, bind) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
-  const go = f, wall = !clock.agent;
-  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); return go(...a); };
-  const l = (t, g, capture = false) => e.addEventListener(t, g, capture);
+  const go = f, wall = !clock.agent, own = kind === "close" ? Owner : null;
+  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (kind !== "close" || (e.isConnected && !own?.gone)) return go(...a); };
+  // A queued dialog close can outlive its arm, even while an exit animation keeps the element connected.
+  const l = (t, g, capture = false) => { e.addEventListener(t, g, capture); if (kind === "close") onEnd(() => e.removeEventListener(t, g, capture)); };
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
   if (e.$media && Media.MEDIA_EVENTS.has(kind)) return Media.mediaOn(e, kind, f); // media.js: the glue's reports
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.

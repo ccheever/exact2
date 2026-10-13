@@ -121,6 +121,37 @@ class DialogMacTests: XCTestCase {
         XCTAssertTrue(front.firstResponder === opener)
     }
 
+    func testCloseEventsAreQueuedOnceAndCanReopenTheDialog() {
+        let p = fixture(), dialog = p.views[3]!
+        dialog.handlers.insert("close")
+        var closed: [UInt32] = []
+        p.onClose = { [weak p] id in
+            guard let p else { return }
+            XCTAssertNil(p.dialogs.active)
+            closed.append(id)
+            if closed.count == 1 { p.dialogCommand("showModal", "form") }
+        }
+        front.makeFirstResponder(p.views[2])
+        p.dialogCommand("showModal", "form")
+        p.dialogCommand("close", "form")
+        p.dialogCommand("close", "form")
+        XCTAssertTrue(closed.isEmpty)
+        turn()
+        XCTAssertEqual(closed, [3])
+        XCTAssertTrue(p.dialogs.active === dialog)
+        XCTAssertTrue(p.dialogs.key(key(53)))
+        turn()
+        XCTAssertEqual(closed, [3, 3])
+        p.press(2)
+        p.press(5)
+        turn()
+        XCTAssertEqual(closed, [3, 3, 3])
+        p.press(2)
+        p.reset()
+        turn()
+        XCTAssertEqual(closed, [3, 3, 3], "reset retires the dialog without a close event")
+    }
+
     /// The web's order (docs/contract-grammar.md#keys): a field's `key`
     /// handlers hear Escape and Tab before the dialog's defaults, and one that
     /// calls `preventDefault()` keeps the dialog open and the focus put.
@@ -548,6 +579,9 @@ class DialogMacTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = """
         component App
+          state closes = 0
+          action closed
+            closes = closes + 1
           action openDialog
             showModal("form")
           action closeDialog
@@ -555,7 +589,8 @@ class DialogMacTests: XCTestCase {
           view
             column width="100%" height="100%"
               button "Open" testId="open" press=openDialog
-              dialog id="form" width=240 padding=16
+              text `${closes}` testId="closes"
+              dialog id="form" close=closed width=240 padding=16
                 input testId="edit" value="draft" autofocus=true
                 button "Close" commandfor="form" command="close"
                 button "Close action" testId="close-action" press=closeDialog
@@ -587,6 +622,11 @@ class DialogMacTests: XCTestCase {
         try open()
         p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "close-action" }).id)
         XCTAssertNil(p.dialogs.active, "close(id) is dispatched by the session")
+        turn()
+        XCTAssertEqual(p.views.values.first { $0.props["testId"] == "closes" }?.props["text"], "1")
+        p.dialogCommand("close", "form")
+        turn()
+        XCTAssertEqual(p.views.values.first { $0.props["testId"] == "closes" }?.props["text"], "1", "closing a closed dialog fires nothing")
         try open()
         let stale = p.dialogs.command(try XCTUnwrap(p.views.values.first { $0.props["command"] == "close" }))
         view.removeFromSuperview()

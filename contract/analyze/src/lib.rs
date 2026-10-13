@@ -326,12 +326,13 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 63] = [
+pub const HANDLERS: [&str; 64] = [
     "press",
     "change",
     "input",
     // A file input's picker was dismissed (LLP 1069.002 D2).
     "cancel",
+    "close",
     "select",
     "hover",
     "focus",

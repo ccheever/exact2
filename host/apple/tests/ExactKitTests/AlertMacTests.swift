@@ -108,6 +108,9 @@ final class AlertMacTests: XCTestCase {
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let dialog = try XCTUnwrap(p.views[3])
+        dialog.handlers.insert("close")
+        var closed: [UInt32] = []
+        p.onClose = { closed.append($0) }
         p.press(2)
         let owner = try XCTUnwrap(p.alerts.presented)
         let alert = owner.alert
@@ -137,6 +140,8 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(pressed, [], "not inside the alert's own action")
         turn()
         XCTAssertEqual(pressed, [10], "the authored button, once")
+        turn()
+        XCTAssertEqual(closed, [3])
         // Escape, by the key AppKit binds: the cancel has nothing to press.
         p.dialogCommand("showModal", "ask")
         let again = try XCTUnwrap(p.alerts.presented).alert
@@ -145,6 +150,29 @@ final class AlertMacTests: XCTestCase {
         XCTAssertNil(p.alerts.presented)
         turn()
         XCTAssertEqual(pressed, [10])
+        XCTAssertEqual(closed, [3, 3])
+    }
+
+    func testDismissalStillClosesWhenTheChosenActionChangesBeforeItsTurn() throws {
+        let p = fixture()
+        p.views[3]?.handlers.insert("close")
+        var pressed: [UInt32] = [], closed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.onClose = { closed.append($0) }
+        for (id, changed, restored) in [(20, ["text": "Delete"], ["text": "Remove"]),
+                                        (10, ["disabled": "true"], ["disabled": "false"])] {
+            let before = closed.count
+            p.press(2)
+            try XCTUnwrap(p.alerts.presented).alert.buttons[0].performClick(nil)
+            XCTAssertNil(window.attachedSheet)
+            p.apply(wireBatch([["op": "props", "id": id, "set": changed, "clear": []]]))
+            turn()
+            turn()
+            XCTAssertEqual(pressed, [], "a stale action must not press")
+            XCTAssertEqual(closed.count, before + 1, "the mounted dialog already closed")
+            XCTAssertEqual(closed.last, 3)
+            p.apply(wireBatch([["op": "props", "id": id, "set": restored, "clear": []]]))
+        }
     }
 
     func testWithNoLabelTheFirstLineIsTheTitleAndAPopoverFromItsInvokerIsTheSameAlert() throws {

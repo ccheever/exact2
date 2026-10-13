@@ -172,7 +172,9 @@ final class AlertHost {
         if presented === owner { presented = nil }
         presenter?.shortcuts.sync()
         let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        guard !owner.withdrawn, owner.rows.indices.contains(index), !owner.rows[index].cancel, valid(owner) else { return }
+        guard !owner.withdrawn else { return }
+        defer { owner.node?.queueDialogClose() }
+        guard owner.rows.indices.contains(index), valid(owner), !owner.rows[index].cancel else { return }
         let row = owner.rows[index]
         DispatchQueue.main.async { [weak self, owner] in
             guard let self, let presenter = self.presenter, self.valid(owner), row.enabled, let node = row.node, let pop = owner.node,
@@ -214,6 +216,7 @@ final class AlertHost {
     func close(_ node: NodeView) -> Bool {
         guard let owner = presented, owner.node === node else { return false }
         withdraw(owner)
+        node.queueDialogClose()
         return true
     }
     /// After a batch: an alert that no longer shows what is there ends, and
