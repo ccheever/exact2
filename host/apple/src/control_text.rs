@@ -157,8 +157,22 @@ pub(crate) fn button_measure(
     ctx: *mut c_void,
     r: &exact_kernel::ButtonMeasureRequest,
 ) -> exact_kernel::ButtonMeasure {
-    let face = crate::button::face_json(Some(&r.face), Some(&r.style), &r.button_style);
-    let inset = if r.grouped_row { 16.0 } else { 0.0 };
+    let face = crate::button::face_json(Some(&r.face), Some(&r.style), r.button_style.as_deref());
+    let inset = if r.grouped_row {
+        match exact_kernel::style::metrics::value(
+            exact_kernel::style::metrics::named("-exact-grouped-row-inset").unwrap(),
+            if cfg!(target_os = "macos") {
+                exact_kernel::style::metrics::Column::Mac
+            } else {
+                exact_kernel::style::metrics::Column::Ios
+            },
+        ) {
+            exact_kernel::generated::MetricValue::Number(n) => n as f32,
+            _ => unreachable!("grouped row inset is a length"),
+        }
+    } else {
+        0.0
+    };
     let (width_kind, width) = match r.width {
         exact_kernel::AxisOffer::Definite(w) => (0, (w - inset).max(0.0)),
         exact_kernel::AxisOffer::MinContent => (1, 0.0),

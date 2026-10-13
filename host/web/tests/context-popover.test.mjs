@@ -4,14 +4,16 @@
 // On a Mac the `contextmenu` event comes with the button still down. A popover shown then is closed by the
 // release that follows in Firefox and WebKit: it is a pointer released outside a popover, their light
 // dismiss. So a right click opened no menu there. The glue opens it once that press is over, and leaves
-// where the press was on the popover for a look's sheet to place it by (the shell's own reads neither, and
-// its menu stays where the user agent puts a popover).
+// where the press was on the popover for a look's sheet to place it by (the neutral one opens it there,
+// which neutral-look.test.mjs holds; LLP 1116 D1's reads neither, and its menu stays where the user agent
+// puts a popover). The page's stylesheet is a default build's (look.mjs).
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
-const page = `<style>${read('../index.html').match(/<style>([\s\S]*?)<\/style>/)[1]}</style>
+const page = `<style>${withLook(read('../index.html'), DEFAULT_LOOK).match(/<style>([\s\S]*?)<\/style>/)[1]}</style>
 <div id="exact-root"><div id="row" style="height:60px">A row</div><div id="gone" style="height:60px">A row whose menu is gone</div>
   <div popover="auto" role="menu" id="menu"><button type="button" id="item">Rename</button></div></div>
 <script type="module">${read('../navigation.js')}

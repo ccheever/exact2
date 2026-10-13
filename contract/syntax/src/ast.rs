@@ -188,8 +188,7 @@ pub enum Step {
         dy: f64,
         /// The node it ends on, by `testId`, and where in its box.
         to: Option<(String, Option<(f64, f64)>)>,
-        /// Where it starts, an offset from the node's top left; its middle
-        /// when `None`.
+        /// Where it starts, an offset from the node's top left; its middle when `None`.
         from: Option<(f64, f64)>,
         /// The left button rather than a finger, where a carrier has both.
         mouse: bool,
@@ -266,7 +265,7 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `request POST "/items" {"title": "Bread"} as grace` (LLP 1116.006
+    /// `request POST "/items" {"title": "Bread"} as grace [expect 409]` (LLP 1116.006
     /// D8): the driver writes through the app's server as another person.
     Request {
         /// `GET`, `POST`, `PUT`, `PATCH` or `DELETE`.
@@ -277,6 +276,8 @@ pub enum Step {
         body: Option<String>,
         /// Whose bearer token it carries.
         persona: Option<String>,
+        /// `expect 409` (LLP 1116.010 D3): the refusal's status; `None`: any 2xx.
+        status: Option<u16>,
         /// Where.
         span: Span,
     },
@@ -365,6 +366,16 @@ pub enum Step {
         target: String,
         /// Present, or absent.
         present: bool,
+        /// Where.
+        span: Span,
+    },
+    /// `expect disabled "testId"` / `expect enabled "testId"` (LLP 1116.010 D3): whether
+    /// the control the node names is disabled (its `disabled` attribute).
+    ExpectDisabled {
+        /// The node, by `testId`.
+        target: String,
+        /// `disabled`, or `enabled`.
+        disabled: bool,
         /// Where.
         span: Span,
     },
@@ -948,8 +959,7 @@ pub enum Stmt {
         /// How many arguments the call itself writes.
         authored: usize,
         /// How many of the callee's own parameters were curried where it
-        /// was passed (`close=dismiss("photo")`); 0 for a same-component
-        /// call.
+        /// was passed (`close=dismiss("photo")`); 0 for a same-component call.
         curried: usize,
         /// The prop's or the `provide`'s binding (`go=move(id)`), for a
         /// prop or inject call.
@@ -1229,6 +1239,8 @@ pub fn text_input_type(value: &Expr) -> bool {
     }
 }
 
+pub use crate::part::{part_attr, PLACEHOLDER_COLOR};
+
 /// `name=expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attr {
@@ -1397,6 +1409,7 @@ impl Step {
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
+            | Step::ExpectDisabled { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
             | Step::ExpectSound { span, .. }

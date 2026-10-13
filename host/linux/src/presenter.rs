@@ -31,10 +31,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+pub mod access;
 mod addressed_tap;
 mod ahead;
 mod arrange;
 mod arrange_geometry;
+mod arrive;
 mod back;
 pub mod bars;
 mod clock;
@@ -46,6 +48,7 @@ mod delivery;
 mod device;
 mod display_frame;
 mod events;
+mod feedback;
 mod field;
 #[cfg(test)]
 mod field_tests;
@@ -92,25 +95,20 @@ mod typing;
 mod window;
 
 #[cfg(test)]
-#[path = "presenter/collection_tests.rs"]
 mod collection_tests;
 #[cfg(test)]
 mod kept_rows_tests;
 
 #[cfg(test)]
-#[path = "presenter/swipe_tests.rs"]
 mod swipe_tests;
 
 #[cfg(test)]
-#[path = "presenter/events_tests.rs"]
 mod events_tests;
 
 #[cfg(test)]
-#[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
 #[cfg(test)]
-#[path = "presenter/spacing_tests.rs"]
 mod spacing_tests;
 
 pub use device::Device;
@@ -156,6 +154,10 @@ pub struct Presenter<D: DataSource> {
     /// when another replaces the one it measured (LLP 1079 D3).
     pub(crate) hosts: u64,
     pub(crate) focus: Option<ViewId>,
+    /// Last connected path from the focused node, for a removal commit.
+    focus_out: Vec<(ViewId, Event)>,
+    /// The current pointer press may yield its focus to a newly mounted field.
+    pub(crate) autofocus_from: Option<ViewId>,
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
@@ -178,6 +180,8 @@ pub struct Presenter<D: DataSource> {
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
+    /// What the focus's following of the route keeps (`arrive.rs`).
+    route_focus: arrive::State,
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
@@ -219,6 +223,8 @@ pub struct Presenter<D: DataSource> {
     top: top::State,
     /// The shell's top app bar and navigation bar, where it has them (D11).
     bars: bars::State,
+    /// The accessibility tree its shell was last told, where one asks (D13).
+    access: access::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -250,6 +256,8 @@ pub struct Presenter<D: DataSource> {
     /// The commands the last commits' actions asked for, for the loop that
     /// runs them (`run_commands`).
     commands: Vec<exact_runner::Command>,
+    /// Range replacement selects wait until the action's commands finish.
+    field_select_tasks: Vec<ViewId>,
     /// Driven by the agent (`agent.rs`): a `share` is held, never refused
     /// (LLP 1069.003 D6).
     pub(crate) agent: bool,
@@ -387,6 +395,7 @@ impl<D: DataSource> Presenter<D> {
             delivery,
             launch,
             region,
+            Some(text.clone()),
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));
@@ -438,6 +447,8 @@ impl<D: DataSource> Presenter<D> {
             compat: String::new(),
             hosts: 0,
             focus: None,
+            focus_out: Vec::new(),
+            autofocus_from: None,
             edited: None,
             fields: BTreeMap::new(),
             held: 0,
@@ -446,6 +457,7 @@ impl<D: DataSource> Presenter<D> {
             chosen: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
+            route_focus: Default::default(),
             pointer: None,
             hovered: Vec::new(),
             hover_point: None,
@@ -468,6 +480,7 @@ impl<D: DataSource> Presenter<D> {
             hosted: Default::default(),
             top: Default::default(),
             bars: Default::default(),
+            access: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
@@ -483,6 +496,7 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            field_select_tasks: Vec::new(),
             agent: false,
             booting: true,
             content_registration: region,
@@ -579,43 +593,6 @@ impl<D: DataSource> Presenter<D> {
         self.restore_focus(kept);
         let e = self.after_commit();
         Ok(e)
-    }
-
-    /// A restart with carried state (a dev reload, a delivered update)
-    /// replaces the tree. Focus follows the focused node's place in the
-    /// runner's tree — its index among its siblings at each level, and its
-    /// type — and the restarted tree autofocuses nothing; a node mounted
-    /// later still may.
-    fn focus_place(&self) -> Option<(Vec<usize>, NodeType)> {
-        let (kernel, roots) = (self.host.kernel(), self.host.runner().roots());
-        let node_type = kernel.node(self.focus?)?.node_type;
-        let (mut path, mut at) = (Vec::new(), self.focus?);
-        loop {
-            let parent = kernel.node(at)?.parent;
-            let siblings = parent.map_or(Some(roots.clone()), |p| {
-                kernel.node(p).map(|n| n.children())
-            })?;
-            path.push(siblings.iter().position(|&id| id == at)?);
-            let Some(parent) = parent else { break };
-            at = parent;
-        }
-        path.reverse();
-        Some((path, node_type))
-    }
-    fn restore_focus(&mut self, kept: Option<(Vec<usize>, NodeType)>) {
-        let kernel = self.host.kernel();
-        let rows = kernel.rows(None).unwrap_or_default();
-        self.autofocus_processed = rows.iter().map(|r| r.id).collect();
-        let target = kept.and_then(|(path, node_type)| {
-            let (mut ids, mut id) = (self.host.runner().roots(), None);
-            for index in path {
-                let at = *ids.get(index)?;
-                ids = kernel.node(at)?.children();
-                id = Some(at);
-            }
-            id.filter(|&id| kernel.node(id).is_some_and(|n| n.node_type == node_type))
-        });
-        self.focus = target.filter(|&id| self.focusable(id) && !self.host.route_visibility(id).1);
     }
 
     /// The host.
@@ -731,8 +708,7 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
-        let resized = self.deliver_resizes();
-        error.or(refined).or(geometry).or(resized)
+        error.or(refined).or(geometry)
     }
 
     // Collection feedback calls this directly: never recurse through refinement.
@@ -807,52 +783,19 @@ impl<D: DataSource> Presenter<D> {
                     .map(|reason| format!("selected asset refused: {reason}"))
             });
         }
-        if let Some(f) = self.focus {
-            if self.host.kernel().node(f).is_none() || self.host.route_visibility(f).1 {
-                self.focus = None;
-                self.dirty = true;
-            }
+        let (focus_sent, focus_error) = self.clear_removed_focus();
+        error = error.or(focus_error);
+        if focus_sent {
+            return error;
         }
         self.sync_authored_scroll();
         self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
-        // Only autofocus nodes matter: a walk that keeps those, in
-        // preorder, not an export row per node of every mounted row.
-        let kernel = self.host.kernel();
-        if !self.autofocus_processed.is_empty() {
-            self.autofocus_processed.retain(|id| attached(kernel, *id));
-        }
-        let candidates = if kernel.has_prop(PropId::Autofocus) {
-            kernel.preorder_where(&kernel.roots(), |_, props| {
-                props.bool(PropId::Autofocus) == Some(true)
-            })
-        } else {
-            Vec::new()
-        };
-        {
-            for id in candidates {
-                if self.autofocus_processed.contains(&id)
-                    || !self.focusable(id)
-                    || self.host.route_visibility(id).1
-                {
-                    continue;
-                }
-                if !self
-                    .box_of(id)
-                    .is_some_and(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
-                {
-                    continue;
-                }
-                self.autofocus_processed.insert(id);
-                if self.focus.is_none() {
-                    self.focus = Some(id);
-                    self.dirty = true;
-                }
-                break;
-            }
-        }
+        // The focus a commit leaves: its `autofocus`, then the route's.
+        error = error.or(self.autofocus());
+        self.arrive();
         error
     }
 
@@ -1473,12 +1416,10 @@ impl<D: DataSource> Presenter<D> {
     pub fn rect_of(&mut self, id: ViewId) -> Option<Rect4> {
         self.box_of(id).map(|b| b.rect)
     }
-
     /// A scroll container's offset.
     pub fn scroll_of(&self, id: ViewId) -> (f32, f32) {
         self.scroll.get(&id).copied().unwrap_or((0.0, 0.0))
     }
-
     /// How many nodes are live.
     pub fn node_count(&self) -> usize {
         self.host.kernel().live_count()

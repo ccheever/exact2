@@ -53,6 +53,35 @@ pub(crate) fn outline_refusal(name: &str, tag: &str, control: Option<&str>) -> O
     })
 }
 
+/// `::placeholder`'s `color` (LLP 1104 D3) colours a text field's
+/// placeholder, and only a text field has one.
+pub(crate) fn placeholder_refusal(name: &str, tag: &str, control: Option<&str>) -> Option<String> {
+    let field = control == Some("field") || tag == "textarea";
+    (name.starts_with("::placeholder ") && !field).then(|| {
+        let what = control.filter(|_| tag == "input").map_or(format!("`{tag}`"), |c| format!("an `input` of type `{c}`"));
+        format!("`::placeholder` colours a text field's placeholder (an `input` of a text type, a `textarea`); {what} has none")
+    })
+}
+
+/// What an author may write for a placeholder's colour, and what to write
+/// (LLP 1104 D3): CSS's `::placeholder` block, and `color` alone in it.
+pub(crate) fn placeholder_hint(name: &str) -> Option<String> {
+    const BLOCK: &str = "`::placeholder` on its own line under the field (or in a `style`), then `color=\"#6b7280\"` indented beneath it, CSS's `::placeholder { color }`";
+    if let Some(property) = name.strip_prefix("::placeholder ") {
+        return Some(format!(
+            "; `::placeholder` admits only `color` for now, not `{property}`"
+        ));
+    }
+    matches!(
+        name,
+        "placeholder-color"
+            | "-exact-placeholder-color"
+            | "placeholderColor"
+            | "placeholderTextColor"
+    )
+    .then(|| format!("; a placeholder's colour is {BLOCK}"))
+}
+
 /// CSS UI 4 §7.2.1's appearance-disabling longhands that Contract has.
 pub(crate) fn disables(id: StyleId) -> bool {
     use StyleId::*;

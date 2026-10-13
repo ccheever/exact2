@@ -66,8 +66,9 @@ fn main() -> ExitCode {
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
     // The build's look (LLP 1115.000 D4 part B; host/web/look.mjs): under the
-    // neutral one a role falls back to the table's neutral column in
-    // everything compiled here, and the elements say what its sheet reads.
+    // neutral one a role falls back to the table's neutral column and a
+    // metric reads its neutral cell in everything compiled here, and the
+    // elements say what its sheet reads.
     if std::env::var("EXACT_WEB_LOOK").as_deref() == Ok("neutral") {
         exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     }

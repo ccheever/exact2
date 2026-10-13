@@ -65,9 +65,19 @@ extension Presenter {
     /// HTML. `autorecalculatesKeyViewLoop` stays false: the loop is this
     /// one, never AppKit's geometric one. Tab from the viewport reaches the
     /// first stop. Hidden popover rows stay out (their container is hidden).
+    /// A dialog's sheet and a popover AppKit shows are windows of their own
+    /// (SheetsMac.swift, PopoversMac.swift): the open dialog's loop starts
+    /// at its sheet's content, and each such popover is a loop of its own,
+    /// as an `NSPopover`'s is.
     func syncKeyViewLoop() {
         keyViewLoopMode = KeyboardNavigation.on
         keyViewBefore.removeAllObjects()
+        if let dialog = dialogs.active { keyViewLoop([dialog], from: dialogs.entries.last?.sheet?.content ?? viewport) }
+        else { keyViewLoop(root.subviews.compactMap { $0 as? NodeView }, from: viewport) }
+        for popover in menus.windowed { if let node = popover.node { keyViewLoop([node], from: popover.content) } }
+    }
+    /// One loop: the stops under `tops`, entered from `start`.
+    private func keyViewLoop(_ tops: [NodeView], from start: NSView) {
         var listed: [NodeView] = []
         // A node that can hold the focus and is no stop is where Tab starts
         // from while it has it: it points on to the next stop after it in
@@ -82,8 +92,7 @@ extension Presenter {
             for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
             for popover in menus.following(v) { walk(popover) }
         }
-        if let dialog = dialogs.active { walk(dialog) }
-        else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
+        for top in tops { walk(top) }
         let tabbable = listed.enumerated().sorted { a, b in
             let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
@@ -99,13 +108,13 @@ extension Presenter {
             if !listed.isEmpty { keyViewBefore.setObject(keyView(of: next > 0 ? listed[next - 1] : tabbable[tabbable.count - 1]), forKey: from) }
         }
         if tabbable.isEmpty {
-            viewport.nextKeyView = nil
+            start.nextKeyView = nil
             return
         }
         for (i, v) in tabbable.enumerated() {
             keyView(of: v).nextKeyView = keyView(of: tabbable[(i + 1) % tabbable.count])
         }
-        viewport.nextKeyView = keyView(of: tabbable[0])
+        start.nextKeyView = keyView(of: tabbable[0])
     }
 
     /// Tab, or Shift-Tab, from a focused node's view: AppKit's loop from a

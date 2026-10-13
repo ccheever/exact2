@@ -100,7 +100,7 @@ fn text_indent_is_a_length_that_inherits_and_reaches_the_paragraph() {
 
 #[test]
 fn multicol_rows_lower_with_their_keywords() {
-    use exact_kernel::{BorderStyle, BreakBetween, BreakInside, ColumnFill, Dimension, StyleId};
+    use exact_kernel::{BreakBetween, BreakInside, ColumnFill, Dimension, StyleId};
     let r = boot(concat!(
         "component App\n  view\n    column\n",
         "      view columns=\"120px 3\" column-gap=10 column-fill=\"auto\" widows=3 testId=\"flow\"\n",
@@ -131,7 +131,7 @@ fn multicol_rows_lower_with_their_keywords() {
     );
     assert_eq!(
         (rule.column_rule_width, rule.column_rule_style),
-        (1.0, BorderStyle::Solid)
+        (1.0, exact_kernel::ColumnRuleStyle::Solid)
     );
     assert!(rule.column_rule_color.is_some());
     let two = node("two").style;
@@ -415,4 +415,23 @@ fn a_trimmed_paragraph_split_by_columns_is_cut_at_its_outer_ends() {
         (f[1].dy + 21.4).abs() < 1e-3 && (f[1].height - 21.6).abs() < 1e-3,
         "{f:?}"
     );
+}
+
+/// CSS `text-wrap-style` (LLP 1001 §6): `auto | balance`; Chrome's other
+/// breakers and the old `normal` are refused with what is implemented.
+#[test]
+fn unsupported_text_wrap_styles_name_the_css_values_we_support() {
+    for (attr, value) in [
+        ("text-wrap-style", "normal"),
+        ("text-wrap-style", "pretty"),
+        ("text-wrap", "stable"),
+    ] {
+        let source = format!("component App\n  view\n    text \"Hello\" {attr}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert!(
+            error.message.contains("\"auto\", \"balance\"")
+                || error.message.contains("implements `auto` and `balance`"),
+            "{error}"
+        );
+    }
 }

@@ -1,7 +1,7 @@
 # LLP 1104: The platform's controls by default — text fields and buttons
 
 **Type:** RFC
-**Status:** Draft r11, 2026-10-07. Built in full: steps 1–2 (fields, 3af60bc8b), step 3 (native buttons for `appearance="auto"`, 0365ad1a4) and step 4 (buttons native by default) are on main or landing. Earlier revisions: r1–r4 compiled field rows (built and replaced); r5 the platform's controls; r6–r7 James's 1069.011.001 and two blind reviews; r8 Charlie's rulings and the iOS focus probe; r9 fields as built; r10 step 3; r11 step 4.
+**Status:** Draft r12, 2026-10-12. r12 records Charlie's authored `::placeholder` colour ruling, as built. Built in full: steps 1–2 (fields, 3af60bc8b), step 3 (native buttons for `appearance="auto"`, 0365ad1a4) and step 4 (buttons native by default) are on main or landing. Earlier revisions: r1–r4 compiled field rows (built and replaced); r5 the platform's controls; r6–r7 James's 1069.011.001 and two blind reviews; r8 Charlie's rulings and the iOS focus probe; r9 fields as built; r10 step 3; r11 step 4.
 **Direction (Charlie, r5):** text fields and buttons default to the platform's look; hosts measure and draw it; author rows customise the native control where they can; hosts differ on purpose; the OS draws focus; fields and buttons share one switch whose default is `auto`.
 **Rulings (Charlie, on r7):**
 - On the web, a native control inherits the page's font and colour, as the common reset does (D4). `AGENTS.md`'s "the web is the standard" is amended to match. The other platforms keep their own control fonts.
@@ -162,7 +162,37 @@ The table is a starting point. The build fills in each cell from a measured fixt
   - macOS uses `placeholderAttributedString` with the system's colour.
   - The web uses the UA's (the `::placeholder` rule at `index.html:89` stops reaching native fields).
 
-  An authored `::placeholder` colour is not in Contract and stays out of scope.
+  **Amended by Charlie, 2026-10-12, as built:** an authored `::placeholder`
+  part block admits `color` only, on a text field (`input` of a text type,
+  `textarea`), either in a named `style` block or under the element, where its
+  value may compute:
+
+  ```contract
+  style Field
+    ::placeholder
+      color="#6b7280"
+  ```
+
+  The parser carries each declaration as an attribute named `::placeholder
+  color` (`contract_syntax::PLACEHOLDER_COLOR`), so a class's and the field's
+  merge as any row does and the field's own wins. It lowers to one
+  non-inherited colour row, `placeholder_color`, whose unset mask is the
+  platform's colour. The web writes it as the private `--exact-placeholder-color`
+  (`css.rs`, `style.rs`), which `index.html`'s `::placeholder` rules read with
+  no second opacity: a bare field's falls back to its muted ink, a native
+  field's to the UA's (`revert-layer`, checked in Chrome, Firefox and WebKit);
+  the neutral look reads the same property before its default placeholder colour.
+  The Markdown editor's drawn placeholder reads it too. AppKit sets it in
+  `placeholderAttributedString`. UIKit's fields and navigation searches use
+  `applyPlaceholder` for `attributedPlaceholder`: the font stays the field's
+  and clearing the colour restores UIKit's. Both textareas draw their own
+  placeholder in it. Linux paints it, and hands it to a hosted field as its
+  hint colour. A terminal entry refuses the row (the schema gives it no
+  terminal admission). With no part block, the platform's own placeholder
+  colour above remains. `placeholder-color` and `-exact-placeholder-color` are
+  refused with the block to write; another property in the block says only
+  `color` is admitted; `::before` and `::after` are `syntax-part` (no generated
+  box); `contract vocab ::placeholder` answers with the block.
 
 ### D4 — A native control's text: the platform's on Apple, the page's on the web
 
@@ -262,7 +292,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
 
   This is what a browser does after `all: unset` with a focus restore (CSS UI 4 §7.2.2).
 - **Painted hosts** have no OS ring and paint one as part of their look (D7): `field_ring` for fields on Linux, and a new ring for buttons there and in the terminal.
-- **An author takes a field's ring off (Charlie's ruling on #302, 2026-10-08; built 2026-10-12, #459):** the rings above are defaults. `outline="none"` (or `outline-style="none"`, the one value admitted) on a text `input` or a `textarea`, native or bare, draws none on any host: no UA ring or restore on the web, neither AppKit's nor Exact's on macOS, no `field_ring` on Linux. Tab order and the accessibility tree stay, and replacing the look is the author's duty (WCAG 2.4.7); #283 (`focusin`/`focusout`, `issues/20261009-bubbling-focus-events.md`) is how a wrapper will hear the focus. The rest of `outline`, and `outline` on any other element, stay refused (`issues/closed/20261009-field-outline-none.md`).
+- **An author takes a field's ring off (Charlie's ruling on #302, 2026-10-08; built 2026-10-12, #459):** the rings above are defaults. `outline="none"` (or `outline-style="none"`, the one value admitted) on a text `input` or a `textarea`, native or bare, draws none on any host: no UA ring or restore on the web, neither AppKit's nor Exact's on macOS, no `field_ring` on Linux. Tab order and the accessibility tree stay, and replacing the look is the author's duty (WCAG 2.4.7); #283 (`focusin`/`focusout`, `issues/20261009-bubbling-focus-events.md`) is how a wrapper hears the focus, on every host. The rest of `outline`, and `outline` on any other element, stay refused (`issues/closed/20261009-field-outline-none.md`).
 - **Retired:** `fieldStyle` (prop 253) and its `data-fieldstyle` mark. Prop numbers aren't reused.
 
 ### D7 — The painted hosts have a look of their own

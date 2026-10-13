@@ -57,7 +57,8 @@ final class NumberSteppingTests: XCTestCase {
         XCTAssertEqual(stepped("1.", ["step": "1"]), "2", "a point on its way to a fraction is the number before it")
         XCTAssertEqual(stepped("\u{2212}3"), "-2", "a typographic minus is a minus")
         XCTAssertEqual(stepped("", ["min": "1"]), "1")
-        XCTAssertNil(stepped("", up: false, ["min": "1"]), "from 0, below the floor: nothing, as the web")
+        XCTAssertEqual(stepped("", up: false, ["min": "1"]), "1", "Chrome: an empty field steps into the bounds in either direction")
+        XCTAssertEqual(stepped("", ["min": "-10", "max": "-1"]), "-1")
         XCTAssertEqual(stepped("", ["min": "5"]), "5")
         XCTAssertEqual(stepped(" 7 "), "8")
     }

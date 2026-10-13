@@ -76,11 +76,14 @@ pub use generated::*;
 pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextFont, TextLook};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
-pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint};
+pub use kernel::{
+    BlockAxis, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint,
+};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use node::NodeFacts;
 pub use props::{PropList, PropValue};
+pub use replaced::apple_symbol_name;
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
     link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
@@ -91,8 +94,8 @@ pub use style::{
 pub use text::case::link as link_text_transform;
 pub use text::case::{linked_lowercase, lowercase_bounded, Lowercase};
 pub use text::{
-    Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, TextEdges, TextMeasureRequest,
-    TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
+    Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
+    TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};

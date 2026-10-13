@@ -10,6 +10,34 @@
 import Foundation
 
 struct NumberStepping {
+    /// Keep numeric editing characters, including incomplete signs and exponents.
+    /// A paste follows the same rule as typing; marked text is left to the IME.
+    static func insertion(_ replacement: String, in text: String, range: NSRange) -> String {
+        let source = text as NSString
+        guard range.location <= source.length, range.length <= source.length - range.location else { return replacement }
+        let remainder = source.replacingCharacters(in: range, with: "")
+        var point = remainder.contains("."), exponent = remainder.lowercased().contains("e")
+        var prefix = source.substring(to: range.location).lowercased()
+        let suffix = source.substring(from: range.location + range.length).lowercased()
+        var result = ""
+        for char in replacement.precomposedStringWithCompatibilityMapping {
+            let char = char == "\u{2212}" ? "-" : char
+            if "0123456789".contains(char) {}
+            else if char == "+" || char == "-" {
+                if let e = prefix.firstIndex(of: "e") {
+                    guard prefix.last == "e" else { continue }
+                    let tail = prefix[prefix.index(after: e)...] + suffix
+                    if tail.contains("+") || tail.contains("-") { continue }
+                }
+            } else if char == ".", !point, !prefix.contains("e") { point = true }
+            else if char == "e" || char == "E", !exponent { exponent = true }
+            else { continue }
+            result.append(char)
+            prefix.append(contentsOf: char.lowercased())
+        }
+        return result
+    }
+
     /// The bounds the author wrote, if they read as numbers; `max` is never
     /// below `min` (a field with no value above its floor has just that one).
     var min: Decimal?, max: Decimal?
@@ -64,7 +92,7 @@ struct NumberStepping {
         }
         if let lo = min, value < lo { value = base + Self.round((lo - base) / step, .up) * step }
         if let hi = max, value > hi { value = base + Self.round((hi - base) / step, .down) * step }
-        if up ? value < before : value > before { return nil }
+        if Self.decimal(text) != nil, up ? value < before : value > before { return nil }
         // The same number again, already shown: nothing happened.
         if value == before, Self.decimal(text) != nil { return nil }
         return Self.text(value)

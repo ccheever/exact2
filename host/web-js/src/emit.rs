@@ -535,9 +535,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if ["x_frame", "x_measure", "x_elementFromPoint"]
-        .iter()
-        .any(|name| em.uses.names.contains(*name))
+    if [
+        "x_frame",
+        "x_measure",
+        "x_elementFromPoint",
+        "x_elementsFromPoint",
+    ]
+    .iter()
+    .any(|name| em.uses.names.contains(*name))
     {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
@@ -1070,6 +1075,7 @@ impl Em<'_> {
             let _ = write!(self.out, "{pr}({e});");
         }
         self.element_extras(&parts.tag, &e, &attrs, &parts.props);
+        self.grouped_inset(i, &e, &css);
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {
             let sf = &plan.surfaces[sf.0 as usize];
@@ -1262,7 +1268,10 @@ impl Em<'_> {
                 | EventKind::Hover
                 | EventKind::Focus
                 | EventKind::Blur
+                | EventKind::Focusin
+                | EventKind::Focusout
                 | EventKind::Key
+                | EventKind::Keycapture
                 | EventKind::Keyup
                 | EventKind::Submit
                 | EventKind::Load
@@ -1306,7 +1315,9 @@ impl Em<'_> {
                 | EventKind::Refresh
                 | EventKind::Pan
                 | EventKind::Cancel
+                | EventKind::Close
                 | EventKind::Resize
+                | EventKind::Intersect
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight

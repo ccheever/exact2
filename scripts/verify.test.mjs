@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, groups, judgeRelaunch, pinnedLaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
+import { appServer, draftFields, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, savedChanges, screenTexts, serverUrl, shotName, storedTexts } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 /** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
@@ -153,6 +153,20 @@ test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
   assert.equal(judgeRelaunch(saved, october([]), october([])).problems.length, 1);
 });
 
+// LLP 1116.009 D1: a `reload` relaunches at the virtual time the test had reached, and so does verify's relaunch; a test
+// that only moved the clock pinned nothing, but its first screen may say another day, so the comparison is made at that day.
+test('the relaunch starts at the date the test reached, which moves the comparison with it and pins nothing', () => {
+  const defaults = { epoch: Date.parse('2026-01-01T00:00:00Z'), timeZone: 'UTC', locale: 'en-US', seed: 1 };
+  const reached = defaults.epoch + 86_400_000;
+  const test = (end) => ({ name: 'saves', failures: [], store: 's', end: { keep: true, resources: {}, ops: 3, launch: defaults, ...end } });
+  assert.deepEqual(relaunchFacts(test({ reached })), { ...defaults, epoch: reached });
+  assert.deepEqual(relaunchFacts(test({})), defaults); // a test run without a reached date relaunches as it launched
+  assert.equal(movedClock(test({ reached })), true);
+  assert.equal(movedClock(test({ reached: defaults.epoch })), false);
+  assert.equal(movedClock(test({})), false);
+  assert.equal(pinnedLaunch(test({ reached }), defaults), false);
+});
+
 test('the compiler\'s warnings: a group before the tests, capped as findings are, counted as findings', () => {
   const warning = (n) => `app.contract:${n}:23 warning [lower-colour-one-scheme] \`#336699\` on \`color\` stays the same in dark mode`;
   const one = report({ host: 'web', built: null, compiler: [warning(25)], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
@@ -164,6 +178,154 @@ test('the compiler\'s warnings: a group before the tests, capped as findings are
   assert.equal(many.lines.at(-1), 'verify: 8 problems (8 findings; the tests passed) in 9.0 s');
   assert.equal(many.lines.at(-2), 'open it: bun exact.mjs ios --run (launches what verify checked)');
   assert.equal(many.exit, 0);
+});
+
+// LLP 1116.010 D6: a screen survives a reload. Each test's end screen is reloaded where it stands and its texts compared;
+// round 12's flashcards study screen reloaded into "0 / 0", focus-timer's settings into 25 and 5 over the saved 30 and 10.
+// LLP 1116.011 D5: the first is a note (a session in progress lives in memory), the second a finding (a saved value came back different).
+test('a reload: the texts a screen shows, what it forgives, and the note that names the route', () => {
+  const node = (depth, props, extra = {}) => ({ id: 1, type: 'Text', depth, props, ...extra });
+  const nodes = [
+    node(0, { testId: 'app' }, { type: 'View' }),
+    node(1, { text: 'Recall' }),
+    node(1, { text: 'covered' }, { inactive: true }), // a screen under another is not shown
+    node(1, { text: 'Saved!', accessibilityRole: 'status' }), // a live region says its message once
+    node(2, { text: 'inside the region' }, { type: 'View' }),
+    node(1, { testId: 'focus-minutes', value: '30' }, { type: 'TextInput' }),
+    node(1, { testId: 'lock', accessibilityLabel: 'Locked', checked: true }, { type: 'Control' }),
+    node(1, { text: '  ' }),
+  ];
+  assert.deepEqual(screenTexts(nodes), ['Recall', '30', 'Locked: on']);
+  assert.deepEqual(screenTexts(nodes, new Set(['focus-minutes'])), ['Recall', 'Locked: on']); // a field left out by its id
+  assert.deepEqual(screenTexts(undefined), []);
+
+  // A field the test typed into is a draft, left out of the comparison, unless the app kept what it showed and the reloaded
+  // field shows something it did not keep: focus-timer's settings came back as 25 over the saved 30, the water tracker's
+  // refused 0 as the stored 2000, a saved bill as an empty field, a name the app never stored.
+  const field = (testId, value) => node(1, { testId, value }, { type: 'TextInput' });
+  const state = { slots: { focusMinutes: 30, draft: '', tab: 'home', today: 0 }, resources: { goal: { ml: 2000 }, items: [{ title: 'Milk', price: 100.5 }] } };
+  assert.deepEqual([...storedTexts(state)].sort(), ['', '0', '100.5', '2000', '30', 'Milk', 'home'].sort());
+  // What the app kept is what both its states hold: the settings form's draft slot says 30 before and the default 25 after.
+  const states = { before: { ...state, slots: { ...state.slots, focusDraft: '30' } }, after: { ...state, slots: { ...state.slots, focusDraft: '25' } } };
+  const was = [field('focus-minutes', '30'), field('goal', '0'), field('bill', '100.50'), field('name', 'x')];
+  const now = [field('focus-minutes', '25'), field('goal', '2000'), field('bill', ''), field('name', '')];
+  const touched = ['focus-minutes', 'goal', 'bill', 'name'];
+  assert.deepEqual([...draftFields(was, now, touched, states)].sort(), ['goal', 'name']); // the stored 30 and 100.5 came back as 25 and nothing
+  assert.deepEqual([...draftFields(was, now, ['goal', 'name'], states)].sort(), ['goal', 'name']);
+  assert.deepEqual([...draftFields(was, now, [], states)], []); // a field the test never typed into is the app's to show
+  assert.deepEqual([...draftFields(was, [], ['focus-minutes'], states)], []); // gone after: the stored text it showed is compared as lost
+  const shown = (url, ...texts) => ({ url, texts });
+  // Nothing differs; a running timer's clock face and the texts around it are masked; the date a test reached is pinned, so a date is the same.
+  assert.equal(judgeReload(shown('/', 'Focus', '24:49', 'Last studied Oct 12, 2026'), shown('/', 'Focus', '25:00', 'Last studied Oct 12, 2026')), null);
+  assert.equal(judgeReload(shown('/', 'Elapsed 01:02:03.5'), shown('/', 'Elapsed 00:00:00.0')), null);
+  // A message that went (a toast, a validation error, an open dialog's words): texts taken away, none put in their place.
+  assert.equal(judgeReload(shown('/new', 'New deck', 'Give your deck a name.'), shown('/new', 'New deck')), null);
+  assert.equal(judgeReload(shown('/', 'Milk', 'Deleted', 'Undo'), shown('/', 'Milk')), null);
+  // A route that reloads into another state: flashcards' study screen, focus-timer's settings, a draft that was kept in memory.
+  const study = judgeReload(shown('/deck/1/study', 'Session complete', '0 / 1', 'Keep practicing.'), shown('/deck/1/study', 'Session complete', '0 / 0', 'Every card remembered.'));
+  assert.deepEqual(study, { route: '/deck/1/study', lost: ['0 / 1', 'Keep practicing.'], gained: ['0 / 0', 'Every card remembered.'] });
+  assert.equal(reloadNote(study, 'early finish'), '  note     /deck/1/study reloads into another state: "0 / 1", "Keep practicing." → "0 / 0", "Every card remembered." ("early finish")');
+  assert.deepEqual(judgeReload(shown('/settings', 'Focus', '30', '10'), shown('/settings', 'Focus', '25', '5')).lost, ['30', '10']);
+  const draft = judgeReload(shown('/', 'Squat', '5 × 135', 'Add set', 'Finish workout'), shown('/', 'Start workout'));
+  assert.deepEqual([draft.lost.length, draft.gained], [4, ['Start workout']]);
+  // More than a message gone with nothing back is a list that is empty now; a text that only appeared is a state too; so is a URL that moved.
+  assert.deepEqual(judgeReload(shown('/', 'a', 'b', 'c', 'd'), shown('/')).lost, ['a', 'b', 'c', 'd']);
+  assert.match(reloadNote(judgeReload(shown('/', 'a', 'b', 'c', 'd', 'e'), shown('/')), 'x'), /^ {2}note {5}\/ reloads into another state: loses "a", "b", "c", … \(2 more\) /);
+  assert.match(reloadNote(judgeReload(shown('/', 'Home'), shown('/', 'Home', 'Welcome back')), 'x'), /: gains "Welcome back" /);
+  assert.equal(judgeReload(shown('/settings', 'Home', 'x'), shown('/', 'Home', 'y')).now, '/');
+  assert.equal(judgeReload(shown('/', 'Home'), shown('/other', 'Home')), null); // the same words on another URL are nothing to say
+});
+
+// LLP 1116.011 D5: a reload that changes the screen is a note; it is a finding only when a saved value came back different.
+test('a reload: the persisted states, and the evidence that something saved was lost', () => {
+  assert.deepEqual(persistedStates('/no/such/app'), []);
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-persist-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  state goal = 2000 persist\n  state last-seen = "" persist // kept\n  state draft = ""\n  state label = "persist"\n  state note = "x" // persist\n  state tab = "home"  persist  \n  view\n    text "x"\n');
+    assert.deepEqual(persistedStates(dir), ['goal', 'last-seen', 'tab']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+
+  const node = (testId, value, extra = {}) => ({ id: 1, type: 'TextInput', depth: 1, props: { testId, value }, ...extra });
+  const held = { slots: { persona: 'Grace', goal: 2000, saved: ['a', 'b'], round: 3 }, resources: { questions: [{ q: 'Capital of France?' }] } };
+  const states = (before, after) => ({ before: { ...held, slots: { ...held.slots, ...before } }, after: { ...held, slots: { ...held.slots, ...after } } });
+  const same = savedChanges({ persisted: ['persona', 'goal', 'saved'], states: states({}, { round: 0 }), nodes: { before: [], after: [] }, touched: [] });
+  // A game in progress (round 3, a question on the screen) came back as round 0: memory, not a saved value.
+  assert.deepEqual(same, []);
+  // A persisted state that came back different: the saved persona overwritten, a list shortened.
+  assert.deepEqual(savedChanges({ persisted: ['persona', 'goal', 'saved', 'gone'], states: states({}, { persona: 'Ada', saved: ['a'] }), nodes: { before: [], after: [] }, touched: [] }),
+    [{ kind: 'state', name: 'persona', was: 'Grace', now: 'Ada' }, { kind: 'state', name: 'saved', was: ['a', 'b'], now: ['a'] }]);
+  // A state that is not persisted is not judged, whatever it did.
+  assert.deepEqual(savedChanges({ persisted: ['goal'], states: states({}, { persona: 'Ada', round: 0 }), nodes: { before: [], after: [] }, touched: [] }), []);
+  // A field the test typed into that showed a kept value (the app holds 2000 both times) and shows another now: focus-timer's
+  // settings. A draft (a value the app never held) and a field the test never touched are not saved values.
+  const fields = savedChanges({ persisted: [], states: states({}, {}), touched: ['goal', 'draft'],
+    nodes: { before: [node('goal', '2000'), node('draft', 'half-typed'), node('name', '2000')], after: [node('goal', '25'), node('draft', ''), node('name', '25')] } });
+  assert.deepEqual(fields, [{ kind: 'field', id: 'goal', was: '2000', now: '25' }]);
+  // A field that is gone after the reload is another screen, which the note says; it is not a saved value changed.
+  assert.deepEqual(savedChanges({ persisted: [], states: states({}, {}), touched: ['goal'], nodes: { before: [node('goal', '2000')], after: [] } }), []);
+
+  const finding = { route: '/settings', lost: ['2000'], gained: ['25'], saved: [...fields, { kind: 'state', name: 'persona', was: 'Grace', now: 'Ada' }] };
+  assert.equal(reloadLine(finding, 'goal is saved'), '  reload   /settings a saved value came back different: the field "goal" showed "2000", which the app holds, and shows "25"; the saved state `persona` was "Grace" and is "Ada"; a reload must bring back what was saved ("goal is saved")');
+  assert.match(reloadLine({ ...finding, now: '/' }, 'x'), /^ {2}reload {3}\/settings, landing on \/, a saved value came back different: /);
+  assert.match(reloadLine({ route: '/', lost: [], gained: [], saved: [{ kind: 'state', name: 'saved', was: ['a', 'b'], now: undefined }] }, 'x'), /the saved state `saved` was "\[\\"a\\",\\"b\\"\]" and is "none"/);
+});
+
+test('the report: each test end reloaded; a saved value lost is a finding once a route and change, any other change a note', () => {
+  const finding = { route: '/settings', lost: ['30'], gained: ['25'], saved: [{ kind: 'field', id: 'focus-minutes', was: '30', now: '25' }] };
+  const note = { route: '/deck/1/study', lost: ['0 / 1'], gained: ['0 / 0'] };
+  const base = { host: 'web', built: null, tested: { passed: 3, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 };
+  const same = report({ ...base, tested: { passed: 2, failed: 0, results: [] },
+    reloads: [{ test: 'a', ran: true, finding: null, note: null }, { test: 'b', ran: true, finding: null }, { test: 'drafts', ran: false }] });
+  assert.deepEqual(same.lines.slice(1, 3), ['check first screen · 390x844, 1280x900 · light, dark: no findings', 'reload 2 test ends: the same screen after each']);
+  assert.equal(same.lines.at(-1), 'verify: clean in 4.0 s');
+  // Two tests ending on one route with one saved value lost name it once, the first test; the finding counts, and fails nothing.
+  const found = report({ ...base, reloads: [{ test: 'sets the goal', ran: true, finding }, { test: 'sets it twice', ran: true, finding }, { test: 'adds', ran: true, finding: null, note: null }] });
+  assert.deepEqual(found.lines.slice(2, 4), ['reload 3 test ends: 1 finding', reloadLine(finding, 'sets the goal')]);
+  assert.equal(found.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 4.0 s');
+  assert.equal(found.exit, 0);
+  // A screen that reloaded into another state is a note under its own heading, with the advice once; it counts for nothing.
+  const noted = report({ ...base, reloads: [{ test: 'finishes early', ran: true, finding: null, note }, { test: 'finishes twice', ran: true, finding: null, note }, { test: 'adds', ran: true, finding: null, note: null }] });
+  assert.deepEqual(noted.lines.slice(2, 6), [
+    'reload 3 test ends: no findings',
+    'reload note: 1 screen reloads into another state (not counted)',
+    reloadNote(note, 'finishes early'),
+    '  a saved value must survive a reload; a game or a draft in progress may not',
+  ]);
+  assert.equal(noted.lines.at(-1), 'verify: clean in 4.0 s');
+  assert.equal(noted.problems, 0);
+  // Both: the finding counts, the note does not.
+  const both = report({ ...base, reloads: [{ test: 'plays', ran: true, finding: null, note }, { test: 'sets the goal', ran: true, finding }] });
+  assert.deepEqual(both.lines.slice(2, 7), ['reload 2 test ends: 1 finding', reloadLine(finding, 'sets the goal'), 'reload note: 1 screen reloads into another state (not counted)', reloadNote(note, 'plays'), '  a saved value must survive a reload; a game or a draft in progress may not']);
+  assert.equal(both.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 4.0 s');
+  // Notes past the shown ones are counted, not listed.
+  const many = report({ ...base, reloads: Array.from({ length: 8 }, (_, i) => ({ test: `t${i}`, ran: true, finding: null, note: { route: `/r${i}`, lost: ['a'], gained: ['b'] } })) });
+  assert.ok(many.lines.includes('reload note: 8 screens reload into another state (not counted)') && many.lines.includes('  … and 2 more (verify --json lists them all)'), many.lines.join('\n'));
+  assert.equal(many.problems, 0);
+  const stuck = report({ ...base, tested: { passed: 1, failed: 0, results: [] },
+    reloads: [{ test: 'saves', ran: true, error: 'reload: the app\'s storage did not finish before the restart: x\nmore' }] });
+  assert.deepEqual(stuck.lines.slice(2, 4), ['reload 1 test end: 1 finding', '  reload   "saves": could not reload the end screen: reload: the app\'s storage did not finish before the restart: x']);
+  // The iOS report has no reload: a native host's cold launch is `/` (LLP 1038 §7).
+  assert.ok(!report({ ...base, host: 'ios', reloads: [{ test: 'a', ran: false }] }).lines.some((l) => l.startsWith('reload')));
+});
+
+// LLP 1116.010 D5: what the host refused while the app ran is in the journal (and, on iOS, the host's stderr); verify shows it first.
+test('run-time refusals: found in the journal and the host\'s lines, shown first, counted as findings', () => {
+  const swipe = 'swipeContent on #243 is refused: "delete-1" names no one descendant of it; a row needs one full-size descendant and uniquely named descendant press controls with accessible names';
+  assert.deepEqual(refusalsOf({
+    lines: ['t=0 boot: 15 nodes, epoch 1', `t=12 ${swipe}`, 't=40 saveFile: refused: no app file to copy', 't=41 saveFile: refused: no app file to copy', 't=50 modal dismissal refused: closedby is none', 't=60 back refused: the Back control is disabled'],
+    host: [`app: exact: ${swipe}`, 'console.error: Failed to load resource: net::ERR_CONNECTION_REFUSED', 'app: exact: showModal confirm refused: no dialog or popover has that id'],
+  }), [swipe, 'saveFile: refused: no app file to copy', 'showModal confirm refused: no dialog or popover has that id']);
+  assert.deepEqual(refusalsOf({}), []);
+  const refused = [{ line: swipe, where: ['first screen', 'test "adds"', 'relaunch'] }, { line: 'saveFile: refused: no app file to copy', where: ['test "saves"'] }];
+  const r = report({ host: 'ios', built: { ms: 900, said: [], warnings: [] }, tested: { passed: 1, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000, refused });
+  assert.deepEqual(r.lines.slice(0, 3), [
+    'refused at run time: 2 (the host\'s journal, \'logs\'; each is a call or a wiring the app got wrong)',
+    `  ${swipe} (first screen, test "adds" and 1 more)`,
+    '  saveFile: refused: no app file to copy (test "saves")',
+  ]);
+  assert.equal(r.lines[3], 'built ios (0.9 s)');
+  assert.equal(r.lines.at(-1), 'verify: 2 problems (2 findings; the tests passed) in 4.0 s');
+  assert.equal(r.exit, 0);
 });
 
 test('check\'s text splits by scheme, counting what its own cap left out', () => {
@@ -481,5 +643,20 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     const onScreen = (screen) => r.checks.filter((c) => c.screen === screen).map((c) => `${c.size.join('x')} ${c.scheme} ${c.findings.map((f) => f.kind).join(',')}`);
     for (const screen of ['first screen', 'the greeting loads', "the header's button likes it", 'relaunch']) assert.deepEqual(onScreen(screen), ['390x844 light contrast', '390x844 dark ', '1280x900 light contrast', '1280x900 dark '], screen);
     assert.deepEqual([r.relaunch.test, r.relaunch.problems, r.tests.results.map((t) => t.shot.split('/').at(-1))], ["the header's button likes it", [], ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png']]);
+    assert.deepEqual(r.reloads.map((x) => [x.ran, x.finding]), [[true, null], [true, null]]); // each end screen reloaded: the same
+
+    // A call the host refuses is the report's first line (LLP 1116.010 D5), and a count kept only in memory is lost by a
+    // reload: the page's URL and storage hold nothing of it (D6). The starter's greeting source goes with its view.
+    const appId = readFileSync(resolve(dir, 'app.ts'), 'utf8').match(/appId = '([^']+)'/)[1];
+    writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId = '${appId}';\nexport const grants = '';\nconst sources: Sources = {};\nexport const answer: Answer = (name, args, store, storage, native) => (sources as any)[name](args, store, storage, native);\n`);
+    writeFileSync(view, 'component App\n  state which = "nope"\n  state count = 0\n  action poke\n    showPicker(which)\n    count = count + 1\n  view\n    column padding=16\n      button press=poke testId="poke"\n        text "Poke"\n      text `Pokes: ${count}` testId="count"\n');
+    writeFileSync(tests, 'test "poking counts, and asks for a picker nobody has"\n  tap "poke"\n  tap "poke"\n  clock settle\n  expect text "count" == "Pokes: 2"\n');
+    const poked = verify();
+    assert.equal(poked.status, 0, poked.stdout + poked.stderr);
+    assert.equal(poked.lines[0], "refused at run time: 1 (the host's journal, 'logs'; each is a call or a wiring the app got wrong)");
+    assert.match(poked.lines[1], /^ {2}picker: refused: no file input with id "nope" \(test "poking counts, and asks for/);
+    // LLP 1116.011 D5: the count lived in memory by design, so its reload is a note, shown and not counted.
+    assert.match(poked.stdout, /^reload 1 test end: no findings\nreload note: 1 screen reloads into another state \(not counted\)\n {2}note {5}\/ reloads into another state: "Pokes: 2" → "Pokes: 0" \("poking counts[^\n]*\n {2}a saved value must survive a reload; a game or a draft in progress may not\n/m);
+    assert.match(poked.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\) in /);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 300_000); // A new app's offline Cargo resolution and its first web build, then four runs.

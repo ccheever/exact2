@@ -41,14 +41,15 @@ final class FieldChromeCache: @unchecked Sendable {
     }
     func key(_ request: ExactFieldChromeRequest, font: NSFont) -> Key {
         lock.lock(); defer { lock.unlock() }
-        // AppKit's field is the same in a grouped list's row: the cell bit
-        // (4, LLP 1116.005 D2) asks for nothing else here.
-        return Key(kind: request.kind & 3, family: request.family_id, name: font.fontName,
+        // A field in a grouped list's row (the cell bit, 4: LLP 1116.005
+        // D2) is borderless on the Mac too (LLP 1115.002 D6). A text area
+        // there keeps its own box, as SwiftUI's `TextEditor` does in a form.
+        return Key(kind: request.kind & 3 < 2 ? request.kind & 7 : request.kind & 3, family: request.family_id, name: font.fontName,
                    size: font.pointSize, weight: request.weight, italic: request.italic != 0, traits: traits)
     }
     func prefill(family: UInt16, font: NSFont, weight: UInt16, italic: Bool) {
         precondition(Thread.isMainThread)
-        for kind in UInt8(0)...UInt8(3) {
+        for kind in [UInt8(0), 1, 2, 3, 4, 5] {
             let request = ExactFieldChromeRequest(kind: kind, family_id: family, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
             let k = key(request, font: font)
             lock.lock(); let known = entries[k] != nil; lock.unlock()
@@ -114,7 +115,8 @@ final class FieldChromeCache: @unchecked Sendable {
                     bottom: Float(100 - rect.maxY), left: Float(rect.minX), minimum_height: 0, provisional: 0)
                 return
             }
-            let field = Self.platformField(kind: key.kind)
+            let field = Self.platformField(kind: key.kind & 3)
+            if key.kind & 4 != 0 { field.isBezeled = false; field.isBordered = false }
             field.font = font; field.stringValue = "Hg"
             let height = field.fittingSize.height
             let bounds = NSRect(x: 0, y: 0, width: 320, height: height)

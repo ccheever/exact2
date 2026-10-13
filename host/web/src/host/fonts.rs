@@ -22,6 +22,33 @@ pub(super) fn font_names(plan: &Plan) -> Vec<String> {
     crate::css::font_family_names(plan)
 }
 
+pub(super) fn font_names_for_runner<D: DataSource>(runner: &Runner<D>) -> Vec<String> {
+    let mut names = font_names(runner.plan());
+    names.extend(
+        runner
+            .runtime_font_stacks()
+            .iter()
+            .map(|list| crate::css::runtime_font_family(list)),
+    );
+    names
+}
+
+impl<D: DataSource> Host<D> {
+    pub(super) fn sync_runtime_font_names(&mut self) {
+        let compiled = self.runner.plan().stacks.len();
+        if self.runner.runtime_font_count() == self.font_names.len().saturating_sub(compiled) {
+            return;
+        }
+        let runtime = self.runner.runtime_font_stacks();
+        for name in runtime
+            .iter()
+            .skip(self.font_names.len().saturating_sub(compiled))
+        {
+            self.font_names.push(crate::css::runtime_font_family(name));
+        }
+    }
+}
+
 thread_local! {
     // The plan a font query last decoded, beside its bytes: the glue asks for
     // a plan's faces right before it boots that plan, and decoding validates

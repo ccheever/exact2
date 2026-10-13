@@ -177,7 +177,8 @@ impl Em<'_> {
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
                 let table = serde_json::to_string(&style::font_family_table(plan)).unwrap();
-                one("font-family", Some(format!("v=>{table}[v]??null")))
+                let runtime = self.uses.rt("fontFamily");
+                one("font-family", Some(format!("v=>typeof v===\"string\"?{runtime}(v):{table}[v]??null")))
             }
             // css.rs's legacy clamp, on a non-scrolling block only.
             StyleId::Display if parts.props.contains_key("data-button-style") =>
@@ -367,7 +368,21 @@ impl Em<'_> {
         } else {
             "S"
         });
+        // @ref LLP 1115.002 D6 — a metric the binding may name is its value
+        // in the web's column before the row's own map sees it.
+        let metric = style::metric_map(plan, plan.code(b.expr));
+        let f = match &metric {
+            Some(m) => format!("()=>({m})(({f})())"),
+            None => f.to_string(),
+        };
         for (name, unit, map) in writes {
+            let s = if name == "--exact-grouped-inset"
+                && style::can_be(plan, plan.code(b.expr), &|v| v.contains('%'))
+            {
+                self.uses.rt("groupedInset")
+            } else {
+                s.clone()
+            };
             match map {
                 Some(m) => {
                     let _ = write!(
@@ -381,6 +396,34 @@ impl Em<'_> {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn grouped_inset(&mut self, i: u32, e: &str, css: &str) {
+        if self.plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| self.plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Style
+                    && b.id == StyleId::PaddingLeft as u16
+                    && style::literal(self.plan, self.plan.code(b.expr)).is_none()
+            })
+        {
+            return;
+        }
+        let Some(raw) = css
+            .split(';')
+            .find_map(|d| d.strip_prefix("--exact-grouped-inset:"))
+            .filter(|v| v.contains('%'))
+        else {
+            return;
+        };
+        let raw = serde_json::to_string(raw).unwrap();
+        let gi = self.uses.rt("groupedInset");
+        let _ = write!(
+            self.out,
+            "{gi}({e},\"--exact-grouped-inset\",\"\",()=>{raw});"
+        );
     }
 
     /// A Markdown text field is the web host's own editor (LLP 1045 D5:
@@ -793,6 +836,69 @@ mod tests {
                 "drop-shadow(0px 2px 4px #010203ff)",
                 null,
             ])
+        );
+    }
+
+    /// A grouped row whose flag is bound chooses between two metrics as it
+    /// runs (LLP 1115.002 D6): the page, which keeps no kernel, reads each
+    /// name as its value in the web's column, as the kernel reads a literal
+    /// one. A number takes the row's `px`, a role goes on through the colour
+    /// map.
+    #[test]
+    fn a_bound_metric_is_its_value_in_the_webs_column() {
+        let plan = contract::compile(
+            r#"component App
+  state gone = false
+  action flip
+    gone = !gone
+  view
+    list appearance="auto" flex=1
+      section
+        button press=flip destructive=gone testId="row"
+          when gone
+            image "symbol:sf/trash"
+          text "Remove"
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(
+            !js.contains("\"-exact-grouped-") || js.contains("Object.hasOwn(M,v)?M[v]:v"),
+            "a metric's name is bound and nothing reads it:\n{js}"
+        );
+        let named = |row: &str| {
+            let binding = plan
+                .bindings
+                .iter()
+                .find(|b| {
+                    b.kind == exact_plan::BindingKind::Style
+                        && exact_kernel::StyleId::from_bit(b.id as u32)
+                            .is_some_and(|id| id.name() == row)
+                        && crate::style::literal(&plan, plan.code(b.expr)).is_none()
+                        && crate::style::metric_map(&plan, plan.code(b.expr)).is_some()
+                })
+                .unwrap_or_else(|| panic!("no bound {row} names a metric"));
+            crate::style::metric_map(&plan, plan.code(binding.expr)).unwrap()
+        };
+        // The row starts at its text, after a symbol where one is shown.
+        assert_eq!(
+            run(
+                &named("padding_left"),
+                &[
+                    "-exact-grouped-row-inset",
+                    "-exact-grouped-row-inset-symbol",
+                    "12px"
+                ]
+            ),
+            serde_json::json!([16, 56, "12px"])
+        );
+        // Red when destructive, by its role; the label's colour is no metric.
+        assert_eq!(
+            run(
+                &named("text_color"),
+                &["-exact-grouped-destructive-color", "-exact-label"]
+            ),
+            serde_json::json!(["-exact-system-red", "-exact-label"])
         );
     }
 

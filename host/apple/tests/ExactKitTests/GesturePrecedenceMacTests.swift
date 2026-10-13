@@ -71,6 +71,25 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerHeld)
     }
 
+    /// A pointer's offsets are from the content box layout sent: a padding
+    /// the style rows cannot resolve (5% of a 400-point containing block) is
+    /// 20 points in, as the canvas or paragraph inside it is drawn.
+    func testAPointersOffsetsAreFromTheContentBoxLayoutSent() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown"]],
+            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 5], "padding_top": 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "fieldContent", "id": 1, "rect": [20.0, 4.0, 180.0, 96.0]]
+        ])
+        var samples: [PointerSample] = []
+        p.onPointer = { _, _, sample in samples.append(sample) }
+        let node = p.views[1]!
+        node.mouseDown(with: event(.leftMouseDown, node))
+        XCTAssertEqual(samples.last?.x, 80); XCTAssertEqual(samples.last?.y, 46)
+        node.mouseUp(with: event(.leftMouseUp, node))
+    }
+
     /// Any button holds the pointer, as in a browser (review b5-b 1): the
     /// secondary button's down, moves and up and the middle button's are the
     /// node's pointer events with `buttons` 2 and 4; the secondary's down is

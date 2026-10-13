@@ -50,6 +50,34 @@ fn refused(body: &str) -> (String, String) {
     (e.id.to_string(), e.message)
 }
 
+#[test]
+fn dialog_close_handler_compiles_with_action_commands() {
+    let src = r#"component App
+  state count = 0
+  action opened
+    showModal("form")
+  action dismissed
+    close("form")
+  action closed
+    count = count + 1
+  view
+    column
+      button press=opened testId="open"
+        text "Open"
+      text `${count}` testId="count"
+      dialog id="form" close=closed testId="form"
+        button press=dismissed
+          text "Close"
+"#;
+    let mut r = boot(src);
+    let dialog = node(&r, "form").id;
+    r.dispatch(dialog, exact_runner::Event::Close).unwrap();
+    assert_eq!(node(&r, "count").props.str(PropId::Text), Some("1"));
+    let opener = node(&r, "open").id;
+    r.dispatch(opener, exact_runner::Event::Close).unwrap();
+    assert_eq!(node(&r, "count").props.str(PropId::Text), Some("1"));
+}
+
 /// LLP 1115.000 D10.3: an `hr` is one hairline with no margin of its own:
 /// a solid top edge `-exact-hairline` thick in the separator role, where it
 /// was Chrome's `margin: 0.5em auto` around a 1px edge. The rows are the
@@ -418,4 +446,45 @@ fn one_cancel_component_on_both_arms_of_a_when_is_one_cancel() {
     let e = contract::compile(&twice).unwrap_err();
     assert_eq!(e.id, "lower-alertdialog", "{}", e.message);
     assert!(e.message.contains("a second cancel"), "{}", e.message);
+}
+
+#[test]
+fn menu_bar_placement_is_a_button_hint_with_fixed_literal_destinations() {
+    for menu in ["app", "file", "edit", "view", "go", "window", "help"] {
+        let r = boot(&app(&format!(
+            "button \"Check for Updates…\" -exact-menu=\"{menu}\" press=go testId=\"updates\""
+        )));
+        let prop = PropId::from_name("menuPlacement").expect("menu placement prop");
+        assert_eq!(node(&r, "updates").props.str(prop), Some(menu));
+    }
+    for body in [
+        "button \"Update\" -exact-menu=\"Develop\" press=go",
+        "button \"Update\" -exact-menu=(busy ? \"app\" : \"file\") press=go",
+        "column -exact-menu=\"app\"",
+    ] {
+        assert_eq!(refused(body).0, "lower-menu-placement", "{body}");
+    }
+}
+
+#[test]
+fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
+    let ids = "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows";
+    for value in [ids, "", "show-tab-bar show-tab-bar"] {
+        let source = format!(
+            "component App\n  view\n    column -exact-menu-remove=\"{value}\" testId=\"root\"\n"
+        );
+        let r = boot(&source);
+        let prop = PropId::from_name("menuRemove").expect("menu removal prop");
+        assert_eq!(node(&r, "root").props.str(prop), Some(value));
+    }
+    for source in [
+        "component App\n  view\n    column -exact-menu-remove=\"develop\"\n".to_owned(),
+        "component App\n  state removal = \"show-tab-bar\"\n  view\n    column -exact-menu-remove=removal\n".to_owned(),
+        app("column -exact-menu-remove=\"show-tab-bar\""),
+        app("when busy\n  column -exact-menu-remove=\"autofill\""),
+    ] {
+        let e = contract::compile(&source).unwrap_err();
+        assert_eq!(e.id, "lower-menu-remove", "{source}: {e}");
+        for id in ids.split_whitespace() { assert!(e.message.contains(id), "{e}"); }
+    }
 }

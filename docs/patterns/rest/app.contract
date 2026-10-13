@@ -7,6 +7,9 @@
 // (`viewport`, `wide`, the `when wide` column), the delete (`askRemove`, `remove`, the
 // dialog, the server's DELETE), the notes (the shape's field, the sections, the server's column),
 // or the lock (the shape's `locked`, `setLock`, the badge, the switch, the server's PATCH).
+// Compose as the platform does, and keep its detail route and add sheet when trimming: a row
+// pushes its detail, create and edit are sheets, a phone gets one column and a wide window two
+// (`responsive-columns`); not a form above one long list.
 use Badge from "exact:content"
 
 routes nav
@@ -102,8 +105,8 @@ component App
           column navigationKey="items" navigationScroll="items-list" position="absolute" inset=0
             // The title is inline (`aria-level=2`): the switcher below stays fixed, and a large title
             // over fixed content never collapses. A control that may scroll away goes in the list instead.
-            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              text "Starter" role="heading" aria-level=2
+            header display="flex" align-items="center" padding="8px 16px"
+              text "Starter" role="heading" aria-level=2 flex=1
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
             // Who is signed in: a segmented control, its choice kept across launches.
@@ -150,6 +153,8 @@ component App
                 ItemSections(item=it, setLock=setLock, askRemove=askRemove)
         when e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
+            // Cancel, title and Save: three items, so `space-between` centres the title. With two (a Close and a
+            // title) it would push the title to the far edge: say nothing and the web centres a sheet's title.
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
               button id="back" press=back testId="add-cancel"
                 text "Cancel"

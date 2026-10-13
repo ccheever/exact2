@@ -299,3 +299,21 @@ fn test_steps_keep_their_viewport_and_signed_offsets() {
     let src = "epoch \"2026-09-21T12:00:00Z\"\nsize 1200x800\nbefore data\n\ntest \"a\"\n  epoch now\n  time-zone \"America/New_York\"\n  size 420x900\n  tap \"c\" drag 10 -4\n  tap \"c\" drag -4 -10 over 5\n  resize 800x600\n";
     assert_eq!(format(src).unwrap(), src);
 }
+
+/// LLP 1104 D3: a part's block (`::placeholder`) is not on its element's
+/// head, so a long head breaks around it and the block stays as written.
+#[test]
+fn a_part_block_formats_in_place() {
+    let src = "style Field\n  padding=4\n  ::placeholder\n    color=\"#6b7280\"\n\ncomponent App\n  state dark = false\n  view\n    column\n      input placeholder=\"Search every thread in this section and keep the newest one open\" aria-label=\"Search\" testId=\"q\"\n        ::placeholder\n          color=(dark ? \"#9ca3af\" : \"#6b7280\")\n      textarea placeholder=\"Notes\"\n        ::placeholder\n          color=\"red\"\n";
+    let once = format(src).unwrap();
+    assert_eq!(format(&once).unwrap(), once);
+    assert!(once.contains("\n        aria-label=\"Search\""), "{once}");
+    assert!(
+        once.contains("        ::placeholder\n          color=(dark ?"),
+        "{once}"
+    );
+    assert!(
+        once.starts_with("style Field\n  padding=4\n  ::placeholder\n    color=\"#6b7280\"\n"),
+        "{once}"
+    );
+}

@@ -656,7 +656,9 @@ final class TextSelectionMacTests: XCTestCase {
             let items = menu.items.filter { !$0.isSeparatorItem }, titles = items.map(\.title)
             XCTAssertEqual(titles.first, "Look Up “Alpha beta gamma”", "\(titles)")
             XCTAssertTrue(titles.contains("Translate “Alpha beta gamma”"), "\(titles)")
-            XCTAssertTrue(titles.contains { $0.hasPrefix("Search With ") }, "the person's own search engine: \(titles)")
+            // No "Search With <engine>" is required: AppKit adds that item
+            // only as the person's own settings name an engine, and a menu
+            // without one is still AppKit's own menu.
             for title in ["Copy", "Share…", "Speech"] { XCTAssertTrue(titles.contains(title), "\(title) in \(titles)") }
             // AppKit's items, not the host's: none is the node's to perform.
             let held = try XCTUnwrap(p.selection.menuText)

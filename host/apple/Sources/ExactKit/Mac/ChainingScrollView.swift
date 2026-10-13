@@ -8,6 +8,40 @@ import AppKit
 /// next responder, so an inner `scroll` node never traps the page
 /// (`overscroll-behavior: auto`; AppKit's default is to swallow it).
 package final class ChainingScrollView: NSScrollView {
+    /// Empty document and clip hits take this view. The node owns their
+    /// mouse contact, even if a handler removes the scroll view mid-press.
+    weak var pointerOwner: NodeView?
+    private var mouseHeld = false
+    private var removeAfterMouseUp = false
+    package override func removeFromSuperview() {
+        if mouseHeld {
+            removeAfterMouseUp = true
+            alphaValue = 0
+        } else { super.removeFromSuperview() }
+    }
+    package override func hitTest(_ point: NSPoint) -> NSView? {
+        removeAfterMouseUp ? nil : super.hitTest(point)
+    }
+    package override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        pointerOwner?.acceptsFirstMouse(for: event) ?? super.acceptsFirstMouse(for: event)
+    }
+    package override func mouseDown(with event: NSEvent) {
+        if let pointerOwner {
+            mouseHeld = true
+            pointerOwner.mouseDown(with: event)
+        } else { super.mouseDown(with: event) }
+    }
+    package override func mouseDragged(with event: NSEvent) {
+        if let pointerOwner { pointerOwner.mouseDragged(with: event) } else { super.mouseDragged(with: event) }
+    }
+    package override func mouseUp(with event: NSEvent) {
+        defer {
+            mouseHeld = false
+            if removeAfterMouseUp { super.removeFromSuperview() }
+        }
+        if let pointerOwner { pointerOwner.mouseUp(with: event) } else { super.mouseUp(with: event) }
+    }
+
     /// AppKit withdraws responsive scrolling from a subclass that overrides
     /// `scrollWheel(with:)`, and then every frame of a gesture is driven from
     /// the main thread (`NSScrollingBehaviorSingleThreadedVBL`), behind

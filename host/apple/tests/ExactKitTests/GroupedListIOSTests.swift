@@ -5,7 +5,7 @@ import XCTest
 @testable import ExactGroupedLists
 
 /// LLP 1084 on UIKit: a grouped list (`listStyle`) is a UICollectionView
-/// with a list layout in the list's box over its hidden authored scroll;
+/// with a list layout as the list's only scroller;
 /// its rows are list cells configured from the kernel's model (D5); a tap
 /// selects, highlights and presses; a toggle flips its control; a custom
 /// row's views are carried into their cell and given back before a batch.
@@ -28,7 +28,8 @@ class GroupedListFixture: XCTestCase {
         ])
     }
 
-    func presenter(_ m: @escaping () -> GroupedListModel, on given: Presenter? = nil, height: Double = 874) -> Presenter {
+    func presenter(height: Double = 874, handlers: [String] = [], props: [String: String] = [:],
+                           on given: Presenter? = nil, _ m: @escaping () -> GroupedListModel) -> Presenter {
         ExactGroupedLists.install()
         let p = given ?? Presenter()
         host(p).model = { $0 == 1 ? m() : nil }
@@ -40,8 +41,9 @@ class GroupedListFixture: XCTestCase {
             ["op": "create", "id": id, "kind": kind, "props": props, "handlers": kind == "button" ? ["press"] : [],
              "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
         }
+        let listProps = ["listStyle": "inset-grouped", "testId": "list"].merging(props) { _, value in value }
         var ops: [[String: Any]] = [
-            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped", "testId": "list"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 1, "kind": "list", "props": listProps, "handlers": handlers, "style": ["overflow_y": "scroll"]],
             view(2, "view", ["semanticTag": "section"]), view(3, "view", ["semanticTag": "section"]),
             view(4, "view", [:]), view(5, "view", [:]),
             ["op": "create", "id": 13, "kind": "control", "props": ["type": "checkbox", "accessibilityRole": "switch", "checked": "true", "testId": "toggle"], "handlers": ["input"], "style": [:]],
@@ -69,12 +71,36 @@ class GroupedListFixture: XCTestCase {
 }
 
 final class GroupedListIOSTests: GroupedListFixture {
-    func testItIsAUICollectionViewListInTheListsBoxOverItsHiddenScroll() throws {
+    func testTheNativeListAnswersTheStatusBarAndYieldsToAScrollingPage() throws {
+        let p = presenter(height: 180) { self.model() }
+        let native = try list(p).collection
+        p.viewport.contentSize = CGSize(width: 402, height: 180)
+        p.syncScrollsToTop()
+        XCTAssertTrue(p.scrollsToTopTarget() === native, "the visible native list is the target")
+        XCTAssertTrue(native.scrollsToTop)
+        XCTAssertFalse(p.viewport.scrollsToTop, "a page that fits must not compete")
+
+        p.viewport.contentSize.height = 2000
+        p.syncScrollsToTop()
+        XCTAssertTrue(p.scrollsToTopTarget() === p.viewport, "the scrolling page takes priority")
+        XCTAssertTrue(p.viewport.scrollsToTop)
+        XCTAssertFalse(native.scrollsToTop, "the nested native list must not compete")
+
+        p.viewport.contentSize.height = 180
+        p.syncScrollsToTop()
+        XCTAssertTrue(native.scrollsToTop, "the native list takes ownership again")
+        XCTAssertFalse(p.viewport.scrollsToTop)
+    }
+
+    func testTheCollectionIsTheListsOnlyScrollView() throws {
         let p = presenter { self.model() }
         let l = try list(p)
         XCTAssertTrue(l.collection.superview === p.views[1])
         XCTAssertEqual(l.collection.frame, p.views[1]?.bounds)
-        XCTAssertEqual(p.views[1]?.scroll?.isHidden, true, "the authored rows are beneath, hidden")
+        XCTAssertNil(p.views[1]?.scroll, "no duplicate plain UIScrollView")
+        XCTAssertTrue(p.views[1]?.scrollView === l.collection)
+        XCTAssertTrue(p.views[2]?.isHidden == true && p.views[3]?.isHidden == true, "only the authored section roots are hidden")
+        XCTAssertEqual(p.views[1]?.subviews.filter { $0 is UIScrollView }.count, 1)
         XCTAssertEqual(l.collection.numberOfSections, 2)
         XCTAssertEqual(l.collection.numberOfItems(inSection: 0), 3)
         XCTAssertTrue(l.collection.collectionViewLayout is UICollectionViewCompositionalLayout)
@@ -101,13 +127,13 @@ final class GroupedListIOSTests: GroupedListFixture {
     /// under its collection view, so nothing could be pulled.
     func testPullToRefreshIsOnTheListThatShows() throws {
         let p = presenter { self.model() }
-        let l = try list(p), owner = try XCTUnwrap(p.views[1]), hidden = try XCTUnwrap(owner.scroll)
+        let l = try list(p), owner = try XCTUnwrap(p.views[1])
         var refreshed: [UInt32] = []
         p.onRefresh = { refreshed.append($0) }
         owner.handlers = ["refresh"]
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["refreshing": "false"], "clear": []]]))
         let control = try XCTUnwrap(l.collection.refreshControl, "the collection view, which a finger pulls, carries the control")
-        XCTAssertNil(hidden.refreshControl, "the hidden scroll beneath carries none")
+        XCTAssertNil(owner.scroll, "the list has no hidden refresh scroller")
         XCTAssertEqual(control.actions(forTarget: owner, forControlEvent: .valueChanged), ["pulledToRefresh"], "a pull is the list's `refresh`")
         owner.pulledToRefresh()
         XCTAssertEqual(refreshed, [1])
@@ -254,14 +280,14 @@ final class GroupedListIOSTests: GroupedListFixture {
         // A finger at its middle reaches the switch the cell shows, though
         // the hidden row's own switch is laid out under it.
         let middle = s.convert(CGPoint(x: s.bounds.midX, y: s.bounds.midY), to: window)
-        let scroll = try XCTUnwrap(p.views[1]?.scroll)
-        let at = scroll.convert(middle, from: window)
+        let owner = try XCTUnwrap(p.views[1])
+        let at = owner.convert(middle, from: window)
         p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
                            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
                            ["op": "frame", "id": 12, "x": 0.0, "y": Double(at.y - 26), "w": 402.0, "h": 52.0],
                            ["op": "frame", "id": 13, "x": Double(at.x - 31.5), "y": 0.0, "w": 63.0, "h": 52.0]]))
         let authored = try XCTUnwrap(p.controls.controls[13] as? UISwitch)
-        XCTAssertTrue(authored !== s && scroll.isHidden)
+        XCTAssertTrue(authored !== s && p.views[2]?.isHidden == true)
         XCTAssertTrue(authored.convert(authored.bounds, to: window).contains(middle), "the hidden row's switch is under the accessory")
         let hit = try XCTUnwrap(window.hitTest(middle, with: nil))
         XCTAssertTrue(hit === s || hit.isDescendant(of: s), "hit \(hit)")
@@ -358,7 +384,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "grouped-addressed")
         defer { session.destroy() }
-        let p = presenter({ self.model() }, on: session.presenter, height: 200)
+        let p = presenter(height: 200, on: session.presenter) { self.model() }
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         _ = try cell(p, 10)
@@ -375,7 +401,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "grouped-custom")
         defer { session.destroy() }
-        let p = presenter({ self.model(custom: true) }, on: session.presenter)
+        let p = presenter(on: session.presenter) { self.model(custom: true) }
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         _ = try cell(p, 21)
@@ -425,6 +451,71 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(row.superview === p.views[5]?.container, "back where the presenter put it")
         XCTAssertEqual(row.frame, CGRect(x: 16, y: 52, width: 354, height: 61))
         XCTAssertFalse(host(p).projects(row))
+    }
+
+    func testAConfiguredCustomCellCarriesItsRestoredViewsWhenDisplayed() throws {
+        let p = presenter { self.model(custom: true) }
+        let l = try list(p), row = try XCTUnwrap(p.views[21])
+        let prepared = try cell(p, 21)
+        let path = try XCTUnwrap(l.collection.indexPath(for: prepared))
+        XCTAssertTrue(row.superview === prepared.contentView)
+        host(p).prepare()
+        XCTAssertTrue(row.superview === p.views[5]?.container, "a batch restores even a prepared cell's views")
+        XCTAssertFalse(row.superview === prepared.contentView)
+        row.props["testId"] = "displayed-custom"
+        // The public delegate callback is also delivered for an already
+        // configured prefetched cell, without a cell-registration callback.
+        l.collectionView(l.collection, willDisplay: prepared, forItemAt: path)
+        XCTAssertTrue(row.superview === prepared.contentView)
+        XCTAssertTrue(host(p).projects(row))
+        XCTAssertEqual(row.frame, CGRect(x: 16, y: 0, width: 354, height: 61))
+        XCTAssertEqual(prepared.accessibilityIdentifier, "displayed-custom")
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 61)
+        host(p).prepare()
+        XCTAssertTrue(row.superview === p.views[5]?.container, "display-time carrying still restores normally")
+        p.applyGeometry(wireBatch([["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 81.0]]).ops[0])
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 61, "the prepared cell still has its older measured height")
+        l.collectionView(l.collection, willDisplay: prepared, forItemAt: path)
+        XCTAssertTrue(row.superview === prepared.contentView)
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 81, "display reads the current authored frame")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(prepared.bounds.height, 81, accuracy: 0.5, "the existing projection sync settles the height outside the display callback")
+    }
+
+    func testUnchangedCustomRowsKeepTheirNativeGeometryAndRefreshLiveProjectionProps() throws {
+        let p = presenter(height: 180) { self.model(custom: true) }
+        p.apply(wireBatch([["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 240.0],
+                           ["op": "props", "id": 1, "set": ["scrollTop": "140"]]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let l = try list(p), row = try XCTUnwrap(p.views[21])
+        let shown = try XCTUnwrap(try cell(p, 21) as? GroupedCell)
+        let offset = l.collection.contentOffset
+        let nativeY = shown.convert(shown.bounds, to: l.collection).minY
+        let before = shown.convert(shown.bounds, to: window)
+        XCTAssertEqual(shown.height, 240)
+        for index in 0..<4 {
+            p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "custom\(index)"], "clear": [String]()]]))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            let current = try cell(p, 21)
+            XCTAssertTrue(current === shown, "the live custom row keeps its native cell")
+            XCTAssertTrue(row.superview === shown.contentView)
+            XCTAssertEqual(current.accessibilityIdentifier, "custom\(index)")
+            XCTAssertEqual(l.collection.contentOffset.y - offset.y,
+                           current.convert(current.bounds, to: l.collection).minY - nativeY, accuracy: 0.5,
+                           "native estimates may settle above the reader; anchoring counts that shift once")
+            XCTAssertEqual(current.convert(current.bounds, to: window).minY, before.minY, accuracy: 0.5)
+            XCTAssertEqual(current.bounds.height, before.height, accuracy: 0.5)
+        }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["inert": "true"]]]))
+        XCTAssertFalse(shown.isUserInteractionEnabled, "remount reads the current authored section")
+        XCTAssertTrue(shown.accessibilityElementsHidden)
+        p.apply(wireBatch([["op": "props", "id": 3, "set": [String: String](), "clear": ["inert"]],
+                           ["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 300.0]]))
+        XCTAssertTrue(try cell(p, 21) === shown)
+        XCTAssertTrue(shown.isUserInteractionEnabled)
+        XCTAssertFalse(shown.accessibilityElementsHidden)
+        XCTAssertEqual(shown.height, 300, "mount updates an authored box without changing the custom model")
+        XCTAssertEqual(shown.bounds.height, 300, accuracy: 0.5)
     }
 
     /// A carried row of stacked lines keeps the cell's margins (team-kanban's
@@ -560,19 +651,24 @@ final class GroupedListIOSTests: GroupedListFixture {
 
     /// Outside a batch (a sheet's dismissal replaying geometry, a subtree's
     /// appearance), the projections sync on the next turn with no batch to
-    /// carry them (LLP 1079's amendment of 2026-10-04): the collection takes
-    /// the list's new box and the switch its control as it now stands.
+    /// carry them (LLP 1079's amendment of 2026-10-04): the collection
+    /// autoresizes with its owner, then the switch reads its current control.
     func testAnOutOfBatchChangeReachesTheProjectionOnTheNextTurn() throws {
         let p = presenter { self.model() }
         let l = try list(p)
         let toggle = try XCTUnwrap(switches(try cell(p, 12)).first)
         XCTAssertTrue(toggle.isOn)
-        p.views[13]?.props["checked"] = "false"
-        p.applyGeometry(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 600.0]]).ops[0])
-        p.requestProjectionSync() // coalesced with the replay's
-        XCTAssertEqual(l.collection.frame.width, 402, "not inline")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let projected = expectation(description: "the queued projection ran")
+        UIView.performWithoutAnimation {
+            p.views[13]?.props["checked"] = "false"
+            p.applyGeometry(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 600.0]]).ops[0])
+            p.requestProjectionSync() // coalesced with the replay's
+            XCTAssertEqual(l.collection.frame, p.views[1]?.bounds, "the only scroller autoresizes inline")
+            DispatchQueue.main.async { projected.fulfill() }
+            wait(for: [projected], timeout: 1)
+        }
         XCTAssertEqual(l.collection.frame, CGRect(x: 0, y: 0, width: 300, height: 600))
+        XCTAssertTrue(try XCTUnwrap(switches(try cell(p, 12)).first) === toggle)
         XCTAssertFalse(toggle.isOn)
     }
 
@@ -796,7 +892,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         ExactGroupedLists.install()
         let session = ExactApp.shared.makeSession(label: "grouped-reveal")
         defer { session.destroy() }
-        let p = presenter({ self.model(custom: true) }, on: session.presenter, height: 150)
+        let p = presenter(height: 150, on: session.presenter) { self.model(custom: true) }
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let l = try list(p)
@@ -813,7 +909,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let port = l.collection.bounds.inset(by: l.collection.adjustedContentInset)
         let mid = row.convert(CGPoint(x: row.bounds.midX, y: row.bounds.midY), to: l.collection)
         XCTAssertTrue(port.contains(mid), "its middle is in the list's port: \(mid) in \(port)")
-        XCTAssertEqual(p.views[1]?.scroll?.contentOffset.y ?? 0, 0, "the hidden scroll stays")
+        XCTAssertNil(p.views[1]?.scroll, "there is no hidden scroller")
         XCTAssertNil(agent.tap(["id": 21])["error"])
         XCTAssertEqual(pressed, [21], "the tap pressed the row it revealed")
         // A standard row, scrolled away again: by its cell too, then selected.
@@ -836,7 +932,8 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(scroller === l.collection, "the row's list, not its hidden scroll")
         Agent.scroll(from: scroller, dx: 0, dy: 300)
         XCTAssertEqual(l.collection.contentOffset.y + l.collection.adjustedContentInset.top, 300, accuracy: 0.5)
-        XCTAssertEqual(p.views[1]?.scroll?.contentOffset.y ?? 0, 0, "the hidden scroll stays")
+        XCTAssertNil(p.views[1]?.scroll, "the wheel has no shadow scroll to update")
+        XCTAssertTrue(p.views[1]?.scrollView === l.collection)
     }
 
     func testASwitchWhoseFlipChangesItsRowKeepsItsSuperviewUntilTheActionReturns() throws {
@@ -1118,7 +1215,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         var m = model(custom: true)
         let ids = (100..<112).map { UInt32($0) }
         m.sections.append(.init(view: 6, header: "Recent", footer: nil, rows: ids.map { Row(view: $0, custom: true, pressable: true) }))
-        let p = presenter({ m }, height: 3000)
+        let p = presenter(height: 3000) { m }
         let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
             ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
         }
@@ -1166,7 +1263,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         var m = model(custom: true)
         let ids = (100..<112).map { UInt32($0) }
         m.sections.append(.init(view: 6, header: nil, footer: nil, rows: ids.map { Row(view: $0, custom: true) }))
-        let p = presenter({ m }, on: session.presenter, height: 600)
+        let p = presenter(height: 600, on: session.presenter) { m }
         let view = { (id: Int, kind: String) -> [String: Any] in
             ["op": "create", "id": id, "kind": kind, "props": [:], "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
         }
@@ -1244,14 +1341,14 @@ final class GroupedListIOSTests: GroupedListFixture {
         defer { session.destroy() }
         typealias Look = GroupedListModel.Look
         let red: BatchValue = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
-        let p = presenter({
+        let p = presenter(on: session.presenter) {
             var m = self.model()
             m.sections[0].footerLook = Look(color: red)
             m.sections[0].headerLook = Look(font: .init(size: 13, weight: 400))
             m.sections[0].rows[0].titleLook = Look(color: [255, 0, 0, 255], font: .init(size: 20, weight: 700))
             m.sections[1].rows[1].titleLook = Look(color: [0, 128, 0, 255])
             return m
-        }, on: session.presenter)
+        }
         let l = try list(p)
         l.collection.layoutIfNeeded()
         let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
@@ -1292,7 +1389,7 @@ final class GroupedListIOSTests: GroupedListFixture {
     /// the list's background goes on to the container's edge, behind the
     /// viewport; not while the keyboard ends the viewport.
     func testAListAtTheViewportsEdgeDrawsItsBackgroundToTheScreensEdge() throws {
-        let p = presenter({ self.model() }, height: 840)
+        let p = presenter(height: 840) { self.model() }
         let grey: [[Int]] = [[242, 242, 247, 255], [0, 0, 0, 255]]
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": grey]]]))
         // The home indicator's 34 points under the viewport.

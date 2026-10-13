@@ -5,10 +5,9 @@
 //! ([`NodeKey`]), and destroyed slots go on a free list. Nothing here hashes on
 //! the read path except the wire-id lookup a producer's op needs once.
 //!
-//! The arena is the authored truth. Frames and Taffy handles are derived
-//! columns: rehydration is columns-plus-rebuild, never serialized engine state.
+//! Rehydration rebuilds frames and Taffy handles from authored columns.
 
-use crate::id::IdMap;
+use crate::id::{BoxInset, IdMap};
 use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
 use std::rc::Rc;
@@ -59,6 +58,13 @@ pub struct NodeArena {
     pub(crate) frag: crate::fragment::FragState,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
     pub(crate) relative_slots: SlotSet,
+    /// System symbols whose role or font changed: their natural size is
+    /// measured again before the next layout (`Kernel::measure_symbols`).
+    pub(crate) symbols_owed: SlotSet,
+    /// Symbols whose natural size the kernel measured itself, for their
+    /// current role and font, under the measurer's revision the kernel last
+    /// measured at (`Kernel::measures_symbol`).
+    pub(crate) measured_symbols: SlotSet,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
     /// The timeline-bearing nodes and what each follower's name resolves
@@ -75,6 +81,8 @@ pub struct NodeArena {
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
+    /// Padding and border published by the document or content-region layout.
+    insets: Vec<Option<BoxInset>>,
     /// Host intrinsic size: a replaced element's natural size or a projected
     /// tablist's or radio group's native control size; `None` before
     /// measurement or after removal.
@@ -83,6 +91,8 @@ pub struct NodeArena {
     /// route nodes at most, so a list by slot rather than a column (and not a
     /// map, whose code every web core would carry).
     covers: Vec<(u32, crate::kernel::HostCover)>,
+    /// The containing blocks hosts gave subtrees (LLP 1115.002 D8.2).
+    pub(crate) blocks: crate::kernel::Blocks,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
     free: Vec<u32>,
@@ -130,14 +140,18 @@ impl Clone for NodeArena {
             exclusion_slots: self.exclusion_slots.clone(),
             frag: self.frag.clone(),
             relative_slots: self.relative_slots.clone(),
+            symbols_owed: self.symbols_owed.clone(),
+            measured_symbols: self.measured_symbols.clone(),
             sticky_slots: self.sticky_slots.clone(),
             timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
             display_scale: self.display_scale,
             display_scale_next: self.display_scale_next,
             contents: self.contents.clone(),
+            insets: self.insets.clone(),
             intrinsic: self.intrinsic.clone(),
             covers: self.covers.clone(),
+            blocks: self.blocks.clone(),
             taffy: self.taffy.clone(),
             is_root: self.is_root.clone(),
             free: self.free.clone(),
@@ -188,7 +202,6 @@ impl NodeArena {
         self.env = env;
         self.refresh_control_styles();
     }
-
     /// Forget every allocation while retaining each slot's generation.
     ///
     /// Resetting the kernel must not make a pre-reset [`NodeKey`] valid for a
@@ -203,6 +216,8 @@ impl NodeArena {
         self.exclusion_slots.clear();
         self.frag = Default::default();
         self.relative_slots.clear();
+        self.symbols_owed.clear();
+        self.measured_symbols.clear();
         self.sticky_slots.clear();
         self.timelines = Default::default();
         for slot in 0..self.live.len() {
@@ -216,27 +231,26 @@ impl NodeArena {
             self.type_counts.clear();
             self.frames[slot] = Frame::default();
             self.contents[slot] = (0.0, 0.0);
+            self.insets[slot] = None;
             self.intrinsic[slot] = None;
             self.taffy[slot] = None;
             self.is_root[slot] = false;
         }
         self.covers.clear();
+        self.blocks = Default::default();
         self.free = (0..self.live.len() as u32).rev().collect();
         self.roots.clear();
         self.by_local.clear();
         self.live_count = 0;
     }
-
     /// Slots the columns hold (live plus free).
     pub fn slot_count(&self) -> usize {
         self.live.len()
     }
-
     /// Slots ever allocated: identities never repeat below this.
     pub(crate) fn slot_space(&self) -> usize {
         self.generations.len()
     }
-
     /// Return what the columns hold beyond the live nodes, once they hold
     /// more than twice as many slots: trailing free slots go (their
     /// generations stay, so a stale key never names a later node), and each
@@ -271,6 +285,7 @@ impl NodeArena {
             geometry_passes,
             frames,
             contents,
+            insets,
             intrinsic,
             taffy,
             is_root,
@@ -279,12 +294,10 @@ impl NodeArena {
         self.flow.shrink_to_fit();
         self.by_local.shrink_to_fit();
     }
-
     /// Whether `slot` holds a live node.
     pub fn is_live(&self, slot: u32) -> bool {
         (slot as usize) < self.live.len() && self.live[slot as usize]
     }
-
     /// The generation-checked key for a live slot.
     pub fn key(&self, slot: u32) -> NodeKey {
         NodeKey {
@@ -292,7 +305,6 @@ impl NodeArena {
             generation: self.generations[slot as usize],
         }
     }
-
     /// The slot a key names, if that allocation is still live.
     pub fn resolve(&self, key: NodeKey) -> Option<u32> {
         if self.is_live(key.index) && self.generations[key.index as usize] == key.generation {
@@ -301,34 +313,28 @@ impl NodeArena {
             None
         }
     }
-
     /// The slot holding wire id `id`.
     pub fn slot_of(&self, id: ViewId) -> Option<u32> {
         self.by_local.get(&id).copied()
     }
-
     /// The key for wire id `id`.
     pub fn key_of(&self, id: ViewId) -> Option<NodeKey> {
         self.slot_of(id).map(|s| self.key(s))
     }
-
     /// Wire id of a slot.
     pub fn local_id(&self, slot: u32) -> ViewId {
         self.local_ids[slot as usize]
     }
-
     /// Node type of a slot.
     pub fn node_type(&self, slot: u32) -> NodeType {
         self.node_types[slot as usize]
     }
-
     /// Whether a slot is a `<button>` element on the web: a Pressable,
     /// whatever its ARIA role, unless an `href` makes it an `<a>`.
     pub(crate) fn is_button(&self, slot: u32) -> bool {
         self.node_type(slot) == NodeType::Pressable
             && self.props(slot).str(crate::PropId::Href).is_none()
     }
-
     /// Parent slot.
     pub fn parent(&self, slot: u32) -> Option<u32> {
         self.parents[slot as usize]
@@ -844,6 +850,7 @@ impl NodeArena {
                 self.geometry_passes.push((0, 0));
                 self.frames.push(Frame::default());
                 self.contents.push((0.0, 0.0));
+                self.insets.push(None);
                 self.intrinsic.push(None);
                 self.taffy.push(None);
                 self.is_root.push(false);
@@ -867,6 +874,7 @@ impl NodeArena {
         self.layout_dirty.insert(slot);
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.insets[s] = None;
         self.intrinsic[s] = None;
         self.taffy[s] = None;
         self.is_root[s] = false;
@@ -881,6 +889,8 @@ impl NodeArena {
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
+        self.symbols_owed.remove(slot);
+        self.measured_symbols.remove(slot);
         self.button_bases.remove(&slot);
         self.fit_scales.remove(&slot);
         self.sticky_slots.remove(slot);
@@ -900,8 +910,10 @@ impl NodeArena {
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
+        self.insets[s] = None;
         self.intrinsic[s] = None;
         self.covers.retain(|(s, _)| *s != slot);
+        self.blocks.set(slot, None);
         self.taffy[s] = None;
         if self.is_root[s] {
             self.roots.retain(|r| *r != slot);
@@ -1110,6 +1122,14 @@ impl NodeArena {
         self.contents[slot as usize] = content;
     }
 
+    pub(crate) fn set_inset(&mut self, slot: u32, inset: Option<BoxInset>) {
+        self.insets[slot as usize] = inset;
+    }
+
+    pub(crate) fn inset(&self, slot: u32) -> Option<BoxInset> {
+        self.insets[slot as usize]
+    }
+
     pub(crate) fn set_frame(&mut self, slot: u32, frame: Frame) {
         self.frames[slot as usize] = frame;
     }
@@ -1251,6 +1271,7 @@ mod tests {
             (StyleId::MarkerEnd, text("url(#a)")),
             (StyleId::ColorInterpolationFilters, text("sRGB")),
             (StyleId::TextBoxEdge, text("cap-alphabetic")),
+            (StyleId::TextWrapStyle, text("balance")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

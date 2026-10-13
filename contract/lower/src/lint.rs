@@ -119,6 +119,9 @@ fn logical(name: &str) -> Option<String> {
 
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
+        None if crate::fields::placeholder_hint(&a.name).is_some() => {
+            crate::fields::placeholder_hint(&a.name).unwrap_or_default()
+        }
         Some(new @ ("press" | "change" | "input")) => format!(
             "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name

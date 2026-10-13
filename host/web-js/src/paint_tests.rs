@@ -738,6 +738,13 @@ component App
             box width="100%" height="100%" background-color="#ff0000"
           button appearance="auto" testId="last" display=(changed ? "none" : "flex")
             text "Native button"
+      list appearance="auto" width=332 height=170 flex-shrink=0 testId="percent-list"
+        section
+          row width=100 height=52 padding-left=(changed ? "calc(20% + 2px)" : "calc(10% + 2px)") padding-right=(changed ? "calc(93px - 20%)" : "calc(93px - 10%)") border-width=0 border-left-width=2 border-right-width=3 border-style="solid" background-color="#ffffff" border-bottom-color="#0000ff" testId="percent-row"
+          row width=100 height=52 padding-left="10%" padding-right="calc(100px - 10%)" background-color="#ffffff" border-bottom-color="#0000ff" testId="static-percent"
+          row width=100 height=52 testId="percent-last"
+          when changed
+            row width=100 height=52 padding-left="10%" testId="conditional-percent"
 "##;
     let plan = contract::compile(source).unwrap();
     let output = crate::emit::emit(&plan, false, false).unwrap();
@@ -781,19 +788,29 @@ await bundle.write({file:resolve(dir,'client.js'),format:'iife',codeSplitting:fa
 const base=readFileSync(resolve(root,'host/web/index.html'),'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
 const css=base+readFileSync(resolve(dir,'app.css'),'utf8');
 const shell=content=>`<!doctype html><html><style>${css}</style><div id="exact-root">${content}</div>`;
-writeFileSync(resolve(dir,'rust-page.html'),shell(readFileSync(resolve(dir,'rust.html'),'utf8')));
+const rustMarkup=readFileSync(resolve(dir,'rust.html'),'utf8');
+writeFileSync(resolve(dir,'rust-page.html'),shell(rustMarkup)+`<script type="module">import {observeGroupedInset} from './.gen/grouped-inset.js';for(const e of document.querySelectorAll('[data-grouped-row-separator]'))observeGroupedInset(e,e.style.getPropertyValue('--exact-grouped-inset'));</script>`);
+writeFileSync(resolve(dir,'adopted-page.html'),shell(rustMarkup)+'<script type="application/vnd.exact.checkpoint">{"time":0,"answers":[]}</script><script src="./client.js"></script>');
 writeFileSync(resolve(dir,'client-page.html'),shell('')+'<script src="./client.js"></script>');
 const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:req=>{const path=new URL(req.url).pathname;return path==='/favicon.ico'?new Response(null,{status:204}):new Response(Bun.file(resolve(dir,'.'+path)))}});
 const {executable,unavailable}=chromium();if(unavailable)throw Error(unavailable);
 const browser=await playwright.launch({executablePath:executable,headless:true,args:['--no-sandbox']});
 try{
  const page=await browser.newPage();
+ await page.addInitScript(()=>{const Native=ResizeObserver;globalThis.insetObservers={created:0,delivered:0,active:new Set()};globalThis.ResizeObserver=class extends Native{constructor(f){super(e=>{insetObservers.delivered++;f(e)});insetObservers.created++}observe(e,o){insetObservers.active.add(e);super.observe(e,o)}unobserve(e){insetObservers.active.delete(e);super.unobserve(e)}}});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const settled=()=>page.waitForFunction(()=>{const e=document.querySelector('[data-testid="percent-row"]'),s=getComputedStyle(e);return s.getPropertyValue('--exact-grouped-inset-resolved').trim()===s.paddingLeft});
+ const percentage=async(id,border)=>{const e=page.locator(`[data-testid="${id}"]`),r=await e.boundingBox();const expected=await e.evaluate(e=>parseFloat(getComputedStyle(e).paddingLeft));assert.equal(r.width,100);assert.equal(await e.evaluate(e=>e.clientWidth-parseFloat(getComputedStyle(e).paddingLeft)-parseFloat(getComputedStyle(e).paddingRight))<=0,true,'the content width stays zero');const first=Math.ceil(expected+border);assert.deepEqual(await pixel(id,first-1),[255,255,255],'before resolved padding');assert.deepEqual(await pixel(id,first),[0,0,255],'separator starts at resolved padding, inside the border');};
  const snapshot=()=>page.evaluate(()=>Object.fromEntries(['first','middle','image-row','covered','last'].map(id=>{const e=document.querySelector(`[data-testid="${id}"]`),s=getComputedStyle(e);return[id,{separator:s.backgroundImage.startsWith('linear-gradient('),color:s.getPropertyValue('--exact-grouped-separator').trim(),children:e.children.length,hidden:e.getAttribute('data-grouped-row-hidden'),inset:s.getPropertyValue('--exact-grouped-inset').trim()}]})));
  const pixel=async(id,dx)=>{const r=await page.locator(`[data-testid="${id}"]`).boundingBox(),p=decodePng(await page.screenshot());const x=Math.floor(dx<0?r.x+r.width+dx:r.x+dx),y=Math.floor(r.y+r.height)-1;return [...p.data.slice((y*p.width+x)*4,(y*p.width+x)*4+3)]};
- await page.goto(`${server.url}rust-page.html`);const rust=await snapshot();
+ await page.goto(`${server.url}rust-page.html`);await settled();await percentage('percent-row',2);await percentage('static-percent',0);const rust=await snapshot();
  assert.equal(rust.first.separator,true);assert.equal(rust.middle.separator,true);assert.equal(rust.last.separator,false);
  assert.equal(rust.first.inset,'16px');assert.equal(rust.middle.color,'rgb(0, 0, 255)');assert.equal(rust.last.inset,'16px');
- await page.goto(`${server.url}client-page.html`);await page.waitForFunction(()=>globalThis.ready);
+ await page.goto(`${server.url}client-page.html`);await page.waitForFunction(()=>globalThis.ready);await settled();await percentage('percent-row',2);await percentage('static-percent',0);
+ const resizeCounts=await page.evaluate(async()=>{const e=document.querySelector('[data-testid="percent-row"]');const parent=e.parentElement;parent.style.width='400px';await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return [parent.clientWidth,getComputedStyle(e).getPropertyValue('--exact-grouped-inset-resolved').trim()]});assert.deepEqual(resizeCounts,[400,'42px'],'a resized containing block updates padding even with zero-width row content');await percentage('percent-row',2);
+ await page.evaluate(()=>document.querySelector('[data-testid="percent-row"]').parentElement.style.removeProperty('width'));await settled();
+ assert.deepEqual(await page.evaluate(()=>[insetObservers.created,[...insetObservers.active].filter(e=>e.dataset.testid).map(e=>e.dataset.testid).sort()]),[1,['percent-row','static-percent']],'one observer only watches percentage rows and their parent');
+ const idle=await page.evaluate(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const before=insetObservers.delivered;for(let i=0;i<5;i++)await new Promise(requestAnimationFrame);return insetObservers.delivered-before});assert.equal(idle,0,'inset observation does no work in idle frames');
  assert.deepEqual(await snapshot(),rust,'the fresh JS client agrees with the Rust document');
  assert.deepEqual(await pixel('middle',-2),[0,0,255],'the separator reaches the inner trailing edge');
  assert.deepEqual(await pixel('image-row',-2),[0,128,0],'a replaced image row draws its separator');
@@ -801,14 +818,18 @@ try{
  assert.equal(await page.evaluate(()=>{const style=id=>getComputedStyle(document.querySelector(`[data-testid="${id}"]`));return parseFloat(style('last').paddingLeft)-parseFloat(style('standalone').paddingLeft)}),16,'native face fitting includes exactly one leading inset');
 
  await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());
+ await settled();await percentage('percent-row',2);
+ assert.equal(await page.evaluate(()=>[...insetObservers.active].some(e=>e.dataset.testid==='conditional-percent')),true);
  const colours=await page.evaluate(async()=>{await new Promise(requestAnimationFrame);const e=document.querySelector('[data-testid="middle"]');for(const a of e.getAnimations()){a.pause();a.currentTime=500;}const s=getComputedStyle(e);return[s.borderBottomColor,s.getPropertyValue('--exact-grouped-separator').trim()]});
  assert.deepEqual(colours,['rgb(128, 0, 128)','rgb(128, 0, 128)'],'a compiled bound border colour transitions separator ink');
  await page.evaluate(()=>{for(const a of document.querySelector('[data-testid="middle"]').getAnimations())a.finish()});
  const hidden=await snapshot();assert.equal(hidden.first.separator,true);assert.equal(hidden.middle.separator,true);assert.equal(hidden.covered.separator,false);assert.equal(hidden.last.hidden,'true');assert.equal(hidden.middle.inset,'24px');assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('[data-testid="middle"]')).getPropertyValue('--exact-grouped-separator').trim()),'rgb(255, 0, 0)');
  assert.deepEqual(Object.values(hidden).map(v=>v.children),Object.values(rust).map(v=>v.children),'separator updates add no child boxes');
- await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());await page.evaluate(()=>{getComputedStyle(document.querySelector('[data-testid="middle"]')).borderBottomColor;for(const a of document.querySelector('[data-testid="middle"]').getAnimations())a.finish()});assert.deepEqual(await snapshot(),rust,'showing the last row restores its predecessor separator');
+ await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());await page.evaluate(()=>{getComputedStyle(document.querySelector('[data-testid="middle"]')).borderBottomColor;for(const a of document.querySelector('[data-testid="middle"]').getAnimations())a.finish()});assert.deepEqual(await snapshot(),rust,'showing the last row restores its predecessor separator');assert.equal(await page.evaluate(()=>[...insetObservers.active].some(e=>e.dataset.testid==='conditional-percent')),false,'unmount releases the percentage row observation');
  const animated=await page.evaluate(()=>{const s=getComputedStyle(document.querySelector('[data-testid="covered"]'));return[s.borderBottomColor,s.getPropertyValue('--exact-grouped-separator').trim()]});assert.deepEqual(animated,['rgb(128, 0, 128)','rgb(128, 0, 128)'],'compiled keyframes animate separator ink with the border');
  const fallback=await page.evaluate(()=>{const e=document.querySelector('[data-testid="middle"]');e.style.transition='none';e.style.colorScheme='dark';e.style.removeProperty('--exact-grouped-separator');return getComputedStyle(e).getPropertyValue('--exact-grouped-separator').trim()});assert.equal(fallback,'rgba(84, 84, 88, 0.5)','removing an authored ink restores the dark system separator');
+ await page.goto(`${server.url}adopted-page.html`);await page.waitForFunction(()=>globalThis.ready);await settled();await percentage('percent-row',2);await percentage('static-percent',0);
+ assert.deepEqual(errors,[],'percentage inset observations do not create resize delivery loops');
  await page.close();
 }finally{await browser.close();server.stop(true)}
 "#;

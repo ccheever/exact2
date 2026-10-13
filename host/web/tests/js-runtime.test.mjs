@@ -13,11 +13,167 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
-for (const f of ['rt.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+
+// The collection protocol and index run unchanged; only DOM row construction
+// and publication are stand-ins, as the runtime's imported hosts are below.
+function collectionRuntime() {
+  const Views = new Map();
+  let next = 0;
+  let mapCount = 0;
+  const viewId = el => { const id = ++next; Views.set(id, el); return id; };
+  const source = readFileSync(webJs('list.js'), 'utf8').replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
+  const { Collection, report, Lists, HeightPreview } = Function('viewId', 'Views', 'write', 'writeItem', 'Refusal', 'Hosts', 'After', 'settled', 'Map',
+    `${source}; return { Collection, report, Lists, HeightPreview };`)(viewId, Views, () => {}, () => {}, Error, {}, [], () => {},
+      class extends Map { constructor(...args) { super(...args); mapCount++; } });
+  const make = (horizontal = false) => {
+    const c = new Collection({}, { x: horizontal, pw: [], ph: [], est: 100 }, null);
+    c.items = Array.from({ length: 100 }, (_, i) => i);
+    c.index.replace(c.items.map(i => 'n:' + i));
+    c.createRow = (position, key) => {
+      const wrapper = { setAttribute() {}, contains: () => false }, view = viewId(wrapper);
+      return { position, key, wrapper, view, root: view, published: [-1, -1], inner: [], item: {}, index: {} };
+    };
+    c.emit = () => {}; c.retire = () => {};
+    c.margins = () => [0, 0]; c.scrollPadding = () => [0, 0];
+    c.realize(false, {});
+    Lists.set(c.view, c);
+    return c;
+  };
+  const facts = c => ({ view: c.view, revision: c.revision, scroll_sequence: c.geometry?.scroll_sequence ?? 0,
+    offset: 0, port_main: 600, port_cross: 320, cross: 320, padding: [0, 0], focus_view: null, interaction_view: null, measurements: [] });
+  return { make, facts, send: f => report(null, f, {}), HeightPreview, maps: () => mapCount };
+}
+
+test('collection padding alone publishes a revision and rejects older same-token feedback', () => {
+  for (const horizontal of [false, true]) {
+    const { make, facts, send } = collectionRuntime(), c = make(horizontal);
+    send(facts(c));
+    const before = c.snapshot(), old = facts(c), padded = { ...old, padding: [0, 100] };
+    send(padded);
+    const after = c.snapshot();
+    expect(after).toEqual({ ...before, revision: before.revision + 1 });
+    send(old);
+    expect(c.snapshot()).toEqual(after);
+    expect([c.index.leading, c.index.trailing]).toEqual([0, 100]);
+    send({ ...padded, revision: after.revision });
+    expect(c.snapshot()).toEqual(after);
+    c.intoView('n:99', 'start');
+    expect(c.correction.offset).toBe(9500);
+  }
+});
+
+test('collection padded overflow is rejected before heights, epochs, width and sibling pins mutate', () => {
+  const max = 3.4028234663852886e38;
+  for (const horizontal of [false, true]) for (let variant = 0; variant < 5; variant++) {
+    const { make, facts, send } = collectionRuntime(), sibling = make(), c = make(horizontal);
+    send({ ...facts(sibling), focus_view: sibling.mounted[0].view, interaction_view: sibling.mounted[1].view });
+    send(facts(c));
+    const row = c.mounted[0];
+    const measurements = [{ view: row.view, epoch: row.epoch, size: 1e38 }];
+    if (variant === 4) measurements.push({ view: c.mounted[1].view, epoch: c.mounted[1].epoch, size: 0 });
+    send({ ...facts(c), measurements });
+    if (variant === 4) c.est = 3e38;
+    const before = JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry]);
+    const f = { ...facts(c), padding: variant === 0 ? [max, 0] : [0, max], focus_view: row.view, interaction_view: row.view };
+    if (variant === 2) f.cross++;
+    if (variant === 3) { f.padding = [0, 2e38]; f.measurements = [{ view: row.view, epoch: row.epoch, size: 2e38 }]; }
+    if (variant === 4) { f.cross++; f.padding = [0, 0]; }
+    expect(() => send(f)).toThrow();
+    expect(JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry])).toBe(before);
+    if (variant === 3) {
+      send({ ...facts(c), padding: [0, 3e38], measurements: [{ view: row.view, epoch: row.epoch, size: 1e37 }] });
+      expect(c.index.extent).toBeLessThanOrEqual(max);
+      expect(c.correction == null || Math.abs(c.correction.offset) <= max).toBe(true);
+    }
+  }
+});
+test('collection aggregate preview uses binary sums and checks both padding associations', () => {
+  const initial = [3.855634828180998e37, 4.110381270879275e37, 1.2150761836965103e37, 1.4554140070018447e37];
+  const next = [7.162362434933901e36, 1.743078113874182e37, 1.85932241262857e37, 3.2119624082087986e37];
+  for (const horizontal of [false, true]) for (let variant = 0; variant < 3; variant++) {
+    const { make, facts, send } = collectionRuntime(), sibling = make(), c = make(horizontal);
+    send({ ...facts(sibling), focus_view: sibling.mounted[0].view, interaction_view: sibling.mounted[1].view });
+    c.items = c.items.slice(0, variant === 0 ? 4 : 1); c.index.replace(c.items.map(i => 'n:' + i)); c.realize(false, {});
+    const report = sizes => ({ ...facts(c), port_main: 1e38, offset: c.correction?.offset ?? 0,
+      measurements: c.mounted.flatMap(m => sizes[m.position] === undefined ? [] : [{ view: m.view, epoch: m.epoch, size: sizes[m.position] }]) });
+    send(report([])); send(report(variant === 0 ? initial : [1.3857361873091886e38]));
+    c.followEnd = true; c.atEnd = true;
+    const before = JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry]);
+    const f = { ...report(variant === 0 ? next : []), port_main: 600, focus_view: c.mounted[0].view, interaction_view: c.mounted[0].view,
+      padding: variant === 0 ? [0, 2.6497635485647948e38] : variant === 1 ? [1.383018962808564e37, 1.878785382795244e38] : [1.878785382795244e38, 1.383018962808564e37] };
+    expect(() => send(f)).toThrow();
+    expect(JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry])).toBe(before);
+    send(report([]));
+    expect(c.correction == null || Math.abs(c.correction.offset) <= 3.4028234663852886e38).toBe(true);
+  }
+});
+test('collection normal changes skip the overlay; extreme preview touches only changed ancestors', () => {
+  const { make, facts, send, HeightPreview, maps } = collectionRuntime(), c = make();
+  c.items = Array.from({ length: 25000 }, (_, i) => i); c.index.replace(c.items.map(i => 'n:' + i));
+  send(facts(c));
+  const f = { ...facts(c), measurements: c.mounted.map(m => ({ view: m.view, epoch: m.epoch, size: c.index.h[m.position] })) };
+  send(f);
+  f.revision = c.revision;
+  for (const noise of [0, 0.00003, 12, -100]) {
+    const before = maps();
+    expect(c.prepare({ ...f, measurements: f.measurements.map(m => ({ ...m, size: m.size + noise })) })).not.toBe(null);
+    expect(maps() - before).toBe(1); // Existing byView map; no preview/ancestor map.
+  }
+  const total = c.index.total, preview = new HeightPreview(c.index.t);
+  const changes = [[0, 1e38], [12000, 7.162362434933901e36], [24999, 0]];
+  for (const [p, h] of changes) preview.set(p, h);
+  expect(preview.sums.size).toBeLessThanOrEqual(changes.length * (Math.log2(c.index.t.base) + 1));
+  expect(c.index.total).toBe(total);
+  for (const [p, h] of changes) {
+    expect(c.index.h[p]).toBe(100);
+    c.index.setMeasured(c.index.order[p], c.index.token(c.index.order[p]), h);
+  }
+  expect(c.index.total).toBe(preview.total);
+});
+test('collection sufficient padded bound includes its boundary and bounds actual binary sums', () => {
+  const max = 3.4028234663852886e38;
+  for (const count of [0, 1, 2, 3, 257, 25000]) {
+    const { make } = collectionRuntime(), c = make();
+    c.items = Array.from({ length: count }, (_, i) => i); c.index.replace(c.items.map(i => 'n:' + i));
+    const bound = max / (4 * c.index.t.base), bits = new DataView(new ArrayBuffer(8));
+    bits.setFloat64(0, bound); bits.setBigUint64(0, bits.getBigUint64(0) + 1n);
+    expect(c.index.paddedExtentDefinitelyFits(bound)).toBe(true);
+    expect(c.index.paddedExtentDefinitelyFits(bits.getFloat64(0))).toBe(false);
+    for (const invalid of [-1, NaN, Infinity]) expect(c.index.paddedExtentDefinitelyFits(invalid)).toBe(false);
+    for (let p = 0; p < count; p++) c.index.setMeasured(c.index.order[p], c.index.token(c.index.order[p]), bound);
+    expect(c.index.total).toBeLessThanOrEqual(c.index.t.base * bound);
+    for (const [leading, trailing] of [[bound, bound], [bound / 3, bound], [bound, 0]]) {
+      expect(c.index.total + leading + trailing).toBeLessThanOrEqual(max);
+      expect(c.index.total + trailing + leading).toBeLessThanOrEqual(max);
+    }
+  }
+});
+test('collection normal fast path retains noise, revives zeros and discards old-width samples', () => {
+  for (const horizontal of [false, true]) {
+    const { make, facts, send, maps } = collectionRuntime(), c = make(horizontal);
+    send(facts(c));
+    const samples = size => c.mounted.map(m => ({ view: m.view, epoch: m.epoch, size }));
+    const sample = size => ({ ...facts(c), measurements: samples(size) });
+    send(sample(58)); send(sample(58.00003));
+    expect(c.index.h[0]).toBe(58);
+    send(sample(0));
+    expect(c.index.h[0]).toBe(0);
+    expect(c.zeros.size).toBeGreaterThan(0);
+    const width = { ...sample(77), cross: facts(c).cross + 1, padding: [30, 70] }, before = maps();
+    expect(c.prepare(width)).not.toBe(null);
+    expect(maps() - before).toBe(1); // Pre-existing byView map; no sparse overlay.
+    send(width);
+    expect(c.index.h[0]).toBe(100); // Estimate, since samples describe the old width.
+    expect(c.index.measured('n:0')).toBe(false);
+    expect(c.zeros.size).toBe(0);
+    expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
+  }
+});
+for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
+  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
@@ -425,6 +581,36 @@ test('a key handler stops and prevents its event while a view transition holds t
   } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
 });
 
+test('capture stop ends Exact key handlers but leaves Enter submission and the browser default available', async () => {
+  const { on, onKey, onSubmit, Hosts } = await import(resolve(dir, 'rt.js'));
+  const saved = globalThis.addEventListener, windowListeners = [];
+  globalThis.addEventListener = (type, f) => windowListeners.push([type, f]);
+  try {
+    const listeners = [];
+    const el = { localName: 'input', addEventListener: (type, f, capture) => listeners.push([type, f, capture]),
+      removeEventListener: (type, f) => { const at = listeners.findIndex(x => x[0] === type && x[1] === f); if (at >= 0) listeners.splice(at, 1); } };
+    const heard = [];
+    on(el, 'keycapture', (_, record) => { heard.push('capture'); if (record[1]) Hosts.preventDefault(); else Hosts.stopPropagation(); }, onKey);
+    on(el, 'key', () => heard.push('key'), onKey);
+    on(el, 'submit', () => heard.push('submit'), onSubmit);
+    const enter = shiftKey => ({ key: 'Enter', shiftKey, target: el, defaultPrevented: false, browserStopped: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.browserStopped = true; } });
+    const send = ev => {
+      for (const [, f] of listeners.filter(([type, , capture]) => type === 'keydown' && capture)) f(ev);
+      for (const [, f] of listeners.filter(([type, , capture]) => type === 'keydown' && !capture)) f(ev);
+      for (const [, f] of windowListeners) f(ev);
+    };
+    const ev = enter(false);
+    send(ev);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect([ev.$stopped, ev.browserStopped, ev.defaultPrevented, heard]).toEqual([true, false, false, ['capture', 'submit']]);
+    const prevented = enter(true);
+    send(prevented);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect([prevented.$stopped, prevented.browserStopped, prevented.defaultPrevented, heard]).toEqual([undefined, false, true, ['capture', 'submit', 'capture', 'key']]);
+  } finally { globalThis.addEventListener = saved; }
+});
+
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
 test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
@@ -563,25 +749,32 @@ test('requestFullscreen without media refuses as media.js does', async () => {
 });
 
 test('notifications: refused without the grant, listed under the agent, else posted by the Notification API', async () => {
-  const { Hosts, clock, data, journal } = await import(resolve(dir, 'rt.js'));
+  const { Hosts, clock, data, journal, navigateTo } = await import(resolve(dir, 'rt.js'));
   await import(resolve(dir, 'notify.js'));
   const notices = globalThis.exact.notices, posted = [], closed = [], last = () => journal.at(-1).replace(/^t=\S+ /, '');
   clock.agent = true; data.grants = '';
   Hosts.showNotification('Stretch', null, 'stretch', null);
   expect(last()).toBe('showNotification: refused: the grants name no device.notifications');
   data.grants = 'net.fetch https://a.example\ndevice.notifications purpose.notifications\n';
-  Hosts.showNotification('Stretch', 'Now', 'stretch', null);
-  Hosts.showNotification('Stretch', 'Later', 'stretch', 5);
+  Hosts.showNotification('Stretch', 'Now', 'stretch', null, '/stretch');
+  Hosts.showNotification('Stretch', 'Later', 'stretch', 5, '/notifications');
   Hosts.showNotification('Alert', null, null, null);
-  expect(notices).toEqual([{ title: 'Stretch', body: 'Later', tag: 'stretch', showTrigger: 5 }, { title: 'Alert', body: null, tag: null, showTrigger: null }]);
+  expect(notices).toEqual([{ title: 'Stretch', body: 'Later', tag: 'stretch', showTrigger: 5, navigate: '/notifications' }, { title: 'Alert', body: null, tag: null, showTrigger: null, navigate: null }]);
   Hosts.closeNotification('stretch');
   expect(notices.map(n => n.title)).toEqual(['Alert']);
   globalThis.Notification = class { static permission = 'default'; static requestPermission() { Notification.permission = 'granted'; return Promise.resolve('granted'); }
     constructor(title, options) { this.title = title; this.options = options; posted.push(this); } close() { closed.push(this.title); } };
+  const previousFocus = globalThis.focus;
   try {
     clock.agent = false;
-    await Hosts.showNotification('Price alert', 'BTC crossed 100k', 'btc', null);
+    const navigated = [], focused = [];
+    globalThis.focus = () => focused.push(true);
+    navigateTo(location => navigated.push(location));
+    await Hosts.showNotification('Price alert', 'BTC crossed 100k', 'btc', null, 'https://example.test/notifications?unread=1');
     expect([posted[0].title, posted[0].options, last()]).toEqual(['Price alert', { body: 'BTC crossed 100k', tag: 'btc' }, 'showNotification: shown']);
+    let prevented = false;
+    posted[0].onclick({ preventDefault() { prevented = true; } });
+    expect([navigated, focused.length, prevented]).toEqual([['/notifications?unread=1'], 1, true]);
     await Hosts.showNotification('Stretch', null, 'stretch', Date.now() + 60_000);
     expect([posted.length, last()]).toEqual([1, 'showNotification: scheduled while this page is open']);
     await Hosts.closeNotification('stretch'); await Hosts.closeNotification('btc');
@@ -589,7 +782,36 @@ test('notifications: refused without the grant, listed under the agent, else pos
     await Hosts.showNotification('Soon', null, null, Date.now() + 20);
     await new Promise(r => setTimeout(r, 60));
     expect([posted.at(-1).title, last()]).toEqual(['Soon', 'showNotification: shown']);
-  } finally { delete globalThis.Notification; }
+    for (const [input, expected] of [[' \tthread/./42#reply ', '/thread/42'], ['app://thread/../thread/43?view=full#reply', '/thread/43?view=full']]) {
+      await Hosts.showNotification('Route', null, null, null, input);
+      posted.at(-1).onclick({ preventDefault() {} });
+      expect(navigated.at(-1)).toBe(expected);
+    }
+  } finally { delete globalThis.Notification; if (previousFocus === undefined) delete globalThis.focus; else globalThis.focus = previousFocus; }
+});
+
+test('notification clicks use the route location corpus, including canonical path encoding', async () => {
+  const { Hosts, clock, data, navigateTo } = await import(resolve(dir, 'rt.js'));
+  await import(resolve(dir, 'notify.js'));
+  const corpus = JSON.parse(readFileSync(new URL('../../../route/tests/corpus.json', import.meta.url), 'utf8'));
+  const cases = [...corpus.location_of, ...corpus.canonical.map(({ input, expected }) => ({
+    input: 'https://x' + (input.startsWith('/') ? input : '/' + input), expected,
+  }))];
+  const previous = globalThis.Notification, previousFocus = globalThis.focus;
+  let posted, got;
+  globalThis.Notification = class { static permission = 'granted'; constructor() { posted = this; } };
+  globalThis.focus = () => {};
+  try {
+    clock.agent = false; data.grants = 'device.notifications purpose.notifications\n';
+    navigateTo(location => { got = location; });
+    const mismatches = [];
+    for (const { input, expected } of cases) {
+      await Hosts.showNotification('Route', null, null, null, input);
+      posted.onclick({ preventDefault() {} });
+      if (got !== expected) mismatches.push({ input, expected, got });
+    }
+    expect(mismatches).toEqual([]);
+  } finally { globalThis.Notification = previous; globalThis.focus = previousFocus; navigateTo(null); }
 });
 
 // LLP 1090: a string past MAX_STRING comes only from a data source, which the
@@ -893,4 +1115,24 @@ test('clipboard handlers preserve the default unless prevented and restore the e
   const outer = event();
   outerListener(outer);
   expect(outer.defaultPrevented).toBe(true);
+});
+
+test('focus handlers stop bubbling while a view transition holds their commit', async () => {
+  globalThis.requestAnimationFrame = f => setTimeout(f, 0);
+  globalThis.document = { getElementById: () => ({}) };
+  try {
+    const { on, onFocusWithin, act, C, pr, pieces } = await import(`${resolve(dir, 'rt.js')}?focus-events`);
+    pr({}); await pieces();
+    for (const kind of ['focusin', 'focusout']) {
+      const listeners = [], heard = [];
+      const inner = { addEventListener: (_, f) => listeners.push(f) };
+      const outer = { addEventListener: (_, f) => listeners.push(f) };
+      on(inner, kind, act(e => { heard.push(e); C('stopPropagation', []); }), onFocusWithin);
+      on(outer, kind, act(() => heard.push('outer')), onFocusWithin);
+      const ev = { type: kind, target: { id: 'a' }, relatedTarget: { id: 'b' } };
+      for (const f of listeners) f(ev);
+      expect(heard).toEqual([['a', 'b']]);
+      expect(ev.$stopped).toBe(true);
+    }
+  } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
 });

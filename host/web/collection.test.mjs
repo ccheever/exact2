@@ -57,8 +57,8 @@ function setup() {
     let serial = 0;
     const controller = createController({ root, views, report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), velocity: d.getFloat64(64, true), rows: [] };
-      for (let n = 0; n < d.getUint32(80, true); n++) read.rows.push({ view: d.getUint32(84 + n * 20, true), epoch: String(d.getBigUint64(88 + n * 20, true)), size: d.getFloat64(96 + n * 20, true) });
+      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), padding: [d.getFloat64(56, true), d.getFloat64(64, true)], focus: d.getUint32(72, true), interaction: d.getUint32(76, true), velocity: d.getFloat64(80, true), rows: [] };
+      for (let n = 0; n < d.getUint32(96, true); n++) read.rows.push({ view: d.getUint32(100 + n * 20, true), epoch: String(d.getBigUint64(104 + n * 20, true)), size: d.getFloat64(112 + n * 20, true) });
       wires.push(Array.from(bytes)); reports.push(read); return globalThis.f.onReport?.(read);
     }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...rest });
     const snapshot = (revision = '1', extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 1900, count: 100, rows: [{ view: 2, root: 3, index: 0, start: 0, size: 40, epoch: '9007199254740993' }, { view: 4, root: 5, index: 99, start: 1840, size: 60, epoch: '2' }], correction: null, ...extra });
@@ -69,7 +69,7 @@ function setup() {
 }
 
 test('the production page reset leaves native and appearance-none checkboxes border-box', async () => {
-  const page = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  const look = await import('./look.mjs'), page = look.withLook(readFileSync(new URL('./index.html', import.meta.url), 'utf8'), look.DEFAULT_LOOK); // as a default build ships it
   const stylesheet = page.split('<style>')[1].split('</style>')[0];
   const result = await evaluate(`(() => {
     const style=document.createElement('style');style.textContent=${JSON.stringify(stylesheet)};document.head.append(style);
@@ -87,17 +87,17 @@ test('the production page reset leaves native and appearance-none checkboxes bor
 });
 
 bunTest('LE feedback preserves u64 identity and rejects invalid geometry before admission', () => {
-  const feedback = { view: 1, revision: '18446744073709551615', scroll_sequence: '9007199254740993', offset: 25, port_cross: 320, port_main: 180, cross: 296, focus_view: null, interaction_view: 9, measurements: [{ view: 2, epoch: '9007199254740995', size: 40.5 }] };
+  const feedback = { view: 1, revision: '18446744073709551615', scroll_sequence: '9007199254740993', offset: 25, port_cross: 320, port_main: 180, cross: 296, padding: [92, 83.5], focus_view: null, interaction_view: 9, measurements: [{ view: 2, epoch: '9007199254740995', size: 40.5 }] };
   const bytes = collectionBytes(feedback), view = new DataView(bytes.buffer);
-  expect(bytes.length).toBe(104);
-  expect(view.getUint32(0, true)).toBe(3);
+  expect(bytes.length).toBe(120); expect(view.getUint32(0, true)).toBe(4);
   expect(view.getBigUint64(8, true)).toBe(18446744073709551615n);
-  expect(view.getUint32(72, true)).toBe(0xffffffff);
-  expect(view.getUint32(76, true)).toBe(0);
-  expect(view.getBigUint64(88, true)).toBe(9007199254740995n);
-  expect(view.getFloat64(96, true)).toBe(40.5);
-  expect(new DataView(collectionBytes(feedback, { ancestorMoving: true }).buffer).getUint32(76, true)).toBe(1);
-  expect(() => collectionBytes({ ...feedback, port_cross: NaN })).toThrow();
+  expect([view.getFloat64(56, true), view.getFloat64(64, true)]).toEqual([92, 83.5]);
+  expect(view.getUint32(88, true)).toBe(0xffffffff);
+  expect(view.getUint32(92, true)).toBe(0);
+  expect(view.getBigUint64(104, true)).toBe(9007199254740995n);
+  expect(view.getFloat64(112, true)).toBe(40.5);
+  expect(new DataView(collectionBytes(feedback, { ancestorMoving: true }).buffer).getUint32(92, true)).toBe(1);
+  for (const bad of [{ port_cross: NaN }, { padding: [-1, 0] }, { padding: [0, NaN] }, { padding: [92] }, { padding: undefined }]) expect(() => collectionBytes({ ...feedback, ...bad })).toThrow();
   expect(() => collectionBytes({ ...feedback, revision: Number.MAX_SAFE_INTEGER + 1 })).toThrow();
   expect(() => collectionBytes({ ...feedback, measurements: [feedback.measurements[0], feedback.measurements[0]] })).toThrow();
 });
@@ -142,7 +142,7 @@ test('observer baseline: commit to feedback to real observer reads each row once
     return {commit,feedback,observed,deliveries,queued,pending:f.frames.size,reports:f.reports.length,wire,width:f.port.clientWidth};
   })()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',offset:50,
-    port_cross:result.width,port_main:180,cross:result.width-24,focus_view:3,interaction_view:5,
+    port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:3,interaction_view:5,
     measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1})]);
   expect(result.deliveries.flat().filter(v=>v==='2')).toHaveLength(1);
   expect(result.deliveries.flat().filter(v=>v==='4')).toHaveLength(1);
@@ -215,7 +215,7 @@ test('observer baseline: external growth coalesced after final own commit surviv
   expect(result.last.rows[0]).toEqual({view:2,epoch:'9007199254740993',size:97.25});
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'3',scroll_sequence:result.last.sequence,
     offset:result.last.top,port_cross:result.last.width,port_main:180,cross:result.last.rowWidth,
-    focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',size:97.25},{view:4,epoch:'2',size:60}]},{limit:1})]);
+    padding:[10,10],focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',size:97.25},{view:4,epoch:'2',size:60}]},{limit:1})]);
   expect([result.reports,result.idle,result.pending]).toEqual([3,true,0]);
   console.log('observer baseline coalesced external growth',JSON.stringify(result));
 });
@@ -253,7 +253,7 @@ test('collection read reuse: correction-free commit reads only list and port bas
     f.controller.commit([f.snapshot()]);const commit=[...reads.counts];f.flush();
     return {commit,wire:f.wires.at(-1),width:f.port.clientWidth};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',offset:-10,
-    port_cross:result.width,port_main:180,cross:result.width-24,focus_view:null,interaction_view:null,
+    port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:null,interaction_view:null,
     measurements:[{view:2,epoch:'9007199254740993',size:40},{view:4,epoch:'2',size:60}]},{limit:1})]);
   expect(result.commit).toEqual([1,1,0,0]);
 });
@@ -265,7 +265,7 @@ test('collection read reuse: one row sample preserves fractional wire, epochs an
     reads.clear();let beforeReport;f.onReport=()=>{beforeReport=[...reads.counts];};f.flush();
     return {beforeReport,wire:f.wires.at(-1),width:f.port.clientWidth,pending:f.frames.size};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',offset:50,
-    port_cross:result.width,port_main:180,cross:result.width-24,focus_view:3,interaction_view:5,
+    port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:3,interaction_view:5,
     measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1})]);
   expect(result.pending).toBe(0);
   expect(result.beforeReport.slice(2)).toEqual([1,1]);
@@ -439,7 +439,7 @@ test('collection read reuse: synchronous report replacement samples new nodes an
   ]);
   for(const [i,r] of result.reports.entries())expect(result.wires[i]).toEqual([...collectionBytes({view:1,
     revision:r.revision,scroll_sequence:r.sequence,offset:-10,port_cross:r.width,port_main:180,
-    cross:r.rowWidth,focus_view:null,interaction_view:null,measurements:r.rows},{limit:1})]);
+    cross:r.rowWidth,padding:r.padding,focus_view:null,interaction_view:null,measurements:r.rows},{limit:1})]);
 });
 test('collection read reuse: width wrapping keeps actual fractional heights and fresh later-pass dimensions', async () => {
   const result=await evaluate(`(() => {const f=fixture(),row=f.views.get(2);row.style.cssText='font:16px monospace;line-height:20.25px';row.textContent='word '.repeat(41);
@@ -491,9 +491,9 @@ test('integer DOM end retains fractional measured extent in actual collection fe
   console.log('DOM integer-end facts', JSON.stringify(result));
 });
 // LLP 1050.000 stage 1: a limited fill, travel, and authored jumps that wait.
-const fillWire = wire => { const d = new DataView(new Uint8Array(wire).buffer); return { velocity: d.getFloat64(64, true), limit: d.getUint32(72, true) }; };
+const fillWire = wire => { const d = new DataView(new Uint8Array(wire).buffer); return { velocity: d.getFloat64(80, true), limit: d.getUint32(88, true) }; };
 bunTest('fill wire carries velocity and a clamped limit; none means u32::MAX', () => {
-  const facts = { view: 1, revision: '1', scroll_sequence: '0', offset: 0, port_cross: 1, port_main: 1, cross: 1, focus_view: null, interaction_view: null, measurements: [] };
+  const facts = { view: 1, revision: '1', scroll_sequence: '0', offset: 0, port_cross: 1, port_main: 1, cross: 1, padding: [0, 0], focus_view: null, interaction_view: null, measurements: [] };
   expect(fillWire([...collectionBytes(facts, { velocity: -2400.5, limit: 3 })])).toEqual({ velocity: -2400.5, limit: 3 });
   expect(fillWire([...collectionBytes(facts, { limit: 0 })])).toEqual({ velocity: 0, limit: 0 });
   expect(fillWire([...collectionBytes(facts, { limit: 0xffffffff })]).limit).toBe(0xfffffffe);
@@ -523,7 +523,7 @@ function jumpFixture() {
   const controller = createController({ root, views, requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
     report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      seen.push({ reported: d.getFloat64(24, true), sequence: String(d.getBigUint64(16, true)), limit: d.getUint32(72, true), velocity: d.getFloat64(64, true), shown: list.scrollTop });
+      seen.push({ reported: d.getFloat64(24, true), sequence: String(d.getBigUint64(16, true)), limit: d.getUint32(88, true), velocity: d.getFloat64(80, true), shown: list.scrollTop });
       return globalThis.jf.onReport?.(seen.at(-1));
     } });
   const snapshot = (revision, extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 5100, count: 100,
@@ -1423,7 +1423,7 @@ function axisFixture(axis) {
   const controller = createController({ root, views, now: () => globalThis.clock, requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
     report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), rows = [];
-      for (let n = 0; n < d.getUint32(80, true); n++) rows.push(d.getFloat64(96 + n * 20, true));
+      for (let n = 0; n < d.getUint32(96, true); n++) rows.push(d.getFloat64(112 + n * 20, true));
       wires.push(Array.from(bytes));
       seen.push({ offset: d.getFloat64(24, true), main: d.getFloat64(32, true), portCross: d.getFloat64(40, true), cross: d.getFloat64(48, true),
         sequence: String(d.getBigUint64(16, true)), rows, shown: list[name] });
@@ -1447,7 +1447,7 @@ test('a row list reports scrollLeft, the port width and height, its rows\' heigh
   expect(r.cross).toBe(result.wrapper);
   expect(result.overflowAnchor).toBe('none');
   expect(result.wire).toEqual([...collectionBytes({ view: 1, revision: '1', scroll_sequence: '1', offset: 40, port_main: result.w,
-    port_cross: result.h, cross: result.h - 12, focus_view: null, interaction_view: null,
+    port_cross: result.h, cross: result.h - 12, padding: [0, 0], focus_view: null, interaction_view: null,
     measurements: [{ view: 2, epoch: '1', size: 100 }, { view: 4, epoch: '1', size: 150.5 }] }, { limit: 1 })]);
 });
 test('a correction on x moves scrollLeft; not while the strip moves, and a column list keeps correcting', async () => {

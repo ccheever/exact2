@@ -113,8 +113,7 @@ impl LayoutTree {
                             button_style: arena
                                 .props(slot)
                                 .str(PropId::ButtonStyle)
-                                .unwrap_or("bordered")
-                                .to_owned(),
+                                .map(str::to_owned),
                             grouped_row: arena.props(slot).contains(PropId::GroupedRowSeparator),
                             width: AxisOffer::MaxContent,
                         },
@@ -229,7 +228,7 @@ mod tests {
             request: ButtonMeasureRequest {
                 face: arena.press_face(slot).unwrap(),
                 style: arena.button_face_style_unresolved(slot).unwrap(),
-                button_style: "bordered".into(),
+                button_style: None,
                 grouped_row: false,
                 width: AxisOffer::MaxContent,
             },

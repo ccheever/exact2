@@ -46,7 +46,7 @@ extension NodeView {
     /// Whether the stepper has the room to show: the field's own width less
     /// the stepper and its gap still holds `stepperLeastText`.
     private func stepperFits(_ stepper: UIStepper) -> Bool {
-        let room = nativeFieldContent?.width ?? bounds.width
+        let room = kernelContentBox?.width ?? bounds.width
         return room - stepper.intrinsicContentSize.width - NodeView.stepperGap >= NodeView.stepperLeastText
     }
 
@@ -102,7 +102,7 @@ extension NodeView {
         let size = stepper.intrinsicContentSize
         let fits = stepperFits(stepper)
         if stepper.isHidden == fits { stepper.isHidden = !fits; field.setNeedsLayout() }
-        let rect = nativeFieldContent ?? bounds
+        let rect = kernelContentBox ?? bounds
         let rtl = style["direction"]?.string == "rtl"
         let x = rtl ? rect.minX : rect.maxX - size.width
         let frame = CGRect(x: x, y: ((bounds.height - size.height) / 2).rounded(.toNearestOrAwayFromZero), width: size.width, height: size.height)

@@ -33,6 +33,8 @@ macro_rules! host {
         $crate::app_module_exports!();
         $crate::material_exports!();
         $crate::corner_exports!();
+        $crate::gradient_exports!();
+        $crate::calc_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -88,6 +90,19 @@ macro_rules! host {
             lines: ::std::option::Option<$crate::measure::LinesFn>,
         ) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
+        }
+
+        /// A system symbol's natural size, measured before layout
+        /// (`TextMeasurer::symbol_size`), with the context `exact_set_measure`
+        /// was given, beside the text measurer it registered: with the
+        /// reference measurer, as with `None`, a symbol is the size its view
+        /// reports.
+        #[no_mangle]
+        pub extern "C" fn exact_set_symbol_measure(
+            rt: u32,
+            measure: ::std::option::Option<$crate::measure::SymbolFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.symbol = measure; });
         }
 
         /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
@@ -337,6 +352,25 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scrolled(page != 0, view, left, top), |_| ())
         }
 
+        /// The open top-layer nodes before a native action read. No batch.
+        ///
+        /// # Safety
+        /// `views` points to `count` valid ids, `rects` to `count * 4` doubles.
+        #[no_mangle]
+        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, count: u32) {
+            let ids = if count == 0 { &[] } else {
+                // SAFETY: the caller keeps `count` ids live for this synchronous call.
+                unsafe { std::slice::from_raw_parts(views, count as usize) }
+            };
+            let rects = if count == 0 { &[] } else {
+                // SAFETY: the caller keeps four doubles per id live for this call.
+                unsafe { std::slice::from_raw_parts(rects, count as usize * 4) }
+            };
+            let frames: Vec<_> = ids.iter().zip(rects.chunks_exact(4))
+                .map(|(&id, r)| (id, [r[0], r[1], r[2], r[3]])).collect();
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames), |_| ())
+        }
+
         /// Copy current region source/paint metadata. No returned bytes outlive exact_out.
         #[no_mangle]
         pub extern "C" fn exact_region_request(rt: u32, id: u64, known_source: u64) -> u32 {
@@ -524,6 +558,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_time(rt: u32, epoch_at_zero: f64, utc_offset: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
+        }
+
+        /// The date the next boot or candidate settles under, before it.
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch_time(rt: u32, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_time(epoch_at_zero, utc_offset); 0 }, |n| n)
         }
 
         /// The display preferences: bit 0 reduced motion, bit 1 reduced
@@ -747,6 +787,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_radio_group(rt: u32, view: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.radio_group(view), |n| n)
+        }
+
+        /// A navigation root's tabs by the kernel's rule (LLP 1115.001
+        /// D11), JSON; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_root_tabs(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.root_tabs(view), |n| n)
         }
 
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP

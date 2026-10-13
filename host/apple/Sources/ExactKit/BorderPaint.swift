@@ -27,10 +27,7 @@ package enum BorderPaint {
         ["top_left", "top_right", "bottom_right", "bottom_left"].map { name in
             let value = style["border_radius_" + name] ?? style["border_radius"]
             func length(_ basis: CGFloat) -> CGFloat {
-                if case .object(let d) = value {
-                    return max(0, basis * CGFloat(d["pct"]?.number ?? 0) / 100 + CGFloat(d["px"]?.number ?? 0) - inset)
-                }
-                return max(0, CGFloat(value?.number ?? 0) - inset)
+                max(0, (value?.length(basis: basis) ?? 0) - inset)
             }
             return CGSize(width: length(rect.width + 2 * inset), height: length(rect.height + 2 * inset))
         }
@@ -114,7 +111,7 @@ package enum BorderPaint {
     /// Paint `box`'s border. `widths` and `colors` are top, right, bottom,
     /// left; `radii` the authored corner radii (top-left, top-right,
     /// bottom-right, bottom-left), reduced here as CSS reduces them.
-    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGSize], shape: CornerShape? = nil) {
+    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGSize], styles: [String] = Array(repeating: "solid", count: 4), shape: CornerShape? = nil) {
         let w = widths.map { max(0, $0) }
         guard w.contains(where: { $0 > 0 }), box.width > 0, box.height > 0 else { return }
         let outer = reduced(radii, in: box)
@@ -132,7 +129,7 @@ package enum BorderPaint {
 
         // Visible sides, grouped by colour.
         var groups: [(CGColor, [Int])] = []
-        for side in 0..<4 where w[side] > 0 && colors[side].alpha > 0 {
+        for side in 0..<4 where w[side] > 0 && colors[side].alpha > 0 && styles[side] != "dotted" && styles[side] != "dashed" {
             if let i = groups.firstIndex(where: { $0.0 == colors[side] }) { groups[i].1.append(side) }
             else { groups.append((colors[side], [side])) }
         }
@@ -152,6 +149,74 @@ package enum BorderPaint {
             ctx.addPath(ring); ctx.setFillColor(color); ctx.fillPath(using: .evenOdd)
             ctx.restoreGState()
         }
+        for side in 0..<4 where w[side] > 0 && colors[side].alpha > 0 && (styles[side] == "dotted" || styles[side] == "dashed") {
+            ctx.saveGState()
+            ctx.addPath(ring); ctx.clip(using: .evenOdd)
+            ctx.addLines(between: quads[side]); ctx.closePath(); ctx.clip()
+            paintPattern(ctx, box: box, widths: w, outer: outer, innerRadii: innerRadii,
+                         side: side, color: colors[side], style: styles[side], shape: shape)
+            ctx.restoreGState()
+        }
+    }
+
+    private static func bestGap(_ length: CGFloat, dash: CGFloat, gap: CGFloat, closed: Bool) -> CGFloat {
+        let available = closed ? length : length + gap
+        let low = max(1, floor(available / (dash + gap))), high = low + 1
+        let a = (length - low * dash) / max(1, closed ? low : low - 1)
+        let b = (length - high * dash) / max(1, closed ? high : high - 1)
+        return b <= 0 || abs(a - gap) < abs(b - gap) ? a : b
+    }
+
+    private static func paintPattern(_ ctx: CGContext, box: CGRect, widths: [CGFloat], outer: [CGSize], innerRadii: [CGSize],
+                                     side: Int, color: CGColor, style: String, shape: CornerShape?) {
+        let width = widths[side]
+        let curved = outer.contains { $0.width > 0 && $0.height > 0 }
+        let mid = box.insetBy(left: widths[3] / 2, top: widths[0] / 2, right: widths[1] / 2, bottom: widths[2] / 2)
+        let midRadii = reduced((0..<4).map { i in CGSize(width: (outer[i].width + innerRadii[i].width) / 2,
+                                                          height: (outer[i].height + innerRadii[i].height) / 2) }, in: mid)
+        let path = CGMutablePath()
+        let length: CGFloat
+        if curved {
+            path.addPath(roundedRect(mid, midRadii, shape: shape))
+            let straight = max(0, mid.width - midRadii[0].width - midRadii[1].width)
+                + max(0, mid.width - midRadii[2].width - midRadii[3].width)
+                + max(0, mid.height - midRadii[1].height - midRadii[2].height)
+                + max(0, mid.height - midRadii[3].height - midRadii[0].height)
+            let arcs = midRadii.reduce(CGFloat(0)) { sum, r in
+                let a = r.width, b = r.height
+                return sum + (a + b == 0 ? 0 : .pi / 4 * (3 * (a + b) - sqrt((3 * a + b) * (a + 3 * b))))
+            }
+            length = straight + arcs
+        } else {
+            let phase = style == "dotted" && width > 3 ? width / 2 : 0
+            let thinDot = style == "dotted" && width <= 3
+            let p: [CGPoint] = [CGPoint(x: thinDot ? box.maxX : box.minX + phase, y: box.minY + width / 2),
+                                CGPoint(x: box.maxX - width / 2, y: thinDot ? box.maxY : box.minY + phase),
+                                CGPoint(x: thinDot ? box.maxX : box.minX + phase, y: box.maxY - width / 2),
+                                CGPoint(x: box.minX + width / 2, y: thinDot ? box.maxY : box.minY + phase)]
+            let q: [CGPoint] = [CGPoint(x: thinDot ? box.minX : box.maxX + phase, y: p[0].y),
+                                CGPoint(x: p[1].x, y: thinDot ? box.minY : box.maxY + phase),
+                                CGPoint(x: thinDot ? box.minX : box.maxX + phase, y: p[2].y),
+                                CGPoint(x: p[3].x, y: thinDot ? box.minY : box.maxY + phase)]
+            path.move(to: p[side]); path.addLine(to: q[side])
+            length = side % 2 == 0 ? abs(q[side].x - p[side].x) : abs(q[side].y - p[side].y)
+        }
+        let dotted = style == "dotted", round = dotted && width > 3
+        var dash = round ? CGFloat(0.01) : dotted ? width : width * (width >= 3 ? 2 : 3)
+        let nominalGap = dotted ? width : width * (width >= 3 ? 1 : 2)
+        var gap = round ? bestGap(length, dash: width, gap: width, closed: curved) + width - dash
+            : dotted ? nominalGap : bestGap(length, dash: dash, gap: nominalGap, closed: curved)
+        if !round && length <= 2 * dash {
+            dash = length; gap = 0
+        } else if !round && length <= 2 * dash + nominalGap * (curved ? 2 : 1) {
+            let scale = length / (2 * dash + nominalGap * (curved ? 2 : 1))
+            dash *= scale; gap = nominalGap * scale
+        }
+        ctx.setStrokeColor(color)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(round ? .round : .butt)
+        ctx.setLineDash(phase: 0, lengths: gap > 0 ? [dash, max(0.01, gap)] : [])
+        ctx.addPath(path); ctx.strokePath()
     }
 
     /// Each side's quadrilateral (top, right, bottom, left): outer corner,
@@ -230,7 +295,8 @@ extension NodeView {
         let top = color("border_color_top", .clear)
         let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
         BorderPaint.paint(context, box: bounds, widths: widths, colors: colors,
-                          radii: BorderPaint.radii(style, in: bounds), shape: CornerShape(style["corner_shape"]))
+                          radii: BorderPaint.radii(style, in: bounds),
+                          styles: ["top", "right", "bottom", "left"].map { style["border_style_" + $0]?.string ?? "solid" }, shape: CornerShape(style["corner_shape"]))
         paintGroupedSeparator(context)
     }
 
@@ -260,11 +326,12 @@ extension NodeView {
         }
         guard last !== self else { return nil }
         let uniform = number("border_width")
-        let padding: CGFloat
-        if case .object(let d) = style["padding_left"] {
-            let basis = max(0, bounds.width - number("border_width_left", uniform) - number("border_width_right", uniform))
-            padding = basis * CGFloat(d["pct"]?.number ?? 0) / 100 + CGFloat(d["px"]?.number ?? 0)
-        } else { padding = number("padding_left", 16) }
+        #if os(macOS)
+        let defaultInset: CGFloat = 10
+        #else
+        let defaultInset: CGFloat = 16
+        #endif
+        let padding = style["padding_left"] == nil ? defaultInset : self.padding("left")
         let left = number("border_width_left", uniform) + max(0, padding)
         let right = bounds.width - number("border_width_right", uniform)
         let bottom = bounds.height - number("border_width_bottom", uniform)

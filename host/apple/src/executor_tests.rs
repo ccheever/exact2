@@ -251,7 +251,7 @@ fn independent_reads_overlap_up_to_the_lanes_workers() {
         collect(&core, &woke, INDEPENDENT + 1).len(),
         INDEPENDENT + 1
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -398,7 +398,7 @@ fn an_independent_read_over_the_budget_waits_instead_of_refusing() {
     let mut done: Vec<u64> = collect(&core, &woke, 2).into_iter().map(|v| v.0).collect();
     done.sort();
     assert_eq!(done, [1, 2]);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -880,12 +880,12 @@ fn ordered_reads_queue_in_order_and_count_undrained_results() {
     let mut sent = vec!["https://example.test/hold".to_string()];
     sent.extend((1..128).map(|ticket| format!("https://example.test/read/{ticket}")));
     assert_eq!(fixture.state.lock().unwrap().2, sent);
-    assert!(settled(&core));
+    until_settled(&core);
     core.resume_ordered();
     core.run(job(130, Request::get("https://example.test/read")), None)
         .unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].0, 130);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -927,12 +927,12 @@ fn ordered_waiting_bytes_include_writes_and_leave_room_for_progress() {
         (0..22).collect::<Vec<_>>()
     );
     assert_eq!(fixture.state.lock().unwrap().2.len(), 22);
-    assert!(settled(&core));
+    until_settled(&core);
     core.resume_ordered();
     core.run(job(23, Request::get("https://example.test/read")), None)
         .unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].0, 23);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -982,7 +982,7 @@ fn writes_and_opaque_work_keep_the_sixteen_ticket_admission_bound() {
     assert_eq!(collect(&core, &woke, 16).len(), 16);
     assert_eq!(called.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.state.lock().unwrap().2.len(), 16);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Sixteen writes in flight, a seventeenth refused at the limit: the ordered
@@ -1038,7 +1038,7 @@ fn ordered_requests_after_a_capacity_refusal_wait_for_it_to_settle() {
             "https://example.test/read"
         ]
     );
-    assert!(settled(&core));
+    until_settled(&core);
     // The lane is not poisoned: a later request is admitted at once.
     core.run(job(20, write(20)), None).unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].0, 20);
@@ -1084,7 +1084,7 @@ fn held_ordered_requests_past_the_limit_refuse_one_and_wait_again() {
     assert!(!sent
         .iter()
         .any(|url| url.ends_with("/write/20") || url.ends_with("/write/34")));
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Sixteen in flight from a hold and fifteen writes, the next write refused
@@ -1137,7 +1137,7 @@ fn a_refusal_behind_held_work_settles_after_it() {
     assert!(core.ordered_idle());
     assert_eq!(core.resume_ordered(), []);
     assert_eq!(tickets(collect(&core, &woke, 1)), [19]);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The 129th request behind the fence is refused, in its place: after the
@@ -1160,7 +1160,7 @@ fn the_request_past_the_held_count_is_refused_after_the_held_ones() {
     );
     assert_eq!(core.resume_ordered(), [(146, fence)]);
     assert_eq!(core.resume_ordered(), []);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Held request buffers are capped at 64 MiB: the one over is refused in its
@@ -1195,7 +1195,7 @@ fn the_request_past_the_held_bytes_is_refused_in_its_place() {
     );
     assert_eq!(core.resume_ordered(), []);
     assert_eq!(tickets(collect(&core, &woke, 1)), [39]);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The last forgotten ordered job ending wakes the host: the lane is idle,
@@ -1265,7 +1265,7 @@ fn forgotten_held_work_is_destroyed_by_a_worker_unrun() {
     fixture.release();
     assert_eq!(collect(&core, &woke, 16).len(), 16);
     assert_eq!(core.resume_ordered(), []);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Retiring the executor destroys held work on a retiring worker, while
@@ -1301,7 +1301,7 @@ fn forgotten_ordered_backlog_releases_queued_buffers_and_aborts_running_read() {
         fixture.state.lock().unwrap().2,
         ["https://example.test/hold", "https://example.test/read"]
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 #[test]
@@ -1336,7 +1336,7 @@ fn an_ordered_job_waits_for_retained_bytes_instead_of_refusing() {
         fixture.state.lock().unwrap().2,
         ["https://example.test/read"]
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The platform transport, a loopback server and a body over its 64 KiB

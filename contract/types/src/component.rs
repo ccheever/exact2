@@ -11,6 +11,37 @@ use contract_syntax::inline::calls::shown;
 use contract_syntax::{Component, Expr, Node, Owner, Span, Stmt, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
 
+#[cfg(test)]
+thread_local! {
+    pub(super) static SCOPE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[test]
+fn action_checks_reuse_declarations_and_observe_prior_writes() {
+    let mut source = String::from("component App\n  state first = none\n  state second = none\n");
+    for i in 0..32 {
+        source.push_str(&format!(
+            "  action set{i}(n: number)\n    first = some(n)\n"
+        ));
+    }
+    source.push_str("  action copy\n    second = first\n  view\n    text \"ok\"\n");
+    let file = contract_syntax::parse(&source).unwrap();
+    let c = &file.components[0];
+    let mut sink = Sink::default();
+    SCOPE_BUILDS.with(|count| count.set(0));
+    let ct = check_component(c, &Types::default(), None, &mut sink);
+    assert!(sink.errors.is_empty(), "{:?}", sink.errors);
+    assert_eq!(ct.slots, vec![Ty::Option(Box::new(Ty::Number)); 2]);
+    // Call-parameter refinement still has one scope per action; body checks
+    // and slot probes must not rebuild all declarations for each action too.
+    let builds = SCOPE_BUILDS.with(|count| count.get());
+    assert!(
+        builds < c.actions.len() * 2,
+        "{builds} declaration scopes for {} actions",
+        c.actions.len()
+    );
+}
+
 /// Check one component, recording each refusal in `sink` and carrying on
 /// with `?` wherever a type could not be found, so one run reports every
 /// independent mistake (a consequence of an earlier one mentions `?`, and
@@ -240,8 +271,8 @@ pub(crate) fn check_component(
     for round in 0..2 {
         let mut scratch = Sink::default();
         let report = if round == 0 { &mut scratch } else { &mut *sink };
+        let mut scope = types.component_scope(c, &ct);
         for (ai, a) in c.actions.iter().enumerate() {
-            let mut scope = types.component_scope(c, &ct);
             scope.push(
                 a.params
                     .iter()
@@ -259,6 +290,8 @@ pub(crate) fn check_component(
             // A lifted child action is `name#N` (LLP 1017 P4c).
             let lifted = a.name.contains('#');
             crate::actions::check_body(&a.body, &scope, lifted, c, &mut ct, shapes, report);
+            scope.pop();
+            scope.retype_slots(c, &ct);
         }
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against
@@ -410,6 +443,17 @@ impl Scope {
     pub(crate) fn retype(&mut self, index: usize, ty: Ty) {
         Arc::make_mut(&mut self.frames[0]).names[index].2 = ty;
     }
+
+    // Only slots can change while checking a body. Refresh between bodies,
+    // where a fresh component scope would have observed the preceding writes.
+    fn retype_slots(&mut self, c: &Component, ct: &ComponentTypes) {
+        let first = c.props.len() + c.injects.len();
+        for (i, ty) in ct.slots.iter().enumerate() {
+            if &self.frames[0].names[first + i].2 != ty {
+                self.retype(first + i, ty.clone());
+            }
+        }
+    }
 }
 
 /// Derives to a fixpoint, so order does not matter and `?` fills. Each is
@@ -445,8 +489,8 @@ fn settle_derives(c: &Component, ct: &mut ComponentTypes, types: &Types, order: 
 fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
     let mut probe = ct.clone();
     let mut scratch = Sink::default();
+    let mut scope = types.component_scope(c, &probe);
     for (ai, a) in c.actions.iter().enumerate() {
-        let mut scope = types.component_scope(c, &probe);
         scope.push(
             a.params
                 .iter()
@@ -471,6 +515,8 @@ fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
             &types.shapes,
             &mut scratch,
         );
+        scope.pop();
+        scope.retype_slots(c, &probe);
     }
     let changed = probe.slots != ct.slots;
     ct.slots = probe.slots;
@@ -527,7 +573,10 @@ fn refine_params_from_view(
                             | "hover"
                             | "focus"
                             | "blur"
+                            | "focusin"
+                            | "focusout"
                             | "key"
+                            | "keycapture"
                             | "keyup"
                             | "submit"
                             | "load"
@@ -578,7 +627,9 @@ fn refine_params_from_view(
                             | "stop"
                             | "navigate"
                             | "cancel"
+                            | "close"
                             | "resize"
+                            | "intersect"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -624,8 +675,8 @@ fn refine_params_from_view(
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
                                 }
-                                "change" | "input" | "key" | "keyup" | "message" | "navigate"
-                                | "error" => {
+                                "change" | "input" | "key" | "keycapture" | "keyup" | "message"
+                                | "navigate" | "error" => {
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],

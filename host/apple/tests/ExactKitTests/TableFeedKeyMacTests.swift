@@ -1,0 +1,432 @@
+// @ref LLP 1115.002 D5 — stage 3a, the gate's questions that need a key
+// window: a row's selection across its reuse and by the keyboard, the
+// selection's drawing by the window's key state, and whose a click in a row
+// is. The window is really brought to the front and made key (the earlier
+// probes had none), and a click or a key is an `NSEvent` sent through
+// `NSApplication.sendEvent`, the path a person's takes; the pointer is not
+// moved. Skipped where this process cannot have a key window.
+#if os(macOS)
+import AppKit
+import XCTest
+@testable import ExactKit
+
+final class TableFeedKeyMacTests: XCTestCase {
+    private var fixture: TableFixture?
+    private var other: NSWindow?
+    override func tearDown() { fixture?.close(); fixture = nil; other?.close(); other = nil; super.tearDown() }
+
+    /// Events from the application's queue, delivered, until `done` or the queue is empty after it.
+    private func pump(_ seconds: Double = 2, until done: () -> Bool = { true }) {
+        let limit = Date().addingTimeInterval(seconds)
+        while Date() < limit {
+            if let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.01), inMode: .default, dequeue: true) { NSApp.sendEvent(event) }
+            else if done() { return }
+        }
+    }
+    /// The fixture's window at the front and key, with the table first responder.
+    private func keyed(count: Int = 10_000, source: String? = nil) throws -> TableFixture {
+        let f = try TableFixture(count: count, source: source)
+        fixture = f
+        NSApp.setActivationPolicy(.accessory)
+        f.window.setFrameTopLeftPoint(NSPoint(x: 80, y: (NSScreen.main?.visibleFrame.maxY ?? 800) - 40))
+        NSApp.activate(ignoringOtherApps: true)
+        f.window.makeKeyAndOrderFront(nil)
+        pump(3) { f.window.isKeyWindow && NSApp.isActive }
+        try XCTSkipUnless(f.window.isKeyWindow && NSApp.isActive, "this process cannot bring a window to the front and make it key")
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        f.settle()
+        return f
+    }
+    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, _ window: NSWindow) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                           context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+    }
+    /// A click in the middle of `view`: the button down, `held` runs while
+    /// it is down, then up. A view that tracks the mouse in a loop of its
+    /// own takes the up from the queue; any other is sent it.
+    private func click(_ view: NSView, in f: TableFixture, held: @escaping () -> Void = {}) {
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        var up = false
+        let timer = Timer(timeInterval: 0.05, repeats: false) { _ in
+            held()
+            NSApp.postEvent(self.mouse(.leftMouseUp, point, f.window), atStart: false)
+            up = true
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        NSApp.sendEvent(mouse(.leftMouseDown, point, f.window))
+        pump { up }
+        f.settle()
+    }
+    private func key(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], in f: TableFixture) {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            NSApp.sendEvent(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                                             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!)
+        }
+        f.settle()
+    }
+    /// A key through the application's queue, as a person's arrives: it is `NSApp.currentEvent` while it is handled.
+    private func queued(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], in f: TableFixture) {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            NSApp.postEvent(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: f.window.windowNumber,
+                                             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!, atStart: false)
+        }
+        pump(1)
+        f.settle()
+    }
+    /// Letters, digits and spaces typed one key after another, quicker than a type-select forgets.
+    private func typing(_ text: String, in f: TableFixture) {
+        let codes: [Character: UInt16] = ["r": 15, "o": 31, "w": 13, " ": 49, "1": 18, "2": 19, "9": 25]
+        for character in text { key(codes[character]!, String(character), in: f) }
+    }
+    private func down(in f: TableFixture) { key(125, "\u{F701}", [.function, .numericPad], in: f) }
+    private func up(in f: TableFixture) { key(126, "\u{F700}", [.function, .numericPad], in: f) }
+    /// The colour the table drew at the right of `row`, in the middle of its height.
+    private func fill(_ row: Int, in f: TableFixture) throws -> NSColor {
+        let view = try XCTUnwrap(f.table.rowView(atRow: row, makeIfNecessary: false), "row \(row) has a view")
+        view.window?.displayIfNeeded()
+        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return try XCTUnwrap(rep.colorAt(x: Int(view.bounds.width) - 14, y: Int(view.bounds.midY))?.usingColorSpace(.sRGB))
+    }
+    /// How far a colour is from grey: the accent's fill is far, the unemphasized one is grey.
+    private func chroma(_ c: NSColor) -> CGFloat { max(c.redComponent, c.greenComponent, c.blueComponent) - min(c.redComponent, c.greenComponent, c.blueComponent) }
+
+    func testTheSelectionStaysWithItsItemAcrossARowsReuseAndTheKeyboard() throws {
+        let f = try keyed()
+        // A click on a row: nothing while the button is down, as in a
+        // hand-built table on macOS 27; selected, and the row's press, when it comes up.
+        var whileDown = -2
+        click(try f.node("title-12"), in: f) { whileDown = f.table.selectedRow }
+        XCTAssertEqual(whileDown, -1, "a stock table selects when the mouse comes up")
+        XCTAssertEqual(f.table.selectedRow, 12)
+        XCTAssertTrue(f.status.hasPrefix("opened 12 presses 1 "), f.status)
+        XCTAssertTrue(f.window.firstResponder === f.table)
+        let first = try XCTUnwrap(f.cells[12]?.row)
+        XCTAssertEqual(f.feed.selectedKey, first.props["listItemKey"])
+
+        // Scrolled away: the runner destroys the row and the table lets its
+        // view go. Back: another row for the same item, selected.
+        f.scroll(to: 20_000)
+        XCTAssertNil(f.presenter.views[first.id], "the runner destroyed the selected row")
+        XCTAssertNil(f.table.rowView(atRow: 12, makeIfNecessary: false))
+        XCTAssertEqual(f.table.selectedRow, 12)
+        f.scroll(to: 0)
+        let again = try XCTUnwrap(f.cells[12]?.row)
+        XCTAssertFalse(again === first, "a new row for the item")
+        XCTAssertEqual(f.item(again), 12)
+        XCTAssertEqual(f.table.rowView(atRow: 12, makeIfNecessary: false)?.isSelected, true)
+        XCTAssertTrue(f.status.hasPrefix("opened 12 presses 1 "), "coming back pressed nothing: \(f.status)")
+
+        // The keyboard, a row at a time past everything that was mounted:
+        // each row it reaches is mounted, in its cell and in the port.
+        let were = Set(f.mounted.values.map(\.id))
+        for step in 1...90 {
+            down(in: f)
+            let row = 12 + step
+            XCTAssertEqual(f.table.selectedRow, row)
+            let node = try XCTUnwrap(f.cells[row]?.row, "row \(row) is mounted and in its cell")
+            XCTAssertEqual(f.item(node), row)
+            XCTAssertTrue(f.clip.bounds.insetBy(dx: 0, dy: -0.5).contains(f.inDocument(node)), "row \(row) is in the port")
+        }
+        XCTAssertTrue(were.allSatisfy { f.presenter.views[$0] == nil } || f.mounted[12] == nil, "the rows it started among were destroyed on the way")
+        XCTAssertNil(f.mounted[12])
+        XCTAssertGreaterThan(f.clip.bounds.minY, 1_500)
+        XCTAssertTrue(f.status.hasPrefix("opened 12 presses 1 "), "the arrow keys select and press nothing: \(f.status)")
+        for _ in 1...90 { up(in: f) }
+        XCTAssertEqual(f.table.selectedRow, 12)
+        XCTAssertEqual(f.cells[12]?.row.map(f.item), 12)
+
+        // Home and End are the list's, and leave the selection.
+        key(119, "\u{F72B}", [.function], in: f)
+        f.settle()
+        XCTAssertGreaterThan(f.clip.bounds.minY, 300_000, "End is the list's end, as the runner has it")
+        XCTAssertEqual(f.table.selectedRow, 12)
+        key(115, "\u{F729}", [.function], in: f)
+        XCTAssertEqual(f.clip.bounds.minY, 0)
+
+        // A row put before it: the selection is the item's, one row down.
+        f.presenter.press(try f.node("prepend").id)
+        f.settle()
+        XCTAssertEqual(f.table.numberOfRows, 10_001)
+        XCTAssertEqual(f.table.selectedRow, 13, "the selection moved with its item")
+        XCTAssertEqual(f.cells[13]?.row.map(f.item), 12)
+    }
+
+    func testThePageKeysScrollTypingSelectsAMountedRowAndReturnSpaceAndEscapePressNothing() throws {
+        let f = try keyed()
+        click(try f.node("title-5"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 5)
+        XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), f.status)
+        // Page Down and Page Up: the list moves by a page and the selection
+        // stays, as a stock table's does.
+        key(121, "\u{F72D}", [.function], in: f)
+        pump(1) { f.clip.bounds.minY > 300 }
+        f.settle()
+        XCTAssertGreaterThan(f.clip.bounds.minY, 300, "Page Down scrolled the list")
+        XCTAssertLessThan(f.clip.bounds.minY, f.clip.bounds.height, "by no more than a page")
+        XCTAssertEqual(f.table.selectedRow, 5)
+        key(116, "\u{F72C}", [.function], in: f)
+        pump(1) { f.clip.bounds.minY == 0 }
+        f.settle()
+        XCTAssertEqual(f.clip.bounds.minY, 0, "Page Up scrolled it back")
+        // Return, Enter, Space and Escape on a selected row: the selection
+        // stays and the row's press does not run. A stock table and SwiftUI's
+        // list do nothing with them either (measured beside this).
+        for (code, characters) in [(UInt16(36), "\r"), (76, "\u{3}"), (49, " "), (53, "\u{1B}")] {
+            key(code, characters, in: f)
+            XCTAssertEqual(f.table.selectedRow, 5, "key \(code)")
+            XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), "key \(code): \(f.status)")
+            XCTAssertTrue(f.window.firstResponder === f.table, "key \(code)")
+        }
+        XCTAssertEqual(f.clip.bounds.minY, 0, "and Space did not scroll")
+        // Typing selects the next row whose text begins with what was typed,
+        // among the rows that are mounted: the feed has no text for the others.
+        XCTAssertTrue(f.table.allowsTypeSelect)
+        typing("row 2", in: f)
+        let found = try XCTUnwrap(f.cells[f.table.selectedRow]?.row, "typing selected a mounted row (\(f.table.selectedRow))")
+        XCTAssertEqual(f.table.selectedRow, 20, "the next row after the selected one whose text begins \"Row 2\"")
+        XCTAssertTrue(try f.node("title-\(f.item(found))").accessibleText.hasPrefix("Row 2"))
+        XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), "typing selects and presses nothing: \(f.status)")
+        // A row that is not mounted is not found: a stock table, which has
+        // every row's text, would select row 9,999.
+        XCTAssertNil(f.mounted[9_999])
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5)) // the type-select forgets what was typed
+        typing("row 9999", in: f)
+        XCTAssertNotEqual(f.table.selectedRow, 9_999)
+        XCTAssertNotNil(f.mounted[f.table.selectedRow], "the selection is on a mounted row (\(f.table.selectedRow))")
+    }
+
+    func testAKeyThatJumpsToTheListsEndLandsOnTheRunnersLastRow() throws {
+        let f = try keyed()
+        click(try f.node("title-5"), in: f)
+        XCTAssertNil(f.mounted[9_999], "the last row is not made while the list is at its start")
+        /// The selected row is `row`: the runner's row for that item, in its cell, whole in the port.
+        func landed(_ row: Int, _ note: String) throws {
+            f.settle()
+            XCTAssertEqual(f.table.selectedRow, row, note)
+            let node = try XCTUnwrap(f.cells[row]?.row, "\(note): row \(row) is mounted and in its cell")
+            XCTAssertEqual(f.item(node), row, note)
+            XCTAssertTrue(f.clip.bounds.insetBy(dx: 0, dy: -0.5).contains(f.inDocument(node)), "\(note): row \(row) is whole in the port (\(f.inDocument(node)) in \(f.clip.bounds))")
+            XCTAssertEqual(f.feed.selectedKey, node.props["listItemKey"], "\(note): the selection is that item's")
+            XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), "\(note) pressed nothing: \(f.status)")
+        }
+        // Option-Down is the last row and Option-Up the first, as in a stock
+        // table. AppKit shows the last row where it guesses it is; the feed
+        // shows it again when the runner has made it and layout has measured it.
+        key(125, "\u{F701}", [.function, .numericPad, .option], in: f)
+        try landed(9_999, "Option-Down")
+        down(in: f)
+        try landed(9_999, "Down on the last row")
+        key(126, "\u{F700}", [.function, .numericPad, .option], in: f)
+        try landed(0, "Option-Up")
+        XCTAssertEqual(f.clip.bounds.minY, 0)
+        // Up with nothing selected is the last row too.
+        f.table.deselectAll(nil)
+        up(in: f)
+        try landed(9_999, "Up with nothing selected")
+        // A row selected before it was made is its item's once it is: a row put before it moves the selection with it.
+        f.presenter.press(try f.node("prepend").id)
+        f.settle()
+        XCTAssertEqual(f.table.numberOfRows, 10_001)
+        XCTAssertEqual(f.table.selectedRow, 10_000)
+        XCTAssertEqual(f.cells[10_000]?.row.map(f.item), 9_999)
+    }
+
+    func testAnArrowKeyPressesTheRowItReachesWhenSelectingIsThePress() throws {
+        let f = try keyed()
+        click(try f.node("title-5"), in: f)
+        XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), f.status)
+        // As SwiftUI's list of navigation links pushes when the keyboard
+        // moves the selection (measured beside this): chosen by the feed's owner.
+        f.feed.press = .selection
+        queued(125, "\u{F701}", [.function, .numericPad], in: f)
+        XCTAssertEqual(f.table.selectedRow, 6)
+        XCTAssertTrue(f.status.hasPrefix("opened 6 presses 2 "), f.status)
+        // A click is still one press, not the selection's and the action's both.
+        click(try f.node("title-8"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 8)
+        XCTAssertTrue(f.status.hasPrefix("opened 8 presses 3 "), f.status)
+    }
+
+    /// A list of `count` rows whose press pushes a route for the row, and
+    /// that route's Back.
+    private static func pushing(count: Int) -> String {
+        """
+        routes nav
+          items "/"
+            item "/item/:id"
+
+        component Rows
+          state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          derive d1 = concat(seed, seed)
+          derive d2 = concat(d1, d1)
+          derive d3 = concat(d2, d2)
+          derive d4 = concat(d3, d3)
+          derive rows = slice(map(d4, (x, i) => i), 0, \(count))
+          action open(r: number)
+            nav = push(nav, path("item", `${r}`))
+          action back
+            nav = back(nav)
+          action follow(url: string)
+            nav = go(nav, url)
+          view
+            main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
+              each e in stack(nav) key=e.id
+                when e.name == "items"
+                  column navigationKey=`${e.id}` position="absolute" inset=0
+                    list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
+                      each r in rows key=`k${r}`
+                        row press=open(r) testId=`row-${r}` padding="6px 0" width="100%"
+                          text `Row ${r}` testId=`title-${r}`
+                when e.name == "item"
+                  column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
+                    text `Item ${e.params.id}` testId="detail"
+                    button id="back" press=back testId="back"
+                      text "Back"
+
+        """
+    }
+
+    func testTheSelectionIsStillTheRowsWhenThePersonComesBackFromItsPush() throws {
+        let f = try keyed(count: 160, source: Self.pushing(count: 160))
+        // A click on a row pushes its route when the mouse comes up.
+        click(try f.node("title-7"), in: f)
+        XCTAssertEqual(try f.node("detail").accessibleText, "Item 7")
+        XCTAssertNotNil(f.presenter.navigation.pushedRoute, "the row's press pushed a route")
+        XCTAssertEqual(f.table.selectedRow, 7, "under the pushed route the row is still selected")
+        let row = try XCTUnwrap(f.cells[7]?.row)
+        // Back: the list's table is the one it was, the row the runner's
+        // same row, selected, as SwiftUI's stack leaves its list (measured
+        // beside this: selected on return and still selected two seconds on).
+        f.presenter.press(try f.node("back").id)
+        f.settle()
+        pump(0.6) { false }
+        f.settle()
+        XCTAssertNil(f.presenter.navigation.pushedRoute)
+        XCTAssertFalse(f.presenter.views.values.contains { $0.props["testId"] == "detail" }, "the pushed route is gone")
+        XCTAssertTrue(f.presenter.tables.feeds[f.list.id] === f.feed, "the same feed")
+        XCTAssertEqual(f.table.selectedRow, 7)
+        XCTAssertTrue(f.cells[7]?.row === row, "the same row, in its cell")
+        XCTAssertEqual(f.table.rowView(atRow: 7, makeIfNecessary: false)?.isSelected, true)
+        // And the next arrow key goes on from it, once the table has the keyboard.
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        down(in: f)
+        XCTAssertEqual(f.table.selectedRow, 8)
+    }
+
+    /// The window server's picture of the fixture's window, saved where `EXACT_PROOF_SHOTS` says.
+    private func shot(_ f: TableFixture, _ name: String) {
+        typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let dir = ProcessInfo.processInfo.environment["EXACT_PROOF_SHOTS"], let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return }
+        f.window.displayIfNeeded()
+        CATransaction.flush()
+        pump(0.3) { false }
+        guard let image = unsafeBitCast(symbol, to: Create.self)(.null, 1 << 3, UInt32(f.window.windowNumber), 1 << 0 | 1 << 3)?.takeRetainedValue() else { return }
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
+    }
+
+    func testTheSelectionIsDrawnByTheWindowsKeyState() throws {
+        let f = try keyed()
+        click(try f.node("title-4"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 4)
+        shot(f, "table-gate-key.png")
+        let view = try XCTUnwrap(f.table.rowView(atRow: 4, makeIfNecessary: false))
+        XCTAssertTrue(view.isSelected && view.isEmphasized, "key, and the table first responder")
+        let emphasized = try fill(4, in: f)
+        XCTAssertGreaterThan(chroma(emphasized), 0.4, "the emphasized selection is the accent's: \(emphasized)")
+        // Another window takes key: the same row, unemphasized.
+        let other = NSWindow(contentRect: NSRect(x: 700, y: 300, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        self.other = other
+        other.makeKeyAndOrderFront(nil)
+        pump { other.isKeyWindow }
+        XCTAssertFalse(f.window.isKeyWindow)
+        XCTAssertTrue(view.isSelected && !view.isEmphasized, "not key")
+        let unemphasized = try fill(4, in: f)
+        XCTAssertLessThan(chroma(unemphasized), 0.02, "the unemphasized selection is grey: \(unemphasized)")
+        XCTAssertLessThan(unemphasized.whiteComponentOrLuma, 0.95, "and it is drawn")
+        shot(f, "table-gate-not-key.png")
+        f.window.makeKeyAndOrderFront(nil)
+        pump { f.window.isKeyWindow }
+        XCTAssertTrue(view.isEmphasized, "key again")
+        XCTAssertGreaterThan(chroma(try fill(4, in: f)), 0.4, "emphasized again")
+    }
+
+    func testAControlInARowTakesItsOwnClicksAndTheRowTakesTheRest() throws {
+        let f = try keyed()
+        // The button, the checkbox and the field in row 3, each clicked:
+        // each acts, the row's press does not run, the row is not selected.
+        click(try f.node("bump-3"), in: f)
+        XCTAssertTrue(f.status.contains("presses 0 bumps 1 on false"), f.status)
+        XCTAssertEqual(f.table.selectedRow, -1, "a click on a button in a row does not select the row")
+        click(try f.node("check-3"), in: f)
+        XCTAssertTrue(f.status.contains("presses 0 bumps 1 on true"), f.status)
+        XCTAssertEqual(f.table.selectedRow, -1)
+        let field = try XCTUnwrap(try f.node("field-3").field)
+        click(field, in: f)
+        XCTAssertNotNil(field.currentEditor(), "the field took its click and the keyboard")
+        XCTAssertEqual(f.table.selectedRow, -1)
+        key(4, "h", in: f)
+        key(34, "i", in: f)
+        XCTAssertTrue(f.status.hasSuffix("draft hi"), f.status)
+        XCTAssertTrue(f.status.contains("presses 0 "), f.status)
+        // Where no control is, the same row's click is the row's: selected, and its press.
+        click(try f.node("title-3"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 3)
+        XCTAssertTrue(f.status.hasPrefix("opened 3 presses 1 bumps 1 on true"), f.status)
+        XCTAssertTrue(f.window.firstResponder === f.table, "and the table has the keyboard again")
+        // A row with no controls.
+        click(try f.node("title-6"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 6)
+        XCTAssertTrue(f.status.hasPrefix("opened 6 presses 2 "), f.status)
+        // The button again, with another row selected: the selection stays.
+        click(try f.node("bump-3"), in: f)
+        XCTAssertTrue(f.status.contains("presses 2 bumps 2 "), f.status)
+        XCTAssertEqual(f.table.selectedRow, 6)
+    }
+
+    /// The gate's other clicks are made in a key window. These are the
+    /// click that brings a window forward, which AppKit gives a view only
+    /// if it accepts the first mouse: a table does, a button does, a field does.
+    func testTheClickThatBringsTheWindowForwardSelectsARowAndPressesAControlInIt() throws {
+        let f = try keyed()
+        let other = NSWindow(contentRect: NSRect(x: 700, y: 300, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        self.other = other
+        /// A click on `view` while another window is key.
+        func first(_ view: NSView) {
+            other.makeKeyAndOrderFront(nil)
+            pump { other.isKeyWindow }
+            XCTAssertFalse(f.window.isKeyWindow)
+            click(view, in: f)
+            pump(1) { f.window.isKeyWindow }
+            XCTAssertTrue(f.window.isKeyWindow, "the click brought the window forward")
+        }
+        // A person's clicks first, then the driver's rule, under which every click counts (its window is never key).
+        let was = NodeView.everyClickCounts
+        defer { NodeView.everyClickCounts = was }
+        for (round, every) in [false, true].enumerated() {
+            NodeView.everyClickCounts = every
+            let note = every ? "every click counts" : "AppKit's rule"
+            let row = 6 + round, presses = 1 + round, bumps = 1 + round
+            first(try f.node("title-\(row)"))
+            XCTAssertEqual(f.table.selectedRow, row, "\(note): the click selected the row")
+            XCTAssertTrue(f.status.hasPrefix("opened \(row) presses \(presses) "), "\(note): and pressed it, \(f.status)")
+            first(try f.node("bump-3"))
+            XCTAssertTrue(f.status.contains("presses \(presses) bumps \(bumps) "), "\(note): a button in a row took the click, \(f.status)")
+            XCTAssertEqual(f.table.selectedRow, row, note)
+            first(try f.node("check-3"))
+            XCTAssertTrue(f.status.contains("bumps \(bumps) on \(round == 0) "), "\(note): a checkbox in a row took the click, \(f.status)")
+            let field = try XCTUnwrap(try f.node("field-3").field)
+            first(field)
+            XCTAssertNotNil(field.currentEditor(), "\(note): a field in a row took the click and the keyboard")
+            XCTAssertEqual(f.table.selectedRow, row, note)
+            XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        }
+    }
+}
+
+private extension NSColor {
+    var whiteComponentOrLuma: CGFloat { (redComponent + greenComponent + blueComponent) / 3 }
+}
+#endif

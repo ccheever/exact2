@@ -170,6 +170,15 @@ lowers the HTML absolute-position default so it consumes no ordinary flow.
 No application open-state slot or host script reproduces the browser's dialog.
 Root navigation Escape and global authored shortcuts respect its input owner.
 
+`showModal(id)` and `close(id)` use the same presentation as the invoker on the
+web (both targets), macOS and iOS. A dialog's `close` handler is queued after
+closing and restoring focus, once per close, including Escape and invoker
+buttons. An alert dismissal still queues it when its chosen action becomes
+stale; only that press is suppressed. A repeated close and a removed or reset
+dialog fire nothing, including a web dialog whose render scope has ended. Bare
+`close()` remains the window's command. The headless/DRM Linux host names
+`showModal(id)` and `close(id)` as unsupported.
+
 UIKit admits the existing confirmation grammar: direct explanatory text, one
 handled action, and one handlerless closing Cancel, with `closedby="any"`.
 Other dialog content and close policies are unsupported. The same session-owned
@@ -1050,3 +1059,71 @@ host, the CDP recipe for the live web page.
   native arm for a menu-shaped popover (brand styling over platform
   chrome)? If a consumer asks, the web-true dial is
   `appearance: base-select`-adjacent territory — name it then, not now.
+
+## 5.3 Contract extensions to the Mac menu bar (2026-10-12)
+
+Charlie approved the bounded extension on 2026-10-08 and pinned its spelling
+in the menubar lane ruling: `-exact-menu="app|file|edit|view|go|window|help"`
+on a button; root `-exact-menu-remove="…"` with fixed ids; enabled follows
+`disabled`; the agent taps the button. Consumer: the coding-agent desktop
+app of `issues/closed/20261009-contract-menu-bar-extensions.md`.
+Implementer: Codex, 2026-10-12.
+
+`-exact-menu` is a literal standard
+menu id on a `button`, independent of the menu's localized title. It adds
+that button to the named menu even without `aria-keyshortcuts`, and wins
+over chord filing. The item's label is the button's accessible label or
+text, including for an explicitly placed ⌘, item. Without the attribute,
+the existing chord filing and Settings label remain unchanged. A declared
+⌘ chord keeps its existing single-dispatch and host-chord replacement rules.
+Items retain the existing destination ordering: Edit keeps its standard
+replacement and paste-variant positions, Go its history before destinations;
+other commands follow declaration order. App items follow About;
+View, Window and Help items precede the host commands. Go appears while it
+has an item. Help remains `NSApp.helpMenu`, with AppKit's search field above
+the authored items (the field is outside `NSMenu.items`).
+
+This adds a presentation of the existing button, never a new action:
+`disabled`/inert disable it, hidden or removed buttons leave the menu, and
+the existing agent `tap` reaches its button. Standard menus and Develop in
+development builds remain. AppKit menu objects, not their titles, identify
+destinations, so changing the display language does not change placement.
+
+Declared platform deviation: CSS/HTML have no application menu. Web (both
+targets), UIKit (including iPadOS), Linux, Windows, Android and the terminal
+ignore this presentation hint and keep the ordinary button and shortcuts.
+No layout, visibility, keyboard or accessibility defaults change there.
+The web emits no DOM attributes for either menu hint.
+
+`-exact-menu-remove` on a top-level root takes a whitespace-separated literal
+list from this fixed set:
+
+| ID | Standard item |
+|---|---|
+| `close-all` | File → Close All |
+| `autofill` | Edit → AutoFill (the submenu) |
+| `show-tab-bar` | View → Show/Hide Tab Bar |
+| `show-all-tabs` | View → Show All Tabs |
+| `enter-full-screen` | View → Enter/Exit Full Screen |
+| `minimize` | Window → Minimize |
+| `zoom` | Window → Zoom |
+| `bring-all-to-front` | Window → Bring All to Front |
+| `show-previous-tab` | Window → Show Previous Tab |
+| `show-next-tab` | Window → Show Next Tab |
+| `move-tab-to-new-window` | Window → Move Tab to New Window |
+| `merge-all-windows` | Window → Merge All Windows |
+
+An empty list removes nothing; repeated ids are harmless. Unknown ids, dynamic
+values and declarations below a root fail with `lower-menu-remove`, naming the
+whole accepted set. The view has one root node, as elsewhere in Contract. This
+removes menu affordances, not window capabilities or app-declared buttons.
+There is no Format menu in this host's standard bar; no speculative Format ids
+are accepted. The other standard items, Help and development Develop remain.
+
+AppKit identifies commands by their selectors and AutoFill by the installed
+item's identifier (`_NSMenuItemAutoFillIdentifier`, observed on macOS 27.0.1), never
+by localized titles. Selected items are hidden with hidden key equivalents
+disallowed, including items AppKit inserts after installation or on update.
+The host retains the objects so removing the declaration restores them; each
+window installs its own session's menu when it becomes key. Other hosts ignore
+this macOS-only presentation hint, just as they ignore `-exact-menu`.

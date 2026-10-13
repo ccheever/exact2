@@ -243,6 +243,7 @@ fn feedback(r: &Runner<Rows>, top: f64) -> CollectionFeedback {
         port_cross: 640.0,
         port_main: 320.0,
         cross: 640.0,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,

@@ -122,6 +122,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         weak var under: UIView?
         var underHidden = false
         var closing = false
+        var notifyClose = false
         /// The dismissal of a sheet closed while UIKit was still presenting
         /// it, which UIKit would drop: run when the presentation ends.
         var afterPresenting: (() -> Void)?
@@ -212,6 +213,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
     /// leaves as UIKit dismisses one, and nothing is cancelled.
     func close(_ dialog: NodeView, animated: Bool = !ExactEnv.agentFreezes) {
         guard let entry = entries.first(where: { $0.dialog === dialog && !$0.closing }) else { return }
+        entry.notifyClose = true
         dismiss(entry, animated: animated, cancelled: false)
     }
     private func dismiss(_ entry: Entry, animated: Bool, cancelled: Bool) {
@@ -271,6 +273,7 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
             let element: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
             UIAccessibility.post(notification: .screenChanged, argument: element)
         }
+        if cancelled || entry.notifyClose { dialog.queueDialogClose() }
         if cancelled, live(dialog), dialog.handlers.contains("cancel") {
             if let onCancel { onCancel(dialog.id) }
             else if let session = presenter.session { session.apply(session.runtime.pickerCancel(dialog.id, now: session.now())) }

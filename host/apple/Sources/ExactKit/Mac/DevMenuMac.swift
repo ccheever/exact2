@@ -120,6 +120,12 @@ public enum DevMenu {
         NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
     }
 
+    /// Each document's commands and root removal policy follow the key window.
+    public static func select(session: ExactSession) {
+        guard DevMenu.session !== session else { return }
+        install(session: session, planPath: planPath)
+    }
+
     static func makeMenu(shortcuts: ShortcutHost, documents: Bool, develop: Bool = enabled) -> NSMenu {
         let bar = NSMenu()
         let appItem = NSMenuItem()
@@ -194,6 +200,12 @@ public enum DevMenu {
         edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
         editItem.submenu = edit
         let view = ShortcutMenu(title: "View")
+        // Show Sidebar ⌃⌘S (LLP 1115.002 D3): the split view controller's
+        // own action, which names the item for what it will do. There only
+        // while the window's sidebar is the app's root tab bar (`ShortcutHost.sync`).
+        let sidebar = view.addItem(withTitle: "Show Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+        sidebar.keyEquivalentModifierMask = [.command, .control]
+        sidebar.isHidden = true
         let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
@@ -204,14 +216,13 @@ public enum DevMenu {
         // no Go menu (`ShortcutHost.sync`).
         go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
-        let window = NSMenu(title: "Window")
+        let window = ShortcutMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         bar.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = window
         NSApp.windowsMenu = window
-        shortcuts.attach(file, application: appMenu, navigation: go, edit: edit, view: view)
         if develop {
             let devItem = NSMenuItem()
             bar.addItem(devItem)
@@ -230,10 +241,11 @@ public enum DevMenu {
         // Help last, after Develop (LLP 1115 D8): AppKit puts its search
         // field at the top of the menu it is told is Help, and `showHelp:`
         // opens the app's help book, or says there is none.
-        let help = NSMenu(title: "Help")
+        let help = ShortcutMenu(title: "Help")
         help.addItem(withTitle: "\(ExactEnv.appName) Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?")
         bar.addItem(withTitle: "Help", action: nil, keyEquivalent: "").submenu = help
         NSApp.helpMenu = help
+        shortcuts.attach(file, application: appMenu, navigation: go, edit: edit, view: view, window: window, help: help)
         return bar
     }
 

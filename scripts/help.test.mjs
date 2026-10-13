@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
-import { HELP, helpText, knownFlags } from './help.mjs';
+import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
 const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'pattern', 'feedback'];
@@ -48,7 +48,24 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
       for (const verb of [...APP_VERBS, 'seed']) assert.match(r.stdout, new RegExp(`^  ${verb} +\\S`, 'm'), `the index names ${verb}`);
       assert.match(r.stdout, /seed +app\.json commands: bun seed\.mjs/);
     }
+    // LLP 1116.010 D2 (weather, round 12: `help --help all` and `--help all` reported "no verb all"): every help form the index and
+    // the helps name runs as written, and `all` with no verb is the index, never a verb.
+    const own = { seed: ['bun', 'seed.mjs'] }, index = indexText({ verbs: APP_VERBS, own }), forms = new Set();
+    for (const text of [index, ...APP_VERBS.map((v) => helpText(v))]) for (const [, form] of text.matchAll(/bun exact\.mjs ((?:[\w<>-]+ )?(?:--help|-h)(?: all)?|help(?: all)?)(?=[:\s]|$)/g)) forms.add(form);
+    assert.ok(forms.has('<verb> --help') && forms.has('<verb> --help all'), `the forms named: ${[...forms]}`);
+    const expected = (args) => { const verb = args.find((a) => HELP[a]); return verb ? helpText(verb, { all: args.includes('all') }) : index; };
+    for (const form of forms) for (const verb of form.includes('<verb>') ? APP_VERBS : ['']) {
+      const args = form.replace('<verb>', verb).split(' ').filter(Boolean), r = exact(...args);
+      assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+      assert.equal(r.stdout.trim(), expected(args), `bun exact.mjs ${args.join(' ')}`);
+    }
+    for (const args of [['--help', 'all'], ['-h', 'all'], ['help', 'all'], ['help', '--help', 'all'], ['help', 'web', 'all'], ['help', 'all', 'web'], ['help', 'seed']]) {
+      const r = exact(...args);
+      assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+      if (args[1] !== 'seed') assert.equal(r.stdout.trim(), expected(args), `bun exact.mjs ${args.join(' ')}`);
+    }
     assert.equal(exact('help', 'nope').status, 2);
+    assert.equal(exact('help', 'all', 'nope').status, 2);
     assert.ok(!existsSync(started), `help ran ${existsSync(started) && readFileSync(started, 'utf8')}`);
     assert.ok(!existsSync(resolve(dir, '.exact/commands.jsonl')), 'help is not a logged command');
   } finally { rmSync(parent, { recursive: true, force: true }); }
@@ -129,4 +146,31 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
   assert.match(helpText('agent'), /^ {2}--json +one compact JSON object per op reply, one per line/m);
   // LLP 1116.007 D3.9: `state <name>` is a view's, else a state or resource read down a dotted path.
   assert.match(helpText('agent'), /^ {2}state \[<name>\] +a view's testId, else a state or resource, dotted: groceries\.0\.done/m);
+});
+
+// LLP 1116.009 D6: builders read `help` and then four or five verbs' `--help`, each a step carried to the end of the build.
+// The index is the one read: each verb, then the forms a build uses, in one screen, and every flag a form names is one its
+// verb's script parses (a form never names a flag that does not exist).
+test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
+  const text = indexText({ verbs: Object.keys(HELP).filter((v) => v !== 'new') });
+  assert.ok(text.split('\n').length <= 36, `the index is ${text.split('\n').length} lines`);
+  assert.ok(Buffer.byteLength(text) <= 2800, `the index is ${Buffer.byteLength(text)} bytes`);
+  // What builders used across rounds 10 and 11: verify's platform and `--shots`, test's platform, agent's `--storage`, `--size`
+  // and its common operations, web and ios `--run`, contract's build and vocab, pattern.
+  for (const form of [
+    /^ {2}verify \[ios\] \[--shots <dir>\]/m, /^ {2}test \[web\|ios\]/m, /^ {2}agent \[web\|ios\] \[--storage <name>\] \[--size <w>x<h>\]/m,
+    /"tap <target>"/, /"type <target> <text>"/, /"clock data\|settle\|\+<ms>"/, /"state \[<name>\]"/, /"screenshot <png>"/, /"check \[both\]"/, /"resize <w>x<h>"/, /"prefer <feature> <value>"/,
+    /^ {2}web \[--port <n>\]/m, /^ {2}ios \[--run\]/m, /^ {2}contract build <file> --json · contract vocab <name>/m, /^ {2}pattern \[<name>\]/m,
+  ]) assert.match(text, form);
+  for (const [verb, entry] of Object.entries(HELP)) {
+    const known = knownFlags(verb);
+    for (const form of entry.common ?? []) {
+      for (const [flag] of form.matchAll(/--[a-z][a-z-]*/g)) {
+        if (verb === 'contract') continue; // the compiler's own subcommand flags
+        assert.ok(known.has(flag) || [...HELP[verb].flags, ...(HELP[verb].more ?? [])].some(([row]) => row.includes(flag)), `${verb}'s form names ${flag}, which its script does not parse`);
+      }
+    }
+  }
+  // Without a verb's forms (a game's own verbs have none), the index is the verbs.
+  assert.doesNotMatch(indexText({ verbs: ['lock'] }), /The forms a build uses/);
 });

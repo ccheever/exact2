@@ -20,9 +20,12 @@ use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
 mod counts;
+mod miswiring;
+mod parts;
 mod roles;
 mod screens;
 mod title;
+mod width;
 
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a
@@ -64,6 +67,16 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
+                // @ref LLP 1116.010 D5 — a name or a key that meets nothing.
+                miswiring::swipe(attrs, children, fresh, &mut out);
+                if tag == "image" {
+                    miswiring::image_source(positional.first(), fresh, &mut out);
+                }
+                if keyed && !in_root {
+                    let declared = checked.file.routes.as_ref().map(|r| r.span);
+                    miswiring::navigation_keys(attrs, children, declared, fresh, &mut out);
+                }
+                miswiring::navigation_split(tag, attrs, keyed, keyed && !in_root, fresh, &mut out);
                 let route = in_root && keyed && !has(attrs, "navigationBack");
                 // A route that says it has no bar (LLP 1115.000 D5.2) draws
                 // its header as written: nothing of it is the bar's to drop.
@@ -96,7 +109,10 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     }
     out.extend(screens::screen_by_state(checked));
     out.extend(counts::count_plural(checked));
+    // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
+    out.extend(parts::round_button_label(checked));
     performance_now(root, &checked.file.fns, &mut out);
+    width::width_padding(&root.view, &checked.file.styles, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
             .into_iter()

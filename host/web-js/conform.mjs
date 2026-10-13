@@ -326,19 +326,12 @@ async function drive(t, report, fail, dir, ws, js) {
       if (apart && step === apart[0]) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${apart[1]}` }); await L.close?.().catch(() => {}); L = null; return; }
       try { await fn(L); } catch (e) { report.steps.push({ target: t.name, step, linux: 'stopped', skipped: `linux: ${e.message.split('\n')[0]}` }); await L.close?.().catch(() => {}); L = null; }
     };
-    // On the web a route is a page, so the focus follows it (LLP 1115.000 D4.2): to the new route's heading on a push,
-    // back to the pressed control on Back. That is the page's rule and no other host's, so from the first step that
-    // moves the page's route the Linux comparison leaves out which node has the focus; the wasm and JS pages still
-    // compare it at every step.
-    let routeAt, routed = false;
-    const unfocused = lines => routed ? lines.map(line => line.replace(/\|focused$/, '|')) : lines;
     const compare = async step => {
       let st = 0;
       let linuxLayout = null;
       let linuxReport = null;
       driveAt = `${step} state`;
       const [sw, sj] = await pair(() => W.state(), () => J.state().catch(e => ({ error: e.message })));
-      const at = `${sw?.navigation?.route} ${sw?.navigation?.url}`; if (routeAt !== undefined && at !== routeAt) routed = true; routeAt = at;
       // A write's id orders it within one runtime; each numbers them apart (the Linux host's too), so the mutations and states compare.
       const plainWrites = s => { if (s?.writes) s.writes = s.writes.map(w => ({ mutation: w.mutation, landed: w.landed })); };
       plainWrites(sw); plainWrites(sj);
@@ -355,7 +348,7 @@ async function drive(t, report, fail, dir, ws, js) {
         const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [];
         plainWrites(sl); addSession(sl);
         for (const k of STATE_KEYS) diffJSON(sw[k], sl[k], k, o, 'linux');
-        if (!linux.stateOnly) o.push(...diffLists(unfocused(norm(tw)), unfocused(norm(tl)), 'tree', 'linux').slice(0, 4));
+        if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
         o.forEach(x => fail(step, 'linux ' + x));
         linuxReport = { target: t.name, step, reference: 'linux', differences: o.length };
@@ -809,7 +802,7 @@ const lines = [`# JS target ${crossBrowser ? `cross-browser conformance (Chrome 
 for (const t of targets) {
   const mine = report.steps.filter(x => x.target === t.name), s = mine.filter(x => x.differences != null && !x.reference), info = report.targets[t.name] ?? {};
   const lx = mine.filter(x => x.reference === 'linux'), lskip = mine.find(x => x.step === 'linux' || x.linux === 'stopped');
-  const lcell = lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`;
+  const lcell = (lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`);
   const testCell = info.tests ? crossBrowser ? `${info.tests.chrome} / ${info.tests[crossBrowser]}` : `${info.tests.wasm} / ${info.tests.js}` : '—';
   lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${testCell} |${crossBrowser ? ` ${(info.maxLayoutDelta ?? 0).toFixed(3)} px |` : ''}${linuxRef ? ` ${lcell} |` : ''}`);
 }

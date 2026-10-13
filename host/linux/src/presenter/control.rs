@@ -6,6 +6,13 @@ use super::*;
 /// Fixed geometry used by Linux's own painters. Text-bearing controls are
 /// measured from their painted labels in `size_controls` instead.
 fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
+    use exact_kernel::ControlKind::{Checkbox, Radio, Range, Switch};
+    // Under the neutral look a mark is sized by its font, which the kernel
+    // reads from the look's rows as it lays the control out (LLP 1115.000
+    // D17): nothing fixed is reported over that.
+    if crate::paint::look::neutral() && matches!(kind, Checkbox | Radio | Switch | Range) {
+        return None;
+    }
     match kind {
         exact_kernel::ControlKind::Checkbox | exact_kernel::ControlKind::Radio => {
             Some((13.0, 13.0))
@@ -264,6 +271,11 @@ impl<D: DataSource> Presenter<D> {
             width = width.max(p.width + 32.0);
             row = row.max(p.height + 8.0);
         }
+        if crate::paint::look::neutral() {
+            // The look's menu row is no shorter than this (LLP 1115.000 D17).
+            use exact_kernel::generated::metric::MENU_ROW_HEIGHT;
+            row = row.max(crate::paint::look::px(MENU_ROW_HEIGHT, style.font_size));
+        }
         let height = row * choices.len() as f32 + 2.0 * MENU_PAD;
         let (x, y, _, h) = b.rect;
         let below = y + h + 2.0;
@@ -337,8 +349,27 @@ impl<D: DataSource> Presenter<D> {
                 let Some(kind) = exact_kernel::ControlKind::of(node.node_type, node.props) else {
                     continue;
                 };
+                let neutral = crate::paint::look::neutral();
+                // The neutral look's file field is its button and its
+                // words, in the field's own type.
+                if neutral && kind == exact_kernel::ControlKind::File {
+                    sizes.push((id, crate::paint::neutral::file_size(&mut text, &node)));
+                    continue;
+                }
                 if let Some(size) = fixed_painted_size(kind) {
                     sizes.push((id, size));
+                    continue;
+                }
+                // And its date fields are the kernel's size for one, the
+                // browser's own control's, which the value drawn here fits.
+                if neutral
+                    && matches!(
+                        kind,
+                        exact_kernel::ControlKind::Date
+                            | exact_kernel::ControlKind::Time
+                            | exact_kernel::ControlKind::DateTimeLocal
+                    )
+                {
                     continue;
                 }
                 // Native buttons measure synchronously through TextMeasurer before layout.
@@ -371,6 +402,22 @@ impl<D: DataSource> Presenter<D> {
                     let p = text.paragraph(&crate::paint::text_spec(&style, label), None);
                     w = w.max(p.width);
                     h = h.max(p.height);
+                }
+                if neutral {
+                    // The look's select, as the page's sheet sizes it (LLP
+                    // 1115.000 D17): the control's line round its widest
+                    // option, a field's padding before it and room for the
+                    // caret after, on the select's own line.
+                    use crate::paint::look::{number, px};
+                    use exact_kernel::generated::metric;
+                    let em = style.font_size;
+                    let line = px(metric::CONTROL_LINE, em);
+                    let inline = px(metric::FIELD_PADDING_INLINE, em)
+                        + px(metric::SELECT_PADDING_END, em)
+                        + 2.0 * line;
+                    let high = number(metric::SELECT_LINE_HEIGHT) * em + 2.0 * line;
+                    sizes.push((id, ((w + inline).ceil(), high)));
+                    continue;
                 }
                 if h == 0.0 {
                     h = style.font_size * 1.2;

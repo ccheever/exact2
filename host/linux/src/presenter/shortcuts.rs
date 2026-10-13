@@ -151,6 +151,7 @@ impl<D: DataSource> Presenter<D> {
             .node(button)
             .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true));
         if !repeat && !disabled {
+            self.note_press(button, true);
             self.dispatch_press(button, now_ms, false);
         }
         true

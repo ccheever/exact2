@@ -377,3 +377,70 @@ fn a_device_read_replays_from_its_recorded_value() {
     assert_agree(&a, &c);
     assert_eq!(replayed.data().replayed, reads);
 }
+
+/// Every live node's published frame and scroll extent, as bits, and
+/// whether it is hidden, in id order.
+fn published<D: DataSource>(r: &Runner<D>) -> Vec<(u32, [u32; 6], bool)> {
+    let arena = r.kernel().arena();
+    let mut out: Vec<_> = arena
+        .iter_live()
+        .map(|slot| {
+            let (f, c) = (arena.frame(slot), arena.content(slot));
+            let bits = [f.x, f.y, f.width, f.height, c.0, c.1].map(f32::to_bits);
+            let hidden = arena.flags(slot).has(exact_kernel::NodeFlags::HIDDEN);
+            (arena.local_id(slot), bits, hidden)
+        })
+        .collect();
+    out.sort_by_key(|row| row.0);
+    out
+}
+
+/// A host that gives no subtree a containing block lays out as before the
+/// kernel knew of them (LLP 1115.002 D8.2), on Caltrain's plan after the
+/// calls above: a page that had a block and lost it publishes what a page
+/// that never had one does, bit for bit. The digest printed is of that
+/// layout, to compare across commits.
+#[test]
+fn a_block_given_and_taken_back_leaves_caltrain_s_layout_as_it_was() {
+    use exact_kernel::{BlockAxis, HostBlock, Offer};
+    let offer = Offer::definite(402.0, 874.0);
+    let mut never = boot(Device { moving: false });
+    run(&mut never);
+    let root = never.roots()[0];
+    never.kernel_mut().compute_layout(root, offer).unwrap();
+    let mut r = boot(Device { moving: false });
+    run(&mut r);
+    r.kernel_mut().compute_layout(root, offer).unwrap();
+    let page = published(&r);
+    assert_eq!(page, published(&never));
+    let digest = page.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, row| {
+        let words = row.1.iter().copied().chain([row.0, row.2 as u32]);
+        words.fold(h, |h, w| (h ^ u64::from(w)).wrapping_mul(0x0100_0000_01b3))
+    });
+    println!(
+        "caltrain layout: {} nodes, digest {digest:016x}",
+        page.len()
+    );
+    assert!(page.len() > 40, "{} nodes", page.len());
+    // The node under the root with the most below it: the screen's column.
+    let k = r.kernel();
+    let screen = k.node(root).unwrap().children().into_iter();
+    let screen = screen
+        .max_by_key(|id| k.arena().subtree(k.arena().slot_of(*id).unwrap()).len())
+        .unwrap();
+    let block = HostBlock {
+        width: BlockAxis::Is(320.0),
+        height: BlockAxis::AtMost(500.0),
+    };
+    r.kernel_mut().set_host_block(screen, Some(block)).unwrap();
+    r.kernel_mut().compute_layout(root, offer).unwrap();
+    assert_ne!(published(&r), page, "the block changed nothing");
+    let used = r.kernel().host_block_size(screen).unwrap();
+    assert!(
+        used.0 == 320.0 && used.1 > 0.0 && used.1 <= 500.0,
+        "{used:?}"
+    );
+    r.kernel_mut().set_host_block(screen, None).unwrap();
+    r.kernel_mut().compute_layout(root, offer).unwrap();
+    assert_eq!(published(&r), page);
+}

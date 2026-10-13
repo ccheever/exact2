@@ -64,6 +64,22 @@ function setT(t, i, h) {
   t.sums[n] = h;
   while (n > 1) { n >>= 1; t.sums[n] = t.sums[2 * n] + t.sums[2 * n + 1]; }
 }
+// Nonmutating changed leaves and ancestors, with setT's exact grouping.
+// Instantiated only for an actual height change, never an equal/noisy sample.
+class HeightPreview {
+  constructor(t) { this.t = t; this.sums = new Map(); }
+  set(position, height) {
+    const t = this.t, sums = this.sums;
+    let n = t.base + position;
+    if (height === (sums.get(n) ?? t.sums[n])) return;
+    sums.set(n, height);
+    while (n > 1) {
+      n >>= 1;
+      sums.set(n, (sums.get(2 * n) ?? t.sums[2 * n]) + (sums.get(2 * n + 1) ?? t.sums[2 * n + 1]));
+    }
+  }
+  get total() { return this.sums.get(1) ?? this.t.sums[1]; }
+}
 function setEpoch(t, i, e) { let n = t.base + i; t.me[n] = e; while (n > 1) { n >>= 1; t.me[n] = Math.min(t.me[2 * n], t.me[2 * n + 1]); } }
 function minEpoch(t, a, b) {
   let l = a + t.base, r = b + t.base, e = Infinity;
@@ -96,6 +112,12 @@ class SizeIndex {
   }
   prefix(end) { return prefixT(this.t, end); }
   get total() { return this.t.sums[1]; }
+  // Sufficient bound: every candidate leaf and padding <= H. B >= 1 is
+  // power-of-two; monotone nonnegative addition bounds each subtree by its
+  // leaf count * H using exact doubling. Root <= B*H, either padded order
+  // <= 4*B*H (two more exact doublings); MAX/(4*B) is also exact. Retained
+  // and denoised leaves <= current root; revived zeros are bounded by est.
+  paddedExtentDefinitelyFits(h) { return h >= 0 && h <= 3.4028234663852886e38 / (4 * this.t.base); }
   rowAt(offset) { return find(this.t, offset, false); }
   token(key) { const i = this.pos.get(key); return i === undefined ? null : this.epoch + ":" + this.gen[i]; }
   measured(key) { const i = this.pos.get(key); return i !== undefined && this.me[i] === this.epoch; }
@@ -190,7 +212,6 @@ const Held = new Set(); // collections whose edge waits for their covered route 
 class Collection {
   constructor(el, o, own) {
     this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
-    this.scrollPadding = [0, 0];
     this.est = o.est ?? ESTIMATED;
     if (!(isFinite(this.est) && this.est > 0)) throw new Refusal("estimated item height must be positive and finite");
     this.index = new SizeIndex(this.est);
@@ -517,7 +538,31 @@ class Collection {
     if (f.view !== this.view || f.revision !== this.revision || (g && f.scroll_sequence < g.scroll_sequence)) return null;
     if ([f.focus_view, f.interaction_view].some(v => v != null && this.pin(v) === null)) return null;
     const byView = new Map(this.mounted.map((m, i) => [m.view, i]));
-    if (f.measurements.some(m => !byView.has(m.view) || this.mounted[byView.get(m.view)].epoch !== m.epoch)) return null;
+    let h = Math.max(this.index.total, f.padding[0], f.padding[1]);
+    for (const m of f.measurements) {
+      const i = byView.get(m.view);
+      if (i === undefined || this.mounted[i].epoch !== m.epoch) return null;
+      h = Math.max(h, m.size);
+    }
+    const changedWidth = !g || g.cross !== f.cross;
+    if (changedWidth && this.zeros.size) h = Math.max(h, this.est);
+    if (this.index.paddedExtentDefinitelyFits(h)) return byView;
+    let preview;
+    if (changedWidth) {
+      // Width invalidation revives zero rows; old-width samples are discarded.
+      for (const key of this.zeros) {
+        const p = this.index.pos.get(key);
+        if (p !== undefined && this.index.h[p] !== this.est) (preview ??= new HeightPreview(this.index.t)).set(p, this.est);
+      }
+    } else {
+      for (const r of f.measurements) {
+        const p = this.mounted[byView.get(r.view)].position, key = this.index.order[p];
+        if (r.size !== this.index.h[p] && !noise(this.index, key, p, r.size)) (preview ??= new HeightPreview(this.index.t)).set(p, r.size);
+      }
+    }
+    const extent = preview ? preview.total : this.index.total;
+    const paddedExtent = Math.max(extent + f.padding[0] + f.padding[1], extent + f.padding[1] + f.padding[0]);
+    if (!isFinite(paddedExtent) || paddedExtent > 3.4028234663852886e38) throw new Refusal("collection height exceeds finite geometry");
     return byView;
   }
   dims(f) { const g = this.geometry; return g && g.port_cross === f.port_cross && g.port_main === f.port_main && g.cross === f.cross && g.focus_view === f.focus_view && g.interaction_view === f.interaction_view; }
@@ -528,9 +573,8 @@ class Collection {
   }
   feedback(f, byView, fill) {
     // A new padding is no travel (inset.rs): the anchor is taken on the old range.
-    const was = [this.index.leading, this.index.trailing], padding = this.paddingNext ?? was;
-    this.paddingNext = null;
-    const within = padding[0] === was[0] && padding[1] === was[1] ? this.travelWithin(f, byView, fill) : undefined;
+    const padding = f.padding, paddingChanged = padding[0] !== this.index.leading || padding[1] !== this.index.trailing;
+    const within = paddingChanged ? undefined : this.travelWithin(f, byView, fill);
     if (within !== undefined) return [false, within];
     const changedWidth = !this.geometry || this.geometry.cross !== f.cross;
     // Arrange's preview (reorder.js, loaded with the motion piece) ends with
@@ -563,7 +607,7 @@ class Collection {
     this.settleStart(extent);
     const now = this.snapshot();
     now.scrollSequence = previous.scrollSequence;
-    const changed = JSON.stringify(previous) !== JSON.stringify(now);
+    const changed = paddingChanged || JSON.stringify(previous) !== JSON.stringify(now);
     if (changed) this.revision++;
     return [changed, this.edge()];
   }
@@ -616,11 +660,16 @@ class Collection {
     const cs = getComputedStyle(root), n = v => parseFloat(v) || 0;
     return this.axis === "y" ? [n(cs.marginTop), n(cs.marginBottom)] : [n(cs.marginLeft), n(cs.marginRight)];
   }
+  /** The list's scroll-padding at each end on this axis, read when it aligns, as CSSOM View reads it. */
+  scrollPadding() {
+    const cs = getComputedStyle(this.el), n = v => Math.max(0, parseFloat(v) || 0);
+    return this.axis === "y" ? [n(cs.scrollPaddingTop), n(cs.scrollPaddingBottom)] : [n(cs.scrollPaddingLeft), n(cs.scrollPaddingRight)];
+  }
   // Within the port less its scroll-padding (into_view.rs `aligned`), down to the padding before the first row.
   aligned(p, align, current) {
     const [before, after] = this.margins(p);
     const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
-    const [i0, i1] = this.scrollPadding, low = i0, high = Math.max(i0, port - i1), view = high - low;
+    const [i0, i1] = this.scrollPadding(), low = i0, high = Math.max(i0, port - i1), view = high - low;
     const at = align === "start" ? start - low : align === "center" ? start + size / 2 - (low + high) / 2 : align === "end" ? start + size - high
       : this.nearest(start, size, current, low, high);
     return Math.min(Math.max(at, -this.index.leading), this.index.maxOffset(port));
@@ -800,10 +849,6 @@ function report(bytes, f, fill) {
   f = { ...f, revision: Number(f.revision), scroll_sequence: Number(f.scroll_sequence), focus_view: f.focus_view ?? null, interaction_view: f.interaction_view ?? null };
   fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving };
   const c = Lists.get(f.view);
-  // The list's resolved padding before its rows and after them, and its scroll
-  // padding, which the browser half reads (inset.rs `set_insets`).
-  if (c && Number.isFinite(f.leading) && Number.isFinite(f.trailing)) c.paddingNext = [Math.max(0, f.leading), Math.max(0, f.trailing)];
-  if (c && Array.isArray(f.scrollPadding)) c.scrollPadding = f.scrollPadding.map(n => Number.isFinite(n) ? Math.max(0, n) : 0);
   const byView = c?.prepare(f);
   if (!byView) return true;
   const cats = [f.focus_view != null, f.interaction_view != null];

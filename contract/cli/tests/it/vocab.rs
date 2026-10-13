@@ -17,12 +17,66 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+/// LLP 1116.009 D6: a builder guessed a colour role (tip-splitter), so a colour property's entry lists the roles it takes:
+/// Exact's, written `-exact-<role>`, and CSS's system colours by name; a property that is not a colour lists none.
+#[test]
+fn a_colour_lists_the_roles_it_takes() {
+    for name in ["background-color", "color", "border-color", "accent-color"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(
+            out.contains("roles `-exact-<role>`")
+                && out.contains("secondary-label")
+                && out.contains("secondary-grouped-background")
+                && out.contains("system-indigo")
+                && out.contains("CSS system colours, by name: Canvas, CanvasText"),
+            "{name}: {out}"
+        );
+    }
+    let json: Value =
+        serde_json::from_str(&stdout(&vocab(&["--json", "background-color"]))).unwrap();
+    let roles = &json["attribute"]["roles"];
+    assert!(roles["exact"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "secondary-background"));
+    assert!(roles["css"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "Canvas"));
+    for name in ["width", "gap", "font-size"] {
+        assert!(!stdout(&vocab(&[name])).contains("roles `-exact"), "{name}");
+    }
+}
+
 #[test]
 fn a_style_shows_its_rows_codec_and_default() {
     let out = stdout(&vocab(&["padding"]));
     assert!(out.contains("padding: style attribute"), "{out}");
     assert!(out.contains("padding_top"), "{out}");
     assert!(out.contains("dimension, default 0"), "{out}");
+}
+
+#[test]
+fn font_family_vocabulary_describes_runtime_native_lists() {
+    let out = stdout(&vocab(&["font-family"]));
+    assert!(out.contains("state or data"), "{out}");
+    assert!(out.contains("macOS, iOS and Linux"), "{out}");
+    assert!(!out.contains("pending"), "{out}");
+}
+
+#[test]
+fn appearance_vocab_explains_authored_bars() {
+    let out = stdout(&vocab(&["appearance"]));
+    assert!(out.contains("root tablist"), "{out}");
+    assert!(out.contains("header button"), "{out}");
+    assert!(out.contains("only that button authored"), "{out}");
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["appearance", "--json"]))).unwrap();
+    assert!(doc["attribute"]["note"]
+        .as_str()
+        .unwrap()
+        .contains("root tablist"));
 }
 
 #[test]
@@ -106,6 +160,34 @@ fn header_states_when_it_is_the_navigation_bar() {
     ] {
         assert!(bar.contains(part), "{part}: {bar}");
     }
+}
+
+/// LLP 1115.000 D15, D14.5: a button nobody styled is the platform's, and
+/// `vocab` says which that is on each host, under the tag and under the
+/// word an author writes to choose another.
+#[test]
+fn button_states_the_platforms_default_style_per_host() {
+    for name in ["button", "buttonStyle"] {
+        let out = stdout(&vocab(&[name]));
+        for part in [
+            "plain tinted text on iOS",
+            "a push button on macOS",
+            "bordered on the web",
+        ] {
+            assert!(out.contains(part), "{name}: {part}: {out}");
+        }
+    }
+    let button = stdout(&vocab(&["button"]));
+    for part in ["`buttonStyle=\"filled\"`", "`destructive=true`"] {
+        assert!(button.contains(part), "{part}: {button}");
+    }
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json", "buttonStyle"]))).unwrap();
+    assert!(
+        doc["attribute"]["note"]
+            .as_str()
+            .is_some_and(|n| n.contains("plain tinted text on iOS")),
+        "{doc}"
+    );
 }
 
 #[test]
@@ -207,7 +289,7 @@ fn a_hyphenated_name_no_built_in_has_says_so_before_the_module_note() {
 
 #[test]
 fn the_host_commands_are_listed_and_answer_by_name() {
-    let all = stdout(&vocab(&[]));
+    let all = stdout(&vocab(&["--all"]));
     assert!(all.contains("host commands ("), "{all}");
     assert!(all.contains("setRootFontSize"), "{all}");
     let one = stdout(&vocab(&["setRootFontSize"]));
@@ -297,7 +379,7 @@ fn a_function_the_web_has_and_contract_refuses_says_what_to_write() {
 
 #[test]
 fn the_functions_are_listed_and_in_the_json() {
-    let all = stdout(&vocab(&[]));
+    let all = stdout(&vocab(&["--all"]));
     let count = exact_plan::Stdlib::ALL.len();
     assert!(
         all.contains(&format!("standard functions ({count})")),
@@ -460,6 +542,150 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     assert_eq!(json["part"]["props"][1], "status: string");
 }
 
+/// LLP 1116.010 D1: `contract vocab` with no name is the card, at most 12 KB (LLP 1116.011 D1 added the how-to),
+/// with every function, the tags, each part's call, the test steps, the agent's
+/// operations and the rules builders grepped for; `--all` is the full listing.
+#[test]
+fn no_name_prints_the_card_and_all_prints_every_table() {
+    let card = stdout(&vocab(&[]));
+    assert!(card.len() <= 12 * 1024, "the card is {} bytes", card.len());
+    for want in [
+        "functions: call -> result",
+        "parseNumber(text) -> option<number>",
+        "formatNumber(n,",
+        "tags: attributes; on events",
+        "input: value type inputmode min max step",
+        "parts: use X from \"exact:content\"",
+        "EmptyState(symbol=\"symbol:sparkles\"",
+        "test steps",
+        "expect text \"id\"",
+        "ops: a target is a testId",
+        "tap <target>",
+        "persist",
+        "negative `min` gives the pad its ± key",
+        "symbol roles: back close",
+        "idioms, whole with their code",
+    ] {
+        assert!(card.contains(want), "{want} missing:\n{card}");
+    }
+    // No SVG filter primitive: the listing has them, the card is what an app writes.
+    assert!(!card.contains("feGaussianBlur"), "{card}");
+    let all = stdout(&vocab(&["--all"]));
+    assert!(all.len() > 20 * 1024, "{} bytes", all.len());
+    assert!(all.contains("feGaussianBlur"), "{all}");
+    assert!(all.contains("tags ("), "{all}");
+    // The usage names both.
+    let help = stdout(&vocab(&["--help"]));
+    assert!(
+        help.contains("[--all]") && help.contains("the card"),
+        "{help}"
+    );
+    // A name still answers alone, and the JSON is unchanged.
+    assert!(stdout(&vocab(&["EmptyState"])).contains("call EmptyState("));
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
+    assert!(json["tags"].is_array());
+}
+
+/// LLP 1116.010 D3: `min`, `max` and `step` say a number of either sign is
+/// their text on an `input`, and where the decimal pad's ± key comes from.
+#[test]
+fn min_max_and_step_say_a_negative_number_is_written_bare() {
+    for name in ["min", "max", "step"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(
+            out.contains("`min=-40`") && out.contains("± key"),
+            "{name}: {out}"
+        );
+    }
+}
+
+/// LLP 1116.010 D3: a part's entry ends with one call as a builder would
+/// paste it, written beside the component (`// Call: …`), and every part's
+/// compiles with no diagnostic: a prop added to a component fails here until
+/// its call passes it, so the call cannot drift from the props.
+#[test]
+fn every_content_part_ends_with_one_working_call() {
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../lib/content.contract"
+    ))
+    .unwrap();
+    let parts: Vec<&str> = source
+        .lines()
+        .filter_map(|l| l.strip_prefix("component "))
+        .collect();
+    assert_eq!(parts.len(), 9, "{parts:?}");
+    let dir = std::env::temp_dir().join(format!("exact-parts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    let mut failures = Vec::new();
+    for part in &parts {
+        let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", part]))).unwrap();
+        let Some(call) = json["part"]["call"].as_str() else {
+            failures.push(format!("{part}: no `// Call:` line above its component"));
+            continue;
+        };
+        assert!(call.starts_with(&format!("{part}(")), "{part}: {call}");
+        // The text entry ends with it, the call's own line.
+        let text = stdout(&vocab(&[part]));
+        assert_eq!(
+            text.trim_end().lines().last().unwrap().trim(),
+            format!("call {call}"),
+            "{part}"
+        );
+        assert!(
+            !json["part"]["about"].as_str().unwrap().contains("Call:"),
+            "{part}"
+        );
+        // Every prop is passed, an option as `none` or `some(…)`, and it builds.
+        let props: Vec<&str> = json["part"]["props"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().split(':').next().unwrap())
+            .collect();
+        for prop in &props {
+            assert!(
+                call.contains(&format!("{prop}=")),
+                "{part}: {prop} in {call}"
+            );
+        }
+        for (prop, ty) in json["part"]["props"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().split_once(": ").unwrap())
+        {
+            if ty.starts_with("option<") {
+                assert!(
+                    call.contains(&format!("{prop}=none"))
+                        || call.contains(&format!("{prop}=some(")),
+                    "{part}: {prop} is an option: {call}"
+                );
+            }
+        }
+        // `press=toggle` and `press=pick(…)` name the author's own actions.
+        let app = format!(
+            "use {part} from \"exact:content\"\n\ncomponent App\n  state running = false\n  state picked = \"\"\n  action toggle\n    running = not running\n  action pick(a: string)\n    picked = a\n  view\n    column\n      {call}\n"
+        );
+        std::fs::write(&path, &app).unwrap();
+        let (compiled, warnings) = contract::compile_path_all_warned(&path, false);
+        if let Err(all) = compiled {
+            failures.extend(
+                all.iter()
+                    .map(|e| format!("{part}: [{}] {}", e.id, e.message)),
+            );
+        }
+        failures.extend(
+            warnings
+                .iter()
+                .map(|w| format!("{part}: warning [{}] {}", w.id, w.message)),
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// LLP 1116.004 D5.1: a concept a builder searches for answers with its whole
 /// idiom, several in one call, after the entries of a tag of the same name.
 #[test]
@@ -489,7 +715,7 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
     let every = stdout(&vocab(&["every"]));
     assert!(every.starts_with("`every` is refused"), "{every}");
     assert!(every.contains("every(1000, tick)"), "{every}");
-    let all = stdout(&vocab(&[]));
+    let all = stdout(&vocab(&["--all"]));
     assert!(
         all.contains("concepts (") && all.contains("  choice "),
         "{all}"
@@ -503,7 +729,7 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
 fn the_grammars_words_each_answer_in_under_a_kilobyte() {
     for word in [
         "task", "every", "after", "send", "match", "each", "when", "let", "fn", "shape", "persist",
-        "props", "derive", "action", "resource", "mutation", "stepper",
+        "props", "derive", "action", "resource", "mutation", "stepper", "notfound",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", word]))).unwrap();
         let concept = &one["concept"];
@@ -543,9 +769,31 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
     let path = dir.join("app.contract");
     let mut failures = Vec::new();
     for name in [
-        "scroll", "loading", "plural", "choice", "screen", "modal", "confirm", "date", "persist",
-        "swipe", "task", "mutation", "resource", "match", "each", "when", "let", "fn", "shape",
-        "props", "derive", "action", "stepper",
+        "scroll",
+        "loading",
+        "plural",
+        "choice",
+        "screen",
+        "modal",
+        "confirm",
+        "date",
+        "persist",
+        "swipe",
+        "task",
+        "mutation",
+        "resource",
+        "match",
+        "each",
+        "when",
+        "let",
+        "fn",
+        "shape",
+        "props",
+        "derive",
+        "action",
+        "stepper",
+        "menubar",
+        "::placeholder",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();
@@ -564,4 +812,39 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn menu_bar_attributes_explain_the_fixed_removal_ids() {
+    for name in ["-exact-menu", "-exact-menu-remove"] {
+        let out = stdout(&vocab(&[name]));
+        for part in [
+            "menubar (a concept)",
+            "close-all",
+            "merge-all-windows",
+            "lower-menu-remove",
+        ] {
+            assert!(out.contains(part), "{name}: {out}");
+        }
+    }
+}
+
+/// LLP 1104 D3: `::placeholder` answers with its block, and so does the
+/// name an author guesses for it; the part's declaration is no attribute.
+#[test]
+fn placeholder_answers_with_its_block() {
+    for name in ["::placeholder", "placeholder-color"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(out.contains("::placeholder (a concept)"), "{name}: {out}");
+        assert!(out.contains("admits `color` alone"), "{name}: {out}");
+        assert!(!out.contains("native module"), "{name}: {out}");
+    }
+    let all: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
+    let attrs = all["attributes"].as_array().unwrap();
+    assert!(
+        !attrs
+            .iter()
+            .any(|a| a["name"].as_str().unwrap().starts_with("::")),
+        "a part's declaration is listed as an attribute"
+    );
 }

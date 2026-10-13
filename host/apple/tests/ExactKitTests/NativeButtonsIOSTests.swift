@@ -118,6 +118,43 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(named.first?["role"] as? String, "button")
     }
 
+    /// What `testADestructiveButtonDrawsInThePlatformsRedUnlessTheAuthorPaintedIt`
+    /// leaves unheld (LLP 1115.000 D15's measurements on iOS 27): the red is the configuration's base colour and not a
+    /// transformer's, so what UIKit draws is `systemRed` in each scheme and,
+    /// for a disabled one, the grey of a disabled button UIKit configured
+    /// itself; and the prop paints it when it arrives and stops when it leaves.
+    func testADestructiveButtonIsRedAsDrawnGreyWhenDisabledAndFollowsItsProp() throws {
+        let plain = face("Delete", style: "plain", ios: "plain")
+        let p = presenter(box(1) + native(2, ["destructive": "true"]) + native(3) + native(6, ["destructive": "true", "disabled": "true"])
+                          + [["op": "children", "id": 1, "ids": [2, 3, 6]], ["op": "roots", "ids": [1]]],
+                          faces: [2: plain, 3: plain, 6: plain])
+        XCTAssertEqual(try button(p, 2).configuration?.baseForegroundColor, .systemRed)
+        XCTAssertNil(try button(p, 3).configuration?.baseForegroundColor, "not destructive: UIKit's own ink")
+        var hand = UIButton.Configuration.plain(); hand.title = "Delete"
+        let uikit = UIButton(configuration: hand)
+        uikit.isEnabled = false
+        window.addSubview(uikit)
+        for scheme in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = scheme
+            window.updateTraitsIfNeeded()
+            for b in [try button(p, 2), try button(p, 6), uikit] {
+                b.setNeedsUpdateConfiguration(); b.updateConfiguration(); b.layoutIfNeeded()
+            }
+            XCTAssertEqual(rgba(try button(p, 2).titleLabel?.textColor, scheme), rgba(.systemRed, scheme), "\(scheme.rawValue)")
+            XCTAssertEqual(rgba(try button(p, 6).titleLabel?.textColor, scheme), rgba(uikit.titleLabel?.textColor, scheme), "disabled, \(scheme.rawValue)")
+            XCTAssertNotEqual(rgba(try button(p, 6).titleLabel?.textColor, scheme), rgba(.systemRed, scheme), "disabled is not red, \(scheme.rawValue)")
+        }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["destructive": "true"]]]))
+        XCTAssertEqual(try button(p, 3).configuration?.baseForegroundColor, .systemRed)
+        p.apply(wireBatch([["op": "props", "id": 3, "clear": ["destructive"]]]))
+        XCTAssertNil(try button(p, 3).configuration?.baseForegroundColor)
+    }
+    private func rgba(_ color: UIColor?, _ scheme: UIUserInterfaceStyle) -> [Int] {
+        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        color?.resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map { Int(($0 * 255).rounded()) }
+    }
+
     func testItsActionPressesOnceItsOwnOrAnAncestorsHandler() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
@@ -499,11 +536,11 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertTrue(fade.isGlass)
         let slot = try XCTUnwrap(node.glassSlot, "a glass button in a group gets a slot")
         XCTAssertTrue(fade.superview === slot.contentView)
-        XCTAssertNil(slot.effect, "joined")
+        XCTAssertFalse(slot.isolates, "joined")
         p.apply(wireBatch([["op": "present", "id": 3, "property": "opacity", "x": 0.3, "y": 0.0, "w": 0.0, "h": 0.0]]))
-        XCTAssertNotNil(slot.effect, "fading: isolated")
+        XCTAssertTrue(slot.isolates, "fading: isolated")
         p.apply(wireBatch([["op": "present", "id": 3, "property": "opacity", "x": 1.0, "y": 0.0, "w": 0.0, "h": 0.0]]))
-        XCTAssertNil(slot.effect)
+        XCTAssertFalse(slot.isolates)
         // Two more batches: the control host and the pass leave it where it is.
         p.apply(wireBatch([])); p.apply(wireBatch([]))
         XCTAssertTrue(fade.superview === slot.contentView)
@@ -559,6 +596,23 @@ final class NativeButtonsIOSTests: XCTestCase {
         try button(p, 2).traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
         try button(p, 2).layoutIfNeeded()
         XCTAssertGreaterThan(try button(p, 2).naturalSize.height, regular.height)
+    }
+
+    /// A content box layout sends alone (a percentage padding whose
+    /// containing block shrank) touches the button as any change to it
+    /// does: its face, whose padding the kernel resolved against the new
+    /// block, is asked for again, so UIKit insets the title by the padding
+    /// its pointer offsets use.
+    func testAContentBoxSentAloneAsksForTheFaceAgain() throws {
+        var faces: [UInt32: ButtonFace] = [2: face("Send")]
+        faces[2]?.rows.button = ["padding_left": 20]
+        let p = presenter(native(2) + [["op": "roots", "ids": [2]]])
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [20.0, 0.0, 100.0, 34.0]]]))
+        XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 20)
+        faces[2]?.rows.button = ["padding_left": 10]
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [10.0, 0.0, 110.0, 34.0]]]))
+        XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 10)
     }
 
     func testNativeWorldLayoutFollowsAnEqualBoundsChildsAncestor() {

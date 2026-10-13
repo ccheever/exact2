@@ -114,7 +114,7 @@ test "another person's item arrives on the poll; the persona is kept"
   must read (`new Database(process.env.DB ?? 'data.db')`) or they refuse; stop yours first.
   `agent` starts it too, a database per `--storage`.
 - **A second person is a test line**: `request POST "/items" {...} as grace` sends `Authorization:
-  Bearer grace` (a persona's token is its name); then `clock +4000` (the poll), `clock data`.
+  Bearer grace` (a persona's token is its name); `expect 409` after it tests a refusal; then `clock +4000` (the poll), `clock data`.
 - **A persona switcher is a `radiogroup`** kept with `persist`, never a disabled button,
   fixed under an inline title (`aria-level=2`; a large one never collapses over it).
 - Every failure is words (the server's `error`, or a sentence for a lost connection), never a

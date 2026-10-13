@@ -113,6 +113,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package var textArea: NSTextView?
     var textAreaScroll: NSScrollView?
     package var field: NSTextField?
+    /// The page's own field, while `field` is the one the window's toolbar hosts (LLP 1115.002 D2, HeaderMac.swift).
+    var pageField: NSTextField?
     /// A number input's stepper beside its field (`NumberStepperMac.swift`).
     var stepper: FieldStepper?
     /// The editor's text as the app was last told it (nil once the app has
@@ -129,7 +131,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipBox: NSView?
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
-    var nativeFieldContent: NSRect?
+    var kernelContentBox: NSRect?
+    var fieldInCell = false // a grouped form's field, which is borderless (NativeFieldsMac.swift)
     var boxFill: CALayer?
     /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
     /// builds the layer tree each display cycle, and the decision reads
@@ -682,7 +685,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl, !cssVisibilityHidden, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point)
-            let hit = found != nil && found === overlay ? self : found
+            // Empty scroll chrome keeps the scroll view's wheel route. Its
+            // mouse contact forwards to this node; children and native
+            // scrollers keep their own hits.
+            let emptyScroll = found != nil && (found === scroll || found === scroll?.contentView || found === scroll?.documentView)
+            let hit: NSView? = emptyScroll ? scroll : (found != nil && found === overlay ? self : found)
             // `pointer-events: none`, and this box's own hit when it is
             // `visibility: hidden` (`CssVisibility.swift`). A descendant
             // node that computes `visible` still takes the click.
@@ -825,19 +832,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return f
     }
 
-    /// The input's content box: padding and border sit on the node, the
-    /// field is the text inside — CSS's rule, so a placeholder lines up
-    /// with a native one.
-    func contentBox() -> NSRect {
-        let uniform = number("border_width")
-        return bounds.insetBy(
-            left: number("border_width_left", uniform) + number("padding_left"),
-            top: number("border_width_top", uniform) + number("padding_top"),
-            right: number("border_width_right", uniform) + number("padding_right"),
-            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
-    }
-
     func applyPlaceholder(_ f: NSTextField) {
+        if pageField != nil { return syncBarField() }
         let text = props["placeholder"] ?? ""
         let font = f.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         if text.isEmpty {
@@ -849,7 +845,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // a white field in a dark app (the night) paints a light placeholder
         // and it vanishes. Mute this field's text color — the web's
         // `input::placeholder` (`#3c3c434c` on black type).
-        let ink = isNativeTextControl ? NSColor.placeholderTextColor : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // An authored `::placeholder` colour wins, its alpha its own (LLP 1104 D3).
+        let ink = placeholderColor ?? (isNativeTextControl ? NSColor.placeholderTextColor : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
         f.placeholderAttributedString = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1017,6 +1014,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         style = s
         if old["display"] != s["display"] { isHidden = hostHidden; invalidateGroupedSeparatorSiblings() }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
+        if old["appearance"] != s["appearance"] { needsLayout = true } // a form row's bezel (FormRowsMac.swift)
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         if old["accent_color"] != s["accent_color"] { accentChanged() }
         if s["transform_origin"] != origin { applyTransform() }
@@ -1048,6 +1046,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let ox = paragraph ? "visible" : s["overflow_x"]?.string ?? "visible", oy = paragraph ? "visible" : s["overflow_y"]?.string ?? "visible"
         if ((ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")) && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
+            sv.pointerOwner = self
             sv.collectionWillScroll = { [weak self] in
                 guard let self else { return }
                 // The reader's own scroll ends a smooth correction's animation.
@@ -1120,7 +1119,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         styleTextArea()
-        if let f = field, let t = text {
+        if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
@@ -1197,6 +1196,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
         guard changed else { return }
+        if let row = superview as? NodeView, row.style["appearance"] != nil { row.needsLayout = true } // its bezel (FormRowsMac.swift)
         if focusVisible { noteFocusRingMaskChanged() } // the ring follows the box
         layerPaintCache = nil
         if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
@@ -1251,6 +1251,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()
         layoutSymbol()
+        layoutRowBezel()
     }
 
     package override func draw(_ rect: NSRect) {
@@ -1309,11 +1310,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // natural size, `scale-down` the smaller of none and contain;
             // an unknown value is the initial `fill`.
             let fit = style["object_fit"]?.string ?? "fill"
-            let content = bounds.insetBy(
-                left: number("border_width_left", uniform) + number("padding_left"),
-                top: number("border_width_top", uniform) + number("padding_top"),
-                right: number("border_width_right", uniform) + number("padding_right"),
-                bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+            let content = contentBox()
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
             let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()

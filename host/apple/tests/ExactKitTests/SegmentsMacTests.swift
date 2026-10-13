@@ -45,6 +45,33 @@ final class SegmentsMacTests: XCTestCase {
         XCTAssertEqual(children[0].accessibilityAttributeValue(.enabled) as? Bool, true, "clearing ARIA restores AXEnabled")
     }
 
+    func testAppearanceNoneRestoresAuthoredTabsAndTheirActions() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 13, "kind": "text", "props": ["text": "One"]],
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Two"]],
+            ["op": "children", "id": 11, "ids": [13]],
+            ["op": "children", "id": 12, "ids": [14]],
+            ["op": "children", "id": 10, "ids": [11, 12]],
+            ["op": "roots", "ids": [10]],
+        ]))
+        XCTAssertNotNil(p.segments.control(of: 10))
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["appearance": "none", "written": ["appearance"]]]]))
+        XCTAssertNil(p.segments.control(of: 10))
+        XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(11)
+        XCTAssertEqual(pressed, [11])
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["appearance": "auto", "written": ["appearance"]]]]))
+        XCTAssertNotNil(p.segments.control(of: 10))
+    }
+
     private func drain() {
         let delivered = expectation(description: "intrinsic size delivered after the batch")
         DispatchQueue.main.async { delivered.fulfill() }

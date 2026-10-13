@@ -24,7 +24,9 @@ pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
+mod notfound;
 pub mod parser;
+mod part;
 pub mod scope;
 mod share;
 mod spans;
@@ -36,6 +38,7 @@ pub use inline::{
     Instance, Owner,
 };
 pub use lexer::{Lexer, Token, TokenKind};
+pub use notfound::implicit_notfound;
 pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
 pub use share::share_calls;
 pub use spans::VisitSpans;
@@ -105,6 +108,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `el.setSelectionRange(start, end, direction)` on a text field by its
     // `id` (x2apps codeedit #2): `setSelectionRange("editor", 4, 4)`.
     "setSelectionRange",
+    "setRangeText",
     "setScheme",
     // @ref LLP 1069.000 D3 — `:root { font-size }`: `setRootFontSize(px)`
     // sets the root size `rem` follows, over the host's; `"medium"` hands it
@@ -118,7 +122,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     "showModal",
     "share",
     // Local notifications by the Notification API's names (rules/DEFERRED.md,
-    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=)` and
+    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
     // `closeNotification(tag)`.
     "showNotification",
     "closeNotification",

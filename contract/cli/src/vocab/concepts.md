@@ -190,6 +190,29 @@ component App
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
+## notfound: a location no route matches (404, an unknown page)
+names: not-found, 404, unknown-route, unknown-url, missing-page
+
+A location no route matches (a mistyped link, a stale bookmark) keeps its URL and shows "Page not
+found" with a Go Home link: with no `notfound` line in `routes`, the compiler writes it and that
+screen into your `each e in stack(nav)`. Write `notfound` (last, no path) to draw your own, a
+route like any other. A detail whose id names nothing (`/recipe/999`) matches its route: say "No
+such recipe" there, with a way back (`pattern list-detail`).
+
+```contract
+routes nav
+  recipes "/"
+  notfound
+
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          when e.name == "notfound"
+            text `Nothing at ${e.url}` testId="missing"
+```
+
 ## modal: a form over the screen, with Save and Cancel
 names: dialog, sheet, closedby, popup
 
@@ -686,3 +709,85 @@ component App
 - On iOS the stepper needs the field about 130 pt wide (`flex=1` in a row), else the field shows alone.
 - A test types the value (`type "qty" "5"`); `agent … layout qty` gives `native.stepper`'s
   `increment` point, and `tap qty at <x> <y>` presses it.
+
+
+## gradients: CSS backgrounds and masks
+names: background-image, mask-image, repeating-linear-gradient
+
+`background-image` takes `none` or up to four layers of `linear-gradient()`,
+`radial-gradient()`, `conic-gradient()` and `repeating-linear-gradient()`.
+`mask-image` takes one gradient. Each takes at most 64 colour stops.
+Linear/radial stops take percentages, px lengths, or unitless zero, with two
+positions allowed per colour. Omitted and mixed-unit stops are fixed up as
+CSS specifies once the box size is known. Conic stops take percentages or angles.
+Percentages outside 0–100%, negative radial lengths, other length units,
+`calc()`, colour hints, repeating radial/conic gradients, `url()`, `image-set()`
+and `cross-fade()` remain refused.
+
+```contract
+component Hatch
+  view
+    view width=320 height=200 background-color="#fcfcfc" background-image="repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"
+```
+
+The period is the distance between the first and last fixed-up stops, measured
+along the gradient line. `background-attachment` takes `scroll` or `fixed`;
+`local` remains deferred. Each row paints its own background, so a repeated
+hatch on separate rows does not establish one pattern across the list.
+
+## menubar: adding commands to the Mac menu bar
+names: -exact-menu, -exact-menu-remove
+
+On a button, `-exact-menu` is a literal `app`, `file`, `edit`, `view`, `go`,
+`window` or `help`. It adds an item even without a chord and overrides
+`aria-keyshortcuts` chord filing. The item's label is the button's accessible
+label or text; `disabled` disables it. Hidden/removed buttons leave the menu.
+Other hosts keep the ordinary button and ignore the hint. The agent taps the
+button. A root `-exact-menu-remove="show-tab-bar autofill close-all"` removes
+selected standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
+`minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
+`move-tab-to-new-window`, `merge-all-windows`.
+The whitespace-separated list must be literal; unknown ids and nested use fail
+with `lower-menu-remove`, naming the set. Empty removes nothing; duplicates
+are harmless. The view’s root is a node, not a conditional. Root replacement and
+window switching restore the appropriate menu. App buttons, other standard
+items and development Develop remain. Other hosts ignore removal (LLP 1021 §5.3).
+
+```contract
+component App
+  state message = ""
+  action checkUpdates
+    message = "Checking…"
+  view
+    column -exact-menu-remove="show-tab-bar autofill close-all"
+      button "Check for Updates…" -exact-menu="app" press=checkUpdates testId="updates"
+      text message
+```
+## ::placeholder: a text field's placeholder colour
+names: placeholder, placeholder-color, -exact-placeholder-color, placeholderTextColor, ::before, ::after
+
+CSS's `::placeholder { color }` is a block: `::placeholder` on its own line under an `input` or a
+`textarea` (before its children; there a value may compute) or in a `style`, then `color=…`
+indented beneath it. It admits `color` alone, with its own alpha; the field's own block wins over its
+class's; without one each platform keeps its own placeholder colour (UIKit's, AppKit's, the
+browser's).
+
+```contract
+style Field
+  ::placeholder
+    color="#6b7280"
+
+component App
+  state dark = false
+  view
+    column
+      input placeholder="Search" class=Field
+      textarea placeholder="Notes"
+        ::placeholder
+          color=(dark ? "#9ca3af" : "#6b7280")
+```
+
+- Another property in the block (`font-style`, `opacity`) is refused; so is the block on any other
+  element, which has no placeholder.
+- `::before` and `::after` are refused: Contract has no generated box. Write what they would show as
+  a child (a `text`, an `image`).

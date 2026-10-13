@@ -19,6 +19,26 @@ final class NavigationBasicsIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
 
+    func testNotificationClickSetsColdLaunchLocationOnlyOnce() {
+        let session = ExactApp.shared.makeSession(label: "notification-\(UUID().uuidString)")
+        sessions.append(session)
+        let presenter = NotificationPresenter()
+        presenter.app = ExactApp.shared
+        let date = Date()
+        let info: [AnyHashable: Any] = ["navigate": "/thread/42", "session": session.label,
+                                        "owner": session.notificationOwnerID]
+        presenter.deliver(id: "thread-42", date: date, info: info)
+        XCTAssertEqual(session.launchLocation, "/thread/42")
+        presenter.deliver(id: "thread-42", date: date, info: ["navigate": "/other", "session": session.label,
+                                                                           "owner": session.notificationOwnerID])
+        XCTAssertEqual(session.launchLocation, "/thread/42")
+        XCTAssertTrue(session.pendingLaunchLocations.isEmpty, "a duplicate click must not queue another navigation")
+        presenter.deliver(id: "thread-43", date: date, info: ["navigate": "/thread/43", "session": session.label,
+                                                                           "owner": session.notificationOwnerID])
+        XCTAssertEqual(session.launchLocation, "/thread/42")
+        XCTAssertEqual(session.pendingLaunchLocations, ["/thread/43"])
+    }
+
     override func tearDown() {
         for session in sessions { session.destroy() }
         sessions = []

@@ -17,8 +17,9 @@ impl DataSource for NoData {
 /// back to the table's neutral column, and each element is told what the
 /// neutral sheet has to know and CSS cannot say: which controls it draws
 /// (their appearance is the platform's), and which rows the author wrote
-/// where it would draw over an implied or inherited one. Before that, as
-/// every build is until the switch is thrown, the page is told none of it.
+/// where it would draw over an implied or inherited one. Before that, and
+/// on a page built `EXACT_WEB_LOOK=apple`, which never says it, the page is
+/// told none of it.
 #[test]
 fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_sheet_draws() {
     // A file control's picker is a capability the app links (LLP 1047).
@@ -36,6 +37,12 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
       progress testId="spinner"
       progress color="-exact-system-red" testId="red"
       progress value=40 max=100 color="-exact-system-red" testId="bar"
+      button testId="unsized"
+        text "Go"
+      button width=84 height=24 testId="sized"
+        text "Go"
+      button height=28 testId="short"
+        text "Go"
       list appearance="auto" testId="list"
         section
           row
@@ -107,6 +114,20 @@ fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_shee
         !created(&neutral, "bar").contains("data-exact-said"),
         "a determinate bar's colour is no ring's"
     );
+    // A platform button's written size, which the look's floor yields to; an
+    // unsized button keeps the floor, and the old look is told nothing.
+    assert!(!created(&neutral, "unsized").contains("data-exact-said"));
+    assert!(
+        created(&neutral, "sized").contains("\"data-exact-said\":\"width height\""),
+        "{}",
+        created(&neutral, "sized")
+    );
+    assert!(
+        created(&neutral, "short").contains("\"data-exact-said\":\"height\""),
+        "{}",
+        created(&neutral, "short")
+    );
+    assert!(!created(&apple, "sized").contains("data-exact-said"));
     assert!(!created(&neutral, "list").contains("data-exact-said"));
     assert!(
         created(&neutral, "ground").contains("\"data-exact-said\":\"background-color\""),

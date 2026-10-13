@@ -466,7 +466,29 @@
         "interactive": false,
         "phase": "idle"
       }
-    }
+    },
+    "pending": [],
+    "tasks": {},
+    "head": {
+      "title": null,
+      "description": null,
+      "edited": false
+    },
+    "storage": {
+      "available": false,
+      "code": "agent",
+      "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"
+    },
+    "mediaSession": {
+      "owner": null,
+      "claimants": [],
+      "actions": [],
+      "playbackState": "none",
+      "published": "none"
+    },
+    "reorder": null,
+    "epoch": 4,
+    "incarnation": 1
   },
   "tap": {
     "at": [
@@ -478,6 +500,41 @@
     "delivery": "platform",
     "carrier": "macos",
     "mode": "agent"
+  },
+  "type": {
+    "at": [
+      210,
+      243
+    ],
+    "typed": 4,
+    "target": "q",
+    "delivery": "platform",
+    "carrier": "web",
+    "mode": "agent",
+    "clock": 1500,
+    "epoch": 5,
+    "incarnation": 1
+  },
+  "tap unsupported": {
+    "tapped": 3,
+    "target": "Sky off",
+    "delivery": "unsupported",
+    "reason": "linux has no pinch (LLP 1057.001 §4)",
+    "pinch": 2,
+    "carrier": "linux",
+    "mode": "agent",
+    "clock": 1500,
+    "epoch": 5,
+    "incarnation": 2
+  },
+  "tap up": {
+    "phase": "up",
+    "delivery": "platform",
+    "carrier": "ios",
+    "mode": "platform",
+    "clock": 1516,
+    "epoch": 6,
+    "incarnation": 1
   },
   "ax": {
     "epoch": 4,

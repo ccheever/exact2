@@ -4,19 +4,8 @@ import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
 
-/// LLP 1116.003 D2.1 over `scripts/fixtures/keyboard-form.contract`:
-/// workout-log's inline set form at the foot of a tab's grouped list. A
-/// focused number field and the Add button under it stay above the keyboard,
-/// below the bar and tappable, as in a UIKit table or a SwiftUI `Form`; the
-/// floating tab bar stays under the keys rather than riding above them; and
-/// Return with `enterkeyhint="next"` moves to the next field, a row the list
-/// had scrolled away included, and shows it likewise. D2.2: a grouped list
-/// taking a route's scroll's place in place is what the bar follows.
-///
-/// LLP 1116.008 D8: content pinned over the bottom of a scroller (an absolute
-/// bar, book-club's Add button) is not where the focused field is shown: the
-/// field is above it, the last of the form included, and the room the scroller
-/// took to get it there goes back when the keyboard does.
+/// Keyboard avoidance and Next-field navigation in native grouped lists
+/// (LLP 1116.003 D2), including pinned controls (LLP 1116.008 D8).
 final class KeyboardFormIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -61,17 +50,19 @@ final class KeyboardFormIOSTests: XCTestCase {
 
     private func box(_ v: UIView) -> CGRect { v.convert(v.bounds, to: nil) }
 
-    /// Shown between the bar and the keys, and a touch at its middle reaches
-    /// it. The keys' top is where the viewport ends (`resizes-content`): the
-    /// one applied, or a real keyboard's once a field is first responder.
+    private func hit(atCenterOf view: UIView) -> UIView? {
+        let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        return window?.hitTest(view.convert(center, to: window), with: nil)
+    }
+
     private func assertReachable(_ testId: String, below bar: CGFloat, file: StaticString = #filePath, line: UInt = #line) throws {
         let v = try node(testId), r = box(v)
         let keys = try box(XCTUnwrap(session?.presenter.viewport)).maxY
         XCTAssertLessThanOrEqual(keys, self.keys + 0.5, "the viewport ends at the keys", file: file, line: line)
         XCTAssertLessThanOrEqual(r.maxY, keys + 0.5, "\(testId) above the keys: \(r)", file: file, line: line)
         XCTAssertGreaterThanOrEqual(r.minY, bar - 0.5, "\(testId) below the bar: \(r)", file: file, line: line)
-        let hit = window?.hitTest(CGPoint(x: r.midX, y: r.midY), with: nil)
-        XCTAssertTrue(hit.map { $0 === v || $0.isDescendant(of: v) } ?? false, "\(testId) takes a touch at its middle, not \(String(describing: hit))", file: file, line: line)
+        let hit = hit(atCenterOf: v)
+        XCTAssertTrue(hit?.isDescendant(of: v) == true, "\(testId) takes a touch at its middle, not \(String(describing: hit))", file: file, line: line)
     }
 
     func testAFocusedFieldAndItsAddButtonStayAboveTheKeyboardInATabsGroupedList() throws {
@@ -82,8 +73,6 @@ final class KeyboardFormIOSTests: XCTestCase {
         let reps = try node("reps"), add = try node("add-set")
         XCTAssertGreaterThan(box(add).minY, keys, "the fixture's Add button starts where the keys will be")
         let resting = box(tabs.tabBar)
-        // Focused, as UIKit tells a field that becomes first responder, and
-        // the keys come up.
         reps.textFieldDidBeginEditing(try XCTUnwrap(reps.field))
         p.applyKeyboard(top: keys, duration: 0, curve: 0)
         spin(0.3)
@@ -93,8 +82,6 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertEqual(box(p.viewport).maxY, keys, accuracy: 0.5, "the viewport ends at the keys")
         XCTAssertEqual(box(tabs.tabBar).minY, resting.minY, accuracy: 0.5, "the tab bar stays at the bottom, under the keys: \(box(tabs.tabBar))")
 
-        // Return on Reps (`next`) moves to Weight, and on Weight to the next
-        // exercise's Reps, whose row the list had scrolled away.
         let field = try XCTUnwrap(reps.field)
         XCTAssertTrue(field.becomeFirstResponder(), "the test host's window takes a first responder")
         _ = reps.textFieldShouldReturn(field)
@@ -104,7 +91,18 @@ final class KeyboardFormIOSTests: XCTestCase {
         try assertReachable("weight", below: bar)
         try assertReachable("add-set", below: bar)
         let bench = try node("bench-reps")
-        XCTAssertTrue(sequence(first: bench as UIView, next: \.superview).contains { $0.isHidden }, "the next exercise's row is out of the list's port, beneath it")
+        // `layout form-list native 8`, retained if the test fails.
+        let hierarchy = Agent(session: session).nativeSubviews(try node("form-list").id, depth: 8, limit: 200, plan: false)
+        let data = try JSONSerialization.data(withJSONObject: hierarchy, options: [.prettyPrinted, .sortedKeys])
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = "Native form-list hierarchy before Next"
+        self.add(attachment)
+        XCTAssertNotNil(bench.window, "the clipped field is still mounted")
+        XCTAssertFalse(bench.bounds.isEmpty, "the offscreen field has laid-out bounds")
+        XCTAssertGreaterThanOrEqual(box(bench).minY, box(p.viewport).maxY,
+                                    "the next field starts below the viewport, so Next must reveal it")
+        XCTAssertFalse(hit(atCenterOf: bench)?.isDescendant(of: bench) == true,
+                       "the offscreen field must not receive a touch before Next")
         _ = weight.textFieldShouldReturn(try XCTUnwrap(weight.field))
         spin(0.4)
         XCTAssertEqual(bench.field?.isFirstResponder, true, "Next moved on to the next section's field")
@@ -116,12 +114,6 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertEqual(box(tabs.tabBar).minY, resting.minY, accuracy: 0.5, "the tab bar where it was before the keys")
     }
 
-    /// LLP 1116.003 D2.2: a route's empty `scroll` giving way in place to a
-    /// grouped list (workout-log's active workout): the bar follows the list
-    /// UIKit shows, its collection view, at both edges. It was handed the
-    /// list's hidden authored scroll, in the batch before the collection view
-    /// was made, and the large title drew nothing after; the bottom edge
-    /// kept the hidden scroll for good.
     func testTheBarFollowsAGroupedListThatReplacesTheRoutesScrollInPlace() throws {
         let session = try fixture()
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
@@ -159,19 +151,16 @@ final class KeyboardFormIOSTests: XCTestCase {
             XCTAssertLessThanOrEqual(r.maxY, cover.minY + 0.5, "\(name) above the pinned bar: \(r) over \(cover)", file: file, line: line)
             XCTAssertGreaterThanOrEqual(r.minY, top - 0.5, "\(name) below the navigation bar: \(r)", file: file, line: line)
             XCTAssertLessThanOrEqual(cover.maxY, keys + 0.5, "the bar rides the keys' top", file: file, line: line)
-            let hit = window?.hitTest(CGPoint(x: r.midX, y: r.midY), with: nil)
-            XCTAssertTrue(hit.map { $0 === field || $0.isDescendant(of: field) } ?? false, "\(name) takes a touch at its middle, not \(String(describing: hit))", file: file, line: line)
+            let hit = hit(atCenterOf: field)
+            XCTAssertTrue(hit?.isDescendant(of: field) == true, "\(name) takes a touch at its middle, not \(String(describing: hit))", file: file, line: line)
         }
 
-        // The last field of the form: no offset of the content alone shows it
-        // above the bar, so the scroller takes room below its content.
         memo.textFieldDidBeginEditing(try XCTUnwrap(memo.field))
         p.applyKeyboard(top: keys, duration: 0, curve: 0)
         spin(0.3)
         assertShown(memo, "memo")
         XCTAssertGreaterThan(scroll.contentInset.bottom, base, "room below the content for the field at its end")
 
-        // Another field of it, higher up: the room already taken is counted, not added again.
         let room = scroll.contentInset.bottom
         author.textFieldDidBeginEditing(try XCTUnwrap(author.field))
         p.applyKeyboard(top: keys, duration: 0, curve: 0)

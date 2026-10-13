@@ -507,3 +507,44 @@ fn grouped_separator_stays_above_an_authored_border() {
     assert_eq!(&frame.data()[border..border + 4], [255, 0, 0, 255],
         "an unset authored border color uses currentColor, independently of the system separator ink");
 }
+
+#[test]
+fn grouped_separator_uses_resolved_percentage_padding_after_parent_resize() {
+    for padding in ["10%", "calc(10% + 2px)"] {
+        let mut p = fixture(&format!(
+            r##"      list appearance="auto" listStyle="plain" width="100%" height=180
+        section
+          row width=100 testId="first" padding-left="{padding}" border-width=0 border-left-width=2 border-right-width=3 border-style="solid" border-color="white" border-bottom-color="#ff0000"
+          row width=100
+"##
+        ));
+        for width in [340.0, 440.0, 240.0] {
+            assert!(p.resize(width, 300.0).is_none());
+            let k = p.host().kernel();
+            let row = k.node_by_key(k.find_by_test_id("first")[0]).unwrap();
+            assert_eq!(row.frame.width, 100.0);
+            let expected = (width - 40.0) * 0.1
+                + if padding.starts_with("calc") {
+                    2.0
+                } else {
+                    0.0
+                };
+            assert!((k.resolved_padding(row.key).unwrap().0 - expected).abs() < 0.001);
+            let (x, y) = (
+                row.frame.x + 2.0 + expected,
+                row.frame.y + row.frame.height - 1.0,
+            );
+            let frame = p.frame();
+            let pixel = |x: f32| {
+                let i = (y as usize * frame.width() as usize + x as usize) * 4;
+                &frame.data()[i..i + 4]
+            };
+            assert_eq!(
+                pixel(x - 1.0),
+                [255, 255, 255, 255],
+                "{padding} at parent {width}"
+            );
+            assert_eq!(pixel(x), [255, 0, 0, 255], "{padding} at parent {width}");
+        }
+    }
+}

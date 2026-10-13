@@ -29,6 +29,9 @@ pub struct Store {
     /// A child executor may see only the intersection with its own grants.
     restricted: bool,
     values: exact_kernel::SortedMap<String, Vec<u8>>,
+    /// The snapshot it opened with held a granted secret (LLP 1027 D4,
+    /// 2026-10-10): a launch's fact, unchanged by later writes.
+    opened_with_secrets: bool,
     writes: Vec<StoreWrite>,
     /// Monotonic within a transaction; restored with a refused transaction.
     revision: u64,
@@ -187,13 +190,15 @@ impl Store {
         let values = snapshot
             .into_iter()
             .filter(|(n, _)| granted.iter().any(|g| g == n) || Store::is_kept(n))
-            .collect();
+            .collect::<exact_kernel::SortedMap<_, _>>();
+        let opened_with_secrets = values.keys().any(|n| !Store::is_kept(n));
         Store {
             granted,
             scope_reader,
             unparsed,
             restricted: false,
             values,
+            opened_with_secrets,
             writes: Vec::new(),
             revision: 0,
             reads: std::cell::Cell::new(0),
@@ -312,6 +317,13 @@ impl Store {
                 value: None,
             });
         }
+    }
+
+    /// Whether the snapshot this store opened with held a granted secret:
+    /// then an empty-store answer the bake computed does not describe this
+    /// device (LLP 1027 D4, 2026-10-10). Uncounted, the runner's question.
+    pub(crate) fn opened_with_secrets(&self) -> bool {
+        self.opened_with_secrets
     }
 
     /// The kept value under `name` — `None` when nothing is kept, or when

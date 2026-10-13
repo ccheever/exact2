@@ -62,6 +62,7 @@ fn feedback<D: DataSource>(r: &Runner<D>, pin: Option<NodeKey>, top: f64) -> Col
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()
@@ -222,6 +223,7 @@ fn edit_feedback(r: &mut Runner<EditingRows>, handle: NodeKey, top: f64) {
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         focus_view: None,
         interaction_view: r.kernel().node_by_key(handle).map(|n| n.id),
         measurements: c

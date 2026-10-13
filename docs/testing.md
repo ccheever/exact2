@@ -63,6 +63,9 @@ its time counts too.
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
   (`NSApplication.shared` before `NSApp`).
+- **Platform availability belongs in Swift.** The iOS run includes every test
+  compiled for its destination, including shared classes without an `IOSTests`
+  suffix. Guard platform-specific assertions with `#if os(...)`.
 - **Mac-wide state is serial.** A class whose file uses the general pasteboard,
   app activation, the mouse location or a screen capture shares one process with
   the other such classes. A window's key status and first responder belong to

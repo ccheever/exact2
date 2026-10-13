@@ -323,6 +323,22 @@ const PLATFORMS = {
     },
     checked: e => e.states?.checked,
   },
+  android: {
+    // Android says a heading by a flag with no level, a link and a tab by a role description (as Material's own
+    // tabs and navigation bar items say "Tab"), and everything else by its class: `android.widget.Button`,
+    // `CheckBox`, `Switch`, `RadioButton`, `SeekBar`, `EditText`, `Spinner` (LLP 1115.001 D13). A pressed button
+    // is a `ToggleButton`, a `button` on the web. Its checked state is the node's own, true or false.
+    observes: ['checked', 'disabled', 'expanded'],
+    role(e) {
+      const n = e.native ?? {}, kind = String(n.class ?? '').split('.').pop();
+      if (n.heading) return 'heading';
+      if (n.role === 'link') return 'link';
+      if (n.role === 'Tab') return 'tab';
+      return { Button: 'button', ImageButton: 'button', ToggleButton: 'button', CheckBox: 'checkbox', Switch: 'switch', RadioButton: 'radio',
+        SeekBar: 'slider', EditText: 'textbox', Spinner: 'combobox' }[kind] ?? e.role;
+    },
+    checked: e => e.states?.checked,
+  },
 };
 // The roles a state applies to (D6).
 const APPLIES = { checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };

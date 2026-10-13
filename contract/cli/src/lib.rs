@@ -939,6 +939,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     path,
                     body,
                     persona,
+                    status,
                     ..
                 } => {
                     s.push_str("{\"op\":\"request\",\"method\":");
@@ -951,6 +952,10 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                             Some(v) => q(v, &mut s),
                             None => s.push_str("null"),
                         }
+                    }
+                    // LLP 1116.010 D3: only when written, so a plain request's line is as it was.
+                    if let Some(status) = status {
+                        s.push_str(&format!(",\"expect\":{status}"));
                     }
                 }
                 Step::Resize { width, height, .. } => {
@@ -1013,6 +1018,13 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"expect-tree\",\"target\":");
                     q(target, &mut s);
                     s.push_str(&format!(",\"present\":{present}"));
+                }
+                Step::ExpectDisabled {
+                    target, disabled, ..
+                } => {
+                    s.push_str("{\"op\":\"expect-disabled\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(&format!(",\"disabled\":{disabled}"));
                 }
                 Step::ExpectText { target, value, .. } => {
                     s.push_str("{\"op\":\"expect-text\",\"target\":");

@@ -101,7 +101,8 @@ impl<D: DataSource> Bridge<D> {
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
     /// three `exactViewport` fields. Bit 25 is the page's look (LLP 1115.000
     /// D4 part B): set where its stylesheet is the neutral one, and every
-    /// role then falls back to the table's neutral column.
+    /// role then falls back to the table's neutral column and every metric
+    /// reads its neutral cell.
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences = exact_runner::Preferences::from_bits(bits);
         self.fold = fold_bits(bits);
@@ -419,6 +420,12 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Canonical location from the input URL. @ref LLP 1038 D8
+    pub fn location_of(&mut self, len: usize) -> u32 {
+        let href = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        self.emit(exact_route::location_of(&href))
+    }
+
     /// Whether the location in the input buffer names a declared route
     /// (LLP 1038 §7): the page then follows a same-origin link in place.
     pub fn route_matches(&self, len: usize) -> u32 {
@@ -483,13 +490,15 @@ impl<D: DataSource> Bridge<D> {
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
     /// key's chord with its code and repeat (`KeyboardEvent::parse`), or a
     /// guest message — is the input buffer's first `len` bytes, UTF-8).
-    /// Kind 43 is `keyup`, its payload a keydown's (#140).
+    /// Kind 43 is `keyup`; 44 is `keycapture`, with the keydown payload (#140).
+    /// Kind 45 is `intersect`, `0|1,ratio` (LLP 1005).
+    /// Kinds 46/47 are `focusin`/`focusout`, with target and relatedTarget (#283).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     /// Kind 20 is pan (`dx,dy`); 28 panrelease (`vx,vy`, px/s; LLP 1057 §10.6).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
     /// and `input`, the payload `true` or `false` (LLP 1069.001 D4); 40 to
     /// 42 a text field's `input`, `change` and `select` with its selection
-    /// (x2apps codeedit #2).
+    /// (x2apps codeedit #2); 48 is replacement input with that selection payload.
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -515,9 +524,10 @@ impl<D: DataSource> Bridge<D> {
             // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
             // the clipboard's three, a text's selectionchange, beforeunload,
             // wheel, drop and resize, and a text field's input, change and
-            // select with its selection, and a key's down (6) and up (43)
-            // with its code and repeat (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=43 => match Event::of_host_kind(kind, &payload) {
+            // select with its selection, replacement input (48), a key's down (6), up (43) and capture (44)
+            // with its code and repeat, and focusin (46) and focusout (47) with
+            // their targets (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },
@@ -559,6 +569,7 @@ impl<D: DataSource> Bridge<D> {
                 Event::Change(exact_runner::ControlValue::Files(files))
             }
             27 => Event::Cancel,
+            49 => Event::Close,
             23 => Event::Input(payload.into()),
             24 | 25 => {
                 let Some(on) = Event::checked_payload(&payload) else {
@@ -1163,6 +1174,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_go(len: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().host_go(len as usize, now_ms))
+        }
+
+        /// The router's location from an incoming URL, in the output buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_location_of(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().location_of(len as usize))
         }
 
         /// Whether a location (the input buffer) names a declared route.

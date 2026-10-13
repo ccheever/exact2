@@ -123,12 +123,16 @@ pub fn utf16_len(text: &str) -> u32 {
 
 impl Event {
     /// Decode ABI kind 40 (a text field's `input`), 41 (its `change`) or 42
-    /// (its `select`), each carrying its selection then its text
+    /// (its `select`), or 48 (a scripted replacement input), each carrying its selection then its text
     /// ([`FieldSelection::parse`]).
     pub fn field_payload(kind: u32, payload: &str) -> Option<Self> {
         let (selection, text) = FieldSelection::parse(payload)?;
         let value = ControlValue::Field(text.into(), selection);
         match kind {
+            48 => Some(Event::Input(ControlValue::Replacement(
+                text.into(),
+                selection,
+            ))),
             40 => Some(Event::Input(value)),
             41 => Some(Event::Change(value)),
             42 => Some(Event::FieldSelect(text.into(), selection)),
@@ -150,6 +154,7 @@ impl<D: DataSource> Runner<D> {
         view: ViewId,
         payload: &Value,
         reported: Option<FieldSelection>,
+        replacement: bool,
     ) -> Value {
         let node = self.kernel.node(view);
         let kind = node.and_then(|n| ControlKind::of(n.node_type, n.props));
@@ -178,6 +183,11 @@ impl<D: DataSource> Runner<D> {
             Value::Number(f64::from(start)),
             Value::Number(f64::from(end)),
             Value::str(direction.name()),
+            Value::str(if replacement {
+                "insertReplacementText"
+            } else {
+                ""
+            }),
         ])
     }
 }
@@ -185,6 +195,16 @@ impl<D: DataSource> Runner<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_input_reports_its_type_and_selection() {
+        let event = Event::of_host_kind(48, "1,3,none,aXYb").unwrap();
+        assert!(
+            matches!(event, Event::Input(ControlValue::Replacement(text, s))
+            if text == "aXYb" && s.start == 1 && s.end == 3)
+        );
+        assert!(Event::of_host_kind(48, "3,1,none,abc").is_err());
+    }
 
     #[test]
     fn a_fields_selection_decodes_and_clamps_as_htmls() {

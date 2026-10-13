@@ -1,5 +1,12 @@
 //! Persisted-answer identity and request context (LLP 1027.005 D3–D6).
 use super::*;
+
+#[path = "kept_identity_tests.rs"]
+mod identity;
+#[path = "kept_secrets_tests.rs"]
+mod secrets;
+#[path = "kept_time_tests.rs"]
+mod time;
 use crate::{Answer, Outcome, Request, Store};
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, Plan, TypeKind, Value};
@@ -724,4 +731,28 @@ fn a_refused_commit_does_not_forget_a_kept_answer() {
     );
     r.act("car", vec![Value::str("B")]).unwrap();
     assert!(!kept_answer(&r), "a commit that stands forgets it");
+}
+
+#[test]
+fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
+    let refused = |r: &Runner<Source>| -> Vec<String> {
+        r.journal()
+            .filter(|l| l.contains("refused its kept answer"))
+            .map(str::to_string)
+            .collect()
+    };
+    let mut r = seeded();
+    // A refusal the trap undoes is not said; the seed stands.
+    assert!(r.act("refuse", vec![Value::str("B")]).is_err());
+    assert!(refused(&r).is_empty());
+    // An identity change that stands is, with the arguments it asks for.
+    r.act("car", vec![Value::str("C")]).unwrap();
+    let lines = refused(&r);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].ends_with(
+            "answer refused its kept answer: kept for [\"A\"], this launch asks for [\"C\"]"
+        ),
+        "{lines:?}"
+    );
 }

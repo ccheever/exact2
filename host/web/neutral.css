@@ -19,8 +19,13 @@
        pressed a stronger one, keyboard focus the browser's own ring, disabled the grey ink (`GrayText`'s), invalid
        the red line, selected the accent or a raised chip.
 
-     The page's mark, the roles this sheet and the shell's name (the neutral column's pairs, which
-     host/web/tests/neutral-look.test.mjs holds to the table), and the look's own few values. */
+     Every length and ratio below is a row of the schema's `metrics`, in its neutral column: the kernel sizes a control
+     by those rows, and a host that paints its own controls (the Linux desktop, Windows) draws from them (LLP 1115.000
+     D17). host/web/tests/neutral-look.test.mjs holds this sheet to the table, so a number changes there and here
+     together.
+
+     The page's mark, the roles this sheet and the shell's name (the neutral column's pairs, which the same test holds
+     to the table), and the look's own few values. */
   :root { --exact-look: neutral; --exact-label: light-dark(#000000ff, #ffffffff); --exact-secondary-label: light-dark(#474747ff, #bdbdbdff); --exact-placeholder: light-dark(#5c5c5cff, #a3a3a3ff); --exact-separator: light-dark(#0000001f, #ffffff29); --exact-background: light-dark(#ffffffff, #121212ff); --exact-secondary-background: light-dark(#f5f5f5ff, #1e1e1eff); --exact-grouped-background: light-dark(#f5f5f5ff, #121212ff); --exact-secondary-grouped-background: light-dark(#ffffffff, #1e1e1eff); --exact-fill: light-dark(#00000024, #ffffff29); --exact-secondary-fill: light-dark(#0000001a, #ffffff1f); --exact-tertiary-fill: light-dark(#00000012, #ffffff17); --exact-quaternary-fill: light-dark(#0000000a, #ffffff0f); --exact-system-red: light-dark(#c90f1aff, #fe7367ff);
     --exact-gray-text: light-dark(#707070ff, #929292ff); --exact-line: color-mix(in srgb, var(--exact-label) 45%, transparent); --exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / .12); --exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / .24); --exact-scrim: rgb(0 0 0 / .4); }
   /* The accent: the browser's own (`AccentColor`), kept to a lightness at which it reads at 4.5:1 as text on the page
@@ -38,6 +43,12 @@
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
   #exact-root button[data-button-style]:has(> img:only-child) { padding-inline: .5em; }
   @media (pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
+  /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
+     wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
+     written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
+     CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
+  #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
+  #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; }
   #exact-root button[data-button-style][data-pressed] > * { opacity: 1; }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }
   #exact-root button[data-button-style="bordered"] { border-color: var(--exact-line); }
@@ -77,7 +88,7 @@
     #exact-root [data-liststyle] > section > div > :is(button, a[href], [data-exact-on~="press"]):hover:not(:disabled, [data-native], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { box-shadow: -64px 0 0 var(--exact-quaternary-fill); }
   }
   /* A link in running text, or a block link that is text, underlines under the pointer and the keyboard's focus. */
-  #exact-root [data-exact-text] a[data-view]:is(:hover, :focus-visible), #exact-root a[data-view][href]:not([role], [data-button-style]):not(:has(> :not([data-exact-text], img))):is(:hover, :focus-visible) { text-decoration: underline; }
+  #exact-root [data-exact-text] a[data-view][href]:is(:hover, :focus-visible), #exact-root a[data-view][href]:not([role], [data-button-style]):not(:has(> :not([data-exact-text], img))):is(:hover, :focus-visible) { text-decoration: underline; }
 
   /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground
      and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,
@@ -85,7 +96,7 @@
   #exact-root input[data-native], #exact-root textarea[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); }
   #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; }
   #exact-root input[data-exact-field] { height: 2.25em; }
-  #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder); opacity: 1; }
+  #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
   @media (pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-secondary-background); border-color: var(--exact-separator); }
   /* The select's caret, in the secondary label's ink, at the inline end. */
@@ -178,15 +189,28 @@
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
   @media (pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
 
-  /* A dialog is a modal surface. An alert reads as a page does: its title and message at the start, its actions at
-     the end in the order written, each its own width. */
+  /* LLP 1116.009 D4: a sheet's bar centres its title, as UIKit's does, whatever flanks it (a Cancel, a Save, both,
+     neither); a page's title stays leading. The title's auto side margins share the bar's free space on either side of
+     it, so it never overlaps a neighbour or loses a word to one: it is centred between them, on the bar's own centre
+     when they are as wide as each other. A title that fills the space is centred in its own text. Unsaid only, as every
+     rule here: a header with its own `justify-content` flows its own items (the host says so, `data-exact-said`), and a
+     margin or `flex` the author gave the title wins, a row of its own. The heading names are the subject so this ties
+     the shell's heading reset (`margin: 0`) and wins by coming after it. */
+  :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
+  :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
+
+  /* A dialog is a modal surface. An alert reads as a page does, its title and message at the start. Its actions share
+     the row equally in the order written, a title too long for its share taking a row of its own, and a destructive
+     one has its red in its edge as well as its ink. (Graded blind against small buttons at the row's end on
+     2026-10-12: 17 judgments to 1 for this row, LLP 1115.000 D4.) */
   :where(#exact-root dialog) { border: none; border-radius: 12px; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-modal); }
   :where(#exact-root dialog)::backdrop { background-color: var(--exact-scrim); }
-  :where(#exact-root dialog[role="alertdialog"]) { width: min(26rem, calc(100vw - 32px)); padding: 24px; gap: 8px; text-align: start; justify-content: flex-end; }
+  :where(#exact-root dialog[role="alertdialog"]) { width: min(26rem, calc(100vw - 32px)); padding: 24px; gap: 8px 12px; text-align: start; }
   :where(#exact-root dialog[role="alertdialog"][aria-label])::before { font-size: 1.125em; }
   :where(#exact-root dialog[role="alertdialog"] > :not(button)) { font-size: 1em; color: var(--exact-secondary-label); }
   :where(#exact-root dialog[role="alertdialog"] > :not(button):has(+ button)) { margin-bottom: 16px; }
-  #exact-root dialog[role="alertdialog"] > button { flex: 0 1 auto; min-width: 5rem; }
+  #exact-root dialog[role="alertdialog"] > button { min-width: min-content; }
+  #exact-root dialog[role="alertdialog"] > button[data-button-style="bordered"][data-destructive="true"]:enabled { border-color: var(--exact-accent); }
 
   /* A popover is a raised surface, and opens at its invoker: under it, from its inline start, and where that does not
      fit, the other way. A menu's rows are rows: the label's ink (red when destructive), a wash under the pointer. A
@@ -230,5 +254,5 @@
   @media (forced-colors: active) {
     #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"], [type="range"]), #exact-root input[data-exact-switch] { appearance: auto; width: auto; height: auto; border: revert; border-radius: 0; background: revert; }
     #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"])::before, #exact-root input[data-exact-switch]::before { content: none; }
-    :where(#exact-root [popover]), :where(#exact-root [navigationPresentation="modal"]) { border: 1px solid; }
+    :where(#exact-root [popover]), :where(#exact-root dialog), :where(#exact-root [navigationPresentation="modal"]) { border: 1px solid; }
   }

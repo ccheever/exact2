@@ -335,6 +335,18 @@ fn every_data_name_the_host_writes_is_a_reserved_word() {
 }
 
 #[test]
+fn menu_hints_write_no_dom_attributes() {
+    for (kind, prop, value) in [
+        (NodeType::Pressable, PropId::MenuPlacement, "help"),
+        (NodeType::View, PropId::MenuRemove, "close-all"),
+    ] {
+        let out = written(kind, prop, PropValue::Str(value.into()));
+        assert!(out.get("data-menuplacement").is_none());
+        assert!(out.get("data-menuremove").is_none());
+    }
+}
+
+#[test]
 fn a_dataset_is_one_attribute_per_word() {
     crate::link::link(crate::Linked {
         dataset: Some(crate::document::dataset),

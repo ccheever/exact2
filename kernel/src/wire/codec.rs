@@ -158,11 +158,12 @@ impl<'a> Reader<'a> {
     /// `env()` length at the top/right/bottom/left safe-area inset, 7 a
     /// `calc()` of a percent and points, 8–13 a viewport segment's
     /// width/height/top/left/bottom/right, 14–23 a viewport length, 24 a
-    /// `min()`/`max()`/`clamp()`) then `f32` (the points added to an inset
-    /// or a segment length); a `calc()` carries its percent first and a
-    /// second `f32`; a segment length carries its two index bytes, `x` then
-    /// `y`, after the `f32` (LLP 1078 D3); a comparison carries its tree
-    /// after a zero `f32` (`style::compare`, LLP 1001 §2).
+    /// calculation tree) then `f32` (the points added to an inset or a
+    /// segment length); a `calc()` carries its percent first and a second
+    /// `f32`; a segment length carries its two index bytes, `x` then `y`,
+    /// after the `f32` (LLP 1078 D3); a calculation tree the other forms do
+    /// not hold carries itself after a zero `f32` (`style::calc`, LLP 1116
+    /// D5).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -192,7 +193,7 @@ impl<'a> Reader<'a> {
             }
             // The leading `f32` is zero; the tree follows.
             24 if value.to_bits() == 0 => {
-                Dimension::Compare(crate::style::Comparison::decode(self)?)
+                Dimension::Compare(crate::style::Comparison::decode(self, style)?)
             }
             24 => return Err(DecodeError::InvalidComparison),
             other => return Err(DecodeError::UnknownDimensionKind(other)),
@@ -711,7 +712,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0xea912a1c7e77fa02);
+        assert_eq!(SCHEMA_DIGEST, 0x4ded7fe81cf22859);
     }
 
     #[test]
@@ -767,17 +768,17 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[25u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[26u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(25))
+            Err(DecodeError::UnknownDimensionKind(26))
         );
     }
 
     #[test]
     fn comparisons_round_trip_and_a_malformed_tree_is_refused() {
-        let text = "calc(clamp(15px, env(safe-area-inset-bottom), max(60px, 10vh)) + 59px)";
-        let Ok(Some(d)) = crate::style::compare::parse(text) else {
+        let text = "calc(clamp(15px, env(safe-area-inset-bottom), max(60px, 10vh, 5% - env(safe-area-inset-left))) + 59px)";
+        let Some(d) = Dimension::parse_calc(text) else {
             panic!("{text}");
         };
         let mut w = Writer::new();
@@ -796,11 +797,6 @@ mod tests {
                 "{end}"
             );
         }
-        let refused = |tree: &[u8]| {
-            let mut bytes = vec![24, 0, 0, 0, 0];
-            bytes.extend_from_slice(tree);
-            Reader::new(&bytes).dimension(StyleId::Width, true)
-        };
         // The leading `f32` is zero.
         let mut prefixed = bytes.clone();
         prefixed[1..5].copy_from_slice(&1.0f32.to_le_bytes());
@@ -808,53 +804,68 @@ mod tests {
             Reader::new(&prefixed).dimension(StyleId::Width, true),
             Err(DecodeError::InvalidComparison)
         );
-        let nan = f32::NAN.to_le_bytes();
-        for tree in [
-            // A clamp() of two.
-            vec![5, 2, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            // An empty min().
-            vec![3, 0, 0, 0, 0, 0],
-            // An unknown tag, edge and unit.
-            vec![6, 0, 0, 0, 0],
-            vec![1, 4, 0, 0, 0, 0],
-            vec![2, 10, 0, 0, 0, 0, 0, 0, 0, 0],
-            // A non-finite term.
-            [vec![3, 1, 0], nan.to_vec(), vec![0, 0, 0, 0]].concat(),
-        ] {
-            assert_eq!(
-                refused(&tree),
-                Err(DecodeError::InvalidComparison),
-                "{tree:?}"
-            );
-        }
-        // Nine deep: past what the parser takes.
-        let mut deep = Vec::new();
-        for _ in 0..9 {
-            deep.extend_from_slice(&[3, 1]);
-        }
-        deep.extend_from_slice(&[1, 0, 0, 0, 0, 0]);
-        for _ in 0..9 {
-            deep.extend_from_slice(&[0, 0, 0, 0]);
-        }
-        assert_eq!(refused(&deep), Err(DecodeError::InvalidComparison));
-        // A wide tree: 64 min()s of 64 points each. Refused at the 65th node
-        // read, long before the 4,161 the tree holds.
-        let mut wide = vec![24, 0, 0, 0, 0, 3, 64];
-        for _ in 0..64 {
-            wide.extend_from_slice(&[3, 64]);
-            for _ in 0..64 {
-                wide.extend_from_slice(&[0, 0, 0, 0, 0]);
-            }
-            wide.extend_from_slice(&[0, 0, 0, 0]);
-        }
-        wide.extend_from_slice(&[0, 0, 0, 0]);
-        let mut r = Reader::new(&wide);
-        assert_eq!(
-            r.dimension(StyleId::Width, true),
-            Err(DecodeError::InvalidComparison)
+        // Nodes (`style::calc::wire`): a value, `env(safe-area-inset-top)`,
+        // and a list node of its children
+        let value = |v: f64, unit: u8| {
+            let mut b = vec![0];
+            b.extend_from_slice(&v.to_le_bytes());
+            b.push(unit);
+            b
+        };
+        let px = |v: f64| value(v, 2);
+        let top = || vec![1, 0];
+        let list = |tag: u8, children: Vec<Vec<u8>>| {
+            let mut b = vec![tag, children.len() as u8];
+            children.into_iter().for_each(|c| b.extend(c));
+            b
+        };
+        let min = |children: Vec<Vec<u8>>| list(6, children);
+        let tree = |tree: Vec<u8>| {
+            let mut bytes = vec![24, 0, 0, 0, 0];
+            bytes.extend(tree);
+            Reader::new(&bytes).dimension(StyleId::Width, true)
+        };
+        assert!(
+            tree(min(vec![px(1.0), top()])).is_ok(),
+            "min(1px, env(safe-area-inset-top))"
         );
-        // The 65th node is refused before its tag: inside the first inner min().
-        assert_eq!(r.position(), 7 + 2 + 62 * 5);
+        // A NaN is a value inside a tree (CSS Values 4 §10.9.2)
+        assert!(tree(min(vec![px(f64::NAN), top()])).is_ok());
+        let refused = Err(DecodeError::InvalidComparison);
+        for (bytes, why) in [
+            (min(vec![top()]), "a min() of one is its argument"),
+            (min(vec![]), "an empty min()"),
+            (
+                min(vec![px(1.0), px(2.0)]),
+                "a tree that reads nothing is points",
+            ),
+            (list(2, vec![top(), px(1.0)]), "a sum out of order"),
+            (
+                list(2, vec![px(1.0), top()]),
+                "a compact form's tree travels as that form",
+            ),
+            (
+                [vec![8, 1], px(1.0), vec![0, 1], top()].concat(),
+                "clamp()'s value is not none",
+            ),
+            (list(10, vec![top()]), "an unknown node"),
+            (vec![1, 24], "an unknown env() tag"),
+        ] {
+            assert_eq!(tree(bytes), refused, "{why}");
+        }
+        // Levels and values as the parser counts them: 32 nested min() are
+        // 32 levels and 33 are past them; 32 values in one min(), not 33
+        let nested = |levels: usize| {
+            let mut deep = top();
+            for _ in 1..levels {
+                deep = min(vec![top(), deep]);
+            }
+            tree(deep)
+        };
+        assert!(nested(32).is_ok());
+        assert_eq!(nested(33), refused);
+        assert!(tree(min((0..32).map(|_| top()).collect())).is_ok());
+        assert_eq!(tree(min((0..33).map(|_| top()).collect())), refused);
     }
 
     #[test]

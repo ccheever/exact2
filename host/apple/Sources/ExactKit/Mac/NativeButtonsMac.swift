@@ -55,9 +55,9 @@ final class NativeButtonMac: NSButton {
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
     /// The whole grouped row remains the authored slot; the native face
-    /// begins 16 points inside it, matching the synchronous fitting answer.
+    /// begins 10 points inside it, matching the synchronous fitting answer.
     @discardableResult func layout(in box: CGRect) -> CGRect {
-        let leading: CGFloat = owner?.props["groupedRowSeparator"] != nil ? 16 : 0
+        let leading: CGFloat = owner?.props["groupedRowSeparator"] != nil ? 10 : 0
         let content = CGRect(x: box.minX + leading, y: box.minY,
                              width: max(0, box.width - leading), height: box.height)
         let frame = frame(forAlignmentRect: content)
@@ -116,6 +116,13 @@ final class NativeButtonMac: NSButton {
         guard written?.interactive != false else { return nil }
         return super.hitTest(point)
     }
+    /// The click that brings its window forward is AppKit's to answer: true
+    /// for a button, false for one with `hasDestructiveAction` (measured on
+    /// macOS 27.0.1), so a person's first click on a window behind never
+    /// presses Delete. The agent's window is never key, so its every click
+    /// counts here as at a node (`NodeView.everyClickCounts`): without it a
+    /// destructive button took no click from the driver at all.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts || super.acceptsFirstMouse(for: event) }
     // `pointerdown`/`pointerup` (LLP 1005 §Events): AppKit's tracking loop
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.
@@ -235,7 +242,7 @@ extension ControlHost {
             toolTip: owner.props["title"] ?? (face.title == nil ? owner.authoredLabel : nil))
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
-            presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
+            presenter.session?.log("buttonStyle `\(face.style ?? "")` is not a button style; drawing bordered")
         }
         button.written = written
         let (look, glass) = ButtonConfigurationMac.apply(face, to: button, appearance: owner.effectiveAppearance, accent: accent, destructive: destructive, red: red)
@@ -262,12 +269,12 @@ extension ControlHost {
         var standIns = rows.compactMapValues { ($0 as? [String: Any])?["standIn"] as? String }
         let mapped = ButtonFace.drawn(face.macos)
         if mapped.standIn || mapped.name != button.drawn {
-            standIns["buttonStyle"] = "AppKit draws \(button.drawn) for \(face.style)"
+            standIns["buttonStyle"] = "AppKit draws \(button.drawn) for \(face.style ?? "")"
         }
         if !button.isEnabled, button.written?.accent != nil, button.bezelColor != nil {
             standIns["accent-color"] = "AppKit applies its disabled bezel tint despite the authored accent"
         }
-        return ["view": "NSButton", "style": face.style, "drawn": button.drawn, "title": face.title as Any,
+        return ["view": "NSButton", "style": face.style as Any, "drawn": button.drawn, "title": face.title as Any,
                 "symbol": face.symbol as Any, "enabled": button.isEnabled,
                 "rows": rows, "standIns": standIns, "imagePosition": button.imagePosition.rawValue,
                 "pointerEvents": button.written?.interactive == false ? "none" : "auto",

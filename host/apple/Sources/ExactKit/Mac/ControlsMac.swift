@@ -146,6 +146,14 @@ final class ControlHost: NSObject {
             if let b = control as? NativeButtonMac {
                 configureNative(b, owner, accent: accent)
             } else if control is NSSwitch || kinds[owner.id] == "checkbox" || kinds[owner.id] == "radio" {
+                // @ref LLP 1115.002 D6 — a grouped form's switch is the size its
+                // sheet names (`-exact-control-size`, a metric: AppKit's mini).
+                if let s = control as? NSSwitch {
+                    let named: [String: NSControl.ControlSize] = ["mini": .mini, "small": .small, "large": .large]
+                    let size = named[owner.style["control_size"]?.string ?? ""] ?? .regular
+                    // AppKit takes the new size's metrics at its next layout: now, so the size reported below is the one drawn.
+                    if s.controlSize != size { s.controlSize = size; s.layoutSubtreeIfNeeded() }
+                }
                 if let on = owner.props["checked"].map({ $0 == "true" }) { setOn(control, on) }
                 // NSSwitch takes the system accent; AppKit gives it no tint.
                 (control as? NSButton)?.contentTintColor = accent

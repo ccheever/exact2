@@ -33,8 +33,16 @@ fn boot(body: &str) -> Runner<NoData> {
 
 fn boot_width(body: &str, width: f32) -> Runner<NoData> {
     let source = app(body).replace("width=402 height=874", &format!("width={width} height=874"));
+    boot_source_width(&source, width)
+}
+
+fn boot_source(source: &str) -> Runner<NoData> {
+    boot_source_width(source, 402.0)
+}
+
+fn boot_source_width(source: &str, width: f32) -> Runner<NoData> {
     let plan = contract::bake(
-        contract::compile(&source).unwrap_or_else(|e| panic!("{e}")),
+        contract::compile(source).unwrap_or_else(|e| panic!("{e}")),
         NoData,
     )
     .unwrap();
@@ -788,9 +796,8 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
 
 #[test]
 fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
-    let r = boot(
-        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"",
-    );
+    // A percentage is of the list's content width, 400
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1 width=400\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=\"5%\" margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
     assert_eq!(
@@ -866,218 +873,7 @@ fn a_negative_margin_collapses_as_css_has_it() {
     );
 }
 
-const CUSTOM_PROFILE: &str = "list appearance=\"auto\" testId=\"list\" flex=1
-  section
-    column testId=\"profile\" flex-direction=\"column\" width=\"100%\" padding-top=12 padding-bottom=12
-      row testId=\"metric\" width=\"100%\" align-items=\"center\" gap=8 height=21
-        image \"icon.svg\" width=19 height=19
-        text \"Metric\" width=66 font-size=15
-        view testId=\"gauge\" flex=1 min-width=0 height=14
-        text \"42\" testId=\"value\" width=18 text-align=\"right\" font-size=15";
-
-#[test]
-fn full_width_custom_rows_include_the_system_insets_at_every_list_width() {
-    for style in ["inset-grouped", "grouped", "plain"] {
-        for width in [320.0, 402.0, 768.0] {
-            let body = CUSTOM_PROFILE.replace(
-                "appearance=\"auto\"",
-                &format!("appearance=\"auto\" listStyle=\"{style}\""),
-            );
-            let r = boot_width(&body, width);
-            let k = r.kernel();
-            let profile = k.node(id(&r, "profile")).unwrap();
-            let group = k.node(profile.parent.unwrap()).unwrap();
-            let value = k.node(id(&r, "value")).unwrap();
-            let gauge = k.node(id(&r, "gauge")).unwrap();
-            assert_eq!(profile.style.box_sizing, BoxSizing::BorderBox);
-            assert_eq!(profile.frame.x, group.frame.x, "{style} at {width}");
-            assert_eq!(profile.frame.width, group.frame.width, "{style} at {width}");
-            assert!(
-                (value.frame.x + value.frame.width
-                    - (profile.frame.x + profile.frame.width - 16.0))
-                    .abs()
-                    < 0.01,
-                "trailing value remains inside the cell at {width}: {:?}",
-                value.frame
-            );
-            assert!(gauge.frame.width > 0.0);
-            assert!(gauge.frame.x + gauge.frame.width < value.frame.x);
-            assert_eq!(group.children(), [profile.id], "no extra cell wrapper");
-            assert_eq!(
-                profile.children(),
-                [id(&r, "metric")],
-                "the authored children stay direct"
-            );
-        }
-    }
-}
-
-#[test]
-fn authored_padding_and_classes_stay_inside_a_full_width_row() {
-    let body = CUSTOM_PROFILE.replace("padding-top=12 padding-bottom=12", "padding=24");
-    let r = boot(&body);
-    let k = r.kernel();
-    let profile = k.node(id(&r, "profile")).unwrap();
-    let group = k.node(profile.parent.unwrap()).unwrap();
-    let value = k.node(id(&r, "value")).unwrap();
-    assert_eq!(profile.frame.width, group.frame.width);
-    assert_eq!(profile.style.padding_left, Dimension::Points(24.0));
-    assert_eq!(profile.style.padding_right, Dimension::Points(24.0));
-    assert!(
-        (value.frame.x + value.frame.width - (profile.frame.x + profile.frame.width - 24.0)).abs()
-            < 0.01
-    );
-
-    let src = format!(
-        "style Insets\n  padding=28\n{}",
-        app(&CUSTOM_PROFILE.replace("padding-top=12 padding-bottom=12", "class=Insets"))
-    );
-    let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
-    let mut r = Runner::boot(
-        plan,
-        NoData,
-        Kernel::with_monospace(),
-        Default::default(),
-        "/",
-    )
-    .unwrap();
-    let root = id(&r, "root");
-    r.kernel_mut()
-        .compute_layout(root, Offer::definite(402.0, 874.0))
-        .unwrap();
-    let profile = r.kernel().node(id(&r, "profile")).unwrap();
-    assert_eq!(
-        profile.style.padding_left,
-        Dimension::Points(28.0),
-        "the class replaces the sheet"
-    );
-    assert_eq!(profile.style.padding_right, Dimension::Points(28.0));
-    let value = r.kernel().node(id(&r, "value")).unwrap();
-    assert!(
-        (value.frame.x + value.frame.width - (profile.frame.x + profile.frame.width - 28.0)).abs()
-            < 0.01
-    );
-}
-
-#[test]
-fn ordinary_boxes_and_authored_box_sizing_keep_css_semantics() {
-    let r = boot("view testId=\"box\" width=\"100%\" padding=12 height=20");
-    let node = r.kernel().node(id(&r, "box")).unwrap();
-    assert_eq!(node.style.box_sizing, BoxSizing::ContentBox);
-    assert_eq!(
-        node.frame.width, 426.0,
-        "a plain box still adds its padding"
-    );
-
-    let body = CUSTOM_PROFILE.replace(
-        "testId=\"profile\"",
-        "testId=\"profile\" box-sizing=\"content-box\"",
-    );
-    let r = boot(&body);
-    let k = r.kernel();
-    let profile = k.node(id(&r, "profile")).unwrap();
-    let group = k.node(profile.parent.unwrap()).unwrap();
-    assert_eq!(profile.style.box_sizing, BoxSizing::ContentBox);
-    assert_eq!(
-        profile.frame.width,
-        group.frame.width + 32.0,
-        "an explicit authored sizing replaces the sheet"
-    );
-}
-
-#[test]
-fn full_width_native_buttons_keep_their_own_chrome_inside_the_cell() {
-    let r = boot(
-        "list appearance=\"auto\" flex=1\n  section\n    button appearance=\"auto\" width=\"100%\" press=go testId=\"native\"\n      text \"Native\"",
-    );
-    let k = r.kernel();
-    let button = k.node(id(&r, "native")).unwrap();
-    let group = k.node(button.parent.unwrap()).unwrap();
-    assert_eq!(button.style.box_sizing, BoxSizing::BorderBox);
-    assert_eq!(button.frame.x, group.frame.x);
-    assert_eq!(button.frame.width, group.frame.width);
-    assert_eq!(button.frame.height, 52.0);
-    assert_eq!(button.props.bool(PropId::GroupedRowSeparator), Some(true));
-
-    let src = format!(
-        "style Native\n  appearance=\"auto\"\n{}",
-        app(
-            "list appearance=\"auto\" flex=1\n  section\n    button class=Native width=\"100%\" press=go testId=\"native\"\n      text \"Native\""
-        )
-    );
-    contract::compile(&src).expect("class-made native buttons keep only allowed UA rows");
-}
-
-#[test]
-fn system_separators_skip_hidden_and_last_rows_without_taking_layout_height() {
-    let mut r = boot(
-        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"First\"\n    row display=\"none\" testId=\"hidden\"\n      text \"Hidden\"\n    when dark\n      row testId=\"b\"\n        text \"Last\"",
-    );
-    let a = id(&r, "a");
-    assert!(
-        !r.kernel().grouped_row_separator(a),
-        "last visible row has no separator"
-    );
-    assert!(!r.kernel().grouped_row_separator(id(&r, "hidden")));
-    assert_eq!(r.kernel().node(a).unwrap().frame.height, 52.0);
-    r.dispatch(a, exact_runner::Event::Press).unwrap();
-    let root = id(&r, "root");
-    r.kernel_mut()
-        .compute_layout(root, Offer::definite(402.0, 874.0))
-        .unwrap();
-    let b = id(&r, "b");
-    assert!(r.kernel().grouped_row_separator(a));
-    assert!(!r.kernel().grouped_row_separator(b));
-    let af = r.kernel().node(a).unwrap().frame;
-    let bf = r.kernel().node(b).unwrap().frame;
-    assert_eq!(
-        bf.y,
-        af.y + af.height,
-        "paint separators never overlap layout"
-    );
-    r.dispatch(a, exact_runner::Event::Press).unwrap();
-    assert!(
-        !r.kernel().grouped_row_separator(a),
-        "removing the final row updates the previous one"
-    );
-
-    let cardless = boot(
-        "list appearance=\"auto\" flex=1\n  section background-color=\"transparent\"\n    row testId=\"a\"\n      text \"First\"\n    row\n      text \"Last\"",
-    );
-    assert!(!cardless.kernel().grouped_row_separator(id(&cardless, "a")));
-    assert_eq!(
-        cardless
-            .kernel()
-            .node(id(&cardless, "a"))
-            .unwrap()
-            .props
-            .bool(PropId::GroupedRowSeparator),
-        Some(false)
-    );
-}
-
-#[test]
-fn authored_borders_keep_their_css_geometry_beside_system_separator_paint() {
-    let r = boot(
-        "list appearance=\"auto\" flex=1\n  section\n    row testId=\"bordered\" width=\"100%\" height=60 border-bottom-width=3 border-bottom-style=\"solid\"\n      text \"Bordered\"\n    row\n      text \"Last\"",
-    );
-    let k = r.kernel();
-    let row = k.node(id(&r, "bordered")).unwrap();
-    let group = k.node(row.parent.unwrap()).unwrap();
-    assert_eq!(row.frame.width, group.frame.width);
-    assert_eq!(
-        row.frame.height, 60.0,
-        "the border stays inside the authored height"
-    );
-    assert_eq!(row.style.border_width_bottom, 3.0);
-    assert!(k.grouped_row_separator(row.id));
-}
-
-#[test]
-fn the_system_separator_marker_is_not_an_authored_attribute() {
-    let error = contract::compile(&app("view groupedRowSeparator=true")).unwrap_err();
-    assert!(error.message.contains("groupedRowSeparator"));
-}
+mod boxes;
 
 #[test]
 fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
@@ -1122,6 +918,57 @@ fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
         r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows[1].accessory,
         Accessory::Checkmark
     );
+}
+
+// @ref LLP 1115.002 D6 — the sheet names the platform's metrics and holds
+// none of its numbers: a row reads its platform's column where it runs (the
+// web's here, which is the sheet as it was). The names are the compiler's:
+// an author's value that is one is refused, on a row that takes text too.
+#[test]
+fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section testId=\"section\"\n    button press=go destructive=true testId=\"row\"\n      text \"Remove\"";
+    let plan = contract::compile(&app(body)).unwrap();
+    for name in [
+        "-exact-grouped-ground",
+        "-exact-grouped-card-fill",
+        "-exact-grouped-card-radius",
+        "-exact-grouped-button-min-height",
+        "-exact-grouped-destructive-color",
+        "-exact-grouped-button-appearance",
+    ] {
+        assert!(plan.strings.iter().any(|s| s == name), "{name}");
+    }
+    let r = boot(body);
+    let row = r.kernel().node(id(&r, "row")).unwrap();
+    assert_eq!(row.style.min_height, exact_kernel::Dimension::Points(52.0));
+    assert_eq!(row.style.appearance, exact_kernel::Appearance::None);
+    assert!(
+        !row.style.mask.has(exact_kernel::StyleId::PaddingTop),
+        "the Mac's block padding is no row here"
+    );
+    assert_eq!(
+        row.style.padding_left,
+        exact_kernel::Dimension::Points(16.0),
+        "the leading inset is inside the row"
+    );
+    assert!(
+        !row.style.written.has(exact_kernel::StyleId::PaddingLeft),
+        "the inset remains user-agent style"
+    );
+    let red = ColorValue::Role(exact_kernel::style::roles::role("-exact-system-red").unwrap());
+    assert_eq!(row.style.text_color, red);
+    assert!(
+        !row.style.written.has(exact_kernel::StyleId::TextColor),
+        "the sheet's rows are the platform's, not the author's (LLP 1115.000 D2)"
+    );
+    for authored in [
+        "column min-height=\"-exact-grouped-row-min-height\"",
+        "text \"x\" color=\"-exact-grouped-destructive-color\"",
+        "text \"x\" color=(dark ? \"-exact-grouped-destructive-color\" : \"#fff\")",
+    ] {
+        let e = contract::compile(&app(authored)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-value", "{authored}: {}", e.message);
+    }
 }
 
 // @ref LLP 1116.007 D3.1 — the chevron by another spelling is still the disclosure.
@@ -1294,21 +1141,146 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     assert_eq!(s2.rows[4].title_look, TextLook::default());
 }
 
-/// A destructive row's title keeps the platform's red where it is the first
-/// line only under a condition: the sheet cannot write its red there and
-/// writes the label colour, which is still the sheet's and not the author's.
-/// The row says so itself (LLP 1115.000 D2): no sheet row is written.
+/// A conditional first line inherits the row's ink, as an unconditional
+/// title does. The subtitle keeps its own colour, and authored rows win.
 #[test]
 fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when dark\n          text \"Sure?\"\n        text \"Delete\"");
-    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
-    let row = &list.sections[0].rows[0];
-    assert!(row.destructive);
-    assert_eq!(row.title.as_deref(), Some("Delete"));
-    assert_eq!(
-        row.title_look.color, None,
-        "the sheet's label colour is unsaid"
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    let (red, label, grey, secondary) = (
+        role("-exact-system-red"),
+        role("-exact-label"),
+        role("-exact-tertiary-label"),
+        role("-exact-secondary-label"),
     );
+    let green = ColorValue::Fixed(Color::parse_hex("#00ff00").unwrap());
+    let mut failures = Vec::new();
+    for (name, row, stack, text, ink, own_subtitle) in [
+        ("destructive", "destructive=true", "", "", red, false),
+        ("ordinary", "", "", "", label, false),
+        ("bound", "destructive=on", "", "", red, false),
+        (
+            "disabled",
+            "destructive=true disabled=true",
+            "",
+            "",
+            grey,
+            false,
+        ),
+        (
+            "row colour",
+            "destructive=true color=\"#00ff00\"",
+            "",
+            "",
+            green,
+            false,
+        ),
+        (
+            "stack colour",
+            "destructive=true",
+            "color=\"#00ff00\"",
+            "",
+            green,
+            true,
+        ),
+        (
+            "text colour",
+            "destructive=true",
+            "",
+            "color=\"#00ff00\"",
+            green,
+            true,
+        ),
+        (
+            "row class",
+            "destructive=true class=Ink",
+            "",
+            "",
+            green,
+            false,
+        ),
+        (
+            "stack class",
+            "destructive=true",
+            "class=Ink",
+            "",
+            green,
+            true,
+        ),
+        (
+            "text class",
+            "destructive=true",
+            "",
+            "class=Ink",
+            green,
+            true,
+        ),
+    ] {
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go {row}\n      image \"symbol:person\" testId=\"symbol\"\n      column {stack}\n        when dark\n          text \"Sure?\"\n        text \"Delete\" {text} testId=\"delete\"");
+        let mut r = boot_source(&format!("style Ink\n  color=\"#00ff00\"\n{}", app(&body)));
+        let mut shown = false;
+        for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
+            r.act("flip", vec![Value::Bool(on)]).unwrap();
+            if shown != dark {
+                r.act("go", vec![]).unwrap();
+                shown = dark;
+            }
+            let k = r.kernel();
+            let list = k.grouped_list(id(&r, "list")).unwrap();
+            let row = &list.sections[0].rows[0];
+            let want = if dark && !own_subtitle {
+                secondary
+            } else if name == "bound" && !on {
+                label
+            } else {
+                ink
+            };
+            let got = k.node(id(&r, "delete")).unwrap().text_color();
+            println!("{name}, on={on}, dark={dark}: {got:?}, expected {want:?}");
+            if got != want {
+                failures.push(format!("{name}, on={on}, dark={dark}: {got:?} != {want:?}"));
+            }
+            let want_title = if dark { "Sure?" } else { "Delete" };
+            if row.title.as_deref() != Some(want_title) {
+                failures.push(format!("{name}: wrong title {:?}", row.title));
+            }
+            if name == "destructive" && row.title_look.color.is_some() {
+                failures.push(format!(
+                    "sheet colour became authored: {:?}",
+                    row.title_look
+                ));
+            }
+            if k.node(id(&r, "symbol"))
+                .unwrap()
+                .computed_style(StyleMask::ALL)
+                .tint_color
+                != Some(if name == "disabled" {
+                    grey
+                } else if name == "ordinary" || (name == "bound" && !on) {
+                    role("AccentColor")
+                } else {
+                    red
+                })
+            {
+                failures.push(format!("{name}: leading symbol changed"));
+            }
+        }
+    }
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when on\n          when dark\n            text \"Sure?\"\n          else\n            text \"Confirm\"\n        text \"Delete\" testId=\"delete\"");
+    let mut shown = false;
+    for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
+        r.act("flip", vec![Value::Bool(on)]).unwrap();
+        if shown != dark {
+            r.act("go", vec![]).unwrap();
+            shown = dark;
+        }
+        let got = r.kernel().node(id(&r, "delete")).unwrap().text_color();
+        let want = if on { secondary } else { red };
+        println!("nested, on={on}, dark={dark}: {got:?}, expected {want:?}");
+        if got != want {
+            failures.push(format!("nested, on={on}, dark={dark}: {got:?} != {want:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// Round 6's event-rsvp (LLP 1116.004 D9): an action that can't be taken is

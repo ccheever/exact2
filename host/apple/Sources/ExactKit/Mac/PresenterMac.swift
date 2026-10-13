@@ -27,6 +27,7 @@ package final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     package let viewport = PageScrollView(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
+    lazy var focusEvents = FocusEvents(self)
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
     /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
@@ -101,6 +102,10 @@ package final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var dialogs = DialogHost(self)
+    /// Subtrees shown in a native container's view (LLP 1115.002 D8.2).
+    lazy var blocks = BlockHost(self)
+    /// Lists whose rows a table holds (LLP 1115.002 D5, stage 3a).
+    lazy var tables = TableHost(self)
     lazy var alerts = AlertHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var backSwipe = BackSwipe(self)
@@ -118,6 +123,12 @@ package final class Presenter {
     lazy var elements = ElementHatches(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
+    /// What native presentations cover of boxes (LLP 1115.002 D8.1, CoversMac.swift).
+    lazy var covers = HostCovers(self)
+    var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// The root tab bar as the window's sidebar (LLP 1115.002 D3), and the kernel's rule for a root's tabs.
+    lazy var sidebar = SidebarHost(self)
+    var rootTabs: ((UInt32) -> RootTabs?)?
     /// The head's title goes to the window the app attached, through the
     /// toolbar host that already owns its title (LLP 1048.003 D1).
     func headTitle(_ title: String?) { toolbar.headTitle(title) }
@@ -591,6 +602,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        focusEvents.reset()
         pointerHeld = nil
         pointerSource = nil
         elements.reset()
@@ -606,14 +618,17 @@ package final class Presenter {
         reorder?.abandon()
         reorderGroup?.abandon()
         collections.reset()
+        tables.reset()
         leaves.reset()
         autofocusProcessed.removeAll()
         resetting = true
         defer { resetting = false }
         menus.reset()
         dialogs.reset()
-        toolbar.reset()
+        toolbar.reset() // its header's cover goes with `covers.reset()` below, untold
         navigation.reset()
+        sidebar.reset()
+        covers.reset()
         segments.reset()
         controls.reset()
         fieldSelections.reset()
@@ -657,7 +672,7 @@ package final class Presenter {
         viewport.syncElasticity()
         viewport.acceptDocumentFit()
     }
-    var onPress: ((UInt32) -> Void)?
+    var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
     /// Images' intrinsic sizes, several at once under one layout.
     var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
@@ -681,14 +696,22 @@ package final class Presenter {
             if name == "showModal" { session?.log("showModal \(id) refused: no dialog has that id") }
             return
         }
-        if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
+        if name == "showModal", dialogs.owns(dialog) || alerts.isOpen(dialog) {
+            session?.log("showModal \(id) ignored: dialog is already open")
+        } else if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              let window = target.window, !target.formDisabled,
+              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+        // A search input the window's toolbar hosts has no box in the page
+        // (LLP 1115.002 D2): the caret goes to its field in the bar.
+        if target.pageField != nil {
+            if !target.formDisabled, toolbar.focusSearch(target), selectText { fieldSelections.selectAll(target) }
+            return
+        }
+        guard let window = target.window, !target.formDisabled,
               target.bounds.width > 0, target.bounds.height > 0 else { return }
         var ancestor: NSView? = target
         while let view = ancestor {
@@ -709,9 +732,11 @@ package final class Presenter {
     /// The action's blur(): drop the first responder; blur(html-id) only when
     /// that node holds it (a field's responder is its editor).
     func blurElement(_ args: [Any]) {
-        guard let window = viewport.window else { return }
+        // In the window the keyboard is in: an open dialog's sheet, else the page's.
+        guard var window = frontWindow else { return }
         if let name = args.first as? String {
             guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+            window = target.window ?? window
             if target.kind == "native" {
                 guard window.firstResponder === target || session?.natives.ownsFocus(target) == true else { return }
                 window.makeFirstResponder(nil)
@@ -725,8 +750,7 @@ package final class Presenter {
 
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
-    var onFocus: ((UInt32) -> Void)?
-    var onBlur: ((UInt32) -> Void)?
+    var onFocus, onBlur: ((UInt32) -> Void)?
     /// A `key` or `keyup` (`KeyPress.up`) at a node (KeyEvents.swift).
     var onKey: ((UInt32, KeyPress) -> Void)?
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
@@ -785,6 +809,7 @@ package final class Presenter {
     /// view (LLP 1063) does not until its exit ends.
     @discardableResult
     func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        focusEvents.removed(id)
         // A held node that goes has no handler left to hear its up.
         if pointerHeld == id { pointerHeld = nil }
         mouseSwipe.retire(id)
@@ -835,7 +860,7 @@ package final class Presenter {
     package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
         pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
-              fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
+              fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
@@ -956,8 +981,6 @@ package final class Presenter {
             setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
         }
     }
-    func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
-    func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
@@ -994,7 +1017,9 @@ package final class Presenter {
         defer { Self.signposts.endInterval("apply", post) }
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
-        toolbar.prepare()
+        // The window's bar is read again only by a batch that can change it (`WindowToolbarHost.concerns`).
+        let bar = toolbar.concerns(batch)
+        if bar { toolbar.prepare() }
         anchorChanges.reset()
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
@@ -1045,7 +1070,7 @@ package final class Presenter {
         for op in batch.ops {
             let kind = op.op
             let id = op.id
-            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
+            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy || kind == .fieldContent) }
             switch kind {
             case .transformDrag:
                 if let binding = TransformDragBinding(op.payload) {
@@ -1107,7 +1132,7 @@ package final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }, in: container)
+                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !tables.owns($0) && !isFlying($0) }, in: container)
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
@@ -1146,8 +1171,10 @@ package final class Presenter {
                 if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
             case .sticky: stickies.apply(id, op.payload)
             case .fragments: views[id]?.applyColumns(op.payload)
+            case .unknown: blocks.applied(op)
             case .destroy:
                 elements.destroyed(id)
+                blocks.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)
                 if endExit(id) { continue }
@@ -1165,7 +1192,7 @@ package final class Presenter {
                 guard let v = views[id] else { continue }
                 let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
                 if flightFrame(id, frame) { continue }
-                if !dialogs.frame(v, frame) && !menus.frame(v, frame) { v.frame = frame }
+                if !dialogs.frame(v, frame) && !menus.frame(v, frame) && !tables.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
@@ -1200,7 +1227,9 @@ package final class Presenter {
             }
         }
         if !flights.isEmpty { flightsBatchApplied() }
+        tables.sync()
         navigation.sync(batch, reparented: reparented)
+        sidebar.sync(batch)
         if !pendingTips.isEmpty { settleTips() }
         fitDocument()
         // The page's canvas colour is the first root's background — what
@@ -1208,7 +1237,7 @@ package final class Presenter {
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
         let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
-        if viewport.backgroundColor != color { viewport.backgroundColor = color }
+        if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
@@ -1228,7 +1257,7 @@ package final class Presenter {
         menus.sync()
         glassGroups.reconcile()
         positionContexts()
-        toolbar.sync()
+        if bar { toolbar.sync() }
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
         // The key-view loop is read only by a key event (Tab): it is marked
@@ -1251,7 +1280,7 @@ package final class Presenter {
         _ = chrome.takeChangedNames()
     }
 
-    private static let accessibilityOps: Set<BatchOp.Kind> = [.create, .props, .style, .children, .paragraph, .flow, .frame]
+    private static let accessibilityOps: Set<BatchOp.Kind> = [.create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent]
 
     /// The views a batch touched and every view above them, as the batch
     /// left the hierarchy: what a pass reading a subtree must revisit.

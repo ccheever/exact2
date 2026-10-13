@@ -13,6 +13,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **A px `width` beside text in a role does not grow with Dynamic Type.** A `text` whose
+  font is a role (`-exact-body`, or a `rem`/`em` size) scales with the person's text size,
+  and a box the author sized in px does not, so at accessibility sizes the text runs past
+  it (a day label under its icon, "Low" and "High" run together). That is CSS too. Fix: say
+  the width in `rem` or `em` (`width="3rem"`), size columns with a grid of `auto` tracks,
+  or let the row wrap (`flex-wrap="wrap"`). (Bake-off round 13, weather; LLP 1116.011 D2.4.)
+
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
@@ -132,8 +139,19 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `height="100%"`). Fix: `box-sizing="border-box"` on the padded box or its style;
   or drop `width`, since a box in a block or a `column` already fills the width.
   (Chat2 and Workout DIARY, Gallery's `height`; reproduced on the web, 2026-10-04.)
-  **Candidate diagnostic:** the compiler could name `box-sizing` when a
-  content-box node has `width="100%"` and horizontal padding.
+  **Diagnosed:** the compiler warns (`lower-width-padding`) for a content-box
+  container with `width="100%"` and horizontal padding or a border, and `check`
+  names the box that runs past its parent by its padding (LLP 1116.009 D5).
+
+- **A one-edge border draws a frame, and a drawer closed to `height=0` stays open
+  a few pixels.** `border-top-width=1 border-style="solid"` on a 60 × 20 box drew a
+  1 px top and 3 px sides and bottom (66 × 24); with `box-sizing="border-box"` and
+  `height=0` the box was 4 px tall. Cause: `border-style` sets all four sides (CSS),
+  and a side whose width is unsaid keeps CSS's initial `medium`, 3 px. Fix: say the
+  one side: `border-top="1px solid"` (the side's shorthand), or
+  `border-top-width=1 border-top-style="solid"`. (T3 Code clone's terminal drawer,
+  whose panes lost 6 px to side borders, 2026-10-06; reproduced on the web and
+  macOS, 2026-10-12.)
 
 ## Lists and scrolling
 
@@ -285,6 +303,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   and blank on iOS (chat-rooms, bake-off round 6). Fix: key them alike: every route
   `` navigationKey=`${e.id}` `` under a `` `${top(nav).id}` `` root, or the patterns'
   root expression, `"items"` while the list is on top, with the named list route.
+  **Diagnosed:** the compiler warns (`lower-navigation-key`), and for the reverse, a
+  root keyed by a literal over routes keyed by id, where no push is ever shown (a tap
+  on a row did nothing, chat-rooms round 12, about eight minutes).
 - **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
   dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
   control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
@@ -325,7 +346,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   not presented; the authored header, tablist and popover paint instead, by default.
   To see the bars, the tab bar and sheets as a person does, drive with `--chrome
   platform` and take `screenshot out.png window`; menus stay the agent's popovers
-  there. (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
+  there. On the Mac the same switch shows a `dialog` and a modal route as
+  sheets and a popover
+  that is no menu as AppKit's popover; each is a window of its own, so a plain
+  `screenshot` (the viewport's own drawing) leaves it out and says so
+  (`notShown`). (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
@@ -591,7 +616,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   DIARY, rough 10). A grouped list's row is exempt (its list cell swipes), but there
   `width="100%"` on the scroll runs past the card by the section's 16-pt inset and
   clips the content's last control on every host: use `list-rows`' grouped form
-  (grocery-list DIARY, issue 2, about 15 minutes, round 3).
+  (grocery-list DIARY, issue 2, about 15 minutes, round 3). A button indented as the
+  `scroll`'s sibling, not its child, is no swipe action (iOS refuses the row, the web
+  draws it as a second line): the compiler warns (`lower-swipe-wiring`) when a
+  `swipeContent`, `swipeLeading` or `swipeTrailing` names an `id` not inside the
+  `scroll` (grocery-list, round 12, about seven minutes).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone
@@ -705,12 +734,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `epoch now`) on any drive or test that talks to a real service, `snapback4 dev`
   included: a backend on real time otherwise sees the app's dates months early
   ("Due in 403783 min"). (Bluesky clone, b12, 2026-10-07; app farm round 2.)
-
-- **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
-  captures the presented route (a fit-content repost sheet came out 402 × 270
-  points), so its type looks twice its size when viewed as a screen. Fix:
-  `screenshot out.png window` for the screen as a person sees it. (Bluesky clone,
-  b12, 2026-10-07.)
 
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
@@ -945,6 +968,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Working on exact2 itself
 
+- **Bundling `host/web-js/rt.js` alone reports missing imports.** Its
+  `./navigation.js` and other relative imports are supplied beside it by the
+  web build, so `bun build host/web-js/rt.js` is not a valid host build. Use
+  `host/web-js/build.mjs` to verify the target, or `bun build
+  host/web-js/rt.js --external '*'` for a syntax-only check. (Events lane,
+  2026-10-11.)
+
 - **A bisect that shares another worktree's Cargo target directory builds
   stale code.** `CARGO_TARGET_DIR` pointed at one worktree while checking out
   older commits in another left generated enums (`PropId`, `Stdlib`) from the
@@ -968,12 +998,32 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   seconds` line of the whole run, read the verdict from it, then kill the
   `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
   `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
+- **`build.mjs <app> --test` can break tests that assume Caltrain data.** The
+  Swift suite links the named app's plan and sources; its owner and batch tests
+  call `defaultLocation`. Use `build.mjs --test` for the full AppKit suite, then
+  drive a fixture app separately with `agent macos --app <app> --plan <plan>`.
+- **A web wasm `--plan` override cannot add an unlinked capability.** The wasm
+  artifact links capabilities from the app's baked `app.contract`. A separate
+  plan that first uses geometry can boot with `Unlinked("geometry")` even when
+  that plan works on the JS and native hosts. Bake the test Contract as the
+  app's source when testing a new wasm capability.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
   older commit left there. Fix: name the apps and pass `--build` with a
   `--wasm-root` of your own (`conform.mjs <app> --build --strict --wasm-root
   /tmp/<yours>`). With no apps named, an empty root compares nothing and passes.
+- **An `EXACT_WEB_DIST` build compiles, then fails renaming its stage.** The
+  destination's parent directory does not exist. Create that parent before
+  running `host/web/build.mjs --wasm` with an external dist path.
+- **`conform.mjs --help` starts conformance.** It has no help flag; an unknown
+  flag does not stop the run. Read its usage comment instead. A run against a
+  shared wasm root may spawn app builds, which can outlive an interrupted parent.
+- **A synthetic conformance fixture crashes with `ENOENT` under the wasm root.**
+  Its `// data: <app>` line named an app without a web host (the focus fixture
+  first named `hello`), so `--build` made no wasm dist for it. Name an app with
+  a web host, and a Linux host when using `--linux` (`caltrain` for the focus
+  fixture). (`focus-bubble` conformance, 2026-10-12.)
 - **A web size or speed number is inflated.** Cause: a development web build
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,
@@ -1025,8 +1075,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **"I opened it in a terminal" is not "it is running".** `open -na
   Ghostty.app --args -e …` can return success while the window reports "The
   terminal failed to initialize". Before telling a person the app is up,
-  confirm its process (`pgrep -f <binary>`) and kill a failed window's
-  instance before retrying (LLP 1101.002 §0 P16).
+  confirm the process you launched is alive (the PID recorded at launch:
+  launch the binary directly and keep `$!`, then `kill -0 $pid`), and kill
+  that recorded PID before retrying — never a PID found by name or pattern
+  (`pgrep -f`, `pkill`), which on a shared machine is another lane's
+  process as often as yours (LLP 1101.002 §0 P16; `rules/RULES.md`, Fleet).
 
 - **An external native app rebuilds on every unchanged direct Cargo invocation.**
   Cargo treats a missing optional `assets`/`deck` input as perpetually dirty;
@@ -1123,3 +1176,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `accessibilityAttributeValue(.enabled)` or `tree --ax`; checkbox, radio,
   popup, slider and date cells keep reporting enabled until they answer that
   attribute themselves. `NSSwitch` has no cell.
+
+- **Vertical percentage `intersect-margin` follows Chrome's root height.**
+  Horizontal percentages use root width. The native sampler matches the
+  measured browser behavior, which differs from the W3C draft's all-width
+  rule (LLP 1001). Use `px` when the overscan is an absolute distance.

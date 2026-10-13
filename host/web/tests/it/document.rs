@@ -322,11 +322,11 @@ component App
       button press=bump testId="card"
         column testId="stack"
           box width=10 height=10 testId="plain"
-          text "Title" aria-level=2 testId="title"
+          text "Title" role="heading" aria-level=2 testId="title"
           text "Body" testId="body"
         image "symbol:close" width=10 height=10 testId="icon"
       column testId="outside"
-        text "Title" aria-level=2 testId="heading"
+        text "Title" role="heading" aria-level=2 testId="heading"
 "#;
     let data = Says("");
     let plan = contract::bake(contract::compile(src).unwrap(), data.clone()).unwrap();

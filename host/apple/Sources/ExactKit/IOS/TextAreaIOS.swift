@@ -106,6 +106,15 @@ package final class TextArea: UITextView {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
+    package override func becomeFirstResponder() -> Bool {
+        let wasFirst = isFirstResponder
+        let focused = super.becomeFirstResponder()
+        // Read-only selection has no editing-began delegate callback.
+        if focused, !wasFirst, isFirstResponder, let owner {
+            owner.presenter?.focus(owner.id)
+        }
+        return focused
+    }
     package override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
@@ -115,11 +124,11 @@ package final class TextArea: UITextView {
         // transient selection surface after focus moves elsewhere.
         #if os(tvOS)
         // tvOS text views do not edit, so every session is read-only.
-        if resigned, wasFirst, let owner, owner.handlers.contains("blur") {
+        if resigned, wasFirst, let owner {
             owner.presenter?.blur(owner.id)
         }
         #else
-        if resigned, wasFirst, !isEditable, let owner, owner.handlers.contains("blur") {
+        if resigned, wasFirst, !isEditable, let owner {
             owner.presenter?.blur(owner.id)
         }
         #endif
@@ -178,12 +187,14 @@ package final class TextArea: UITextView {
         typingAttributes.merge(attributes) { _, authored in authored }
     }
     var placeholder = "" { didSet { setNeedsDisplay() } }
+    /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
+    var placeholderColor: UIColor?
     package override func draw(_ rect: CGRect) {
         super.draw(rect)
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
-                .foregroundColor: UIColor.placeholderText,
+                .foregroundColor: placeholderColor ?? UIColor.placeholderText,
             ])
         }
     }
@@ -298,6 +309,7 @@ extension NodeView {
             f.typingAttributes[.kern] = number("letter_spacing")
             f.textStorage.addAttribute(.kern, value: number("letter_spacing"), range: NSRange(location: 0, length: f.textStorage.length))
         }
+        (f as? TextArea)?.placeholderColor = placeholderColor
         (f as? TextArea)?.configureNativeChrome(isNativeTextControl, cell: isCellField)
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()
@@ -311,7 +323,7 @@ extension NodeView {
         #else
         if isNativeTextControl {
             area.frame = bounds
-            if let r = nativeFieldContent {
+            if let r = kernelContentBox {
                 area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
             }
         } else { area.frame = contentBox() }
@@ -364,14 +376,14 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
         presenter?.fieldSelections.focused(self)
-        if handlers.contains("focus") { presenter?.focus(id) }
+        presenter?.focus(id)
         presenter?.reveal(self)
         publishMarkupSelection(force: true)
     }
     package func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }
         presenter?.commitEdit(id, textView.text ?? "", change: handlers.contains("change"))
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
 }
 #endif

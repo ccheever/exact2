@@ -52,12 +52,15 @@ export async function run({ dir, name, game = false, exact2, args }) {
     return 2;
   }
   // Help (LLP 1116 D4): `--help` or `-h` among a verb's arguments, `help [<verb>]` or no verb prints exact2's own
-  // text (its scripts/help.mjs) and starts nothing. An app's own verb gets its arguments as given.
-  const asked = !verb || ['help', '--help', '-h'].includes(verb) ? rest.find((a) => !a.startsWith('-')) ?? '' : verbs[verb] && (rest.includes('--help') || rest.includes('-h')) ? verb : null;
+  // text (its scripts/help.mjs) and starts nothing. An app's own verb gets its arguments as given. `all` anywhere
+  // among them asks for a verb's whole text (`web --help all`, `help web all`, `help all web`); with no verb it is
+  // the index (`--help all`, `help all`), never a verb (LLP 1116.010 D2).
+  const known = (a) => verbs[a] || own[a];
+  const asked = !verb || ['help', '--help', '-h'].includes(verb) ? rest.find(known) ?? rest.find((a) => !a.startsWith('-') && a !== 'all') ?? '' : verbs[verb] && (rest.includes('--help') || rest.includes('-h')) ? verb : null;
   if (asked !== null) {
     const help = await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null);
     if (!help) { console.error(`no exact2 at ${exact2}: EXACT2 names the checkout`); return 1; }
-    return help.printHelp(asked, { verbs: Object.keys(verbs), own });
+    return help.printHelp(asked, { verbs: Object.keys(verbs), own, all: rest.includes('all') });
   }
   if (!verbs[verb] && !own[verb]) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);

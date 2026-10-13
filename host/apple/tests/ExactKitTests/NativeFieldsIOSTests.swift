@@ -13,7 +13,7 @@ final class NativeFieldsIOSTests: XCTestCase {
     // Its `hr` is a hairline, which the display's scale resolves (LLP 1115.000
     // D10.3). A plan carries the kernel schema's digest: compile it again when
     // that moves (`contract build`, then base64).
-    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAAAoP5pgsA4NjwL6d34cKpHqGA1E2ggCJPIAAAAA//////////8JAAAABAAAAGZsZXgGAAAAY29sdW1uCQAAAGZpZWxkbGVzcwUAAABzb2xpZA8AAAAtZXhhY3QtaGFpcmxpbmUQAAAALWV4YWN0LXNlcGFyYXRvcgYAAABoaWRkZW4CAAAAaHIEAAAAcnVsZUIAAAAEKAIAAAAAKAIBAAAAKAICAAAAKAAAAAAAAABZQCgCAwAAACgCBAAAACgCBQAAACgCBgAAACgCBwAAACgCCAAAACgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAD//////////wAAAAAAAAAAAgAAAAAAAAAAAAAA/////wAAAAAA/////wAAAAACAAAAAwAAAAAAAAAAAAAA/////wAAAAAA/////wEAAAAFAAAABwAAAAAAAAAAAAAA/////wwAAAABHwACAAAABgAAAAABDgAIAAAABgAAAAAACwAOAAAABgAAAAEBAAAUAAAACgAAAAEBAQAUAAAACgAAAAEBWAAeAAAABgAAAAABKwAkAAAABgAAAAABSwAqAAAABgAAAAABIQAwAAAABgAAAAABIgAwAAAABgAAAAAAIQA2AAAABgAAAAAACwA8AAAABgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
+    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAACy8vLICEq3gVko8hzof+1NGA1E2ggCJPIAAAAA//////////8JAAAABAAAAGZsZXgGAAAAY29sdW1uCQAAAGZpZWxkbGVzcwUAAABzb2xpZA8AAAAtZXhhY3QtaGFpcmxpbmUQAAAALWV4YWN0LXNlcGFyYXRvcgYAAABoaWRkZW4CAAAAaHIEAAAAcnVsZUIAAAAEKAIAAAAAKAIBAAAAKAICAAAAKAAAAAAAAABZQCgCAwAAACgCBAAAACgCBQAAACgCBgAAACgCBwAAACgCCAAAACgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAD//////////wAAAAAAAAAAAgAAAAAAAAAAAAAA/////wAAAAAA/////wAAAAACAAAAAwAAAAAAAAAAAAAA/////wAAAAAA/////wEAAAAFAAAABwAAAAAAAAAAAAAA/////wwAAAABHwACAAAABgAAAAABDgAIAAAABgAAAAAACwAOAAAABgAAAAEBAAAUAAAACgAAAAEBAQAUAAAACgAAAAEBWAAeAAAABgAAAAABKwAkAAAABgAAAAABSwAqAAAABgAAAAABIQAwAAAABgAAAAABIgAwAAAABgAAAAAAIQA2AAAABgAAAAAACwA8AAAABgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
         let app = ExactApp.shared
@@ -402,6 +402,42 @@ final class NativeFieldsIOSTests: XCTestCase {
         let bytes = try XCTUnwrap(cg.dataProvider?.data) as Data
         let ink = stride(from: 0, to: bytes.count, by: 4).filter { bytes[$0] < 100 && bytes[$0 + 1] < 100 && bytes[$0 + 2] < 100 }.count
         XCTAssertGreaterThan(ink, 100, "native value draws; checking text alone misses a misplaced UIKit editor")
+    }
+
+    /// LLP 1104 D3: an authored `::placeholder` colour is the placeholder's
+    /// ink, its own alpha kept, on a field and a textarea; without the row
+    /// each keeps UIKit's `placeholderText`.
+    func testAnAuthoredPlaceholderColourIsThePlaceholdersInk() throws {
+        let session = ExactApp.shared.makeSession(label: "authored-placeholder")
+        defer { session.destroy() }
+        let green: BatchValue = .array([.number(0), .number(128), .number(0), .number(128)])
+        func isGreen(_ color: UIColor?, _ why: String) throws {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            XCTAssertTrue(try XCTUnwrap(color, why).getRed(&r, green: &g, blue: &b, alpha: &a))
+            for (got, want) in zip([r, g, b, a], [0, 128.0 / 255, 0, 128.0 / 255]) { XCTAssertEqual(got, want, accuracy: 0.01, why) }
+        }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.bounds = CGRect(x: 0, y: 0, width: 240, height: 44)
+        node.applyProps(set: ["placeholder": "Search"], clear: [])
+        let native = try XCTUnwrap(node.field)
+        func ink() -> UIColor? { native.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor }
+        XCTAssertEqual(ink(), .placeholderText)
+        node.applyStyle(["placeholder_color": green])
+        try isGreen(ink(), "a native field")
+        node.applyProps(set: ["disabled": "true"], clear: [])
+        try isGreen(ink(), "a disabled native field")
+        node.applyStyle(["appearance": .string("none"), "placeholder_color": green])
+        try isGreen(ink(), "a bare field")
+        node.applyStyle([:])
+        XCTAssertEqual(ink(), .placeholderText, "no row: UIKit's again")
+        let area = NodeView(id: 2, kind: "textarea", presenter: session.presenter)
+        area.frame = CGRect(x: 0, y: 0, width: 300, height: 88)
+        area.applyProps(set: ["value": "", "placeholder": "Notes"], clear: [])
+        let text = try XCTUnwrap(area.textArea as? TextArea)
+        area.applyStyle(["placeholder_color": green])
+        try isGreen(text.placeholderColor, "a textarea")
+        area.applyStyle([:])
+        XCTAssertNil(text.placeholderColor, "no row: UIKit's again")
     }
 }
 #endif

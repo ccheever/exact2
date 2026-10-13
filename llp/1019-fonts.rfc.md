@@ -21,10 +21,13 @@ the fourth forgot weight, and a `display` policy that only worked on web.
 
 exact2 has no app JS and compiles the plan before the first frame, so it does
 not have to make that choice. **A font is a declaration in the Contract,
-compiled to plan tables, registered by the host before first layout.** The
-family id is assigned by the compiler, never at runtime; an undeclared family
-and a missing file are compile errors; there is no app-visible loading state,
-so there is nothing to invalidate.
+compiled to plan tables, registered by the host before first layout.** A bundled
+family id is assigned by the compiler; an installed or generic family list may
+also receive a session-scoped runtime id (D2, Charlie 2026-10-11). An undeclared
+bundled face and a missing file are compile errors; installed names need no
+declaration. There is no app-visible loading state,
+so a bundled face's arrival has nothing to invalidate. Runtime installed-family
+choices are the later D2 amendment and do invalidate affected text on change.
 
 What that does *not* buy is the part that is genuinely hard, and r2 is mostly
 about being honest on it. The compiler freezes identity, not resolution: hosts
@@ -189,8 +192,10 @@ so is a **missing or unreadable font file** — LLP 1011 makes a missing
 inherited: a missing face is not one wrong picture, it is every text node in
 the wrong metrics.
 
-Ids are constant for the life of a plan, so nothing re-resolves and nothing
-is invalidated. Two limits on that claim, both from the panel:
+Compiled ids are constant for the life of a plan, so bundled stacks need no
+re-resolution when a state value changes. Runtime installed-family lists from
+D2 have separate session-scoped ids and do invalidate affected text. Two
+limits on the compiled-id claim, both from the panel:
 
 - **"Nothing resolves at runtime" is too strong.** The compiler freezes
   *identity*. Hosts still resolve paths, parse and register faces, match
@@ -203,12 +208,30 @@ is invalidated. Two limits on that claim, both from the panel:
   plan-scoped catalog and must discard id-keyed caches on plan replacement.
   "No `unloadFont`" is true of the app-facing API and false of the host.
 
-**`font-family` is literal-only.** A `derive` evaluating to `"Menlo"` has
-nowhere to intern. v1 accepts string literals and closed control flow over
-literals (a `when` with two literal stacks — which is how theme switching is
-written); it does not accept a data string. As built (LLP 1053 G7,
-2026-09-25): a `?:` or `match` whose every arm is a literal family compiles
-each arm to its stack id, and the face checks apply to every declared arm.
+**Amended (Charlie, 2026-10-11): `font-family` accepts a runtime string.**
+Literal lists and closed literal choices retain compile-time stack ids and
+declared-face checks. A string from state, a derive or data may name an
+installed family, a supported generic, or an ordered CSS family list. The
+runner interns each distinct runtime list in the session above the plan's
+stack ids and passes the list to hosts before a node uses the id. Hosts resolve
+installed faces with the same weight/style matching and fallback as literal
+lists. A changed id invalidates affected measurement and paint. Bundled faces
+retain compile-time ids; a runtime string loads no font file and introduces no
+`loadFont` operation. This supersedes the literal-only rule here and LLP 1053
+G7's runtime-string refusal. The JS web target can apply the string directly
+as CSS while native hosts consume the runner's id and list. A quoted generic
+is an installed family name. An invalid list (an unquoted member that is not
+CSS identifiers, `Arial;`, by the rule a compiled literal meets) and `inherit`,
+`unset`, `revert` or `revert-layer` leave the row unset so its inherited value
+applies, as the browser does; `initial` is the row's initial family, stack 0
+(`system-ui`).
+
+**Implementation status, 2026-10-12:** Contract resolves constant templates
+through literal stack validation and preserves other string expressions. The
+runner interns runtime lists above plan stacks, and the wasm web, AppKit,
+UIKit and Linux hosts register those lists before layout. The JS web target
+sets a dynamic string as CSS. Native family changes invalidate text layout;
+the hosts use their existing installed-face matching for weights and styles.
 
 ### D3 — the id names a stack; v1 stacks are single-member
 
@@ -600,7 +623,7 @@ now has an implementer and a date, so it is buildable. In dependency order:
    Decide the variable-axis question here (D1): axis ranges on a face row, or
    v1 is static-only.
 2. **Contract** — the `font` declaration at file scope (D1), the
-   `font-family` and `font-style` attributes, literal-only values, id
+   `font-family` and `font-style` attributes, initially literal-only values, id
    assignment, and the four refusals: undeclared family, missing/unreadable
    file, `.woff2`, and the §5 weight/style diagnostic. Duplicate direct
    attributes are refused, so the diagnostic and the effective binding cannot

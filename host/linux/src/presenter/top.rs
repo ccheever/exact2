@@ -8,7 +8,7 @@
 //! ([`Presenter::serve_windows`]: the Canvas host's reader, as it boots).
 //! With no such shell (desktop Linux, a headless run, the agent) nothing
 //! here runs: a popover's invoker and a dialog's button are refused as they
-//! were, `showModal` is an unknown command, and nothing is presented.
+//! were; action dialog commands journal their refusal, and nothing is presented.
 //!
 //! **How a surface is painted.** Not by the kernel's layout of the authored
 //! rows, which no native host shows either. The shape rule (`top/shape.rs`)
@@ -193,6 +193,9 @@ pub struct Shown<'a> {
     pub targets: &'a [Target],
     /// The row a finger holds, if one does.
     pub pressed: Option<usize>,
+    /// Each text it shows, by the node it stands for (an alert's headline
+    /// and supporting text by the surface's own), with its box, points.
+    pub texts: Vec<(ViewId, Rect4)>,
 }
 
 /// What a press on an invoker asks of the top layer.
@@ -227,6 +230,7 @@ impl<D: DataSource> Presenter<D> {
             size: open.layout.size,
             targets: &open.layout.targets,
             pressed: open.pressed,
+            texts: open.layout.texts(),
         })
     }
 

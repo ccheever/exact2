@@ -6,9 +6,16 @@
 // phone width and a desktop width (iOS: the simulator's own size, with UIKit's bars), and runs `check` light and
 // dark there. Each test's end screen is checked the same way inside the test's own session (the web at both
 // widths, resized to each), so its secondary screens and populated states are in the report. Then the app
-// relaunches once on the store a passing test left, on real time (at most REAL_MS) and under the date, zone,
-// locale and seed the test launched with (LLP 1116.007 D3.4), and its first screen is compared with a fresh
-// launch's under the same: what the test stored should come back. One capture of each screen is kept in
+// relaunches once on the store a passing test left, on real time (at most REAL_MS) and under the zone, locale and seed
+// the test launched with and the date it had reached (its launch date plus its `clock` steps, as a `reload` relaunches,
+// LLP 1116.007 D3.4, LLP 1116.009 D1), and its first screen is compared with a fresh launch's under the same (the
+// driver's, for an app whose server holds the tests' writes): what the test stored should come back. On the web each test's end screen is also
+// reloaded where it stands (the test's `reload` step: the page loads again on its URL and storage, at the date it had reached) and
+// its texts compared before and after (LLP 1116.010 D6; `judgeReload` says what it forgives): a screen that reloads into another state
+// ('Card 2 of 3' → '0 / 0') is a note, not a problem, since a game or a draft in progress lives in memory by design (LLP 1116.011 D5);
+// it is a finding only when a saved value came back different (`savedChanges`: a `persist` state, a field showing what the app kept).
+// A native host's cold launch is `/` (LLP 1038 §7), so iOS has no such reload to compare. A refusal
+// the host journaled during the run (`logs`: 'swipeContent … is refused: …') is shown first in the report (LLP 1116.010 D5). One capture of each screen is kept in
 // .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the relaunch's and the compiler's warnings (`contract build`'s,
@@ -288,6 +295,162 @@ async function seen(s, state) {
   return { texts, resources: state.resources ?? {}, slots: state.slots ?? {}, ops: b ? b.done + b.failed : 0 };
 }
 
+/** The texts a screen shows, in tree order: each active node's text and field value, and a switch or checkbox as
+ * `Label: on|off` (what it holds is what a person sees). A live region (`role` alert, status, log) is a message
+ * the screen says once, not state, so it is left out; so are the values of the fields named in `leave` (by `testId`). */
+export function screenTexts(nodes, leave = new Set()) {
+  const out = [];
+  let live = null;
+  for (const n of nodes ?? []) {
+    if (live != null) { if (n.depth > live) continue; live = null; }
+    if (n.inactive) continue;
+    const p = n.props ?? {};
+    if (['alert', 'status', 'log'].includes(p.accessibilityRole)) { live = n.depth; continue; }
+    if (typeof p.text === 'string' && p.text.trim()) out.push(p.text.trim());
+    if (typeof p.value === 'string' && p.value.trim() && !leave.has(p.testId)) out.push(p.value.trim());
+    const label = p.accessibilityLabel ?? p.testId;
+    if (typeof p.checked === 'boolean' && label) out.push(`${label}: ${p.checked ? 'on' : 'off'}`);
+  }
+  return out;
+}
+
+/** Every string and number the app holds after a reload, in its state and resources (what its storage gave back), as
+ * text: `30` and `"30"` both give "30". */
+export function storedTexts(state) {
+  const out = new Set();
+  const walk = (v, depth) => {
+    if (depth > 8 || v == null) return;
+    if (typeof v === 'string') out.add(v.trim());
+    else if (typeof v === 'number' || typeof v === 'boolean') out.add(String(v));
+    else if (typeof v === 'object') for (const x of Object.values(v)) walk(x, depth + 1);
+  };
+  walk(state?.slots, 0);
+  walk(state?.resources, 0);
+  return out;
+}
+
+/** What a reload did to the fields the test typed into: `drafts`, which a reload is not expected to bring back (a calculator's
+ * amount, a form the app refused with its error), so their values are left out of the comparison; and `saved`, the fields that
+ * showed a value the app kept and now show another. A field is compared like any text only when the app kept what it showed and
+ * the reloaded field shows something it did not keep: focus-timer's settings reloaded with 25 and 5 over the saved 30 and 10.
+ * What the app kept is what its state and resources hold both before and after the reload (`storedTexts` of each); a field that
+ * shows what is kept after the reload (the water tracker's refused 0, then its saved goal) is the app doing as it should. */
+function typedFields(before, after, touched, states) {
+  const was = storedTexts(states?.before), now = storedTexts(states?.after);
+  const kept = new Set([...was].filter((t) => now.has(t))), has = (t) => t !== '' && (kept.has(t) || (Number.isFinite(Number(t)) && kept.has(String(Number(t)))));
+  const value = (n) => String(n.props?.value ?? '').trim(), field = (n, id) => n.type === 'TextInput' && !n.inactive && n.props?.testId === id;
+  const ids = (before ?? []).filter((n) => n.type === 'TextInput' && !n.inactive && (touched ?? []).includes(n.props?.testId)).map((n) => n.props.testId);
+  const drafts = new Set(), saved = [];
+  for (const id of ids) {
+    const there = (before ?? []).find((n) => field(n, id)), here = (after ?? []).find((n) => field(n, id));
+    if (!(has(value(there)) && (!here || !has(value(here))))) drafts.add(id);
+    else if (here) saved.push({ kind: 'field', id, was: value(there), now: value(here) });
+  }
+  return { drafts, saved };
+}
+
+/** The fields to leave out of a reload's comparison: the drafts (`typedFields`). */
+export const draftFields = (before, after, touched, states) => typedFields(before, after, touched, states).drafts;
+
+/** The root states the app says `persist` on (LLP 1116 D5), by name, read from app.contract: only the root's may, and the root is
+ * its first component. A trailing comment is not read. */
+export function persistedStates(dir) {
+  const names = [];
+  for (const line of (readIn(dir, 'app.contract') ?? '').split('\n')) {
+    const m = line.replace(/\s\/\/.*$/, '').match(/^\s*state\s+([A-Za-z_][\w-]*)\s*=.*\spersist\s*$/);
+    if (m) names.push(m[1]);
+  }
+  return names;
+}
+
+/** What a reload did to a saved value, from the screen's fields (`typedFields`) and the persisted states (`persistedStates`):
+ * the `persist` states whose value came back different, and the fields that showed a kept value and now show another. These
+ * are the only evidence that something saved was lost; a game's or a draft's state is in memory and is not (LLP 1116.011 D5).
+ * `[{ kind: 'state', name, was, now } | { kind: 'field', id, was, now }]`. */
+export function savedChanges({ persisted = [], states, nodes, touched }) {
+  const was = states?.before?.slots ?? {}, now = states?.after?.slots ?? {};
+  const slots = persisted.filter((name) => name in was && JSON.stringify(was[name]) !== JSON.stringify(now[name]))
+    .map((name) => ({ kind: 'state', name, was: was[name], now: now[name] }));
+  return [...slots, ...typedFields(nodes?.before, nodes?.after, touched, states).saved];
+}
+
+/** A reload that only takes this many texts away, and puts none in their place, took a message with it (a toast, a
+ * banner, a validation error, an open dialog's words), not state. */
+const GONE = 3;
+/** A clock face: `24:49`, `1:02:03`, `00:12.5`. A running timer shows another one after a reload, and a pinned clock
+ * does not make it the same: the elapsed time lived in memory (LLP 1116.010 D6). */
+const CLOCK_FACE = /\d{1,3}:\d{2}(?::\d{2})?(?:[.,]\d+)?/g;
+const faceless = (text) => text.replace(CLOCK_FACE, '§');
+
+/** What a reload changed on a screen, from the texts shown before and after (`screenTexts`) and the URLs; null when
+ * nothing a person would notice. Forgiven, with the guard that says so: a clock face (its digits are masked); a live
+ * region (`screenTexts` leaves it out); texts that only went (at most GONE, nothing in their place: a toast, a validation
+ * error, an open dialog). What is left is another state: `{ route, now?, lost, gained }`, the texts before and after. */
+export function judgeReload(before, after) {
+  const counts = (texts) => { const m = new Map(); for (const t of texts) m.set(faceless(t), (m.get(faceless(t)) ?? 0) + 1); return m; };
+  const without = (texts, other) => { const m = counts(other); return texts.filter((t) => { const k = faceless(t), n = m.get(k) ?? 0; if (n) m.set(k, n - 1); return !n; }); };
+  const lost = without(before.texts, after.texts), gained = without(after.texts, before.texts);
+  if ((!lost.length && !gained.length) || (!gained.length && lost.length <= GONE)) return null;
+  return { route: before.url ?? '/', ...(after.url != null && after.url !== before.url ? { now: after.url } : {}), lost, gained };
+}
+
+const texts3 = (texts) => `${texts.slice(0, 3).map((t) => quoted(t, 28)).join(', ')}${texts.length > 3 ? `, … (${texts.length - 3} more)` : ''}`;
+const saying = (v) => quoted(typeof v === 'string' ? v : JSON.stringify(v) ?? 'none', 24);
+/** The finding's line (LLP 1116.011 D5): the route and the saved values that came back different, and the repair. */
+export function reloadLine(f, test) {
+  const what = f.saved.map((c) => (c.kind === 'state' ? `the saved state \`${c.name}\` was ${saying(c.was)} and is ${saying(c.now)}` : `the field ${quoted(c.id)} showed ${saying(c.was)}, which the app holds, and shows ${saying(c.now)}`));
+  return `  reload   ${f.route}${f.now ? `, landing on ${f.now},` : ''} a saved value came back different: ${what.join('; ')}; a reload must bring back what was saved (${quoted(test, 36)})`;
+}
+
+/** The note's line (LLP 1116.010 D6, 1116.011 D5): the route, and the texts that changed. Not counted. */
+export function reloadNote(n, test) {
+  const what = n.lost.length && n.gained.length ? `${texts3(n.lost)} → ${texts3(n.gained)}` : n.lost.length ? `loses ${texts3(n.lost)}` : `gains ${texts3(n.gained)}`;
+  return `  note     ${n.route} reloads into another state${n.now ? `, landing on ${n.now}` : ''}: ${what} (${quoted(test, 36)})`;
+}
+
+/** What the notes say once: the reload check cannot tell a game in progress from a lost value, so it asks. */
+const NOTE_ADVICE = '  a saved value must survive a reload; a game or a draft in progress may not';
+
+/** A line of the journal or the host's output that says the host refused what the app asked (LLP 1116.010 D5), with the
+ * journal's `t=N` and the host's `app: exact: ` taken off. A refusal the app's own rule makes when a person tries (a
+ * dismissal its `closedby` refuses, a Back its control disables) and a connection a `fail fetch` refused are the app's design. */
+export function refusalsOf({ lines = [], host = [] } = {}) {
+  const found = [];
+  for (const raw of [...lines, ...host]) {
+    const line = String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
+    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused/i.test(line) && !found.includes(line)) found.push(line);
+  }
+  return found;
+}
+
+/** A session's refusals so far (`refusalsOf` its `logs`). */
+const refusalsIn = async (s) => refusalsOf(await s.logs().catch(() => ({})));
+
+/** The end screen reloaded where it stands (the test's `reload` step, run on the session; the web only), and what it
+ * showed before and after compared (`judgeReload`): `finding` when a saved value came back different (`savedChanges`),
+ * else `note` for any other change, which is the app's state in memory and no problem (LLP 1116.011 D5). `{ ran: false }` when
+ * there is nothing to compare: a native host, a failed test, or one that ended on a draft it typed and did not submit (a page
+ * keeps none). `persisted` names the app's `persist` states. */
+async function reloadEnd(s, t, persisted = []) {
+  if (!t.restart || t.failures.length) return { ran: false };
+  const read = async () => ({ state: await s.state().catch(() => ({})), nodes: (await s.tree().catch(() => ({ nodes: [] }))).nodes ?? [] });
+  const before = await read();
+  if (before.nodes.some((n) => n.type === 'TextInput' && !n.inactive && (t.typed ?? []).includes(n.props?.testId))) return { ran: false };
+  try {
+    await t.restart();
+    await s.clock('settle');
+    const after = await read();
+    const states = { before: before.state, after: after.state };
+    const leave = draftFields(before.nodes, after.nodes, t.touched, states);
+    const shown = ({ state, nodes }) => ({ url: state.navigation?.url ?? null, texts: screenTexts(nodes, leave) });
+    const changed = judgeReload(shown(before), shown(after));
+    const saved = savedChanges({ persisted, states, nodes: { before: before.nodes, after: after.nodes }, touched: t.touched });
+    return saved.length
+      ? { ran: true, finding: { route: changed?.route ?? shown(before).url ?? '/', ...(changed?.now ? { now: changed.now } : {}), lost: changed?.lost ?? [], gained: changed?.gained ?? [], saved }, note: null }
+      : { ran: true, finding: null, note: changed };
+  } catch (e) { return { ran: true, error: e.message }; }
+}
+
 /** `check both` on the session at each of `sizes` (null: as it is; else resized to it first), a run per size and scheme
  * tagged with its `screen`; a resource that failed is a line of each. `shot(viewport, scheme)` names a capture to keep. */
 async function checkHere(s, { screen, sizes = [null], shot, state }) {
@@ -307,7 +470,7 @@ async function checkHere(s, { screen, sizes = [null], shot, state }) {
 
 /** runTests' `atEnd`: a test's last screen once its transitions end, checked in both schemes (the web: at both widths,
  * one capture kept at the width nearer the test's own; iOS: the simulator's), and what the relaunch chooses by. */
-const testEnd = (host, shots) => async (s, t) => {
+const testEnd = (host, shots, persisted) => async (s, t) => {
   await s.clock('settle');
   const state = await s.state().catch(() => ({}));
   const own = (t.size ?? [420, 900])[0], near = // the test's own width, else the driver's window (agent.mjs VIEWPORT)
@@ -316,17 +479,20 @@ const testEnd = (host, shots) => async (s, t) => {
   const shot = (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === near[0]) ? path : undefined);
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
-  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch };
+  const refusals = await refusalsIn(s);
+  const reloaded = await reloadEnd(s, t, persisted);
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded };
 };
 
 /** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
  * without a file, or `{ error }` when they do not compile. */
 async function tests(host, app, shots) {
+  const persisted = persistedStates(app.dir);
   const file = resolve(app.dir, 'app.test.contract');
   if (!existsSync(file)) return { none: true };
   const { runTests } = await import('./agent-test.mjs');
   try {
-    const r = await runTests({ host, file, app: app.name, atEnd: testEnd(host, shots), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
+    const r = await runTests({ host, file, app: app.name, atEnd: testEnd(host, shots, persisted), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
     return { passed: r.passed, failed: r.failed, results: r.results.map(({ name, failures, end, store, shots }) => ({ name, failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })) };
   } catch (e) { return { error: e.message }; }
 }
@@ -346,6 +512,7 @@ async function checkAt(host, app, size, store, shots) {
     const facts = !size || size === WEB_SIZES[0] ? await seen(s, state) : null;
     const runs = await checkHere(s, { screen: FIRST, shot: (vp, scheme) => resolve(shots, `${host}-${vp.w}x${vp.h}-${scheme}.png`), state });
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
+    Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
     return runs;
   } finally {
     await s.close();
@@ -390,6 +557,14 @@ export function judgeRelaunch(test, fresh, after, { busy = [], failed = {} } = {
 const LAUNCH_FACTS = ['epoch', 'timeZone', 'locale', 'seed'];
 const launchOf = (launch) => Object.fromEntries(LAUNCH_FACTS.filter((k) => launch?.[k] != null).map((k) => [k, launch[k]]));
 
+/** The facts a relaunch on the store `test` left is made under: its launch facts, the date being the one it had reached
+ * (its launch date plus its `clock` steps), as a `reload` relaunches (LLP 1116.009 D1): a phone restarted at 9:05 wakes at 9:05. */
+export const relaunchFacts = (test) => ({ ...test.end?.launch, ...(test.end?.reached != null ? { epoch: test.end.reached } : {}) });
+
+/** Whether the test ended at a date other than the one it launched at: its relaunch's first screen may say another day,
+ * so a fresh launch to compare with is made at that date too. */
+export const movedClock = (test) => test.end?.reached != null && test.end.launch?.epoch != null && test.end.reached !== test.end.launch.epoch;
+
 /** Whether `test` launched under facts other than the driver's own, which the first screens launch under: a date, zone,
  * locale or seed its leading lines pinned. What it stored is read back under those facts, and a fresh launch to compare
  * with must be made under them too (LLP 1116.007 D3.4). */
@@ -412,13 +587,13 @@ async function freshUnder(host, app, launch, store) {
   }
 }
 
-/** One launch on the store `test` left, under the facts the test launched with (its date, zone, locale and seed, as a
- * `reload` relaunches), at the phone's width (iOS: the simulator's, with UIKit's bars), not emptied:
+/** One launch on the store `test` left, under the facts the test ended with (its zone, locale and seed, and the date it had
+ * reached, as a `reload` relaunches), at the phone's width (iOS: the simulator's, with UIKit's bars), not emptied:
  * its first loads on real time, in REAL_STEP steps until nothing is in flight or REAL_MS pass, then its transitions
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(test.end?.launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(relaunchFacts(test)), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
   try {
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
     const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
@@ -429,7 +604,7 @@ async function relaunch(host, app, test, fresh, shots) {
     const after = await seen(s, state);
     const path = resolve(shots, `${host}-relaunch.png`);
     const runs = await checkHere(s, { screen: RELAUNCH, sizes: host === 'web' ? [null, WEB_SIZES[1]] : [null], shot: (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === WEB_SIZES[0][0]) ? path : undefined) });
-    return { test: test.name, ms, shot: path, runs, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
+    return { test: test.name, ms, shot: path, runs, refusals: await refusalsIn(s), ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, test.store).profile).catch(() => {});
@@ -475,9 +650,17 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, shots, copied, own = [], ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], reloads = [], shots, copied, own = [], ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
+  // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
+  if (refused.length) {
+    const shownAt = (where) => where.length > 2 ? `${where.slice(0, 2).join(', ')} and ${where.length - 2} more` : where.join(', ');
+    out.push(`refused at run time: ${refused.length} (the host's journal, 'logs'; each is a call or a wiring the app got wrong)`,
+      ...refused.slice(0, SHOWN).map((r) => `  ${r.line.length > 260 ? `${r.line.slice(0, 259)}…` : r.line} (${shownAt(r.where)})`));
+    if (refused.length > SHOWN) out.push(`  … and ${refused.length - SHOWN} more (verify --json lists them all)`);
+    findings += refused.length;
+  }
   // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
   if (server?.died) { broken++; out.push(`server: ${server.died}`); }
   else if (server) out.push(`server: ${server.said}`);
@@ -516,6 +699,27 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     if (count > SHOWN) out.push(`  … and ${count - Math.min(SHOWN, shown.length)} more (verify --json lists them all)`);
     out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
+  }
+  // Each test's end screen reloaded where it stands (LLP 1116.010 D6): a saved value that came back different is a finding, one a
+  // route and change, the first test that ended there named; any other change is a note under its own heading, which counts
+  // for nothing (LLP 1116.011 D5: a game or a draft in progress lives in memory).
+  const ran = reloads.filter((r) => r.ran);
+  if (ran.length) {
+    const lines = [], notes = [], keys = new Set();
+    const once = (key) => { if (keys.has(key)) return false; keys.add(key); return true; };
+    for (const r of ran) {
+      if (r.error) { if (once(`error ${r.test}`)) lines.push(`  reload   ${quoted(r.test, 36)}: could not reload the end screen: ${firstLine(r.error)}`); }
+      else if (r.finding) { if (once(JSON.stringify(['finding', r.finding.route, r.finding.saved]))) lines.push(reloadLine(r.finding, r.test)); }
+      else if (r.note && once(JSON.stringify(['note', r.note.route, r.note.lost, r.note.gained]))) notes.push(reloadNote(r.note, r.test));
+    }
+    out.push(`reload ${plural(ran.length, 'test end')}: ${lines.length ? plural(lines.length, 'finding') : notes.length ? 'no findings' : 'the same screen after each'}`, ...lines.slice(0, SHOWN));
+    if (lines.length > SHOWN) out.push(`  … and ${lines.length - SHOWN} more (verify --json lists them all)`);
+    findings += lines.length;
+    if (notes.length) {
+      out.push(`reload note: ${plural(notes.length, 'screen')} ${notes.length === 1 ? 'reloads' : 'reload'} into another state (not counted)`, ...notes.slice(0, SHOWN));
+      if (notes.length > SHOWN) out.push(`  … and ${notes.length - SHOWN} more (verify --json lists them all)`);
+      out.push(NOTE_ADVICE);
+    }
   }
   // The relaunch on a test's store (LLP 1116.005 D7): what came back, or each problem, counted as findings.
   if (relaunched?.error) { broken++; out.push(`relaunch: could not drive: ${firstLine(relaunched.error)}`); }
@@ -602,7 +806,10 @@ async function main(argv) {
       // test's facts. An app with a server has no fresh database after the tests: its relaunch is not compared.
       relaunched = await (async () => {
         const { launchFacts } = await import('./agent-launch.mjs');
-        const against = !pinnedLaunch(chosen, launchFacts({})) ? fresh : running ? null : await freshUnder(host, app, chosen.end.launch, host === 'web' ? `verify.${tag}.fresh` : 'verify');
+        // A test that moved the clock relaunches at the date it reached, and its first screen may say another day than a fresh
+        // launch's at the driver's: that comparison is made under the reached date too, unless the server's database is the tests'.
+        const pinned = pinnedLaunch(chosen, launchFacts({}));
+        const against = running ? (pinned ? null : fresh) : pinned || movedClock(chosen) ? await freshUnder(host, app, relaunchFacts(chosen), host === 'web' ? `verify.${tag}.fresh` : 'verify') : fresh;
         return relaunch(host, app, chosen, against, shots);
       })().catch((e) => ({ test: chosen.name, error: e.message }));
     }
@@ -630,11 +837,19 @@ async function main(argv) {
     for (const p of kept) copyFileSync(p, resolve(copyTo, basename(p)));
     results.forEach((t, i) => { for (const p of (t.shots ?? []).filter((p) => existsSync(p))) { own.push(`${host}-t${i + 1}-${basename(p)}`); copyFileSync(p, resolve(copyTo, own.at(-1))); } });
   }
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, shots: kept, copied: copyTo && resolve(copyTo), own, ms: Date.now() - started });
+  // Refusals the host journaled, once each with where it was seen, and the end screens reloaded.
+  const refused = new Map();
+  const refusedAt = (where, lines) => { for (const line of lines ?? []) { if (!refused.has(line)) refused.set(line, []); if (!refused.get(line).includes(where)) refused.get(line).push(where); } };
+  firsts.forEach((runs) => refusedAt(FIRST, runs.refusals));
+  results.forEach((t) => refusedAt(`test ${quoted(t.name, 28)}`, t.end?.refusals));
+  refusedAt(RELAUNCH, relaunched?.refusals);
+  const refusedList = [...refused].map(([line, where]) => ({ line, where }));
+  const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, shots: kept, copied: copyTo && resolve(copyTo), own, ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), tests: testsOut, checks, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
   return r.exit;
 }

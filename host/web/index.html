@@ -98,10 +98,10 @@
      replaced/static elements. Its padding box ends at the inner border edge.
      Authored background paint keeps the second layer and its original clip. */
   @property --exact-grouped-separator { syntax: "<color>"; inherits: false; initial-value: #3c3c431f; }
-  [data-grouped-row-separator] { --exact-grouped-separator: light-dark(#3c3c431f, #54545880); --exact-grouped-line: none; --exact-grouped-mask: none; background-image: var(--exact-grouped-line), var(--exact-grouped-row-background, none) !important; background-size: calc(100% - var(--exact-grouped-inset, 0px)) 1px, auto; background-position: right bottom, 0% 0%; background-repeat: no-repeat, repeat; background-origin: padding-box, padding-box; background-clip: padding-box, var(--exact-grouped-row-background-clip, border-box) !important; background-attachment: scroll, var(--exact-grouped-row-background-attachment, scroll) !important; }
+  [data-grouped-row-separator] { --exact-grouped-separator: light-dark(#3c3c431f, #54545880); --exact-grouped-line: none; --exact-grouped-mask: none; background-image: var(--exact-grouped-line), var(--exact-grouped-row-background, none) !important; background-size: calc(100% - var(--exact-grouped-inset-resolved, var(--exact-grouped-inset, 0px))) 1px, auto; background-position: right bottom, 0% 0%; background-repeat: no-repeat, repeat; background-origin: padding-box, padding-box; background-clip: padding-box, var(--exact-grouped-row-background-clip, border-box) !important; background-attachment: scroll, var(--exact-grouped-row-background-attachment, scroll) !important; }
   [data-grouped-row-separator="true"]:not([data-grouped-row-hidden="true"]):has(~ [data-grouped-row-separator]:not([data-grouped-row-hidden="true"])) { --exact-grouped-line: linear-gradient(var(--exact-grouped-separator), var(--exact-grouped-separator)); --exact-grouped-mask: linear-gradient(#fff, #fff); }
   /* Template images mask their own content, not the separator rectangle. */
-  img[data-grouped-row-separator]:is([data-exact-template], [data-symbol-path]) { mask-image: var(--exact-grouped-mask), var(--exact-grouped-image-mask, var(--exact-symbol-mask)) !important; mask-size: calc(100% - var(--exact-grouped-inset, 0px)) 1px, var(--exact-grouped-image-fit, var(--exact-symbol-fit, 100% 100%)) !important; mask-position: right bottom, center !important; mask-repeat: no-repeat !important; mask-origin: padding-box, content-box !important; mask-clip: padding-box, content-box !important; }
+  img[data-grouped-row-separator]:is([data-exact-template], [data-symbol-path]) { mask-image: var(--exact-grouped-mask), var(--exact-grouped-image-mask, var(--exact-symbol-mask)) !important; mask-size: calc(100% - var(--exact-grouped-inset-resolved, var(--exact-grouped-inset, 0px))) 1px, var(--exact-grouped-image-fit, var(--exact-symbol-fit, 100% 100%)) !important; mask-position: right bottom, center !important; mask-repeat: no-repeat !important; mask-origin: padding-box, content-box !important; mask-clip: padding-box, content-box !important; }
   /* A determinate progress is HTML's (LLP 1116 D8): its UA sheet sizes it (`10em` by `1em`, border-box), as the kernel
      does; a block, as every node is, where the UA's is an inline-block. The page draws its bar as UIKit draws its own and
      Linux paints it (LLP 1116.003): a 4 px capsule centred across the box, the accent's to the value over a track of
@@ -132,9 +132,11 @@
      and the tab bar are (the tint, iOS's \`LinkText\`); one holding a row or
      column, or given a \`role\` or a \`buttonStyle\`, is the author's row or
      button and inherits. Both are \`:where()\`, so an authored colour wins.
-     Every link points, as on any web page. Markdown's own links (never
-     views) keep the UA's look. */
-  #exact-root a[data-view] { text-decoration: none; cursor: pointer; display: block; }
+     Every link points, as on any web page: one with an \`href\`, since an
+     \`href\` that turns out empty is no link and is not written. Markdown's
+     own links (never views) keep the UA's look. */
+  #exact-root a[data-view] { text-decoration: none; display: block; }
+  #exact-root a[data-view][href] { cursor: pointer; }
   :where(#exact-root a[data-view]) { color: inherit; }
   :where(#exact-root a[data-view][href]:not([role], [data-button-style], [data-exact-text] a):not(:has(> :not([data-exact-text], img)))) { color: var(--exact-accent, AccentColor); }
   #exact-root [data-exact-text] a[data-view] { display: inline; }
@@ -241,6 +243,7 @@
   #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
   #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
+  :where(#exact-root [role="tablist"]) { appearance: auto; }
   :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9eb, #1d1d1feb); box-shadow: 0 -.5px 0 var(--exact-separator, light-dark(#3c3c431f, #54545880)); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: light-dark(#8e8e93, #98989d); }
@@ -385,11 +388,14 @@
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
   /* Modal dimming belongs to the host; UIKit supplies its own backdrop. It dims the route the
-     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6). */
-  [navigationPresentation="modal"] { isolation: isolate; position: relative; }
+     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6).
+     Unsaid sheet paint is the platform's Canvas, including a sheet over a sheet; authored paint wins. */
+  [navigationPresentation="modal"] { isolation: isolate; position: relative; background-color: Canvas; }
   [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
-  /* `all: unset` would inherit the field's color onto the placeholder. */
-  input:not([data-native])::placeholder, textarea:not([data-native])::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
+  /* `all: unset` would inherit the field's color onto the placeholder. An authored `::placeholder` colour (LLP 1104 D3) is the private
+     `--exact-placeholder-color` (css.rs), its own alpha the only opacity; without one a bare field mutes its ink and a native field keeps the UA's. */
+  input:not([data-native])::placeholder, textarea:not([data-native])::placeholder { color: var(--exact-placeholder-color, light-dark(#3c3c434c, #ebebf54c)); opacity: 1; }
+  :is(input, textarea)[data-native]::placeholder { color: var(--exact-placeholder-color, revert-layer); }
   /* A platform material (host policy, LLP 1053.000 D3, D4): the schema's approximation of the named material, from the variables the host sets
      (element.rs `material_css`). It wins over an authored backdrop-filter on the same node, as the native hosts do. */
   [backgroundMaterial] { backdrop-filter: blur(var(--exact-material-blur)) saturate(var(--exact-material-saturate)) !important; background-color: light-dark(var(--exact-material-light), var(--exact-material-dark)); }

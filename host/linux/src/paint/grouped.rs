@@ -1,14 +1,12 @@
 //! Grouped-row separators paint in the border pass, under the row's content.
 use super::{border, rgba, Rect4, SeparatorGroups};
-use exact_kernel::{Dimension, Display, Kernel, NodeRef, PropId, StyleId};
+use exact_kernel::{Display, Kernel, NodeRef, PropId, StyleId};
 
 pub(super) fn capture(
     node: &NodeRef<'_>,
     kernel: &Kernel,
     groups: &SeparatorGroups,
     dark: bool,
-    width: f32,
-    widths: [f32; 4],
 ) -> Option<(f32, [u8; 4])> {
     if node.props.bool(PropId::GroupedRowSeparator) != Some(true)
         || node.style.display == Display::None
@@ -24,13 +22,7 @@ pub(super) fn capture(
     }
     let s = node.style;
     let inset = if s.mask.has(StyleId::PaddingLeft) {
-        let basis = (width - widths[3] - widths[1]).max(0.0);
-        match s.padding_left.resolve(&kernel.env()) {
-            Dimension::Points(p) => p,
-            Dimension::Percent(p) => basis * p / 100.0,
-            Dimension::Calc(p, x) => basis * p / 100.0 + x,
-            _ => 0.0,
-        }
+        kernel.resolved_padding(node.key).unwrap_or_default().0
     } else {
         16.0
     };
@@ -70,6 +62,7 @@ pub(super) fn append(
             clip: None,
             color: ink,
             ring: None,
+            ring_clip: None,
         });
     }
 }

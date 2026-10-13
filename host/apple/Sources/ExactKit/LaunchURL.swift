@@ -14,6 +14,24 @@ extension ExactSession {
         }.first ?? runtime.location(of: href)
     }
 
+    /// A notification's location and a host URL share the cold and warm
+    /// incoming-route path, without requiring a URL scheme.
+    @discardableResult func openLocation(_ incoming: String) -> Bool {
+        guard state != .destroyed else { return false }
+        return openIncoming(runtime.location(of: incoming))
+    }
+
+    /// Before boot the first incoming location is the launch location and
+    /// later ones navigate in order after it; afterwards each is one event.
+    func openIncoming(_ location: String) -> Bool {
+        if !booted {
+            if launchLocation == nil { runtime.launch(location); launchLocation = location }
+            else { pendingLaunchLocations.append(location) }
+            return true
+        }
+        return navigate(location)
+    }
+
     /// The view that hears `navigate`: the navigation root (LLP 1038 D8).
     var navigationRoot: NodeView? {
         presenter.views.values.first { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }

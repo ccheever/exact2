@@ -531,8 +531,9 @@ pub(crate) fn check_style_value(
             }
             Expr::Let { body, .. } => pending.push((body, body.span())),
             // @ref LLP 1095 D3 — a plan's platform colours are its literals:
-            // never built from a template, a concatenation or a call.
-            Expr::Str(..) => {}
+            // never built from a template, a concatenation or a call. A
+            // metric's name is the compiler's alone (LLP 1115.002 D6).
+            Expr::Str(..) => crate::metrics::refuse_authored(a, value, span)?,
             other if builds_platform_color(other) => {
                 return err(
                     "lower-platform-color-literal",
@@ -593,10 +594,11 @@ pub(crate) fn check_style_value(
             {
                 return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
             }
-            if rows.contains(&StyleId::UserSelect)
-                && matches!(v.as_str(), "text" | "all" | "contain")
-            {
-                return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            // @ref LLP 1115.000 D11.6 — `text` is honoured where a host has
+            // text selection (the web, macOS, iOS); the other two name a
+            // selection behaviour no native presenter has.
+            if rows.contains(&StyleId::UserSelect) && matches!(v.as_str(), "all" | "contain") {
+                return err("lower-css-user-select", format!("CSS `user-select=\"{v}\"` is not implemented by the native presenters: `all` selects an element whole on one press and `contain` keeps a selection from leaving its element, and their text selection ownership has neither. Supported values are auto, none and text"), span);
             }
             if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
                 return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, another right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
@@ -681,6 +683,10 @@ pub(crate) fn check_style_value(
                     format!("`{}=\"{v}\"`: {why}", a.name),
                     span,
                 );
+            }
+            // @ref LLP 1001 §6: CSS's `text-wrap-style` keywords the hosts lack.
+            if rows.contains(&StyleId::TextWrapStyle) && matches!(v.trim(), "pretty" | "stable") {
+                return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `balance`; Chrome's `pretty` and `stable` line breakers are not implemented on the native hosts. Use `auto` for ordinary wrapping", a.name), span);
             }
             // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
             // page's schemes, not the parent's, and `light dark` and `only`
@@ -874,7 +880,10 @@ pub(crate) fn check_style_value(
         let Some(next) = pending.pop() else { break };
         current = next;
     }
-    if !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
+    // A metric in a sheet the compiler wrote is a string that every host
+    // reads as its platform's number (LLP 1115.002 D6).
+    let metric = !a.written && crate::metrics::names(&a.value);
+    if !metric && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
         let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
             (matches!(ty, Ty::String) && !css_wide_branches(&a.value, rows))
                 .then_some(a.value.span())
@@ -1432,7 +1441,7 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
             "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset"
         )
     {
-        return Some("the native hosts paint `none`, `hidden` and `solid` rules, as they paint borders; Chrome would paint this one and they would not");
+        return Some("the native hosts paint only `none`, `hidden` and `solid` column rules; Chrome would paint this one and they would not");
     }
     if (has(StyleId::BreakBefore) || has(StyleId::BreakAfter))
         && matches!(

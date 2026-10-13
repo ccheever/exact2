@@ -15,6 +15,9 @@
 import ExactKit
 import ExactComposition
 import UIKit
+#if !os(tvOS)
+import UserNotifications
+#endif
 
 setvbuf(stdout, nil, _IOLBF, 0)
 let exact = ExactComposition.app
@@ -202,6 +205,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         a = exact.makeSession(delegate: delegate, label: "a")
         b = exact.makeSession(delegate: delegate, label: "b")
+        #if !os(tvOS)
+        exact.installNotificationClicks()
+        #endif
         if ExactEnv.agentFreezes { a.clock = 0; b.clock = 0 }
         sessions = [("a", a), ("b", b)]
         return true
@@ -219,6 +225,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let ws = scene as? UIWindowScene else { return }
+        #if !os(tvOS)
+        if let response = connectionOptions.notificationResponse { exact.openNotification(response) }
+        #endif
         let w = ExactWindow(windowScene: ws)
         let rootController = RootController()
         root = rootController

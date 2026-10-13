@@ -3,7 +3,6 @@
 mod api;
 mod index;
 mod inset;
-pub(crate) use inset::Insets;
 mod into_view;
 mod nest;
 mod rekey;
@@ -206,11 +205,6 @@ pub(crate) struct Collection {
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
-    /// The padding before the first row and after the last that the next
-    /// report brings ([`Collection::set_insets`]).
-    padding_next: Option<[f64; 2]>,
-    /// The scroll padding at each end, along the axis (@ref LLP 1010 §6.9).
-    scroll_padding: [f64; 2],
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -477,8 +471,6 @@ impl Collection {
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
-            padding_next: None,
-            scroll_padding: [0.0; 2],
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -1178,6 +1170,7 @@ impl Collection {
     fn prepare_feedback(
         &self,
         feedback: &CollectionFeedback,
+        fill: CollectionFill,
     ) -> Result<Option<BTreeMap<ViewId, usize>>, InstanceError> {
         feedback
             .validate()
@@ -1198,52 +1191,6 @@ impl Collection {
         {
             return Ok(None);
         }
-        // Reject batches mentioning retired/unpublished wrappers or epochs atomically.
-        let by_view: BTreeMap<_, _> = self
-            .mounted
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.wrapper, i))
-            .collect();
-        if feedback.measurements.iter().any(|m| {
-            by_view
-                .get(&m.view)
-                .is_none_or(|i| self.mounted[*i].epoch != m.epoch)
-        }) {
-            return Ok(None);
-        }
-        let changed_width = self
-            .geometry
-            .as_ref()
-            .is_none_or(|g| g.cross != feedback.cross);
-        if !changed_width {
-            // Each height can fit the kernel's f32 geometry while their sum
-            // does not. Validate the complete replacement against retained
-            // heights before changing epochs, geometry, the index or view IDs.
-            // Only mounted rows are visited; no clone/scan of the N-row index.
-            let mut removed = 0.0;
-            let mut added = 0.0;
-            for measurement in &feedback.measurements {
-                let position = self.mounted[by_view[&measurement.view]].position;
-                removed += self.index.height(position).unwrap();
-                added += measurement.size;
-            }
-            let extent = (self.index.total_height() - removed).max(0.0) + added;
-            if !extent.is_finite() || extent > f32::MAX as f64 {
-                return Err(InstanceError::InvalidCollectionFeedback);
-            }
-        }
-        Ok(Some(by_view))
-    }
-    /// Called only after preflight and release of the transferred pin categories.
-    fn feedback(
-        &mut self,
-        u: &mut Update<'_>,
-        frames: &[Frame],
-        mut feedback: CollectionFeedback,
-        by_view: &BTreeMap<ViewId, usize>,
-        mut fill: CollectionFill,
-    ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
         // @ref LLP 1072 §5 — a build-only report keeps the port, width and
         // pins: a report that changes them may retire, so it is immediate.
         if fill.create_only
@@ -1265,11 +1212,81 @@ impl Collection {
         {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
-        // @ref LLP 1010 §6.9 — a new padding (a rotation's safe area) is no
-        // travel: the anchor is taken on the old range and restored on the
-        // new, so a followed end follows it.
-        let padding = self.padding_next.take().unwrap_or(self.padding());
-        if padding == self.padding() {
+        // Reject batches mentioning retired/unpublished wrappers or epochs atomically.
+        let by_view: BTreeMap<_, _> = self
+            .mounted
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.wrapper, i))
+            .collect();
+        let mut max_value = self
+            .index
+            .total_height()
+            .max(feedback.padding[0])
+            .max(feedback.padding[1]);
+        for m in &feedback.measurements {
+            if by_view
+                .get(&m.view)
+                .is_none_or(|i| self.mounted[*i].epoch != m.epoch)
+            {
+                return Ok(None);
+            }
+            max_value = max_value.max(m.size);
+        }
+        let changed_width = self
+            .geometry
+            .as_ref()
+            .is_none_or(|g| g.cross != feedback.cross);
+        if changed_width && !self.zero_heights.is_empty() {
+            max_value = max_value.max(self.estimated_height);
+        }
+        if self.index.padded_extent_definitely_fits(max_value) {
+            return Ok(Some(by_view));
+        }
+        let mut preview = self.index.preview_heights();
+        if changed_width {
+            // Width invalidation revives confirmed zero rows at the estimate;
+            // measurements from the old width will be discarded.
+            for key in &self.zero_heights {
+                if let Some(position) = self.index.position(key) {
+                    preview.set_height(position, self.estimated_height);
+                }
+            }
+        } else {
+            // Linear subtraction/addition can round below the committed binary
+            // sum. Preview only changed leaves and their ancestors, without
+            // cloning/scanning the N-row index or allocating for equal samples.
+            for measurement in &feedback.measurements {
+                let position = self.mounted[by_view[&measurement.view]].position;
+                preview.set_height(position, self.index.denoised(position, measurement.size));
+            }
+        }
+        let extent = preview.total_height();
+        // Physical content size and relative end correction add padding in
+        // different orders; both must fit native geometry before any mutation.
+        let [leading, trailing] = feedback.padding;
+        let padded_extent = (extent + leading + trailing).max(extent + trailing + leading);
+        if !padded_extent.is_finite() || padded_extent > f32::MAX as f64 {
+            return Err(InstanceError::InvalidCollectionFeedback);
+        }
+        Ok(Some(by_view))
+    }
+    /// Called only after preflight and release of the transferred pin categories.
+    fn feedback(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        mut feedback: CollectionFeedback,
+        by_view: &BTreeMap<ViewId, usize>,
+        mut fill: CollectionFill,
+    ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
+        // @ref LLP 1010 §6.9 — the padding the host laid out, taken in now
+        // that the report is accepted. A new padding (a rotation's safe area)
+        // is no travel: the anchor is taken on the old range and restored on
+        // the new, so a followed end follows it.
+        let padding = feedback.padding;
+        let padding_changed = padding != self.padding();
+        if !padding_changed {
             if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
                 self.reveal_shown(u);
                 return Ok((false, edge));
@@ -1360,7 +1377,7 @@ impl Collection {
         }
         self.check_preview_height(u)?;
         self.restore(anchor)?;
-        self.settle_into_view(u.env.plan, feedback.offset);
+        self.settle_into_view(u, feedback.offset);
         self.realize_window(u, frames, false, fill)?;
         self.reveal_shown(u);
         self.settle_start(extent);
@@ -1368,7 +1385,7 @@ impl Collection {
         // Receiving a newer sequence without changing rows/extent/correction is
         // a fact update, not a new frame (avoids post-layout feedback loops).
         now.scroll_sequence = previous.scroll_sequence;
-        let changed = previous != now;
+        let changed = padding_changed || previous != now;
         if changed {
             advance(&mut self.revision)?;
         }

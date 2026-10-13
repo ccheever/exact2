@@ -765,7 +765,11 @@ impl Backend for Raster {
                 Point::from_xy(start.0, start.1),
                 Point::from_xy(end.0, end.1),
                 stops,
-                SpreadMode::Pad,
+                if gradient.repeat {
+                    SpreadMode::Repeat
+                } else {
+                    SpreadMode::Pad
+                },
                 Transform::identity(),
             ),
             // The unit circle, scaled to the ellipse.
@@ -830,6 +834,21 @@ impl Backend for Raster {
             }
         };
         let mask = clipped.or(parent);
+        let mask = if let Some(ring) = &part.ring_clip {
+            let Some(ring) = tiny_path(ring) else {
+                return;
+            };
+            let Some(mut ring_mask) = Mask::new(self.width, self.height) else {
+                return;
+            };
+            ring_mask.fill_path(&ring, FillRule::EvenOdd, true, dev);
+            if let Some(base) = &mask {
+                multiply(&mut ring_mask, base);
+            }
+            Some(Rc::new(ring_mask))
+        } else {
+            mask
+        };
         if let Some(t) = self.target.as_mut() {
             t.fill_path(
                 &region,

@@ -29,6 +29,59 @@ pub enum Key {
     Chord(String),
 }
 
+#[cfg(test)]
+mod structural_read_tests {
+    use super::*;
+    use exact_plan::Value;
+
+    #[test]
+    fn an_open_dialog_and_popover_answer_the_data_read() {
+        let plan = contract::compile(
+            r#"component App
+  state hits = []
+  action probe
+    hits = querySelectorAll("[data-paint~=\"accent\"]")
+  action openDialog
+    showModal("dialog")
+  view
+    column
+      button id="other" data-paint="accent"
+        text "Other"
+      dialog id="dialog"
+        button id="save" data-paint="accent"
+          text "Save"
+      column id="menu" popover="auto"
+        button id="menu-save" data-paint="accent"
+          text "Menu save"
+"#,
+        )
+        .unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 80, 24).unwrap();
+        let ids = |host: &Host<()>| host.runner.slot("hits").cloned();
+        host.act("probe");
+        assert_eq!(ids(&host), Some(Value::list(vec![Value::str("other")])));
+        host.act("openDialog");
+        host.act("probe");
+        assert_eq!(
+            ids(&host),
+            Some(Value::list(vec![Value::str("other"), Value::str("save")]))
+        );
+        let menu = host
+            .find(|n| n.props.str(PropId::Id) == Some("menu"))
+            .unwrap();
+        host.open_layer(menu);
+        host.act("probe");
+        assert_eq!(
+            ids(&host),
+            Some(Value::list(vec![
+                Value::str("other"),
+                Value::str("save"),
+                Value::str("menu-save")
+            ]))
+        );
+    }
+}
+
 impl Key {
     /// The chord in Playwright's spelling, as `aria-keyshortcuts` and `key`
     /// handlers name it.
@@ -337,11 +390,20 @@ impl<D: DataSource> Host<D> {
                 }
                 ("preventDefault", _) => self.prevented = true,
                 ("openURL", Some(url)) => self.open_url(&url),
+                ("showNotification", _) => {
+                    exact_runner::notify::arm(
+                        &mut self.runner,
+                        exact_runner::notify::Notice::from_args(&command.args),
+                        false,
+                        false,
+                    );
+                }
                 _ => {}
             }
         }
         self.layers
             .retain(|(id, _)| self.runner.kernel().node(*id).is_some());
+        self.sync_top_layer();
         if self.focus.is_some_and(|f| !self.focusables().contains(&f)) {
             self.focus = None;
         }
@@ -857,6 +919,7 @@ impl<D: DataSource> Host<D> {
     /// descendant focused, the focus it took remembered.
     pub fn open_layer(&mut self, layer: ViewId) {
         self.layers.push((layer, self.focus));
+        self.sync_top_layer();
         // Its controls are born now, unseen, even when it was open before:
         // a key read before a frame shows them cannot reach them (LLP
         // 1101.002 §0, typed-ahead). A click aimed at what was on the
@@ -919,6 +982,7 @@ impl<D: DataSource> Host<D> {
             return;
         };
         let (_, restore) = self.layers.remove(at);
+        self.sync_top_layer();
         self.presented.stale = true;
         self.focus = None;
         self.focus(restore.filter(|r| self.runner.kernel().node(*r).is_some()));
@@ -937,6 +1001,11 @@ impl<D: DataSource> Host<D> {
     /// Whether a dialog or popover is open.
     pub fn has_layer(&self) -> bool {
         !self.layers.is_empty()
+    }
+
+    fn sync_top_layer(&mut self) {
+        let open: Vec<ViewId> = self.layers.iter().map(|(id, _)| *id).collect();
+        self.runner.top_layer(&open);
     }
 
     /// The node an agent names by `testId`.
@@ -960,5 +1029,35 @@ impl<D: DataSource> Host<D> {
             w: ((f.x + f.width) / COLUMN).round() as i32 - x,
             h: ((f.y + f.height) / ROW).round() as i32 - y,
         })
+    }
+}
+
+#[cfg(test)]
+mod notify_tests {
+    use super::*;
+    use exact_plan::Value;
+    use exact_runner::DataError;
+
+    struct Granted;
+    impl DataSource for Granted {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn grants(&self) -> &str {
+            "device.notifications purpose.notifications"
+        }
+    }
+
+    #[test]
+    fn a_notification_refused_by_the_terminal_is_journaled() {
+        let source = "component App\n  action remind\n    showNotification(title=\"Hello\", navigate=\"/inbox\")\n  view\n    button press=remind\n      text \"Remind\"";
+        let plan = contract::compile_terminal(source).unwrap();
+        let mut host = Host::boot(plan, Granted, Mode::Inline, 40, 10).unwrap();
+        host.act("remind");
+        let logs = exact_runner::agent::logs(&host.runner, 0);
+        assert!(
+            logs.contains("showNotification: refused: unavailable"),
+            "{logs}"
+        );
     }
 }

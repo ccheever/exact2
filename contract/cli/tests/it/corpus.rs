@@ -396,6 +396,32 @@ fn every_handler_kind_types_and_untyped_payloads_are_inferred() {
 }
 
 #[test]
+fn bubbling_focus_handlers_accept_a_focus_event_without_making_a_wrapper_focusable() {
+    let src = "component App\n  action entered(e: FocusEvent)\n  view\n    column focusin=entered focusout=entered testId=\"wrapper\"\n      link href=\"https://example.com\" testId=\"inner\"\n        text \"Inside\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = r.kernel();
+    let wrapper = kernel
+        .node_by_key(kernel.find_by_test_id("wrapper")[0])
+        .unwrap();
+    assert_eq!(wrapper.props.get(exact_kernel::PropId::TabIndex), None);
+    assert_eq!(
+        r.handlers_of(wrapper.id)
+            .iter()
+            .map(|k| k.name())
+            .collect::<Vec<_>>(),
+        vec!["focusin", "focusout"]
+    );
+}
+
+#[test]
 fn dynamic_invalid_integer_props_are_unset_and_journaled_at_boot() {
     for value in ["1.5", "9223372036854775808"] {
         let src = format!(

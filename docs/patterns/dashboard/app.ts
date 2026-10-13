@@ -1,23 +1,41 @@
-import type { Answer, Result, Sources } from './app.contract.d.ts';
+import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 
 export const appId = 'com.example.starter';
-export const grants = ''; // a server's data: `net.fetch <origin>` here, and fetch in the source
+const FILE = 'app:/data/expenses.json';
+export const grants = `fs.read ${FILE}\nfs.write ${FILE}`; // a server's data: `net.fetch <origin>` here, and fetch in the source
 
-type Category = Result<'loadSummary'>['categories'][number];
-const month: Category[] = [
-  { id: 'groceries', name: 'Groceries', spent: 412.5, budget: 450 },
-  { id: 'dining', name: 'Eating Out', spent: 286, budget: 200 },
-  { id: 'transport', name: 'Transport', spent: 96.4, budget: 150 },
+type Expense = Result<'loadSummary'>['recent'][number];
+// A budget per category, in cents; the file keeps an expense's category by id.
+const categories = [
+  { id: 'groceries', name: 'Groceries', budget: 45000 },
+  { id: 'dining', name: 'Eating Out', budget: 20000 },
+  { id: 'transport', name: 'Transport', budget: 15000 },
 ];
-const recent = [
-  { id: '1', title: 'Corner Market', detail: 'Groceries · Today', amount: 23.4 },
-  { id: '2', title: 'Noodle Bar', detail: 'Eating Out · Yesterday', amount: 31 },
-  { id: '3', title: 'Bus Pass', detail: 'Transport · Monday', amount: 45 },
-];
+const sum = (rows: { amount: number }[]) => rows.reduce((total, e) => total + e.amount, 0);
+const load = (storage: Storage): Promise<Expense[]> => storage.fs.readFile(FILE).then(
+  (bytes) => JSON.parse(new TextDecoder().decode(bytes)),
+  (e) => { if (e.code === 'ENOENT') return []; throw e; }); // no file yet ('bake', the build, passes through)
+const save = async (storage: Storage, all: Expense[]) => {
+  await storage.fs.atomicWriteFile(FILE, new TextEncoder().encode(JSON.stringify(all)));
+  return { ok: true, error: '' };
+};
 
 const sources: Sources = {
-  // The view has no reduce or sort: the data module adds and orders; the view shows.
-  loadSummary: ([period]) => period === 'week' ? { spent: 0, budget: 200, categories: [], recent: [] }
-    : { spent: month.reduce((sum, c) => sum + c.spent, 0), budget: 800, categories: month, recent },
+  // The view has no reduce or sort: the data module adds and orders; the view shows. It has no
+  // clock: `month` ("2026-03") is an argument, and each expense carries the `day` the view read.
+  loadSummary: async ([month], _store, storage) => {
+    const rows = (await load(storage)).filter((e) => e.day.startsWith(month));
+    const name = (id: string) => categories.find((c) => c.id === id)?.name ?? id;
+    return {
+      spent: sum(rows),
+      budget: categories.reduce((total, c) => total + c.budget, 0),
+      categories: categories.map((c) => ({ ...c, spent: sum(rows.filter((e) => e.category === c.id)) })),
+      recent: rows.slice(-5).reverse().map((e) => ({ ...e, category: name(e.category) })),
+    };
+  },
+  addExpense: async ([title, category, amount, day], _store, storage) => {
+    const all = await load(storage);
+    return save(storage, [...all, { id: String(Math.max(0, ...all.map((e) => Number(e.id))) + 1), title, category, amount, day }]);
+  },
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);

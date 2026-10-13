@@ -9,9 +9,14 @@ import XCTest
 final class AccessibilityTreeMacTests: XCTestCase {
     private var window: NSWindow!
 
-    private func fixture() throws -> Presenter {
+    /// `painted`: a dialog and a popover in the page's top layer, the
+    /// driver's own chrome, which is what the page's own projection of a
+    /// modal is about; the last case here holds a dialog in AppKit's sheet.
+    private func fixture(painted: Bool = true) throws -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
+        p.dialogs.painted = painted
+        p.menus.painted = painted
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = p.viewport
         p.apply(wireBatch([
@@ -612,6 +617,59 @@ final class AccessibilityTreeMacTests: XCTestCase {
         mine.contentView?.addSubview(try XCTUnwrap(p.views[3]))
         guard case .owned = p.axSheet(mine) else { return XCTFail("a sheet holding one of the presenter's views is its own") }
         guard case .none = p.axSheet(nil) else { return XCTFail("no sheet") }
+    }
+
+    /// LLP 1115.002 D7.2: a `dialog` in its sheet is that window's. The page
+    /// behind it exposes nothing, the sheet's content is the session's own
+    /// root, and the walk from it finds the dialog as the modal `showModal`
+    /// made, with what is in it; a popover AppKit shows from it is a root too.
+    func testADialogInItsSheetProjectsOnlyItsSubtree() throws {
+        let p = try fixture(painted: false)
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["semanticTag": "dialog", "id": "setup", "accessibilityRole": "dialog", "accessibilityLabel": "Setup", "testId": "dlg"]],
+            ["op": "create", "id": 11, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Options", "testId": "open", "popovertarget": "options"]],
+            ["op": "create", "id": 12, "kind": "view", "props": ["popover": "auto", "id": "options", "testId": "pop"]],
+            ["op": "create", "id": 13, "kind": "input", "props": ["accessibilityLabel": "Filter", "testId": "filter"]],
+            ["op": "children", "id": 12, "ids": [13]],
+            ["op": "children", "id": 10, "ids": [11, 12]],
+            ["op": "children", "id": 1, "ids": [2, 3, 10]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 100.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 11, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 12, "x": 0.0, "y": 30.0, "w": 180.0, "h": 60.0],
+            ["op": "frame", "id": 13, "x": 0.0, "y": 0.0, "w": 140.0, "h": 24.0],
+        ]))
+        let dialog = try XCTUnwrap(p.views[10])
+        p.dialogs.show(dialog)
+        defer { p.reset() }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        XCTAssertTrue(dialog.window === sheet)
+        guard case .owned(let content) = p.axSheet(sheet) else { return XCTFail("the dialog's sheet is the session's own") }
+        XCTAssertEqual(p.sheets(on: window).count, 1)
+        // The page: nothing of it, and nothing of the dialog either, which is another window's.
+        XCTAssertEqual(p.viewport.accessibilityChildren()?.count, 0)
+        let parent = dialog.accessibilityParent() as AnyObject?
+        XCTAssertTrue(parent === sheet || parent === content, "the dialog's parent is its sheet, not the viewport")
+        let ax = p.axElements(roots: [p.viewport, content], modalRoot: content)
+        let modal = try XCTUnwrap(ax["modal"] as? [String: Any])
+        XCTAssertEqual(modal["present"] as? Bool, true)
+        XCTAssertEqual(modal["by"] as? String, "showModal")
+        XCTAssertEqual(modal["id"] as? UInt32, 10)
+        let all = elements(ax)
+        XCTAssertTrue(all.contains { $0["testId"] as? String == "dlg" && $0["role"] as? String == "dialog" })
+        XCTAssertTrue(all.contains { $0["testId"] as? String == "open" })
+        XCTAssertFalse(all.contains { $0["testId"] as? String == "named" }, "the page behind the sheet is hidden")
+        // A popover from the sheet: AppKit's, in a window of its own, and a root of its own.
+        p.menus.show(try XCTUnwrap(p.views[12]), from: try XCTUnwrap(p.views[11]))
+        let popover = try XCTUnwrap(p.menus.windowed.first)
+        XCTAssertTrue(p.views[12]?.superview === popover.content)
+        XCTAssertTrue(p.hosts(popover.window))
+        let with = elements(p.axElements(roots: [p.viewport, content] + p.menus.windowed.map(\.content), modalRoot: content))
+        XCTAssertTrue(with.contains { $0["testId"] as? String == "filter" }, "the popover's field is reachable")
+        XCTAssertFalse(with.contains { $0["testId"] as? String == "named" })
+        p.dialogs.close(dialog)
+        XCTAssertNil(window.attachedSheet)
+        XCTAssertTrue(p.menus.windowed.isEmpty, "a popover of the dialog's closes with it")
+        XCTAssertTrue(elements(p.axElements(roots: [p.viewport])).contains { $0["testId"] as? String == "named" }, "the page is back")
     }
 }
 #endif

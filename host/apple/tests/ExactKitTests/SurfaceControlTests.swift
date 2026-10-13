@@ -4,6 +4,7 @@ import AppKit
 import UIKit
 #endif
 import XCTest
+import CryptoKit
 @testable import ExactKit
 @testable import ExactSurfaces
 
@@ -14,6 +15,27 @@ private var replacements = 0
 var controlEvents: [[String: Any]] = []
 private var boundObjects: [NSDictionary] = []
 final class SurfaceControlTests: XCTestCase {
+    func testArchivedGpuFrameworksKeepTheBakedDigestAndDevelopmentDylibPath() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for (artifact, name) in [("", "ExactGpu"), ("title-sky", "ExactGpu_title_sky")] {
+            let loose = directory.appendingPathComponent(GpuModule.loadName(artifact: artifact)).path
+            XCTAssertEqual(GpuModule.embeddedPath(directory: directory.path, artifact: artifact), loose)
+            let framework = directory.appendingPathComponent("\(name).framework")
+            try FileManager.default.createDirectory(at: framework, withIntermediateDirectories: true)
+            let binary = framework.appendingPathComponent(name), bytes = Data("signed GPU product".utf8)
+            try bytes.write(to: binary)
+            let path = GpuModule.embeddedPath(directory: directory.path, artifact: artifact)
+            XCTAssertEqual(path, binary.path)
+            let card: [String: Any] = ["app": "test.app", "cohort": "cohort",
+                "sha256": SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()]
+            let embedded: [String: Any] = artifact.isEmpty ? ["gpu": card] : ["gpuModules": [artifact: card]]
+            let compat: [String: Any] = ["id": "cohort", "inputs": ["app": "test.app"], "embedded": embedded]
+            XCTAssertNil(GpuModule.verify(path: path, compat: compat, artifact: artifact))
+            try Data("changed after bake".utf8).write(to: binary)
+            XCTAssertTrue(try XCTUnwrap(GpuModule.verify(path: path, compat: compat, artifact: artifact)).message.contains("digest mismatch"))
+        }
+    }
     override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)

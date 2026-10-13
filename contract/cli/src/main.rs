@@ -26,7 +26,7 @@ const USAGE: &str = "usage:
   contract test <file.test.contract>
   contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   contract verify <file.contract> [--types] [--prove <Module>]
-  contract vocab [--json] [<name> …]";
+  contract vocab [--json] [--all] [<name> …]";
 
 #[cfg(windows)]
 fn main() -> ExitCode {

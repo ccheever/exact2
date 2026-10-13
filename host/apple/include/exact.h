@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 14
+#define EXACT_ABI_VERSION 15
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,11 +112,28 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
  * the schema has no such material. */
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
 
+/* LLP 1066. Resolve length stops/repetition for a painted box. UTF-8 CSS in,
+ * JSON out; returns bytes needed, writing nothing when cap is too small. */
+size_t exact_gradient(const uint8_t *css, size_t len, float width, float height,
+                      uint8_t dark, uint8_t *out, size_t cap);
+
 /* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
  * (NaN is -exact-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
  * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */
 size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,
     const float *radii, float *out, size_t cap);
+
+/* Intern a CSS calculation tree; return 0 for invalid or compact lengths.
+ * The returned handle has no environment; exact_calc_create supplies it. */
+uint32_t exact_calc_parse(const uint8_t *text, size_t len);
+
+/* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
+ * viewport width/height (the window's when a sheet is open), segment cols/rows, then x,y,w,h
+ * per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
+void *exact_calc_create(uint32_t handle, const double *values, size_t count);
+double exact_calc_resolve(const void *context, double basis);
+void exact_calc_destroy(void *context);
 
 /* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
  * Non-null buffers must be aligned and valid for their stated counts. */
@@ -177,6 +194,7 @@ typedef struct ExactMeasureRequest {
     uint8_t text_box_trim;  /* CSS text-box-trim: 0 none, 1 trim-start, 2 trim-end, 3 trim-both */
     uint8_t text_box_over;  /* text-box-edge over: 0 text, 1 cap, 2 ex */
     uint8_t text_box_under; /* text-box-edge under: 0 text, 1 alphabetic */
+    uint8_t text_wrap_style; /* CSS text-wrap-style: 0 auto, 1 balance (LLP 1001 §6) */
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */
@@ -303,6 +321,13 @@ void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
  * NULL (the default) keeps every paragraph whole in a multi-column flow. */
 typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
 void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
+/* A system symbol's natural size, measured before layout: an Apple symbol name (UTF-8, not
+ * NUL-terminated), its point size and CSS weight. Writes width and height to out and returns 1,
+ * or 0 when it cannot say; called with exact_set_measure's context, and only beside a text
+ * measurer it registered: with the reference measurer, as with NULL (the default), a symbol is
+ * the size its view reports. */
+typedef uint8_t (*ExactSymbolFn)(void *ctx, const uint8_t *name, size_t len, float font_size, uint16_t font_weight, float *out);
+void exact_set_symbol_measure(ExactRuntime rt, ExactSymbolFn measure);
 void exact_set_wake(ExactRuntime rt, ExactWakeFn wake, void *ctx);
 void exact_set_fonts(ExactRuntime rt, ExactFontsFn fonts, void *ctx);
 
@@ -390,9 +415,12 @@ uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
  * 40 = a text field's input, 41 its change, 42 its select (UTF-8
  *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
  *      the whole value verbatim; x2apps codeedit #2);
- * 6 = key (keydown) and 43 = keyup (#140): UTF-8 chord (`Shift+Meta+b`),
+ * 48 = range replacement input (same payload as 40, inputType insertReplacementText);
+ * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
  *      true|false for repeat;
+ * 46 = focusin, 47 = focusout (#283): UTF-8 `<target byte length>:<target id>`
+ *      then `0` (no relatedTarget) or `1<related id>`;
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
@@ -403,6 +431,9 @@ uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t le
  * frame() and measure() subtract from the kernel's scroll-free box, so an
  * action reads the box where the viewer sees it (LLP 1051.000 D1). No batch. */
 void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, double top);
+/* Open top-layer views in back-to-front order, with viewport x/y/width/height
+ * in four doubles per id. Structural reads use their actual presentation. */
+void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, uint32_t count);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
@@ -507,6 +538,9 @@ uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
+/* The date the next boot or candidate settles under, told before it; the
+ * running runner is not told. A date that does not validate is ignored. */
+uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
@@ -604,6 +638,12 @@ uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
  * {"group":[view...],"next":view|null,"previous":view|null} — the radios of its
  * name in tree order, and the enabled radio ArrowDown/ArrowUp moves the check to. */
 uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
+/* A navigation root's tabs by the kernel's rule (LLP 1115.001 D11), JSON in the
+ * output buffer, not a batch: {"tablist":view,"tabs":[view...],"panels":[view...],
+ * "unsaid":bool}, the tabs that name a panel and those panels in tab order, and
+ * whether the app left the bar's placement unsaid (the web's rule for its sidebar,
+ * LLP 1116.004 D1.1); null for one stack. */
+uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
 /* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */

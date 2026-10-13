@@ -8,9 +8,7 @@ let echo = null, pop = null, draining = false;
 const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
-// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own tablist's tabs name with
-// aria-controls, in tab order (a tablist inside a route is that route's). Each tab's stack is its panel's
-// route rows, kept mounted; without tabs the stack is the root's own rows.
+// @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
 const tabsOf = nav => {
   for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
     if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
@@ -23,14 +21,9 @@ const tabsOf = nav => {
 };
 const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
-// @ref LLP 1116.004 D1 — a wide window adapts what the app left unsaid, in the projection alone (the router, the history
-// and each route's state are unchanged; a resize across WIDE projects again). A root tablist placed as the tabs recipe
-// writes it (a horizontal bar, a direct child of the root's flex column, in flow) is a sidebar (`data-exact-sidebar`; the
-// shell's rules draw it); one the app arranged (vertical, positioned, in a route) stays its own. A stack whose root route
-// is a list whose rows push (a pressable row drawing the disclosure, `symbol:forward-chevron`, as the iOS grouped list
-// reads it; the compiler writes `navigationSplit="none"` on a route whose chevron rows push nowhere, LLP 1116.007 D3.7) shows that route as a column beside its top (`data-exact-split`), as UISplitViewController does, marking the
-// row whose press pushed the detail shown; a sheet stays a sheet. `navigationSplit` on the root route opts out ("none")
-// or names the column's width (320 unsaid), and splits a list the rule does not find.
+// @ref LLP 1116.004 D1, LLP 1116.007 D3.7 — WIDE projects an unsaid root tablist as a sidebar and a root disclosure
+// list beside its pushed detail, without changing routing or state. Authored arrangements stay; sheets stay sheets.
+// `navigationSplit` opts out ("none") or sets the column width (320 unsaid); the compiler opts out rows that push nowhere.
 const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches, splitRoots = new WeakSet(), rowOf = new WeakMap();
 const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
 const DISCLOSURE = ':is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"])';
@@ -45,7 +38,7 @@ function splitOf([r]) {
   splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
 }
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
-const unsaidBar = (nav, list) => list?.parentElement === nav && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
+const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
   || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
 /** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
  * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
@@ -724,8 +717,7 @@ export function focusController({ready, elements, inert}) {
   }};
 }
 
-// The focus, blur, selectText and setSelectionRange commands a batch carried, run once every
-// node and value in it is committed (a focus handler may dispatch an action).
+// Field and focus commands run after the batch's nodes and values commit; their handlers may dispatch an action.
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
     if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
@@ -739,6 +731,7 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
       continue;
     }
     if (name === "setSelectionRange") { setFieldSelection([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
+    if (name === "setRangeText") { setFieldRangeText([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     const selectText = name === "selectText";
     if (args?.length !== 1 || typeof args[0] !== "string" || !ready) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
@@ -1120,16 +1113,23 @@ export function settleRadios(el, bound) {
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
   for (const r of group) if (bound(r) === true && !r.checked) r.checked = true;
 }
-// `setSelectionRange("id", start, end[, direction])` (x2apps codeedit #2):
-// the field's own method, by its id, after the batch; it does not focus.
+// `setSelectionRange` (x2apps codeedit #2): the field's own method after the batch, without focus.
 export function setFieldSelection(el, args, log) {
   const [id, start, end, direction] = args ?? [];
   if (!el) return log(`setSelectionRange "${id}" refused: no live node with that id`);
   if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
   try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
 }
-// The wasm host's `input`, `change` and a text field's `select` (LLP 1069.001 D4; x2apps survey #2, codeedit #2),
-// `dispatch(kind, payload)`: a checkbox's checked state (25, 24), a radio's value (23, 1), a text field's selection
+// @ref LLP 1069.001, 2026-10-12 — HTML's range edit, plus one input to synchronize the app's value; no undo step.
+export function setFieldRangeText(el, args, log) {
+  const [id, text, ...range] = args;
+  if (!el) return log(`setRangeText "${id}" refused: no live node with that id`);
+  if (typeof el.setRangeText !== "function" || el.exactMarkup || el.getAttribute("markup") === "markdown") return log(`setRangeText "${id}" refused: not a plain text field`);
+  try { el.setRangeText(text, ...range); }
+  catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
+  el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
+}
+// LLP 1069.001 D4: `dispatch(kind, payload)` carries a checkbox (25, 24), radio (23, 1), field's selection
 // then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
 // decides, and one that refuses snaps a checkbox or a radio group back.
 export function controlEvent(el, kind, on, dispatch) {
@@ -1147,7 +1147,7 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? 40 : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+    dispatch(textField(el) ? (e.inputType === "insertReplacementText" ? 48 : 40) : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
   });
 }
 // D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
