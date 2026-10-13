@@ -886,13 +886,16 @@ sits on that list carries the trade it would take.
   on purpose and asserts the peer saw the close first; under heavy CPU load it failed 2 runs in
   about 10 (it is not in the six checks). Make it deterministic: assert the send is accounted and
   the close arrives, not which the peer saw first.
-- **iOS hit-testing under a positioned sibling** (bsky5, Bluesky clone b28 on 57ab536e3, 2026-10-12):
-  the profile avatar (`position="absolute"`, `profile.contract` before clone 1be739e) paints over
-  the in-flow info column that follows it, as LLP 1083.000 orders them, but a tap in the avatar went
-  to the column (`agent ios`: "node #983 covers its middle"); the web is right; `z-index=1` works
-  around it. `hitChildren`/`hitOrder` (`PaintOrder.swift`) already follow `zPosition`, so the
-  disagreement is elsewhere: a column whose positioned descendants lift its rank, a flattened layer
-  (`flatHit`) without the rank, or a native control's early return. Needs a repro on a fixture.
+- **Reported iOS hit-testing under a positioned sibling; repro still needed** (bsky5, Bluesky clone
+  b28 on 57ab536e3, 2026-10-12): the profile avatar (`position="absolute"`, `profile.contract`
+  before clone 1be739e) remained visible, but `agent ios` refused its tap with "node #983 covers
+  its middle"; `z-index=1` worked around it. The reported disagreement with the web is unconfirmed.
+  On 2ba30e401 (2026-10-13), a small Contract fixture's absolute avatar, exposed info column and
+  child each received their taps on Chrome, macOS and iOS. Native buttons, a flat leaf and a
+  clipped parent with a shadow also agreed. Adding a positioned descendant to the later column
+  raised it by LLP 1083.000's isolation rule on all three hosts: a transparent column left the
+  avatar visible but took the tap there, and Chrome and iOS both refused the avatar tap as covered.
+  Recover the original distinguishing shape before changing UIKit's hit order.
 - **The root's bottom bar during an interactive zoom dismissal** (bsky5, b28): while UIKit's zoom
   (`ModalIOS.swift`, `preferredTransition = .zoom`) is dragged back, the view underneath has no
   tab bar, and it appears when the dismissal ends. Likely the fullscreen presentation's presenting
