@@ -20,7 +20,7 @@ routes nav
     page "/page/:name" render=request
 
 component App
-  resource words = words(params(nav, "name")) as shape list<string>
+  resource words = words(params(nav, "name")) as shape string[]
   view
     column
       for w in words key = w

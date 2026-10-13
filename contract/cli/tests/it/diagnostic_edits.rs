@@ -93,19 +93,6 @@ const CASES: &[Case] = &[
         leads: "write `font-weight=700`:",
         fixed: &[("", "text \"a\" font-weight=700")],
     },
-    // A typed state.
-    Case {
-        wrote: ("  state count: number = 0\n", "text \"a\""),
-        id: "syntax-expected",
-        leads: "drop `: number`;",
-        fixed: &[("  state count = 0\n", "text \"a\"")],
-    },
-    Case {
-        wrote: ("  state queue: list<Item> = []\n", "text \"a\""),
-        id: "syntax-expected",
-        leads: "drop `: list<Item>`;",
-        fixed: &[(WRITES_LIST, "text \"a\"")],
-    },
     // `empty()` outside a resource's `else`.
     Case {
         wrote: ("  state items = empty()\n", "text \"a\""),

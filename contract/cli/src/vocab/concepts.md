@@ -58,7 +58,7 @@ once one failed with no answer. `progress` with no `value` is the system spinner
 shape Feed
   loaded: bool
   error: string
-  titles: list<string>
+  titles: string[]
 
 component App
   resource feed = loadFeed() as shape Feed else empty()
@@ -72,7 +72,7 @@ component App
           text "Try Again"
       else if not feed.loaded
         progress aria-label="Loading" testId="feed-loading"
-      else if length(feed.titles) == 0
+      else if feed.titles.length == 0
         text "Nothing here yet." color="-exact-secondary-label" testId="feed-empty"
       else
         for t in feed.titles key=t
@@ -243,7 +243,7 @@ component App
   action edit(v: string)
     draft = v
   action save
-    name = trim(draft)
+    name = draft.trim()
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
@@ -259,7 +259,7 @@ component App
               button id="back" press=back testId="cancel"
                 text "Cancel"
               text "Rename" role="heading"
-              button press=save disabled=(trim(draft) == "") testId="save"
+              button press=save disabled=(draft.trim() == "") testId="save"
                 text "Save"
             input value=draft input=edit aria-label="Name" autofocus=true margin=16 testId="field"
 ```
@@ -286,7 +286,7 @@ component App
     aimed = item
     showModal("remove")
   action remove
-    items = filter(items, i => i != aimed)
+    items = items.filter(i => i != aimed)
   view
     column padding=16 gap=8
       for i in items key=i
@@ -336,7 +336,7 @@ component App
   action log
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
-    days = concat(days, [formatDate(at, time.utcOffset, "iso")])
+    days = days.concat([formatDate(at, time.utcOffset, "iso")])
   view
     column padding=16 gap=4
       text formatDate(shown, time.utcOffset, "medium") testId="date"
@@ -392,7 +392,7 @@ swipe performs the first); on the web the row scrolls to show it.
 component App
   state items = ["Milk", "Eggs"]
   action remove(item: string)
-    items = filter(items, i => i != item)
+    items = items.filter(i => i != item)
   view
     column
       for i in items key=i
@@ -449,13 +449,13 @@ shape Reply
   ok: bool
 
 component App
-  resource items = loadItems() as shape list<string> else empty()
+  resource items = loadItems() as shape string[] else empty()
   mutation added as shape Reply refreshes items
   action add
     send added = addItem("Milk")
   view
     button press=add disabled=pending(added) testId="add"
-      text `Add (${length(items)})`
+      text `Add (${items.length})`
 ```
 
 - One send of a mutation per path (`analyze-send-twice`): a second write needs its own mutation or
@@ -474,13 +474,13 @@ request is in flight, `failed(name)` when it had no answer. Only the root declar
 ```contract
 component App
   state q = ""
-  resource hits = search(q) as shape list<string> else empty()
+  resource hits = search(q) as shape string[] else empty()
   action edit(v: string)
     q = v
   view
     column gap=8
       input value=q input=edit aria-label="Search" testId="q"
-      text `${length(hits)} found` testId="n"
+      text `${hits.length} found` testId="n"
 ```
 
 - The source answers exactly the shape (an extra field fails it), and a failed fetch is data, not
@@ -532,7 +532,7 @@ component App
 names: when, else, conditional, v-if, ternary
 
 `if cond` over indented nodes shows them while `cond` is true; `else if cond` and `else` follow
-at its indent. The condition is a bool, with no truthiness (`length(xs) > 0`, not `xs`).
+at its indent. The condition is a bool, with no truthiness (`xs.length > 0`, not `xs`).
 A view and an action choose with `if`, an expression with `cond ? a : b`; `when` is a task's gate.
 
 ```contract
@@ -599,7 +599,7 @@ component App
 names: record, struct, interface, typedef, model
 
 `shape Item` over indented `field: type` lines declares a record; a type is `number`, `string`, `bool`,
-`option<T>`, `list<T>` or another shape. A record is built with every field named, `Item(id="1", ...)`,
+`option<T>`, `T[]` or another shape. A record is built with every field named, `Item(id="1", ...)`,
 and copied with one base and the changes, `Item(item, done=true)`. A resource's `as shape T` and a data
 source's answer are this type.
 
@@ -618,7 +618,7 @@ component App
       text `${item.title}: ${item.done ? "done" : "to buy"}`
 ```
 
-- No optional fields or methods: a field that may be missing is an `option<T>`.
+- A shape has no optional fields and declares no methods: a field that may be missing is an `option<T>`.
 
 ## props: a component's inputs, and its children
 names: prop, children, slot, inject, provide, component
@@ -660,9 +660,9 @@ kept in step. Cycles are refused.
 component App
   state nums = [1, 5, 9]
   state min = 4
-  derive big = filter(nums, n => n >= min)
+  derive big = nums.filter(n => n >= min)
   view
-    text `${length(big)} of ${length(nums)}` testId="n"
+    text `${big.length} of ${nums.length}` testId="n"
 ```
 
 - A derive is no timer: one that reads `performanceNow()` shows the time of its last recompute.

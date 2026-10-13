@@ -11,7 +11,7 @@ impl DataSource for Rows {
 const SOURCE: &str = r#"component App
   state count = 0
   state disabled = false
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   action receive(item: string, before: option<string>)
     count = count + 1
   action block
@@ -459,8 +459,8 @@ const BOARD: &str = r#"shape Card
   col: string
 component App
   state log = ""
-  resource initial = cards() as shape list<Card>
-  mutation moved as shape list<Card>
+  resource initial = cards() as shape Card[]
+  mutation moved as shape Card[]
   derive cards = match moved { case some(v) => v, case none => initial }
   action dropA(item: string, before: option<string>, e: ReorderEvent)
     log = `${item} ${e.from}>${e.to}`
@@ -471,10 +471,10 @@ component App
   view
     row
       list id="a" testId="a" virtualized=true reorderGroup="g" reorderdrop=dropA height=100 width=100
-        for c in filter(cards, k => k.col == "a") key=c.id
+        for c in cards.filter(k => k.col == "a") key=c.id
           column reorderFor="a" testId=`grip-${c.id}` height=20
       list id="b" testId="b" virtualized=true reorderGroup="g" reorderdrop=dropB height=100 width=100
-        for c in filter(cards, k => k.col == "b") key=c.id
+        for c in cards.filter(k => k.col == "b") key=c.id
           column reorderFor="b" testId=`grip-${c.id}` height=20
 "#;
 #[test]

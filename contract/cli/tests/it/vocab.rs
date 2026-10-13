@@ -343,7 +343,7 @@ fn a_function_shows_its_signature_rules_and_example() {
     );
     let slice = stdout(&vocab(&["slice"]));
     assert!(
-        slice.contains("  signature: slice(any, number[, number]) -> any\n"),
+        slice.contains("  signature: any.slice(number[, number]) -> any\n"),
         "{slice}"
     );
     assert_eq!(
@@ -377,7 +377,7 @@ fn a_name_that_is_an_attribute_and_a_function_shows_both() {
     let out = stdout(&vocab(&["filter"]));
     assert!(out.contains("filter: style attribute"), "{out}");
     assert!(
-        out.contains("filter: standard function\n  signature: filter(any, any) -> any"),
+        out.contains("filter: standard function\n  signature: any.filter(any) -> any"),
         "{out}"
     );
 }
@@ -413,7 +413,7 @@ fn the_functions_are_listed_and_in_the_json() {
         "{all}"
     );
     assert!(
-        all.contains("  split(string, string) -> list<string>\n"),
+        all.contains("  string.split(string) -> string[]\n"),
         "{all}"
     );
     assert!(

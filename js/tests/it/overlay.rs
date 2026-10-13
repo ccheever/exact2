@@ -17,7 +17,7 @@ shape Item
   text: string
 
 component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   mutation captured as shape string
   mutation refused as shape string
   action capture

@@ -185,7 +185,7 @@ fn a_board_hears_its_menu_point_its_wheel_its_drop_and_its_unload() {
       zoom = zoom - e.deltaY / 100
       preventDefault()
   action took(e: DragEvent)
-    dropped = `${length(e.files)} ${join(e.files, "+")} ${e.offsetX}`
+    dropped = `${e.files.length} ${e.files.join("+")} ${e.offsetX}`
   action leaving
     if dirty
       preventDefault()

@@ -49,7 +49,7 @@ final class PickerColorTests: XCTestCase {
         let source = """
         component App
           state picked = "none"
-          action onPick(files: list<Picked>)
+          action onPick(files: Picked[])
             picked = match first(files) { case some(f) => f.path, case none => "empty" }
           view
             column

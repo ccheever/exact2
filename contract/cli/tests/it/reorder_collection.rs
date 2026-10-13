@@ -23,7 +23,7 @@ component App
   state dropped = "initial"
   state count = 0
   state disabled = false
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   action edit(v: string)
     draft = v
   action block
@@ -193,8 +193,8 @@ impl DataSource for EditingRows {
     }
 }
 fn editing(mode: &'static str) -> Runner<EditingRows> {
-    let source = SOURCE.replace("resource rows = rows() as shape list<string>",
-        "resource initial = rows() as shape list<string>\n  mutation changed as shape list<string>\n  derive rows = match changed { case some(value) => value, case none => initial }")
+    let source = SOURCE.replace("resource rows = rows() as shape string[]",
+        "resource initial = rows() as shape string[]\n  mutation changed as shape string[]\n  derive rows = match changed { case some(value) => value, case none => initial }")
         .replace("    dropped = item", "    send changed = move(item, before)\n    dropped = item");
     Runner::boot(
         contract::compile(&source).unwrap(),
@@ -508,7 +508,7 @@ fn numeric_keys_remain_valid_collections_but_cannot_admit_physical_reorder() {
         }
     }
     let source = SOURCE
-        .replace("shape list<string>", "shape list<number>")
+        .replace("shape string[]", "shape number[]")
         .replace("text x", "text `${x}`");
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),

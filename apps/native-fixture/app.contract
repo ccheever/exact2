@@ -28,7 +28,7 @@ shape Row
   n: number
 
 shape Rows
-  items: list<Row>
+  items: Row[]
 
 // The map providers installed, for the "Open in…" chooser (LLP 1021): rows
 // from data, because only the run time knows what is installed.
@@ -38,7 +38,7 @@ shape Provider
   icon: string
 
 shape Providers
-  items: list<Provider>
+  items: Provider[]
 
 component NativeFixture
   state popoverValue = ""
@@ -183,7 +183,7 @@ component NativeFixture
   action onChange(v: string)
     events = events + "change:" + v + ";"
   action onHover(over: bool)
-    events = events + "hover:" + toString(over) + ";"
+    events = events + "hover:" + over.toString() + ";"
   action onFocus
     events = events + "focus;"
   action onBlur
@@ -193,7 +193,7 @@ component NativeFixture
   action onSubmit
     events = events + "submit;"
   action onMessage(m: string)
-    if includes(m, "props:")
+    if m.includes("props:")
       received = m
     else
       events = events + "message:" + m + ";"
@@ -278,9 +278,9 @@ component NativeFixture
   action openMenu
     nav = push(nav, "/menu")
   action moreMenu
-    menuItems = concat(menuItems, [length(menuItems)])
+    menuItems = menuItems.concat([menuItems.length])
   action fewerMenu
-    menuItems = slice(menuItems, 0, -1)
+    menuItems = menuItems.slice(0, -1)
   action toggleMenuLarge
     menuLarge = not menuLarge
   action openSheet
@@ -435,7 +435,7 @@ component NativeFixture
                         text "Note"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                         head description="Badge"
-                    text ("composed " + toString(composed)) testId="composed"
+                    text ("composed " + composed.toString()) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
                         image "symbol:compose" width=20 height=20
@@ -487,7 +487,7 @@ component NativeFixture
                     // preview's press is the commit, popping into Detail.
                     button press=detail contextmenu=peeked contextPopover="peek" testId="peek" aria-label="Detail, long press to peek" display="flex" flex-direction="row" align-items="center" gap=8 padding=10 border-radius=12 background-color="#eef2ff"
                       text "Peek at Detail" flex=1
-                      text ("peeks " + toString(peeks)) testId="peeks" font-size=12 color="#6b7280"
+                      text ("peeks " + peeks.toString()) testId="peeks" font-size=12 color="#6b7280"
                     column id="peek" popover="auto" position="absolute" role="menu" width=300 padding=8 gap=4 background-color="#ffffff"
                       button contextPreview=true press=detail popovertarget="peek" popovertargetaction="hide" testId="peek-preview" aria-label="Open Detail" display="flex" flex-direction="column" gap=6 width="100%" height=180 padding=16 box-sizing="border-box" border-radius=12 background-color="#e0e7ff"
                         text "Detail" font-weight=700 font-size=20
@@ -515,7 +515,7 @@ component NativeFixture
                         text "Grow content"
                       button appearance="none" press=sizing testId="sizing" padding=6
                         text "Toggle intrinsic size"
-                    text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
+                    text ("count " + count.toString() + " · loads " + loads.toString()) testId="counts"
                     if shown
                       exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
                     exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
@@ -569,15 +569,15 @@ component NativeFixture
                     input hatch="feed" data-feed=feedWith value=fed input=setFed testId="fed" aria-label="Fed" placeholder="Fed" width=90 padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
                     button press=feed testId="feed" padding=6 background-color="#e5e7eb"
                       text "Feed"
-                    button hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping && hatchPresses < 4000 ? toString(hatchPresses) : "off") press=hatchPress testId="hatch-press" padding=6 background-color="#e5e7eb"
-                      text ("Pressed " + toString(hatchPresses))
+                    button hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping && hatchPresses < 4000 ? hatchPresses.toString() : "off") press=hatchPress testId="hatch-press" padding=6 background-color="#e5e7eb"
+                      text ("Pressed " + hatchPresses.toString())
                     button press=arm testId="arm" padding=6 background-color="#e5e7eb"
                       text "Arm"
                     button press=loop testId="loop" padding=6 background-color="#e5e7eb"
                       text "Loop"
                     button press=stopLoop testId="stop-loop" padding=6 background-color="#e5e7eb"
                       text "Stop"
-                    column hatch="clock" data-frames=toString(frameCount) data-run=(clocking ? "true" : "false") data-presses=toString(clockPresses) press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
+                    column hatch="clock" data-frames=frameCount.toString() data-run=(clocking ? "true" : "false") data-presses=clockPresses.toString() press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
                     button press=startClock testId="clock-start" padding=6 background-color="#e5e7eb"
                       text "Clock"
                     button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
@@ -591,7 +591,7 @@ component NativeFixture
                 if e.name == "detail"
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8
-                      text ("composed " + toString(composed)) testId="composed-detail"
+                      text ("composed " + composed.toString()) testId="composed-detail"
                       column testId="tall" height=1600 background-color="#f3f4f6"
                 // An "Open in…" at the foot of a card (LLP 1021 §5): its
                 // chooser above it, centred on it (`top span-all`), as a menu
@@ -624,7 +624,7 @@ component NativeFixture
                         text "Muted"
                       button press=toggleShortChat testId="toggle-short-chat" padding=6 background-color="#e5e7eb"
                         text "Short"
-                      text ("title presses " + toString(titlePresses)) testId="title-presses"
+                      text ("title presses " + titlePresses.toString()) testId="title-presses"
                       if not shortChat
                         column testId="tall-chat" height=1600 background-color="#f0fdf4"
                       text "End" testId="chat-end" margin-top="auto"
@@ -705,7 +705,7 @@ component NativeFixture
           // A filled box holding a text: the bar item's badge (LLP 1075.003 §9.9).
           if count > 0
             column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"
-              text toString(count) font-size=10 color="#ffffff"
+              text count.toString() font-size=10 color="#ffffff"
       // A root toast after the tablist, positioned with no z-index: it
       // paints and takes touches over the routes, as later positioned
       // siblings do on the web (contract/corpus/tabs.contract; splitter
@@ -720,7 +720,7 @@ component NativeFixture
 
 component HatchedRows
   props
-    items: list<Row>
+    items: Row[]
   state reuse = false
   action toggleReuse
     reuse = not reuse
@@ -737,6 +737,6 @@ component HatchedRows
         for r in items key=r.n
           row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
             column hatch="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
-            text ("Row " + toString(r.n))
+            text ("Row " + r.n.toString())
             button press=toggleReuse testId=`row-button-${r.n}`
               text "Toggle"

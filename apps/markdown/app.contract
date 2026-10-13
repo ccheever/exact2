@@ -26,8 +26,8 @@ shape Document
   message: string
   failed: bool
   count: number
-  blocks: list<Block>
-  siblings: list<Entry>
+  blocks: Block[]
+  siblings: Entry[]
 
 // The system's colour scheme, beneath whatever `setScheme` chose (LLP
 // 1069.000 D1): CSS's `prefers-color-scheme`, on every host.
@@ -70,7 +70,7 @@ component Markdown
   // `currentColor` to follow, so the artwork is chosen rather than tinted
   // (LLP 1034 D3).
   derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
-  derive hasFolder = not isEmpty(doc.siblings)
+  derive hasFolder = not doc.siblings.isEmpty()
   // The window is titled by the file it shows, as a Mac document window
   // is, so two documents in two windows or tabs tell apart (LLP 1069.010
   // D6); the welcome document's name is the app's.

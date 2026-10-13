@@ -86,9 +86,9 @@ const BOARD: &str = r#"shape Card
   col: string
 component App
   state log = ""
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(v) => v, case none => initial }
   action dropCard(col: string, item: string, before: option<string>, e: ReorderEvent)
     let at = match before { case some(k) => k, case none => "" }
@@ -98,7 +98,7 @@ component App
     row
       for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) height=100 width=100
-          for card in filter(cards, k => k.col == col) key=card.id
+          for card in cards.filter(k => k.col == col) key=card.id
             column reorderFor=`col-${col}` testId=`grip-${card.id}` height=20
               text card.id
 "#;

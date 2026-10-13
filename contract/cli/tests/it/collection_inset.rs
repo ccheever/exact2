@@ -12,7 +12,7 @@ use exact_runner::{
 const APP: &str = r#"component App
   state count = 100
   state ends = 0
-  resource rows = rows(count) as shape list<number>
+  resource rows = rows(count) as shape number[]
   action more(n: number)
     count = count + n
   action onEnd
@@ -283,7 +283,7 @@ fn a_followed_end_follows_the_padding_as_it_changes() {
 /// `scrollTop` 0 (Bluesky's soft reset under its header).
 const SNAP: &str = r#"component App
   state count = 100
-  resource rows = rows(count) as shape list<number>
+  resource rows = rows(count) as shape number[]
   action start(n: number)
     scrollIntoView("feed", n, block="start")
   action center(n: number)
@@ -431,7 +431,7 @@ fn padded(n: usize, axis: ListAxis, lead: &str, attrs: &str) -> String {
         r#"component App
   state count = {n}
   state lead = 92
-  resource rows = rows(count) as shape list<number>
+  resource rows = rows(count) as shape number[]
   action more(k: number)
     count = count + k
   action grow
@@ -581,7 +581,7 @@ fn a_request_uses_its_actions_computed_scroll_padding_immediately() {
         let app = format!(
             r#"component App
   state collapsed = false
-  resource rows = rows(100) as shape list<number>
+  resource rows = rows(100) as shape number[]
   action collapse(n: number)
     collapsed = true
     scrollIntoView("feed", n, block="start")
@@ -630,7 +630,7 @@ fn collapsing_scroll_padding_preserves_an_already_visible_nearest_target() {
             let app = format!(
                 r#"component App
   state collapsed = false
-  resource rows = rows(100) as shape list<number>
+  resource rows = rows(100) as shape number[]
   action collapse
     collapsed = true
     scrollIntoView("feed", 1, {align}="nearest")
@@ -677,7 +677,7 @@ fn a_seek_computes_new_list_styles_before_aligning_and_publishes_once() {
         let app = format!(
             r#"component App
   state shown = false
-  resource rows = rows(100) as shape list<number>
+  resource rows = rows(100) as shape number[]
   action go
     shown = true
     scrollIntoView("strip", 20, block="start", inline="start"{row})

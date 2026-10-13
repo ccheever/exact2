@@ -374,7 +374,7 @@ const THEME: &str = r#"shape Theme
   name: string
 
 component App
-  resource themes = themes() as shape list<Theme>
+  resource themes = themes() as shape Theme[]
   state theme = "system"
   state moves = 0
   action setTheme(value: string)

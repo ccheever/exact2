@@ -32,7 +32,7 @@ shape Run
 
 shape Cell
   id: string
-  runs: list<Run>
+  runs: Run[]
 
 shape Block
   id: string
@@ -42,8 +42,8 @@ shape Block
   text: string
   href: string
   header: bool
-  runs: list<Run>
-  cells: list<Cell>
+  runs: Run[]
+  cells: Cell[]
 
 shape Document
   title: string
@@ -55,7 +55,7 @@ shape Document
   revision: number
   largestBlock: number
   tableRows: number
-  blocks: list<Block>
+  blocks: Block[]
   source: string
 
 component MarkdownStress
@@ -144,7 +144,7 @@ component MarkdownStress
   action editMarkdown(value)
     editorText = value
   action editDraft(value)
-    if length(value) <= 512
+    if value.length <= 512
       draft = value
       draftTooLong = false
     else
@@ -336,7 +336,7 @@ component Runs
   inject
     theme: Theme
   props
-    runs: list<Run>
+    runs: Run[]
     size: number
     weight: number
   view
@@ -399,9 +399,9 @@ component DocumentBody
               MarkdownTool(name="code", label="Code", formats=formats, unavailable=unavailable, apply=applyFormat)
               MarkdownTool(name="bullet", label="List", formats=formats, unavailable=unavailable, apply=applyFormat)
               MarkdownTool(name="quote", label="Quote", formats=formats, unavailable=unavailable, apply=applyFormat)
-              button press=heading retainFocus=true testId="format-heading" aria-label=(includes(` ${formats} `, " heading2 ") ? "Heading 2 active" : "Heading 2") border-width=1 border-color=(includes(` ${formats} `, " heading2 ") ? theme.ink : "#00000000") disabled=includes(` ${unavailable} `, " heading ") min-height=40 padding=8 background-color=theme.control border-radius=6
+              button press=heading retainFocus=true testId="format-heading" aria-label=(` ${formats} `.includes(" heading2 ") ? "Heading 2 active" : "Heading 2") border-width=1 border-color=(` ${formats} `.includes(" heading2 ") ? theme.ink : "#00000000") disabled=` ${unavailable} `.includes(" heading ") min-height=40 padding=8 background-color=theme.control border-radius=6
                 text "H2" font-size=13 color=theme.ink
-              button press=openLink retainFocus=true testId="format-link" aria-label=(includes(` ${formats} `, " link ") ? "Link active" : "Link") border-width=1 border-color=(includes(` ${formats} `, " link ") ? theme.ink : "#00000000") disabled=includes(` ${unavailable} `, " link ") min-height=40 padding=8 background-color=theme.control border-radius=6
+              button press=openLink retainFocus=true testId="format-link" aria-label=(` ${formats} `.includes(" link ") ? "Link active" : "Link") border-width=1 border-color=(` ${formats} `.includes(" link ") ? theme.ink : "#00000000") disabled=` ${unavailable} `.includes(" link ") min-height=40 padding=8 background-color=theme.control border-radius=6
                 text "Link" font-size=13 color=theme.ink
             if linkOpen
               row gap=6 align-items="center" width="100%"
@@ -438,5 +438,5 @@ component MarkdownTool
     unavailable: string
     apply: action
   view
-    button press=apply(name) retainFocus=true testId=`format-${name}` aria-label=(includes(` ${formats} `, ` ${name} `) ? `${label} active` : label) border-width=1 border-color=(includes(` ${formats} `, ` ${name} `) ? theme.ink : "#00000000") disabled=includes(` ${unavailable} `, ` ${name} `) min-height=40 padding=8 background-color=theme.control border-radius=6
-      text label font-size=13 font-weight=(includes(` ${formats} `, ` ${name} `) ? 700 : 400) color=theme.ink
+    button press=apply(name) retainFocus=true testId=`format-${name}` aria-label=(` ${formats} `.includes(` ${name} `) ? `${label} active` : label) border-width=1 border-color=(` ${formats} `.includes(` ${name} `) ? theme.ink : "#00000000") disabled=` ${unavailable} `.includes(` ${name} `) min-height=40 padding=8 background-color=theme.control border-radius=6
+      text label font-size=13 font-weight=(` ${formats} `.includes(` ${name} `) ? 700 : 400) color=theme.ink

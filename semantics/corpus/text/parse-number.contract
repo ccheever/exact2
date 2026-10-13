@@ -3,7 +3,7 @@
 // exponent; the nearest double, or none for any other text, past the
 // largest finite, or a nonzero numeral that rounds to zero. `-0` is -0.
 // The spaces line has a no-break space, a BOM and a NEL (not JS whitespace).
-fn shown(s: string): string = match parseNumber(s) { case some(n) => toString(n), case none => "none" }
+fn shown(s: string): string = match parseNumber(s) { case some(n) => n.toString(), case none => "none" }
 
 component App
   state input = " 12.5 "
@@ -21,7 +21,7 @@ component App
       text misses testId="misses"
       text edges testId="edges"
       text spaces testId="spaces"
-      text toString(match parseNumber("-0") { case some(n) => 1 / n, case none => 0 }) testId="negZero"
+      text (match parseNumber("-0") { case some(n) => 1 / n, case none => 0 }).toString() testId="negZero"
       button "bad" press=set("12,5") testId="bad"
       button "neg" press=set("-0.25e1") testId="neg"
 

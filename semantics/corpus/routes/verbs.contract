@@ -11,7 +11,7 @@ routes nav
 component App
   derive current = top(nav)
   derive count = depth(nav)
-  derive urls = map(stack(nav), (e) => e.url)
+  derive urls = stack(nav).map((e) => e.url)
   action push(url: string)
     nav = push(nav, url)
   action replace(url: string)

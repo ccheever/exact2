@@ -13,14 +13,14 @@ shape Reply
 
 component TagList
   state draft = ""
-  resource tags = loadTags() as shape list<Tag> else empty()
+  resource tags = loadTags() as shape Tag[] else empty()
   mutation added as shape Reply refreshes tags then afterAdd
   derive addError = match added { case some(r) => r.error, case none => "" }
   action edit(v: string)
     draft = v
   action add
-    if trim(draft) != "" and not pending(added)
-      send added = addTag(trim(draft))
+    if draft.trim() != "" and not pending(added)
+      send added = addTag(draft.trim())
   action afterAdd
     if addError == ""
       draft = ""
@@ -33,7 +33,7 @@ component TagList
               aria-label="New tag" testId="draft"
             if addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
-          button press=add disabled=(trim(draft) == "" or pending(added)) buttonStyle="filled" testId="add"
+          button press=add disabled=(draft.trim() == "" or pending(added)) buttonStyle="filled" testId="add"
             text "Add"
       section
         for t in tags key=t.name

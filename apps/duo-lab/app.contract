@@ -96,10 +96,10 @@ fn sheetStop(projected: number): number = projected < 300 ? 200 : 400
 
 component DuoLab
   resource viewport = exactViewport() as shape Viewport
-  resource items = items() as shape list<Item>
-  resource rows = imageRows() as shape list<ImageRow>
+  resource items = items() as shape Item[]
+  resource rows = imageRows() as shape ImageRow[]
   resource doc = document() as shape Document
-  resource feed = feed() as shape list<FeedRow>
+  resource feed = feed() as shape FeedRow[]
   // Shared across the Fold screen's two layouts: a fold mid-reading keeps the item.
   state selected = 1
   state title = ""
@@ -168,7 +168,7 @@ component DuoLab
           if entry.name == "images"
             column flex=1 min-height=0 width="100%" class=Safe
               text "Images" class=Title testId="images-title"
-              text `${length(rows)} rows over four pictures; fold mid-scroll.` class=Note
+              text `${rows.length} rows over four pictures; fold mid-scroll.` class=Note
               list appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" overflow-x="hidden" testId="image-list"
                 for row in rows key=row.id
                   column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`
@@ -237,7 +237,7 @@ component Facts
 
 component ItemList
   props
-    items: list<Item>
+    items: Item[]
     selected: number
     choose: action
   view
@@ -250,7 +250,7 @@ component ItemList
 
 component Detail
   props
-    items: list<Item>
+    items: Item[]
     selected: number
   view
     scroll flex=1 min-height=0 width="100%" testId="detail-scroll"

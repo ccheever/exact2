@@ -31,7 +31,7 @@ fn plan() -> Vec<u8> {
     let source = r#"shape Row
   index: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state shown = true
   state rowHeight = 32
   state typed = ""
@@ -169,7 +169,7 @@ fn edge_action_receipts_and_refusal_keep_committed_feedback_in_the_host_batch() 
 component App
   state refused = false
   state reached = false
-  resource rows = rows(refused) as shape list<Row>
+  resource rows = rows(refused) as shape Row[]
   action end
     refused = {refuse}
     reached = true
@@ -263,7 +263,7 @@ fn real_browser_bidirectional_edges_and_state_only_deferral_become_idle() {
 component App
   state first = 0
   state ended = 0
-  resource rows = rows(2) as shape list<Row>
+  resource rows = rows(2) as shape Row[]
   action start
     if first > 0
       first = 0
@@ -320,7 +320,7 @@ fn real_browser_authored_jump_builds_its_rows_before_it_moves() {
     let source = r#"shape Row
   index: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state target = 0
   action go
     target = 20000

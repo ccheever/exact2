@@ -149,6 +149,17 @@ impl Parser {
                 && next.line == span.line
                 && next.col == span.col + field.chars().count() as u32
             {
+                // @ref LLP 1116.015 D2 — a roster function whose first argument is
+                // its subject is called on it: `s.trim()` is `trim(s)`.
+                if crate::idioms::is_method(&field) {
+                    let below = self.last;
+                    self.next();
+                    let mut args = vec![e];
+                    args.extend(self.call_args()?);
+                    self.built(below.max(self.last), span)?;
+                    e = Expr::Call(field, args, span);
+                    continue;
+                }
                 return Err(SyntaxError {
                     id: "syntax-method-call",
                     message: format!(
@@ -159,7 +170,12 @@ impl Parser {
                 });
             }
             self.built(self.last, span)?;
-            e = Expr::Member(Box::new(e), field, span);
+            // `xs.length` is `length(xs)`; a shape declares no field of that name.
+            e = if field == "length" {
+                Expr::Call(field, vec![e], span)
+            } else {
+                Expr::Member(Box::new(e), field, span)
+            };
         }
         Ok(e)
     }
@@ -188,7 +204,7 @@ impl Parser {
                     if self.at_punct(".") {
                         return self.err(
                             "syntax-refused-idiom",
-                            "Contract has no spread: write `concat(xs, [x])` for `[...xs, x]`, the web's `xs.concat([x])`",
+                            "Contract has no spread: write `xs.concat([x])` for `[...xs, x]`",
                         );
                     }
                     items.push(self.expr()?);
@@ -283,6 +299,10 @@ impl Parser {
                 _ => {
                     if self.eat_punct("(") {
                         let args = self.call_args()?;
+                        if (crate::idioms::is_method(&w) || w == "length") && !args.is_empty() {
+                            let message = crate::idioms::method_form(&w, &args);
+                            self.free.push((w.clone(), SyntaxError { id: "syntax-method-form", message, span }));
+                        }
                         self.built(self.last, span)?;
                         Ok(Expr::Call(w, args, span))
                     } else {
@@ -391,7 +411,7 @@ impl Parser {
             let after = &raw[pos + 2..];
             let end = template_expr_end(after).ok_or(SyntaxError {
                 id: "syntax-unterminated-template-expr",
-                message: "`${` never closes".into(),
+                message: "`${` never closes`}`".into(),
                 span,
             })?;
             if !text.is_empty() {
@@ -421,8 +441,10 @@ impl Parser {
                 depth: self.depth,
                 view_depth: self.view_depth,
                 last: 0,
+                free: Vec::new(),
             };
             let e = sub.expr()?;
+            self.free.append(&mut sub.free);
             deepest = deepest.max(sub.last);
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
                 return sub.err("syntax-template-expr", "unexpected token in `${…}`");

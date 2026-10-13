@@ -5,7 +5,7 @@ use StationRow, Station from "./row.contract"
 
 component App
   state picked = ""
-  resource stations = stations() as shape list<Station>
+  resource stations = stations() as shape Station[]
   action pick(id)
     picked = id
   view

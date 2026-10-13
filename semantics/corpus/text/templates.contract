@@ -8,7 +8,7 @@ component App
       text `${n}${n}${s}` testId="adjacent"
       text `$ {n} ${"$"}{n}` testId="dollars"
       text `{${n}}` testId="braces"
-      text `${n * 2 + 1}|${length(s) == 2 ? "two" : "other"}` testId="exprs"
+      text `${n * 2 + 1}|${s.length == 2 ? "two" : "other"}` testId="exprs"
       text `${`${`${s}`}`}` testId="deep"
       text `` testId="empty"
 

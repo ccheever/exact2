@@ -210,7 +210,7 @@ pub(crate) fn check_component(
                 Some(span) => TypeError {
                     id: "type-cannot-infer",
                     message: format!(
-                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `list<T>` is declared",
+                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `T[]` is declared",
                         d.name
                     ),
                     span,
@@ -968,7 +968,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
 }
 
 /// The first `[]` in `e`, whose element type nothing fixed when `e` typed
-/// as a `list<?>`.
+/// as a `?[]`.
 fn empty_list_in(e: &Expr) -> Option<Span> {
     match e {
         Expr::List(items, span) if items.is_empty() => Some(*span),

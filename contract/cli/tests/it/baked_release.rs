@@ -12,14 +12,14 @@ shape Row
   id: string
   text: string
 shape Feed
-  rows: list<Row>
+  rows: Row[]
 
 component App
   state peek = false
   resource initial = feed() as shape Feed
   mutation changed as shape Feed
   derive feed = match changed { case some(m) => m, case none => initial }
-  derive baked = peek ? length(initial.rows) : 0
+  derive baked = peek ? initial.rows.length : 0
   action edit
     send changed = edit()
   action look
@@ -195,7 +195,7 @@ fn a_source_that_reads_storage_at_bake_is_told_to_catch_it() {
             ))
         }
     }
-    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  view\n    text \"a\"\n";
+    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape Task[]\n  view\n    text \"a\"\n";
     let error = contract::bake(contract::compile(src).unwrap(), NoStorage).unwrap_err();
     let message = error.to_string();
     assert!(

@@ -11,7 +11,7 @@ use exact_runner::{
 
 fn app(trigger: &str) -> String {
     format!(
-        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nshape Coin\n  id: number\ncomponent App\n  resource coins = coins() as shape list<Coin>\n  view\n    list virtualized=true height=300 width=400 estimated-item-height=100 testId=\"feed\"\n      for c in coins key=c.id\n        column width=\"100%\" height=100\n          text `${{c.id}}` testId=`coin-${{c.id}}` animation=\"appear 600ms\"{trigger}\n"
+        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nshape Coin\n  id: number\ncomponent App\n  resource coins = coins() as shape Coin[]\n  view\n    list virtualized=true height=300 width=400 estimated-item-height=100 testId=\"feed\"\n      for c in coins key=c.id\n        column width=\"100%\" height=100\n          text `${{c.id}}` testId=`coin-${{c.id}}` animation=\"appear 600ms\"{trigger}\n"
     )
 }
 

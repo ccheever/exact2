@@ -27,7 +27,7 @@ final class HeavyLeavesMacTests: XCTestCase {
           distance: number
         component App
           resource location = defaultLocation() as shape Location
-          resource allStations = stations(location) as shape list<Station>
+          resource allStations = stations(location) as shape Station[]
           view
             column width="100%" height="100%"
               video "clip.mp4" width="100%" height=40 muted=true testId="lead"

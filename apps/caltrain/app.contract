@@ -16,7 +16,7 @@ routes nav
 // max and toString: whole minutes to a departure (a ceiling is -floor(-x),
 // never below 0), miles to one decimal ("nearby" under 0.1; the tenths are
 // split so 2 prints "2.0"), and a walk at 80 metres a minute, at least 1.
-fn countdownText(at: number, now: number): string = toString(max(0, -floor(-((at - now) / 60000))))
+fn countdownText(at: number, now: number): string = max(0, -floor(-((at - now) / 60000))).toString()
 fn tenthsText(tenths: number): string = `${floor(tenths / 10)}.${tenths - floor(tenths / 10) * 10}`
 fn distanceText(metres: number): string = metres / 1609.344 < 0.1 ? "nearby" : `${tenthsText(floor(metres / 1609.344 * 10 + 0.5))} mi`
 fn walkText(metres: number): string = `${max(1, -floor(-(metres / 80)))} min walk`
@@ -74,11 +74,11 @@ component Caltrain
   resource location = defaultLocation() as shape Location
   derive selectedId = match stationId { case some(id) => id, case none => "mv" }
   resource station = station(selectedId, location) as shape Station
-  resource northBoard = board(selectedId, "north", nowMs) as shape list<Departure>
-  resource southBoard = board(selectedId, "south", nowMs) as shape list<Departure>
-  resource nearby = nearest(location, 3) as shape list<Station>
-  resource allStations = stations(location) as shape list<Station>
-  resource matches = search(query, location) as shape list<Station>
+  resource northBoard = board(selectedId, "north", nowMs) as shape Departure[]
+  resource southBoard = board(selectedId, "south", nowMs) as shape Departure[]
+  resource nearby = nearest(location, 3) as shape Station[]
+  resource allStations = stations(location) as shape Station[]
+  resource matches = search(query, location) as shape Station[]
   resource delivery = exactDelivery() as shape DeliveryState
   resource viewport = exactViewport() as shape Viewport
   derive tv = viewport.pointer == "none"
@@ -210,11 +210,11 @@ component Content
     hoverOn: bool
     searchFocused: bool
     lastKey: string
-    northBoard: list<Departure>
-    southBoard: list<Departure>
-    nearby: list<Station>
-    allStations: list<Station>
-    matches: list<Station>
+    northBoard: Departure[]
+    southBoard: Departure[]
+    nearby: Station[]
+    allStations: Station[]
+    matches: Station[]
     delivery: DeliveryState
     openStations: action
     openDeck: action
@@ -299,7 +299,7 @@ component Content
               text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="#8a5a2b"
               text station.name font-size="2.125em" font-weight=800 color="#2a1f14" testId="aurora-title"
               text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size="0.75em" color="#5a4a3a"
-          canvas surface=map(allStations, selectedId, northBoard, nowMs, tv ? 24 : 16) width="100%" height="15em" border-radius=16 testId="line-map"
+          canvas surface=allStations.map(selectedId, northBoard, nowMs, tv ? 24 : 16) width="100%" height="15em" border-radius=16 testId="line-map"
             column height="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 justify-content="space-between"
               for s in allStations key=s.id
                 row align-items="center" height="1.25em" testId=`map-${s.id}`
@@ -369,14 +369,14 @@ component DirectionCard
     accent: string
   props
     title: string
-    board: list<Departure>
+    board: Departure[]
     nowMs: number
     focusDeparture: action
     testId: string
   view
     column border-radius=16 padding=16 gap=10 background-color="#ffffffd9" testId=testId
       text title font-size="0.8125em" font-weight=700 color=accent
-      if isEmpty(board)
+      if board.isEmpty()
         text "No more trains today" font-size="0.875em" color="#666666"
       else
         for d in board key=d.id

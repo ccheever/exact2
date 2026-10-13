@@ -242,7 +242,7 @@ impl DataSource for Keys {
 #[test]
 fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
     let plan = contract::compile(
-        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        for k in keys key=k.id\n          text k.id testId=`row-${k.id}` height=40 -exact-layout-transition=\"200ms linear\" -exact-exit-animation=\"leave 100ms linear both\"\n",
+        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut\n    short = true\n  resource keys = keys(short) as shape Item[]\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        for k in keys key=k.id\n          text k.id testId=`row-${k.id}` height=40 -exact-layout-transition=\"200ms linear\" -exact-exit-animation=\"leave 100ms linear both\"\n",
     )
     .unwrap();
     let (mut host, _) = Host::boot(

@@ -1073,7 +1073,7 @@ fn a_theme_flip_restyles_each_touched_row_once() {
   id: number
 component App
   state dark = false
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   action flip
     dark = !dark
   view

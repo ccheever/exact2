@@ -17,14 +17,14 @@ shape Card
   color: string
 
 component ListInset
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   state hi = 100
   state said = 4
   state pad = 24
   state header = 92
   state leading = 92
-  derive shown = filter(cards, c => c.n < hi)
-  derive lines = filter(cards, c => c.n < said)
+  derive shown = cards.filter(c => c.n < hi)
+  derive lines = cards.filter(c => c.n < said)
   action later
     hi = min(2000, hi + 60)
   action say
@@ -58,7 +58,7 @@ component ListInset
           text "end of 30"
         button appearance="none" press=grow testId="grow"
           text "grow"
-        text `${hi} rows, ${length(lines)} lines` testId="summary"
+        text `${hi} rows, ${lines.length} lines` testId="summary"
       row gap=8 padding=8 height=36 box-sizing="border-box" flex-shrink=0
         button appearance="none" press=taller testId="taller"
           text "grow header"
@@ -82,5 +82,5 @@ component ListInset
         for c in lines key=c.id
           text `${c.label}, ${c.width} wide` testId=`line-${c.n}` padding=(4 + c.width / 40) font-size=13
       list virtualized=true scroll-start="end" testId="short" height=300 flex-shrink=0 width="100%" overflow-x="hidden" padding-top=92 padding-bottom=83 estimated-item-height=48
-        for c in filter(cards, c => c.n < 4) key=c.id
+        for c in cards.filter(c => c.n < 4) key=c.id
           text c.label testId=`short-${c.n}` height=48 font-size=13

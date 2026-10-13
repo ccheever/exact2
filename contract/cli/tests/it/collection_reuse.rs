@@ -29,12 +29,12 @@ const SOURCE: &str = r##"shape Item
   id: number
   title: string
   even: bool
-  tags: list<string>
+  tags: string[]
 keyframes fade
   from opacity=0
   to opacity=1
 component App
-  resource rows = rows() as shape list<Item>
+  resource rows = rows() as shape Item[]
   view
     list virtualized=true height=320 estimated-item-height=64 testId="list"
       for x in rows key=x.id

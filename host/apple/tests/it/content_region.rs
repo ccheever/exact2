@@ -400,7 +400,7 @@ fn native_projection_budget_is_explicit_and_does_not_select_opaque_mode() {
 #[test]
 fn native_collection_epochs_stay_with_selected_rows_until_complete() {
     let source = r#"component App
-  resource numbers = numbers() as shape list<number>
+  resource numbers = numbers() as shape number[]
   state textValue = "A body"
   state draft = ""
   action revise

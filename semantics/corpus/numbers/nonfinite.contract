@@ -24,7 +24,7 @@ component App
       text ninfText testId="ninf"
       text nanText testId="nan"
       text negZeroDiv testId="nzd"
-      text toString(1 / 0) testId="lit"
+      text (1 / 0).toString() testId="lit"
       text `${infMinusInf} ${infTimesZero} ${modZero}` testId="mix"
 
 test "non-finite inside expressions"

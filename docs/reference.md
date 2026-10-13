@@ -834,7 +834,7 @@ the platform would call (`delivery: "substituted"`).
 
 An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
 `multiple` allows more than one. `showPicker(id)` opens it, and `change`
-receives `list<Picked>` with each file's name, type, size and
+receives `Picked[]` with each file's name, type, size and
 `app:/tmp/picked/` path. A specific `accept` list is limited to media types
 and types in the app's `file_handlers`. The live Linux picker is unavailable;
 its agent substitute accepts any file. Image pixel and Canvas readback remain

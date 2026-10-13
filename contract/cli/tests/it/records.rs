@@ -213,7 +213,7 @@ fn points(xs: &[f64]) -> Value {
 /// still refused).
 #[test]
 fn a_record_is_built_and_copied_inside_list_callbacks() {
-    let src = "shape F\n  x: number\ncomponent App\n  resource nums = numbers() as shape list<number>\n  state offset = 0\n  derive fs = map(nums, n => F(x=n + offset))\n  derive gs = map(fs, f => F(f, x=f.x + 1))\n  derive at = map(nums, (n, i) => F(x=n * 10 + i))\n  derive kept = filter(gs, g => g != F(x=3))\n  derive copied = filter(fs, f => F(f, x=f.x * 2) == F(x=4))\n  action add\n    offset = offset + 10\n  view\n    column\n      text toString(length(gs)) testId=\"count\"\n      text join(map(kept, k => toString(k.x)), \",\") testId=\"kept\"\n      button press=add testId=\"add\"\n        text \"add\"\n";
+    let src = "shape F\n  x: number\ncomponent App\n  resource nums = numbers() as shape number[]\n  state offset = 0\n  derive fs = nums.map(n => F(x=n + offset))\n  derive gs = fs.map(f => F(f, x=f.x + 1))\n  derive at = nums.map((n, i) => F(x=n * 10 + i))\n  derive kept = gs.filter(g => g != F(x=3))\n  derive copied = fs.filter(f => F(f, x=f.x * 2) == F(x=4))\n  action add\n    offset = offset + 10\n  view\n    column\n      text gs.length.toString() testId=\"count\"\n      text kept.map(k => k.x.toString()).join(\",\") testId=\"kept\"\n      button press=add testId=\"add\"\n        text \"add\"\n";
     let mut r = boot(src);
     assert_eq!(r.derive("fs"), Some(&points(&[1.0, 2.0, 3.0])));
     assert_eq!(r.derive("gs"), Some(&points(&[2.0, 3.0, 4.0])));
@@ -229,13 +229,13 @@ fn a_record_is_built_and_copied_inside_list_callbacks() {
     assert_eq!(text(&r, "kept"), "12,13,14");
     // A component's name in a callback is still the JSX habit.
     let e = contract::compile(
-        "component App\n  resource nums = numbers() as shape list<number>\n  derive rs = map(nums, n => Row(x=n))\n  view\n    text \"a\"\ncomponent Row\n  props\n    x: number\n  view\n    text \"r\"\n",
+        "component App\n  resource nums = numbers() as shape number[]\n  derive rs = nums.map(n => Row(x=n))\n  view\n    text \"a\"\ncomponent Row\n  props\n    x: number\n  view\n    text \"r\"\n",
     )
     .unwrap_err();
     assert_eq!(e.id, "type-callback-view", "{e}");
     // A `filter` callback that builds a record says it returns a bool.
     let e = contract::compile(
-        "shape F\n  x: number\ncomponent App\n  resource nums = numbers() as shape list<number>\n  derive fs = filter(map(nums, n => F(x=n)), f => F(f, x=2))\n  view\n    text \"a\"\n",
+        "shape F\n  x: number\ncomponent App\n  resource nums = numbers() as shape number[]\n  derive fs = nums.map(n => F(x=n)).filter(f => F(f, x=2))\n  view\n    text \"a\"\n",
     )
     .unwrap_err();
     assert_eq!(e.id, "type-argument", "{e}");
@@ -266,7 +266,7 @@ fn expansion_keeps_a_record_constructors_head() {
     // `match` arm, in a child whose prop's value builds an `F` (so each
     // expression binder is renamed apart from it).
     let src = format!(
-        "{SHAPE}component App\n  resource nums = numbers() as shape list<number>\n  view\n    Child(v=F(x=2), vs=map(nums, n => F(x=n)))\ncomponent Child\n  props\n    v: F\n    vs: list<F>\n  derive d = match some(v) {{ case some(F) => F(F, x=F.x + 1), case none => v }}\n  derive m = map(vs, F => F(F, x=F.x * v.x))\n  view\n    column\n      text `${{d.x}} ${{join(map(m, q => toString(q.x)), \",\")}}` testId=\"binders\"\n      for F in vs key=F.x\n        text toString(F(F, x=F.x + 40).x) testId=`each-${{F.x}}`\n      text toString(match some(v) {{ case some(F) => F(F, x=F.x + 50).x, case none => 0 }}) testId=\"arm\"\n"
+        "{SHAPE}component App\n  resource nums = numbers() as shape number[]\n  view\n    Child(v=F(x=2), vs=nums.map(n => F(x=n)))\ncomponent Child\n  props\n    v: F\n    vs: F[]\n  derive d = match some(v) {{ case some(F) => F(F, x=F.x + 1), case none => v }}\n  derive m = vs.map(F => F(F, x=F.x * v.x))\n  view\n    column\n      text `${{d.x}} ${{m.map(q => q.x.toString()).join(\",\")}}` testId=\"binders\"\n      for F in vs key=F.x\n        text F(F, x=F.x + 40).x.toString() testId=`each-${{F.x}}`\n      text (match some(v) {{ case some(F) => F(F, x=F.x + 50).x, case none => 0 }}).toString() testId=\"arm\"\n"
     );
     let r = boot(&src);
     assert_eq!(text(&r, "binders"), "3 2,4,6");

@@ -35,7 +35,7 @@ component Textflow
   derive bodySize = largeType ? 18.975 : 16.5
   derive bodyHeight = viewport.width < 700 ? 450 : 480
   derive logicalHeight = bodyHeight / scale
-  resource parts = sceneGeometry(scene, elapsed, proseWidth) as shape list<Part>
+  resource parts = sceneGeometry(scene, elapsed, proseWidth) as shape Part[]
   action choose(value: string)
     scene = value
     elapsed = 0

@@ -6,7 +6,7 @@ shape Message
   outgoing: bool
   meta: string
 shape History
-  rows: list<Message>
+  rows: Message[]
   materialized: number
   revision: number
   changed: number
@@ -106,7 +106,7 @@ component MessagesStress
     running = false
     revision = min(120, revision + 1)
   action editDraft(value)
-    if length(value) <= 512
+    if value.length <= 512
       draft = value
       draftTooLong = false
     else
@@ -116,7 +116,7 @@ component MessagesStress
   action cancelReply
     replying = ""
   action sendDraft
-    if not isEmpty(draft)
+    if not draft.isEmpty()
       cursor = ""
       tailRequest = tailRequest + 1
       echo = draft

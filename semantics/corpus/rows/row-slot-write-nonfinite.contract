@@ -7,7 +7,7 @@ shape Item
 
 component App
   state show = true
-  resource items = items(1) as shape list<Item>
+  resource items = items(1) as shape Item[]
   view
     column
       if show

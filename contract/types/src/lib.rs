@@ -83,7 +83,7 @@ impl std::fmt::Display for Ty {
             Ty::Bool => write!(f, "bool"),
             Ty::Unit => write!(f, "unit"),
             Ty::Option(t) => write!(f, "option<{t}>"),
-            Ty::List(t) => write!(f, "list<{t}>"),
+            Ty::List(t) => write!(f, "{t}[]"),
             Ty::Record(n) => write!(f, "{n}"),
             Ty::Action(ps) => write!(
                 f,
@@ -816,8 +816,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{want}`, given `{t}`",
-                                i + 1
+                                "{} expects `{want}`, given `{t}`",
+                                contract_syntax::idioms::argument(name, i)
                             ),
                             arg.span(),
                         );
@@ -895,8 +895,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{}`, given `{t}`",
-                                i + 1,
+                                "{} expects `{}`, given `{t}`",
+                                contract_syntax::idioms::argument(name, i),
                                 roster_spelling(f, spec)
                             ),
                             arg.span(),
@@ -1025,7 +1025,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         Expr::Arrow { span, .. } => {
             return err(
                 "type-arrow-position",
-                "an arrow function is only the second argument of `map` or `filter`: `map(list, (item, index) => …)`",
+                "an arrow function is only the argument of `map` or `filter`: `xs.map((item, index) => …)`",
                 *span,
             )
         }

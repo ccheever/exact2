@@ -13,8 +13,8 @@ component App
   state stationId = none
   state query = ""
   derive selected = match stationId { case some(id) => id, case none => "mv" }
-  resource board = departures(selected) as shape list<Departure>
-  derive count = length(board)
+  resource board = departures(selected) as shape Departure[]
+  derive count = board.length
 
   action selectStation(id)
     stationId = some(id)

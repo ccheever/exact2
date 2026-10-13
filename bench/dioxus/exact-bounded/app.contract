@@ -16,7 +16,7 @@ shape Run
   s: string
 shape Para
   id: string
-  runs: list<Run>
+  runs: Run[]
 // `n` photos, `a`..`d` their asset paths; `ratio` is the first one's w/h
 // (only a single photo keeps its own aspect).
 shape Photos
@@ -42,13 +42,13 @@ shape Message
   author: string
   avatar: string
   minutesAgo: number
-  paragraphs: list<Para>
+  paragraphs: Para[]
   photos: option<Photos>
   link: option<Link>
   quote: option<Quote>
-  reactions: list<Reaction>
+  reactions: Reaction[]
 shape Window
-  rows: list<Message>
+  rows: Message[]
   earlier: string
   later: string
   hasEarlier: bool
@@ -146,12 +146,12 @@ component MessageRow
                   text l.title font-size=15 font-weight=600 color="#000000" line-clamp=2 text-overflow="ellipsis"
                   text l.description font-size=13 color="#3C3C43" line-clamp=2 text-overflow="ellipsis"
             case none
-          if not isEmpty(m.reactions)
+          if not m.reactions.isEmpty()
             row margin-top=8 flex-wrap="wrap" gap=6
               for r in m.reactions key=r.emoji
                 button press=react(m.id, r.emoji) testId=`react-${m.id}-${r.emoji}` aria-label=`${r.emoji} ${r.count}` display="flex" flex-direction="row" align-items="center" gap=4 height=28 box-sizing="border-box" padding-top=0 padding-bottom=0 padding-left=10 padding-right=10 border-width=0 border-radius=14 background-color="#F2F2F7"
                   text r.emoji font-size=14
-                  text toString(r.count) font-size=13 font-weight=600 color="#3C3C43"
+                  text r.count.toString() font-size=13 font-weight=600 color="#3C3C43"
       box height=0.5 margin-left=68 background-color="#E5E5EA"
 
 // 1: the image's own aspect, at most 320 tall (cover within the cap); 2: two

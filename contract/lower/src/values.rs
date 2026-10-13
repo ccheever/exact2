@@ -1225,7 +1225,7 @@ pub(crate) fn check_prop_value(
                 ty,
                 // A number or bool shown as text is interpolated.
                 if want == tags::PropTy::Str && matches!(ty, Ty::Number | Ty::Bool) {
-                    ": interpolate it in a template, `${…}`, or write `toString(…)`"
+                    ": interpolate it in a template, `${…}`, or write `x.toString()`"
                 } else {
                     ""
                 }

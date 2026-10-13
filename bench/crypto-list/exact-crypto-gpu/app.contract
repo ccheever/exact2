@@ -20,11 +20,11 @@ shape Coin
   price: string
   change: string
   up: bool
-  series: list<number>
+  series: number[]
   // Zero or one: the latest price flash, keyed by its sequence number.
-  flash: list<Flash>
+  flash: Flash[]
 shape Market
-  coins: list<Coin>
+  coins: Coin[]
 shape Config
   live: bool
   freeze: bool

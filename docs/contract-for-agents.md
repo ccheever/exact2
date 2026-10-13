@@ -236,7 +236,7 @@ compile complete examples, parse authored tests, and check local links.
 | `props` / `inject` | Component | Typed interface / inherited bindings |
 | `provide` | Component | Whole-view provider bindings, one per line |
 | `slot` | Component | Accept caller-authored children |
-| `state name = expr` | Component | Stored state |
+| `state name = expr` / `state name: T = expr` | Component | Stored state; its type is inferred unless declared |
 | `derive name = expr` | Component | Dependency-driven computed value |
 | `resource name = source(args) as shape T` | Root component | Reactive data request |
 | `mutation name as shape T [queue]` | Root component | Optional reply slot for explicit sends |
@@ -270,17 +270,17 @@ an example too: `contract vocab formatDate`), or says what to write instead
 
 ## Values, expressions, and functions
 
-- Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
+- Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
 - `[a, b, c]` is a list of its items, which may span lines and keep a trailing
   comma; the items have one type, met as a ternary's arms are (`[none,
-  some(1)]` is a `list<option<number>>`; `[1, "a"]` is `type-list-item`).
-  `concat(xs, ys)`, `slice(xs, start, end?)`, `includes(xs, x)` and
-  `indexOf(xs, x)` are the web's array methods: `[...xs, x]` is
-  `concat(xs, [x])`, `includes` finds a string, number or bool (by
+  some(1)]` is an `option<number>[]`; `[1, "a"]` is `type-list-item`).
+  `xs.concat(ys)`, `xs.slice(start, end?)`, `xs.includes(x)` and
+  `xs.indexOf(x)` are the web's array methods: `[...xs, x]` is
+  `xs.concat([x])`, `includes` finds a string, number or bool (by
   SameValueZero, as the web does) and `indexOf` says where (by `===`: `NaN` is
-  never found, `-1` for none). Over text, `indexOf(s, t)` is a position in
-  UTF-16 code units, and `split(s, ", ")` cuts text into a `list<string>`
+  never found, `-1` for none). Over text, `s.indexOf(t)` is a position in
+  UTF-16 code units, and `s.split(", ")` cuts text into a `string[]`
   (recipient chips). A list the
   screen keeps for the session — a selection, open or collapsed ids, per-row
   offsets — is `state` built this way; a list the app keeps across launches, or
@@ -290,14 +290,15 @@ an example too: `contract vocab formatDate`), or says what to write instead
   ```contract
   state collapsed = []
   action toggle(id: string)
-    collapsed = includes(collapsed, id) ? filter(collapsed, c => c != id) : concat(collapsed, [id])
+    collapsed = collapsed.includes(id) ? collapsed.filter(c => c != id) : collapsed.concat([id])
   ```
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
-  the other conditional/match arm can also supply it.
+  the other conditional/match arm can also supply it, and a state may declare
+  it: `state picked: option<Item> = none`, `state ids: string[] = []`.
 - An option directly inside an option is refused (`type-option-option`):
   `option<option<T>>` written, `some(none)`, `first` or `at` of a
-  `list<option<T>>`, a mutation `as shape option<T>`. The web erases `some`,
+  `option<T>[]`, a mutation `as shape option<T>`. The web erases `some`,
   so `some(none)` would be `none` there; hold the inner option in a record
   field. A type nests at most 64 deep, through shapes, lists and options
   (`type-too-deep`).
@@ -320,12 +321,12 @@ an example too: `contract vocab formatDate`), or says what to write instead
 - Inline match is `match x { case some(v) => a, case none => b }`; the comma is
   required and the `some` arm comes first. The block statement/view form has
   separate indented `case` arms.
-- `map(xs, (x, i) => expr)` and `filter(xs, x => bool)` return values, not nodes.
-  `join(xs, separator)` accepts primitive items. `first(xs)` and `at(xs, i)`
+- `xs.map((x, i) => expr)` and `xs.filter(x => bool)` return values, not nodes.
+  `xs.join(separator)` accepts primitive items. `first(xs)` and `xs.at(i)`
   return options; `at` supports negative indices.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
-  the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
-  `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
+  the web (`end > start` for `"HH:MM"` times). `s.slice(0, -1)`,
+  `s.replaceAll(find, with)` and `s.toLowerCase()` are the web's string methods.
 - Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
   -2), `min`, `max`, `%`, `formatNumber` (`"compact"` is `1.2K`, `"decimal"` `1,234.5`,
   `"percent"` `26%`, `"currency", "USD"` `$1,481.47`), `toFixed` and `formatDecimal`. A
@@ -339,9 +340,9 @@ an example too: `contract vocab formatDate`), or says what to write instead
   cents, and a half cent such as `1.005` has no exact binary value and
   becomes `100`, so keep money in cents from the source when amounts can
   have more places (tax, a split bill). `formatDecimal` of a number that is
-  not an integer prints `""`, so round first. `toFixed(x, 2)` is the web's
-  `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds the
-  binary value too (`toFixed(1.005, 2)` is `"1.00"`) and sums of dollars drift
+  not an integer prints `""`, so round first. `x.toFixed(2)` is the web's
+  `x.toFixed(2)`, for a measured number (`km.toFixed(1)`): it rounds the
+  binary value too (`(1.005).toFixed(2)` is `"1.00"`) and sums of dollars drift
   (`0.1 + 0.2`), which is why money is counted in cents. Both take the digits as a whole-number literal (`toFixed` 0–100,
   `formatDecimal` 0–20), never a variable, and print `""` for `NaN` or
   `Infinity` (JavaScript's `toFixed` prints `"NaN"`).
@@ -353,7 +354,7 @@ component Cart
   view
     column
       text `Total $${formatDecimal(cents, 2)}` testId="total"
-      text `${toFixed(km, 1)} km` testId="distance"
+      text `${km.toFixed(1)} km` testId="distance"
 ```
 - Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
   "years")` (or `"months"`) is the whole periods between two such dates as an
@@ -361,8 +362,13 @@ component Cart
 - There is no general list append: add an item to
   resource-backed data in its source and answer the updated list (a mutation that
   `refreshes` the list's resource, or its own answer).
-- Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
-  There are no object literals, spreads, general lambdas, array indexing,
+- The web's string and array methods are written as methods, with their names
+  and meanings: `s.trim()`, `s.includes(q)`, `xs.filter(x => …)`, `n.toFixed(2)`,
+  `xs.length`. The free spelling (`trim(s)`) is refused with the edit
+  (`syntax-method-form`), and so is a method Contract lacks (`xs.reduce(…)`,
+  `syntax-method-call`). The rest of the roster is functions: `first(xs)`,
+  `round(n)`, `parseNumber(s)`, `formatNumber(…)`. There are no object
+  literals, spreads, general lambdas, array indexing,
   assignment expressions, or JavaScript built-ins by implication.
 - `fn label(done: bool): string = done ? "Done" : "Open"` is a function: parameters
   and the return type are explicit, after `:` (not `->`). Its body is one expression over
@@ -756,7 +762,7 @@ shape Item
   id: string
 
 component Items
-  resource items = loadItems() as shape list<Item> else empty()
+  resource items = loadItems() as shape Item[] else empty()
   derive banner = match failure(items) {
     case some(f) => f.code == "offline" ? "You're offline" : f.code == "shape" ? "This app needs an update" : "Couldn't load items",
     case none => ""
@@ -834,7 +840,7 @@ shape Item
   text: string
 
 component List
-  resource items = loadItems() as shape list<Item>
+  resource items = loadItems() as shape Item[]
   mutation added as shape Item refreshes items
   action add(text: string)
     send added = addItem(text)
@@ -963,7 +969,7 @@ or authenticated network session is available while baking. See
 
 For an attachment of any type, use `input type="file"` with no `accept` (or
 `accept="*/*"`) and `multiple` when needed. `showPicker("attach")` opens the
-input with `id="attach"`; `change` receives `list<Picked>` with copies under
+input with `id="attach"`; `change` receives `Picked[]` with copies under
 `app:/tmp/picked/`. A specific `accept` list remains bounded to image/video
 types and the app's `file_handlers`. On Linux the agent can answer a held
 picker, but the live picker is unavailable. See [the picker
@@ -981,7 +987,7 @@ title=… description=…`; a `table` is `view display="grid"` with
 `grid-template-columns` (or a `column` of `row`s); there is no `form` (a field's
 Enter is its `submit`) and no `details` (keep `open` in state, show the body `if
 open`). A view chooses with `if`, as an action does; a count is
-`length(xs)`, never `count`, `len` or `.size`; a resource's placeholder is `else
+`xs.length`, never `count`, `len` or `.size`; a resource's placeholder is `else
 empty()` (`[]` for a list), never `else []`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
@@ -1485,7 +1491,7 @@ component Editor
   action edit(v: string)
     body = v
   action selected(s: MarkdownSelection)
-    bold = includes(` ${s.formats} `, " bold ")
+    bold = ` ${s.formats} `.includes(" bold ")
   action embolden
     format("editor", "bold")
   view
@@ -2412,10 +2418,10 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `transform` on a box, inline or through `class` (`lower-attr-tag`) | Box `transform` is deferred (LLP 1055.000 D5). Use `translate`, `rotate` and `scale`: `transform="translate(0px, 25px)"` becomes `translate="0px 25px"`; `transform="scale(0.8)"` becomes `scale=0.8`. SVG elements keep `transform`. |
 | Component `contract` assertions | Authored `test` blocks exercised by the driver |
 | `provide theme = value` around view children | Component `provide` section, wrapper component if needed |
-| `items.map(...)` / `items[0]` | `map(items, …)` / `first(items)` or `at(items, 0)` |
-| `map(items, x => Row(...))` | Keyed `for` with `Row(...)` in its body |
+| `items[0]` | `first(items)` or `items.at(0)`, an option to `match` |
+| `items.map(x => Row(...))` | Keyed `for` with `Row(...)` in its body |
 | `{ title: value }` | Declared record constructor |
-| `[...xs, x]` / `xs.push(x)` / `xs.indexOf(x)` / `s.split(",")` | `concat(xs, [x])` / the same, assigned: `xs = concat(xs, [x])` / `indexOf(xs, x)` (or `includes(xs, x)` to test) / `split(s, ",")` |
+| `[...xs, x]` / `xs.push(x)` | `xs.concat([x])` / the same, assigned: `xs = xs.concat([x])` |
 | `{...old, title: value}` | `Shape(old, title=value)`, with the record's declared shape |
 | `if name` for a string | `if name != ""` |
 | `selected.title` when optional | Exhaustive `match selected` |
@@ -2435,14 +2441,14 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
 | `width=20px` | `width=20` or `width="20px"` |
 | Unbounded `scroll` | Real height/max-height or flex in a bounded layout |
-| `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
+| `state item = none` with no usable type | Declare it (`state item: option<Item> = none`), or rethink whether it is mutable state |
 | `let next = …` where `next` is already an action, state or other name (`type-let-shadow`) | A name of its own: `let revised = …` |
 | `let op = ""`, then `op = "tab"` in a branch (`type-let-reassign`) | Choose the value where it is bound: `let op = key == "Tab" ? "tab" : "insert"`; or a `state` |
 | `mutation exported` and `action exported` (`type-duplicate-name`) | One name per declaration: a component's props, states, derives, resources, mutations and actions share names (`action fileSaved`) |
 | Dynamic navigation template | `path("route", args…)` |
 | Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
 | An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |
-| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
+| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `xs.reduce(…)`, `xs.find(…)`, `push(xs, x)` and their kind are refused naming what to write |
 | `background-color: "Canvas"` in a `style` | `background-color="Canvas"` (or nothing: an unset background is the platform's) |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
 | Two `send`s to one mutation in one action | One combined request, a mutation per request, or `mutation … queue` to run both in order |

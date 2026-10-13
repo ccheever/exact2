@@ -4,16 +4,16 @@ shape Row
   name: string
   score: number
   ok: bool
-  tags: list<string>
+  tags: string[]
 
 component App
-  resource rows = rows() as shape list<Row>
-  derive names = join(map(rows, r => r.name), ", ")
-  derive scores = join(map(rows, r => r.score), "")
-  derive oks = join(map(rows, r => r.ok), "/")
-  derive tagged = join(map(rows, r => join(r.tags, "+")), ";")
-  derive emptyJoin = join(filter(map(rows, r => r.name), n => false), ",")
-  derive viaFilter = join(filter(map(rows, r => r.name), n => n != ""), "|")
+  resource rows = rows() as shape Row[]
+  derive names = rows.map(r => r.name).join(", ")
+  derive scores = rows.map(r => r.score).join("")
+  derive oks = rows.map(r => r.ok).join("/")
+  derive tagged = rows.map(r => r.tags.join("+")).join(";")
+  derive emptyJoin = rows.map(r => r.name).filter(n => false).join(",")
+  derive viaFilter = rows.map(r => r.name).filter(n => n != "").join("|")
   view
     column
       text names testId="names"

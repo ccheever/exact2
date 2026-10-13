@@ -5,15 +5,15 @@ shape Item
   label: string
 
 component App
-  resource a = items(1) as shape list<Item>
-  resource b = items(2) as shape list<Item>
-  resource c = items(3) as shape list<Item>
-  resource d = items(4) as shape list<Item>
+  resource a = items(1) as shape Item[]
+  resource b = items(2) as shape Item[]
+  resource c = items(3) as shape Item[]
+  resource d = items(4) as shape Item[]
   // The longest of four answers, so whatever the oracle's seed some rows
   // are almost surely there.
-  derive ab = length(a) >= length(b) ? a : b
-  derive cd = length(c) >= length(d) ? c : d
-  derive items = length(ab) >= length(cd) ? ab : cd
+  derive ab = a.length >= b.length ? a : b
+  derive cd = c.length >= d.length ? c : d
+  derive items = ab.length >= cd.length ? ab : cd
   state picked = ""
   state pickedIndex = 1000
   action pick(id: string, i: number)
@@ -21,7 +21,7 @@ component App
     pickedIndex = i
   view
     column
-      text `${length(items)}` testId="count"
+      text `${items.length}` testId="count"
       text picked testId="picked"
       for it, i in items key=i
         row testId=`row-${i}`

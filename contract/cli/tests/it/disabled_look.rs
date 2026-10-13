@@ -47,7 +47,7 @@ component App
         text "a"
       button press=go disabled=busy border=(busy ? "1px solid #ccc" : "1px solid #06f") testId="border"
         text "a"
-      button press=go disabled=busy color=join(map(["red"], busy => busy), "") testId="shadowed"
+      button press=go disabled=busy color=["red"].map(busy => busy).join("") testId="shadowed"
         text "a"
 "##;
 

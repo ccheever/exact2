@@ -35,7 +35,7 @@ shape Preview
   slug: string
   title: string
   description: string
-  tags: list<string>
+  tags: string[]
   date: string
   favorited: bool
   favoritesCount: number
@@ -45,15 +45,15 @@ shape Page
 shape Feed
   ready: bool
   message: string
-  articles: list<Preview>
-  pages: list<Page>
+  articles: Preview[]
+  pages: Page[]
 shape Article
   found: bool
   slug: string
   title: string
   description: string
   body: string
-  tags: list<string>
+  tags: string[]
   date: string
   favorited: bool
   favoritesCount: number
@@ -66,15 +66,15 @@ shape Comment
   mine: bool
 shape Auth
   ok: bool
-  errors: list<string>
+  errors: string[]
 shape Change
   kind: string
   ok: bool
   slug: string
-  errors: list<string>
+  errors: string[]
 shape Tags
   session: number
-  items: list<string>
+  items: string[]
 // What the reader pressed, by article and by author (app.ts `favs`,
 // `follows`): every view of one reads its state through these, so a press
 // shows at once and asks only this (LLP 1058 P5).
@@ -135,19 +135,19 @@ component RealWorld
   mutation tagEdit as shape Tags
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
   resource me = currentUser() as shape User else empty(avatar="/assets/default-avatar.svg")
-  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape list<string>
+  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape string[]
   resource feed = articles(listKind, current.params.tag, listName, page, me.username) as shape Feed
   resource post = article(slug, me.username) as shape Article else empty(author=empty(found=true, image="/assets/default-avatar.svg"))
-  resource thread = comments(slug, me.username) as shape list<Comment>
+  resource thread = comments(slug, me.username) as shape Comment[]
   resource person = profile(listName, me.username) as shape Profile else empty(image="/assets/default-avatar.svg")
-  resource favs = favorites() as shape list<Fav>
-  resource follows = followings() as shape list<Follow>
+  resource favs = favorites() as shape Fav[]
+  resource follows = followings() as shape Follow[]
 
   action go(url: string)
     page = 1
     tagInput = ""
     commentDraft = ""
-    if includes(url, "/editor")
+    if url.includes("/editor")
       editorSession = editorSession + 1
     nav = push(nav, url)
   action back
@@ -175,7 +175,7 @@ component RealWorld
       send followed = follow(name, on)
     else
       nav = push(nav, "/register")
-  action publish(target: string, title: string, description: string, body: string, tagList: list<string>)
+  action publish(target: string, title: string, description: string, body: string, tagList: string[])
     send change = publish(target, title, description, body, tagList)
   action deleteArticle(target: string)
     send change = deleteArticle(target)
@@ -431,9 +431,9 @@ component Heart
     slug: string
     favorited: bool
     count: number
-    favs: list<Fav>
+    favs: Fav[]
     favorite: action
-  derive fav = first(filter(favs, f => f.slug == slug))
+  derive fav = first(favs.filter(f => f.slug == slug))
   derive on = match fav { case some(f) => f.favorited, case none => favorited }
   derive n = match fav { case some(f) => f.favoritesCount, case none => count }
   view
@@ -453,7 +453,7 @@ component Previews
     page: number
     go: action
     showPage: action
-    favs: list<Fav>
+    favs: Fav[]
     favorite: action
   view
     column
@@ -513,7 +513,7 @@ component Previews
                   font-weight=300
                   background-color="#ffffff"
                   text t
-      if length(feed.pages) > 0
+      if feed.pages.length > 0
         row flex-wrap="wrap" margin-top=16 margin-bottom=16 testId="pagination"
           for p in feed.pages key = p.n
             button press=showPage(p.n)
@@ -535,14 +535,14 @@ component HomePage
     me: User
     feed: Feed
     loading: bool
-    tags: list<string>
+    tags: string[]
     tagsLoading: bool
     following: bool
     tag: string
     page: number
     go: action
     showPage: action
-    favs: list<Fav>
+    favs: Fav[]
     favorite: action
   view
     column
@@ -614,7 +614,7 @@ component HomePage
             border-color="#eeeeee"
             testId="sidebar"
             text "Popular Tags" margin-bottom=3
-            if tagsLoading and length(tags) == 0
+            if tagsLoading and tags.length == 0
               text "Loading tags..." color="#999999"
             row flex-wrap="wrap"
               for t in tags key = t
@@ -627,7 +627,7 @@ component HomePage
 
 component Errors
   props
-    errors: list<string>
+    errors: string[]
   view
     column class=Error testId="errors"
       for m in errors key = m
@@ -799,7 +799,7 @@ component EditorPage
     post: Article
     editing: bool
     change: option<Change>
-    tags: list<string>
+    tags: string[]
     tagInput: string
     setTagInput: action
     tagKey: action
@@ -884,16 +884,16 @@ component ArticleActions
     me: User
     post: Article
     go: action
-    favs: list<Fav>
-    follows: list<Follow>
+    favs: Fav[]
+    follows: Follow[]
     favorite: action
     follow: action
     remove: action
     light: bool
-  derive fav = first(filter(favs, f => f.slug == post.slug))
+  derive fav = first(favs.filter(f => f.slug == post.slug))
   derive favorited = match fav { case some(f) => f.favorited, case none => post.favorited }
   derive count = match fav { case some(f) => f.favoritesCount, case none => post.favoritesCount }
-  derive pressed = first(filter(follows, f => f.username == post.author.username))
+  derive pressed = first(follows.filter(f => f.username == post.author.username))
   derive following = match pressed { case some(f) => f.following, case none => post.author.following }
   view
     row align-items="center" flex-wrap="wrap" gap=8
@@ -952,10 +952,10 @@ component ArticlePage
     me: User
     post: Article
     loading: bool
-    thread: list<Comment>
+    thread: Comment[]
     go: action
-    favs: list<Fav>
-    follows: list<Follow>
+    favs: Fav[]
+    follows: Follow[]
     favorite: action
     follow: action
     remove: action
@@ -1117,11 +1117,11 @@ component ProfilePage
     page: number
     go: action
     showPage: action
-    favs: list<Fav>
-    follows: list<Follow>
+    favs: Fav[]
+    follows: Follow[]
     favorite: action
     follow: action
-  derive pressed = first(filter(follows, f => f.username == person.username))
+  derive pressed = first(follows.filter(f => f.username == person.username))
   derive following = match pressed { case some(f) => f.following, case none => person.following }
   view
     column

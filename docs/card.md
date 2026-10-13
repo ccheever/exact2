@@ -1,19 +1,19 @@
 Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 functions: call -> result
-  at(list<T>, i) -> option<T>  (none past end; -1 is last)
+  xs.at(i) -> option<T>  (none past end; -1 is last)
   back(router) -> Router
   calendarDiff(from, to, "years" or "months") -> option<number>  (whole years/months between YYYY-MM-DD dates)
   ceil(n) -> number
-  concat(list<T>, list<T>) -> list<T>
+  xs.concat(ys) -> T[]
   depth(router) -> number
   elementFromPoint(x, y) -> option<string>
-  elementsFromPoint(x, y) -> list<string>
+  elementsFromPoint(x, y) -> string[]
   encodeRouteSegment(text) -> string
   encodeURIComponent(text) -> string
-  endsWith(text, suffix) -> bool
-  filter(list<T>, x => bool) -> list<T>
-  first(list<T>) -> option<T>
+  text.endsWith(suffix) -> bool
+  xs.filter(x => bool) -> T[]
+  first(xs) -> option<T>
   floor(n) -> number
   formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
   formatDecimal(units, digits) -> string  (cents to "12.34"; digits a literal)
@@ -21,36 +21,36 @@ functions: call -> result
   formatTime(ms, offsetMinutes, "short") -> string  ("2:13 PM"; minutes east of UTC)
   frame(id) -> Geometry  (in an action)
   go(router, location) -> Router
-  includes(text|list, x) -> bool
-  indexOf(text|list, x) -> number  (-1 for none)
-  isEmpty(text|list) -> bool
-  join(list<string|number|bool>, sep) -> string
-  length(text|list) -> number
-  map(list<T>, x => U) -> list<U>
+  s.includes(x) -> bool  (text or list)
+  s.indexOf(x) -> number  (-1 for none)
+  s.isEmpty() -> bool
+  xs.join(sep) -> string
+  s.length -> number  (text or list)
+  xs.map(x => U) -> U[]
   max(a, b) -> number
   measure("id") -> Geometry  (in an action)
   min(a, b) -> number
   open(router, location) -> Router
-  params(router, parameterName) -> list<string>
+  params(router, parameterName) -> string[]
   parseNumber(text) -> option<number>  (none for "", "12px", "1.2.3")
   performanceNow() -> number  (ms since launch)
   push(router, location) -> Router
-  querySelectorAll(selector) -> list<string>
+  querySelectorAll(selector) -> string[]
   replace(router, location) -> Router
-  replaceAll(text, find, with) -> string
+  text.replaceAll(find, with) -> string
   round(n) -> number  (half up)
   searchParam(entry, name) -> string
   select(router, tabName) -> Router
-  slice(text|list, start, end?) -> text|list
-  split(text, separator) -> list<string>
-  stack(router) -> list<Entry>
-  startsWith(text, prefix) -> bool
+  s.slice(start, end?) -> text|list
+  text.split(separator) -> string[]
+  stack(router) -> Entry[]
+  text.startsWith(prefix) -> bool
   t("key", name=value) -> string  (the locale's table)
-  toFixed(n, digits) -> string  (digits a literal, 0 to 100)
-  toLowerCase(text) -> string
+  n.toFixed(digits) -> string  (digits a literal, 0 to 100)
+  text.toLowerCase() -> string
   top(router) -> Entry
-  toString(x) -> string
-  trim(text) -> string
+  x.toString() -> string
+  text.trim() -> string
   pending(resourceOrMutationName)  failed(resourceName)  failure(resourceName)  path("routeName", args…)  empty(field=constant, …)  some(expr)  DeclaredShape(field=value, …)
 
 tags: attributes; on events. Every tag takes CSS's style attributes (flex gap padding font-size …) and colour roles (-exact-label); `contract vocab <name>` gives a style's values
@@ -154,11 +154,11 @@ colour: Say the accent once, on the root, and leave controls unpainted; elsewher
 reading and writing data: `loadItems` and `addItem` are in app.ts and answer exactly their shape; a refusal is a reply (`ok: false, error`), not a throw. `then act` after `refreshes` clears the field on an ok reply; `pending(added)` stops a second send.
   shape Reply
     ok: bool
-  resource items = loadItems() as shape list<string> else empty()
+  resource items = loadItems() as shape string[] else empty()
   mutation added as shape Reply refreshes items
   action add
     send added = addItem("Milk")
-  text join(items, ", ")
+  text items.join(", ")
 a dated record: The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 at each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
   shape Time
     epochAtZero: number
@@ -167,7 +167,7 @@ a dated record: The write reads the clock itself, not a ticked `now`, and stores
   resource time = exactTime() as shape Time
   action log
     let at = time.epochAtZero + performanceNow()
-    days = concat(days, [formatDate(at, time.utcOffset, "iso")])
+    days = days.concat([formatDate(at, time.utcOffset, "iso")])
 a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` copies the screenshots to look at. A screen no test ends on is unchecked.
   test "a pick survives a relaunch"
     tap "pick"

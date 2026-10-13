@@ -153,6 +153,25 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     } else {
         format!("{required} to {}", params.len())
     };
+    if contract_syntax::idioms::is_method(name) && !params.is_empty() {
+        // `x.slice(…)` counts what is in its parentheses (LLP 1116.015 D2).
+        let rest = &params[1..];
+        let required = required.saturating_sub(1);
+        let count = if required == rest.len() {
+            rest.len().to_string()
+        } else {
+            format!("{required} to {}", rest.len())
+        };
+        return format!(
+            "`.{name}(…)` takes {count} argument(s), given {}; expected `{}.{name}({})`",
+            given.saturating_sub(1),
+            match params[0].contains(' ') {
+                true => format!("({})", params[0]),
+                false => params[0].clone(),
+            },
+            rest.join(", ")
+        );
+    }
     format!(
         "`{name}` takes {count} argument(s), given {given}; expected `{name}({})`",
         params.join(", ")

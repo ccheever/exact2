@@ -106,7 +106,7 @@ fn the_roster_names_are_the_roster_s() {
             "day 3",
         ),
         (
-            "fn indexOf(xs: list<string>, p: string): number = 7\ncomponent A\n  state s = [\"a\", \"b\"]\n  view\n    text `${indexOf(s, \"b\")}` testId=\"x\"\n",
+            "fn indexOf(xs: string[], p: string): number = 7\ncomponent A\n  state s = [\"a\", \"b\"]\n  view\n    text `${s.indexOf(\"b\")}` testId=\"x\"\n",
             "7",
         ),
         (
@@ -147,7 +147,7 @@ fn a_field_s_number_an_age_and_an_iso_day() {
   state field = " 12.5 "
   state born = "2024-02-29"
   derive amount = match parseNumber(field) { case some(n) => n, case none => 0 }
-  derive age = match calendarDiff(born, "2025-02-28", "years") { case some(n) => toString(n), case none => "?" }
+  derive age = match calendarDiff(born, "2025-02-28", "years") { case some(n) => n.toString(), case none => "?" }
   action type(s: string)
     field = s
   view
@@ -184,13 +184,13 @@ fn a_field_s_number_an_age_and_an_iso_day() {
     assert_eq!(text(&r, "x"), "2026-09-21");
     // A unit is a listed literal, as a style is.
     let e = contract::compile(
-        "component A\n  view\n    text toString(calendarDiff(\"2024-01-01\", \"2025-01-01\", \"days\") == none)\n",
+        "component A\n  view\n    text (calendarDiff(\"2024-01-01\", \"2025-01-01\", \"days\") == none).toString()\n",
     )
     .unwrap_err();
     assert_eq!(e.id, "type-format-style", "{e}");
     assert!(e.message.contains(r#"one of `"years"`, `"months"`"#), "{e}");
     let e =
-        contract::compile("component A\n  view\n    text toString(round(\"2\"))\n").unwrap_err();
+        contract::compile("component A\n  view\n    text round(\"2\").toString()\n").unwrap_err();
     assert_eq!(e.id, "type-argument", "{e}");
 }
 
@@ -205,7 +205,7 @@ fn money_is_format_decimal_and_a_measure_is_to_fixed() {
   view
     column
       text `$${formatDecimal(round(price * 100), 2)}` testId="price"
-      text `${toFixed(km, 2)} km` testId="km"
+      text `${km.toFixed(2)} km` testId="km"
 "#;
     let plan = contract::compile(src).unwrap();
     assert_eq!(exact_runner::uses(&plan).to_string(), "format");
@@ -224,24 +224,24 @@ fn money_is_format_decimal_and_a_measure_is_to_fixed() {
         "the binary value of 1.005 is below it"
     );
     for (call, given) in [
-        ("toFixed(1.5, 101)", "given `101`"),
-        ("toFixed(1.5, 2.5)", "given `2.5`"),
-        ("toFixed(1.5, 1 + 1)", "given an expression"),
+        ("(1.5).toFixed(101)", "given `101`"),
+        ("(1.5).toFixed(2.5)", "given `2.5`"),
+        ("(1.5).toFixed(1 + 1)", "given an expression"),
         ("formatDecimal(5, 21)", "given `21`"),
     ] {
         let e = contract::compile(&format!("component A\n  view\n    text {call}\n")).unwrap_err();
         assert_eq!(e.id, "type-literal-digits", "{call}: {e}");
         assert!(e.message.contains(given), "{call}: {e}");
     }
-    let e = contract::compile("component A\n  view\n    text toFixed(1.5, -1)\n").unwrap_err();
+    let e = contract::compile("component A\n  view\n    text (1.5).toFixed(-1)\n").unwrap_err();
     assert_eq!(e.id, "type-literal-digits", "{e}");
     // A wrapper can't forward the digits: its parameter is an expression.
     let e = contract::compile(
-        "fn money(v: number, d: number): string = toFixed(v, d)\ncomponent A\n  view\n    text money(1, 2)\n",
+        "fn money(v: number, d: number): string = v.toFixed(d)\ncomponent A\n  view\n    text money(1, 2)\n",
     )
     .unwrap_err();
     assert_eq!(e.id, "type-literal-digits", "{e}");
-    let e = contract::compile("component A\n  view\n    text toFixed(\"1.5\", 2)\n").unwrap_err();
+    let e = contract::compile("component A\n  view\n    text \"1.5\".toFixed(2)\n").unwrap_err();
     assert_eq!(e.id, "type-argument", "{e}");
 }
 

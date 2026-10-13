@@ -12,7 +12,7 @@ shape Swatch
 shape SpaceRow
   name: string
   note: string
-  swatches: list<Swatch>
+  swatches: Swatch[]
 
 shape Picture
   src: string
@@ -97,10 +97,10 @@ style Page
 
 component ColorGallery
   resource display = exactViewport() as shape Display
-  resource css = colorSpaces("css") as shape list<SpaceRow>
-  resource platform = colorSpaces("platform") as shape list<SpaceRow>
-  resource pictures = picturePairs() as shape list<PicturePair>
-  resource hdr = hdrPictures() as shape list<HdrPicture>
+  resource css = colorSpaces("css") as shape SpaceRow[]
+  resource platform = colorSpaces("platform") as shape SpaceRow[]
+  resource pictures = picturePairs() as shape PicturePair[]
+  resource hdr = hdrPictures() as shape HdrPicture[]
   resource hiddenPictures = hidden("pictures") as shape string
   resource hiddenHdr = hidden("hdr") as shape string
   resource caveat = caveat("constrained") as shape string

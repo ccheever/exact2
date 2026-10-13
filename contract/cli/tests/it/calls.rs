@@ -368,7 +368,7 @@ component Child
   state out = ""
   action go(length: number)
     let toString = length + 1
-    out = `${toString} ${toString(length)}`
+    out = `${toString} ${length.toString()}`
     done()
   view
     column
@@ -472,7 +472,7 @@ fn a_child_calls_its_own_action_in_a_row() {
     let src = &format!(
         "{ITEMS}{}",
         r#"component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     column
       for item in items key=item.id
@@ -505,7 +505,7 @@ fn a_prop_called_from_a_same_component_callee_runs_the_owners_action_in_the_row(
         "{ITEMS}{}",
         r#"component App
   state picked = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action pick(id: string)
     picked = id
   view
@@ -566,12 +566,12 @@ fn an_arrow_parameter_spelled_like_a_written_slot_is_not_a_stale_read() {
         r#"component App
   state count = 0
   state shown = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action reset
     count = 0
   action go
     reset()
-    shown = join(map(items, count => count.id), ",")
+    shown = items.map(count => count.id).join(",")
   view
     column
       button press=go testId="go"
@@ -619,7 +619,7 @@ fn curried_and_payload_arguments_are_passed_explicitly() {
         "{ITEMS}{}",
         r#"component App
   state seen = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action flip(id: string, checked: bool)
     seen = `${id} ${checked}`
   action toggled(id: string, checked: bool)

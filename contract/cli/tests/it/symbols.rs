@@ -99,7 +99,7 @@ fn otherLabel(value: Other): string = value.label
 component App
   state textValue = "root"
   state choice = some("chosen")
-  resource items = loadItems() as shape list<Item>
+  resource items = loadItems() as shape Item[]
   mutation saved as shape Item
   action edit(textValue: string)
     textValue = textValue

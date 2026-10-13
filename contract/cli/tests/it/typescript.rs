@@ -9,18 +9,18 @@ const CONTRACT: &str = r#"
 shape Item
   id: string
   enabled: bool
-  scores: list<number>
+  scores: number[]
   child: option<string>
 
 component App
   state query = ""
-  resource items = search(query) as shape list<Item>
+  resource items = search(query) as shape Item[]
   resource found = find(query) as shape option<Item>
   mutation outcome as shape Item
   action save
     send outcome = save(query, true)
   view
-    text `${length(items)}`
+    text `${items.length}`
 "#;
 
 const VALID: &str = r#"

@@ -25,7 +25,7 @@ fn a_fit_content_route_reports_its_rows_and_not_its_box() {
     let src = r##"component Menu
   state rows = [0, 1]
   action more
-    rows = concat(rows, [length(rows)])
+    rows = rows.concat([rows.length])
   view
     column position="relative" width="100%" height="100%"
       column testId="plain" position="absolute" top=0 right=0 bottom=0 left=0
@@ -119,7 +119,7 @@ fn rows_that_may_shrink_still_grow_the_extent() {
     let src = r##"component Menu
   state rows = [0, 1]
   action more
-    rows = concat(rows, [length(rows)])
+    rows = rows.concat([rows.length])
   view
     column position="relative" width="100%" height="100%"
       column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" padding=16
@@ -239,7 +239,7 @@ fn a_nested_scroller_grows_the_extent_unless_its_height_is_fixed() {
     let src = r##"component Menu
   state rows = [0]
   action more
-    rows = concat(rows, [length(rows)])
+    rows = rows.concat([rows.length])
   view
     column position="relative" width="100%" height="100%"
       button press=more testId="more" height=44

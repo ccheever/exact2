@@ -523,7 +523,7 @@ shape Item
   label: string
   n: number
   note: option<string>
-  tags: list<Tag>
+  tags: Tag[]
 component Deck
   state query = ""
   state picked = ""
@@ -532,8 +532,8 @@ component Deck
   state stamp = 0
   state scrollTo = 0
   state moved = ""
-  resource items = items(revision) as shape list<Item>
-  derive title = `${query} ${length(items)} ${stamp}`
+  resource items = items(revision) as shape Item[]
+  derive title = `${query} ${items.length} ${stamp}`
   task clock mount
     every(250, tick)
   action tick
@@ -569,7 +569,7 @@ component Deck
         for it in items key=it.id
           column width="100%"
             text `${it.n} ${picked}`
-            text join(map(it.tags, (t, i) => `${i}:${t.name}`), ",")
+            text it.tags.map((t, i) => `${i}:${t.name}`).join(",")
       text moved
       list id="deck-list" reorderdrop=moveItem virtualized=true height=200
         for it in items key=it.id
@@ -581,7 +581,7 @@ component Deck
           for it in items key=it.id
             column
               Card(item=it, picked=picked)
-              text join(filter(map(it.tags, t => t.name), n => n != picked), " ")
+              text it.tags.map(t => t.name).filter(n => n != picked).join(" ")
               button press=pick(it.id)
                 text `${performanceNow()} ${it.n}`
 component Card

@@ -11,7 +11,7 @@ impl DataSource for Rows {
     }
 }
 const APP: &str = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state target = 180
   state count = 0
   state seen = 0

@@ -298,7 +298,7 @@ const GROWING: &str = r#"component App
   state busy = true
   state tick = 0
   action add
-    items = concat(items, [`item ${length(items)}`])
+    items = items.concat([`item ${items.length}`])
   action spin
     tick = tick + 1
   action settle

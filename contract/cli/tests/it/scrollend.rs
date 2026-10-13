@@ -21,7 +21,7 @@ impl DataSource for Rows {
 const APP: &str = r#"component App
   state ends = 0
   state moves = 0
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   action ended
     ends = ends + 1
   action moved(x: number, y: number)

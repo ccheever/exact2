@@ -30,7 +30,7 @@ component App
       text `${depth(nav)}` testId="depth"
       text current.tab testId="entry-tab"
       for t in nav.tabs key=t.name
-        text `${t.name}:${length(t.stack)}` testId=`tab-${t.name}`
+        text `${t.name}:${t.stack.length}` testId=`tab-${t.name}`
       button "x" press=select("home") testId="sel-home"
       button "x" press=select("search") testId="sel-search"
       button "x" press=select("profile") testId="sel-profile"

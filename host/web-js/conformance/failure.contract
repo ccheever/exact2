@@ -15,7 +15,7 @@ component Failure
   state n = 0
   resource probe = lost(n) as shape number
   resource stats = fixtureStats() as shape Mismatch else empty()
-  derive probeWhy = match failure(probe) { case some(f) => `${f.code} ${length(f.message) > 0}`, case none => "none" }
+  derive probeWhy = match failure(probe) { case some(f) => `${f.code} ${f.message.length > 0}`, case none => "none" }
   view
     column testId="root" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
       text `probe ${probe} ${probeWhy}` testId="probe"

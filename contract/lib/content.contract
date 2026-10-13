@@ -215,7 +215,7 @@ component RoundButton
   view
     match tint
       case some(t)
-        if includes(["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"], t)
+        if ["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"].includes(t)
           button press=press disabled=disabled testId=testId buttonStyle="tinted"
             accent-color=t color=(disabled ? "-exact-tertiary-label" : "-exact-label")
             -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0

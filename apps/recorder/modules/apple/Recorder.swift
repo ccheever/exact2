@@ -329,3 +329,4 @@ typealias PlatformFont = UIFont
 #endif
 
 let exactModule: ExactModule.Type = Recorder.self
+"

@@ -53,7 +53,7 @@ fn only_a_list_step_meters_a_body() {
 /// meters is a function called in place, so each evaluation starts at 0.
 #[test]
 fn a_metered_body_declares_one_counter_and_join_steps_at_its_call() {
-    let (_, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape list<Card>\n  derive nested = map(cards, a => map(cards, b => b.n))\n  derive labels = join(map(cards, c => c.label), \",\")\n  view\n    column\n      text labels\n      text `${{length(map(cards, c => c.n))}}`\n"));
+    let (_, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape Card[]\n  derive nested = cards.map(a => cards.map(b => b.n))\n  derive labels = cards.map(c => c.label).join(\",\")\n  view\n    column\n      text labels\n      text `${{cards.map(c => c.n).length}}`\n"));
     let nested = decl(&js, "d_0");
     assert_eq!(nested.matches("let $s=0").count(), 1, "{nested}");
     assert_eq!(nested.matches("++$s>65536").count(), 2, "{nested}");
@@ -74,7 +74,7 @@ fn a_metered_body_declares_one_counter_and_join_steps_at_its_call() {
 /// action's commit (`.t`).
 #[test]
 fn each_reset_point_is_its_own_evaluation() {
-    let (_, js) = js(&format!("{CARD}component App\n  resource cards = cards(3, 0) as shape list<Card>\n  resource two = cards(length(map(cards, c => c)), length(map(cards, c => c))) as shape list<Card>\n  state n = 0\n  action set(a: number, b: number)\n    n = a + b\n  view\n    column\n      button press=set(length(map(cards, c => c)), length(map(cards, c => c))) testId=\"go\"\n        text \"go\"\n      for c in cards key=c.id\n        Row(c=c, all=cards)\ncomponent Row\n  props\n    c: Card\n    all: list<Card>\n  state a = length(map(all, x => x))\n  state b = length(map(all, x => x))\n  view\n    text `${{a}} ${{b}}`\n"));
+    let (_, js) = js(&format!("{CARD}component App\n  resource cards = cards(3, 0) as shape Card[]\n  resource two = cards(cards.map(c => c).length, cards.map(c => c).length) as shape Card[]\n  state n = 0\n  action set(a: number, b: number)\n    n = a + b\n  view\n    column\n      button press=set(cards.map(c => c).length, cards.map(c => c).length) testId=\"go\"\n        text \"go\"\n      for c in cards key=c.id\n        Row(c=c, all=cards)\ncomponent Row\n  props\n    c: Card\n    all: Card[]\n  state a = all.map(x => x).length\n  state b = all.map(x => x).length\n  view\n    text `${{a}} ${{b}}`\n"));
     assert_eq!(decl(&js, "r_1").matches("let $s=0").count(), 2, "{js}");
     assert!(js.contains("on(e"), "{js}");
     let press = js.split("\"press\",").nth(1).expect("a press handler");
@@ -98,7 +98,7 @@ fn each_reset_point_is_its_own_evaluation() {
 /// row first, so an argument past MAX_STRING is refused naming it.
 #[test]
 fn act_names_its_string_parameters() {
-    let (_, js) = js("component App\n  state t = \"\"\n  action put(v: string, n: number)\n    t = v\n  resource ids = ids() as shape list<string>\n  view\n    column\n      button press=put(\"a\", 1) testId=\"go\"\n        text \"go\"\n      for i in ids key=i\n        Row()\ncomponent Row\n  state got = \"\"\n  action take(w: string)\n    got = w\n  view\n    input value=got input=take testId=\"in\"\n");
+    let (_, js) = js("component App\n  state t = \"\"\n  action put(v: string, n: number)\n    t = v\n  resource ids = ids() as shape string[]\n  view\n    column\n      button press=put(\"a\", 1) testId=\"go\"\n        text \"go\"\n      for i in ids key=i\n        Row()\ncomponent Row\n  state got = \"\"\n  action take(w: string)\n    got = w\n  view\n    input value=got input=take testId=\"in\"\n");
     assert!(
         decl(&js, "a_0").ends_with(",[\"s\",\"n\"],0,[\"v\",0]);"),
         "{js}"
@@ -113,7 +113,7 @@ fn act_names_its_string_parameters() {
 /// Every check names the pc of the instruction the VM checks at.
 #[test]
 fn every_check_names_its_instructions_pc() {
-    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape list<Card>\n  state s = \"a\"\n  derive all = join(filter(map(cards, c => c.label + s), l => l != \"\"), \",\")\n  derive card = Card(id=encodeURIComponent(s), n=1, label=s)\n  view\n    text `${{all}} ${{card.id}}`\n"));
+    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape Card[]\n  state s = \"a\"\n  derive all = cards.map(c => c.label + s).filter(l => l != \"\").join(\",\")\n  derive card = Card(id=encodeURIComponent(s), n=1, label=s)\n  view\n    text `${{all}} ${{card.id}}`\n"));
     for (i, d) in plan.derives.iter().enumerate() {
         let body = decl(&js, &format!("d_{i}"));
         for x in instructions(plan.code(d.body)).flatten() {
@@ -146,7 +146,7 @@ fn every_check_names_its_instructions_pc() {
 /// a body that calls one is metered, text's included.
 #[test]
 fn the_list_builders_step_on_the_callers_counter_at_their_call() {
-    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape list<Card>\n  state s = \"ab\"\n  derive both = length(concat(cards, cards))\n  derive kept = length(slice(cards, 1))\n  derive found = includes(map(cards, c => c.label), s)\n  derive text = includes(s, \"a\")\n  derive at = indexOf(map(cards, c => c.label), s)\n  derive pieces = length(split(s, \"\"))\n  derive textAt = indexOf(s, \"b\")\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}} ${{at}} ${{pieces}} ${{textAt}}`\n"));
+    let (plan, js) = js(&format!("{CARD}component App\n  resource cards = cards(3) as shape Card[]\n  state s = \"ab\"\n  derive both = cards.concat(cards).length\n  derive kept = cards.slice(1).length\n  derive found = cards.map(c => c.label).includes(s)\n  derive text = s.includes(\"a\")\n  derive at = cards.map(c => c.label).indexOf(s)\n  derive pieces = s.split(\"\").length\n  derive textAt = s.indexOf(\"b\")\n  view\n    text `${{both}} ${{kept}} ${{found}} ${{text}} ${{at}} ${{pieces}} ${{textAt}}`\n"));
     for (i, d) in plan.derives.iter().enumerate() {
         let body = decl(&js, &format!("d_{i}"));
         assert_eq!(body.matches("let $s=0").count(), 1, "{body}");

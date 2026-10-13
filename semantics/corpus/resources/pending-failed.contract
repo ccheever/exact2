@@ -5,7 +5,7 @@ shape Item
 
 component App
   state q = 1
-  resource items = items(q) as shape list<Item>
+  resource items = items(q) as shape Item[]
   derive loading = pending(items)
   derive broken = failed(items)
   derive why = match failure(items) { case some(f) => `${f.code}: ${f.message}`, case none => "none" }
@@ -16,7 +16,7 @@ component App
       if pending(items)
         text "loading" testId="loading"
       else
-        text `${length(items)}` testId="count"
+        text `${items.length}` testId="count"
       text why testId="why"
       button "next" press=next testId="next"
 

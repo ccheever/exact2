@@ -131,7 +131,7 @@ component Expose
   action write(value)
     draft = value
   action sendDraft
-    if trim(draft) != ""
+    if draft.trim() != ""
       send reply = ask("expose", draft, "", epoch)
       draft = ""
       focus("composer")
@@ -210,13 +210,13 @@ component Expose
                   if t.id == "expose"
                     Notice(id="expose", glyph="E", app="Messages", title="Expose", body=t.preview, time="now", press=openThread("expose"))
               if dismissed != "all"
-                if not includes(dismissed, "nico")
+                if not dismissed.includes("nico")
                   Notice(id="nico", glyph="M", app="Messages", title="Nico", body="Can you push the build to Silver tonight? I want to see the lock screen on the 4a Pro.", time="now", press=openThread("nico"))
-                if not includes(dismissed, "reader")
+                if not dismissed.includes("reader")
                   Notice(id="reader", glyph="R", app="Reader", title="Reader", body="New this morning: The clock is the loudest thing on your phone", time="12m", press=openArticle("loud-clock"))
-                if not includes(dismissed, "crew")
+                if not dismissed.includes("crew")
                   Notice(id="crew", glyph="M", app="Messages", title="Type Crew", body="James: I still think the g needs a smaller ear", time="1h", press=openThread("crew"))
-                if not includes(dismissed, "update")
+                if not dismissed.includes("update")
                   Notice(id="update", glyph="E", app="Settings", title="Expose", body="Expose 1.0 is ready. It will install tonight while the phone charges.", time="3h", press=openPage("about"))
                 row justify-content="center" padding-top=4
                   button press=clearNotices testId="clear-notices" -exact-press-scale=0.95 height=32 padding-left=16 padding-right=16 border-radius=16 background-color="#ffffff1c" display="flex" flex-direction="row" align-items="center"
@@ -263,7 +263,7 @@ component Expose
                     column flex=1 min-width=0 gap=3
                       text `READER · ${a.section}` font-size=11 font-weight=600 letter-spacing=0.8 text-transform="uppercase" color="#ffffff8c"
                       text a.title font-family="Exciting Lilt" font-weight=700 font-size=18 line-height="22px" line-clamp=2
-                      text `${a.author} · ${toString(a.minutes)} min` font-size=12 color="#ffffff99"
+                      text `${a.author} · ${a.minutes.toString()} min` font-size=12 color="#ffffff99"
               column gap=20 padding-top=2
                 row justify-content="space-between"
                   AppTile(id="messages", label="Messages", glyph="M", tile="#f5f5f7", ink="#0b0b0c", badge=inbox.unread, small=false, press=go("messages"))
@@ -329,7 +329,7 @@ component Expose
                   path d="M15 5l-7 7 7 7" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.2 stroke-linecap="round" stroke-linejoin="round"
                 if inbox.unread > 0
                   column min-width=22 height=22 border-radius=11 padding-left=6 padding-right=6 box-sizing="border-box" background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center"
-                    text toString(inbox.unread) font-size=12 font-weight=600 color="light-dark(#ffffff, #0b0b0c)"
+                    text inbox.unread.toString() font-size=12 font-weight=600 color="light-dark(#ffffff, #0b0b0c)"
               column flex=1 align-items="center" gap=3
                 column width=38 height=38 border-radius=19 background-color=(chat.kind == "assistant" ? "light-dark(#0b0b0c, #f5f5f7)" : "light-dark(#3a3a3c, #48484c)") align-items="center" justify-content="center"
                   text chat.initials font-family="Exciting" font-weight=900 font-size=(chat.kind == "assistant" ? 21 : 17) line-height="24px" color=(chat.kind == "assistant" ? "light-dark(#ffffff, #0b0b0c)" : "#ffffff")
@@ -366,7 +366,7 @@ component Expose
                   path d="M12 5v14M5 12h14" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.4 stroke-linecap="round"
               row flex=1 min-width=0 min-height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" align-items="center" padding-left=14 padding-right=4 gap=6
                 input appearance="none" id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder=(chat.kind == "assistant" ? "Ask Expose" : "Message") aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#0b0b0c, #f5f5f7)" disabled=(chat.kind != "assistant")
-                if trim(draft) != "" and chat.kind == "assistant"
+                if draft.trim() != "" and chat.kind == "assistant"
                   button press=sendDraft testId="send" aria-label="Send" -exact-press-scale=0.9 width=28 height=28 border-radius=14 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     svg viewBox="0 0 24 24" width=16 height=16
                       path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="#ffffff" stroke-width=2.6 stroke-linecap="round" stroke-linejoin="round"
@@ -388,7 +388,7 @@ component Expose
                       text a.section font-size=12 font-weight=700 letter-spacing=0.8 text-transform="uppercase" color="#ff6a2b"
                       text a.title font-family="Exciting Lilt" font-weight=700 font-size=28 line-height="32px" letter-spacing=-0.3 text-align="left"
                       text a.deck font-size=(16 * scale) font-style="italic" line-height=1.35 class=Muted text-align="left"
-                      text `${a.author} · ${a.posted} · ${toString(a.minutes)} min read` font-size=12 font-weight=500 class=Muted padding-top=2
+                      text `${a.author} · ${a.posted} · ${a.minutes.toString()} min read` font-size=12 font-weight=500 class=Muted padding-top=2
                 column class=Card
                   for a in library.articles key=a.id
                     if a.id != library.lead
@@ -396,7 +396,7 @@ component Expose
                         column width=44 height=44 border-radius=12 background-color="light-dark(#2c2c2e, #3a3a3c)" align-items="center" justify-content="center" flex-shrink=0
                           text (a.section == "Type" ? "Aa" : a.section == "Field notes" ? "F" : a.section == "Intelligence" ? "E" : "P") font-family="Exciting" font-weight=900 font-size=20 line-height="24px" color="#ffffff"
                         column flex=1 min-width=0 gap=3 padding-top=14 padding-bottom=14 padding-right=16 class=Hairline align-items="flex-start"
-                          text `${a.section} · ${toString(a.minutes)} min` font-size=11 font-weight=600 letter-spacing=0.6 text-transform="uppercase" class=Muted
+                          text `${a.section} · ${a.minutes.toString()} min` font-size=11 font-weight=600 letter-spacing=0.6 text-transform="uppercase" class=Muted
                           text a.title font-family="Exciting Lilt" font-weight=700 font-size=(17 * scale) line-height=1.2 line-clamp=2 text-align="left"
                           text a.deck font-size=(14 * scale) class=Muted line-clamp=2 line-height=1.3 text-align="left"
                 text "Set in Exciting, Exciting Lilt and Exposure Sans Original 10." font-size=12 font-style="italic" class=Muted text-align="center" padding-top=6
@@ -419,7 +419,7 @@ component Expose
                     row align-items="center" gap=10 padding-top=2 padding-bottom=6 class=Hairline
                       column width=30 height=30 border-radius=15 background-color="light-dark(#2c2c2e, #3a3a3c)" align-items="center" justify-content="center"
                         text (a.author == "Nico" ? "N" : a.author == "Type Crew" ? "TC" : a.author == "Expose Builds" ? "Ex" : "CC") font-family="Exciting" font-weight=900 font-size=13 line-height="16px" color="#ffffff"
-                      text `${a.author} · ${a.posted} · ${toString(a.minutes)} min read` font-size=13 font-weight=500 class=Muted
+                      text `${a.author} · ${a.posted} · ${a.minutes.toString()} min read` font-size=13 font-weight=500 class=Muted
                     for p in a.body key=p
                       text p font-size=(17.5 * scale) line-height=1.5
                     column border-left-style="solid" border-left-width=3 border-color="#ff6a2b" padding-left=16 padding-top=4 padding-bottom=4 margin-top=6 margin-bottom=6
@@ -462,8 +462,8 @@ component Expose
                   SettingsRow(id="focus", glyph="F", title="Focus", value="", last=false, scale=scale, press=nope("Focus"))
                   SettingsRow(id="privacy", glyph="P", title="Privacy & Security", value="", last=true, scale=scale, press=nope("Privacy"))
                 column margin-top=22 class=Card
-                  SettingsRow(id="app-messages", glyph="M", title="Messages", value=`${toString(length(inbox.threads))} threads`, last=false, scale=scale, press=go("messages"))
-                  SettingsRow(id="app-reader", glyph="R", title="Reader", value=`${toString(length(library.articles))} articles`, last=false, scale=scale, press=go("reader"))
+                  SettingsRow(id="app-messages", glyph="M", title="Messages", value=`${inbox.threads.length.toString()} threads`, last=false, scale=scale, press=go("messages"))
+                  SettingsRow(id="app-reader", glyph="R", title="Reader", value=`${library.articles.length.toString()} articles`, last=false, scale=scale, press=go("reader"))
                   SettingsRow(id="about", glyph="i", title="About", value="Expose 1.0", last=false, scale=scale, press=openPage("about"))
                   SettingsRow(id="lock", glyph="L", title="Lock Screen", value="", last=true, scale=scale, press=lock)
                 column align-items="center" gap=4 margin-top=28
@@ -492,8 +492,8 @@ component Expose
                     text "OPENROUTER KEY" font-size=13 class=Muted
                     row align-items="center" gap=8
                       input appearance="none" id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" font-size=16 color="light-dark(#0b0b0c, #f5f5f7)" background-color="light-dark(#ffffff, #0b0b0c)"
-                      button press=saveKey testId="save-key" disabled=(trim(keyDraft) == "") -exact-press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius=10 background-color=(trim(keyDraft) == "" ? "light-dark(#e9e9ee, #2a2a2e)" : "#ff6a2b") display="flex" flex-direction="row" align-items="center"
-                        text "Save" font-size=15 font-weight=600 color=(trim(keyDraft) == "" ? "light-dark(#8e8e93, #6e6e75)" : "#ffffff")
+                      button press=saveKey testId="save-key" disabled=(keyDraft.trim() == "") -exact-press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius=10 background-color=(keyDraft.trim() == "" ? "light-dark(#e9e9ee, #2a2a2e)" : "#ff6a2b") display="flex" flex-direction="row" align-items="center"
+                        text "Save" font-size=15 font-weight=600 color=(keyDraft.trim() == "" ? "light-dark(#8e8e93, #6e6e75)" : "#ffffff")
                     if keySaved
                       text "Saved. Expose will use this key from now on." font-size=13 color="#ff6a2b"
                     if intelligence.keySource == "settings"

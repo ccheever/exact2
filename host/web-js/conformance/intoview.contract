@@ -12,7 +12,7 @@ shape Card
   color: string
 
 component IntoView
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   state shown = ""
   action far
     shown = "far"

@@ -12,7 +12,7 @@ component Guests
   state draft = ""
   state searching = false
   state guests = [Guest(id="1", name="Ada Lovelace"), Guest(id="2", name="Grace Hopper")]
-  derive shown = filter(guests, g => includes(toLowerCase(g.name), toLowerCase(trim(query))))
+  derive shown = guests.filter(g => g.name.toLowerCase().includes(query.trim().toLowerCase()))
   action search(v: string)
     query = v
   action began
@@ -27,8 +27,8 @@ component Guests
   action edit(v: string)
     draft = v
   action add
-    if trim(draft) != ""
-      guests = concat(guests, [Guest(id=toString(length(guests) + 1), name=trim(draft))])
+    if draft.trim() != ""
+      guests = guests.concat([Guest(id=(guests.length + 1).toString(), name=draft.trim())])
       draft = ""
     focus("draft")
   action startAdding
@@ -38,7 +38,7 @@ component Guests
       row gap=8 padding="8px 16px" align-items="center"
         input id="search" type="search" value=query input=search submit=searched focus=began blur=ended
           placeholder="Search" aria-label="Search guests" enterkeyhint="search" testId="search" flex=1 min-width=0
-        text `${length(shown)} found` testId="count"
+        text `${shown.length} found` testId="count"
         if searching or query != ""
           button press=cancel testId="cancel"
             text "Cancel"

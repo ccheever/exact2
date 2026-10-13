@@ -5,32 +5,32 @@
 // parameters, and nothing it could write.
 fn y(p: number, lo: number, hi: number): number = hi == lo ? 16 : 32 - (p - lo) / (hi - lo) * 32
 fn round2(v: number): number = floor(v * 100 + 0.5) / 100
-fn points(series: list<number>, lo: number, hi: number): string = join(map(series, (p, i) => `${round2(i * 96 / (length(series) - 1))},${round2(y(p, lo, hi))}`), " ")
+fn points(series: number[], lo: number, hi: number): string = series.map((p, i) => `${round2(i * 96 / (series.length - 1))},${round2(y(p, lo, hi))}`).join(" ")
 
 shape Coin
   id: string
-  series: list<number>
+  series: number[]
   lo: number
   hi: number
   flash: bool
-  tags: list<string>
+  tags: string[]
 
 component Lists
-  resource initial = coins() as shape list<Coin>
-  mutation changed as shape list<Coin>
+  resource initial = coins() as shape Coin[]
+  mutation changed as shape Coin[]
   derive coins = match changed { case some(m) => m, case none => initial }
   // Every coin's tags that are not empty, and a count.
-  derive tagged = filter(coins, c => length(filter(c.tags, t => t != "")) > 0)
+  derive tagged = coins.filter(c => c.tags.filter(t => t != "").length > 0)
   action tick
     send changed = tick()
   view
     column testId="root"
-      text `${length(tagged)} tagged` testId="tagged"
-      text join(map(coins, (c, i) => `${i + 1}. ${c.id}`), ", ") testId="ids"
+      text `${tagged.length} tagged` testId="tagged"
+      text coins.map((c, i) => `${i + 1}. ${c.id}`).join(", ") testId="ids"
       for c in coins key=c.id
         row testId=`row-${c.id}`
           text c.id
           text (c.flash ? "*" : "") testId=`flash-${c.id}`
-          text join(filter(c.tags, t => t != ""), "·") testId=`tags-${c.id}`
+          text c.tags.filter(t => t != "").join("·") testId=`tags-${c.id}`
           svg width=96 height=32 viewBox="0 0 96 32"
             polyline points=points(c.series, c.lo, c.hi) testId=`chart-${c.id}` fill="none" stroke="currentcolor"

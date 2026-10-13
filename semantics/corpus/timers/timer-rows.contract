@@ -5,7 +5,7 @@ shape Item
 
 component App
   state page = 0
-  resource items = items(page % 2) as shape list<Item>
+  resource items = items(page % 2) as shape Item[]
   action flip
     page = page + 1
   task t mount

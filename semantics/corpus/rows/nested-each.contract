@@ -2,10 +2,10 @@
 // both indices.
 shape Group
   name: string
-  members: list<string>
+  members: string[]
 
 component App
-  resource groups = groups() as shape list<Group>
+  resource groups = groups() as shape Group[]
   state last = ""
   action choose(g: string, m: string, gi: number, mi: number)
     last = `${gi}.${mi} ${m} in ${g}`

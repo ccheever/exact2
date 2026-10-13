@@ -12,12 +12,12 @@ shape Station
 
 component Regions
   resource loc = defaultLocation() as shape Location
-  resource line = stations(loc) as shape list<Station>
-  resource close = nearest(loc, next) as shape list<Station>
+  resource line = stations(loc) as shape Station[]
+  resource close = nearest(loc, next) as shape Station[]
   state near = false
   state skip = ""
   state next = 3
-  derive items = map(filter(near ? close : line, s => s.id != skip), s => s.id)
+  derive items = (near ? close : line).filter(s => s.id != skip).map(s => s.id)
   state picked = none
   state open = true
   state mode = 0
@@ -70,4 +70,4 @@ component Regions
           text it testId=`bare-${it}`
       else
         text (mode == 2 ? "mode two hides the list" : "closed") testId="closed"
-      text join(map(items, (x, i) => `${i}:${x}`), " ") testId="joined"
+      text items.map((x, i) => `${i}:${x}`).join(" ") testId="joined"

@@ -499,7 +499,7 @@ component App
   state showing = true
   state replying = ""
   state draft = ""
-  resource rows = rows(revision, changed) as shape list<Message>
+  resource rows = rows(revision, changed) as shape Message[]
   action body
     revision = revision + 1
   action curry
@@ -779,7 +779,7 @@ component MessageBubble
     fn budget_source() -> &'static str {
         r##"component App
   state replying = ""
-  resource extras = extras() as shape list<string>
+  resource extras = extras() as shape string[]
   action replyTo(id: string)
     replying = id
   view
@@ -961,7 +961,7 @@ component MessageBubble
         let _service = crate::content_region::test_service();
         let src = source().replace("  action hide", "  action show\n    showing = true\n  action hide")
             .replace("      input value=draft", "      button press=show testId=\"show\" height=20\n        text \"Show\"\n      input value=draft")
-            .replace("  resource rows = rows(revision, changed) as shape list<Message>", "  resource rows = rows(revision, changed) as shape list<Message>\n  resource emptyRows = extras() as shape list<Message>")
+            .replace("  resource rows = rows(revision, changed) as shape Message[]", "  resource rows = rows(revision, changed) as shape Message[]\n  resource emptyRows = extras() as shape Message[]")
             .replace("for m in rows key=m.rowKey", "for m in (showing ? rows : emptyRows) key=m.rowKey");
         // Default Rows has an empty extras list. The typed conditional removes
         // actual keyed rows while keeping the required direct `for` and handlers.

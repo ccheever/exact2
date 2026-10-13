@@ -51,7 +51,7 @@ shape Book
 
 shape Library
   ready: bool
-  books: list<Book>
+  books: Book[]
   goal: number
   pagesRead: number
   avgText: string
@@ -69,14 +69,14 @@ shape Work
 shape Subject
   ok: bool
   error: string
-  works: list<Work>
+  works: Work[]
 
 shape Time
   epochAtZero: number
 
 fn statusLabel(s: string): string = s == "want" ? "Want to Read" : (s == "reading" ? "Reading" : "Finished")
 fn percent(cur: number, total: number): number = total > 0 ? round(cur / total * 100) : 0
-fn matches(b: Book, f: string, q: string): bool = (f == "all" or b.status == f) and (q == "" or includes(toLowerCase(b.title), q) or includes(toLowerCase(b.author), q))
+fn matches(b: Book, f: string, q: string): bool = (f == "all" or b.status == f) and (q == "" or b.title.toLowerCase().includes(q) or b.author.toLowerCase().includes(q))
 fn wholePages(text: string): bool = match parseNumber(text) { case some(n) => floor(n) == n and n > 0 and n <= 10000, case none => false }
 fn pagesValue(text: string): number = match parseNumber(text) { case some(n) => n, case none => 0 }
 fn countText(n: number, one: string, many: string): string = n == 1 ? `1 ${one}` : `${n} ${many}`
@@ -99,11 +99,11 @@ component Shelf
   mutation changed as shape Ack queue refreshes lib
 
   derive current = top(nav)
-  derive visible = filter(lib.books, b => matches(b, filter, toLowerCase(trim(query))))
-  derive aimedTitle = match first(filter(lib.books, b => b.id == aimed)) { case some(b) => b.title, case none => "This book" }
-  derive finished = length(filter(lib.books, b => b.status == "done"))
-  derive owned = map(lib.books, b => b.sourceKey)
-  derive titleError = trim(draftTitle) == "" ? "Enter a title." : ""
+  derive visible = lib.books.filter(b => matches(b, filter, query.trim().toLowerCase()))
+  derive aimedTitle = match first(lib.books.filter(b => b.id == aimed)) { case some(b) => b.title, case none => "This book" }
+  derive finished = lib.books.filter(b => b.status == "done").length
+  derive owned = lib.books.map(b => b.sourceKey)
+  derive titleError = draftTitle.trim() == "" ? "Enter a title." : ""
   derive pagesError = draftPages == "" or wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
 
   // Navigation: a tab, a location (a book's row is a link to its route; the
@@ -157,8 +157,8 @@ component Shelf
   action save
     submitted = true
     if titleError == "" and pagesError == ""
-      let author = trim(draftAuthor) == "" ? "Unknown author" : trim(draftAuthor)
-      send changed = addBook(trim(draftTitle), author, pagesValue(draftPages), draftStatus, "", "", time.epochAtZero + performanceNow())
+      let author = draftAuthor.trim() == "" ? "Unknown author" : draftAuthor.trim()
+      send changed = addBook(draftTitle.trim(), author, pagesValue(draftPages), draftStatus, "", "", time.epochAtZero + performanceNow())
       nav = back(nav)
 
   // A book
@@ -250,15 +250,15 @@ component Shelf
                   list id="library-list" testId="library-list" flex=1 min-height=0
                     for b in visible key = b.id
                       BookRow(book=b, aim=aim, swipeRemove=swipeRemove)
-                    if lib.ready and length(visible) == 0
+                    if lib.ready and visible.length == 0
                       column border-top="none" border-bottom="none"
                         Empty(
-                          title=(length(lib.books) == 0 ? "No Books" : "No Results"),
-                          message=(length(lib.books) == 0 ? "Tap + to add the first book on your shelf." : "Try another search or filter."),
+                          title=(lib.books.length == 0 ? "No Books" : "No Results"),
+                          message=(lib.books.length == 0 ? "Tap + to add the first book on your shelf." : "Try another search or filter."),
                           tid="library-empty"
                         )
-                    if length(visible) > 0
-                      text `${length(visible)} of ${countText(length(lib.books), "book", "books")}` testId="library-count"
+                    if visible.length > 0
+                      text `${visible.length} of ${countText(lib.books.length, "book", "books")}` testId="library-count"
                         font="-exact-footnote"
                         color="-exact-secondary-label"
                         text-align="center"
@@ -282,7 +282,7 @@ component Shelf
                   display="flex"
                   flex-direction="column"
                   header display="flex" align-items="center" padding="8px 16px"
-                    text (match first(filter(lib.books, b => b.id == e.params.id)) { case some(b) => b.title, case none => "" }) role="heading"
+                    text (match first(lib.books.filter(b => b.id == e.params.id)) { case some(b) => b.title, case none => "" }) role="heading"
                       aria-level=2
                   list id="book-list"
                     appearance="auto"
@@ -290,7 +290,7 @@ component Shelf
                     testId="book-detail"
                     flex=1
                     min-height=0
-                    for b in filter(lib.books, x => x.id == e.params.id) key = b.id
+                    for b in lib.books.filter(x => x.id == e.params.id) key = b.id
                       BookSections(
                         book=b,
                         setStatus=setStatus,
@@ -404,10 +404,10 @@ component Shelf
                   list id="discover-list"
                     testId="discover-list"
                     refresh=reload
-                    refreshing=(pending(works) and length(works.works) > 0)
+                    refreshing=(pending(works) and works.works.length > 0)
                     flex=1
                     min-height=0
-                    if pending(works) and length(works.works) == 0
+                    if pending(works) and works.works.length == 0
                       row justify-content="center" padding=40 border-top="none" border-bottom="none"
                         progress aria-label="Loading" testId="discover-loading"
                     else if not works.ok
@@ -418,7 +418,7 @@ component Shelf
                             text "Try Again"
                     else
                       for w in works.works key = w.key
-                        WorkRow(work=w, added=includes(owned, w.key), add=addWork)
+                        WorkRow(work=w, added=owned.includes(w.key), add=addWork)
               if e.name == "stats"
                 column navigationKey=`${e.id}`
                   navigationScroll="stats-list"
@@ -709,10 +709,10 @@ component StatsSections
         text "Library"
       row testId="stat-reading"
         text "Reading"
-        text `${length(filter(lib.books, b => b.status == "reading"))}`
+        text `${lib.books.filter(b => b.status == "reading").length}`
       row testId="stat-want"
         text "Want to Read"
-        text `${length(filter(lib.books, b => b.status == "want"))}`
+        text `${lib.books.filter(b => b.status == "want").length}`
       row testId="stat-finished"
         text "Finished"
         text `${finished}`

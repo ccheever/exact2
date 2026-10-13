@@ -358,8 +358,8 @@ fn the_wall_clock_time_and_a_duration_are_not_named() {
         "performanceNow() - start",
         "(performanceNow() - start) / 1000",
         "other",
-        "length(`${start}`)",
-        "toString(start > 5)",
+        "`${start}`.length",
+        "(start > 5).toString()",
     ] {
         assert_eq!(warned(&stopwatch("", send)), [], "{send}");
     }
@@ -909,7 +909,7 @@ fn a_count_before_a_plural_noun_is_named_with_its_repair() {
     // action's message.
     for (view, function) in [
         ("text `${total} people`", ""),
-        ("text `${length(events)} events`", ""),
+        ("text `${events.length} events`", ""),
         (
             "text daysText(total)",
             "fn daysText(d: number): string = `${d} days`",
@@ -1069,7 +1069,7 @@ fn line_of(src: &str, needle: &str) -> u32 {
 fn finder(choice: &str) -> String {
     let choice: String = choice.lines().map(|l| format!("        {l}\n")).collect();
     format!(
-        "shape Meal\n  id: string\n  name: string\ncomponent App\n  state query = \"\"\n  state chosen = []\n  state shared = \"\"\n  state tab = \"all\"\n  state open2 = false\n  resource meals = searchMeals(query) as shape list<Meal> else empty()\n  resource viewport = exactViewport() as shape Meal else empty()\n  derive showingDetail = length(chosen) > 0\n  action edit(v: string)\n    query = v\n  action open(m: Meal)\n    chosen = [m]\n  action back\n    chosen = []\n  action share(m: Meal)\n    shared = m.name\n  action pick(t: string)\n    tab = t\n    chosen = []\n  action toggle\n    open2 = not open2\n  view\n    column height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"Recipe Finder\" font-weight=700\n      scroll flex=1 min-height=0\n{choice}"
+        "shape Meal\n  id: string\n  name: string\ncomponent App\n  state query = \"\"\n  state chosen = []\n  state shared = \"\"\n  state tab = \"all\"\n  state open2 = false\n  resource meals = searchMeals(query) as shape Meal[] else empty()\n  resource viewport = exactViewport() as shape Meal else empty()\n  derive showingDetail = chosen.length > 0\n  action edit(v: string)\n    query = v\n  action open(m: Meal)\n    chosen = [m]\n  action back\n    chosen = []\n  action share(m: Meal)\n    shared = m.name\n  action pick(t: string)\n    tab = t\n    chosen = []\n  action toggle\n    open2 = not open2\n  view\n    column height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"Recipe Finder\" font-weight=700\n      scroll flex=1 min-height=0\n{choice}"
     )
 }
 
@@ -1115,14 +1115,14 @@ fn screens_swapped_by_state_without_routes_are_named_with_the_repair() {
         warned(&matched),
         [(SCREEN.to_string(), line_of(&matched, "match first"))]
     );
-    let chain = finder(&format!("if pending(meals)\n  progress aria-label=\"Loading\"\nelse if length(chosen) == 0\n{LIST}else if length(chosen) > 0\n  for m in chosen key=m.id\n{}", DETAIL.replace("\n  ", "\n    ").replacen("  column", "    column", 1)));
+    let chain = finder(&format!("if pending(meals)\n  progress aria-label=\"Loading\"\nelse if chosen.length == 0\n{LIST}else if chosen.length > 0\n  for m in chosen key=m.id\n{}", DETAIL.replace("\n  ", "\n    ").replacen("  column", "    column", 1)));
     assert_eq!(
         warned(&chain),
         [(SCREEN.to_string(), line_of(&chain, "if pending"))]
     );
     // event-rsvp's: a create form and an event's detail in one pane, the
     // form's Cancel the press that leaves it.
-    let rsvp = "shape Event\n  id: string\n  title: string\ncomponent App\n  state selected = \"1\"\n  state creating = false\n  state title = \"\"\n  state answer = \"\"\n  resource events = loadEvents() as shape list<Event> else empty()\n  action newEvent\n    creating = true\n  action back\n    selected = \"\"\n    creating = false\n  action editTitle(v: string)\n    title = v\n  action create\n    creating = false\n  action rsvp(r: string)\n    answer = r\n  view\n    main height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"gather\"\n        button press=newEvent testId=\"new-event\"\n          text \"Create event\"\n      scroll flex=1 min-height=0\n        column flex=1 min-width=0 gap=18 testId=\"detail-pane\"\n          if creating\n            column gap=22\n              column gap=8\n                text \"A new reason to get together.\" role=\"heading\" aria-level=2\n              input value=title input=editTitle aria-label=\"Event title\"\n              row gap=10\n                button press=create testId=\"create-save\"\n                  text \"Create event\"\n                button press=back testId=\"create-cancel\"\n                  text \"Cancel\"\n          else\n            for e in filter(events, x => x.id == selected) key=e.id\n              column gap=24\n                column gap=10\n                  text e.title role=\"heading\" aria-level=2\n                row role=\"radiogroup\" aria-label=\"Your RSVP\"\n                  button role=\"radio\" aria-checked=(answer == \"going\") press=rsvp(\"going\")\n                    text \"Going\"\n                  button role=\"radio\" aria-checked=(answer == \"maybe\") press=rsvp(\"maybe\")\n                    text \"Maybe\"\n";
+    let rsvp = "shape Event\n  id: string\n  title: string\ncomponent App\n  state selected = \"1\"\n  state creating = false\n  state title = \"\"\n  state answer = \"\"\n  resource events = loadEvents() as shape Event[] else empty()\n  action newEvent\n    creating = true\n  action back\n    selected = \"\"\n    creating = false\n  action editTitle(v: string)\n    title = v\n  action create\n    creating = false\n  action rsvp(r: string)\n    answer = r\n  view\n    main height=\"100%\" display=\"flex\" flex-direction=\"column\"\n      row padding=16\n        text \"gather\"\n        button press=newEvent testId=\"new-event\"\n          text \"Create event\"\n      scroll flex=1 min-height=0\n        column flex=1 min-width=0 gap=18 testId=\"detail-pane\"\n          if creating\n            column gap=22\n              column gap=8\n                text \"A new reason to get together.\" role=\"heading\" aria-level=2\n              input value=title input=editTitle aria-label=\"Event title\"\n              row gap=10\n                button press=create testId=\"create-save\"\n                  text \"Create event\"\n                button press=back testId=\"create-cancel\"\n                  text \"Cancel\"\n          else\n            for e in events.filter(x => x.id == selected) key=e.id\n              column gap=24\n                column gap=10\n                  text e.title role=\"heading\" aria-level=2\n                row role=\"radiogroup\" aria-label=\"Your RSVP\"\n                  button role=\"radio\" aria-checked=(answer == \"going\") press=rsvp(\"going\")\n                    text \"Going\"\n                  button role=\"radio\" aria-checked=(answer == \"maybe\") press=rsvp(\"maybe\")\n                    text \"Maybe\"\n";
     assert_eq!(
         warned(rsvp),
         [(SCREEN.to_string(), line_of(rsvp, "if creating"))]
@@ -1145,7 +1145,7 @@ fn routes_tabs_loading_empty_disclosure_and_overlays_are_not_named() {
         ("loading", format!("if pending(meals)\n  for m in meals key=m.id\n{detail}else\n{LIST}")),
         ("responsive", format!("if viewport.name == \"wide\"\n{LIST}else\n{LIST}")),
         // An empty state: one control.
-        ("empty", format!("if length(chosen) == 0\n  column\n    text \"Nothing chosen yet\" role=\"heading\"\n    button press=edit(\"\")\n      text \"Search\"\nelse\n{LIST}")),
+        ("empty", format!("if chosen.length == 0\n  column\n    text \"Nothing chosen yet\" role=\"heading\"\n    button press=edit(\"\")\n      text \"Search\"\nelse\n{LIST}")),
         // Disclosure: an arm with no heading.
         ("disclosure", format!("if open2\n{LIST}else\n  button press=toggle\n    text \"Show the recipes\"\n  button press=edit(\"\")\n    text \"Clear\"")),
         // A swap no press inside it moves (the bar outside does).

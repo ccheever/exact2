@@ -625,14 +625,14 @@ pub struct Field {
     pub span: Span,
 }
 
-/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `list<T>`.
+/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `T[]`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     /// A named type: a primitive or a shape.
     Named(String, Span),
     /// `option<T>`.
     Option(Box<TypeExpr>, Span),
-    /// `list<T>`.
+    /// `T[]`.
     List(Box<TypeExpr>, Span),
 }
 
@@ -1147,7 +1147,7 @@ pub fn is_input_multiple(tag: &str, positional: &Expr) -> bool {
 /// `Some("checkbox")` for a checkbox (a switch is one too), whose `change`
 /// and `input` carry a bool; `Some("radio")` for a radio, whose carry its
 /// `value`; `Some("file")` for a file input (LLP 1069.002
-/// D1), whose `change` carries a `list<Picked>`; `Some("select")` for a
+/// D1), whose `change` carries a `Picked[]`; `Some("select")` for a
 /// `select`, whose `change` and `input` carry the chosen option's value;
 /// `None` for a text field or any other element.
 pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
@@ -1310,7 +1310,7 @@ pub enum Expr {
     None(Span),
     /// `[a, b, c]`: a list of its items, which unify as the arms of `?:`
     /// do (LLP 1088 §9.1). `[]`'s element type comes from where it is
-    /// written (the other arm of a `match` or `?:`, a declared `list<T>`,
+    /// written (the other arm of a `match` or `?:`, a declared `T[]`,
     /// a write into the state it initializes).
     List(Vec<Expr>, Span),
     /// `some(expr)`.

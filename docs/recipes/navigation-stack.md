@@ -25,7 +25,7 @@ shape Reply
 
 component App
   state draft = ""
-  resource lib = loadNotes() as shape list<Note> else empty()
+  resource lib = loadNotes() as shape Note[] else empty()
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
   derive saveError = match added { case some(r) => r.error, case none => "" }
@@ -39,8 +39,8 @@ component App
   action edit(v: string)
     draft = v
   action save
-    if trim(draft) != "" and not pending(added)
-      send added = addNote(trim(draft))
+    if draft.trim() != "" and not pending(added)
+      send added = addNote(draft.trim())
   action afterSave
     if saveError == "" and top(nav).name == "add"
       draft = ""
@@ -92,7 +92,7 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
   header display="flex" align-items="center" padding="8px 16px"
     text "Note" role="heading" aria-level=2
   list id="note-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-    for n in filter(lib, x => x.id == e.params.id) key=n.id
+    for n in lib.filter(x => x.id == e.params.id) key=n.id
       section
         text n.title testId="detail-title"
         button press=askRemove destructive=true testId="delete-note"

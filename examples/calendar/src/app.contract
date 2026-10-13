@@ -40,9 +40,9 @@ component Calendar
   state monthAnchor = none
   derive month = match monthAnchor { case some(value) => value, case none => clock.month }
   derive monthTitle = `${monthLongName(month)} ${floor(month / 12)}`
-  resource pages = calendarMonths(month, revision) as shape list<Month>
-  derive monthFirstDay = match first(filter(pages, (page) => page.month == month)) { case some(page) => page.firstDay, case none => -1000000 }
-  derive monthLastDay = match first(filter(pages, (page) => page.month == month)) { case some(page) => page.lastDay, case none => 1000000 }
+  resource pages = calendarMonths(month, revision) as shape Month[]
+  derive monthFirstDay = match first(pages.filter((page) => page.month == month)) { case some(page) => page.firstDay, case none => -1000000 }
+  derive monthLastDay = match first(pages.filter((page) => page.month == month)) { case some(page) => page.lastDay, case none => 1000000 }
   resource theme = calendarTheme(revision) as shape number
   derive themeInk = theme == 1 ? "#4a2c36" : (theme == 2 ? "#213a52" : (theme == 3 ? "#2f4327" : (theme == 4 ? "#352c57" : (theme == 5 ? "#4a3a2c" : (theme == 6 ? "#23303f" : "#242428")))))
   derive themeAccent = theme == 1 ? "#bf4f72" : (theme == 2 ? "#3d72a8" : (theme == 3 ? "#4f7f34" : (theme == 4 ? "#6f55c2" : (theme == 5 ? "#976536" : (theme == 6 ? "#c24a33" : "#d14545")))))
@@ -69,7 +69,7 @@ component Calendar
   state selectedDay = none
   derive day = match selectedDay { case some(value) => value, case none => clock.today }
   resource agenda = calendarDay(day, revision, clock.today) as shape Agenda
-  derive itemCount = length(agenda.items) + (agenda.stickerId == "" ? 0 : 1)
+  derive itemCount = agenda.items.length + (agenda.stickerId == "" ? 0 : 1)
   state hovered = ""
   state themeOpen = false
   state themeClosing = false
@@ -203,8 +203,8 @@ component Calendar
   derive hoverPageX = portX
   derive contactInside = held and contactX >= portX and contactX < portX + portWidth
   derive hoverInside = held and dragX >= portX and dragX < portX + portWidth
-  derive contactWeeks = match first(filter(pages, (page) => page.month == contactMonth)) { case some(page) => length(page.weeks), case none => 6 }
-  derive hoverWeeks = match first(filter(pages, (page) => page.month == hoverMonth)) { case some(page) => length(page.weeks), case none => 6 }
+  derive contactWeeks = match first(pages.filter((page) => page.month == contactMonth)) { case some(page) => page.weeks.length, case none => 6 }
+  derive hoverWeeks = match first(pages.filter((page) => page.month == hoverMonth)) { case some(page) => page.weeks.length, case none => 6 }
   derive contactScroll = held ? savedScroll(contactMonth, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6) : 0
   derive hoverScroll = held ? savedScroll(hoverMonth, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6) : 0
   resource contactTarget = calendarDragTarget(contactMonth, revision, contactX, contactY, contactPageX, portY, (contactInside ? pageWidth : 0), portHeight, contactScroll, max(76, pageHeight / max(1, contactWeeks)), dragSpan) as shape DragTarget

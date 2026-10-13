@@ -17,9 +17,9 @@ component Board
         for col in ["todo", "doing", "done"] key=col
           column flex="1 1 280px" min-width=0 gap=8 testId=`column-${col}`
             text (col == "todo" ? "To Do" : col == "doing" ? "Doing" : "Done") role="heading" aria-level=3
-            for c in filter(cards, x => x.column == col) key=c.id
+            for c in cards.filter(x => x.column == col) key=c.id
               text c.title padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`card-${c.id}`
-            if length(filter(cards, x => x.column == col)) == 0
+            if cards.filter(x => x.column == col).length == 0
               text "No cards" color="-exact-secondary-label" padding=12
 ```
 
@@ -50,18 +50,18 @@ refused. Put one `intersect=` marker after the columns, inside their scroller:
 component Feed
   state cards = [0, 1, 2]
   action loadMore(entry: IntersectionObserverEntry)
-    if entry.isIntersecting and length(cards) < 12
-      let next = length(cards)
-      cards = concat(cards, [next, next + 1, next + 2])
+    if entry.isIntersecting and cards.length < 12
+      let next = cards.length
+      cards = cards.concat([next, next + 1, next + 2])
   view
     scroll height="100%" testId="feed"
       row align-items="flex-start" gap=16
         for col in [0, 1, 2] key=col
           column flex=1 min-width=0 gap=8
-            for card in filter(cards, n => n % 3 == col) key=card
+            for card in cards.filter(n => n % 3 == col) key=card
               text `Card ${card + 1}` padding=16 testId=`card-${card}`
-      if length(cards) < 12
-        for boundary in [length(cards)] key=boundary
+      if cards.length < 12
+        for boundary in [cards.length] key=boundary
           view intersect=loadMore intersect-margin="0px 0px 800px 0px"
             height=1 testId="load-more"
 ```

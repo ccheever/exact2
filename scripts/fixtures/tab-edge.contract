@@ -38,7 +38,7 @@ component TabEdge
                 display="flex"
                 flex-direction="column"
                 header display="flex" align-items="center" padding="8px 16px"
-                  text e.name role="heading" aria-level=(length(t.stack) == 1 ? 1 : 2)
+                  text e.name role="heading" aria-level=(t.stack.length == 1 ? 1 : 2)
                 // A pushed screen is the next kind: scroll → plain list → grouped list → scroll.
                 if e.name == "scrolls" or e.name == "groupedPushed"
                   scroll id=`content-${e.id}` testId=`content-${e.name}` flex=1 min-height=0

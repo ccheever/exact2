@@ -121,7 +121,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
     }
     let plan = contract::compile(r#"component App
   state holes = true
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action clear
     holes = false
   view

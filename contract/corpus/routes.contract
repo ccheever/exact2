@@ -28,9 +28,9 @@ component Interview
   derive current = top(nav)
   derive count = depth(nav)
   derive query = searchParam(current, "q")
-  resource questions = loadQuestions(params(nav, "question")) as shape list<string>
-  resource posts = loadPosts(params(nav, "post")) as shape list<Post>
-  resource people = loadPeople(params(nav, "person")) as shape list<Person>
+  resource questions = loadQuestions(params(nav, "question")) as shape string[]
+  resource posts = loadPosts(params(nav, "post")) as shape Post[]
+  resource people = loadPeople(params(nav, "person")) as shape Person[]
   action openPost(id: string)
     nav = push(nav, path("post", id))
   action openQuestion(id: number)

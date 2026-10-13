@@ -93,7 +93,7 @@ const SOURCE: &str = r#"component App
   state ends = 0
   state refused = false
   state fail = false
-  resource rows = rows(start, count, revision, refused) as shape list<number>
+  resource rows = rows(start, count, revision, refused) as shape number[]
   action onStart
     starts = starts + 1
     refused = fail
@@ -571,8 +571,8 @@ fn lists_in_an_each_say_which_one_reached_its_end() {
   state refused = false
   state last = -1
   state ends = 0
-  resource groups = rows(0, 2, revision, refused) as shape list<number>
-  resource rows = rows(0, count, revision, refused) as shape list<number>
+  resource groups = rows(0, 2, revision, refused) as shape number[]
+  resource rows = rows(0, count, revision, refused) as shape number[]
   action onEnd(which: number)
     last = which
     ends = ends + 1
@@ -749,7 +749,7 @@ fn rows_arriving_before_a_trailing_row_rearm_the_end() {
     let source = SOURCE
         .replace(
             "  state fail = false\n",
-            "  state fail = false\n  state limit = 20\n  derive shown = filter(rows, (x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
+            "  state fail = false\n  state limit = 20\n  derive shown = rows.filter((x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
         )
         .replace("for x in rows key=x", "for x in shown key=x");
     let mut r = boot(&source);

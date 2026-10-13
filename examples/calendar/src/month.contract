@@ -38,7 +38,7 @@ component MonthPage
     create: action
     move: action
     hover: action
-  derive minimumWeek = max(76, height / max(1, length(page.weeks)))
+  derive minimumWeek = max(76, height / max(1, page.weeks.length))
   view
     column id=`month-${page.month}` testId=`month-${page.id}` pan=panMonth panrelease=releaseMonth touch-action="pan-y" width=width height="100%" flex-shrink=0 min-height=0 position="absolute" left=left top=0 overflow="hidden" animation=(reduceMotion ? "none" : "monthIn 160ms ease-out")
       scroll id=`month-scroll-${page.month}` scrollTop=scrollTop scroll=scrolled(page.month) testId=`month-scroll-${page.id}` width="100%" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-y"
@@ -67,7 +67,7 @@ component MonthPage
                 button id=`day-${page.month}-${cell.day}` testId=`date-${page.id}-${cell.date}` press=choose(cell.day) touch-action="pan-y" dblclick=create("event", cell.day, cell.date) key=move(cell.day) hover=hover(`day-${cell.day}`) disabled=blocked aria-label=cell.date aria-selected=(selected == cell.day) position="absolute" left=`${weekday(cell.day) * 100 / 7}%` top=0 width="14.285714%" height="100%" padding=0 border-width=0 background-color="#ffffff00"
               if compact
                 for bar in week.bars key=`handle-${bar.id}`
-                  for cell in filter(week.cells, (cell) => weekday(cell.day) >= bar.startCol and weekday(cell.day) < bar.startCol + (bar.kind == "todo" ? 1 : bar.span)) key=cell.id
+                  for cell in week.cells.filter((cell) => weekday(cell.day) >= bar.startCol and weekday(cell.day) < bar.startCol + (bar.kind == "todo" ? 1 : bar.span)) key=cell.id
                     calendar-drag-handle testId=`bar-handle-${page.id}-${bar.id}-${cell.date}` event-id=bar.eventId menu-kind=bar.kind message=command(bar.eventId, bar.kind, bar.completed) completed=(bar.completed ? "true" : "false") enabled=(blocked ? "false" : "true") press=choose(cell.day) aria-label=bar.title position="absolute" left=`calc(${weekday(cell.day) * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${100 / 7}% - 4px)` height=20
                 for cell in week.cells key=`sticker-handle-${cell.id}`
                   if cell.stickerId != ""

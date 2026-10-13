@@ -15,7 +15,7 @@ const SOURCE: &str = r##"shape Run
   s: string
 shape Para
   id: string
-  runs: list<Run>
+  runs: Run[]
 shape Reaction
   emoji: string
   count: number
@@ -23,11 +23,11 @@ shape Message
   id: string
   author: string
   minutesAgo: number
-  paragraphs: list<Para>
+  paragraphs: Para[]
   quote: option<string>
-  reactions: list<Reaction>
+  reactions: Reaction[]
 shape Feed
-  rows: list<Message>
+  rows: Message[]
 component App
   resource initial = messages() as shape Feed
   mutation changed as shape Feed
@@ -213,7 +213,7 @@ fn unchanged_key_sequences_keep_duplicate_rows_and_rebind_their_contents() {
   shown: bool
 component App
   state rows = [Item(id=0, label="a", shown=false), Item(id=0, label="b", shown=false), Item(id=1, label="c", shown=false)]
-  action replace(items: list<Item>)
+  action replace(items: Item[])
     rows = items
   view
     column
@@ -312,7 +312,7 @@ fn positional_rows_match_general_keys_through_replacement_growth_and_removal() {
 
     let source = r#"component App
   state rows = ["a", "b"]
-  action replace(items: list<string>)
+  action replace(items: string[])
     rows = items
   view
     column
@@ -395,10 +395,10 @@ fn nested_row_state_does_not_visit_an_unrelated_stateless_parent_subtree() {
 
     let source = r#"shape Group
   id: number
-  labels: list<string>
+  labels: string[]
 component App
   state groups = [Group(id=0, labels=["target"]), Group(id=1, labels=["other"])]
-  action replace(items: list<Group>)
+  action replace(items: Group[])
     groups = items
   view
     column

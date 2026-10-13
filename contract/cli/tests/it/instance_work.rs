@@ -30,7 +30,7 @@ component App
   state draft = ""
   state revision = 0
   state suffix = "a"
-  resource rows = rows(revision) as shape list<Row>
+  resource rows = rows(revision) as shape Row[]
   action edit(value)
     draft = value
   action revise
@@ -280,7 +280,7 @@ fn perf_counts_each_sites_work_across_its_instances_lifetimes() {
     }
     const PERF: &str = r##"
 component App
-  resource ids = three() as shape list<number>
+  resource ids = three() as shape number[]
   state hot = -1
   state tick = 0
   state tint = "#000000"

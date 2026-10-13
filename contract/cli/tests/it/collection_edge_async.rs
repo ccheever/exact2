@@ -6,7 +6,7 @@ use exact_runner::{
 };
 
 const SOURCE: &str = r#"shape Window
-  rows: list<number>
+  rows: number[]
   earlier: number
   later: number
 component App
