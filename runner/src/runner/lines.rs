@@ -222,6 +222,10 @@ pub(super) fn ran(what: &mut String, action: &str) {
     exact_num::push_text!(what, " ({})", action);
 }
 
+pub(super) fn send_failed_now(name: &str, why: &str) -> String {
+    text!("send {} failed: {}; it ends unsent", name, why)
+}
+
 pub(super) fn failed_now(name: &str, why: &str) -> String {
     text!("resource {} failed: {}", name, why)
 }

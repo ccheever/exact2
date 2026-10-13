@@ -186,10 +186,29 @@ final class FieldSelections {
             presenter.session?.log("setSelectionRange refused: (id, start, end[, direction]) expected")
             return
         }
+        #if os(macOS)
+        let inline = presenter.views.values.flatMap { owner in
+            owner.inlineText.filter { $0.props["id"] == name }.map { (owner, $0) }
+        }.min { $0.1.id < $1.1.id }
+        if let (owner, run) = inline {
+            let word = args.count == 4 ? args[3] as? String : nil
+            var range = FieldSelection.clamped(start, end, word, length: run.range.length)
+            range.start += run.range.location; range.end += run.range.location
+            presenter.selection.set(owner, range)
+            return
+        }
+        #endif
         guard let node = presenter.views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             presenter.session?.log("setSelectionRange \"\(name)\" refused: no live node with that id")
             return
         }
+        #if os(macOS)
+        if node.isParagraph {
+            let word = args.count == 4 ? args[3] as? String : nil
+            presenter.selection.set(node, .clamped(start, end, word, length: node.paragraphText.utf16.count))
+            return
+        }
+        #endif
         guard Self.tracks(node) else {
             presenter.session?.log("setSelectionRange \"\(name)\" refused: not a text field")
             return

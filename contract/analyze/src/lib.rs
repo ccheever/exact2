@@ -326,7 +326,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 65] = [
+pub const HANDLERS: [&str; 66] = [
     "press",
     "change",
     "input",
@@ -377,6 +377,9 @@ pub const HANDLERS: [&str; 65] = [
     "swiperight",
     "refresh",
     "scroll",
+    // DOM's `scrollend`: a scroll finished, its momentum or animation
+    // included; no payload.
+    "scrollend",
     "pan",
     // A pan that began ended (LLP 1057 §10.6 phase 2): release velocity.
     "panrelease",

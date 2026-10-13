@@ -429,6 +429,7 @@ public final class Agent {
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
+        var displayMode = session.displayModeOverride
         var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
         for (name, value) in media ?? [:] {
             switch (name, value) {
@@ -436,6 +437,8 @@ public final class Agent {
             case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
             case ("prefers-contrast", "more"), ("prefers-contrast", "less"), ("prefers-contrast", "custom"), ("prefers-contrast", "no-preference"): contrast = value
             case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
+            case ("display-mode", _) where DisplayPreferences.displayModes.contains(value):
+                displayMode = UInt32(DisplayPreferences.displayModes.firstIndex(of: value)!)
             // @ref LLP 1100 D9
             case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
             case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
@@ -466,6 +469,7 @@ public final class Agent {
         }
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
+        session.displayModeOverride = displayMode
         DisplayPreferences.agentContrast = contrast
         if DisplayPreferences.gamut != gamut || DisplayPreferences.highDynamicRange != high {
             DisplayRange.pinned = high ? 4 : 1
@@ -488,6 +492,7 @@ public final class Agent {
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
                           "prefers-contrast": DisplayPreferences.contrast,
                           "prefers-color-scheme": systemDark ? "dark" : "light",
+                          "display-mode": DisplayPreferences.displayModes[Int(session.displayModeOverride ?? DisplayPreferences.displayMode(session.view))],
                           "color-gamut": DisplayPreferences.gamut,
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": pageFacts,

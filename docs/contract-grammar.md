@@ -877,7 +877,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
-| None | `beforeunload`, `cancel`, `close`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+| None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 A dialog's `close=action` runs after dismissal and focus restoration on the web,
 macOS and iOS, whether an action, an invoker button or Escape closed it. It takes
@@ -926,9 +926,34 @@ action moved(x: number, y: number, e: ScrollEvent)
 list appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
 ```
 
+On a virtualized list, the record also carries `firstVisibleKey: option<string>`
+and `firstVisibleOffset: number`: the first row intersecting the port, and the
+signed distance in CSS pixels from its wrapper's start to the port's start,
+on the list's axis. Keys are text (numeric and boolean keys use their text
+representation). The snapshot uses the event's offset and the list's latest
+measured/estimated sizes; zero-size rows are skipped. An ordinary scroller,
+an empty list, or a port showing only padding reports `none` and `0`.
+
+The app can save these two fields by document or conversation and restore
+after mounting the list with `scrollIntoView("feed", key, offset=within)`.
+`offset=` is a finite number and belongs only to the list form. It places the
+port that many pixels into the keyed row wrapper, overriding that list's
+`block`/`inline` alignment and scroll-padding, clamped to the scroll range.
+Negative offsets preserve padding showing before the row. With `row=`, only
+the inner list takes the offset; the outer row aligns normally. Unmounting a
+top-level list saves nothing automatically, with either `scroll-restoration`
+value.
+
 As on the web, the event comes when the offset changes (a follow of the end
 moves it); content that grows below a reader who is not following it changes
 no offset and sends none.
+
+`scrollend`, on a `scroll` or a `list`, comes once a scroll that moved the
+offset is over, after its last `scroll`: the finger lifted with nothing thrown,
+the momentum or a smooth scroll stopped, or (a jump, a mouse wheel's notches)
+the offset still for 100 ms on Apple's hosts. It takes no payload. An app that
+needs to know a fling has stopped hears it, instead of restarting a timer on
+every `scroll`. Not yet on the Linux and Android host.
 
 `intersect=action` offers an optional final `IntersectionObserverEntry` after
 any authored arguments. The record contains `isIntersecting: bool` and
@@ -1096,14 +1121,37 @@ column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 when the part of the reader's text selection inside that paragraph changes —
 a drag, a double or triple click, select-all, a click that clears it — an
 action that takes one more parameter gets a `Selection`: its `text` (the
-selected part, as `Range.toString()` gives it) and its `start` and `end`,
+selected source text), its `rects: list<Geometry>`
+(the selected fragments in viewport coordinates), and its `start` and `end`,
 UTF-16 offsets into the node's own text as written (white space before CSS
-collapses it, a `text`'s inline children joined in order). Nothing selected
-there is `text: ""` with `start == end == 0`; it fires while a drag moves,
+collapses it, a `text`'s inline children joined in order, and Markdown line
+breaks counted as newlines). Inline IDs use offsets within that inline text.
+Nothing selected
+there is `text: ""` with `start == end == 0` and `rects: []`; it fires while a drag moves,
 once per change. The web and macOS select text; iOS selects text its author
 made selectable (`user-select="text"`), by a long press, a double tap and the
 selection's handles; Linux has no text selection on a `text`, so it never
 fires there.
+
+On web and macOS, `removeAllRanges()` clears the reader's selection. Each
+paragraph that held a part reports its empty selection. The documented
+extension `setSelectionRange(id, start, end[, direction])` also selects a
+`text`: offsets are UTF-16 in its source text, clamped as for a field; an end
+before the start collapses at the end. Requested source boundaries survive
+CSS whitespace collapsing. `backward` puts the anchor at the end,
+as `Selection.setBaseAndExtent` does. The command replaces the page's previous
+selection and fires `selectionchange` for changed parts without focusing a
+field. An unchanged part does not fire again. These two commands on reader
+text remain unsupported on iOS and Linux; iOS selection events carry an empty
+rectangle list.
+
+Rectangles are snapshots at that event, not live layout facts. On the web they
+are the paragraph's selected `Range.getClientRects()`; macOS uses the same
+CoreText fragments as its selection highlight and inline-run geometry. Their
+`provisional` and `unavailable` flags are false; an empty selection has no
+rectangles. Native paragraphs rendered by the reader worker currently return
+an empty rectangle list: their caret geometry is not available synchronously.
+Scrolling alone does not emit another selection event.
 
 ```text
 action mark(para: string, s: Selection)
@@ -1500,9 +1548,9 @@ rows and content lifted into a popover; an explicit
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
-`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
 `playSound`, `playSounds`, `stopSounds`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
 `stopPropagation` ([keys](#keys)).
@@ -1517,7 +1565,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
-| `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
+| `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `setRangeText(id, text[, start, end[, selectionMode]])`: plain-field range replacement, one `input`, preserve selection by default, no undo step ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
@@ -1529,7 +1577,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
-| `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
+| `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=, offset=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/reading.rs) |
 | `showPopover(id, source="trigger")`, `hidePopover(id)`, `togglePopover(id, source="trigger")`: HTML's methods by element id. `source=` is optional and explicit; it need not carry `popovertarget`, and the key handler's node is not inferred. Repeated show/hide is a no-op. Visibility changes immediately in command order, including hide then show during native dismissal. Bad targets or sources are refused in the journal. A popover's `toggle=changed` action may take `e: ToggleEvent`, with `oldState` and `newState` (`"open"` or `"closed"`); events follow logical visibility, coalescing changes in one turn. Without a source the popover has no invoker. A following `focus(id)` in the opening action selects a native menu row on macOS and windowed Linux; AppKit refuses changing the highlight once native tracking begins. UIKit navigation-bar menus still lack command dismissal and toggle observation (issue #319 remaining work). Desktop/headless Linux reports unsupported; windowed Linux uses its existing supported menu/alert shapes. | [menus](../llp/1021-menus.rfc.md) |
 | `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker) and any other `dialog` as a sheet as tall as its content (LLP 1115.000 D11.5), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer, or a `role="alertdialog"` one in the alert's shape as `NSAlert`, a sheet on the window (LLP 1115 D6, LLP 1115.000 D7.6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
@@ -1551,6 +1599,15 @@ iOS closes no window either: its `close` is journaled as unsupported. On the web
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).
+
+`relaunch()` takes no arguments. In the standalone macOS app it asks the same
+`beforeunload` handlers as Quit, drains pending storage for up to five seconds,
+destroys the sessions, then starts the same executable with the same arguments
+and environment after the old process exits. A cancelled quit cancels the relaunch.
+It works without the development menu. iOS/tvOS and Linux refuse it in the journal;
+the web reloads the page, with the browser's usual storage and unload rules.
+Native agent sessions refuse it explicitly: start another drive on the same
+`--storage` instead. `reload()` and update activation keep their existing lifecycles.
 
 Element-targeted commands use `id`, not `testId`. File pickers publish handles
 through the target's `change` event; cancellation uses `cancel`. Permissions,

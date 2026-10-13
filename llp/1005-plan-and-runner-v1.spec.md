@@ -323,6 +323,16 @@ and `scrollTop`, in CSS pixels, after the authored arguments. It reports the
 host's changed position, including programmatic changes, and does not bubble.
 The host still owns scrolling. The ABI's dispatch kind 13 carries two finite
 numbers as UTF-8 `left,top`; malformed coordinates are refused.
+
+`Scrollend` (2026-10-13, the Bluesky clone) is DOM's `scrollend`: no
+arguments, sent once a scroll that moved the offset is over, after its last
+`Scroll`. On the web it is the browser's own. On iOS it is the end of a drag
+that throws nothing, of its deceleration, or of an animated scroll; on macOS
+the end of a live scroll (a trackpad's, its momentum included); any other move
+there (a jump the app wrote, a mouse wheel's notches) ends once the offset has
+been still for 100 ms. A node without a `scrollend` handler takes it as
+nothing. ABI dispatch kind 51, no payload. Not yet on the Linux and Android
+host, whose scrolls a shell or the presenter's own input drive.
 `act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with

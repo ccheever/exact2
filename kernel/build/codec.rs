@@ -221,6 +221,11 @@ fn parse_codec(s: &str) -> Codec {
             variant: "AnimationRange",
             error: "BadAnimationRange",
         },
+        "position-try-fallbacks" => Codec::CssValue {
+            path: "crate::position_try::PositionTryFallbacks",
+            variant: "PositionTryFallbacks",
+            error: "BadPositionTryFallbacks",
+        },
         "timeline-scope" => Codec::CssValue {
             path: "crate::timeline::TimelineScope",
             variant: "TimelineScope",

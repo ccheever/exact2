@@ -219,7 +219,7 @@ fn commands_digest() -> String {
             "showNotification" => "5",
             "closeNotification" | "stopSounds" | "playSounds" => "1",
             "playSound" => "4",
-            "scrollIntoView" => "4|6",
+            "scrollIntoView" => "4|7",
             "saveFile" => "3|4",
             _ => "positional",
         };
@@ -680,6 +680,46 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("app.json"), "{}").unwrap();
         assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.resolved");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn list_scroll_offset_requires_a_new_binary_cohort() {
+        use sha2::{Digest, Sha256};
+        let digest = |list_shape: &str| {
+            let mut h = Sha256::new();
+            for name in contract_syntax::HOST_COMMANDS {
+                let shape = match *name {
+                    "share" => "3",
+                    "showNotification" => "5",
+                    "closeNotification" | "stopSounds" | "playSounds" => "1",
+                    "playSound" => "4",
+                    "scrollIntoView" => list_shape,
+                    "saveFile" => "3|4",
+                    _ => "positional",
+                };
+                h.update(format!("{name}:{shape}\n"));
+            }
+            h.finalize()[..16]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        let dir = app("scroll-offset-cohort");
+        let manifest = Manifest::read(&dir).unwrap();
+        let current = compatibility_with_trust(
+            &dir,
+            "macos",
+            "aarch64-apple-darwin",
+            &manifest,
+            Some(""),
+            "development",
+        )
+        .unwrap();
+        let mut previous = current.inputs.clone();
+        previous["commands"] = serde_json::json!(digest("4|6"));
+        assert_eq!(current.inputs["commands"], digest("4|7"));
+        assert_ne!(current.id, super::compatibility_digest(&previous));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

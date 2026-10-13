@@ -424,6 +424,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Actions
 
+- **A scalar resource cannot use `empty("idle")`.** `empty()` takes named
+  fields only for a record shape; a string's `empty()` is `""`. Use a pure
+  fallback function for a nonempty string. (`type-placeholder-fields`,
+  reproduced while testing TypeScript failure parity, 2026-10-13.)
+
 - **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
   after it starts, so state it fills is empty until then, after a test `reload`
   too: a "today" label or a comparison against it reads the stale or empty

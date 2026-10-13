@@ -5,7 +5,7 @@ use crate::instance::collection::{Align, IntoView, IntoViewStatus};
 
 impl IntoView {
     /// The command's arguments as the compiler orders them: the list's id,
-    /// the key, then `block`, `inline`, `behavior` and `row`, each `none`
+    /// the key, then `block`, `inline`, `behavior`, `row` and `offset`, each `none`
     /// where the author left the default.
     pub(super) fn from_command(args: &[Value]) -> Result<IntoView, String> {
         let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_string);
@@ -15,9 +15,15 @@ impl IntoView {
         };
         let list = text(args.first()).ok_or("the list is named by its id")?;
         let key = args.get(1).cloned().ok_or("a key")?;
+        let offset = match args.get(6) {
+            None | Some(Value::Option(None) | Value::Unit) => None,
+            Some(Value::Number(n)) if n.is_finite() => Some(*n),
+            _ => return Err("offset must be a finite number of CSS pixels".into()),
+        };
         Ok(IntoView {
             list,
             key,
+            offset,
             block: align(args.get(2), Align::Start)?,
             inline: align(args.get(3), Align::Nearest)?,
             row: args
@@ -109,6 +115,7 @@ impl<D: DataSource> Runner<D> {
             row: None,
             view: Some(view),
             smooth: false,
+            offset: None,
         };
         self.scroll_into_view(request)
     }

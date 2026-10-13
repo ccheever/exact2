@@ -15,7 +15,7 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 const page = `<button id="outside">Outside</button><div id="exact-root"></div>
 <script type="module">
   import { commands } from './commands.js';
-  import { runFocusCommands, controlEvent } from './navigation.js';
+  import { runFocusCommands, controlEvent, onSelection } from './navigation.js';
   import { onValue, OnHooks } from './rt.js';
   import './files.js';
   window.fileHook = OnHooks.file;
@@ -27,6 +27,9 @@ const page = `<button id="outside">Outside</button><div id="exact-root"></div>
   window.logs = [];
   window.replace = (target, args) => target === 'js' ? commands(s => logs.push(s)).setRangeText(...args)
     : runFocusCommands([{ name: 'setRangeText', args }], { root: document.getElementById('exact-root'), ready: true, inertAncestor: () => false, log: s => logs.push(s) });
+  window.onSelection = onSelection;
+  window.selectionCommand = (target, name, args = []) => target === 'js' ? commands(s => logs.push(s))[name](...args)
+    : runFocusCommands([{ name, args }], { root: document.getElementById('exact-root'), ready: true, inertAncestor: () => false, log: s => logs.push(s) });
   window.ready = true;
 </script>`;
 
@@ -213,3 +216,103 @@ check('file picker change supplies the complete InputEvent record', () => inChro
     return [record, branch];
   })()`)).toEqual([['', false, 0, 0, 'none', ''], true]);
 }));
+
+check('text selection commands and rectangles match Chrome on both web targets', () => inChrome(async evaluate => {
+  for (const target of ['js', 'wasm']) {
+    const result = await evaluate(`(async () => {
+      const root = document.getElementById('exact-root');
+      root.innerHTML = '<div data-exact-text id="p1" style="width:120px;font:16px Arial;line-height:24px">Alpha beta <b>gamma delta</b> epsilon 😀 zeta.</div><div data-exact-text id="p2">Second paragraph</div>';
+      const p = document.getElementById('p1'), q = document.getElementById('p2'), heard = [];
+      onSelection(p, (...args) => heard.push(['p1', ...args]));
+      onSelection(q, (...args) => heard.push(['p2', ...args]));
+      const settled = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+      const range = document.createRange(); range.setStart(p.firstChild, 6); range.setEnd(q.firstChild, 6);
+      getSelection().removeAllRanges(); getSelection().addRange(range); await settled();
+      const drag = heard.slice();
+      const part = document.createRange(); part.setStart(p.firstChild, 6); part.setEnd(p.lastChild, p.lastChild.length);
+      const oracle = [...part.getClientRects()].map(r => [r.x, r.y, r.width, r.height, false, false]);
+      selectionCommand('${target}', 'removeAllRanges'); await settled();
+      const cleared = heard.slice(drag.length);
+      selectionCommand('${target}', 'setSelectionRange', ['p1', 0, 5, 'backward']); await settled();
+      const selected = heard.at(-1), direction = [getSelection().anchorOffset, getSelection().focusOffset];
+      selectionCommand('${target}', 'setSelectionRange', ['p1', 31, 33]); await settled();
+      const emoji = heard.at(-1);
+      selectionCommand('${target}', 'removeAllRanges'); await settled();
+      return { drag, oracle, cleared, selected, direction, emoji, logs };
+    })()`);
+    expect(result.drag[0].slice(0, 4)).toEqual(['p1', 'beta gamma delta epsilon 😀 zeta.', 6, 39]);
+    expect(result.drag[0][4]).toEqual(result.oracle);
+    expect(result.drag[0][4].length).toBeGreaterThan(1);
+    expect(result.cleared).toEqual([['p1', '', 0, 0, []], ['p2', '', 0, 0, []]]);
+    expect(result.selected.slice(0, 4)).toEqual(['p1', 'Alpha', 0, 5]);
+    expect(result.selected[4][0][2]).toBeGreaterThan(0);
+    expect(result.direction).toEqual([5, 0]);
+    expect(result.logs).toEqual([]);
+    expect(result.emoji.slice(0, 4)).toEqual(['p1', '😀', 31, 33]);
+  }
+}), 30000);
+
+check('a mouse drag reports viewport rectangles across paragraphs', () => inChrome(async (evaluate, call) => {
+  const [from, to] = await evaluate(`(() => {
+    const root = document.getElementById('exact-root');
+    root.innerHTML = '<div data-exact-text id="p1" style="width:180px;font:18px Arial;line-height:24px">Alpha beta gamma delta epsilon 😀 zeta.</div><div data-exact-text id="p2" style="font:18px Arial;line-height:24px">Second paragraph</div>';
+    window.heard = [];
+    for (const id of ['p1', 'p2']) onSelection(document.getElementById(id), (...args) => heard.push([id, ...args]));
+    return ['p1', 'p2'].map(id => { const r = document.getElementById(id).getBoundingClientRect(); return [r.x + 30, r.y + 12]; });
+  })()`);
+  await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: from[0], y: from[1], button: 'left', buttons: 1, clickCount: 1 });
+  await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: to[0], y: to[1], button: 'left', buttons: 1 });
+  await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to[0], y: to[1], button: 'left', buttons: 0, clickCount: 1 });
+  const result = await evaluate(`(async () => {
+    await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+    const part = heard.findLast(e => e[0] === 'p2'), p = document.getElementById('p2'), range = document.createRange();
+    range.setStart(p.firstChild, part[2]); range.setEnd(p.firstChild, part[3]);
+    return { part, bottom: [...range.getClientRects()].at(-1).bottom, first: heard.findLast(e => e[0] === 'p1') };
+  })()`);
+  expect(result.first[4].length).toBeGreaterThan(1);
+  const last = result.part[4].at(-1);
+  expect(Math.abs(last[1] + last[3] - result.bottom)).toBeLessThanOrEqual(1);
+}), 30000);
+
+check('text source ranges include breaks, inline ids, collapsed spaces and column placement', () => inChrome(async evaluate => {
+  for (const target of ['js', 'wasm']) {
+    const result = await evaluate(`(async () => {
+      const root = document.getElementById('exact-root');
+      root.innerHTML = '<div data-exact-text id="p">Hello<br><b>world</b></div><div data-exact-text id="inline">Before <span id="word" data-exact-text>Alpha</span> after</div><div data-exact-text id="spaces">a  b</div><div data-exact-text id="columns" style="position:absolute;left:8px;top:29px;width:220px;height:48px;columns:2;column-gap:20px;column-fill:auto;white-space:pre;font:16px Arial;line-height:24px">Alpha\\nbeta\\ngamma\\ndelta</div>';
+      const heard = {}, byId = id => document.getElementById(id);
+      for (const id of ['p', 'inline', 'word', 'spaces', 'columns']) onSelection(byId(id), (...args) => heard[id] = args);
+      const settled = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+      const rects = r => [...r.getClientRects()].map(r => [r.x, r.y, r.width, r.height, false, false]);
+      const range = document.createRange(); range.selectNodeContents(byId('p').lastChild);
+      getSelection().removeAllRanges(); getSelection().addRange(range); await settled();
+      const dragged = heard.p, nativePrefix = (() => { const r = document.createRange(); r.setStart(byId('p'), 0); r.setEnd(byId('p').lastChild.firstChild, 0); return r.toString(); })();
+      selectionCommand('${target}', 'removeAllRanges'); await settled();
+      selectionCommand('${target}', 'setSelectionRange', ['p', 6, 11]); await settled();
+      const hardBreak = [heard.p, getSelection().toString(), rects(range)];
+      selectionCommand('${target}', 'setSelectionRange', ['word', 0, 99, 'backward']); await settled();
+      const inline = [heard.inline, heard.word, getSelection().toString()];
+      const spaces = [];
+      for (const [a, b] of [[0, 2], [0, 3], [2, 3]]) {
+        selectionCommand('${target}', 'setSelectionRange', ['spaces', a, b]); await settled(); spaces.push(heard.spaces);
+      }
+      selectionCommand('${target}', 'setSelectionRange', ['columns', 11, 16]); await settled();
+      range.setStart(byId('columns').firstChild, 11); range.setEnd(byId('columns').firstChild, 16);
+      return { dragged, nativePrefix, hardBreak, inline, spaces, columns: heard.columns, columnOracle: rects(range), logs };
+    })()`);
+    // Range.toString omits <br>; source offsets deliberately count its newline.
+    expect(result.nativePrefix).toBe('Hello');
+    expect(result.dragged.slice(0, 3)).toEqual(['world', 6, 11]);
+    expect(result.hardBreak[0].slice(0, 3)).toEqual(['world', 6, 11]);
+    expect(result.hardBreak[1]).toBe('world');
+    expect(result.hardBreak[0][3]).toEqual(result.hardBreak[2]);
+    expect(result.inline[0].slice(0, 3)).toEqual(['Alpha', 7, 12]);
+    expect(result.inline[1].slice(0, 3)).toEqual(['Alpha', 0, 5]);
+    expect(result.inline[2]).toBe('Alpha');
+    expect(result.spaces.map(s => s.slice(0, 3))).toEqual([['a ', 0, 2], ['a  ', 0, 3], [' ', 2, 3]]);
+    expect(result.columns[3]).toEqual(result.columnOracle);
+    expect(result.columnOracle[0][0]).toBe(128);
+    expect(result.columnOracle[0][1]).toBe(32);
+    expect(result.columnOracle[0][3]).toBe(17);
+    expect(result.logs).toEqual([]);
+  }
+}), 30000);

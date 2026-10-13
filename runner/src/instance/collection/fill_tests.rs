@@ -363,7 +363,7 @@ fn a_rejected_report_s_padding_changes_nothing() {
         panic!()
     };
     let list = root.collection.as_mut().unwrap();
-    list.begin_into_view(&mut u, &[], "n:50", Align::Start, false)
+    list.begin_into_view(&mut u, &[], "n:50", Align::Start, false, None)
         .unwrap();
     let offset = list.correction.unwrap().offset;
     assert_eq!(offset, list.index.prefix(50).unwrap() - 12.0);
@@ -406,6 +406,7 @@ fn padding_only_feedback_advances_revision_and_fences_same_token_reports() {
             row: None,
             view: Some(after.view),
             smooth: false,
+            offset: None,
         })
         .unwrap();
         assert_eq!(r.collections()[0].correction.unwrap().offset, 2980.0);

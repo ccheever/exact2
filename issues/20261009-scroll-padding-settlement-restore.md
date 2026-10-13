@@ -13,6 +13,38 @@ Amend LLP 1010/1070 for standard padding/margins, native smooth element jumps an
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
+## Partial implementation (2026-10-13)
+
+Part (a) is implemented in the runner and JS target: `ScrollEvent` reports
+`firstVisibleKey` (optional text) and `firstVisibleOffset` (signed CSS pixels),
+and the list form of `scrollIntoView` takes `offset=`. The app owns saving and
+restoring after mount; `scroll-restoration` does not create a top-level cache.
+LLP 1070.000 §13 and the grammar describe the surface.
+
+The regression `a_scroll_event_restores_the_first_visible_key_and_offset_after_remount`
+first failed with `type-unknown-field`, then restored row 18 at 61 px after a
+remount with different measured sizes. The real-browser regression in
+`host/web-js/list.test.mjs` first reported no key, then passed the same restore.
+`scroll_anchor_snapshots_use_the_event_axis_and_padding_and_restore_signed_offsets`
+covers both axes, padding, signed positions and empty lists. Native capture
+subtracts the resolved content-box origin, including borders.
+`native_scroll_anchors_subtract_the_resolved_content_origin_on_both_axes`
+covers that conversion. AppKit's
+`testAppOwnedAnchorRestoresABorderedListWithoutDrift` captures row 18 at 51 px
+with a 10 px top border and preserves scroll offset 1861 through three
+remount/restore cycles. iOS qualification remains owed.
+
+The seven-argument list command changes the compatibility digest to `4|7`;
+`list_scroll_offset_requires_a_new_binary_cohort` proves the new shape moves
+the binary cohort from the six-argument form (LLP 1114.001 D1).
+
+Remaining implementation: (b) admit scroll-padding on ordinary scrollers and
+scroll-margin on descendants, compute native element alignment, and compare
+start/nearest offsets with Chrome; (c) native smooth element jumps, instant
+under reduced motion, and one authored scrollend after each settled jump,
+wheel scroll and fling. Qualify (c) on real-time macOS and iOS launches, not
+only the frozen agent clock. The issue stays open for these parts.
+
 ## Original report
 
 ### Request and background

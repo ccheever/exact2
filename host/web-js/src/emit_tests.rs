@@ -297,3 +297,12 @@ fn a_dialog_close_handler_uses_the_dom_event() {
     let js = crate::emit::emit(&plan, false, false).unwrap().js;
     assert!(js.contains("\"close\""), "{js}");
 }
+
+#[test]
+fn a_scrollend_handler_is_the_dom_event_on_a_scroll() {
+    let plan = contract::compile(
+        "component App\n  state ends = 0\n  action ended\n    ends = ends + 1\n  view\n    scroll scrollend=ended height=100\n      text \"a\"\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("\"scrollend\""), "{js}");
+}

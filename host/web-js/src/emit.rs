@@ -1316,6 +1316,7 @@ impl Em<'_> {
                 | EventKind::Toggle
                 | EventKind::Cancel
                 | EventKind::Close
+                | EventKind::Scrollend
                 | EventKind::Resize
                 | EventKind::Intersect
                 | EventKind::Select => {}

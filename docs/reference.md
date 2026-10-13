@@ -491,7 +491,12 @@ build refuses a direct use in a module `app.ts` reaches, by file and line
 runs the module under Bun, which has no such guard, cannot hide it.
 Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
 gets the same diagnostic as dot access, including in the web build's summary.
-Aliases and dynamic property keys still reach the runtime guard.
+Aliases and dynamic property keys still reach the runtime guard. In a running
+session, a refused TypeScript answer fails its resource and keeps its last value
+or placeholder; the typed input or action still commits. `failure(x).code` is
+`error` for the module's own error. A failed send ends unsent, retains its previous
+result and runs no `then`, including when queued. The journal names the failure.
+Module initialization, bake and replacement validation still refuse failures.
 Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
@@ -625,19 +630,71 @@ returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped now (the
 mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
 URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
-receive-only WebSocket under `net.websocket` alone (no frame is ever sent, so a
-feed that waits for a subscribe frame cannot be read). An event is
+WebSocket under `net.websocket` alone. Except for the JS-target TypeScript
+adapter described below, sockets remain receive-only. An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
 closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
 or `Response` with the status and body of a reply that was not an event stream.
-New arguments, `refresh` or the resource leaving the view close the stream;
+A caller's abort signal maps an `error` with kind `Aborted` while the resource
+is still held. New arguments, `refresh` or the resource leaving the view close
+the stream without further mapper calls;
 `state.pending` lists it until its first message, `state.streams` while it is
 open. The same holds on Hermes, the web's wasm host and the web build (the JS
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
+
+On the **web JS target, TypeScript sources** receive `(event, socket)` for a
+WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
+module state. Its events are `open`, ordered `message` (string or ArrayBuffer
+`data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
+Every protocol frame reaches the mapper; `coalesced` is zero. The mapper must
+return a shaped snapshot synchronously. Sending belongs to a mutation:
+
+```ts
+import type { StreamSocket } from './app.contract.d.ts';
+const feeds = new Map<string, StreamSocket>();
+export function answer(source: string, [id, url, text]: [string, string, string]) {
+  if (source === "feed") return fetch(url, {
+    exactStream(event, socket) {
+      if (socket) feeds.set(id, socket);
+      return { status: event.type, text: typeof event.data === "string" ? event.data : "" };
+    },
+  });
+  if (source === "sendFrame") {
+    const socket = feeds.get(id);
+    if (!socket) throw new Error("feed is not open");
+    socket.send(text);
+    return { accepted: true };
+  }
+}
+```
+
+Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
+`send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
+the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
+reason of at most 123 UTF-8 bytes. Both methods are allowed only during the
+mutation source's synchronous call. A source that stages socket operations
+must answer synchronously. A thrown source, wrong-shaped answer or refused
+commit sends none of them. The handle exposes read-only `readyState` (0–3)
+and `bufferedAmount`. It cannot extend the resource's lifetime.
+
+A mutation stages at most 256 operations and 1 MiB, including bytes already
+buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
+not-yet-open handle throws `InvalidStateError` (also after close, a deliberate
+difference from the browser's silent discard). A change before publication
+can still refuse transport admission, reported in `logs`: acceptance is not
+server acknowledgement. The receive queue is bounded by 256 frames and
+1 MiB plus the per-message response ceiling; overflow maps accepted queued
+frames in order before ending with a `Refused` error.
+`state.streams` adds `readyState`, `bufferedAmount` and `sent` for these sockets.
+
+**Remaining host gap:** the web wasm target, Rust sources, macOS, iOS,
+Linux and worker-placed TypeScript do not yet provide this handle or send
+path; do not use it in a cross-platform app yet. No ambient `WebSocket`
+constructor is admitted. SSE remains unchanged.
 
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically

@@ -1,6 +1,7 @@
 # UIKit navigation, scroll-settle and share verification fail in the iOS 27 test host
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Use the screen-sized navigation fixture and wait for native scroll settlement; the new screen-edge regression and all 31 focused UIKit tests pass.
 **Systems:** Apple host, UIKit verification
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-13
@@ -27,3 +28,22 @@ is claimed. Log: `target/iostooling-verification/ios-canary.log`.
 
 Keep their assertions and qualify the test-host/window setup and native work on
 a simulator and device. The normal runner retains its two workers.
+
+## Resolution evidence, 2026-10-13
+
+The new `testTheNavigationFixtureReachesTheScreensBottomEdge` failed with a
+402×874 window on the 440×956 iPhone 18 Pro Max simulator. The fixture now
+uses its screen's bounds and boots the session at that size. Both original
+home-indicator assertions and the new regression pass.
+
+The scroll test passed at baseline; its fixed 0.6-second delay is replaced
+with a bounded wait on `nativeInFlight()`. It additionally checks the landed
+offset (1700) and the wheel-interrupted offset (1600). Share's unchanged
+anchor test passed alone in 1.1 seconds and in the final run in 0.58 seconds;
+its reported stall was not reproduced.
+
+All 31 tests in NavigationBasicsIOSTests, SettleScrollAnimationIOSTests,
+ShareIOSTests and SurfaceControlTests passed on iOS 27.0. No production code
+changed and no physical-device run is claimed. Evidence:
+`target/uikittests-verification/baseline.log`, `share-baseline.log` and
+`fixed.log`.

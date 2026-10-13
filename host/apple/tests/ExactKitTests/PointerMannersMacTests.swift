@@ -77,6 +77,42 @@ final class PointerMannersMacTests: XCTestCase {
         XCTAssertFalse(reading.acceptsFirstMouse(for: nil), "as an NSTextView does not")
     }
 
+    func testPositionedOverlayConsumesTheClickAboveAButton() throws {
+        let p = fixture(), button = try XCTUnwrap(p.views[2]), overlay = try XCTUnwrap(p.views[9])
+        overlay.frame = button.frame
+        clicksArriveAsInTheKeyWindow()
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(button)
+        let at = overlay.convert(NSPoint(x: 20, y: 15), to: nil)
+        XCTAssertTrue(window.contentView?.hitTest(at) === overlay)
+        var presses: [UInt32] = [], pointers: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        p.onPointer = { id, _, _ in pointers.append(id) }
+        func click() throws {
+            for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+                window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+            }
+        }
+        try click()
+        XCTAssertEqual(pointers, [9, 9])
+        XCTAssertEqual(presses, [], "the overlay has no press, but still covers the button")
+        overlay.handlers = []
+        try click()
+        XCTAssertEqual(presses, [], "a handlerless overlay also consumes the click")
+        p.views[1]?.handlers = ["press"]
+        try click()
+        XCTAssertEqual(presses, [1], "the overlay's ancestor still receives the click")
+        overlay.applyStyle(["pointer_events": "none"])
+        try click()
+        XCTAssertEqual(presses, [1, 2], "pointer-events: none lets the button receive the click")
+        overlay.applyStyle(["pointer_events": "auto"])
+        overlay.isHidden = true
+        try click()
+        XCTAssertEqual(presses, [1, 2, 2], "the uncovered button still presses")
+    }
+
     func testHoverIsTheKeyWindowsOnly() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent's hover is where its drive put it")
         let p = fixture()

@@ -551,6 +551,7 @@ impl<D: DataSource> Runner<D> {
                 row: None,
                 view: Some(view),
                 smooth: false,
+                offset: None,
             })?);
         }
         Ok(receipts)

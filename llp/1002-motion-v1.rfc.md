@@ -220,7 +220,9 @@ accepts only finite nonnegative `Dimension::Points` on a non-inline box under
 an attached root with no `display:none` ancestor. Unsupported, detached or
 removed input retires Height only; percentages, env and auto are never resolved
 into invented numeric targets. Replacing the registered owner retires its
-previous Height first. There is no automatic adoption of all numeric heights.
+previous Height first. Separately, the Apple host automatically adopts authored
+pixel-height transitions for either box sizing; border-box `auto` endpoints need
+`interpolate-size: allow-keywords` (LLP 1041 §8.12).
 
 **Authored handle increment (Tuft / Zeno and host owners, 2026-09-17).**
 `heightDragFor="reading-sheet"` names one strict ancestor's authored `id`.
@@ -364,9 +366,10 @@ validated sample until retirement; an ordinary layout call would clear it.
 - **`prefers-reduced-motion`.** CSS handles it in the author's stylesheet with a
   media query; here the producer does the same — emits `transition: none` (or a
   shorter row) when the host reports the preference. The engine has no opinion.
-- **General layout-affecting transitions** (`width`, insets, arbitrary heights).
-  Only the explicitly registered numeric-height trial in D7 is admitted; broader
-  ownership and layout policies remain gated on their own measured consumers.
+- **General layout-affecting transitions** (`width`, insets, other height units).
+  D7's registered owner and LLP 1041 §8.12's authored pixel-height transitions
+  and opted-in accordions are admitted; broader ownership and layout policies
+  remain gated on their own measured consumers.
 - **The producer's authoring surface** for `transition` in Contract. This RFC
   fixes the row; the compiler that emits it is the Contract lane's.
 

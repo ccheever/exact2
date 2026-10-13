@@ -956,7 +956,11 @@ fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
     let src = r#"component App
   state away = 0
   state wide = 0
+  state first = some("old")
+  state within = 9
   action moved(x: number, y: number, e: ScrollEvent)
+    first = e.firstVisibleKey
+    within = e.firstVisibleOffset
     away = e.scrollHeight - e.scrollTop - e.clientHeight
     wide = e.scrollWidth - e.clientWidth + e.scrollLeft
   view
@@ -977,6 +981,8 @@ fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
         .unwrap();
     assert_eq!(r.slot("away"), Some(&Value::Number(120.0)));
     assert_eq!(r.slot("wide"), Some(&Value::Number(202.0)));
+    assert_eq!(r.slot("first"), Some(&Value::NONE));
+    assert_eq!(r.slot("within"), Some(&Value::Number(0.0)));
     r.dispatch(id, Event::scroll_payload("2,500,600,600,400,100").unwrap())
         .unwrap();
     assert_eq!(r.slot("away"), Some(&Value::Number(0.0)));

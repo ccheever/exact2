@@ -206,6 +206,9 @@ pub enum Event {
         /// Whether it is open after the last change in this turn.
         new_open: bool,
     },
+    /// A scroll finished (DOM's `scrollend`): the person's, its momentum
+    /// included, or an animated one.
+    Scrollend,
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
     /// #2): its text, and the selection its `InputEvent` reports.
     FieldSelect(String, super::FieldSelection),
@@ -328,6 +331,8 @@ pub enum Event {
         start: f64,
         /// Where it ends.
         end: f64,
+        /// Selected fragments in viewport coordinates, sampled with the event.
+        rects: Vec<crate::geometry::GeometryAnswer>,
     },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
@@ -389,6 +394,24 @@ pub struct ScrollEvent {
     pub client_width: f64,
     /// The scrollport's height (`clientHeight`).
     pub client_height: f64,
+}
+
+impl ScrollEvent {
+    fn value(&self, anchor: Option<(Value, f64)>) -> Value {
+        let (key, offset) = anchor.map_or((Value::NONE, 0.0), |(key, offset)| {
+            (Value::some(key), offset)
+        });
+        Value::record(vec![
+            Value::Number(self.left),
+            Value::Number(self.top),
+            Value::Number(self.width),
+            Value::Number(self.height),
+            Value::Number(self.client_width),
+            Value::Number(self.client_height),
+            key,
+            Value::Number(offset),
+        ])
+    }
 }
 
 /// The modifier keys held as a key went down: `KeyboardEvent`'s
@@ -541,23 +564,18 @@ impl Event {
                 Value::Bool(*is_intersecting),
                 Value::Number(*intersection_ratio),
             ])),
-            Event::Scroll(s) => Some(Value::record(
-                [
-                    s.left,
-                    s.top,
-                    s.width,
-                    s.height,
-                    s.client_width,
-                    s.client_height,
-                ]
-                .map(Value::Number)
-                .to_vec(),
-            )),
+            Event::Scroll(s) => Some(s.value(None)),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
-            Event::SelectionChange { text, start, end } => Some(Value::record(vec![
+            Event::SelectionChange {
+                text,
+                start,
+                end,
+                rects,
+            } => Some(Value::record(vec![
                 Value::str(text),
                 Value::Number(*start),
                 Value::Number(*end),
+                Value::list(rects.iter().map(|r| r.value()).collect()),
             ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
@@ -1036,6 +1054,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Cancel => "cancel",
                 Event::Close => "close",
                 Event::Toggle { .. } => "toggle",
+                Event::Scrollend => "scrollend",
                 Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
@@ -1091,13 +1110,13 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::InvalidEvent { event });
         }
         let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
-        // Dismissal events without a listener do nothing: a picker's
-        // `cancel` (LLP 1069.010 D3), or a dialog's `close` (LLP 1021).
-        if matches!(event, Event::Cancel | Event::Close) {
-            let kind = if matches!(event, Event::Close) {
-                EventKind::Close
-            } else {
-                EventKind::Cancel
+        // Events without a listener do nothing: a picker's `cancel` (LLP
+        // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end.
+        if matches!(event, Event::Cancel | Event::Close | Event::Scrollend) {
+            let kind = match event {
+                Event::Close => EventKind::Close,
+                Event::Scrollend => EventKind::Scrollend,
+                _ => EventKind::Cancel,
             };
             let has_handler = self
                 .plan
@@ -1148,6 +1167,7 @@ impl<D: DataSource> Runner<D> {
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
             Event::Close => (EventKind::Close, None, "close"),
             Event::Toggle { .. } => (EventKind::Toggle, None, "toggle"),
+            Event::Scrollend => (EventKind::Scrollend, None, "scrollend"),
             Event::Select {
                 formats,
                 mixed,
@@ -1245,6 +1265,24 @@ impl<D: DataSource> Runner<D> {
         let record = match &event {
             Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
             Event::Input(_) | Event::Change(_) => record,
+            Event::Scroll(s)
+                if self.plan.action(handler.action).params.len as usize > args.len() + 2 =>
+            {
+                let anchor = self.links.lists.and_then(|lists| {
+                    self.tree.as_ref().and_then(|tree| {
+                        (lists.scroll_anchor)(
+                            tree,
+                            &self.kernel,
+                            view,
+                            s.left,
+                            s.top,
+                            s.client_width,
+                            s.client_height,
+                        )
+                    })
+                });
+                Some(s.value(anchor))
+            }
             _ => event.record(),
         };
         match event {

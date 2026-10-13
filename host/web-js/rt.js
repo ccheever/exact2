@@ -237,7 +237,7 @@ function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
     if (e.$jump) e.$jump(name, at);
-    else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
+    else if (e[name] !== at) { if (Booting && (at < 0 || Math.min(at, name === "scrollTop" ? e.scrollHeight - e.clientHeight : e.scrollWidth - e.clientWidth) !== e[name])) e.$bootScroll = e.$bootScrollEnd = true; /* only an offset that moves fires */ if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
   // Options compare as nodes and values: a branch that replaces them with equal values still resets the pick.
   Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
@@ -397,7 +397,6 @@ export const Store = {
 export const Resources = [];
 let Ticket = 0;
 const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
-/** Run a request after the commit publishes; `land(outcome)` on reply. */
 /** Requests in flight, for the agent's `clock settle`. */
 export const inflight = { n: 0 };
 function send(t, land) {
@@ -417,7 +416,7 @@ function send(t, land) {
     // source's `exactStream` (ts-data.js). It is in flight until its first message (D5), then open
     // until its end or until its ticket is let go (`Open`, after each commit).
     if (t.stream || t.req?.stream) {
-      t.ctl = new AbortController(); t.messages = t.coalesced = 0; Open.add(t);
+      t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.messages = t.coalesced = 0; Open.add(t);
       (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e) }));
@@ -433,8 +432,8 @@ function closeLetGo() {
     say(`close stream ${t.id}: its ticket was let go`);
   }
 }
-function ask(source, args, name) {
-  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name);
+function ask(source, args, name, mutation = false) {
+  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation);
   return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
@@ -580,10 +579,11 @@ export function mut(name, slot, refreshes, type, queue) {
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
       let a;
       try {
-        a = ask(source, args, name);
+        a = ask(source, args, name, true);
         if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
         if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
-      } catch (e) { if (own) Sched.own = e; throw e; }
+      } catch (e) { if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; } m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length); say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return; }
+      Out.push(...(a.effects ?? []));
       if ("v" in a) {
         m.checked = a.v;
         Ov.land(m, a.v);
@@ -669,7 +669,7 @@ export function adoptRow(w, f) {
   w.textContent = ""; w.$n = undefined;
   return unadopted(f);
 }
-const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
+const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback|autofocus)$/; // present means true: a bound `autofocus` false is no attribute (rows.rs writes the static one so)
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
 const Composing = new WeakSet(), Held = new WeakMap(), HeldTask = new WeakMap(); function writeValue(e, v) { if (!HeldTask.has(e) && (e.localName === "input" || e.localName === "textarea")) { HeldTask.set(e, 0); e.addEventListener("compositionstart", () => { clearTimeout(HeldTask.get(e)); Composing.add(e); }); e.addEventListener("compositionend", () => HeldTask.set(e, setTimeout(() => { Composing.delete(e); if (Held.has(e)) writeValue(e, Held.get(e)); }, 0))); } if (e.value !== v && Composing.has(e)) return Held.set(e, v); Held.delete(e); if (e.value !== v) e.value = v; } // the app's `value` never ends a composition (LLP 1115.000 §5, ruling 6; the wasm host's `writeValue`, glue.js): another value written while a field's text composes is held, the last one, and written when the composition has ended and its last `input` was heard.
@@ -697,7 +697,7 @@ export function P(e, name, f) {
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } writeValue(e, v ?? ""); }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
-    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
+    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; if (name === "autofocus") { if (v === "true") e.removeAttribute("data-autofocus"); else e.setAttribute("data-autofocus", "false"); } }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
@@ -893,10 +893,10 @@ function imageEvent(e, kind, f) {
 }
 export function on(e, kind, f, bind) {
   // The runner's dispatch_at fires what is due at the event's time first (a focus's `then` before the input); a refusal still lets the event run.
-  const go = f, wall = !clock.agent, own = kind === "close" ? Owner : null;
-  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (kind !== "close" || (e.isConnected && !own?.gone)) return go(...a); };
-  // A queued dialog close can outlive its arm, even while an exit animation keeps the element connected.
-  const l = (t, g, capture = false) => { e.addEventListener(t, g, capture); if (kind === "close") onEnd(() => e.removeEventListener(t, g, capture)); };
+  const ends = kind === "close" || kind === "scrollend", go = f, wall = !clock.agent, own = ends ? Owner : null;
+  f = (...a) => { const to = wall && start ? Math.max(clock.now, performance.now() - start) : clock.now; if (clock.timers.some(t => t.due <= to && !(wall && t.frame)) || Mutations.some(m => m.due <= to || m.next <= to)) advance(to, wall); if (!ends || (e.isConnected && !own?.gone)) return go(...a); };
+  // A queued dialog close (or a scroll's end a due task's removal outlived) can outlive its arm, even while an exit animation keeps the element connected.
+  const l = (t, g, capture = false) => { e.addEventListener(t, g, capture); if (ends) onEnd(() => e.removeEventListener(t, g, capture)); };
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
   if (e.$media && Media.MEDIA_EVENTS.has(kind)) return Media.mediaOn(e, kind, f); // media.js: the glue's reports
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
@@ -929,7 +929,7 @@ export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.
 // Only from the origin of the src the app committed (glue.js `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is not heard; an opaque sandbox's origin is "null".
 export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
-export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight]); }); };
+export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } e.$bootScrollEnd = false; f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight, ...(e.$list?.scrollAnchor() ?? [null, 0])]); }); }; export const onScrollend = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScrollEnd) { e.$bootScrollEnd = false; return; } f(); }); }; // the boot's restored offset ends no reader's scroll, unless a smooth restore went on to deliver scrolls
 // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
 export const onRefresh = () => {};
 export const onDblclick = (e, kind, f, l) => { return l(kind, ev => { ev.preventDefault(); f(); }); };
@@ -947,7 +947,7 @@ export const onFocus = (e, kind, f, l) => { return l(kind, () => queueMicrotask(
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
-export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b) => f([text, a, b])); };
+export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own

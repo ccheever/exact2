@@ -1577,7 +1577,13 @@ not indiscriminately on every animation tick.
 
 **Shop host integration, Codex, 2026-09-19:** the inherited schema row
 `interpolate-size` defaults to `numeric-only`; `allow-keywords` opts eligible
-Apple border-box numeric/auto Height transitions into automatic ownership.
+Apple border-box auto Height endpoints into interpolation. Authored pixel-height
+transitions are automatically owned for either box sizing without that opt-in
+(numeric-height issue fix, 2026-10-13). Samples remain CSS heights: content-box
+padding and borders are added by layout. A keyword endpoint without the opt-in
+snaps, establishing the starting value for a subsequent numeric transition.
+Retargeting a running auto transition to a length starts from its current
+animated length, even when the same commit removes the keyword opt-in.
 The existing receipt walk tracks declarations. Authored epoch changes and
 viewport/inset/intrinsic invalidation trigger one target pass; motion ticks reuse
 samples without target measurement. Settled auto content changes use ordinary

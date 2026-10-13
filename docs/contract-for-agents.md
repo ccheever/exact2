@@ -813,6 +813,17 @@ own mutation; to repeat, use a task (see "Repeating while a condition holds").
 Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
+A bidirectional WebSocket uses a resource's TypeScript
+`fetch(url, { exactStream(event, socket) { … } })` (LLP 1016.000 D7).
+Keep the handle in module state by resource identity; after its `open` event,
+a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
+reason)`. The mapper only reads frames and returns snapshots. Sends run after
+the mutation's commit stands, in order, and have bounded admission. The
+source must send and answer synchronously. Refreshing or removing the
+resource invalidates the old handle. **Currently web JS target TypeScript
+only**; the wasm target and native hosts remain receive-only. See
+[the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
+
 ### Optimistic writes: the overlay
 
 To show a write before its reply, the mutation declares `refreshes` and the data
@@ -1131,6 +1142,22 @@ inside it, as in HTML (outside it, it is inert while the dialog is open). Under
 the agent both paint in the page as before; `--chrome platform` on `macos`
 shows them, `tap`, `type` and `tree` reach what is in them, and `screenshot
 "file" window` draws them over the window.
+
+For an invoker popover with an authored CSS area, use
+`position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline"`.
+A fresh opening takes the first fitting attempt, retaining the base if none fits.
+An open popover keeps its chosen option while it fits, including across resize;
+if none fits after movement, the current option may overflow. Commas separate
+attempts; spaces combine flips. `none` disables fallbacks. The web and painted Apple layers implement these flips; an authored
+fallback row selects painted placement on macOS for a non-menu popover, including
+when added while open. Removing the row restores platform presentation; focus
+and text selection survive either change. Native
+menus and confirmations keep platform placement. Physical areas also accept
+`top span-left`, `bottom span-left`, `left`/`right` with `span-top`,
+`span-bottom` or `span-all`, and the four `top|bottom left|right` corners.
+This slice does not implement `flip-start`, logical areas, named rules, or
+area-dependent sizing. Use fixed sizes, zero insets and default self-alignment
+for native parity; percentage margins are not resolved by the native layer.
 
 A route with `navigationPresentation="modal"` is the same sheet on the Mac
 (LLP 1115.002 D7.4), as large as its content (an authored `width` or `height`
@@ -1513,6 +1540,12 @@ Known host commands are statements, not expression-returning functions. Several
 commands have specialized argument checks; some generic commands leave validation
 to the host. Do not infer that compiler acceptance proves a command's arguments
 work. Use the command's working fixture and inspect its host result.
+
+`relaunch()` restarts the standalone macOS process after its orderly quit,
+including the storage drain; it works with the development menu off. A
+`beforeunload` cancellation cancels the restart. The web reloads the page.
+iOS/tvOS, Linux and native agent sessions journal a refusal; for a scripted
+restart, start another drive on the same `--storage`. See [host commands](contract-grammar.md#host-commands).
 
 ## Routes and web documents
 
@@ -1987,7 +2020,12 @@ stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
-not have. `exactPage` answers `visibilityState`, `onLine`, `canShare`,
+not have. `exactViewport().displayMode` is a string: the current CSS display
+mode on the web, `fullscreen` or `standalone` on macOS, `standalone` on other
+native hosts. Declare it on the resource's shape; `state.device.displayMode`
+reports it too. `prefer display-mode fullscreen` substitutes it on Apple;
+browser drivers refuse that override, so test real fullscreen transitions. This reads the window, not a fullscreen navigation route.
+`exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
 choose an in-window message over a system notification). A reminder that should
@@ -2482,7 +2520,10 @@ refused.
 
 Transitions animate translate/scale/rotate/opacity, box paint (color,
 background-color, border colors, -exact-tint-color, box-shadow), SVG paint/geometry
-and the admitted numeric height path. `width` and other general layout
+and pixel heights. On Apple, numeric `height` transitions work with either
+`box-sizing`, without `interpolate-size="allow-keywords"`. An `auto` endpoint
+requires that opt-in and `box-sizing="border-box"`; automatic height transitions
+require one layout root and no registered content region. `width` and other general layout
 properties cannot interpolate yet: native layout is not run per frame.
 The diagnostic names this engine limit; `-exact-layout-transition` animates a
 change in the laid-out box using the existing measured projection.
@@ -2513,6 +2554,12 @@ select an installed face with the same name; write bundled choices as literals.
 A `text` with `selectionchange=act` hears the reader's real text selection
 on the web, macOS and iOS: `action act(s: Selection)` gets `s.text`, `s.start` and
 `s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
+On web and macOS, `s.rects` is a list of `Geometry` snapshots for the selected
+fragments in viewport space; empty when cleared (and on iOS).
+`removeAllRanges()` clears the reader selection, and
+`setSelectionRange(id, start, end[, direction])` selects a `text` on web and
+macOS using source UTF-16 offsets. Both report changed parts through
+`selectionchange`; see [text selection](contract-grammar.md#text-selection).
 Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`; on iOS, where a
 long press or a double tap selects a word of text its author made selectable
 (`user-select="text"`), with `tap <id> contextmenu [at <x> <y>]` or

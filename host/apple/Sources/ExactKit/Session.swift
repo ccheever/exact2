@@ -756,6 +756,7 @@ public final class ExactSession {
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
         presenter.onScroll = { [unowned self] id, metrics in applyUnlessEmpty(runtime.scroll(id, metrics: metrics, now: now()), scrolled: true) }
+        presenter.onScrollend = { [unowned self] id in applyUnlessEmpty(runtime.scrollend(id, now: now())) }
         presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
@@ -767,8 +768,8 @@ public final class ExactSession {
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
         presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
-        presenter.onSelectionChange = { [unowned self] id, text, start, end in
-            apply(runtime.selectionChange(id, text, start: start, end: end, now: now()))
+        presenter.onSelectionChange = { [unowned self] id, text, start, end, rects in
+            apply(runtime.selectionChange(id, text, start: start, end: end, rects: rects, now: now()))
         }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
@@ -971,16 +972,40 @@ public final class ExactSession {
     /// frame. Fills and list feedback already skip theirs. Other events
     /// still apply an empty batch: a native control that changed itself
     /// before its handler ran is reconciled by the pass (a refused tab), and
-    /// the agent's clock seeks native animations through it.
+    /// the agent's clock seeks native animations through it. Slices published
+    /// before it land first (T4), and it is asked again (a fling's fills).
     func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
-        guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
+        guard !applying else { apply(batch); return }
+        if !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
+            // What the slices leave owed is asked after this batch, as in `apply`.
+            holdingReports = true; landFill(); holdingReports = false
+            guard state != .destroyed else { return }
+        }
+        guard !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
         if scrolled { presenter.scrolledWithoutPass() }
+        drainReports()
     }
+
+    /// The appearance reports a landing held back (`holdingReports`), asked
+    /// once the batch the owner made before them has applied or skipped.
+    private func drainReports() {
+        if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
+        while !holdingReports, !pendingViewDark.isEmpty {
+            let (id, dark) = pendingViewDark.removeFirst()
+            apply(runtime.viewScheme(id, dark: dark))
+        }
+    }
+
+    #if DEBUG
+    /// Tests: a tick's slice the owner published, not yet landed.
+    func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
+    func oweColorsForTests() { colorsOwed = true }
+    #endif
 
     /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
@@ -1040,11 +1065,7 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
-            if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
-            while !holdingReports, !pendingViewDark.isEmpty {
-                let (id, dark) = pendingViewDark.removeFirst()
-                apply(runtime.viewScheme(id, dark: dark))
-            }
+            drainReports()
             presenter.collections.flush()
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
@@ -1082,6 +1103,7 @@ public final class ExactSession {
                     app.deliver { DevMenu.reload() }
                     continue
                 }
+                if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
@@ -1102,6 +1124,14 @@ public final class ExactSession {
                 }
                 if name == "focus" || name == "selectText" {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
+                    continue
+                }
+                if name == "removeAllRanges" {
+                    #if os(macOS)
+                    app.deliver { [weak self] in self?.presenter.selection.clear() }
+                    #else
+                    log("removeAllRanges refused: reader selection commands are not supported on this platform")
+                    #endif
                     continue
                 }
                 if name == "setSelectionRange" || name == "setRangeText" {
@@ -1252,6 +1282,7 @@ public final class ExactSession {
         primeControlText()
         _ = runtime.setPreferences(preferenceBits())
     }
+    var displayModeOverride: UInt32?
     private func preferenceBits() -> UInt32 {
         #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
@@ -1262,7 +1293,8 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        return DisplayPreferences.bits(systemDark: dark, view: view)
+        let bits = DisplayPreferences.bits(systemDark: dark, view: view)
+        return displayModeOverride.map { (bits & ~(7 << 11)) | ($0 << 11) } ?? bits
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
@@ -1455,21 +1487,5 @@ public final class ExactSession {
         runtime.destroy()
         natives.destroyModule()
         app.forget(self)
-    }
-}
-
-/// @ref LLP 1043.000 §3 D8 — deadlines, in milliseconds, never a repeating poll.
-enum SessionClockTimer {
-    enum Wake: Equatable { case none, frame, timeout(Double) }
-    static func wake(due: Double?, now: Double, agent: Bool = false) -> Wake {
-        guard !agent, let due else { return .none }
-        let delay = max(0, due - now)
-        return delay <= 8 * 1000 / 60 ? .frame : .timeout(delay)
-    }
-    static func schedule(after seconds: TimeInterval, _ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
-        precondition(Thread.isMainThread)
-        let timer = Timer(timeInterval: seconds, repeats: false, block: fire)
-        RunLoop.main.add(timer, forMode: .common)
-        return timer
     }
 }

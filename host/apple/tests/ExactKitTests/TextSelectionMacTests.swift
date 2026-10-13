@@ -52,6 +52,120 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
+    func testCommandsSelectTextAndClearEachParagraph() throws {
+        let p = fixture(measured: true)
+        let node = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[5])
+        node.props["id"] = "p1"; other.props["id"] = "p2"
+        other.handlers = ["selectionchange"]
+        let arial = CTFontDescriptorCreateWithNameAndSize("ArialMT" as CFString, 16)
+        session?.text.catalog = [9: [RegisteredFace(family: "Arial", generic: nil, weight: 400, italic: false, descriptor: arial)]]
+        p.apply(wireBatch([
+            ["op": "style", "id": 2, "style": ["font_family": 9.0, "font_size": 16.0, "line_height": "24px"]],
+            ["op": "frame", "id": 2, "x": 8, "y": 29, "w": 120, "h": 48],
+            ["op": "style", "id": 5, "style": ["font_family": 9.0, "font_size": 16.0, "line_height": "24px"]],
+            ["op": "frame", "id": 5, "x": 10, "y": 100, "w": 300, "h": 24],
+        ]))
+        var heard: [String] = [], boxes: [[CGRect]] = []
+        p.onSelectionChange = { id, text, start, end, rects in
+            heard.append("\(id):\(start)-\(end):\(text)"); boxes.append(rects)
+        }
+        p.fieldSelections.setSelectionRange(["p1", 0, 5, "backward"])
+        XCTAssertEqual(p.selection.selectedText(), "Alpha")
+        XCTAssertEqual(heard, ["2:0-5:Alpha"])
+        let rect = try XCTUnwrap(boxes.last?.first)
+        // Chrome's Range for 16px Arial, 24px line-height at (8,29).
+        XCTAssertEqual(rect.minX, 8, accuracy: 1)
+        XCTAssertEqual(rect.minY, 32, accuracy: 1)
+        XCTAssertEqual(rect.width, 40.921875, accuracy: 1)
+        XCTAssertEqual(rect.maxY, 49, accuracy: 1)
+        p.fieldSelections.setSelectionRange(["p1", 0, 5, "backward"])
+        XCTAssertEqual(heard.count, 1)
+        p.fieldSelections.setSelectionRange(["p1", 0, 100])
+        XCTAssertGreaterThan(try XCTUnwrap(boxes.last).count, 1)
+        p.fieldSelections.setSelectionRange(["p2", 0, 7])
+        XCTAssertEqual(Array(heard.suffix(2)), ["2:0-0:", "5:0-7:Another"])
+        XCTAssertTrue(boxes[boxes.count - 2].isEmpty)
+        p.selection.clear()
+        XCTAssertEqual(p.selection.selectedText(), "")
+        XCTAssertEqual(heard.last, "5:0-0:")
+        XCTAssertEqual(boxes.last, [])
+        heard.removeAll(); boxes.removeAll()
+        try press(node, 2, to: 7, in: other)
+        XCTAssertEqual(heard.last, "5:0-7:Another")
+        XCTAssertEqual(try XCTUnwrap(boxes.last?.last).maxY, 120, accuracy: 1)
+        p.selection.clear()
+        XCTAssertEqual(Array(heard.suffix(2)), ["2:0-0:", "5:0-0:"])
+        XCTAssertTrue(boxes.suffix(2).allSatisfy(\.isEmpty))
+    }
+
+    func testSelectionRectanglesFollowColumnFragments() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = ["id": "p", "text": "Alpha\nbeta\ngamma\ndelta"]
+        let arial = CTFontDescriptorCreateWithNameAndSize("ArialMT" as CFString, 16)
+        session?.text.catalog = [9: [RegisteredFace(family: "Arial", generic: nil, weight: 400, italic: false, descriptor: arial)]]
+        p.apply(wireBatch([
+            ["op": "style", "id": 2, "style": ["font_family": 9.0, "font_size": 16.0, "line_height": "24px", "white_space": "pre"]],
+            ["op": "frame", "id": 2, "x": 8, "y": 29, "w": 220, "h": 48],
+            ["op": "fragments", "id": 2, "fragments": [[0, 0, 100, 48, 0, 2, 0, 0], [120, 0, 100, 48, 2, 4, 120, -48]]],
+        ]))
+        var boxes: [CGRect] = []
+        p.onSelectionChange = { _, _, _, _, rects in boxes = rects }
+        p.fieldSelections.setSelectionRange(["p", 11, 16])
+        let rect = try XCTUnwrap(boxes.first)
+        XCTAssertEqual(boxes.count, 1)
+        // Chrome: the third line starts the second 100px column, after a 20px gap.
+        XCTAssertEqual(rect.minX, 128, accuracy: 1)
+        XCTAssertEqual(rect.minY, 32, accuracy: 1)
+        XCTAssertEqual(rect.maxY, 49, accuracy: 1)
+    }
+
+    func testCommandResolvesInlineTextSourceRange() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = [:]
+        p.apply(wireBatch([["op": "paragraph", "id": 2, "runs": [
+            ["id": 21, "parent": 2, "paint": true, "props": ["text": "Before "]],
+            ["id": 22, "parent": 2, "paint": true, "props": ["text": "Alpha", "id": "word"], "handlers": ["selectionchange"]],
+            ["id": 23, "parent": 2, "paint": true, "props": ["text": " after"]],
+        ]]]))
+        var heard: [String] = []
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id):\(start)-\(end):\(text)") }
+        p.fieldSelections.setSelectionRange(["word", 0, 99, "backward"])
+        XCTAssertEqual(p.selection.selectedText(), "Alpha")
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 7, length: 5))
+        XCTAssertTrue(heard.contains("2:7-12:Alpha"))
+        XCTAssertTrue(heard.contains("22:0-5:Alpha"))
+        p.selection.clear()
+        XCTAssertTrue(heard.contains("22:0-0:"))
+    }
+
+    func testCommandKeepsSourceBoundariesInsideCollapsedWhitespace() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = ["id": "p", "text": "a  b"]
+        node.invalidateText()
+        var heard: [String] = []
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
+        p.fieldSelections.setSelectionRange(["p", 0, 2])
+        XCTAssertEqual(heard.last, "0-2:a ")
+        p.fieldSelections.setSelectionRange(["p", 0, 3])
+        XCTAssertEqual(heard.last, "0-3:a  ")
+        p.fieldSelections.setSelectionRange(["p", 2, 3])
+        XCTAssertEqual(heard.last, "2-3: ")
+        p.selection.clear()
+        XCTAssertEqual(heard.last, "0-0:")
+    }
+
+    func testCommandCountsHardNewlineInSourceOffsets() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = ["id": "p", "text": "Hello\nworld"]
+        node.style["white_space"] = .string("pre")
+        node.invalidateText()
+        var heard: [String] = []
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
+        p.fieldSelections.setSelectionRange(["p", 6, 11])
+        XCTAssertEqual(heard.last, "6-11:world")
+        XCTAssertEqual(p.selection.selectedText(), "world")
+    }
+
     private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1, flags: NSEvent.ModifierFlags = []) -> NSEvent {
         NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: type == .leftMouseUp ? 0 : 1)!
@@ -136,7 +250,7 @@ final class TextSelectionMacTests: XCTestCase {
     func testAButtonPressKeepsTheSelectionForItsAction() throws {
         let p = fixture()
         var heard: [String] = []
-        p.onSelectionChange = { _, text, start, end in heard.append("\(start)-\(end):\(text)") }
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
         var read: [String] = []
         p.onPress = { _ in read.append(p.selection.selectedText()) }
         try select(p)
@@ -162,7 +276,7 @@ final class TextSelectionMacTests: XCTestCase {
     func testAClickOnTextOrIntoAFieldStillClears() throws {
         let p = fixture()
         var heard: [String] = []
-        p.onSelectionChange = { _, text, start, end in heard.append("\(start)-\(end):\(text)") }
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
         try select(p)
         click(try XCTUnwrap(p.views[5]), at: NSPoint(x: 2, y: 10))
         XCTAssertEqual(p.selection.selectedText(), "", "a click on other text collapses the selection")
@@ -718,7 +832,7 @@ final class TextSelectionMacTests: XCTestCase {
         let p = fixture(measured: true)
         window.orderFrontRegardless()
         var heard: [String] = []
-        p.onSelectionChange = { id, text, start, end in heard.append("\(id) \(start)-\(end):\(text)") }
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id) \(start)-\(end):\(text)") }
         var authored: [UInt32] = []
         p.onClipboard = { id, kind, _ in if kind == 10 { authored.append(id) } }
         var menus: [(titles: [String], copy: Bool, heard: String?)] = []

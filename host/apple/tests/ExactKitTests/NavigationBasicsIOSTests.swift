@@ -71,12 +71,12 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.frame = window.screen.bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         self.window = window
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         spin(0.3)
@@ -358,6 +358,13 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // The pushed-route rule stands.
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
+    }
+
+    func testTheNavigationFixtureReachesTheScreensBottomEdge() throws {
+        _ = try fixture("basics-screen")
+        let window = try XCTUnwrap(window)
+        XCTAssertEqual(window.frame, window.screen.bounds)
+        XCTAssertGreaterThan(window.safeAreaInsets.bottom, 0)
     }
 
     func testAnInlineTitlesScrollerGoesUnderTheBar() throws {

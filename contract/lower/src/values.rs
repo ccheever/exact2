@@ -155,6 +155,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
+        StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated flip-block/flip-inline combinations; flip-start and named rules are not implemented".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
@@ -444,25 +445,14 @@ fn builds_platform_color(e: &Expr) -> bool {
     }
 }
 
-/// The `position-area` values every host places (LLP 1021 §5), as CSS
-/// spells them; the row's enum, by name.
-const POSITION_AREAS: [&str; 9] = [
-    "none",
-    "bottom span-right",
-    "bottom",
-    "bottom span-all",
-    "top span-right",
-    "top",
-    "top span-all",
-    "center",
-    "right span-bottom",
-];
-
 /// `position-area` places a popover against the invoker that opens it (its
 /// implicit anchor, LLP 1021 §5): there is no `anchor-name`, so on any other
 /// node it would name nothing to place against.
 pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
-    let Some(a) = attrs.iter().find(|a| a.name == "position-area") else {
+    let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "position-area" | "position-try-fallbacks"))
+    else {
         return Ok(());
     };
     if attrs.iter().any(|a| a.name == "popover") {
@@ -470,7 +460,7 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
     }
     err(
         "lower-css-position-area",
-        "`position-area` is admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
+        "`position-area` and `position-try-fallbacks` are admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
         a.span,
     )
 }
@@ -600,8 +590,10 @@ pub(crate) fn check_style_value(
             if rows.contains(&StyleId::UserSelect) && matches!(v.as_str(), "all" | "contain") {
                 return err("lower-css-user-select", format!("CSS `user-select=\"{v}\"` is not implemented by the native presenters: `all` selects an element whole on one press and `contain` keeps a selection from leaving its element, and their text selection ownership has neither. Supported values are auto, none and text"), span);
             }
-            if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
-                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, another right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
+            if rows.contains(&StyleId::PositionArea)
+                && !StyleId::PositionArea.enum_names().contains(&v.trim())
+            {
+                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Logical areas and other spellings are not implemented by the native top layers", StyleId::PositionArea.enum_names().join(", ")), span);
             }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);

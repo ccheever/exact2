@@ -114,17 +114,25 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
         "top span-all",
         "center",
         "right span-bottom",
+        "bottom span-left",
+        "top span-left",
+        "left",
+        "right",
+        "left span-top",
+        "left span-bottom",
+        "left span-all",
+        "right span-top",
+        "right span-all",
+        "top left",
+        "top right",
+        "bottom left",
+        "bottom right",
     ] {
         contract::compile(&popover(value)).unwrap_or_else(|e| panic!("{value}: {e}"));
     }
     for value in [
-        "left",
-        "right",
-        "right span-top",
         "span-bottom right",
-        "top left",
         "span-all top",
-        "top span-left",
         "block-start",
         "nonsense",
     ] {
@@ -137,6 +145,45 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
     let error = contract::compile("component App\n  view\n    column position-area=\"top\"\n")
         .unwrap_err()
         .to_string();
+    assert!(error.contains("on a `popover` only"), "{error}");
+}
+
+#[test]
+fn popover_flip_fallbacks_compile_in_authored_order() {
+    let source = "component App\n  view\n    column popover=\"auto\" position-area=\"bottom span-right\" position-try-fallbacks=\"flip-block, flip-inline, flip-block flip-inline\"\n";
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = runner.kernel().node(runner.roots()[0]).unwrap();
+    assert_eq!(
+        node.style.position_try_fallbacks.css(),
+        "flip-block, flip-inline, flip-block flip-inline"
+    );
+    for invalid in [
+        "flip-start",
+        "flip-block flip-block",
+        "flip-inline,",
+        "none, flip-block",
+        "--custom",
+    ] {
+        let bad = source.replace("flip-block, flip-inline, flip-block flip-inline", invalid);
+        let error = contract::compile(&bad).unwrap_err().to_string();
+        assert!(
+            error.contains("flip-block/flip-inline"),
+            "{invalid}: {error}"
+        );
+    }
+    let error = contract::compile(
+        &source.replace("popover=\"auto\" position-area=\"bottom span-right\" ", ""),
+    )
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("on a `popover` only"), "{error}");
 }
 

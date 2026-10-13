@@ -551,7 +551,10 @@ uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
  * after boot and on each change — bit 0 reduced motion, bit 1 reduced
- * transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark system. */
+ * transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark system;
+ * bits 5–10 input/gamut/range (runner/src/viewport.rs), bits 11–13 display mode
+ * (LLP 1039 D7): 0 standalone, 1 browser, 2 fullscreen, 3 minimal-ui,
+ * 4 window-controls-overlay, 5 picture-in-picture, 6 tabbed. */
 uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 /* @ref LLP 1069.000 D2: the page's facts, told after boot and on each change —
  * bit 0 hidden, bit 1 offline, bit 2 a share sheet. */

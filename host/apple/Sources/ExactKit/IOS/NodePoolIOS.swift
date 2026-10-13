@@ -485,6 +485,7 @@ extension NodeView {
     func recycle() {
         cancelPressContact()
         pressContact = nil
+        scrollEnd?.reset()
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
         invalidateText()
@@ -539,6 +540,7 @@ extension NodeView {
         pressContact = nil
         id = newID
         incarnation = NodePool.issue()
+        scrollEnd?.reset()
         focusedByTouch = false
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
