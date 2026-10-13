@@ -3,6 +3,50 @@ use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{Advanced, CollectionFeedback, DataError, DataSource, Runner};
 
+#[test]
+fn edge_handlers_require_a_virtualized_collection() {
+    for event in ["reachstart", "reachend"] {
+        for node in [
+            "list",
+            "list virtualized=false",
+            "list virtualized=enabled",
+            "view",
+            "scroll",
+            "column",
+            "view virtualized=true",
+        ] {
+            let source = format!(
+                "component App\n  state enabled = true\n  action more\n    let n = 1\n  view\n    {node} {event}=more height=320\n      each x in [1, 2] key=x\n        text `${{x}}`\n"
+            );
+            let error = contract::compile(&source).expect_err(&source);
+            assert_eq!(error.id, "lower-collection-edge", "{error}");
+            assert_eq!(error.span.line, 6, "{error}");
+            for explanation in [
+                event,
+                "virtualized list",
+                "LLP 1010",
+                "plain list",
+                "geometric window",
+                "docs/reference.md",
+                "Intersection visibility",
+                "after the columns",
+                "view intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1",
+            ] {
+                assert!(
+                    error.message.contains(explanation),
+                    "{explanation}: {error}"
+                );
+            }
+        }
+    }
+    for node in [
+        "list virtualized=true height=320",
+        "list virtualized=true display=\"flex\" height=320",
+    ] {
+        contract::compile(&SOURCE.replace("list virtualized=true height=320", node)).unwrap();
+    }
+}
+
 #[derive(Default)]
 struct Rows {
     queries: usize,
@@ -463,9 +507,8 @@ fn an_edge_before_activation_commits_and_activation_asks_its_arguments_once() {
 }
 
 #[test]
-fn edge_handlers_are_list_only_and_take_their_bound_arguments() {
+fn edge_handlers_take_their_bound_arguments() {
     for source in [
-        SOURCE.replace("list virtualized=true height=320", "column"),
         // `change` takes two parameters: bare, or with one, is the wrong arity.
         SOURCE.replace("reachstart=onStart", "reachstart=change"),
         SOURCE.replace("reachstart=onStart", "reachstart=change(0)"),
@@ -473,7 +516,6 @@ fn edge_handlers_are_list_only_and_take_their_bound_arguments() {
     ] {
         assert!(contract::compile(&source).is_err());
     }
-    contract::compile(&SOURCE.replace("virtualized=true", "virtualized=false")).unwrap();
     contract::compile(&SOURCE.replace("reachstart=onStart", "reachstart=change(0, 2)")).unwrap();
 }
 

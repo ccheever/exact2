@@ -269,11 +269,36 @@ fn contextual_attributes_are_refused_elsewhere() {
         .collect();
     let tested: Vec<&str> = cases.iter().map(|(n, _, _)| *n).collect();
     assert_eq!(listed, tested, "every CONTEXTUAL entry needs a case");
-    for (_, tag, attr) in cases.iter().chain([&("robots", "view", "robots=\"x\"")]) {
+    for (name, tag, attr) in cases.iter().chain([&("robots", "view", "robots=\"x\"")]) {
         let source =
             format!("component App\n  action done\n    let x = 1\n  action got(data: string)\n    let y = data\n  view\n    {tag} {attr}\n");
         let error = contract::compile(&source).unwrap_err();
-        assert_eq!(error.id, "lower-attr-tag", "{tag} {attr}: {error}");
+        let id = if matches!(*name, "reachstart" | "reachend") {
+            "lower-collection-edge"
+        } else {
+            "lower-attr-tag"
+        };
+        assert_eq!(error.id, id, "{tag} {attr}: {error}");
+    }
+}
+
+#[test]
+fn collection_edges_name_the_required_shape_and_the_plain_feed_alternative() {
+    for event in ["reachstart", "reachend"] {
+        let output = stdout(&vocab(&[event]));
+        assert!(
+            output.contains("only on `list virtualized=true` with one direct `each`"),
+            "{output}"
+        );
+        assert!(
+            output.contains(&contract::collection_edge_refusal(event)),
+            "{output}"
+        );
+        let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", event]))).unwrap();
+        assert_eq!(
+            json["attribute"]["note"],
+            contract::collection_edge_refusal(event)
+        );
     }
 }
 
