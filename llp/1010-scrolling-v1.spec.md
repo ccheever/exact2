@@ -1122,9 +1122,12 @@ Before the first report the runner knows no padding, so `scroll-start="end"`'s
 opening correction is the rows' extent; a host clamps it to the true end
 unless `padding-bottom` is taller than the port, and then the first report
 corrects it. With `padding-bottom` at least two ports tall, the last row is
-out of the window at the true end and `reachend` does not fire there. Linux
-still refuses reorder facts for a list with main-axis padding
-(`reorder_facts_current`), so a padded list does not reorder there.
+out of the window at the true end and `reachend` does not fire there.
+
+Linux supports reordering lists with padding. Reorder and collection feedback
+both measure offsets from the first row. Changes to either padding end or the
+native scroll offset invalidate old drag geometry. Grouped drops apply due
+effects before the final geometry check.
 
 Tests: `collection_inset.rs` (row 0 below the padding, the true end kept
 with `reachend`, a followed end, one whose padding grows and shrinks, `scroll-start="end"`, `scrollIntoView`
@@ -1144,8 +1147,9 @@ and the browser half's `a padding change alone on a border-box list is
 reported after its commit` (through each host's own scheduling), the
 web conformance plan `listinset` (also its scroll-padding requests, a
 padding-only change under a followed end and a short list opening at its
-end), and `RefreshInsetIOSTests` (written and
-type-checked; the iOS simulator was down, so it has not run).
+end), the Linux presenter's reorder tests (padding, scrolling, cross-list and
+keyboard drops, stale geometry, timers, and pin cleanup), and
+`RefreshInsetIOSTests` (passed on the iOS simulator).
 
 **Addendum, `scroll-padding` (2026-10-07).** Approved via the lead
 2026-10-07 (Charlie's standing rule on standard CSS gaps). Consumer: the
