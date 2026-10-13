@@ -1,6 +1,7 @@
 # macOS: while a context or button menu is open, main-queue work stalls, so native module calls stop until it closes
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Existing scheduling fix qualified in a full AppKit app: real button/context menus each receive 22 native.later calls at 100 ms cadence, without closure bursts; picks dispatch after tracking.
 **Systems:** host/apple macOS, native modules, menus
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -103,3 +104,35 @@ Context and button menus now open from a common-mode run-loop turn, and a
 chosen item dispatches after native tracking returns. AppKit tests cover real
 NSMenu tracking. The full-app `native.later` cadence check while a real menu
 is open remains outstanding, so this issue stays open.
+
+
+## Full-app qualification (2026-10-13)
+
+The existing fix passes at `2e927ce2b` on macOS 27.0.1. A scaffolded app's
+native module invalidates a watched topic every 100 ms from a common-mode
+timer. The app's TypeScript source responds through `native.later`, and the
+module records each arrival. Mouse down/up events queued through
+`NSApplication.postEvent` open the Contract button menu and context menu.
+`NSMenu.didBeginTrackingNotification` and `didEndTrackingNotification` bound
+the observations; a common-mode timer chooses an item after two seconds.
+No agent mode or painted menu is involved.
+
+| Phase | Calls | Arrival interval, min / median / max (ms) |
+|---|---:|---:|
+| Before menus | 21 | 98.324 / 100.028 / 101.708 |
+| Button menu tracking (2.244 s) | 22 | 97.462 / 100.217 / 101.768 |
+| Between menus | 10 | 98.709 / 99.998 / 101.082 |
+| Context menu tracking (2.241 s) | 22 | 98.858 / 99.966 / 101.733 |
+| After menus | 10 | 98.803 / 99.809 / 102.125 |
+
+Every consecutive arrival, including across menu closure, is between 50 and
+200 ms apart; neither closure produces a burst. Both chosen actions reach the
+module after native tracking ends. `python3 target/verifyrest/menu-check.py`
+asserts these conditions over `menu-watched.json` and `menu-watched.log`.
+The temporary app and its native module remain under `target/verifyrest/app`.
+No product code changed.
+
+Two preliminary probes were inconclusive: synchronous `sendEvent` nested the
+click inside a callback, and the Contract-timer version never established a
+steady baseline before opening a menu. The watched-source probe above uses
+normal application event dispatch and proves an established cadence first.
