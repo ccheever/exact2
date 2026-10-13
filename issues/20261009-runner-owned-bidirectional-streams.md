@@ -13,6 +13,41 @@ Preserve Charlie's selected next core investment: runner-owned sending under net
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
+## First slice — 2026-10-13
+
+LLP 1016.000 D7 selects Charlie's ruling 10: resource-owned handles passed
+to the mapper and used by mutations, ordered frames, and bounded transport. Implemented for
+TypeScript on the web JS target: open/message/close events, text and binary,
+mutation staging until a successful commit, grant checks, receive and send
+bounds, stale-handle refusal, and socket inspection. The issue stays open.
+
+`host/web/socket.test.mjs` covers transport ordering, before-open/after-close
+refusal, binary, close details, grants, overflow and disposal. Frame-count,
+byte-count and per-message overflow flush accepted frames before Refused.
+`host/web-js/socket.test.mjs` builds and drives a real app in Chrome against
+a local echo server: subscribe/Ack/Ping/binary; failed-source, async-source,
+shape and commit refusal send nothing; two resources at one URL stay
+independent; refresh invalidates the old handle. It also compares frames
+and close details with a direct browser WebSocket. Explicit AbortController
+cancellation maps Aborted on a still-held WebSocket or SSE resource.
+
+What remains:
+
+- Web wasm and the native runner: a resource-incarnation command seam from
+  the TypeScript mapper handle through mutation publication, with grant and
+  lifetime checks. Rust source access to the same operation is not built.
+- Apple (AppKit/UIKit), Linux and wasm transports: outbound text/binary,
+  ordered bounded receive frames, open and close metadata, inspection.
+  Their existing receive-only paths are unchanged; the host differences
+  are declared in LLP 1016.000 D7.
+- Native echo/overflow/disposal tests, AppKit drive/XCTests, UIKit simulator
+  drive/tests, Linux headless drive, and wasm/JS conformance after those
+  adapters implement D7. Worker-placed TypeScript streams remain unsupported.
+
+The JS slice restricts sends to synchronous mutation sources. Extending
+that to a continuation needs ownership across awaits; ambient WebSocket
+constructors remain refused.
+
 ## Original report
 
 ## Summary

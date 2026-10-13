@@ -813,6 +813,17 @@ own mutation; to repeat, use a task (see "Repeating while a condition holds").
 Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
+A bidirectional WebSocket uses a resource's TypeScript
+`fetch(url, { exactStream(event, socket) { … } })` (LLP 1016.000 D7).
+Keep the handle in module state by resource identity; after its `open` event,
+a mutation source can call `socket.send(textOrBytes)` or `socket.close(code,
+reason)`. The mapper only reads frames and returns snapshots. Sends run after
+the mutation's commit stands, in order, and have bounded admission. The
+source must send and answer synchronously. Refreshing or removing the
+resource invalidates the old handle. **Currently web JS target TypeScript
+only**; the wasm target and native hosts remain receive-only. See
+[the reference](reference.md#generate-typescript-data-source-types) for bounds and events.
+
 ### Optimistic writes: the overlay
 
 To show a write before its reply, the mutation declares `refreshes` and the data
@@ -2509,7 +2520,10 @@ refused.
 
 Transitions animate translate/scale/rotate/opacity, box paint (color,
 background-color, border colors, -exact-tint-color, box-shadow), SVG paint/geometry
-and the admitted numeric height path. `width` and other general layout
+and pixel heights. On Apple, numeric `height` transitions work with either
+`box-sizing`, without `interpolate-size="allow-keywords"`. An `auto` endpoint
+requires that opt-in and `box-sizing="border-box"`; automatic height transitions
+require one layout root and no registered content region. `width` and other general layout
 properties cannot interpolate yet: native layout is not run per frame.
 The diagnostic names this engine limit; `-exact-layout-transition` animates a
 change in the laid-out box using the existing measured projection.

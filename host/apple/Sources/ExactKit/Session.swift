@@ -972,16 +972,40 @@ public final class ExactSession {
     /// frame. Fills and list feedback already skip theirs. Other events
     /// still apply an empty batch: a native control that changed itself
     /// before its handler ran is reconciled by the pass (a refused tab), and
-    /// the agent's clock seeks native animations through it.
+    /// the agent's clock seeks native animations through it. Slices published
+    /// before it land first (T4), and it is asked again (a fling's fills).
     func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
-        guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
+        guard !applying else { apply(batch); return }
+        if !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished {
+            // What the slices leave owed is asked after this batch, as in `apply`.
+            holdingReports = true; landFill(); holdingReports = false
+            guard state != .destroyed else { return }
+        }
+        guard !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
         if scrolled { presenter.scrolledWithoutPass() }
+        drainReports()
     }
+
+    /// The appearance reports a landing held back (`holdingReports`), asked
+    /// once the batch the owner made before them has applied or skipped.
+    private func drainReports() {
+        if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
+        while !holdingReports, !pendingViewDark.isEmpty {
+            let (id, dark) = pendingViewDark.removeFirst()
+            apply(runtime.viewScheme(id, dark: dark))
+        }
+    }
+
+    #if DEBUG
+    /// Tests: a tick's slice the owner published, not yet landed.
+    func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
+    func oweColorsForTests() { colorsOwed = true }
+    #endif
 
     /// Batches that reached `apply` (`IdleTickTests` read it).
     private(set) var appliedBatches = 0
@@ -1041,11 +1065,7 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
-            if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
-            while !holdingReports, !pendingViewDark.isEmpty {
-                let (id, dark) = pendingViewDark.removeFirst()
-                apply(runtime.viewScheme(id, dark: dark))
-            }
+            drainReports()
             presenter.collections.flush()
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
@@ -1467,21 +1487,5 @@ public final class ExactSession {
         runtime.destroy()
         natives.destroyModule()
         app.forget(self)
-    }
-}
-
-/// @ref LLP 1043.000 §3 D8 — deadlines, in milliseconds, never a repeating poll.
-enum SessionClockTimer {
-    enum Wake: Equatable { case none, frame, timeout(Double) }
-    static func wake(due: Double?, now: Double, agent: Bool = false) -> Wake {
-        guard !agent, let due else { return .none }
-        let delay = max(0, due - now)
-        return delay <= 8 * 1000 / 60 ? .frame : .timeout(delay)
-    }
-    static func schedule(after seconds: TimeInterval, _ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
-        precondition(Thread.isMainThread)
-        let timer = Timer(timeInterval: seconds, repeats: false, block: fire)
-        RunLoop.main.add(timer, forMode: .common)
-        return timer
     }
 }
