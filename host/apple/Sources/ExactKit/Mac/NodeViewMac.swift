@@ -1389,10 +1389,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if selectsText { presenter?.selection.press(self, event: event); return }
-        // NSView forwards a click up the chain: a node under it that took the focus (not a paragraph selecting) keeps it (LLP 1088 D7.3).
+        // A descendant that took focus keeps it (LLP 1088 D7.3). Forward
+        // through the responder chain: NSView's default retries covered siblings.
         let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
         if takesClickFocus, !inner { window?.makeFirstResponder(self) }
-        if pressable { pressed = true } else { super.mouseDown(with: event) }
+        if pressable { pressed = true } else { nextResponder?.mouseDown(with: event) }
     }
     /// A paragraph's drag selects its text unless a press takes it: its
     /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
@@ -1416,7 +1417,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.mouseChain.drag(event) == true { return }
         pressFollows(inside: pressInside(event.locationInWindow))
         if selectsText { presenter?.selection.drag(event) }
-        else { super.mouseDragged(with: event) }
+        else { nextResponder?.mouseDragged(with: event) }
     }
     package override func rightMouseUp(with event: NSEvent) {
         pointerReleased(event)
@@ -1448,7 +1449,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if selectsText { presenter?.selection.end(self, event: event); return }
         guard !disabled else { pressed = false; return }
-        guard pressed else { return super.mouseUp(with: event) }
+        guard pressed else { nextResponder?.mouseUp(with: event); return }
         pressed = false
         if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window

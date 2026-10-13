@@ -1,5 +1,9 @@
 # Queue
 
+- **AppKit native popover dismissal tests fail on macOS 27** (2026-10-13, overlay #281 verification). `PopoverNativeMacTests` reports 12 assertions: `NSPopover.isShown` stays true after close, the content stays lifted, and the later Tab-loop assertions fail. The same assertions fail with `NodeViewMac.swift` restored to `81bde641b`; the overlay fix does not cause them. Check native close completion before changing expectations.
+
+- **AppKit selection context-menu tests fail on macOS 27** (2026-10-13, overlay #281 verification). `TextSelectionMacTests` fails the two native-menu tracking assertions at line 807 and the reader's later-word assertion at line 964 (`52026` is not greater than `52032`). The same three failures occur with `NodeViewMac.swift` restored to `81bde641b`; the reader case spends 120 seconds awaiting menus. Diagnose the menu completion and deferred selection before changing those bounds.
+
 - **macOS: a hold whose up reaches no view lasts until the next click's up** (2026-10-13, the crash fix #519, `issues/closed/20261013-macos-a-click-after-a-node.md`). A native context menu (`MenuHost.track`) takes a right-click's up. AppKit sends no up when the pressed view has left the window with an ancestor. In both cases `pointerHeld` stays set: the next click sends no `pointerdown`, its up delivers the late `pointerup` to the held node, and hover waits until then. LLP 1005 says the up arrives wherever the pointer lifts (a cancel as `pointerup`). Deliver it when it happens: end the hold when a menu tracks, and catch an up AppKit routes to no view. This changes the hold of a node that stays, so it was left out of the crash fix.
 
 - **Selection rectangles for native reader-worker paragraphs:** ordinary text now reports `Selection.rects` (issue #274); paragraphs delegated to `RegionReaderParagraph` still return `[]`. Carry the worker's selected fragments as an event snapshot without shaping the whole paragraph on the UI thread.
