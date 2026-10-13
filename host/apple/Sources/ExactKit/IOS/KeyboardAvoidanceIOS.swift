@@ -13,7 +13,6 @@
 // port is not the field's to be shown in, as a UIKit table whose bottom inset
 // takes in its toolbar scrolls the field above it.
 #if os(iOS) || os(tvOS)
-import CExact
 import UIKit
 
 extension Presenter {
@@ -252,7 +251,7 @@ extension Presenter {
     /// as SwiftUI's focus moves through a `Form`. Past the list's last field
     /// the keyboard goes; outside a list, the window's next field.
     func focusNextField(after node: NodeView) -> Bool {
-        guard let (list, owner, path) = Self.listCell(of: node), let rows = session?.runtime.groupedRows(owner.id),
+        guard let (list, owner, path) = Self.listCell(of: node), let rows = groupedLists?.rows(for: owner.id),
               rows.indices.contains(path.section), rows[path.section].indices.contains(path.item) else {
             return moveFocus(backward: false, fields: true)
         }
@@ -301,25 +300,6 @@ extension Presenter {
         }
         walk(row)
         return out
-    }
-}
-
-extension Runtime {
-    /// A grouped list's rows by section, in document order, as the grouped
-    /// lists module reads them to draw the list (LLP 1084 D4).
-    func groupedRows(_ view: UInt32) -> [[UInt32]]? {
-        #if os(iOS)
-        let data: Data = on(busy: Data()) {
-            let count = Int(exact_grouped_list(rt, view))
-            return Data(bytes: exact_out(rt), count: count)
-        }
-        guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return (o["sections"] as? [[String: Any]] ?? []).compactMap { s in
-            s["view"] == nil ? nil : (s["rows"] as? [[String: Any]] ?? []).compactMap { ($0["view"] as? NSNumber)?.uint32Value }
-        }
-        #else
-        return nil
-        #endif
     }
 }
 
