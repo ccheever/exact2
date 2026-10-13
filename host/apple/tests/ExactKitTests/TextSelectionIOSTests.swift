@@ -9,9 +9,9 @@ import XCTest
 /// selectable takes UIKit's own text interaction when a finger first lands
 /// on it and answers it from the paragraph's own lines; text nobody made
 /// selectable takes nothing. UIKit synthesizes no touch for a unit test, so
-/// a gesture's result is asked for as the driver asks (`selectWord`), and
-/// the real long press, double tap and handles are driven on a simulator
-/// (`scripts/agent.mjs ios --touch platform`).
+/// a gesture's result is asked for as the driver asks (`selectWord`).
+/// Real long presses, double taps and handles need simulator coordinate
+/// touches; the agent's contextmenu and dblclick deliver recognized events.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class TextSelectionIOSTests: XCTestCase {
     private var window: UIWindow?
