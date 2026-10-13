@@ -49,8 +49,7 @@ function unselectedWithin(nav, keepList) {
   const beside = keepList && routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
-export function unselected(nav) { return unselectedWithin(nav, true); }
-export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
+export function unselected(nav) { return unselectedWithin(nav, true); } export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
