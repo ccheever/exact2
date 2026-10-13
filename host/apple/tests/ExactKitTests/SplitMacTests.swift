@@ -156,6 +156,89 @@ final class SplitMacTests: XCTestCase {
     }
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
 
+    private func listeningDetail() throws -> (Presenter, NSWindow, [NodeView]) {
+        let handlers = "focusin=count focusout=count keycapture=count key=count keyup=count"
+        let source = app(tabs: true)
+            .replacingOccurrences(of: "testId=\"app\"", with: "testId=\"app\" \(handlers)")
+            .replacingOccurrences(of: "column role=\"tabpanel\"", with: "column role=\"tabpanel\" testId=`panel-${t.name}` \(handlers)")
+            .replacingOccurrences(of: "testId=`route-book-${e.params.id}`", with: "testId=`route-book-${e.params.id}` \(handlers)")
+            .replacingOccurrences(of: "testId=`field-${e.params.id}`", with: "testId=`field-${e.params.id}` id=`field-${e.params.id}` \(handlers)")
+        let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500), source: source)
+        let columns = compose(ExactView(session: session), width: 1100, sidebar: true)
+        let window = try XCTUnwrap(self.window)
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderFrontRegardless()
+        try press("row-b")
+        let path = try ["field-b", "route-book-b", "panel-library", "app"].map(node)
+        XCTAssertTrue(path[1].superview === columns.detailPane)
+        XCTAssertFalse(path[1].isDescendant(of: path[2]), "AppKit reparents the route, not the authored event path")
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        session.presenter.focusEvents.reset()
+        return (session.presenter, window, path)
+    }
+
+    func testDetailFocusBubblesThroughItsAuthoredAncestorsAndStops() throws {
+        let (p, window, path) = try listeningDetail()
+        let field = try XCTUnwrap(path[0].field)
+        var heard: [String] = [], stop: UInt32?, outgoing: XCTestExpectation?
+        let names = Dictionary(uniqueKeysWithValues: path.map { ($0.id, $0.props["testId"]!) })
+        p.onFocusEvent = { id, kind, target, related in
+            heard.append("\(names[id] ?? "unexpected"):\(kind)")
+            XCTAssertEqual(target, "field-b")
+            XCTAssertNil(related)
+            if id == stop { p.propagationStopped = true }
+            if id == path[0].id, kind == "focusout" { outgoing?.fulfill() }
+        }
+        for stopping in [false, true] {
+            stop = stopping ? path[2].id : nil
+            let expected = path.prefix(stopping ? 3 : 4).map { names[$0.id]! }
+            heard.removeAll()
+            XCTAssertTrue(window.makeFirstResponder(field))
+            XCTAssertNotNil(field.currentEditor())
+            XCTAssertEqual(heard, expected.map { "\($0):focusin" })
+            heard.removeAll()
+            outgoing = expectation(description: "the detail field blurs")
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            wait(for: [try XCTUnwrap(outgoing)], timeout: 5)
+            XCTAssertEqual(heard, expected.map { "\($0):focusout" })
+            outgoing = nil
+        }
+    }
+
+    func testDetailKeysCaptureAndBubbleThroughItsAuthoredAncestorsAndStop() throws {
+        let (p, window, path) = try listeningDetail()
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(path[0].field)))
+        var heard: [String] = [], stop: String?
+        let names = Dictionary(uniqueKeysWithValues: path.map { ($0.id, $0.props["testId"]!) })
+        p.onKey = { id, press in
+            let event = "\(names[id] ?? "unexpected"):\(press.capture ? "capture" : press.up ? "up" : "down")"
+            heard.append(event)
+            XCTAssertEqual(press.chord, "k")
+            XCTAssertEqual(press.code, "KeyK")
+            if event == stop { p.propagationStopped = true; p.defaultPrevented = true }
+        }
+        func key(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                         context: nil, characters: "k", charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 40))
+        }
+        let capture = path.reversed().map { "\(names[$0.id]!):capture" }
+        let bubble = path.map { "\(names[$0.id]!):down" }
+        XCTAssertFalse(p.keyDown(try key(.keyDown), in: window))
+        XCTAssertEqual(heard, capture + bubble)
+        heard.removeAll()
+        p.keyUp(try key(.keyUp), in: window)
+        XCTAssertEqual(heard, path.map { "\(names[$0.id]!):up" })
+        for (at, expected) in [("panel-library:capture", Array(capture.prefix(2))),
+                               ("panel-library:down", capture + Array(bubble.prefix(3)))] {
+            stop = at; heard.removeAll()
+            XCTAssertTrue(p.keyDown(try key(.keyDown), in: window))
+            XCTAssertEqual(heard, expected)
+        }
+        stop = "panel-library:up"; heard.removeAll()
+        p.keyUp(try key(.keyUp), in: window)
+        XCTAssertEqual(heard, path.prefix(3).map { "\(names[$0.id]!):up" })
+    }
+
     func testAListAndItsDetailAreTwoPanesBesideTheSidebar() throws {
         let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
         let p = session.presenter, split = p.navigation.split
