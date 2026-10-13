@@ -26,6 +26,7 @@ pub mod inline;
 pub mod lexer;
 mod notfound;
 pub mod parser;
+mod part;
 pub mod scope;
 mod share;
 mod spans;

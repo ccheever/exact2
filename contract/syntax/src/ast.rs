@@ -960,8 +960,7 @@ pub enum Stmt {
         /// How many arguments the call itself writes.
         authored: usize,
         /// How many of the callee's own parameters were curried where it
-        /// was passed (`close=dismiss("photo")`); 0 for a same-component
-        /// call.
+        /// was passed (`close=dismiss("photo")`); 0 for a same-component call.
         curried: usize,
         /// The prop's or the `provide`'s binding (`go=move(id)`), for a
         /// prop or inject call.
@@ -1241,15 +1240,7 @@ pub fn text_input_type(value: &Expr) -> bool {
     }
 }
 
-/// The attribute a part's declaration is carried as (LLP 1104 D3): CSS's
-/// `::placeholder { color }` is `::placeholder color` beside the element's
-/// own attributes, a name no author can write as one.
-pub fn part_attr(part: &str, property: &str) -> String {
-    format!("{part} {property}")
-}
-
-/// [`part_attr`]`("::placeholder", "color")`.
-pub const PLACEHOLDER_COLOR: &str = "::placeholder color";
+pub use crate::part::{part_attr, PLACEHOLDER_COLOR};
 
 /// `name=expr`.
 #[derive(Debug, Clone, PartialEq)]
