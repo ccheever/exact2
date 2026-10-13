@@ -299,6 +299,7 @@ final class TextSelectionIOSTests: XCTestCase {
         p.apply(wireBatch([
             box(20, props: ["id": "row-menu", "popover": "auto"]),
             box(21, props: ["accessibilityLabel": "Pin"], handlers: ["press"], kind: "button"),
+            text(22, "Pin"), ["op": "children", "id": 21, "ids": [22]],
             ["op": "children", "id": 20, "ids": [21]], ["op": "children", "id": 1, "ids": [2, 3, 6, 20]],
             ["op": "props", "id": 6, "set": ["contextPopover": "row-menu"]], frame(20, 0, h: 44, w: 220), frame(21, 0, h: 44, w: 220),
         ]))
