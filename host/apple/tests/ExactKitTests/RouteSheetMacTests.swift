@@ -250,7 +250,7 @@ final class RouteSheetMacTests: XCTestCase {
         chrome.layoutSubtreeIfNeeded()
         let cancel = chrome.cancel.alignmentRect(forFrame: chrome.cancel.frame), save = chrome.confirm.alignmentRect(forFrame: chrome.confirm.frame)
         XCTAssertEqual(route.superview?.frame.minY, RouteChrome.titleRow + 1)
-        XCTAssertEqual(chrome.title.frame.midY, RouteChrome.titleRow / 2, accuracy: 1)
+        XCTAssertEqual(chrome.title.frame.minY + chrome.title.firstBaselineOffsetFromTop, RouteChrome.titleBaseline, accuracy: 0.5)
         XCTAssertEqual(save.maxX, chrome.bounds.maxX - 20)
         XCTAssertEqual(cancel.maxX, save.minX - 8)
         XCTAssertEqual(cancel.width, save.width)
@@ -413,6 +413,33 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertTrue(clickBehind(f))
         XCTAssertNil(f.window.attachedSheet, "a click on the window behind dismisses it")
         XCTAssertTrue(f.status.contains("cancelled 4"), f.status)
+    }
+
+    /// Tab goes round the route's own stops, and with Keyboard Navigation
+    /// on the sheet's two buttons are stops after them, as an AppKit
+    /// sheet's are; a key at one of them leaves the focus on it.
+    func testWithKeyboardNavigationOnTheSheetsButtonsAreStopsAfterTheRoutes() throws {
+        KeyboardNavigation.agent = true
+        addTeardownBlock { KeyboardNavigation.agent = nil }
+        let f = try make()
+        try f.press("open-add")
+        let (window, chrome) = try sheet(f)
+        let title = try XCTUnwrap(try f.node("add-title").field)
+        XCTAssertTrue(window.firstResponder === title.currentEditor())
+        // Its fields and its own three buttons, then the sheet's.
+        var seen: [NSResponder?] = []
+        for _ in 0..<8 where !(seen.last.map { $0 === chrome.confirm } ?? false) { _ = key(48, "\t", in: f); seen.append(window.firstResponder) }
+        XCTAssertTrue(seen.last.map { $0 === chrome.confirm } ?? false, "Tab reaches Save")
+        XCTAssertTrue(seen.dropLast().last.map { $0 === chrome.cancel } ?? false, "after Cancel")
+        XCTAssertFalse(key(49, " ", in: f), "a key at the sheet's button is AppKit's")
+        XCTAssertTrue(window.firstResponder === chrome.confirm, "and the focus stays on it")
+        _ = key(48, "\t", in: f)
+        XCTAssertTrue(window.firstResponder === title.currentEditor(), "and round to the first field")
+        // Off, as the system's default is: no button is a stop.
+        KeyboardNavigation.agent = false
+        f.presenter.syncKeyViewLoop()
+        _ = key(48, "\t", in: f); _ = key(48, "\t", in: f)
+        XCTAssertTrue(window.firstResponder === title.currentEditor(), "its two fields, and round")
     }
 
     /// A modal route over a modal route is a sheet on its sheet; an alert

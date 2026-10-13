@@ -102,27 +102,58 @@ struct SheetHeader {
     }
 }
 
+/// A line between a sheet's row and its content, as SwiftUI's sheet draws
+/// the two (measured): under the title row a shadow, black at a tenth and
+/// then at a twenty-fifth, in light and dark alike; over the buttons the
+/// separator's colour.
+final class RouteChromeLine: NSView {
+    private let soft: Bool
+    init(soft: Bool) { self.soft = soft; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { nil }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        guard soft else { NSColor.separatorColor.setFill(); return bounds.fill(using: .sourceOver) }
+        for (row, alpha) in [0.1, 0.04].enumerated() {
+            NSColor.black.withAlphaComponent(alpha).setFill()
+            NSRect(x: 0, y: CGFloat(row), width: bounds.width, height: 1).fill(using: .sourceOver)
+        }
+    }
+}
+
+/// A sheet's own push button. It is a Tab stop as Keyboard Navigation has
+/// an `NSButton`, by the setting the session reads (a drive's or a test's
+/// stands in for the person's, KeyViewLoopMac.swift).
+final class RouteChromeButton: NSButton {
+    override var acceptsFirstResponder: Bool { KeyboardNavigation.on && isEnabled }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+}
+
 /// A modal route's sheet, as its window's content: the title row, the
 /// route's own content, and the row of buttons, in SwiftUI's measures.
 final class RouteChrome: NSView {
     private(set) weak var content: BlockView?
     let title = NSTextField(labelWithString: "")
-    let cancel = NSButton(title: "", target: nil, action: nil), confirm = NSButton(title: "", target: nil, action: nil)
-    private let above = NSBox(), below = NSBox()
+    let cancel: NSButton = RouteChromeButton(title: "", target: nil, action: nil), confirm: NSButton = RouteChromeButton(title: "", target: nil, action: nil)
+    /// The buttons Tab reaches after the route's own stops, with Keyboard Navigation on.
+    var stops: [NSView] { KeyboardNavigation.on ? buttons.filter(\.isEnabled) : [] }
+    /// Whether `view` is one of the rows' own views: the sheet's, as the route in it is.
+    func owns(_ view: NSView) -> Bool { view === cancel || view === confirm || view === title }
+    private let above = RouteChromeLine(soft: true), below = RouteChromeLine(soft: false)
     /// A row's press: the authored button's id.
     var onPress: ((UInt32) -> Void)?
     private var frozen: NSImageView?
 
-    /// The title row and the button row, each with a hairline on its content's side; a button's inset from the
-    /// sheet's edges and from its neighbour; where the title's words start.
-    static let titleRow: CGFloat = 48, buttonRow: CGFloat = 64, edge: CGFloat = 20, gap: CGFloat = 8, titleStart: CGFloat = 49
+    /// The title row and the button row, each with a line on its content's side; a button's inset from the
+    /// sheet's edges and from its neighbour; and the title's label, its words' ink starting 49 points in on a
+    /// baseline 30 points down.
+    static let titleRow: CGFloat = 48, buttonRow: CGFloat = 64, edge: CGFloat = 20, gap: CGFloat = 8, titleStart: CGFloat = 46, titleBaseline: CGFloat = 30
 
     init() {
         super.init(frame: .zero)
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         title.lineBreakMode = .byTruncatingTail
         title.setAccessibilityRole(.staticText)
-        for line in [above, below] { line.boxType = .separator }
         for button in [cancel, confirm] {
             button.bezelStyle = .push
             button.target = self
@@ -181,11 +212,10 @@ final class RouteChrome: NSView {
         super.layout()
         let size = bounds.size
         if !title.isHidden {
-            let fit = title.fittingSize
-            // A label's words start two points inside its frame.
-            let x = Self.titleStart - 2
-            title.frame = NSRect(x: x, y: ((Self.titleRow - fit.height) / 2).rounded(), width: max(0, min(fit.width, size.width - x - Self.edge)), height: fit.height)
-            above.frame = NSRect(x: 0, y: Self.titleRow, width: size.width, height: 1)
+            let fit = title.fittingSize, x = Self.titleStart
+            title.frame = NSRect(x: x, y: (Self.titleBaseline - title.firstBaselineOffsetFromTop).rounded(), width: max(0, min(fit.width, size.width - x - Self.edge)), height: fit.height)
+            // Its second row falls on the content's first, as the reference's shadow does.
+            above.frame = NSRect(x: 0, y: Self.titleRow, width: size.width, height: 2)
         }
         content?.frame = NSRect(x: 0, y: top, width: size.width, height: max(0, size.height - rows))
         frozen?.frame = content?.frame ?? .zero

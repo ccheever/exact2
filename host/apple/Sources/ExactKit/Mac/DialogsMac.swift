@@ -58,6 +58,8 @@ final class DialogHost {
         guard let active else { return false }
         // An alert over the dialog is the top modal: its rows are its own.
         if let alert = presenter?.alerts.modal, presenter?.menus.contains(alert, node) == true { return false }
+        // A route's sheet's own rows are the sheet's, as the route in it is.
+        if entries.last?.sheet?.chrome?.owns(node) == true { return false }
         return presenter?.menus.contains(active, node) != true
     }
     private var accessibleActive: NodeView? {
@@ -280,7 +282,7 @@ final class DialogHost {
             let ai = a.element.tabOrder, bi = b.element.tabOrder
             let ap = ai > 0 ? ai : Int.max, bp = bi > 0 ? bi : Int.max
             return ap == bp ? a.offset < b.offset : ap < bp
-        }.map { presenter.keyView(of: $0.element) }
+        }.map { presenter.keyView(of: $0.element) } + (entries.last?.sheet?.chrome?.stops ?? []) // then a route's sheet's own buttons
     }
     func enterFocus() {
         guard let presenter, let dialog = active, let window = dialog.window else { return }
