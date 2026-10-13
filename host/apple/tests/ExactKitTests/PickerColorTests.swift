@@ -88,13 +88,21 @@ final class PickerColorTests: XCTestCase {
         return try XCTUnwrap(CGImageSourceCreateWithData(try Data(contentsOf: out) as CFData, nil))
     }
 
+    // Finalizer fault injection must reach both encoders even when ImageIO declines HDR thumbnails.
+    @available(macOS 15, iOS 18, tvOS 18, *)
+    private func thumbnailForFinalization(_ source: CGImageSource, _ index: Int, _ options: CFDictionary?) -> CGImage? {
+        var decode = options as? [CFString: Any] ?? [:]
+        decode[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToSDR
+        return CGImageSourceCreateThumbnailAtIndex(source, index, decode as CFDictionary)
+    }
+
     func testARejectedHDRJPEGFallsBackToAnOrientedSDRJPEG() throws {
         guard #available(macOS 15, iOS 18, tvOS 18, *) else { throw XCTSkip("gain-map encoding needs macOS 15 / iOS 18") }
         let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
         defer { try? FileManager.default.removeItem(at: out) }
         let source = Self.dir.appendingPathComponent("gainmap-orient6.heic")
         var attempts = 0
-        try Picker.jpeg(from: source, to: out, finalize: { destination in
+        try Picker.jpeg(from: source, to: out, thumbnail: thumbnailForFinalization, finalize: { destination in
             attempts += 1
             let written = CGImageDestinationFinalize(destination)
             return attempts > 1 && written
@@ -110,7 +118,7 @@ final class PickerColorTests: XCTestCase {
         XCTAssertEqual(properties[kCGImagePropertyPixelHeight] as? Int, 256)
         XCTAssertEqual(properties[kCGImagePropertyOrientation] as? Int ?? 1, 1)
         attempts = 0
-        XCTAssertThrowsError(try Picker.jpeg(from: source, to: out, finalize: { _ in attempts += 1; return false }))
+        XCTAssertThrowsError(try Picker.jpeg(from: source, to: out, thumbnail: thumbnailForFinalization, finalize: { _ in attempts += 1; return false }))
         XCTAssertEqual(attempts, 2, "a failed SDR write cancels conversion")
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "failed conversion leaves no JPEG")
     }
@@ -121,7 +129,7 @@ final class PickerColorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: out) }
         let sdr = try Data(contentsOf: Self.dir.appendingPathComponent("p3-camera.jpg"))
         var attempts = 0
-        try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-orient6.heic"), to: out, finalize: { destination in
+        try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-orient6.heic"), to: out, thumbnail: thumbnailForFinalization, finalize: { destination in
             attempts += 1
             let written = CGImageDestinationFinalize(destination)
             guard attempts == 1 else { return written }
@@ -144,7 +152,7 @@ final class PickerColorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: out) }
         let hdr = try Data(contentsOf: Self.dir.appendingPathComponent("gainmap-iso.jpg"))
         var attempts = 0
-        try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-orient6.heic"), to: out, finalize: { destination in
+        try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-orient6.heic"), to: out, thumbnail: thumbnailForFinalization, finalize: { destination in
             attempts += 1
             let written = CGImageDestinationFinalize(destination)
             if attempts == 1 { return false }
@@ -173,7 +181,7 @@ final class PickerColorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: out) }
         let hdr = try Data(contentsOf: Self.dir.appendingPathComponent("gainmap-iso.jpg"))
         var attempts = 0
-        XCTAssertThrowsError(try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-iso.heic"), to: out, finalize: { destination in
+        XCTAssertThrowsError(try Picker.jpeg(from: Self.dir.appendingPathComponent("gainmap-iso.heic"), to: out, thumbnail: thumbnailForFinalization, finalize: { destination in
             attempts += 1
             _ = CGImageDestinationFinalize(destination)
             if attempts == 1 { return false }
@@ -190,7 +198,7 @@ final class PickerColorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: out) }
         let hdr = try Data(contentsOf: Self.dir.appendingPathComponent("gainmap-iso.jpg"))
         var attempts = 0
-        XCTAssertThrowsError(try Picker.jpeg(from: Self.dir.appendingPathComponent("p3.heic"), to: out, finalize: { destination in
+        XCTAssertThrowsError(try Picker.jpeg(from: Self.dir.appendingPathComponent("p3.heic"), to: out, thumbnail: thumbnailForFinalization, finalize: { destination in
             attempts += 1
             _ = CGImageDestinationFinalize(destination)
             do { try hdr.write(to: out); return true }
@@ -210,7 +218,7 @@ final class PickerColorTests: XCTestCase {
         let sdr = try Data(contentsOf: Self.dir.appendingPathComponent("p3-camera.jpg"))
         let hdr = try Data(contentsOf: Self.dir.appendingPathComponent("gainmap-iso.jpg"))
         var attempts = 0
-        XCTAssertNoThrow(try Picker.jpeg(from: source, to: out, finalize: { destination in
+        XCTAssertNoThrow(try Picker.jpeg(from: source, to: out, thumbnail: thumbnailForFinalization, finalize: { destination in
             attempts += 1
             _ = CGImageDestinationFinalize(destination)
             do {
