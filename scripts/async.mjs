@@ -11,7 +11,9 @@
  * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
  * --no-install`) for any range beyond documentation-only edits,
  * the
- * Contract semantics' proofs and differential run (`semantics/README.md`), then
+ * Contract semantics' proofs and differential run (`semantics/README.md`) for a
+ * range that changes the Contract language or an implementation it is checked
+ * against (`contractTouched`), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
  * moves with the load). A failure that the previous commit did not have is filed with
@@ -87,6 +89,7 @@ export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
   const lane = selection.lane ?? laneTests();
   const apple = selection.apple ?? appleTouched(sha, since);
+  const contract = selection.contract ?? contractTouched(sha, since);
   const glue = selection.glue ?? glueTests(WT);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
@@ -135,7 +138,7 @@ export function checks(sha, since, selection = {}) {
     // the second implementation, against the runner), and a smaller random sweep.
     // A `sorry` fails it: a proof that is not there is not checked. Every
     // part runs whatever the one before it found.
-    ['semantics', 'sh', ['-c', [
+    ...(contract ? [['semantics', 'sh', ['-c', [
       'export PATH="$HOME/.elan/bin:$PATH"; failed=0',
       'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
       'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
@@ -154,13 +157,15 @@ export function checks(sha, since, selection = {}) {
       'cargo run -q -p contract-difftest -- types --seed 1 --count 100 || failed=1',
       'cargo run -q -p contract-difftest -- expansion semantics/corpus --seed 1 --count 200 || failed=1',
       'exit $failed',
-    ].join('\n')]],
+    ].join('\n')]]] : []),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
 }
 
+const changedPaths = (sha, since, diff) => diff(['diff', '--name-only', since ?? `${sha}^`, sha], WT).split('\n').filter(Boolean);
+
 export function appleTouched(sha, since, diff = git) {
-  const paths = diff(['diff', '--name-only', since ?? `${sha}^`, sha], WT).split('\n');
+  const paths = changedPaths(sha, since, diff);
   // Markdown an app or example bundles is its input, not documentation.
   const bundled = path => path.startsWith('apps/') || path.startsWith('examples/');
   const documentation = path => (path.endsWith('.md') && !bundled(path)) ||
@@ -169,7 +174,18 @@ export function appleTouched(sha, since, diff = git) {
   return paths.some(path => path && !documentation(path));
 }
 
-export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos']) {
+// The semantics step is minutes of Lean and difftest, and checks nothing a
+// range outside the language can change: the Lean project itself, the
+// compiler and its corpus, the programs it explores (apps' `.contract`
+// files), and what difftest holds to the semantics — the runner and its VM,
+// the plan's format, the router, the numbers, and the web JS target.
+const CONTRACT_DIRS = ['semantics/', 'contract/', 'runner/', 'plan/', 'route/', 'num/', 'host/web-js/'];
+export function contractTouched(sha, since, diff = git) {
+  return changedPaths(sha, since, diff).some(path =>
+    (path.startsWith('apps/') && path.endsWith('.contract')) || CONTRACT_DIRS.some(dir => path.startsWith(dir)));
+}
+
+export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos', 'semantics']) {
   const conditional = new Set(conditionalNames);
   result.failures.push(...previous.filter(f => {
     const name = f.split(': ', 1)[0];
