@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r13'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/524
 verified_commit: 37540190c
 ---
 
@@ -227,7 +227,7 @@ None: X87 is fixed on main and every other item follows the reference or main's 
 
 ## Delivery
 
-Draft PR [#PR_NUMBER](PR_URL) against `feat(example)/t3-code`. It must land as a merge or a fast-forward of the feature branch to
+Draft PR [#524](https://github.com/ccheever/exact2/pull/524) against `feat(example)/t3-code`. It must land as a merge or a fast-forward of the feature branch to
 its head, never a squash (a squash drops main from the branch's ancestry).
 
 ## Next action
