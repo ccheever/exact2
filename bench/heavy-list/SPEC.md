@@ -67,7 +67,7 @@ When on:
   an item, drop it NOWHERE silently: record the gap in the port's README and in its report;
   do not substitute a cheaper element without saying so.
 - The most ordinary idiomatic way to build a list in each framework: SwiftUI `List`
-  (`.listStyle(.plain)`) + `ForEach`; exact2 `list virtualized=true` + `each … key=`;
+  (`.listStyle(.plain)`) + `ForEach`; exact2 `list virtualized=true` + `for … key=`;
   Expo `@expo/ui` `List` + `List.ForEach` with its data/recycling API (PR 49975).
 - Release builds. Bundle ids: `dev.exact.heavybench.swiftui`, `.exact`, `.expo`, `.uikit`.
 - The probe finds the tallest `UIScrollView`; each app must have exactly one large list scroll view.

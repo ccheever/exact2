@@ -69,9 +69,9 @@ final class CollectionMacTests: XCTestCase {
               button press=restore testId="restore"
                 text "Restore"
               text `${within}` testId="within"
-              when shown
+              if shown
                 list id="feed" testId="feed" virtualized=true estimated-item-height=100 height=300 width=400 border-top="10px solid black" scroll=moved
-                  each n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
+                  for n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
                     text `${n}` height=100
 
         """

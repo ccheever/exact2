@@ -13,7 +13,7 @@ const APP: &str = r#"component App
     count = count + n
   view
     list virtualized=true scroll-start="end" height=600 width=400 overflow-x="hidden" estimated-item-height=100
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` width="100%"
 "#;
 

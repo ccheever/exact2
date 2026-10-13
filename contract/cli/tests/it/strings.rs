@@ -320,7 +320,7 @@ fn every_table_refusal_is_reported_in_one_run() {
 #[test]
 fn a_loop_variable_named_t_leaves_t_callable_in_a_child() {
     let app = AppDir::new(
-        "shape Row\n  id: string\ncomponent App\n  resource rows = rows() as shape list<Row>\n  view\n    Rows(rows=rows)\ncomponent Rows\n  props\n    rows: list<Row>\n  view\n    column\n      each t in rows key=t.id\n        text t(\"hi\") testId=t.id\n",
+        "shape Row\n  id: string\ncomponent App\n  resource rows = rows() as shape list<Row>\n  view\n    Rows(rows=rows)\ncomponent Rows\n  props\n    rows: list<Row>\n  view\n    column\n      for t in rows key=t.id\n        text t(\"hi\") testId=t.id\n",
         &[("strings/en.json", r#"{"hi": "Hello"}"#)],
     );
     assert!(app.compile().is_ok(), "{:?}", app.refusals());

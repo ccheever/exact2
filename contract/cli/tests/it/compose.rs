@@ -202,12 +202,15 @@ fn an_html_label_names_the_text_and_the_field_name() {
 }
 
 #[test]
-fn a_view_if_and_a_state_as_name_the_contract_form() {
-    let view_if = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n      else\n        text \"b\"\n";
+fn a_view_when_and_a_state_as_name_the_contract_form() {
+    let view_if = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n      else\n        text \"b\"\n";
     let error = contract::compile(view_if).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-stray-keyword", "`if` is an action's statement: a view chooses with `when <condition>`, and an `else` after its block at the same indent")
+        (
+            "syntax-view-keyword",
+            "a view chooses with `if`: write `if <condition>`, and `else if` for `else when`"
+        )
     );
     let state_as =
         "component App\n  state draft = none as option<string>\n  view\n    text \"a\"\n";
@@ -353,11 +356,11 @@ fn a_mistaken_section_word_names_the_section() {
 
 #[test]
 fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
-    let deep = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n        else\n          text \"b\"\n";
+    let deep = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n        else\n          text \"b\"\n";
     let error = contract::compile(deep).unwrap_err();
     assert!(
         error.message.ends_with(
-            "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+            "an `else` sits at its `if`'s indentation, on the line after the `if`'s block"
         ),
         "{error}"
     );

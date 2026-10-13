@@ -28,7 +28,7 @@ component App
       text current.name testId="name"
       text `${count}` testId="depth"
       text `${current.id}` testId="id"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         text `${e.id} ${e.name} ${e.url} ${e.params.post}/${e.params.person}` testId=`row-${e.id}`
       button "x" press=push("/post/1") testId="push-post"
       button "x" press=push("/people/ada") testId="push-person"

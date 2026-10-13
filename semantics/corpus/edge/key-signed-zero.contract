@@ -15,7 +15,7 @@ component App
     skip = 1
   view
     column
-      each it, i in visible key=((i + skip) % 2 == 0 ? 0 : -0)
+      for it, i in visible key=((i + skip) % 2 == 0 ? 0 : -0)
         Cell(index=i + skip)
       button "hide" press=hideFirst testId="hide"
 

@@ -122,7 +122,7 @@ component VideoPlayer
         view flex=1 height=(tv ? 10 : 6) border-radius=(tv ? 5 : 3) background-color="#273244" overflow="hidden" aria-label="Playback position"
           view height="100%" width=`${filled}%` background-color="#bed6ff" testId="progress-fill"
         TimeLabel(seconds=remaining, sign="-", size=(tv ? 20 : 13))
-      when failure != ""
+      if failure != ""
         text failure testId="video-error" color="#fca5a5" font-size=small flex-shrink=0
       column gap=10 flex-shrink=0
         text "Keep watching. Leave a thought." font-size=(tv ? 24 : 16) font-weight=600

@@ -14,7 +14,7 @@ component App
     column
       button "load" press=load testId="load"
       text `${length(items)}` testId="count"
-      each it, i in items key=it.id
+      for it, i in items key=it.id
         Row(id=it.id, index=i)
 
 component Row

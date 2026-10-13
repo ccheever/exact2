@@ -22,7 +22,7 @@ component BootPress
         text "Press"
       input value=words change=setWords testId="boot-words" aria-label="Words"
       text `${presses} ${words}` testId="boot-state"
-      when length(tags) == 0
+      if length(tags) == 0
         text "Loading tags" testId="boot-loading"
-      each t in tags key = t
+      for t in tags key = t
         text t

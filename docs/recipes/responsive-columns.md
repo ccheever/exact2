@@ -14,12 +14,12 @@ component Board
   view
     scroll height="100%" testId="board"
       row flex-wrap="wrap" align-items="flex-start" gap=16 padding=16
-        each col in ["todo", "doing", "done"] key=col
+        for col in ["todo", "doing", "done"] key=col
           column flex="1 1 280px" min-width=0 gap=8 testId=`column-${col}`
             text (col == "todo" ? "To Do" : col == "doing" ? "Doing" : "Done") role="heading" aria-level=3
-            each c in filter(cards, x => x.column == col) key=c.id
+            for c in filter(cards, x => x.column == col) key=c.id
               text c.title padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`card-${c.id}`
-            when length(filter(cards, x => x.column == col)) == 0
+            if length(filter(cards, x => x.column == col)) == 0
               text "No cards" color="-exact-secondary-label" padding=12
 ```
 
@@ -38,7 +38,7 @@ test "they stack on a phone"
   `display="grid" grid-template-columns="repeat(auto-fill, minmax(280px, 1fr))"`.
 - To choose a different layout, not just a different wrap, read the window:
   `resource viewport = exactViewport() as shape Viewport` (`width: number`) and
-  `when viewport.width >= 720`. A list and its detail side by side when wide, pushed on
+  `if viewport.width >= 720`. A list and its detail side by side when wide, pushed on
   a phone, needs none of this: its rows draw the `forward-chevron` (`pattern list-detail`).
 - A horizontal board on a phone is a `scroll overflow-x="scroll"` of fixed-width
   columns instead; never three columns squeezed into a third of a phone each.

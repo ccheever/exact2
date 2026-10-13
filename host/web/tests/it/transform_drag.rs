@@ -37,7 +37,7 @@ const SOURCE: &str = r#"component App
       button testId="zoom" press=zoomIn width=80 height=24
       button testId="unbind" press=unbind width=80 height=24
       button testId="remove" press=remove width=80 height=24
-      when shown
+      if shown
         column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
           column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
             column testId="handle" transformDragFor=reference transformgeometry=geometry transformrelease=finish

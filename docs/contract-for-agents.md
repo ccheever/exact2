@@ -109,7 +109,7 @@ again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 (`lower-level-without-heading`), a content-box `width="100%"` with padding, wider than
-its parent by the padding (`lower-width-padding`), screens swapped by a `when` in an app with no
+its parent by the padding (`lower-width-padding`), screens swapped by an `if` in an app with no
 `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
@@ -252,8 +252,8 @@ are deeper than the element and begin with `name=`. Parentheses permit multiline
 calls and expressions without creating an indentation block.
 
 Only sixteen words are refused as names, and only where a name is bound (a
-state, prop, parameter, `let`, `each` item, shape name, …): `when`, `if`, `else`,
-`each`, `in`, `match`, `case`, `as`, `fn`, `and`, `or`, `not`, `true`, `false`,
+state, prop, parameter, `let`, `for` item, shape name, …): `when`, `if`, `else`,
+`for`, `in`, `match`, `case`, `as`, `fn`, `and`, `or`, `not`, `true`, `false`,
 `none`, `some`. Every other keyword (`key`, `state`, `from`, `refresh`, `view`, …)
 is an ordinary name there, so `action searchKey(key: string)` and `action refresh`
 compile. Shape fields, named arguments and members take any word
@@ -311,7 +311,7 @@ an example too: `contract vocab formatDate`), or says what to write instead
 - A state's initializer runs before any resource answers and before any derive:
   it reads props, injects and the states declared above it, nothing else
   (`type-initializer-scope`). Derive a value from a resource instead, or keep
-  per-row state in a component used inside `each`.
+  per-row state in a component used inside `for`.
 - `Shape(field=value, …)` constructs every field exactly once.
   `Shape(base, field=value, …)` copies a base of the same shape and replaces fields.
   The one positional base comes first. Compiler-owned shapes are not constructible.
@@ -569,7 +569,7 @@ component Row
 
 Children may hold state, derives, and actions. They cannot declare resources,
 mutations, or tasks. Lift shared data requests to the root and pass values and
-actions. A child used under `each` owns row state keyed to that row's identity.
+actions. A child used under `for` owns row state keyed to that row's identity.
 Stable keys matter when content is inserted, removed, filtered, or reordered.
 
 A state cannot start from a resource, but a child's state can start from a prop.
@@ -592,7 +592,7 @@ frame does not need. A write the resource does not hear about (a file or databas
 a mutation without `refreshes saved`, not a `store` write it reads) leaves that
 answer behind: after a restart the form opens with the old fields and keeps them
 when the fresh answer lands. Refresh the resource after each write, as below, or key
-the child by a string or number from the answer (`each d in [saved] key=…`) so a
+the child by a string or number from the answer (`for d in [saved] key=…`) so a
 different answer makes it again.
 
 ```contract
@@ -607,7 +607,7 @@ component App
     send stored = saveDraft(name)
   view
     main
-      when saved.loaded
+      if saved.loaded
         Editor(draft=saved, keep=keep)
 
 component Editor
@@ -670,15 +670,15 @@ component Water
       column gap=16 padding=16
         RingProgress(label="of 2,000 ml", value=ml(total), fraction=total / 2000, tint=none)
         SummaryCard(label="Today", value=ml(total), detail="of 2,000 ml", progress=some(total / 2000), symbol=some("symbol:activity"))
-        each d in days key=d.key
+        for d in days key=d.key
           StatBar(label=d.name, value=ml(d.ml), fraction=d.ml / 2000, tint=none)
         row justify-content="space-between"
-          each d in days key=d.key
+          for d in days key=d.key
             DoneMark(caption=d.name, done=d.ml >= 2000)
-        when total == 0
+        if total == 0
           EmptyState(symbol="symbol:calendar", title="No water yet", message="Each glass you log adds to today.")
             button "Log a glass" press=drink buttonStyle="bordered-prominent"
-        each d in days key=d.key
+        for d in days key=d.key
           RowText(title=d.name, detail="", value=some(ml(d.ml)))
 ```
 
@@ -763,7 +763,7 @@ component Items
   }
   view
     column
-      when banner != ""
+      if banner != ""
         text banner testId="banner"
 ```
 
@@ -840,7 +840,7 @@ component List
     send added = addItem(text)
   view
     column
-      each item in items key=item.text
+      for item in items key=item.text
         text item.text
 ```
 
@@ -969,8 +969,8 @@ types and the app's `file_handlers`. On Linux the agent can answer a held
 picker, but the live picker is unavailable. See [the picker
 spec](../llp/1069.002-media-picker.rfc.md#any-type-input-charlie-2026-10-11).
 
-The view forms are element, component use, `when`/`else` (and `else when`),
-keyed `each`, exhaustive option `match`, and `children`. Wrap root regions in a
+The view forms are element, component use, `if`/`else` (and `else if`),
+keyed `for`, exhaustive option `match`, and `children`. Wrap root regions in a
 stable element.
 HTML names Contract spells otherwise (the compiler names each): `div` is `column`,
 `row` or `view`; `span`, `p`, `strong`, `em`, `b` and `i` are `text`; `h1`–`h6` are
@@ -979,8 +979,8 @@ HTML names Contract spells otherwise (the compiler names each): `div` is `column
 `ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
 title=… description=…`; a `table` is `view display="grid"` with
 `grid-template-columns` (or a `column` of `row`s); there is no `form` (a field's
-Enter is its `submit`) and no `details` (keep `open` in state, show the body `when
-open`). In expressions a view chooses with `when`, not `if`; a count is
+Enter is its `submit`) and no `details` (keep `open` in state, show the body `if
+open`). A view chooses with `if`, as an action does; a count is
 `length(xs)`, never `count`, `len` or `.size`; a resource's placeholder is `else
 empty()` (`[]` for a list), never `else []`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
@@ -1031,7 +1031,7 @@ backgrounds share the existing drawn-gradient limitation for
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
-`each`, and one flow root per row. A vertical list needs `height`, `max-height`
+`for`, and one flow root per row. A vertical list needs `height`, `max-height`
 or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "640px")`).
 A percentage bounds it only against a definite containing-block height (a plain
 `column` is content-sized), and the bake refuses (`bake-scroll-unbounded`) only a
@@ -1085,7 +1085,7 @@ Grouped-list row buttons and their detail accessories stay bare by default so
 UIKit can read the cell's face; explicit `appearance="auto"` carries a custom native control.
 `appearance="none"` explicitly asks for your box. `appearance="auto"` explicitly
 asks for the platform's button and refuses unsupported rows or children. The
-switch must resolve to a literal after class merging; use `when` with two
+switch must resolve to a literal after class merging; use `if` with two
 buttons to switch. Its first `text` is the title, its second is the subtitle, and
 its one `image "symbol:…"` is the symbol. These are semantic face data, not
 layout children. A symbol-only face needs a nonempty `aria-label`. With
@@ -1280,7 +1280,7 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
   // Pull to refresh: a `refresh` handler on the scroller; `refreshing` holds the
   // spinner until the reload settles.
   scroll id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
-    each m in items key=m.id
+    for m in items key=m.id
       // Swipe actions: a horizontal snap scroll naming its content and actions.
       scroll swipeContent=`item-${m.id}` swipeTrailing=`delete-${m.id}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
         row width="100%"
@@ -1528,7 +1528,7 @@ Keep `id` and `testId` separate:
 - `testId`: driver/test target and stable inspection name. On the web it is
   `data-testid`, not the DOM `id`: a brief that asks for element ids wants `id=`
   (and `testId=` too where tests target the node).
-- `each` key: data identity for row lifetime, not either node id.
+- `for` key: data identity for row lifetime, not either node id.
 
 Events bind actions (`press=save`, `input=edit(item.id)`). Captured arguments come
 before host payload arguments. Do not add an event object or a JavaScript closure.
@@ -1562,7 +1562,7 @@ is checked against the table, but any other computed string is not checked, so
 always build locations with `path()`. A route's parameter fields are strings, with
 empty strings for absent fields. `select` takes a tab name, not a URL.
 
-`each entry in stack(nav) key=entry.id` gives retained screens their identities.
+`for entry in stack(nav) key=entry.id` gives retained screens their identities.
 Bind the host's navigation root and per-entry `navigationKey`s as the
 [router fixture](../contract/corpus/routes.contract) demonstrates. Test back,
 tab switching, the same-URL push, external navigation, and route parameters.
@@ -1579,7 +1579,7 @@ Web builds copy this key into the web app manifest; the browser decides which
 schemes it supports and whether the installed app is registered.
 
 Every route (a node with a `navigationKey` under the root) is a direct child of the
-root or of a `role="tabpanel"` in it — through `each` and `when`, never another
+root or of a `role="tabpanel"` in it — through `for` and `if`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
 `visibility: hidden` does, so an in-flow route still takes its room. A covered
@@ -1620,12 +1620,12 @@ Tabs with a stack each have one layout that works on web, macOS and iOS
 ```text
 main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow display="flex" flex-direction="column" height="100%"
   column flex=1 min-height=0 position="relative"
-    each t in nav.tabs key=t.name
+    for t in nav.tabs key=t.name
       column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-        each e in t.stack key=e.id
+        for e in t.stack key=e.id
           column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
             header
-              when e.name == "item"
+              if e.name == "item"
                 button id="back" press=back
                   text "Home"
               text e.name role="heading" aria-level=(e.name == "item" ? 2 : 1)
@@ -1635,7 +1635,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home")
       image "symbol:home"
       text "Home"
-  when toast != ""
+  if toast != ""
     button position="absolute" … // a root overlay: after the tablist, over everything
 ```
 
@@ -1681,7 +1681,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   items by test id and which are in the overflow menu. Its search field arrives with
   AppKit's own animation (`clock +1200 real` before a screenshot).
 - Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
-  tablist with `when`: without it the root has no tabs and the panels' routes are
+  tablist with `if`: without it the root has no tabs and the panels' routes are
   found by no host.
 - Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
   over the routes and the native bars on every host, as later siblings do in CSS.
@@ -1746,8 +1746,8 @@ fast `every` under a long `clock +N` can reach it: tick slower or move the clock
 
 A task with `when` (a gated task), such as
 `task hide when toast != "" key=toastUntil` with `after(5000, expire)`, has its
-timer only while the gate holds, as a `when` arm has its nodes, and a new key
-restarts it, as a new `each` key makes a new row
+timer only while the gate holds, as an `if` arm has its nodes, and a new key
+restarts it, as a new `for` key makes a new row
 ([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
@@ -1855,7 +1855,7 @@ component Hints
     after(1, forget)
   view
     column key=held keyup=held testId="list"
-      when meta and page.hasFocus
+      if meta and page.hasFocus
         text "⌘ held"
 ```
 
@@ -2062,7 +2062,7 @@ component App
   resource terminal = exactSurface("terminal") as shape Terminal
   view
     column
-      when terminal.colors == 0
+      if terminal.colors == 0
         text "! Attention required" font-weight=700
       else
         text "Attention required" color="#d78700"
@@ -2413,7 +2413,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Component `contract` assertions | Authored `test` blocks exercised by the driver |
 | `provide theme = value` around view children | Component `provide` section, wrapper component if needed |
 | `items.map(...)` / `items[0]` | `map(items, …)` / `first(items)` or `at(items, 0)` |
-| `map(items, x => Row(...))` | Keyed `each` with `Row(...)` in its body |
+| `map(items, x => Row(...))` | Keyed `for` with `Row(...)` in its body |
 | `{ title: value }` | Declared record constructor |
 | `[...xs, x]` / `xs.push(x)` / `xs.indexOf(x)` / `s.split(",")` | `concat(xs, [x])` / the same, assigned: `xs = concat(xs, [x])` / `indexOf(xs, x)` (or `includes(xs, x)` to test) / `split(s, ",")` |
 | `{...old, title: value}` | `Shape(old, title=value)`, with the record's declared shape |
@@ -2424,7 +2424,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
 | `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
 | A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
-| A list and its detail (or a form) swapped by `when showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
+| A list and its detail (or a form) swapped by `if showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
 | `column padding=24 width="100%"`, as wide as its parent's content plus the padding: it runs past the screen's right side (`lower-width-padding`) | Drop the width (a block or a stretched flex item fills its parent), or `box-sizing="border-box"` |
 | `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
 | `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
@@ -2669,7 +2669,7 @@ and shorthands: a row on any conditional arm counts, even if its value is
 make it bare. `appearance="auto"` explicitly asks for the native field and
 refuses background, border and radius rows, naming each longhand. Appearance
 is a literal, resolved from the class then the field's own attribute; to
-switch it, write `when` with two fields. Excluded input types and the Markdown
+switch it, write `if` with two fields. Excluded input types and the Markdown
 editor keep the bare text-input box or their existing specialised control.
 
 A focused field shows the platform's ring: the OS's on a native field, Exact's

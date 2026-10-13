@@ -726,11 +726,11 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
 
 /// LLP 1116.007 D1: the grammar's own words answer in one lookup, each in
 /// under a kilobyte, so a builder does not grep `contract-grammar.md` for
-/// `each` or get a 404 for `task`.
+/// `for` or get a 404 for `task`.
 #[test]
 fn the_grammars_words_each_answer_in_under_a_kilobyte() {
     for word in [
-        "task", "every", "after", "send", "match", "each", "when", "let", "fn", "shape", "persist",
+        "task", "every", "after", "send", "match", "for", "if", "let", "fn", "shape", "persist",
         "props", "derive", "action", "resource", "mutation", "stepper", "notfound",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", word]))).unwrap();
@@ -785,8 +785,8 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
         "mutation",
         "resource",
         "match",
-        "each",
-        "when",
+        "for",
+        "if",
         "let",
         "fn",
         "shape",

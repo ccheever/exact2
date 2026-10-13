@@ -43,6 +43,6 @@ component Recorder
           text "" font-size=13
       text (length(library.takes) == 0 ? "No takes yet." : "Takes") font-size=16 font-weight=600 testId="takes-heading"
       column gap=6 testId="takes"
-        each take in library.takes key=take.name
+        for take in library.takes key=take.name
           row gap=8 padding=10 border-radius=8 background-color="#1a2129" testId=("take-" + take.name)
             text take.label font-size=14

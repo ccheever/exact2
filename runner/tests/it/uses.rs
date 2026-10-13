@@ -69,7 +69,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
 fn collections_are_lists_the_host_windows() {
     let list = |attrs: &str| {
         used(&format!(
-            "component A\n  resource rows = rows() as shape list<string>\n  view\n    list {attrs}\n      each x in rows key=x\n        column\n          text x\n"
+            "component A\n  resource rows = rows() as shape list<string>\n  view\n    list {attrs}\n      for x in rows key=x\n        column\n          text x\n"
         ))
     };
     assert_eq!(list("height=100"), Uses::NONE, "a plain list is the core's");

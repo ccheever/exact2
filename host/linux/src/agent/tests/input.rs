@@ -322,14 +322,14 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     column width=300
       box key=keyed paste=pasted tabindex=0 testId="pad" width=80 height=24
       input value=text input=edit testId="field" height=24
-      when armed
+      if armed
         button "Paste" aria-keyshortcuts="Meta+V Control+V" press=pressed("button-paste") testId="paste" height=24
       button "F13" aria-keyshortcuts="F13" press=pressed("f13") testId="f13" height=24
       button "F24" aria-keyshortcuts="Shift+F24" press=pressed("f24") testId="f24" height=24
       button "S" aria-keyshortcuts="s" press=pressed("s") testId="s" height=24
       button "arm" press=arm testId="arm" height=24
       button "open" press=open testId="open" height=24
-      when modal
+      if modal
         column aria-modal=true testId="dialog" height=40
           button "Close" aria-keyshortcuts="Escape" press=pressed("close") testId="close" height=24
       button "Away" aria-keyshortcuts="Escape" press=pressed("away") testId="away" height=24

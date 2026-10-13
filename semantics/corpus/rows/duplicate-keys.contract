@@ -15,7 +15,7 @@ component App
   derive items = length(ab) >= length(cd) ? ab : cd
   view
     column
-      each it, i in items key="same"
+      for it, i in items key="same"
         Tick(index=i)
 
 component Tick

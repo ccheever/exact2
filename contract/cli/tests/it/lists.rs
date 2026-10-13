@@ -132,8 +132,8 @@ fn a_rows_points_are_formatted_again_only_when_what_they_read_changes() {
         corpus("lists.contract"),
         // The same row in a virtualized list: the collection's path.
         corpus("lists.contract").replace(
-            "      each c in coins key=c.id\n",
-            "      list virtualized=true estimated-item-height=32 height=400\n        each c in coins key=c.id\n",
+            "      for c in coins key=c.id\n",
+            "      list virtualized=true estimated-item-height=32 height=400\n        for c in coins key=c.id\n",
         )
         .replace("\n        row testId", "\n          row testId")
         .replace("\n          text c.id", "\n            text c.id")
@@ -142,7 +142,7 @@ fn a_rows_points_are_formatted_again_only_when_what_they_read_changes() {
         .replace("\n          svg ", "\n            svg ")
         .replace("\n            polyline", "\n              polyline"),
     ] {
-        assert!(!src.contains("virtualized") || src.contains("list virtualized=true estimated-item-height=32 height=400\n        each c in coins key=c.id\n          row"));
+        assert!(!src.contains("virtualized") || src.contains("list virtualized=true estimated-item-height=32 height=400\n        for c in coins key=c.id\n          row"));
         let mut r = boot(&src);
         let before = prop(&r, "chart-b", "points");
         // Each tick gives a new list, so the one root binding that reads it
@@ -496,17 +496,17 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
     refused(
         "map(xs, x => text x.name)",
         "syntax-map-view",
-        "`each x in xs key=x.id`",
+        "`for x in xs key=x.id`",
     );
     refused(
         "text join(map(xs, x => text x.name), \"\")",
         "syntax-callback-view",
-        "`each x in xs key=x.id`",
+        "`for x in xs key=x.id`",
     );
     refused(
         "text join(map(xs, x => Row(s=x)), \"\")",
         "type-callback-view",
-        "`each x in xs key=x.id`",
+        "`for x in xs key=x.id`",
     );
     // 4. Truthiness.
     refused(
@@ -666,11 +666,11 @@ fn an_empty_list_nothing_types_is_refused_where_it_is_written() {
             4,
             50,
         ),
-        // `each` over `[]` has nothing to type its item.
+        // `for` over `[]` has nothing to type its item.
         (
-            "component A\n  view\n    column\n      each x in [] key=\"k\"\n        text x\n",
+            "component A\n  view\n    column\n      for x in [] key=\"k\"\n        text x\n",
             4,
-            17,
+            16,
         ),
     ] {
         let e = contract::compile(src).unwrap_err();

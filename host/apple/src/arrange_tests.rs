@@ -41,7 +41,7 @@ const SOURCE: &str = r#"component App
     column
       button testId="block" press=block width=60 height=20
       list id="arrange" testId="list" virtualized=true height=100 reorderdrop=receive
-        each x in rows key=x
+        for x in rows key=x
           column reorderFor="arrange" disabled=disabled testId=`grip-${x}` height=20
             text x
 "#;

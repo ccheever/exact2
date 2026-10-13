@@ -1009,8 +1009,8 @@ component App
     log = \`\${log}\${label}:\${e.target}:\${match e.relatedTarget { case some(id) => id, case none => "-" }};\`
   view
     column focusout=heard("outer")
-      when shown
-        each label in ["wrapper"] key=label
+      if shown
+        for label in ["wrapper"] key=label
           column focusout=heard(label) ${animated ? '-exact-exit-animation="leave 10s linear both"' : ""}
             input id="a" change=changed blur=remove focusout=heard("field")
       input id="b" focusin=heard("in")
@@ -1056,7 +1056,7 @@ component App
   view
     column
       input id="a" disabled=disabled blur=left
-      when disabled
+      if disabled
         input id="b" ${command ? '' : 'autofocus'} focus=entered
       button "Move" id="move" press=move
       text log testId="log"

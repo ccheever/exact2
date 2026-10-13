@@ -32,7 +32,7 @@ const APP: &str = r#"component App
       scroll scroll=moved scrollend=ended testId="pane" height=100
         text "a"
       list virtualized=true scrollend=ended testId="feed" height=100 estimated-item-height=20
-        each r in rows key=r
+        for r in rows key=r
           text r
       column testId="plain"
 "#;

@@ -24,7 +24,7 @@ fn boot(row: &str) -> Presenter<Rows> {
     column width="100%" padding=20 box-sizing="border-box"
       text "nested port"
       list virtualized=true width="100%" height=180 padding-left=10 padding-right=10 border-width=2 border-style="solid" box-sizing="border-box" testId="port"
-        each x in rows key=x
+        for x in rows key=x
           {row}
 "#
     );
@@ -93,7 +93,7 @@ fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
       first = 12
   view
     list virtualized=true height=180 width=320 reachstart=start reachend=end
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` height=1
 "#,
     );
@@ -146,7 +146,7 @@ fn an_edge_before_activation_commits_and_activation_asks_once() {
     column
       text `${answer}`
       list virtualized=true height=180 width=320 reachstart=start
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#;
     let plan = contract::bake(contract::compile(source).unwrap(), Deferred(true)).unwrap();
@@ -197,7 +197,7 @@ fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
       button press=latest testId="latest"
         text "Latest"
       list virtualized=true scrollFollowEnd=true scrollTop=requested height=180 width=400
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#,
     );
@@ -489,7 +489,7 @@ fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_change
   view
     column width="100%" padding=20 box-sizing="border-box"
       list virtualized=true scrollFollowEnd=true height=180 width="100%" padding-left=10 padding-right=10 border-width=2 border-style="solid" box-sizing="border-box"
-        each x in rows key=x
+        for x in rows key=x
           text `row ${x}` height=100.1
 "#,
     );
@@ -546,7 +546,7 @@ fn a_padding_only_change_reaches_the_runner_and_the_end_follows_it() {
     column
       button "Grow" press=grow testId="grow"
       list virtualized=true scrollFollowEnd=true height=180 width=200 padding-top=20 padding-bottom=end box-sizing="border-box" testId="feed"
-        each x in rows key=x
+        for x in rows key=x
           text `row ${x}` height=24
 "#,
     );
@@ -630,7 +630,7 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
     column
       text `${top}` testId="observed"
       list virtualized=true height=180 width="100%" scroll=moved testId="port"
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#,
     );
@@ -710,7 +710,7 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
         text "back"
       column navigationKey="list"
         list virtualized=true height=180 width="100%"
-          each x in rows key=x
+          for x in rows key=x
             button testId=`row-${x}` height=24
               text `${x}`
       column navigationKey="away"
@@ -765,7 +765,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
         text "grow"
       column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height -exact-spring(300,30,1)" testId="panel"
         list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="port"
-          each x in rows key=x
+          for x in rows key=x
             text `row ${x}` height=24
 "#;
     let mut p = boot_source(source);
@@ -842,7 +842,7 @@ fn strip(list_attrs: &str, card: &str) -> String {
       button press=far testId="far"
         text "Far"
       list {list_attrs} display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" testId="strip"
-        each x in rows key=x
+        for x in rows key=x
           box testId=`c-${{x}}` width=90 height=80 margin-right=4 {card}
 "#
     )
@@ -974,7 +974,7 @@ fn nested(strip_attrs: &str) -> Presenter<Rows> {
     scroll testId="outer" width=400 height=300 overflow-x="hidden"
       box height=200
       list virtualized=true estimated-item-width=94 display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" {strip_attrs} testId="strip"
-        each x in rows key=x
+        for x in rows key=x
           box width=90 height=80 margin-right=4
       box height=2000
 "#

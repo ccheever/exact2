@@ -504,7 +504,7 @@ fn query_selector_all_reads_mounted_data_words_in_tree_order() {
     column
       text "first" id="first" data-paint="accent muted"
       text "other" id="other" data-paint="muted"
-      when show
+      if show
         text "second" id="second" data-paint="accent"
       text "hidden" id="hidden" data-paint="accent" display="none"
       column inert=true

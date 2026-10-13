@@ -17,7 +17,7 @@ component App
     column padding=16 gap=12
       text "Tip" role="heading" aria-level=2
       row role="radiogroup" aria-label="Tip"
-        each p in [15, 18, 20, 25] key=p
+        for p in [15, 18, 20, 25] key=p
           button role="radio" aria-checked=(tipPercent == p) press=tip(p) testId=`tip-${p}` flex=1
             text `${p}%`
       text "Temperature" role="heading" aria-level=2

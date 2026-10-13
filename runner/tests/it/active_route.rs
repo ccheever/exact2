@@ -21,11 +21,11 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack=\"back\" testId=\"navigation\"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}`
           button testId=\"dup\" press=back
             text e.name
-          when e.name == \"home\"
+          if e.name == \"home\"
             text \"only here\" testId=\"only-home\"
 ";
 
@@ -119,9 +119,9 @@ component App
   view
     main navigationKey=`${top(nav).id}` navigationBack=\"back\"
       column
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role=\"tabpanel\" id=`panel-${t.name}` testId=`panel-${t.name}`
-            each e in t.stack key=e.id
+            for e in t.stack key=e.id
               column navigationKey=`${e.id}`
                 button testId=\"hello\" press=pick(\"a\")
                   text e.name

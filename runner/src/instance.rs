@@ -4,7 +4,7 @@
 //! trees; research)
 //!
 //! The plan's nodes and regions are *sites*. An instance realizes a site as a
-//! kernel view, an active `when`/`match` arm, or an `each` row per key. Updates
+//! kernel view, an active `if`/`match` arm, or a `for` row per key. Updates
 //! visit sites with changed inputs ([`deps`]) or enclosing rows/arms, evaluating
 //! only stale bindings. They emit binding ops only for changed values,
 //! `SetChildren` only for changed child lists, and create/destroy only for
@@ -159,20 +159,20 @@ enum Child {
 pub struct RegionInst {
     region: RegionsId,
     active: Active,
-    /// An `each` subject as last keyed: the same object again, with the key's
+    /// A `for` subject as last keyed: the same object again, with the key's
     /// other inputs unchanged, is the same keys.
     subject: Option<Value>,
 }
 
 #[derive(Debug)]
 enum Active {
-    /// `when` / `match`: the active arm and its roots.
+    /// `if` / `match`: the active arm and its roots.
     Arm {
         arm: Option<usize>,
         frame: ArmFrame,
         roots: Vec<Child>,
     },
-    /// `each`: rows by key, in current order.
+    /// `for`: rows by key, in current order.
     Rows { rows: Vec<Row> },
 }
 
@@ -212,19 +212,19 @@ struct Row {
 }
 
 /// One step of the instance path from the plan's roots to a view: the
-/// region crossed and, for an `each` row, its key; for a `when`/`match`
+/// region crossed and, for a `for` row, its key; for an `if`/`match`
 /// region, the active arm (LLP 1035.002 D6 — what identifies *this*
 /// instance of a repeated site).
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstanceStep {
-    /// A keyed row of an `each`.
+    /// A keyed row of a `for`.
     Row {
         /// The region.
         region: RegionsId,
         /// The row's key.
         key: Value,
     },
-    /// The active arm of a `when`/`match`.
+    /// The active arm of an `if`/`match`.
     Arm {
         /// The region.
         region: RegionsId,
@@ -366,7 +366,7 @@ pub struct InstanceWork {
     pub regions_skipped: usize,
     /// Binding expressions evaluated (created or revisited nodes).
     pub bindings_evaluated: usize,
-    /// Rows examined, visited or not: an `each`'s kept rows, a list's
+    /// Rows examined, visited or not: a `for`'s kept rows, a list's
     /// mounted rows, and the rows compared to find the event's view.
     pub rows_scanned: usize,
     /// Derive bodies settlement evaluated (the rest kept their values).
@@ -411,7 +411,7 @@ pub struct Update<'a> {
     /// inside one.
     on_path: bool,
     /// Whether a row the scopes walked so far entered was itself written.
-    /// Every scope nested in it — the rows of an `each` in a child component
+    /// Every scope nested in it — the rows of a `for` in a child component
     /// the row instantiated — reads that row's slots through its frames
     /// ([`vm::Frame::row_of`]), so none of them leaves the path.
     in_written: bool,

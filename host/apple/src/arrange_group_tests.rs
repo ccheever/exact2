@@ -96,9 +96,9 @@ component App
     send changed = move(item, col, at)
   view
     row
-      each col in columns key=col
+      for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) height=100 width=100
-          each card in filter(cards, k => k.col == col) key=card.id
+          for card in filter(cards, k => k.col == col) key=card.id
             column reorderFor=`col-${col}` testId=`grip-${card.id}` height=20
               text card.id
 "#;

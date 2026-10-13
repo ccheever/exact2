@@ -32,12 +32,12 @@ component Heads
     column
       head title="Root" description="Root description"
       main navigationKey=\`\${top(nav).id}\` navigationBack="back"
-        each e in stack(nav) key=e.id
+        for e in stack(nav) key=e.id
           column navigationKey=\`\${e.id}\`
-            when e.name == "home"
+            if e.name == "home"
               column
                 head title="Home" description="Home description"
-            when e.name == "detail"
+            if e.name == "detail"
               head title="Detail" description="Detail description"
             text e.name
 `, page => {

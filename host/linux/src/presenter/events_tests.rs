@@ -149,7 +149,7 @@ fn a_pressed_button_that_removes_itself_sends_focusout_to_its_wrapper() {
     shown = false
   view
     column focusout=left width=200
-      when shown
+      if shown
         button "Hide" id="hide" press=hide testId="hide" height=32
       text log testId="log" height=20
 "#;
@@ -181,7 +181,7 @@ fn cursor_resolves_inheritance_hud_override_stationary_changes_and_unmount() {
     column width=200 height=200
       button "Arm" testId="arm" press=arm height=30
       button "Hide" testId="hide" press=hide height=30
-      when shown
+      if shown
         column cursor=(armed ? "crosshair" : "default") width=200 height=100
           button "HUD" testId="hud" cursor="auto" press=arm width=50 height=30
           box testId="zone" width=200 height=70

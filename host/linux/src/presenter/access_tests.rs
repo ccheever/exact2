@@ -102,7 +102,7 @@ const ROWS: &str = r#"component App
     column width=320 height=480
       text `Picked ${picked}` testId="picked" height=20
       list virtualized=true width=320 height=400 testId="port"
-        each x in rows key=x
+        for x in rows key=x
           button press=pick(x) height=40 width=300
             text `Row ${x}`
 "#;

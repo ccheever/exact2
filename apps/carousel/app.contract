@@ -57,23 +57,23 @@ component Carousel
           text "Top" font-size=13
         button press=toggle testId="eager" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
           text (eager ? "Virtualized" : "Eager") font-size=13
-      when page == "feed"
-        when eager
+      if page == "feed"
+        if eager
           list appearance="none" width="100%" flex=1 min-height=0 overflow-x="hidden" scrollTop=feedTop testId="feed"
-            each p in posts key=p.id
+            for p in posts key=p.id
               PostView(p=p, virtual=false)
         else
           list appearance="none" virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=180 scrollTop=feedTop testId="feed"
-            each p in posts key=p.id
+            for p in posts key=p.id
               PostView(p=p, virtual=true)
       else
-        when eager
+        if eager
           list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId="strip"
-            each c in few key=c.id
+            for c in few key=c.id
               CardView(c=c)
         else
           list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" scrollLeft=jump testId="strip"
-            each c in cards key=c.id
+            for c in cards key=c.id
               CardView(c=c)
         text "A strip of 25,000 cards: only those near the port are built." padding=12 font-size=13 color="#6b7280"
 
@@ -93,25 +93,25 @@ component PostView
   view
     column testId=`post-${p.n}` width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
       text `Post ${p.n}` padding-left=12 font-size=15 font-weight=600 height=24
-      when p.kind == "strip"
-        when virtual
+      if p.kind == "strip"
+        if virtual
           list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
-            each c in p.cards key=c.id
+            for c in p.cards key=c.id
               FeedCard(post=p.n, c=c)
         else
           list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
-            each c in p.cards key=c.id
+            for c in p.cards key=c.id
               FeedCard(post=p.n, c=c)
-      when p.kind == "inbox"
-        when virtual
+      if p.kind == "inbox"
+        if virtual
           list virtualized=true width="100%" height=300 overflow-x="hidden" estimated-item-height=48 testId=`inbox-${p.n}`
-            each m in p.cards key=m.id
+            for m in p.cards key=m.id
               Message(post=p.n, m=m)
         else
           list width="100%" height=300 overflow-x="hidden" testId=`inbox-${p.n}`
-            each m in p.cards key=m.id
+            for m in p.cards key=m.id
               Message(post=p.n, m=m)
-      when p.kind == "text"
+      if p.kind == "text"
         text "An ordinary row between the lists." padding-left=12 font-size=13 color="#6b7280" height=40
 
 component FeedCard

@@ -18,7 +18,7 @@ component App
     column
       button "load" press=load testId="load"
       text `${length(items)}` testId="count"
-      each it, i in items key=(1 / z)
+      for it, i in items key=(1 / z)
         text it.id testId=`row-${i}`
 
 test "infinite keys"

@@ -13,7 +13,7 @@ component App
   view
     column
       text lastEdit testId="last"
-      each it, i in items key=i
+      for it, i in items key=i
         Field(index=i, report=edited)
 
 component Field

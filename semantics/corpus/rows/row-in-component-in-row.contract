@@ -10,7 +10,7 @@ component App
   derive groups = length(g1) >= length(g2) ? g1 : g2
   view
     column
-      each g, gi in groups key=gi
+      for g, gi in groups key=gi
         Box(group=g, gi=gi)
 
 component Box
@@ -23,8 +23,8 @@ component Box
   view
     column
       button "t" press=toggle testId=`box-${gi}`
-      when open
-        each m, mi in group.members key=mi
+      if open
+        for m, mi in group.members key=mi
           Member(gi=gi, mi=mi, name=m)
 
 component Member

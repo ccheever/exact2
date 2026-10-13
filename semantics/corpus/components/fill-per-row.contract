@@ -1,4 +1,4 @@
-// A slot component that repeats `children` per `each` row: each row's
+// A slot component that repeats `children` per `for` row: each row's
 // copy of the fill is its own instance, owned by that row, so a stateful
 // child in it counts per row, and a row removed and re-added starts fresh.
 shape Item
@@ -27,7 +27,7 @@ component Rows
   slot
   view
     column
-      each it, k in filter(items, (x, j) => j >= from) key=it.id
+      for it, k in filter(items, (x, j) => j >= from) key=it.id
         row
           text `${k} ${it.id}` testId="k"
           children

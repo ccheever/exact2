@@ -45,7 +45,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     column
       input testId="editor" value=text input=change width=100 height=30
       canvas testId="a" width=100 height=100
-        when !removed
+        if !removed
           button testId="a-jump" action="jump" width=100 height=100
             box testId="label" width=100 height=100
       canvas testId="b" width=100 height=100
@@ -57,7 +57,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     let source = if remove_hud {
         source.replace(
             "        button testId=\"hud-remove\" press=remove width=100 height=30",
-            "        when !removed\n          button testId=\"hud-remove\" press=remove width=100 height=30",
+            "        if !removed\n          button testId=\"hud-remove\" press=remove width=100 height=30",
         )
     } else {
         source.to_owned()
@@ -453,7 +453,7 @@ fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
     gone = true
   view
     column
-      when !gone
+      if !gone
         button aria-keyshortcuts="Escape" press=go testId="go" height=24
           text "go"
       canvas testId="world" key=key width=100 height=100
@@ -561,7 +561,7 @@ fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
     done = true
   view
     column
-      when done
+      if done
         button autofocus testId="next" width=100 height=30
       else
         button press=finish testId="start" width=100 height=30
@@ -606,7 +606,7 @@ fn e11_pointer_press_keeps_ordinary_focus_and_allows_new_autofocus() {
   view
     column
       button press=finish testId="start" width=100 height=30
-      when done
+      if done
         button {} testId="next" width=100 height=30
 "#,
             if overlay { "autofocus" } else { "" }

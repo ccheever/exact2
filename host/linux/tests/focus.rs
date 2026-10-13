@@ -33,12 +33,12 @@ fn autofocus_bubbles_on_mount_and_after_focused_removal() {
       replaced = true
   view
     column focusin=entered focusout=left width=200
-      when !editing
+      if !editing
         button "Edit" press=edit testId="edit" height=32
-      when editing
-        when !replaced
+      if editing
+        if !replaced
           input autofocus id="a" testId="a" key=replace height=32
-        when replaced
+        if replaced
           input autofocus id="b" testId="b" height=32
       text log testId="log" height=20
 "#
@@ -47,7 +47,7 @@ fn autofocus_bubbles_on_mount_and_after_focused_removal() {
             &format!("state editing = {initial}"),
         );
         let source = if keep_button {
-            source.replace("when !editing", "when true")
+            source.replace("if !editing", "if true")
         } else {
             source
         };
@@ -116,9 +116,9 @@ fn autofocus_keeps_each_bubbling_events_stop_flag() {
   view
     column focusin=outerIn focusout=outerOut width=200
       column focusin=entered focusout=left
-        when !replaced
+        if !replaced
           input autofocus id="a" testId="a" key=replace height=32
-        when replaced
+        if replaced
           input autofocus id="b" testId="b" height=32
       text log testId="log" height=20
 "#;
@@ -204,7 +204,7 @@ fn blur_removes_wrapper_before_focusout() {
     log = `${log}in:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
   view
     column focusout=left("outer") width=200
-      when shown
+      if shown
         column focusout=left("wrapper") testId="wrapper"
           input id="a" testId="a" blur=remove height=32
       input id="b" testId="b" focusin=entered height=32
@@ -235,7 +235,7 @@ fn change_removal_does_not_dispatch_a_detached_blur_binding() {
   action left
   view
     column width=200
-      when shown
+      if shown
         column focusout=left
           input id="a" testId="a" change=remove height=32
       input id="b" testId="b" height=32
@@ -270,9 +270,9 @@ fn detached_focusout_does_not_visit_an_ancestor_removed_later() {
     page = false
   view
     column width=200
-      when page
+      if page
         column focusout=closePage("outer")
-          when shown
+          if shown
             column focusout=closePage("wrapper")
               input id="a" testId="a" blur=remove height=32
       input id="b" testId="b" height=32
@@ -310,10 +310,10 @@ fn detached_focusout_survives_autofocus_during_blur_commit() {
     log = `${log}focus;`
   view
     column width=200
-      when shown
+      if shown
         column focusout=left
           input id="a" testId="a" blur=remove submit=leave height=32
-      when !shown
+      if !shown
         input autofocus id="c" testId="c" focus=entered height=32
       text log testId="log" height=20
 "#;

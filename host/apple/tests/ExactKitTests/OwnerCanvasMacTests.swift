@@ -36,7 +36,7 @@ final class OwnerCanvasMacTests: XCTestCase {
           view
             column width="100%" height="100%"
               list virtualized=true estimated-item-height=90 flex=1 min-height=0 width="100%" testId="feed"
-                each s in allStations key=s.id
+                for s in allStations key=s.id
                   column width="100%" padding=8
                     text `${s.name}, zone ${s.zone}`
                     canvas surface=map(allStations, s.id, allStations, s.zone) width="100%" height=60 testId="map"

@@ -248,7 +248,7 @@ component CompletionStorm
         text `Next: ${settings.count} independent lanes, ${settings.errors}% error threshold (deterministic mix).` font-size=12 color="#52667c"
         button press=startWave testId="start-wave" padding=12 background-color="#244f79" border-radius=8
           text "Start / replace / remount wave" color="#ffffff" font-weight=600
-        when pending(wave)
+        if pending(wave)
           text "Asking local fixture to admit a wave…" font-size=13
         match wave
           case some(w)
@@ -287,263 +287,263 @@ component CompletionStorm
         text `${failedCount} failed or invalid replies in this wave` testId="failed-count" font-size=15
         text `Lifetime: ${counters.emitted} requests emitted · ${counters.accepted} current-ticket replies parsed` testId="lifetime-counts" font-size=12
         text "Pending uses runner flags. Valid success checks wave + lane + exact payload. Parsed includes failures, excludes dropped stale tickets; lifetime counts refresh every 500ms." font-size=12 color="#c4d5e4"
-      when mounted
+      if mounted
         column testId="results" gap=5 flex-shrink=0
-          when 0 < waveCount
+          if 0 < waveCount
             Lane(result=r0, busy=pending(r0), expected=waveId, lane=0)
-          when 1 < waveCount
+          if 1 < waveCount
             Lane(result=r1, busy=pending(r1), expected=waveId, lane=1)
-          when 2 < waveCount
+          if 2 < waveCount
             Lane(result=r2, busy=pending(r2), expected=waveId, lane=2)
-          when 3 < waveCount
+          if 3 < waveCount
             Lane(result=r3, busy=pending(r3), expected=waveId, lane=3)
-          when 4 < waveCount
+          if 4 < waveCount
             Lane(result=r4, busy=pending(r4), expected=waveId, lane=4)
-          when 5 < waveCount
+          if 5 < waveCount
             Lane(result=r5, busy=pending(r5), expected=waveId, lane=5)
-          when 6 < waveCount
+          if 6 < waveCount
             Lane(result=r6, busy=pending(r6), expected=waveId, lane=6)
-          when 7 < waveCount
+          if 7 < waveCount
             Lane(result=r7, busy=pending(r7), expected=waveId, lane=7)
-          when 8 < waveCount
+          if 8 < waveCount
             Lane(result=r8, busy=pending(r8), expected=waveId, lane=8)
-          when 9 < waveCount
+          if 9 < waveCount
             Lane(result=r9, busy=pending(r9), expected=waveId, lane=9)
-          when 10 < waveCount
+          if 10 < waveCount
             Lane(result=r10, busy=pending(r10), expected=waveId, lane=10)
-          when 11 < waveCount
+          if 11 < waveCount
             Lane(result=r11, busy=pending(r11), expected=waveId, lane=11)
-          when 12 < waveCount
+          if 12 < waveCount
             Lane(result=r12, busy=pending(r12), expected=waveId, lane=12)
-          when 13 < waveCount
+          if 13 < waveCount
             Lane(result=r13, busy=pending(r13), expected=waveId, lane=13)
-          when 14 < waveCount
+          if 14 < waveCount
             Lane(result=r14, busy=pending(r14), expected=waveId, lane=14)
-          when 15 < waveCount
+          if 15 < waveCount
             Lane(result=r15, busy=pending(r15), expected=waveId, lane=15)
-          when 16 < waveCount
+          if 16 < waveCount
             Lane(result=r16, busy=pending(r16), expected=waveId, lane=16)
-          when 17 < waveCount
+          if 17 < waveCount
             Lane(result=r17, busy=pending(r17), expected=waveId, lane=17)
-          when 18 < waveCount
+          if 18 < waveCount
             Lane(result=r18, busy=pending(r18), expected=waveId, lane=18)
-          when 19 < waveCount
+          if 19 < waveCount
             Lane(result=r19, busy=pending(r19), expected=waveId, lane=19)
-          when 20 < waveCount
+          if 20 < waveCount
             Lane(result=r20, busy=pending(r20), expected=waveId, lane=20)
-          when 21 < waveCount
+          if 21 < waveCount
             Lane(result=r21, busy=pending(r21), expected=waveId, lane=21)
-          when 22 < waveCount
+          if 22 < waveCount
             Lane(result=r22, busy=pending(r22), expected=waveId, lane=22)
-          when 23 < waveCount
+          if 23 < waveCount
             Lane(result=r23, busy=pending(r23), expected=waveId, lane=23)
-          when 24 < waveCount
+          if 24 < waveCount
             Lane(result=r24, busy=pending(r24), expected=waveId, lane=24)
-          when 25 < waveCount
+          if 25 < waveCount
             Lane(result=r25, busy=pending(r25), expected=waveId, lane=25)
-          when 26 < waveCount
+          if 26 < waveCount
             Lane(result=r26, busy=pending(r26), expected=waveId, lane=26)
-          when 27 < waveCount
+          if 27 < waveCount
             Lane(result=r27, busy=pending(r27), expected=waveId, lane=27)
-          when 28 < waveCount
+          if 28 < waveCount
             Lane(result=r28, busy=pending(r28), expected=waveId, lane=28)
-          when 29 < waveCount
+          if 29 < waveCount
             Lane(result=r29, busy=pending(r29), expected=waveId, lane=29)
-          when 30 < waveCount
+          if 30 < waveCount
             Lane(result=r30, busy=pending(r30), expected=waveId, lane=30)
-          when 31 < waveCount
+          if 31 < waveCount
             Lane(result=r31, busy=pending(r31), expected=waveId, lane=31)
-          when 32 < waveCount
+          if 32 < waveCount
             Lane(result=r32, busy=pending(r32), expected=waveId, lane=32)
-          when 33 < waveCount
+          if 33 < waveCount
             Lane(result=r33, busy=pending(r33), expected=waveId, lane=33)
-          when 34 < waveCount
+          if 34 < waveCount
             Lane(result=r34, busy=pending(r34), expected=waveId, lane=34)
-          when 35 < waveCount
+          if 35 < waveCount
             Lane(result=r35, busy=pending(r35), expected=waveId, lane=35)
-          when 36 < waveCount
+          if 36 < waveCount
             Lane(result=r36, busy=pending(r36), expected=waveId, lane=36)
-          when 37 < waveCount
+          if 37 < waveCount
             Lane(result=r37, busy=pending(r37), expected=waveId, lane=37)
-          when 38 < waveCount
+          if 38 < waveCount
             Lane(result=r38, busy=pending(r38), expected=waveId, lane=38)
-          when 39 < waveCount
+          if 39 < waveCount
             Lane(result=r39, busy=pending(r39), expected=waveId, lane=39)
-          when 40 < waveCount
+          if 40 < waveCount
             Lane(result=r40, busy=pending(r40), expected=waveId, lane=40)
-          when 41 < waveCount
+          if 41 < waveCount
             Lane(result=r41, busy=pending(r41), expected=waveId, lane=41)
-          when 42 < waveCount
+          if 42 < waveCount
             Lane(result=r42, busy=pending(r42), expected=waveId, lane=42)
-          when 43 < waveCount
+          if 43 < waveCount
             Lane(result=r43, busy=pending(r43), expected=waveId, lane=43)
-          when 44 < waveCount
+          if 44 < waveCount
             Lane(result=r44, busy=pending(r44), expected=waveId, lane=44)
-          when 45 < waveCount
+          if 45 < waveCount
             Lane(result=r45, busy=pending(r45), expected=waveId, lane=45)
-          when 46 < waveCount
+          if 46 < waveCount
             Lane(result=r46, busy=pending(r46), expected=waveId, lane=46)
-          when 47 < waveCount
+          if 47 < waveCount
             Lane(result=r47, busy=pending(r47), expected=waveId, lane=47)
-          when 48 < waveCount
+          if 48 < waveCount
             Lane(result=r48, busy=pending(r48), expected=waveId, lane=48)
-          when 49 < waveCount
+          if 49 < waveCount
             Lane(result=r49, busy=pending(r49), expected=waveId, lane=49)
-          when 50 < waveCount
+          if 50 < waveCount
             Lane(result=r50, busy=pending(r50), expected=waveId, lane=50)
-          when 51 < waveCount
+          if 51 < waveCount
             Lane(result=r51, busy=pending(r51), expected=waveId, lane=51)
-          when 52 < waveCount
+          if 52 < waveCount
             Lane(result=r52, busy=pending(r52), expected=waveId, lane=52)
-          when 53 < waveCount
+          if 53 < waveCount
             Lane(result=r53, busy=pending(r53), expected=waveId, lane=53)
-          when 54 < waveCount
+          if 54 < waveCount
             Lane(result=r54, busy=pending(r54), expected=waveId, lane=54)
-          when 55 < waveCount
+          if 55 < waveCount
             Lane(result=r55, busy=pending(r55), expected=waveId, lane=55)
-          when 56 < waveCount
+          if 56 < waveCount
             Lane(result=r56, busy=pending(r56), expected=waveId, lane=56)
-          when 57 < waveCount
+          if 57 < waveCount
             Lane(result=r57, busy=pending(r57), expected=waveId, lane=57)
-          when 58 < waveCount
+          if 58 < waveCount
             Lane(result=r58, busy=pending(r58), expected=waveId, lane=58)
-          when 59 < waveCount
+          if 59 < waveCount
             Lane(result=r59, busy=pending(r59), expected=waveId, lane=59)
-          when 60 < waveCount
+          if 60 < waveCount
             Lane(result=r60, busy=pending(r60), expected=waveId, lane=60)
-          when 61 < waveCount
+          if 61 < waveCount
             Lane(result=r61, busy=pending(r61), expected=waveId, lane=61)
-          when 62 < waveCount
+          if 62 < waveCount
             Lane(result=r62, busy=pending(r62), expected=waveId, lane=62)
-          when 63 < waveCount
+          if 63 < waveCount
             Lane(result=r63, busy=pending(r63), expected=waveId, lane=63)
-          when 64 < waveCount
+          if 64 < waveCount
             Lane(result=r64, busy=pending(r64), expected=waveId, lane=64)
-          when 65 < waveCount
+          if 65 < waveCount
             Lane(result=r65, busy=pending(r65), expected=waveId, lane=65)
-          when 66 < waveCount
+          if 66 < waveCount
             Lane(result=r66, busy=pending(r66), expected=waveId, lane=66)
-          when 67 < waveCount
+          if 67 < waveCount
             Lane(result=r67, busy=pending(r67), expected=waveId, lane=67)
-          when 68 < waveCount
+          if 68 < waveCount
             Lane(result=r68, busy=pending(r68), expected=waveId, lane=68)
-          when 69 < waveCount
+          if 69 < waveCount
             Lane(result=r69, busy=pending(r69), expected=waveId, lane=69)
-          when 70 < waveCount
+          if 70 < waveCount
             Lane(result=r70, busy=pending(r70), expected=waveId, lane=70)
-          when 71 < waveCount
+          if 71 < waveCount
             Lane(result=r71, busy=pending(r71), expected=waveId, lane=71)
-          when 72 < waveCount
+          if 72 < waveCount
             Lane(result=r72, busy=pending(r72), expected=waveId, lane=72)
-          when 73 < waveCount
+          if 73 < waveCount
             Lane(result=r73, busy=pending(r73), expected=waveId, lane=73)
-          when 74 < waveCount
+          if 74 < waveCount
             Lane(result=r74, busy=pending(r74), expected=waveId, lane=74)
-          when 75 < waveCount
+          if 75 < waveCount
             Lane(result=r75, busy=pending(r75), expected=waveId, lane=75)
-          when 76 < waveCount
+          if 76 < waveCount
             Lane(result=r76, busy=pending(r76), expected=waveId, lane=76)
-          when 77 < waveCount
+          if 77 < waveCount
             Lane(result=r77, busy=pending(r77), expected=waveId, lane=77)
-          when 78 < waveCount
+          if 78 < waveCount
             Lane(result=r78, busy=pending(r78), expected=waveId, lane=78)
-          when 79 < waveCount
+          if 79 < waveCount
             Lane(result=r79, busy=pending(r79), expected=waveId, lane=79)
-          when 80 < waveCount
+          if 80 < waveCount
             Lane(result=r80, busy=pending(r80), expected=waveId, lane=80)
-          when 81 < waveCount
+          if 81 < waveCount
             Lane(result=r81, busy=pending(r81), expected=waveId, lane=81)
-          when 82 < waveCount
+          if 82 < waveCount
             Lane(result=r82, busy=pending(r82), expected=waveId, lane=82)
-          when 83 < waveCount
+          if 83 < waveCount
             Lane(result=r83, busy=pending(r83), expected=waveId, lane=83)
-          when 84 < waveCount
+          if 84 < waveCount
             Lane(result=r84, busy=pending(r84), expected=waveId, lane=84)
-          when 85 < waveCount
+          if 85 < waveCount
             Lane(result=r85, busy=pending(r85), expected=waveId, lane=85)
-          when 86 < waveCount
+          if 86 < waveCount
             Lane(result=r86, busy=pending(r86), expected=waveId, lane=86)
-          when 87 < waveCount
+          if 87 < waveCount
             Lane(result=r87, busy=pending(r87), expected=waveId, lane=87)
-          when 88 < waveCount
+          if 88 < waveCount
             Lane(result=r88, busy=pending(r88), expected=waveId, lane=88)
-          when 89 < waveCount
+          if 89 < waveCount
             Lane(result=r89, busy=pending(r89), expected=waveId, lane=89)
-          when 90 < waveCount
+          if 90 < waveCount
             Lane(result=r90, busy=pending(r90), expected=waveId, lane=90)
-          when 91 < waveCount
+          if 91 < waveCount
             Lane(result=r91, busy=pending(r91), expected=waveId, lane=91)
-          when 92 < waveCount
+          if 92 < waveCount
             Lane(result=r92, busy=pending(r92), expected=waveId, lane=92)
-          when 93 < waveCount
+          if 93 < waveCount
             Lane(result=r93, busy=pending(r93), expected=waveId, lane=93)
-          when 94 < waveCount
+          if 94 < waveCount
             Lane(result=r94, busy=pending(r94), expected=waveId, lane=94)
-          when 95 < waveCount
+          if 95 < waveCount
             Lane(result=r95, busy=pending(r95), expected=waveId, lane=95)
-          when 96 < waveCount
+          if 96 < waveCount
             Lane(result=r96, busy=pending(r96), expected=waveId, lane=96)
-          when 97 < waveCount
+          if 97 < waveCount
             Lane(result=r97, busy=pending(r97), expected=waveId, lane=97)
-          when 98 < waveCount
+          if 98 < waveCount
             Lane(result=r98, busy=pending(r98), expected=waveId, lane=98)
-          when 99 < waveCount
+          if 99 < waveCount
             Lane(result=r99, busy=pending(r99), expected=waveId, lane=99)
-          when 100 < waveCount
+          if 100 < waveCount
             Lane(result=r100, busy=pending(r100), expected=waveId, lane=100)
-          when 101 < waveCount
+          if 101 < waveCount
             Lane(result=r101, busy=pending(r101), expected=waveId, lane=101)
-          when 102 < waveCount
+          if 102 < waveCount
             Lane(result=r102, busy=pending(r102), expected=waveId, lane=102)
-          when 103 < waveCount
+          if 103 < waveCount
             Lane(result=r103, busy=pending(r103), expected=waveId, lane=103)
-          when 104 < waveCount
+          if 104 < waveCount
             Lane(result=r104, busy=pending(r104), expected=waveId, lane=104)
-          when 105 < waveCount
+          if 105 < waveCount
             Lane(result=r105, busy=pending(r105), expected=waveId, lane=105)
-          when 106 < waveCount
+          if 106 < waveCount
             Lane(result=r106, busy=pending(r106), expected=waveId, lane=106)
-          when 107 < waveCount
+          if 107 < waveCount
             Lane(result=r107, busy=pending(r107), expected=waveId, lane=107)
-          when 108 < waveCount
+          if 108 < waveCount
             Lane(result=r108, busy=pending(r108), expected=waveId, lane=108)
-          when 109 < waveCount
+          if 109 < waveCount
             Lane(result=r109, busy=pending(r109), expected=waveId, lane=109)
-          when 110 < waveCount
+          if 110 < waveCount
             Lane(result=r110, busy=pending(r110), expected=waveId, lane=110)
-          when 111 < waveCount
+          if 111 < waveCount
             Lane(result=r111, busy=pending(r111), expected=waveId, lane=111)
-          when 112 < waveCount
+          if 112 < waveCount
             Lane(result=r112, busy=pending(r112), expected=waveId, lane=112)
-          when 113 < waveCount
+          if 113 < waveCount
             Lane(result=r113, busy=pending(r113), expected=waveId, lane=113)
-          when 114 < waveCount
+          if 114 < waveCount
             Lane(result=r114, busy=pending(r114), expected=waveId, lane=114)
-          when 115 < waveCount
+          if 115 < waveCount
             Lane(result=r115, busy=pending(r115), expected=waveId, lane=115)
-          when 116 < waveCount
+          if 116 < waveCount
             Lane(result=r116, busy=pending(r116), expected=waveId, lane=116)
-          when 117 < waveCount
+          if 117 < waveCount
             Lane(result=r117, busy=pending(r117), expected=waveId, lane=117)
-          when 118 < waveCount
+          if 118 < waveCount
             Lane(result=r118, busy=pending(r118), expected=waveId, lane=118)
-          when 119 < waveCount
+          if 119 < waveCount
             Lane(result=r119, busy=pending(r119), expected=waveId, lane=119)
-          when 120 < waveCount
+          if 120 < waveCount
             Lane(result=r120, busy=pending(r120), expected=waveId, lane=120)
-          when 121 < waveCount
+          if 121 < waveCount
             Lane(result=r121, busy=pending(r121), expected=waveId, lane=121)
-          when 122 < waveCount
+          if 122 < waveCount
             Lane(result=r122, busy=pending(r122), expected=waveId, lane=122)
-          when 123 < waveCount
+          if 123 < waveCount
             Lane(result=r123, busy=pending(r123), expected=waveId, lane=123)
-          when 124 < waveCount
+          if 124 < waveCount
             Lane(result=r124, busy=pending(r124), expected=waveId, lane=124)
-          when 125 < waveCount
+          if 125 < waveCount
             Lane(result=r125, busy=pending(r125), expected=waveId, lane=125)
-          when 126 < waveCount
+          if 126 < waveCount
             Lane(result=r126, busy=pending(r126), expected=waveId, lane=126)
-          when 127 < waveCount
+          if 127 < waveCount
             Lane(result=r127, busy=pending(r127), expected=waveId, lane=127)
 
       else
@@ -560,13 +560,13 @@ component Lane
   view
     row testId=`lane-${lane}` gap=10 padding=9 background-color="#ffffff" border-radius=5
       text `#${lane}` width=45 font-size=12 color="#52667c"
-      when busy
+      if busy
         text "Pending — no current result yet" testId=`result-${lane}` font-size=12 color="#8c641e"
       else
-        when result.wave != expected
+        if result.wave != expected
           text "No result for this wave" testId=`result-${lane}` font-size=12 color="#52667c"
         else
-          when result.ok
+          if result.ok
             text `VALID · ${result.message}` testId=`result-${lane}` font-size=12 color="#187155"
           else
             text `FAILED · ${result.message}` testId=`result-${lane}` font-size=12 color="#a83f36"

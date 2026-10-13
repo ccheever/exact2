@@ -37,7 +37,7 @@ const SOURCE: &str = r#"component App
       button press=remove testId="remove"
         text "Remove"
       column display=display
-        when shown
+        if shown
           column testId="panel" height=extent max-height=400 box-sizing="border-box" transition="height -exact-spring(180, 12, 1), translate -exact-spring(180, 12, 1)"
             text "Panel"
       column testId="other" height=120

@@ -39,7 +39,7 @@ component Guests
         input id="search" type="search" value=query input=search submit=searched focus=began blur=ended
           placeholder="Search" aria-label="Search guests" enterkeyhint="search" testId="search" flex=1 min-width=0
         text `${length(shown)} found` testId="count"
-        when searching or query != ""
+        if searching or query != ""
           button press=cancel testId="cancel"
             text "Cancel"
         else
@@ -51,7 +51,7 @@ component Guests
             input id="draft" value=draft input=edit submit=add placeholder="Add a guest"
               aria-label="New guest" testId="draft" flex=1 min-width=0
         section
-          each g in shown key=g.id
+          for g in shown key=g.id
             row
               text g.name testId=`guest-${g.id}`
 ```

@@ -1,5 +1,5 @@
 //! A child component's state lives exactly as long as its instance (LLP
-//! 1017 P4c): created when the instance is — an `each` row, a `when` or
+//! 1017 P4c): created when the instance is — a `for` row, an `if` or
 //! `match` arm, or the root at the boot render — its initializer evaluated
 //! then, after settlement, in the use site's scope; dropped with it.
 
@@ -125,7 +125,7 @@ component App
     column
       Counter(start=length(items), id="top-resource")
       Counter(start=total, id="top-derive")
-      when total > 0
+      if total > 0
         Counter(start=total + 1, id="when-derive")
         Counter(start=length(items) + 1, id="when-resource")
       match picked
@@ -134,7 +134,7 @@ component App
           Counter(start=p.n + total, id="match-both")
         case none
           text "none"
-      each p in items key=toString(p.n)
+      for p in items key=toString(p.n)
         Counter(start=p.n + total, id="each")
 {COUNTER}"#
     );
@@ -161,7 +161,7 @@ component App
     base = base + 100
   view
     column
-      when shown
+      if shown
         Counter(start=base, id="c")
       else
         Counter(start=base * 2, id="other")
@@ -240,7 +240,7 @@ component App
   view
     column
       text `${t}` testId="t"
-      when shown
+      if shown
         Counter(start=1, id="c")
 
 component Counter
@@ -310,8 +310,8 @@ component App
     assert_eq!(text(&r, "c"), "0", "the answer does not run it again");
 }
 
-/// A slot component that shows its fill under a `when` of its own, twice,
-/// and once per row of an `each` over `items()` (two rows).
+/// A slot component that shows its fill under an `if` of its own, twice,
+/// and once per row of a `for` over `items()` (two rows).
 const SLOTS: &str = r#"
 component Hide
   slot
@@ -321,7 +321,7 @@ component Hide
   view
     column
       text "flip" press=flip testId="flip"
-      when open
+      if open
         children
 
 component Twice
@@ -337,7 +337,7 @@ component Rows
   slot
   view
     column
-      each p in items key=toString(p.n)
+      for p in items key=toString(p.n)
         children
 "#;
 
@@ -358,7 +358,7 @@ component App
     press(&mut r, "c").unwrap();
     press(&mut r, "c").unwrap();
     assert_eq!(text(&r, "c"), "2");
-    // The slot component's own `when` hides `children`: the fill's child
+    // The slot component's own `if` hides `children`: the fill's child
     // goes with it, though its use site never stopped rendering.
     press(&mut r, "flip").unwrap();
     assert!(texts(&r, "c").is_empty());

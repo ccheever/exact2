@@ -40,10 +40,10 @@ component Fields
         button press=narrow testId="narrow"
           text (few ? "all" : "rising")
       column testId="pure"
-        each c in shown key=c.id
+        for c in shown key=c.id
           Line(c=c)
       column testId="impure"
-        each c in coins key=`${c.id}-${mode}`
+        for c in coins key=`${c.id}-${mode}`
           row testId=`k-${c.id}` gap=6
             text c.ticker
             text `${c.price} ${c.change}` color=(c.up ? "#16a34a" : "#dc2626")

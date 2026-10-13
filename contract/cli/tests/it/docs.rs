@@ -173,7 +173,7 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
 /// Blocks marked `<!-- check: app -->`, `<!-- check: route <name> -->` and
 /// `<!-- check: file -->` are one app split across a guide (LLP 1115 D7;
 /// docs/recipes/navigation-stack.md): the `app` blocks in order, each `route` block in
-/// place of the placeholder under `when e.name == "<name>"`, and each `file`
+/// place of the placeholder under `if e.name == "<name>"`, and each `file`
 /// block appended. The assembled app compiles with no diagnostics.
 #[test]
 fn every_split_app_in_the_guides_compiles_assembled() {
@@ -414,7 +414,7 @@ pub(crate) fn assemble(parts: &[(&str, &str)]) -> (String, Vec<(usize, String)>)
                 Some(filled) => app = filled,
                 None => wrong.push((
                     i,
-                    format!("no `when e.name == \"{name}\"` placeholder in the app blocks"),
+                    format!("no `if e.name == \"{name}\"` placeholder in the app blocks"),
                 )),
             }
         }
@@ -427,10 +427,10 @@ pub(crate) fn assemble(parts: &[(&str, &str)]) -> (String, Vec<(usize, String)>)
 }
 
 /// The app with the route's block in place of the lines under
-/// `when e.name == "<name>"` (the placeholder screen and its comment).
+/// `if e.name == "<name>"` (the placeholder screen and its comment).
 fn fill_route(app: &str, name: &str, route: &str) -> Option<String> {
     let lines: Vec<&str> = app.lines().collect();
-    let head = format!("when e.name == \"{name}\"");
+    let head = format!("if e.name == \"{name}\"");
     let at = lines.iter().position(|l| l.trim() == head)?;
     let depth = lines[at].len() - lines[at].trim_start().len();
     let mut end = at + 1;

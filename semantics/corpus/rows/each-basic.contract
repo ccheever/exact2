@@ -1,4 +1,4 @@
-// `each` rows with per-row testIds, the index, and a row action that
+// `for` rows with per-row testIds, the index, and a row action that
 // receives the item.
 shape Item
   id: string
@@ -23,7 +23,7 @@ component App
     column
       text `${length(items)}` testId="count"
       text picked testId="picked"
-      each it, i in items key=i
+      for it, i in items key=i
         row testId=`row-${i}`
           text `${i}:${it.label}` testId=`label-${i}`
           button "pick" press=pick(it.id, i) testId=`pick-${i}`

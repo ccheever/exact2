@@ -693,7 +693,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
         text (changed ? "after 👩‍🚀" : "before é") testId="run" press=change font-weight=(changed ? 700 : 400) color=(changed ? "#ff0000" : "#000000")
         text testId="nested"
           text "link" href="https://example.invalid/" testId="link"
-        each value in additions key=value
+        for value in additions key=value
           text value testId="added"
 "##).unwrap();
     struct InlineData;

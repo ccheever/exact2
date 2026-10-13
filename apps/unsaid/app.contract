@@ -149,9 +149,9 @@ component Unsaid
     top = 320 + (next - 2) * 56
   view
     main navigationKey=`${top(nav).id}` testId="unsaid" width="100%" height="100%"
-      each e in stack(nav) key = e.id
+      for e in stack(nav) key = e.id
         column navigationKey=`${e.id}` position="absolute" inset=0 gap=12 padding=16
-          when e.name == "home"
+          if e.name == "home"
             text "Nothing written" role="heading" aria-level=1 testId="heading"
             text "This page writes no colour, font or size. Its background and its text follow the device's scheme, and the text follows the device's font scale." testId="paragraph"
             button press=open testId="button"
@@ -165,7 +165,7 @@ component Unsaid
               text "Open a form"
             button press=openSurfaces testId="open-surfaces"
               text "Open the top layer"
-          when e.name == "surfaces"
+          if e.name == "surfaces"
             column display="flex" flex-direction="column" height="100%" gap=12
               text "The top layer" role="heading" aria-level=1 testId="surfaces-heading"
               text chose testId="chose"
@@ -185,7 +185,7 @@ component Unsaid
                   text "A menu at the bottom"
                 button popovertarget="row-menu" aria-label="More, in the corner" testId="more-corner"
                   image "symbol:more"
-          when e.name == "colours"
+          if e.name == "colours"
             column gap=10 accent-color=(authored ? "light-dark(#ad1457, #f48fb1)" : "auto") testId="colours"
               text "The device's colours" role="heading" aria-level=1 testId="colours-heading"
               row display="flex" flex-wrap="wrap" column-gap=12 row-gap=2 testId="labels"
@@ -241,7 +241,7 @@ component Unsaid
                 button press=author testId="author"
                   text (authored ? "The platform's accent" : "Author an accent")
               text said testId="said"
-          when e.name == "form"
+          if e.name == "form"
             column display="flex" flex-direction="column" height="100%" gap=8
               text "A form" role="heading" aria-level=1 testId="form-heading"
               text (sent == "" ? "Nothing submitted yet" : `Submitted: ${sent}`) testId="sent"
@@ -259,31 +259,31 @@ component Unsaid
                   input value=first input=setFirst enterkeyhint="next" placeholder="First, then Next" aria-label="First" testId="f-first"
                   input value=second input=setSecond enterkeyhint="next" placeholder="Second, then Next" aria-label="Second" testId="f-second"
                   input value=last input=setLast submit=sendForm enterkeyhint="done" placeholder="Last, then Done" aria-label="Last" testId="f-last"
-                  each n in ten key=n
+                  for n in ten key=n
                     input placeholder=`Extra field ${n}` aria-label=`Extra field ${n}` testId=`f-extra-${n}`
-          when e.name == "next"
+          if e.name == "next"
             text "The next page" role="heading" aria-level=1 testId="next-heading"
             text "It has no Back control. The system's Back returns to the first page, and from there it leaves the app." testId="next-paragraph"
-          when e.name == "rows"
+          if e.name == "rows"
             column display="flex" flex-direction="column" height="100%" gap=8
               row display="flex" align-items="center" gap=12
                 text (picked < 0 ? "No row pressed" : `Pressed row ${picked}`) flex=1 testId="picked"
                 button press=jump testId="jump"
                   text `Go to row ${target == 60 ? 150 : 60}`
               list id="rows" virtualized=true flex=1 min-height=0 width="100%" overflow-x="hidden" estimated-item-height=56 scrollTop=top testId="rows"
-                each i in rows key=i
+                for i in rows key=i
                   column width="100%"
-                    when i == 0
+                    if i == 0
                       scroll width="100%" height=120 overflow-x="scroll" overflow-y="hidden" testId="strip"
                         row display="flex" gap=8 height="100%"
-                          each c in cards key=c
+                          for c in cards key=c
                             column width=140 flex-shrink=0 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-radius=12
                               text `Card ${c}`
-                    when i == 1
+                    if i == 1
                       scroll width="100%" height=200 box-sizing="border-box" border-width=1 border-style="solid" border-radius=12 testId="nested"
-                        each n in lines key=n
+                        for n in lines key=n
                           text `Nested line ${n}` padding=12
-                    when i > 1
+                    if i > 1
                       button press=pick(i) width="100%" height=56 box-sizing="border-box" text-align="start" testId=`row-${i}`
                         text `Row ${i}`
       // The top layer's surfaces, declared once at the root: two confirmations

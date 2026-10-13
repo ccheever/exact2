@@ -448,7 +448,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertNotNil(host(p).activate(try XCTUnwrap(p.views[13]))?["error"])
         p.apply(wireBatch([["op": "props", "id": 13, "set": [String: String](), "clear": ["disabled"]]]))
         XCTAssertTrue(s.isEnabled)
-        // A `when` replaced the control: the same switch flips the new one.
+        // An `if` replaced the control: the same switch flips the new one.
         target = 14
         p.apply(wireBatch([["op": "create", "id": 14, "kind": "control", "props": ["type": "checkbox", "accessibilityRole": "switch"], "handlers": ["input"], "style": [:]],
                            ["op": "children", "id": 12, "ids": [14]], ["op": "destroy", "id": 13]]))

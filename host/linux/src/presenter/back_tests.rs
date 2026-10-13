@@ -37,12 +37,12 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${top(nav).id}` ROOT width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0
-          when e.name == "home"
+          if e.name == "home"
             button press=open testId="open"
               text "Open"
-          when e.name == "detail"
+          if e.name == "detail"
             text "Detail" testId="detail"
             BACK
 "#;

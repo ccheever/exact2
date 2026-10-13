@@ -39,8 +39,8 @@ fn boot(app: &str, setup: &str, bubble: bool) -> Runner<Replies> {
     let mut source = source.replacen("  view\n", &format!("{setup}  view\n"), 1);
     if bubble {
         source = source.replacen(
-            "      each entry in stack(nav)",
-            "      box id=\"bubble-sent\" width=100 height=40\n      each entry in stack(nav)",
+            "      for entry in stack(nav)",
+            "      box id=\"bubble-sent\" width=100 height=40\n      for entry in stack(nav)",
             1,
         );
     }

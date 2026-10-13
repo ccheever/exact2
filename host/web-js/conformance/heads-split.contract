@@ -24,17 +24,17 @@ component HeadsSplit
         button press=toggle testId="toggle-head"
           text "Toggle detail head"
       main navigationKey=`${top(nav).id}` navigationBack="back" position="relative" flex=1
-        each e in stack(nav) key=e.id
+        for e in stack(nav) key=e.id
           column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 background-color="#ffffff"
-            when e.name == "items"
+            if e.name == "items"
               head title="Items" description="All items" canonical="/"
               button press=detail testId="open-detail"
                 text "Ada"
                 image "symbol:forward-chevron" width=16 height=16
               button press=commit testId="list-commit"
                 text "Commit from list"
-            when e.name == "person"
-              when named
+            if e.name == "person"
+              if named
                 head title="Ada"
               button press=back testId="back" id="back"
                 text "Back"

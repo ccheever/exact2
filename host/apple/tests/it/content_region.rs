@@ -247,11 +247,11 @@ fn selected_native_subtree_waits_for_b_while_outside_composer_commits() {
     draft = "Reply selected row"
   view
     column width="100%" height="100%"
-      when mounted
+      if mounted
         view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
           view id="content" width="100%" height="100%"
             column testId="bubble" padding=10 border-radius=12 background-color="#e6f0ff"
-              when sender
+              if sender
                 text "Sender" testId="sender"
               text body testId="body" font-size=14 line-height=1.45
               text "12:34" testId="meta"
@@ -412,7 +412,7 @@ fn native_collection_epochs_stay_with_selected_rows_until_complete() {
       view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
         view id="content" width="100%" height="100%"
           list virtualized=true testId="list" width="100%" height="100%"
-            each item in numbers key=item
+            for item in numbers key=item
               column width="100%" padding=4
                 text textValue
                 button press=revise

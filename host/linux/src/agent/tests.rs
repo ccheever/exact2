@@ -399,7 +399,7 @@ fn clock_data_lands_the_replies_without_moving_the_clock() {
 #[test]
 fn a_held_device_request_is_answered_by_ticket_and_never_waited_on() {
     let plan = contract::compile(
-        "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  action hide\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      when show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
+        "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  action hide\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      if show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
     )
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
@@ -842,7 +842,7 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
 /// `hover` out of the row that slid away, into the one that slid under it.
 #[test]
 fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
-    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = slice(rows, 1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      each r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
+    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = slice(rows, 1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      for r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
         NoData,

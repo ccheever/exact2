@@ -1,4 +1,4 @@
-// `each` over an empty list renders nothing; siblings before and after
+// `for` over an empty list renders nothing; siblings before and after
 // stay in order.
 shape Item
   id: string
@@ -9,7 +9,7 @@ component App
   view
     column
       text "before" testId="before"
-      each it, i in items key=i
+      for it, i in items key=i
         text it.id testId=`row-${i}`
       text "after" testId="after"
 

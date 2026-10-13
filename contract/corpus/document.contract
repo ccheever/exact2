@@ -20,15 +20,15 @@ component Site
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation"
       head title="Site" description="Every post" image="/assets/site.png" robots="index"
-      each e in stack(nav) key = e.id
+      for e in stack(nav) key = e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}`
-          when e.name == "home"
+          if e.name == "home"
             head title="Home" canonical="/"
             text "Home"
-          when e.name == "post"
+          if e.name == "post"
             head title=post.title description=post.summary canonical=`/post/${e.params.post}`
             text post.title
-          when e.name == "notfound"
+          if e.name == "notfound"
             head title="Not found" robots="noindex" status=404
             text "Nothing here"
           scroll document flex=1 min-height=0 testId="page"

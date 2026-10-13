@@ -1378,12 +1378,12 @@ impl Em<'_> {
             let opts = self.list_options(i, scope, &edges)?;
             let &[Site::Region(r)] = self.sites.of_node(i) else {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             };
             if plan.regions[r as usize].kind != RegionKind::Each {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             }
             self.list = true;

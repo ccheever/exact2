@@ -279,14 +279,14 @@ component App
   view
     scroll height=844 width=390
       column
-        each row in rows key=row.id
+        for row in rows key=row.id
           text `${row.id}` testId=`row-${row.id}` height=24 flex-shrink=0
 "#;
     // Compile outside the measured interval; retain only the encoded input.
     // The decoded plan and source data below are counted separately once,
     // even when runner values share their storage through Rc.
     let source = if virtualized {
-        source.replace("scroll height=844 width=390\n      column\n        each row in rows key=row.id\n          text", "list virtualized=true estimated-item-height=24 height=844 width=390 overflow-x=\"hidden\"\n      each row in rows key=row.id\n        text")
+        source.replace("scroll height=844 width=390\n      column\n        for row in rows key=row.id\n          text", "list virtualized=true estimated-item-height=24 height=844 width=390 overflow-x=\"hidden\"\n      for row in rows key=row.id\n        text")
     } else {
         source.to_string()
     };
@@ -471,8 +471,8 @@ component App
       button press=topology testId="topology"
         text "topology"
       text `${total}`
-      when shown
-        each row in rows key=row.id
+      if shown
+        for row in rows key=row.id
           text `${row.id}` testId=`row-${row.id}`
 "#;
     let plan = contract::compile(source).unwrap();
@@ -900,9 +900,9 @@ component App
   view
     column height=844 width=390
       input value=draft change=edit height=24 flex-shrink=0
-      when shown
+      if shown
         list virtualized=VIRTUALIZED height=800 width=390
-          each row in rows key=row.id
+          for row in rows key=row.id
             Item(id=row.id, body=body)
 component Item
   props

@@ -489,7 +489,7 @@ fn nested_collection_feedback_relayouts_current_height_at_new_epoch() {
         text "grow"
       column testId="panel" height=h box-sizing="border-box" transition="height 1000ms linear"
         list virtualized=true testId="port" flex=1 min-height=0 width="100%"
-          each n in rows key=n
+          for n in rows key=n
             text `${n}` height=24
 "#;
     let plan = contract::compile(source).unwrap().encode();
@@ -696,7 +696,7 @@ fn accordions(measurer: Box<dyn exact_kernel::TextMeasurer>) -> Host<NoData> {
       button appearance="none" testId="grow-content" press=growContent
         text `${counter}`
       column testId="sections" display=(hidden ? "none" : "flex")
-        when mounted
+        if mounted
           column testId="first-body" height=(first ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not first) transition="height 1000ms linear"
             box height=contentHeight
           column testId="second-body" height=(second ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not second) transition="height 1000ms linear"

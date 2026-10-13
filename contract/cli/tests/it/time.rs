@@ -366,7 +366,7 @@ fn a_key_change_re_arms_a_nan_key_refuses_and_negative_zero_is_zero() {
     assert_eq!(
         r.timer_due_ms(),
         Some(1600.0),
-        "`-0` is `0`, as an `each` key"
+        "`-0` is `0`, as a `for` key"
     );
 }
 
@@ -643,7 +643,7 @@ component App
     after(1000, tick)
   view
     column
-      each it in items key=it
+      for it in items key=it
         Row(id=it, go=go)
 component Row
   props
@@ -717,7 +717,7 @@ fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
     says(
         "key=p",
         "type-task-key",
-        "a task's `key=` is a string, number or bool, as an `each` key is; this one is P",
+        "a task's `key=` is a string, number or bool, as a `for` key is; this one is P",
     );
     let clock = "A gate is read at commits, not as the clock moves, so an `after` gated on `performanceNow()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time";
     says(

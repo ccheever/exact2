@@ -201,7 +201,7 @@ component ${title.replaceAll(' ', '')}
     liked = not liked
   view
     main testId="root" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
           header display="flex" align-items="center"
             text "${title}" role="heading" aria-level=1 flex=1

@@ -19,7 +19,7 @@ component App
     jump = n
   view
     list virtualized=true estimated-item-height=24 height=240 width=390 overflow-x="hidden" testId="list" scrollTop=jump
-      each item in rows key=item.id
+      for item in rows key=item.id
         Cell(item=item)
 component Cell
   props

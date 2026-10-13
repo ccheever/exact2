@@ -15,7 +15,7 @@ component App
   view
     column
       text `${total} ${lastId}` testId="root"
-      each it, i in items key=it.id
+      for it, i in items key=it.id
         Row(item=it, index=i, onTap=note)
 
 component Row

@@ -85,7 +85,7 @@ pub(crate) fn implied_closedby(
 }
 
 /// The most of `rows` that can show at once: rows on different arms of one
-/// `when` or `match` never show together, so a choice counts its fullest
+/// `if` or `match` never show together, so a choice counts its fullest
 /// arm. `depth` is how far along each row's path of arms this looks.
 fn most(rows: &[&Row], depth: usize) -> usize {
     let mut here = 0;
@@ -113,8 +113,8 @@ fn most(rows: &[&Row], depth: usize) -> usize {
 /// Whether a confirmation's rows, as written, are an alert's: the shape
 /// rule every host presents by (`exact_kernel::confirmation::is_alert`),
 /// read off the source. It counts the most rows that can show at once: a
-/// text on any arm is its text, and a button under `each` can be any
-/// number of buttons, so it is a chooser's. Where a `when` leaves a state
+/// text on any arm is its text, and a button under `for` can be any
+/// number of buttons, so it is a chooser's. Where an `if` leaves a state
 /// that is not an alert's, the host that meets it presents what it finds.
 fn alert_shaped(rows: &[Row]) -> bool {
     let of = |keep: &dyn Fn(&Row) -> bool| rows.iter().filter(|r| keep(r)).collect::<Vec<_>>();
@@ -136,9 +136,9 @@ fn has(attrs: &[Attr], name: &str) -> bool {
     attrs.iter().any(|a| a.name == name)
 }
 
-/// A confirmation's direct rows, as its host reads them: `each`, `when`
+/// A confirmation's direct rows, as its host reads them: `for`, `if`
 /// and `match` are not elements, so the rows they produce are its rows.
-/// `repeats` is whether a row is inside an `each`; `arms` is the `when` and
+/// `repeats` is whether a row is inside a `for`; `arms` is the `if` and
 /// `match` arms it is on, outermost first, each as the choice node's address
 /// and the arm's index. Addresses, not spans: a component used on two arms
 /// is inlined as two nodes with one span.
@@ -151,7 +151,7 @@ struct Row<'a> {
 }
 
 impl Row<'_> {
-    /// Whether `self` and `other` are on different arms of one `when` or
+    /// Whether `self` and `other` are on different arms of one `if` or
     /// `match`, so never both present.
     fn exclusive(&self, other: &Row) -> bool {
         for (a, b) in self.arms.iter().zip(&other.arms) {
@@ -212,7 +212,7 @@ impl Lowerer<'_> {
                 (_, "any") | (true, "closerequest") => None,
                 (true, "none") => Some("an alert always has its cancel, which Escape and Back press, so it is `closedby=\"closerequest\"` (leave it unwritten: a tap outside does nothing), or `closedby=\"any\"` for the platform's dismissible form, an action sheet or a light-dismiss dialog"),
                 (true, _) => Some("an alert's is `closerequest` (leave it unwritten: Escape and Back cancel it, a tap outside does nothing) or `any`, the platform's dismissible form"),
-                (false, _) => Some("with no explanatory text, no cancel, more than three buttons or a button under `each` it is the platform's chooser (an action sheet, a menu), which a tap outside dismisses, so it is `closedby=\"any\"` (leave it unwritten)"),
+                (false, _) => Some("with no explanatory text, no cancel, more than three buttons or a button under `for` it is the platform's chooser (an action sheet, a menu), which a tap outside dismisses, so it is `closedby=\"any\"` (leave it unwritten)"),
             };
             if let Some(why) = refused {
                 return err(
@@ -271,7 +271,7 @@ impl Lowerer<'_> {
                         return refuse(row, "this `button` has no `press` and does not hide it, so it is neither an action nor the cancel".into())
                     }
                     _ if row.repeats => {
-                        return refuse(row, "a cancel inside `each` can repeat, and there is at most one".into())
+                        return refuse(row, "a cancel inside `for` can repeat, and there is at most one".into())
                     }
                     _ => cancels.push(row),
                 },
@@ -297,7 +297,7 @@ impl Lowerer<'_> {
         Ok(alert)
     }
 
-    /// The element rows `nodes` produce, through `each`, `when` and `match`;
+    /// The element rows `nodes` produce, through `for`, `if` and `match`;
     /// `arms` is the path of arms `nodes` are on.
     fn rows<'n>(
         &self,

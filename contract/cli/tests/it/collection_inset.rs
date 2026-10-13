@@ -22,7 +22,7 @@ const APP: &str = r#"component App
   view
     column testId="root"
       list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 padding-top=92 padding-bottom="calc(env(safe-area-inset-bottom) + 49px)" reachend=onEnd
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=100 width="100%"
 "#;
 /// The padding before the first row and after the last (49 + a 34-point
@@ -295,7 +295,7 @@ const SNAP: &str = r#"component App
   view
     column testId="root"
       list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 padding-top=92 padding-bottom="calc(env(safe-area-inset-bottom) + 49px)" scroll-padding="92 0 calc(env(safe-area-inset-bottom) + 49px)"
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=100 width="100%"
 "#;
 fn into(r: &mut Runner<Data>, action: &str, row: f64, from: f64) -> f64 {
@@ -443,7 +443,7 @@ fn padded(n: usize, axis: ListAxis, lead: &str, attrs: &str) -> String {
   view
     column testId="root"
       {list} {attrs}
-        each x in rows key=x
+        for x in rows key=x
           {row}
 "#
     )
@@ -588,7 +588,7 @@ fn a_request_uses_its_actions_computed_scroll_padding_immediately() {
   view
     column testId="root"
       list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 font-size=10 scroll-padding-top={inset}
-        each x in rows key=x
+        for x in rows key=x
           text `${{x}}` height=100 width="100%"
 "#
         );
@@ -637,7 +637,7 @@ fn collapsing_scroll_padding_preserves_an_already_visible_nearest_target() {
   view
     column testId="root" font-size={font}
       list id="feed" virtualized=true {style} scroll-padding-{padding}={inset}
-        each x in rows key=x
+        for x in rows key=x
           text `${{x}}` {row}
 "#
             );
@@ -663,14 +663,14 @@ fn a_seek_computes_new_list_styles_before_aligning_and_publishes_once() {
     for nested in [false, true] {
         let view = if nested {
             r#"      list id="feed" virtualized=true height=600 width=400 estimated-item-height=100
-        each x in rows key=x
+        for x in rows key=x
           list id="strip" virtualized=true display="flex" width=600 height=100 overflow-x="scroll" overflow-y="hidden" estimated-item-width=100 scroll-padding-left="4em"
-            each y in rows key=y
+            for y in rows key=y
               text `${y}` width=100 height=100"#
         } else {
-            r#"      when shown
+            r#"      if shown
         list id="strip" virtualized=true display="flex" width=600 height=100 overflow-x="scroll" overflow-y="hidden" estimated-item-width=100 scroll-padding-left="4em"
-          each y in rows key=y
+          for y in rows key=y
             text `${y}` width=100 height=100"#
         };
         let row = if nested { ", row=50" } else { "" };

@@ -20,9 +20,9 @@ component Greybox
 
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
-      when playing
+      if playing
         canvas surface=world(seed=seed, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative" overflow="hidden"
-          when hud.beacons == 1
+          if hud.beacons == 1
             column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
               text "All beacons lit" font-size=32
               button press=restart autofocus aria-label="Play again" testId="again" padding=16 background-color="#e8ad61"

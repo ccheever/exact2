@@ -984,7 +984,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
             "a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"
         }
         "details" | "summary" => {
-            "there is no `details`: keep `open` in state, show the body `when open`, and toggle it from a `button`"
+            "there is no `details`: keep `open` in state, show the body `if open`, and toggle it from a `button`"
         }
         "hstack" | "vstack" | "stack" | "flex" => "a horizontal stack is `row`, a vertical one `column`",
         "container" | "card" => "a box is `view` (or `column`, `row`), styled by a `style` declared in this file",
@@ -1307,7 +1307,7 @@ impl crate::Lowerer<'_> {
         bindings: &mut Vec<BindingsRow>,
     ) {
         use contract_syntax::{BinOp, Expr, Node, TemplatePart};
-        // Texts and images alone, a `when` or an `each` of them included.
+        // Texts and images alone, an `if` or a `for` of them included.
         fn words(node: &Node) -> bool {
             match node {
                 Node::Element { tag, .. } => tag == "text" || tag == "image",

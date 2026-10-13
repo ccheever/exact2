@@ -279,7 +279,7 @@ fn a_route_whose_replaced_header_leaves_takes_back_its_inset() {
         .unwrap();
     kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
     assert_eq!(frame(&mut kernel, 4).1, 106.0);
-    // The header goes (a `when`), the bar's cover stays.
+    // The header goes (an `if`), the bar's cover stays.
     let op = Op::SetChildren {
         id: 2,
         children: vec![4],

@@ -58,7 +58,7 @@ component Todos
         border-radius=4
         padding="0 1ch"
         scroll flex=1 min-height=0 testId="list"
-          each t in shown key = t.id
+          for t in shown key = t.id
             button press=toggle(t.id)
               testId=`item-${t.id}`
               display="flex"

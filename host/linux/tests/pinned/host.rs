@@ -709,7 +709,7 @@ component App
     column testId="app"
       button press=submit aria-label="Log in" testId="login"
         text "Log in"
-      when busy
+      if busy
         text "Logging in…" testId="busy"
       match session
         case some(s)
@@ -751,7 +751,7 @@ component App
 #[test]
 fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
     // @ref LLP 1038 D5/D8/D11 — first pixel and the Linux agent input path.
-    let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string)\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
+    let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string)\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
     let plan = contract::compile(source).unwrap().encode();
     let (host, error) = exact_linux::Host::boot_at(
         &plan,

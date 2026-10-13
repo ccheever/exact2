@@ -1,4 +1,4 @@
-//! `lower-screen-by-state` (LLP 1116.005 D1.1): a `when`/`else` or a
+//! `lower-screen-by-state` (LLP 1116.005 D1.1): an `if`/`else` or a
 //! `match` that swaps the page between screens, in an app that declares no
 //! `routes`. recipe-finder and event-rsvp (round 7) did: a list and its
 //! detail, or a detail and a create form, chosen by a state, each holding a
@@ -127,7 +127,7 @@ impl<'a> App<'a> {
                         let what = if matches!(node, Node::Match { .. }) {
                             "match"
                         } else {
-                            "when"
+                            "if"
                         };
                         out.push(LowerError {
                             id: "lower-screen-by-state",
@@ -246,7 +246,7 @@ fn pressed<'n>(nodes: &'n [Node], out: &mut Vec<&'n Expr>) {
     }
 }
 
-/// The arms of a `when`, each with its condition (an `else when` chain
+/// The arms of an `if`, each with its condition (an `else if` chain
 /// flattened; with no last `else` it chooses among its arms only), or of a
 /// `match`, keyed on its subject.
 fn choice(node: &Node) -> Vec<(Option<&Expr>, &[Node])> {

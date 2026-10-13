@@ -28,7 +28,7 @@ component App
   view
     column
       text `${baked}` testId="baked"
-      each r in feed.rows key=r.id
+      for r in feed.rows key=r.id
         text r.text
 "#;
 
