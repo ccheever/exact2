@@ -23,7 +23,6 @@ use exact_runner::{
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::rc::Rc;
-
 /// What the presenter hands the library at boot: the text measurer (LLP
 /// 1008 §3) and the wake for a request's reply (LLP 1016 D2), each with an
 /// opaque context the library passes back untouched.
@@ -44,7 +43,6 @@ pub struct Hooks {
     /// Measures a system symbol (`TextMeasurer::symbol_size`), with `ctx`.
     pub symbol: Option<crate::measure::SymbolFn>,
 }
-
 impl Hooks {
     /// No callbacks: the reference measurer, and replies on `pump` only.
     pub const fn none() -> Hooks {
@@ -59,7 +57,6 @@ impl Hooks {
         }
     }
 }
-
 /// The alert shape (LLP 1115 D6), the kernel's rule
 /// (`exact_kernel::confirmation`), for the presenter's Swift
 /// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read
@@ -67,7 +64,6 @@ impl Hooks {
 pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
     exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
 }
-
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     document_owner: u64,
