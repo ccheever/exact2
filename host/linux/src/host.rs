@@ -1393,6 +1393,12 @@ impl<D: DataSource> Host<D> {
         self.navigation.visibility(self.runner.kernel(), id)
     }
 
+    /// The first navigation root's stack as its key last named it: its
+    /// routes through the one that shows (`presenter/arrive.rs`).
+    pub(crate) fn shown_stack(&self) -> Option<&[ViewId]> {
+        self.navigation.stack.as_deref()
+    }
+
     /// A shell presents the top layer (`presenter/top.rs`), or none does.
     pub(crate) fn top_layer(&mut self, on: bool) {
         self.navigation.top_layer = on;

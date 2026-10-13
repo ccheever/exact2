@@ -534,6 +534,7 @@ impl<D: DataSource> Presenter<D> {
             && matches!(name, " " | "Enter")
             || role == Some("link") && name == "Enter"
         {
+            self.note_press(id, true);
             self.dispatch_press(id, now_ms, false);
             return;
         }

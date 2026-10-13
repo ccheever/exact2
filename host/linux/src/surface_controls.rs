@@ -625,6 +625,8 @@ impl<D: DataSource> Presenter<D> {
     /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
     /// did, and so does a focus a key or the app moves there after.
     fn focus_for_press(&mut self, hit: ViewId, now_ms: f64) {
+        // What a route this press pushes came from (`presenter/arrive.rs`).
+        self.note_press(hit, false);
         let mut focus = Some(hit);
         while let Some(id) = focus {
             if self.focusable(id) {

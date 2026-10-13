@@ -36,6 +36,7 @@ mod addressed_tap;
 mod ahead;
 mod arrange;
 mod arrange_geometry;
+mod arrive;
 mod back;
 pub mod bars;
 mod clock;
@@ -174,6 +175,8 @@ pub struct Presenter<D: DataSource> {
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
+    /// What the focus's following of the route keeps (`arrive.rs`).
+    route_focus: arrive::State,
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
@@ -445,6 +448,7 @@ impl<D: DataSource> Presenter<D> {
             chosen: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
+            route_focus: Default::default(),
             pointer: None,
             hovered: Vec::new(),
             hover_point: None,
@@ -606,6 +610,7 @@ impl<D: DataSource> Presenter<D> {
         let kernel = self.host.kernel();
         let rows = kernel.rows(None).unwrap_or_default();
         self.autofocus_processed = rows.iter().map(|r| r.id).collect();
+        self.route_focus = Default::default();
         let target = kept.and_then(|(path, node_type)| {
             let (mut ids, mut id) = (self.host.runner().roots(), None);
             for index in path {
@@ -807,52 +812,15 @@ impl<D: DataSource> Presenter<D> {
                     .map(|reason| format!("selected asset refused: {reason}"))
             });
         }
-        if let Some(f) = self.focus {
-            if self.host.kernel().node(f).is_none() || self.host.route_visibility(f).1 {
-                self.focus = None;
-                self.dirty = true;
-            }
-        }
+        self.release_focus();
         self.sync_authored_scroll();
         self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
-        // Only autofocus nodes matter: a walk that keeps those, in
-        // preorder, not an export row per node of every mounted row.
-        let kernel = self.host.kernel();
-        if !self.autofocus_processed.is_empty() {
-            self.autofocus_processed.retain(|id| attached(kernel, *id));
-        }
-        let candidates = if kernel.has_prop(PropId::Autofocus) {
-            kernel.preorder_where(&kernel.roots(), |_, props| {
-                props.bool(PropId::Autofocus) == Some(true)
-            })
-        } else {
-            Vec::new()
-        };
-        {
-            for id in candidates {
-                if self.autofocus_processed.contains(&id)
-                    || !self.focusable(id)
-                    || self.host.route_visibility(id).1
-                {
-                    continue;
-                }
-                if !self
-                    .box_of(id)
-                    .is_some_and(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
-                {
-                    continue;
-                }
-                self.autofocus_processed.insert(id);
-                if self.focus.is_none() {
-                    self.focus = Some(id);
-                    self.dirty = true;
-                }
-                break;
-            }
-        }
+        // The focus a commit leaves: its `autofocus`, then the route's.
+        self.autofocus();
+        self.arrive();
         error
     }
 
