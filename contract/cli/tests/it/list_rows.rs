@@ -96,7 +96,11 @@ fn a_windowed_lists_rows_are_its_wrappers() {
     let list = k.node(id(&r, "it")).unwrap();
     let wrapper = |name: &str| k.node(id(&r, name)).unwrap().parent.unwrap();
     assert_eq!(k.row_list(wrapper("row-a")), Some(list.id));
-    assert_eq!(k.row_list(id(&r, "row-a")), None, "the row inside is no row");
+    assert_eq!(
+        k.row_list(id(&r, "row-a")),
+        None,
+        "the row inside is no row"
+    );
     assert_eq!(k.row_holding(id(&r, "row-a")), Some(wrapper("row-a")));
     // Every row here wrote its bottom edge (`none` is written too).
     for name in ["row-a", "row-b", "row-c"] {
@@ -132,7 +136,9 @@ fn a_list_whose_rows_go_down_the_page_is_marked() {
 
 #[test]
 fn the_author_opts_out_and_the_grouped_form_has_its_own_rows() {
-    assert!(!marked("list testId=\"it\" appearance=\"none\"\n  text \"a\""));
+    assert!(!marked(
+        "list testId=\"it\" appearance=\"none\"\n  text \"a\""
+    ));
     assert!(!marked(
         "list testId=\"it\" appearance=\"auto\"\n  section\n    text \"a\""
     ));
