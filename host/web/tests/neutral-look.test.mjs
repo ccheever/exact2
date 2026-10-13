@@ -266,6 +266,9 @@ test('a size the author wrote on a platform button is its box, and an unsized bu
     await page.setContent(`<style>${sheet('neutral')}</style><div id="exact-root">${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}</div><script>${helpers}</script>`);
     const got = await page.evaluate(() => ({ unsized: box('unsized')[3], sized: box('sized').slice(2), square: box('square').slice(2), short: box('short')[3], unsaid: box('unsaid').slice(2) }));
     expect(got).toEqual({ unsized: 36, sized: [84, 24], square: [28, 28], short: 24, unsaid: [36, 36] }); // `unsaid`: the floor, were the host not to say
+  } finally { await browser.close(); }
+}, 90000);
+
 // A part colour's alpha is its only opacity. Removing it restores the look's default.
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: authored placeholder colour and reset in both looks`, async () => {
   const browser = await launch(engine);
