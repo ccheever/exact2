@@ -1,11 +1,11 @@
-# LLP 1121: Facet — a design system in any language, edited through one API
+# LLP 1121: Saturi — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** Draft r6, 2026-10-13. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system is **Facet**, with `.facet` files; a design changes through a public, versioned edit API whose main client is Facet's own design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md`. Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q4).
+**Status:** Draft r7, 2026-10-13. r7 is r6 with the system named **Saturi** (Charlie, 2026-10-13); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
-- A new leaf crate, `facet/` (`exact-facet`): the `.facet` grammar, its checker and the build's evaluator.
+- A new leaf crate, `saturi/` (`exact-saturi`): the `.saturi` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
-- The Facet protocol server, `facet/1` (D13), and Facet's design tool, an Exact app (D14).
+- The Saturi protocol server, `saturi/1` (D13), and the design tool, an Exact app (D14).
 - The plan and the kernel: the reference table the reach is adding, keyed by app modes (D7).
 - The hosts: per-mode selection, their existing colour-refresh paths extended to tokens, control roles (D9), the live table (D13).
 - The web's JS target and the wasm host: CSS custom properties per mode boundary (D7).
@@ -27,7 +27,7 @@
 
 ## Summary
 
-**Facet** is Exact's design system. An app names its look once, in a `.facet` file that
+**Saturi** is Exact's design system. An app names its look once, in a `.saturi` file that
 reads like Contract and whose values are written in CSS's syntax. It declares **dials** (a few typed inputs: an accent, a
 roundness), **app axes** (named modes beside light and dark: Bluesky's Dim, a density) and
 **tokens** (named colours, lengths, type, shadows and icons). A token's value is a CSS
@@ -47,8 +47,8 @@ the host, as now. So a Dim switch, a rebrand shipped over the air, and a designe
 dial in development are all one operation: replace rows in one table and refresh what reads
 them.
 
-**A design changes through one API.** `facet/1` is a public, versioned edit protocol: reads,
-subscriptions, and checked, atomic writes whose durable storage is the files. Facet's own
+**A design changes through one API.** `saturi/1` is a public, versioned edit protocol: reads,
+subscriptions, and checked, atomic writes whose durable storage is the files. Saturi's own
 design tool, the "living Figma", is its main client; agents, Figma, Paper, Pencil and other
 tools are clients of the same API, with no side channel (D13, D14). A write reaches every
 running development build at once through the live table. **Components declare what may be
@@ -59,7 +59,7 @@ editor control, a group and a priority, so the tool knows what to surface first 
 changes; a design's tokens are the author's values, written once. Nothing here replaces a
 platform control with a look-alike (the reach ruling).
 
-**No language owns the truth.** The `.facet` file is the source; a JSON IR is generated
+**No language owns the truth.** The `.saturi` file is the source; a JSON IR is generated
 from it; Contract checks names against the IR; TypeScript, Rust, Swift and Kotlin get
 generated names and accessors over the same live table; other tools reach it through the
 protocol, or as DTCG.
@@ -102,7 +102,7 @@ kernel's ancestor walk and gives the wasm emitter a row. Each finding is taken:
   parts and native declarations; the IR block's fields; `length` and `number` bindings; props
   are not params (D15, D12).
 - **A Light preview** (Grok M5): a `color-scheme` node is a boundary too (D7).
-- **Staging** (Grok M6, Astra m9): `facet-param-unused` from stage 7; the tool's panels gated
+- **Staging** (Grok M6, Astra m9): `saturi-param-unused` from stage 7; the tool's panels gated
   in the stages that add them; embedded sessions are later; D6's prerequisite points at the
   type-token stage (§5).
 - **`prefer mode`** (Grok M7): a fourth `prefer` group (D13).
@@ -110,22 +110,28 @@ kernel's ancestor walk and gives the wasm emitter a row. Each finding is taken:
   `-exact-tint-color` (Grok m8); `preview` names a build (Grok m9); a Figma plugin may open
   `ws://localhost`, so a bridge is optional (Astra m8).
 
+**Charlie's naming** (r6 → r7, 2026-10-13): the system (tokens, dials, modes, params, the
+evaluator and the protocol) is **Saturi**: `.saturi` files, `saturi/1`, `exact-saturi`,
+`bun exact.mjs saturi`, `ExactSaturi`, `saturi-*` diagnostics. The design tool on top gets
+its own name later and is called "the design tool" here. Earlier entries below are written
+in the new names, except where they record the old one.
+
 **Charlie's rulings on r4** (r4 → r5, 2026-10-13):
-- **An API is how a design changes.** D13 is now the Facet protocol, `facet/1`: public,
+- **An API is how a design changes.** D13 is now the Saturi protocol, `saturi/1`: public,
   versioned, reads, subscriptions, atomic checked writes, `propose`, inverse transactions,
   with the files as its storage. The live table is what a write does to running development
-  builds. D14 makes Facet's design tool the primary client and Figma, Paper and Pencil
+  builds. D14 makes the design tool the primary client and Figma, Paper and Pencil
   clients like any other; DTCG is one client's format. The local token stays; remote and
-  collaborative clients get a pairing proposal, left open (§9 Q5).
-- **The name** is Facet, with `.facet` files (`exact-facet`, `bun exact.mjs facet`,
-  diagnostics `facet-*`); alternatives in §9 Q1. exact1's system is called "exact1's Facet"
-  throughout.
+  collaborative clients get a pairing proposal, left open (§9 Q4).
+- **The name** was Facet, with `.facet` files (`exact-facet`, `bun exact.mjs facet`,
+  diagnostics `facet-*`) in r5; r7 renames it Saturi (above). exact1's system is called
+  "exact1's Facet" throughout.
 - **A component library and a base scale** are wanted later: stages 11 and 12, no longer
   non-goals.
 - **Component params** (D15): a `params` section in the Contract component, with types,
-  ranges, controls, labels, groups and priorities; the same block in a `.facet` file for a
+  ranges, controls, labels, groups and priorities; the same block in a `.saturi` file for a
   component that is not Contract. App dials take the same metadata (D4).
-- **The DSL in files** stands; the extension is `.facet`.
+- **The DSL in files** stands; the extension is `.saturi`.
 
 **Round 1** (r1 → r2). Astra: RIGHT WITH CHANGES (2 BLOCKER, 12 MAJOR, 1 MINOR). Grok:
 WRONG (3 BLOCKER, 9 MAJOR, 4 MINOR). They agreed on the core (named tokens as plan data,
@@ -233,7 +239,7 @@ retention, the capability and the DTCG tuple export. Each finding is taken:
   the boundary node, which the wasm host emits and descendants inherit (D7).
 - **Re-specified fonts would compound `em`** (Astra M4): re-selection is for colour rows; an
   inherited non-colour row may not name a token that varies by app axis
-  (`facet-inherited-axis`) (D7).
+  (`saturi-inherited-axis`) (D7).
 - **Role variables resolve where a custom property is declared** (Astra M1): only the accent
   is element-contextual on the web, so an element with an authored `accent-color`
   redeclares the token properties whose values name it (D7).
@@ -261,7 +267,7 @@ retention, the capability and the DTCG tuple export. Each finding is taken:
   entries are global, immutable and capped at 4,096 (D13).
 - **DTCG import** (Astra M9): values are compared with the exported baseline per tuple (D14).
 - **Minors** (Grok m12–m15): roles and `platform-color` on an `under` axis; `border-color`
-  expanded before the state order; `facet-motion-axis`; the implementer's start (header).
+  expanded before the state order; `saturi-motion-axis`; the implementer's start (header).
 
 ## 1. Motivation
 
@@ -337,21 +343,21 @@ not an authored colour, and Bold Text weights the system font (LLP 1115.000 D12.
 *Rejected:* a neutral brand like exact1's Facet as the default. LLP 1115 exists to stop a look that
 "was not made here".
 
-### D2 — One source, the `.facet` file; a generated IR; one build evaluator, in Rust
+### D2 — One source, the `.saturi` file; a generated IR; one build evaluator, in Rust
 
-**The source is `app.facet`** beside `app.contract` (or named in `app.json` as `"facet"`).
+**The source is `app.saturi`** beside `app.contract` (or named in `app.json` as `"saturi"`).
 Its grammar is Contract's lexical grammar, extended (§3): indentation blocks, `name =
 value` lines, `//` comments, plus `|` and `..`, with each value read as CSS value text. Its values are written in CSS's syntax, with token names where CSS would write
 `var()` (§3). LLP 1095 D4's `theme` block in a `.contract` file stays legal and stays what D4
 says: colour entries only, with no `when` lines and no other kinds. An app that wants more
-moves it to `app.facet`, whose `theme` block is a superset. An app has one or the other
-(`facet-two-sources`).
+moves it to `app.saturi`, whose `theme` block is a superset. An app has one or the other
+(`saturi-two-sources`).
 
-**`exact-facet` is a leaf crate.** It parses, checks (names, kinds against each using row,
+**`exact-saturi` is a leaf crate.** It parses, checks (names, kinds against each using row,
 ranges, cycles, the completeness rule of D4) and folds. It is the **build's** evaluator,
 used by:
 - the Contract compiler, which writes the folded table into the plan (D7);
-- `bun exact.mjs facet check | fmt | eval --mode dark-style=dim | gen <target> | export dtcg`;
+- `bun exact.mjs saturi check | fmt | eval --mode dark-style=dim | gen <target> | export dtcg`;
 - the dev server, for the editor (D13). The editor's own web page loads it as wasm; a
   shipped build never carries it.
 
@@ -361,10 +367,10 @@ roles, pairs, platform colours and mixes per view (LLP 1095 D5); the web's JS ta
 both to the browser. A design adds rows these paths read; it adds nothing for them to
 evaluate.
 
-**The IR is generated, never committed** (DEFERRED §Process): `facet.json`, with a format
+**The IR is generated, never committed** (DEFERRED §Process): `saturi.json`, with a format
 number and the design's digest. Every generator and the editor read it; none parses the DSL.
 
-**`facet fmt` owns the file's layout**, so an editor edit is a one-line diff in a file a
+**`saturi fmt` owns the file's layout**, so an editor edit is a one-line diff in a file a
 person can still edit, comments kept.
 
 *Rejected:*
@@ -384,12 +390,12 @@ spelled as a role is written (`-exact-secondary-label`, `CanvasText`: what
 `kernel/src/style/roles.rs` reads as a colour) overrides that role, within the reach ruling;
 role names are the one exception to the keyword refusal. LLP 1095 D4's bare key
 (`secondary-label`) and the spelled role (`-exact-secondary-label`) are the same override, in
-an inline `theme` and in `app.facet`. Any other name equal to a CSS
+an inline `theme` and in `app.saturi`. Any other name equal to a CSS
 keyword or named colour is refused, as D4 refuses it. LLP 1095 D4's
 undotted app names (`brand`, `card`, `defrost-on`) stay legal; dots are a convention for
 grouping, which the editor and DTCG use.
 
-**Kinds**, each checked against every row that uses the token (`facet-kind` names the row
+**Kinds**, each checked against every row that uses the token (`saturi-kind` names the row
 and why):
 
 | Kind | Value | Rows | Lowers to |
@@ -400,7 +406,7 @@ and why):
 | `type` | CSS `font` syntax: style, weight, size (px, `rem`, or a text style), `/line-height`, family | `font` | the four longhands `font` sets today (`contract/lower/src/shorthands.rs`) plus `font-family` |
 | `family` | a font-family stack | `font-family` | the row |
 | `box-shadow`, `text-shadow` | each row's own syntax (`text-shadow` has no spread) | that row | the row's codec |
-| `duration`, `easing` | CSS time; `cubic-bezier()`, a keyword | a component of a `transition` or `animation` value (`transition="background-color duration.fast easing.standard"`) | substituted into the value at build, before the row's codec reads it; so a `when` on one is refused (`facet-motion-axis`), and an edit to one rebuilds (D13) |
+| `duration`, `easing` | CSS time; `cubic-bezier()`, a keyword | a component of a `transition` or `animation` value (`transition="background-color duration.fast easing.standard"`) | substituted into the value at build, before the row's codec reads it; so a `when` on one is refused (`saturi-motion-axis`), and an edit to one rebuilds (D13) |
 | `icon` | `icon(…)` (D10) | `symbol` | a symbol source |
 
 A gradient is colour tokens in its stops; there is no gradient kind. The hairline stays the
@@ -409,7 +415,7 @@ named length `-exact-hairline`, usable as a length token's value.
 **A row names a token as a string**, as LLP 1095 D4 does: `background-color="surface.card"`,
 `padding="space.row"`, `font="type.body"`. Inside an expression in a row, a token is a bare
 name: `color="color-mix(in srgb, brand 60%, transparent)"`. The compiler checks every literal
-name (`facet-unknown-token`). A row expression that names a token is lowered to a
+name (`saturi-unknown-token`). A row expression that names a token is lowered to a
 synthetic token holding the whole expression, folded per tuple at build like any other, so
 the row still holds one reference and no device evaluates the mix. A name computed at run
 time (from data) is resolved by the
@@ -418,7 +424,7 @@ invalid value in the log.
 
 *Considered:* CSS's own `var(--surface-card)`. Rejected for r2: it brings custom-property
 inheritance, a cascade by another name, which Contract has refused; D4's bare names are
-built and ported. §9 Q3 asks.
+built and ported. §9 Q2 asks.
 
 ### D4 — Dials: typed inputs that tokens are folded from
 
@@ -437,8 +443,8 @@ dials
   `accent.on-fill = contrast-color(accent)`.
 - **An enumerated choice is an axis**, not a dial (D5): one way for a token to vary by a
   choice.
-- **Completeness.** Every dial moves at least one token, or `facet check` refuses it
-  (`facet-dial-inert`). The IR lists, per token, the dials it depends on.
+- **Completeness.** Every dial moves at least one token, or `saturi check` refuses it
+  (`saturi-dial-inert`). The IR lists, per token, the dials it depends on.
 - **A dial is a design-time input.** A shipped app's dials are fixed and folded at build.
   Changing one at run time is the editor's (D13); a person's run-time choice is an app axis.
 - **No generative palette yet.** exact1 Facet's `ramp()` is left until an app wants a palette made
@@ -474,15 +480,15 @@ theme
   of its distinct values), and the kernel looks a node's tuple up by exact match. A token
   that varies by no axis has one value and no entries. A `when` that names more axes wins
   over one that names fewer; two that both hold and neither names more are refused
-  (`facet-when-ambiguous`). An axis declared `under scheme=dark` is resolved by the host
+  (`saturi-when-ambiguous`). An axis declared `under scheme=dark` is resolved by the host
   side: its values are `light-dark(<the default's light side>, <the axis value's dark
   side>)`, so the light side never varies by it. A `when` on it may write one colour, its dark
   side, or a `light-dark()` whose light side is the default's; another light side is refused
-  (`facet-under-light`). A role or `platform-color` has no light side to keep, so as such a
+  (`saturi-under-light`). A role or `platform-color` has no light side to keep, so as such a
   `when`'s value, or as the default of a token that has one, it is refused unless written
-  inside a `light-dark()` (`facet-under-role`). Only colours may vary by such an
+  inside a `light-dark()` (`saturi-under-role`). Only colours may vary by such an
   axis: the kernel picks a length's slice without knowing the scheme, so a non-colour `when`
-  on it is refused (`facet-under-kind`). A design whose axes multiply past 64 tuples is
+  on it is refused (`saturi-under-kind`). A design whose axes multiply past 64 tuples is
   refused with the axes named.
 - **`setMode("dark-style", "dim")`** sets the window's app slice: a runner command beside
   `setScheme`, which stays the host's appearance command. The new slice applies in the
@@ -499,14 +505,14 @@ theme
   become names.
 - **An authored contrast variant** for an app colour (`when contrast=more`) is not in r2. A
   host would need a value form carrying four colours; LLP 1095 D11's high-contrast columns
-  are the place to design it. §9 Q6.
+  are the place to design it. §9 Q5.
 
 ### D6 — Text scale is the host's; type is relative to it
 
 - **Type tokens take the platform's text styles and `rem`.** `type.body = -exact-body/1.35
   "InterVariable"` takes the body style's size and weight, with `line-height: 1.35` and
   `font-family: "InterVariable"`; it follows Dynamic Type and the browser's setting (LLP 1115 D3). A px
-  size is the author's choice not to scale, and `facet check` warns (`facet-type-fixed`).
+  size is the author's choice not to scale, and `saturi check` warns (`saturi-type-fixed`).
 - **A type token sets only the longhands it writes.** `font="type.body"` writes
   `font-size: -exact-body`, `line-height: 1.35` and `font-family: "InterVariable"`, each a
   written row; the weight it omits stays unsaid, so the text style's own weight applies.
@@ -524,7 +530,7 @@ theme
   Dynamic Type updates wait, `runner/src/runner/root_font.rs`). It is `QUEUE.md`'s "The
   app's root font size" item, and this RFC is the app that asks for it. Persistence and a
   stored size at the first frame are that item's second half; `setMode` asks the same
-  question (§9 Q6).
+  question (§9 Q5).
 
 ### D7 — The plan carries references; the kernel picks the app slice; hosts resolve the rest
 
@@ -549,7 +555,7 @@ per full app tuple], fallback }` (D5's mode key).
   are both legacy is `LightDark`; one with a modern half is one `Wide` with its dark side
   (`kernel/src/style/wide.rs`), as the parser makes it. An expression over a host value (a role, a pair's side, a `platform-color`) may only
   be one LLP 1095 D10 admits (`color-mix(in srgb|oklab)`, `rgb(from X r g b / a)`, depth 2),
-  and only once D10 is built; any other is refused (`facet-residual`, naming the host value
+  and only once D10 is built; any other is refused (`saturi-residual`, naming the host value
   that stops the fold). `contrast-color()` of a role is refused for that reason.
 - **The fallback is a pair**, D1's rule: light and dark, for the default app tuple, with
   roles at their fallback pairs. The kernel, Linux and headless runs always have a value.
@@ -579,7 +585,7 @@ CSS (`host/web/src/element.rs`); the JS target does the same (below). So text in
 preview on a Dim page is Black's colour, though its row was written on the page. **Only
 colours re-select.** Re-specifying a font would compound an `em` size at the boundary
 (`kernel/src/style/relative.rs`), so an inherited non-colour row may not name a token that
-varies by an app axis (`facet-inherited-axis`).
+varies by an app axis (`saturi-inherited-axis`).
 
 **What refreshes when a slice or a row changes.** The kernel keeps, per token, the nodes
 whose rows hold it, maintained when a node mounts, retires, moves under another pin, or has
@@ -706,7 +712,7 @@ style PostButton
 - **This amends LLP 1061 D1**, which rejected an `active` block as "a selector system for one
   property". It is now seven rows and five states over tracking the host already does, and
   it never selects another node. `::placeholder` (LLP 1104 D3) is the precedent for a part as
-  a block, not for these rows. §9 Q7 asks.
+  a block, not for these rows. §9 Q6 asks.
 
 **Recipes are `style` blocks**: tokens and state parts in a `style`, chosen by `class`, which
 merges without cascading. No component library or anatomy schema (§8).
@@ -729,7 +735,7 @@ A native control takes the platform's supported parameters, never Exact paint ov
 - **Fidelity is declared per role and host:** `exact`, `best-effort` (the platform alters
   it), or `none`. `NSSwitch` and AppKit's progress indicator take no tint
   (`ControlsMac.swift:158`, `ProgressMac.swift`): `none`. For each target an app ships, the
-  compiler lists every override that is `none` there (`facet-unreachable: accent-color on
+  compiler lists every override that is `none` there (`saturi-unreachable: accent-color on
   macOS switches: NSSwitch draws the system accent`). A lint, not an error: the platform's
   look is the answer there.
 - **A state the platform owns stays the platform's.** iOS draws a disabled prominent glass
@@ -755,7 +761,7 @@ icons
   reader paints SVG paths (`host/android/README.md`). A `material` name is an annotation
   kept in the IR for a host that draws Material Symbols one day; nothing resolves it now.
 - **Missing sources fail at build.** An icon token with no source for a target the app ships
-  (`app.json`) and no `svg` fallback is refused (`facet-icon-missing: icon.share has no
+  (`app.json`) and no `svg` fallback is refused (`saturi-icon-missing: icon.share has no
   source for web`). A bare `symbol:sf/…` in an app that ships a non-Apple target becomes a
   lint naming the target and the icon token to write: an error would break existing apps.
 - **Rendering stays the existing row**, `-exact-symbol-rendering` (monochrome, hierarchical,
@@ -779,7 +785,7 @@ No spacing or radius scale ships in the base yet: the platform's metrics are alr
 rows. A base scale, with platform values rather than a brand's 4 px grid, is wanted later
 (Charlie, 2026-10-13) and is stage 11.
 
-**Packages.** A package (`packages/reading`) may ship `<package>.facet` with tokens named
+**Packages.** A package (`packages/reading`) may ship `<package>.saturi` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
 may set any of them by full name. Two definitions of one name from different files are a
 compile error, unless the app's design sets it. Dials and axes are the app's alone: a package
@@ -789,16 +795,16 @@ tokens is D7's one retention rule.
 
 ### D12 — Every language gets generated names over the one table
 
-`bun exact.mjs facet gen <target>` writes bindings from the IR, generated and never
+`bun exact.mjs saturi gen <target>` writes bindings from the IR, generated and never
 committed.
 
 | Target | What it gets | For |
 |---|---|---|
 | Contract | nothing generated: the compiler checks names against the IR | views |
-| TypeScript | a `Token` string-literal union per kind in the types `bun exact.mjs contract types` writes, so a data module returning `"surface.card"` is checked; `facet.css` and `facet.ts` (resolved constants per tuple) for code outside a plan | `app.ts` data modules; web pages outside Exact |
-| Rust | `pub const SURFACE_CARD: Token<Color>` (and `Token<Length>`, `Token<Number>` …) and `session.facet().get(token, node)` | data crates returning names; the terminal host; a game's Canvas 2D; Rust native modules |
-| Swift | `ExactFacet(view).color(.surfaceCard)` as a dynamic `UIColor`/`NSColor`, `length(…)` and `number(…)` in points, `font(.typeBody)`, `symbol(.iconReply)`, and `observe` | native modules (LLP 1024), LLP 1075.003's hatches, the sample host's screens (LLP 1031) |
-| Kotlin | `ExactFacet(view).color("surface.card")` as an Android `Color` int, `length(…)` and `number(…)`, and `observe`; a Compose adapter is optional, outside the host | Android native views |
+| TypeScript | a `Token` string-literal union per kind in the types `bun exact.mjs contract types` writes, so a data module returning `"surface.card"` is checked; `saturi.css` and `saturi.ts` (resolved constants per tuple) for code outside a plan | `app.ts` data modules; web pages outside Exact |
+| Rust | `pub const SURFACE_CARD: Token<Color>` (and `Token<Length>`, `Token<Number>` …) and `session.saturi().get(token, node)` | data crates returning names; the terminal host; a game's Canvas 2D; Rust native modules |
+| Swift | `ExactSaturi(view).color(.surfaceCard)` as a dynamic `UIColor`/`NSColor`, `length(…)` and `number(…)` in points, `font(.typeBody)`, `symbol(.iconReply)`, and `observe` | native modules (LLP 1024), LLP 1075.003's hatches, the sample host's screens (LLP 1031) |
+| Kotlin | `ExactSaturi(view).color("surface.card")` as an Android `Color` int, `length(…)` and `number(…)`, and `observe`; a Compose adapter is optional, outside the host | Android native views |
 | DTCG | D14 | other tools |
 
 - **Identity is the name, not the index.** A generated constant holds the token's name and
@@ -821,23 +827,23 @@ committed.
   properties, and `SCREAMING_SNAKE` in Rust; a design whose names collide after mapping is
   refused.
 
-### D13 — The Facet protocol: one versioned edit API, with the files as its storage
+### D13 — The Saturi protocol: one versioned edit API, with the files as its storage
 
 **Ruled (Charlie, 2026-10-13):** a design is changed through an API, not only by hand or
 through a development-only editor. The API is public and versioned. External tools (Figma,
-Paper, Pencil and the like) connect through it, and Facet's own design tool (D14) is built on
+Paper, Pencil and the like) connect through it, and the design tool (D14) is built on
 it and is the main way designs are edited. Files are its durable storage.
 
-**The server.** `bun exact.mjs facet serve` owns one project's design: its `.facet` files and
+**The server.** `bun exact.mjs saturi serve` owns one project's design: its `.saturi` files and
 the `params` sections and state parts in its `.contract` files (D15, D8). It runs inside
 whichever dev loop is running (`host/web/dev.mjs`, whose `exact_web::dev::Session` compiles
 the plan, or `host/web-js/dev.mjs`), or alone, with no app running, for a tool that edits
 without previews. **One writer per project:** the server holds an exclusive lock
-(`.exact/facet.lock`), and a second server for the same project refuses to start. It keeps no
+(`.exact/saturi.lock`), and a second server for the same project refuses to start. It keeps no
 state of its own beyond what the files say.
 
-**The protocol, `facet/1`.** JSON messages over a WebSocket, and the same messages as one-shot
-HTTP POSTs for scripts. Its reference is `docs/facet-protocol.md`, versioned with it.
+**The protocol, `saturi/1`.** JSON messages over a WebSocket, and the same messages as one-shot
+HTTP POSTs for scripts. Its reference is `docs/saturi-protocol.md`, versioned with it.
 - **`hello`** negotiates the version. A minor version adds operations or fields; a client
   ignores fields it does not know. A major version the server does not speak is refused. The
   IR's format number (D2) is reported with it, and the connected development builds are
@@ -873,9 +879,9 @@ HTTP POSTs for scripts. Its reference is `docs/facet-protocol.md`, versioned wit
      of overwriting;
   2. is checked by the evaluator; a refused transaction changes nothing and returns the
      diagnostics;
-  3. is **committed as a set**: every changed file is formatted (`facet fmt`, `contract
+  3. is **committed as a set**: every changed file is formatted (`saturi fmt`, `contract
      fmt`) into a temporary file and fsynced, an intent record listing the renames is written
-     to `.exact/facet.journal`, the files are renamed into place, and the record is removed.
+     to `.exact/saturi.journal`, the files are renamed into place, and the record is removed.
      A server that starts and finds a record completes its renames, so a crash never leaves a
      transaction half-applied. Files stay hand-editable, one line per value, and git is the
      history;
@@ -894,7 +900,7 @@ whole dependency closure, not the operation's name:
   looks; a `duration` or `easing` token, or any dial or param they fold from, which D3
   substitutes at build): the ordinary rebuild and reload, which carries state (LLP 1007 §6).
 
-The same rule applies to a hand edit: saving a value change in `app.facet` is a live-table
+The same rule applies to a hand edit: saving a value change in `app.saturi` is a live-table
 edit too.
 
 **The live table.**
@@ -902,7 +908,7 @@ edit too.
   file, and publishing it is what restarts the page (`exact_boot_plan`, LLP 1007 §6) and the
   Apple hosts (`EXACT_DEV_PLAN`, LLP 1008), losing scroll, focus and drafts; the JS loop
   reloads the page on any change in the app directory (`host/web-js/dev.mjs`). So both
-  loops' watchers, and `Session`, ask the evaluator whether a change to a `.facet` file left
+  loops' watchers, and `Session`, ask the evaluator whether a change to a `.saturi` file left
   the structure digest unchanged; if so they publish no plan and do not reload. The decision
   is by content, so it holds across processes and for a hand edit.
 - **The batch travels on the channel the builds already hold to the dev server** (the dev
@@ -928,13 +934,13 @@ edit too.
   forwarding header, loopback host and loopback peer (`access.local`,
   `scripts/install-page.mjs:269-292`); any other request for it gets the not-found the
   install endpoint gives. A client presents it as the first WebSocket message, or as an
-  `x-exact-facet-token` header on a POST, never in a URL. Reads need it too, since a design
+  `x-exact-saturi-token` header on a POST, never in a URL. Reads need it too, since a design
   may be unreleased.
 - **Who can speak the protocol.** A native or wasm Exact session cannot set headers or send
   frames on a socket (LLP 1016.000); a TypeScript data module on the web's JS target can.
   So the design tool (D14) builds for the web's JS target, and its data module is the
-  protocol client. `bun exact.mjs facet op …` is a client over HTTP.
-- **Remote and collaborative clients** wait on §9 Q5. The proposal: **pairing**. The local
+  protocol client. `bun exact.mjs saturi op …` is a client over HTTP.
+- **Remote and collaborative clients** wait on §9 Q4. The proposal: **pairing**. The local
   design tool shows a code (at least 40 bits, valid two minutes, five attempts); the remote
   client presents it once, on the pairing endpoint, which is the only thing a non-local
   request can reach, and receives its own token, scoped `read`, `propose` or `write`, listed
@@ -947,7 +953,7 @@ edit too.
 **What it is, in DEFERRED's terms.** The server and its file writes are tooling, against
 §Tooling's "no Design Mode … no devtools UI"; the live table patches a running development
 session outside the dev reload, a hot revision of values only, against §Runtime. Both wait on
-Charlie's admission (§9 Q4).
+Charlie's admission (§9 Q3).
 
 **Provenance is a lookup**, through the protocol and the agent alike:
 - **Where a token is used:** D7's index lists every mounted node holding it, on every kernel
@@ -960,10 +966,10 @@ Charlie's admission (§9 Q4).
   dark-style=dim`), beside `media`, `page` and `fold` (`scripts/agent-prefer.mjs`,
   `host/linux/src/agent.rs`). It runs `setMode` and leaves `prefers-color-scheme` alone.
 
-### D14 — Clients: Facet's design tool first; Figma, Paper and Pencil are clients too
+### D14 — Clients: the design tool first; Figma, Paper and Pencil are clients too
 
-**Facet's design tool is the primary client**, the "living Figma". It is an Exact app built
-for the web's JS target, whose TypeScript data module speaks `facet/1` with the local token
+**The design tool is the primary client**, the "living Figma". It is an Exact app built
+for the web's JS target, whose TypeScript data module speaks `saturi/1` with the local token
 (D13), like any other client:
 - **dials and params**, grouped and ordered by their declared `group` and `priority` (D4,
   D15), each drawn with its declared control;
@@ -978,10 +984,10 @@ for the web's JS target, whose TypeScript data module speaks `facet/1` with the 
   Embedding the app's screens inside the tool itself is later: a web JS-target app cannot
   host another session today.
 
-**Agents** use the same operations: `bun exact.mjs facet op set-token surface.card …` is a
+**Agents** use the same operations: `bun exact.mjs saturi op set-token surface.card …` is a
 protocol client with the local token.
 
-**External tools are clients, not peers.** Each connects through `facet/1`, with the same
+**External tools are clients, not peers.** Each connects through `saturi/1`, with the same
 checks and the same authority: the files.
 - **Authority.** Names, kinds, axes and structure change only through structure operations
   that pass the checks; values change only through writes. No tool has a side channel.
@@ -992,7 +998,7 @@ checks and the same authority: the files.
   folded from a dial is offered as a dial change where one dial explains it, or as a pinned
   override the tool marks ("no longer follows `accent`"), so a dial never goes inert unseen.
   exact1's Facet never made this choice, and `type.ratio` died of it.
-- **DTCG** is one client's format: `facet export dtcg` writes DTCG Format 2025.10 with the
+- **DTCG** is one client's format: `saturi export dtcg` writes DTCG Format 2025.10 with the
   Resolver Module 2025.10, one modifier `mode` whose contexts are the full tuples (every
   app-axis tuple × `light` and `dark`), each a complete set, checked against the folded table
   before writing. Conversions are named in the export's header: a value with its `$type`; a
@@ -1044,10 +1050,10 @@ component PostButton
   `@scope/reading/article.contract#Article` for a package's. A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
-  components share the name (`facet-param-ambiguous`); an import alias (`use X as Y`)
+  components share the name (`saturi-param-ambiguous`); an import alias (`use X as Y`)
   resolves to the declaring identity, so renaming an import or reordering imports never
   redirects an override.
-- **The app's value.** The app's `.facet` file may set a param by name, with `when` lines like
+- **The app's value.** The app's `.saturi` file may set a param by name, with `when` lines like
   any token; `set-param` writes there and `unset-param` removes it. The component's file keeps
   its default. One value per design: every instance shares it.
 - **Params are not props.** A prop is per instance and runtime data; a param is the design's,
@@ -1071,7 +1077,7 @@ component PostButton
   appear) and `priority=` (1 surfaced first, 3 behind "more", default 2) apply to all. App
   dials (D4) take the same metadata.
 - **What a range checks.** A ranged length takes px literals only, so it can be checked at
-  build; a `rem`, `em` or text-style value there is refused (`facet-range-unit`). The default,
+  build; a `rem`, `em` or text-style value there is refused (`saturi-range-unit`). The default,
   folded for every tuple, must be inside the range (`radius.md` is 12 px in the example).
   An override that is a literal is checked against it; one that names a token is checked
   after folding. A scrub in the tool that replaces a token default with a literal is a pinned
@@ -1079,13 +1085,13 @@ component PostButton
 - **Checks.** A param must be reached from a root: a row or a state part of its component,
   through any chain of params (`pressed` above is read by `:active` only, so it lands with
   state parts, stage 8), or, for a component that is not Contract, its declaration in a
-  `.facet` file, which makes all its params roots. Otherwise it is refused
-  (`facet-param-unused`). A param's kind is checked against every row that uses it (D3).
+  `.saturi` file, which makes all its params roots. Otherwise it is refused
+  (`saturi-param-unused`). A param's kind is checked against every row that uses it (D3).
 - **Language-neutral.** The `params` section lowers into the IR's `components` block: per
   component its identity, and per param its name, kind, default expression, range, step,
   control, options, label, help, group and priority. A component that is not Contract (a
   native module's view in Swift or Kotlin, a Rust canvas component) declares the same block
-  in a `.facet` file, in the `.facet` grammar (bare CSS values, `in a..b`):
+  in a `.saturi` file, in the `.saturi` grammar (bare CSS values, `in a..b`):
 
 ```
 component MapCard
@@ -1094,17 +1100,17 @@ component MapCard
     inset: length = 8px  in 0..24  control=slider  priority=2
 ```
 
-  and reads them through the bindings (D12): `ExactFacet(view).color(.mapCardPin)`,
+  and reads them through the bindings (D12): `ExactSaturi(view).color(.mapCardPin)`,
   `.length(.mapCardInset)`.
 - **Contract grammar.** `section = … | "params" block(param)`; `param = FIELD ":" kind "="
   STRING { attribute } NL`, with `range`, `step`, `control`, `options`, `label`, `help`,
   `group` and `priority` the admitted attributes. One `params` section per component. No new
   token in the Contract lexer: the range is a string.
 
-## 3. The `.facet` grammar
+## 3. The `.saturi` grammar
 
 ```ebnf
-facet-file  = "facet" IDENT NL { block } ;
+saturi-file  = "saturi" IDENT NL { block } ;
 block       = "axes" NL block(axis) | "dials" NL block(dial)
                         | "theme" NL block(token) | "icons" NL block(token)
             | "exports" NL block(NAME NL)
@@ -1146,7 +1152,7 @@ result keeps LLP 1100's storage. Every host gets the same bits: there is one eva
 own):
 
 ```
-facet bluesky
+saturi bluesky
 
 axes
   dark-style = black | dim  under scheme=dark
@@ -1183,7 +1189,7 @@ icons
 - **No look-alike controls** (D9).
 - **No third scheme.** Dim is an app axis under dark.
 - **No dial or param changes at run time in a shipped app.** A person's choice is an app axis.
-- **No side channel for any tool.** Every client, ours included, edits through `facet/1`.
+- **No side channel for any tool.** Every client, ours included, edits through `saturi/1`.
 - **No live two-way Figma canvas sync** (D14).
 
 ## 5. Staging and gates
@@ -1195,7 +1201,7 @@ Android's reader and the terminal.
 
 1. **LLP 1095 D4 and its reach** (its branch). Gate: LLP 1095 §5 item 6's measurement and
    Charlie's word.
-2. **Colour tokens and app axes.** The crate; `app.facet` or inline `theme`; dials; app axes
+2. **Colour tokens and app axes.** The crate; `app.saturi` or inline `theme`; dials; app axes
    with `setMode`, `-exact-mode` and `prefer mode`; colour tokens on the reach's table, keyed
    by app tuple; the web's mode boundaries; the retention rule. Digest break: the app tuple
    on reference rows. Hosts: all. **Gate:** the Bluesky clone's 244 literals become names,
@@ -1208,10 +1214,10 @@ Android's reader and the terminal.
    Expose and the readers unchanged; an app without a design unchanged in behaviour, with no
    design payload. **Alongside, independent:** `setRootFontSize("125%")` (QUEUE's item).
    Gate: the clone's font-size setting scales Dynamic Type at two Dynamic Type sizes.
-3. **The Facet protocol and the design tool, over files** (D13 without the live table, D14's
+3. **The Saturi protocol and the design tool, over files** (D13 without the live table, D14's
    own tool: the dials panel and the token grid). Needs Charlie's §Tooling admission. No
    digest break. **Gate:** the design tool, a web JS-target app, edits the clone's dials and
-   tokens through `facet/1`; every write is a one-line diff; two clients writing the same
+   tokens through `saturi/1`; every write is a one-line diff; two clients writing the same
    token conflict instead of overwriting; a second server for the project refuses to start;
    a transaction across two files killed between its renames is completed on restart; a hand
    edit and a `git checkout` reach a subscribed client; `propose` changes nothing on disk; a
@@ -1222,7 +1228,7 @@ Android's reader and the terminal.
    storage first: `Wide` entries are process-global, immutable and capped at 4,096
    (`kernel/src/style/wide.rs`); the policy says what a running transition keeps alive. No
    digest break beyond stage 2; the new kernel entry `exact_design_rows` on every host.
-   **Gate:** a dial drag in the design tool, and a hand edit of a value in `app.facet`,
+   **Gate:** a dial drag in the design tool, and a hand edit of a value in `app.saturi`,
    reach the clone on the iOS simulator, the Mac and the web at once, with no plan
    published, no reload and no state lost (a scrolled list stays scrolled, a draft stays
    typed); a structure edit still reloads; a build that reconnects after missing a batch gets
@@ -1230,7 +1236,7 @@ Android's reader and the terminal.
    table refuses with a diagnostic rather than dropping; `preview` pins one named build;
    `uses`, `explain` and `resolve-on` are right on every host.
 5. **Bindings and the DTCG client** (D12, D14). No digest break. **Gate:** a native module in
-   the sample host draws with `ExactFacet(view).color(…)` and follows `setMode`, a pin above
+   the sample host draws with `ExactSaturi(view).color(…)` and follows `setMode`, a pin above
    it, a Dynamic Type change and the live table; two embedded sessions with different
    designs answer differently; a TypeScript data module returning an unknown token fails
    `tsc`; a DTCG export re-imported unedited proposes no operations.
@@ -1241,37 +1247,37 @@ Android's reader and the terminal.
    not. `calc()` with `rem` in a token waits on QUEUE's `rem`/`em` item.
 7. **Component params** (D15) and the workbench's params panel. Colour params may land with
    stage 2's kinds, the rest with stage 6's; a param whose only reader is a state part lands
-   with stage 8. No digest break beyond those stages (a param is a token). `facet-param-unused`
+   with stage 8. No digest break beyond those stages (a param is a token). `saturi-param-unused`
    starts here. **Gate:** the clone's post action row and Post button declare params; the
    design tool lists them by group and priority with their controls and `select` options; a
    `set-param` reaches every instance live, and one on a duration param rebuilds instead; a
-   Swift native view's `.facet` params appear beside them and draw through
-   `ExactFacet(view)`; an unused param, an ambiguous short name and a `rem` value on a ranged
+   Swift native view's `.saturi` params appear beside them and draw through
+   `ExactSaturi(view)`; an unused param, an ambiguous short name and a `rem` value on a ranged
    length are refused; renaming an import keeps an override on its component.
 8. **State parts and control roles** (D8, D9). Digest break: state looks; the control-role
    table. Hosts: all that paint a press. **Gate:** the clone's Post button and switches are
    right on every host with no hand fix and no double dim; a checked, disabled toggle with
    both parts shows `:disabled`'s; a class change and a base change while pressed keep the
    overlay over the new base; existing `disabledStyled` apps unchanged; LLP 1061's press
-      corpus unchanged; `facet-unreachable` names the macOS switch and iOS's disabled glass
+      corpus unchanged; `saturi-unreachable` names the macOS switch and iOS's disabled glass
    button; the workbench shows each component's state parts, editable through `set-state`
    (which rebuilds).
 9. **Icon tokens** (D10). Digest break: none if the symbol wire already takes an SVG source
    per node, else one. **Gate:** the clone's ~100 `symbol:sf/…` uses draw on the web from
    icon tokens; a missing source fails the build with the target named.
 10. **External clients and remote authentication** (D13, D14). A Figma plugin bridge, a Paper
-    or Pencil client, pairing. Waits on §9 Q5. **Gate:** a changed accent in Figma Variables
+    or Pencil client, pairing. Waits on §9 Q4. **Gate:** a changed accent in Figma Variables
     is proposed as a dial change and a changed folded value as a pinned override; a paired
     client with `propose` scope cannot write; revoking a client cuts it off at once.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.
-12. **A component library**: `.contract` packages over Facet, with params (D15) as their
+12. **A component library**: `.contract` packages over Saturi, with params (D15) as their
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
     first consumer is named before it starts.
 
-**Checks that stay from stage 2:** `facet-dial-inert` (and `facet-param-unused` from stage
+**Checks that stay from stage 2:** `saturi-dial-inert` (and `saturi-param-unused` from stage
 7); golden IR and
 folded tables for the corpus designs (one evaluator, so no cross-language parity corpus); a
 plan-size budget (the clone's design adds under 4 KB); first frame unchanged within noise for
@@ -1284,8 +1290,8 @@ an app with a design.
   (one generator with LLP 1095 D11's role sheet); the hosts' existing refresh paths called
   for row changes; the protocol server and the design tool; later, the stages' own pieces.
 - Docs: a section in `docs/contract-for-agents.md`, a recipe in `docs/recipes/`, and the
-  protocol's reference (`docs/facet-protocol.md`), versioned with it. The required read grows
-  by one line: "a brand is an `app.facet`; a colour or size names a role or a token".
+  protocol's reference (`docs/saturi-protocol.md`), versioned with it. The required read grows
+  by one line: "a brand is an `app.saturi`; a colour or size names a role or a token".
 - It removes per-app `Theme` records, threaded palettes, repeated `light-dark` pairs, the
   clone's hand-fixed switches, and the `data-paint` workaround.
 
@@ -1295,7 +1301,7 @@ an app with a design.
   literal, and the docs give one rule: a role if the platform has one, a token if it is the
   brand.
 - **The reach is unfinished.** D1's claims about overrides inherit stage 1's measurement.
-- **A public protocol is a compatibility promise.** `facet/1` is versioned from its first
+- **A public protocol is a compatibility promise.** `saturi/1` is versioned from its first
   release, minor versions only add, and the IR's format number is reported, so a client
   knows what it is talking to; a major version is an RFC.
 - **The server writes source on a developer's disk from the network.** The token, verified
@@ -1315,39 +1321,27 @@ an app with a design.
 
 ## 9. Open questions for Charlie
 
-**Ruled on r4 (2026-10-13):** an API is the way a design changes, public and versioned, with
-Facet's own design tool its main client and the files its storage (D13, D14); the name is
-Facet, with `.facet` files (alternatives below); a component library and a base scale are
-wanted later (stages 11 and 12); components declare their params in Contract (D15); a DSL in
-files is right.
+**Ruled (2026-10-13):** an API is the way a design changes, public and versioned, with the
+design tool its main client and the files its storage (D13, D14); the system is named
+**Saturi**, with `.saturi` files, and the design tool will be named separately; a component
+library and a base scale are wanted later (stages 11 and 12); components declare their params
+in Contract (D15); a DSL in files is right.
 
-1. **The name.** r5 uses **Facet** (`app.facet`, `exact-facet`, `bun exact.mjs facet`,
-   `facet/1`, `ExactFacet`). It reuses exact1's name for the same idea, which helps anyone
-   who knew it, and "a facet of a design" reads well. Alternatives, if a fresh name is
-   wanted:
-   - **Livery**: the colours and marks a brand puts on everything it owns; distinctive, and
-     `.livery` is unclaimed, but a less familiar word.
-   - **Swatch**: what a designer holds up to compare; friendly and concrete, but it says
-     colour and this is more than colour.
-   - **Mien**: a thing's look and bearing; short and exact, but obscure.
-   - **Guise**: the form in which something appears; apt for modes and variants, though it
-     hints at disguise.
-   - **Atelier**: the studio; better as the name of the design tool (D14) than of the system.
-2. **How generative?** D4 keeps dials but expects a brand to be hand-tuned literals with a
+1. **How generative?** D4 keeps dials but expects a brand to be hand-tuned literals with a
    few dials, and defers `ramp()`. More (a brand from three dials) or less?
-3. **References.** Token references as bare names (as LLP 1095 D4 built) or CSS's
+2. **References.** Token references as bare names (as LLP 1095 D4 built) or CSS's
    `var(--name)` with custom-property inheritance (subtree overrides for free, but a
    cascade)?
-4. **DEFERRED admissions.** The protocol server and design tool (stage 3, against §Tooling)
+3. **DEFERRED admissions.** The protocol server and design tool (stage 3, against §Tooling)
    and the live table (stage 4, a development-only hot revision of values, against
    §Runtime). Admit both? What take?
-5. **Remote and collaborative clients.** D13 proposes pairing with scoped, revocable,
+4. **Remote and collaborative clients.** D13 proposes pairing with scoped, revocable,
    attributed tokens, and leaves a hosted relay out. Is that the model, and does a team
    relay belong in this program?
-6. **Persistence and contrast.** Should `setMode` and the root-size percentage persist and
+5. **Persistence and contrast.** Should `setMode` and the root-size percentage persist and
    apply before the first frame (so Dim never flashes Black)? Is an authored contrast
    variant for app colours wanted (D5)?
-7. **State parts** amend LLP 1061 D1. Acceptable as parts with paint rows only, or named rows
+6. **State parts** amend LLP 1061 D1. Acceptable as parts with paint rows only, or named rows
    (`-exact-pressed-background-color` and the like) and no block?
-8. **Figma.** Is a Variables writer wanted beside the plugin bridge, and is Enterprise access
+7. **Figma.** Is a Variables writer wanted beside the plugin bridge, and is Enterprise access
    (which Variables writes need) available?
