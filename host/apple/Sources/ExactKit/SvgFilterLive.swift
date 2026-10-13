@@ -294,6 +294,7 @@ final class SvgFilterLive {
         scene.fonts = p.fonts
         let m = CGAffineTransform(translationX: -p.rect.minX, y: -p.rect.minY)
         if !p.again {
+            scene.root.bounds = CGRect(origin: .zero, size: p.rect.size)
             scene.apply(["box": [0, 0, p.rect.width, p.rect.height], "t": [m.a, m.b, m.c, m.d, m.tx, m.ty], "els": p.els], dark: p.dark, clock: p.clock)
         }
         // A held animation runs here from where it is held

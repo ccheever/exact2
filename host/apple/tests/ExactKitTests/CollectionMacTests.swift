@@ -30,6 +30,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
             ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 72.0],
+            contentOp(1, 300, 200, padding: [20, 10, 0, 10]),
             ["op": "content", "id": 1, "w": 300.0, "h": 3020.0]
         ]))
         return (p, p.views[1]!)
@@ -343,6 +344,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 132.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 8.0, "w": 150.0, "h": 116.0],
+            contentOp(1, 400, 132, padding: [8, 0, 8, 0]),
             ["op": "content", "id": 1, "w": 3000.0, "h": 132.0]
         ]))
         let list = try XCTUnwrap(p.views[1])

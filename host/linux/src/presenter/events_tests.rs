@@ -528,7 +528,8 @@ fn a_repress_during_release_keeps_the_original_hit_box_and_cancel_never_activate
 
 /// LLP 1005 §3, LLP 1056 §3 stage 3: the pointer's down, moves and up reach
 /// the node hearing them with its record, from its content box; a free
-/// pointer's moves too, with no button down.
+/// pointer's moves too, with no button down. A native input's content box is
+/// CSS's: the platform's chrome inside its border is not part of the border.
 #[test]
 fn the_pointer_events_carry_their_record_from_the_content_box() {
     const PAD: &str = r#"component App
@@ -545,6 +546,7 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
       box pointerdown=down pointermove=move pointerup=up testId="pad" width=200 height=100 padding=10
         box testId="inner" width=50 height=50
       text seen testId="log" height=20
+      input value="x" pointerdown=down width=200 height=40
 "#;
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(PAD).unwrap().encode(),
@@ -581,6 +583,9 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
         "{}",
         log(&p)
     );
+    p.pointer_down(20., 190., 13.).unwrap();
+    p.pointer_up(20., 190., 14.).unwrap();
+    assert!(log(&p).ends_with(" d20,10/1"), "{}", log(&p));
 }
 
 /// An `svg` paints its content where its hits land: inside the padding
