@@ -251,6 +251,8 @@ pub struct Presenter<D: DataSource> {
     /// The commands the last commits' actions asked for, for the loop that
     /// runs them (`run_commands`).
     commands: Vec<exact_runner::Command>,
+    /// Range replacement selects wait until the action's commands finish.
+    field_select_tasks: Vec<ViewId>,
     /// Driven by the agent (`agent.rs`): a `share` is held, never refused
     /// (LLP 1069.003 D6).
     pub(crate) agent: bool,
@@ -487,6 +489,7 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            field_select_tasks: Vec::new(),
             agent: false,
             booting: true,
             content_registration: region,
@@ -1440,12 +1443,10 @@ impl<D: DataSource> Presenter<D> {
     pub fn rect_of(&mut self, id: ViewId) -> Option<Rect4> {
         self.box_of(id).map(|b| b.rect)
     }
-
     /// A scroll container's offset.
     pub fn scroll_of(&self, id: ViewId) -> (f32, f32) {
         self.scroll.get(&id).copied().unwrap_or((0.0, 0.0))
     }
-
     /// How many nodes are live.
     pub fn node_count(&self) -> usize {
         self.host.kernel().live_count()

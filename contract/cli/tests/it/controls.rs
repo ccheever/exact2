@@ -778,6 +778,63 @@ const EDITOR: &str = r#"component App
       text `${seen}|${picked}` testId="out"
 "#;
 
+#[test]
+fn set_range_text_is_a_typed_host_command_with_dom_overloads() {
+    for tail in ["", ", 4, 9", ", 4, 9, \"end\""] {
+        let src = format!(
+            "component App\n  action replace\n    setRangeText(\"editor\", \"[a.ts]\"{tail})\n  view\n    button press=replace testId=\"replace\"\n      text \"Replace\"\n"
+        );
+        let mut r = boot(&src);
+        r.dispatch(view_of(&r, "replace"), Event::Press).unwrap();
+        let commands = r.take_commands();
+        let command = commands.iter().find(|c| c.name == "setRangeText").unwrap();
+        assert_eq!(command.args[0], Value::str("editor"));
+        assert_eq!(command.args[1], Value::str("[a.ts]"));
+        assert_eq!(
+            command.args.len(),
+            if tail.is_empty() {
+                2
+            } else if tail.ends_with('9') {
+                4
+            } else {
+                5
+            }
+        );
+    }
+    for args in [
+        "\"editor\"",
+        "\"editor\", 3",
+        "\"editor\", \"x\", 1",
+        "\"editor\", \"x\", true, 2",
+        "\"editor\", \"x\", 1, 2, false",
+    ] {
+        let src = format!("component App\n  action replace\n    setRangeText({args})\n  view\n    text \"Editor\"\n");
+        let error = contract::compile(&src).unwrap_err().to_string();
+        assert!(error.contains("type-set-range-text"), "{error}");
+    }
+}
+
+#[test]
+fn range_replacement_input_type_reaches_contract() {
+    let mut r = boot(
+        r#"component App
+  state heard = ""
+  action edited(v: string, e: InputEvent)
+    heard = `${v}|${e.inputType}|${e.selectionStart}-${e.selectionEnd}`
+  view
+    column
+      textarea testId="editor" input=edited
+      text heard testId="out"
+"#,
+    );
+    let editor = view_of(&r, "editor");
+    r.dispatch(editor, Event::of_host_kind(48, "1,3,none,aXYb").unwrap())
+        .unwrap();
+    assert_eq!(out(&r), "aXYb|insertReplacementText|1-3");
+    r.dispatch(editor, Event::Input("typed".into())).unwrap();
+    assert_eq!(out(&r), "typed||5-5");
+}
+
 fn out<D: DataSource>(r: &Runner<D>) -> String {
     let node = r.kernel().node(view_in(r, "out")).unwrap();
     node.props.str(PropId::Text).unwrap_or("").to_owned()

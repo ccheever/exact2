@@ -476,6 +476,12 @@ change can break.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
+**Expanded (Charlie, 2026-10-12, issue #275 rangeedit ruling):**
+“setRangeText: (b) fire one input (insertReplacementText) as recorded deviation;
+selectMode preserve; no undo step — for now”. Consumer: the issue's editor
+replacing `@name` with a reference. LLP 1069.001 records the web, AppKit, UIKit and Linux implementations
+and remaining host limits. Take: none named; this feature lane is explicitly approved.
+
 **Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
 invented components, not HTML's own elements. A built-in tag is an HTML
 element with HTML's meaning; `select` and `option` are admitted on that

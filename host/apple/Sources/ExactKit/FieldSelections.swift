@@ -69,6 +69,8 @@ final class FieldSelections {
     unowned let presenter: Presenter
     /// A text field's `select` (`Bridge.fieldSelect`), where it has a handler.
     var onSelect: ((UInt32, String, FieldSelection) -> Void)?
+    /// An insertReplacementText input, from the command or a hatch (ABI kind 48).
+    var onReplacement: ((UInt32, String, FieldSelection) -> Void)?
     /// Each field's selection as last seen, with its direction.
     private var last: [UInt32: FieldSelection] = [:]
     /// The selection a script last set, until anything else moves it.
@@ -196,6 +198,60 @@ final class FieldSelections {
         set(node, .clamped(start, end, word, length: node.fieldText.utf16.count))
     }
 
+    /// HTML's range replacement, after the command's commit. It is a value
+    /// write, not an undoable user edit; the admitted extra input keeps the
+    /// app's binding synchronized (LLP 1069.001, issue #275).
+    func setRangeText(_ args: [Any]) {
+        guard [2, 4, 5].contains(args.count), let name = args[0] as? String,
+              let replacement = args[1] as? String else { return }
+        let refuse = { (why: String) in self.presenter.session?.log("setRangeText \"\(name)\" refused: \(why)") }
+        guard let node = presenter.views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
+              Self.tracks(node), node.textArea != nil || ["text", "search", "url", "tel", "password"].contains(node.props["type"] ?? "text") else {
+            refuse("not a plain text field"); return
+        }
+        let mode = args.count == 5 ? args[4] as? String ?? "" : "preserve"
+        guard ["preserve", "select", "start", "end"].contains(mode) else { refuse("invalid selectionMode"); return }
+        let old = current(node), value = Array(node.fieldText.utf16)
+        var start = old.start, end = old.end
+        if args.count >= 4 {
+            guard let a = args[2] as? NSNumber, let b = args[3] as? NSNumber else { return }
+            start = FieldSelection.clamped(a.doubleValue, a.doubleValue, nil, length: Int(UInt32.max)).start
+            end = FieldSelection.clamped(b.doubleValue, b.doubleValue, nil, length: Int(UInt32.max)).end
+            guard start <= end else { refuse("start exceeds end"); return }
+        }
+        start = min(start, value.count); end = min(end, value.count)
+        let units = Array(replacement.utf16), after = start + units.count, delta = units.count - (end - start)
+        let raw = String(decoding: Array(value[..<start]) + units + Array(value[end...]), as: UTF16.self)
+        var next = node.textArea != nil ? raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            : raw.replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: "")
+        if node.textArea == nil && node.props["type"] == "url" {
+            next = next.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r\u{0c}"))
+        }
+        var selection: FieldSelection
+        switch mode {
+        case "select": selection = FieldSelection(start: start, end: after)
+        case "start": selection = FieldSelection(start: start, end: start)
+        case "end": selection = FieldSelection(start: after, end: after)
+        default:
+            selection = FieldSelection(start: old.start > end ? old.start + delta : old.start > start ? start : old.start,
+                                       end: old.end > end ? old.end + delta : old.end > start ? after : old.end)
+        }
+        selection = .clamped(Double(selection.start), Double(selection.end), nil, length: next.utf16.count)
+        quietly { node.replaceFieldValue(next) }
+        // Value mutation invalidates the prior scripted-selection suppression.
+        scripted[node.id] = nil
+        set(node, selection, notify: false)
+        replacementInput(node, next, selection)
+        if old != selection {
+            // DOM select is a task: later commands finish first, and its
+            // handler reads the field's value and selection at delivery.
+            DispatchQueue.main.async { [weak self, weak node] in
+                guard let self, let node, self.presenter.views[node.id] === node else { return }
+                self.select(node, self.current(node))
+            }
+        }
+    }
+
     /// `selectText` (the DOM's `select()`) on a focused editor: the whole
     /// value, direction none; the Markdown editor and the emoji picker
     /// select natively.
@@ -212,14 +268,19 @@ final class FieldSelections {
         set(node, FieldSelection(start: 0, end: length))
     }
 
-    private func set(_ node: NodeView, _ s: FieldSelection) {
+    func set(_ node: NodeView, _ s: FieldSelection, notify: Bool = true) {
         let again = scripted[node.id] == s
         scripted[node.id] = s
         last[node.id] = s
         quietly {
             if node.showSelection(s.range), node.editingField { pending[node.id] = nil } else { pending[node.id] = s }
         }
-        if !again { select(node, s) }
+        if !again && notify { select(node, s) }
+    }
+
+    func replacementInput(_ node: NodeView, _ value: String, _ selection: FieldSelection) {
+        node.toldText = value
+        if node.handlers.contains("input") { onReplacement?(node.id, value, selection) }
     }
 
     private func select(_ node: NodeView, _ s: FieldSelection) {
@@ -235,6 +296,27 @@ final class FieldSelections {
 }
 
 extension NodeView {
+    /// A script replaces the buffer without registering a native undo edit.
+    /// As with an authoritative value write, old native undo ranges no longer
+    /// describe this buffer; discard only this field's history.
+    func replaceFieldValue(_ value: String) {
+        pendingValue = nil
+        guard !fieldText.utf16.elementsEqual(value.utf16) else { return }
+        toldText = nil
+        #if os(macOS)
+        writingValue = true
+        defer { writingValue = false }
+        let editor = selectionEditor
+        editor?.breakUndoCoalescing(); editor?.undoManager?.removeAllActions()
+        field?.stringValue = value
+        editor?.string = value
+        #else
+        (textArea?.undoManager ?? field?.undoManager)?.removeAllActions()
+        textArea?.text = value
+        field?.text = value
+        #endif
+    }
+
     /// The field's value as its editor holds it.
     var fieldText: String {
         #if os(macOS)

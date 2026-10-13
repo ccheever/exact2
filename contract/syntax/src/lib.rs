@@ -107,6 +107,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `el.setSelectionRange(start, end, direction)` on a text field by its
     // `id` (x2apps codeedit #2): `setSelectionRange("editor", 4, 4)`.
     "setSelectionRange",
+    "setRangeText",
     "setScheme",
     // @ref LLP 1069.000 D3 — `:root { font-size }`: `setRootFontSize(px)`
     // sets the root size `rem` follows, over the host's; `"medium"` hands it

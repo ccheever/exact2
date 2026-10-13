@@ -2492,6 +2492,17 @@ long press or a double tap selects a word of text its author made selectable
 selected (under `--touch platform`, `tap <id> drag 0 0 press 900` is a real
 long press).
 
+For a plain text field on the **web, macOS, iOS and Linux**, `setRangeText(id, text[, start,
+end[, selectionMode]])` replaces its selection or a UTF-16 range. Selection
+is preserved by default (`select`, `start`, `end` are the other modes).
+Exact deliberately fires one `input` so its action can update the bound
+value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
+step. That input type also covers hatch replacements and browser spelling
+corrections, so it does not uniquely identify this command. `select` follows
+input only when the selection changes. URL inputs trim surrounding ASCII
+whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` and `beforeinput` are still unavailable.
+See [form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange).
+
 Book typography is CSS's on every host. `text-align="justify"` fills all but
 a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
 `text-indent=24`; negative with the same `padding-left` hangs the first line).

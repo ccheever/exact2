@@ -496,7 +496,7 @@ impl<D: DataSource> Bridge<D> {
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
     /// and `input`, the payload `true` or `false` (LLP 1069.001 D4); 40 to
     /// 42 a text field's `input`, `change` and `select` with its selection
-    /// (x2apps codeedit #2).
+    /// (x2apps codeedit #2); 48 is replacement input with that selection payload.
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -522,9 +522,9 @@ impl<D: DataSource> Bridge<D> {
             // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
             // the clipboard's three, a text's selectionchange, beforeunload,
             // wheel, drop and resize, and a text field's input, change and
-            // select with its selection, and a key's down (6), up (43) and capture (44)
+            // select with its selection, replacement input (48), and a key's down (6), up (43) and capture (44)
             // with its code and repeat (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=45 => match Event::of_host_kind(kind, &payload) {
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=45 | 48 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },

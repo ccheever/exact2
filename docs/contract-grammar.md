@@ -1156,7 +1156,9 @@ names — `value` (a checkbox's or a radio's own `value`, `on` when it has
 none; a range's number as text), `checked`, and a text field's
 `selectionStart`, `selectionEnd` (UTF-16 offsets into its value) and
 `selectionDirection` (`forward`, `backward` or `none`); a control without a
-text selection reports 0, 0 and `none`. After typing, the caret sits after
+text selection reports 0, 0 and `none`. `inputType` reports `insertReplacementText` for range replacements, hatch
+`input(text)`, and DOM edits carrying that type (such as browser spelling
+corrections); other input types currently report an empty string. After typing, the caret sits after
 the typed text; the direction then is the platform's (Chrome's varies with
 the input), so test the offsets. A text field's `select` (an `input` that is
 no control, a `textarea` that is not the Markdown editor) is HTML's: it fires
@@ -1186,6 +1188,30 @@ direction)` are the field's own method, by its `id`, after the commit's tree
 is in place (so a `value` written beside it is there first). It does not
 focus the field; the field keeps the selection, and the next key typed there
 replaces it. The offsets are clamped as the DOM's are (`-1` is past the end).
+
+On **web (JS and wasm), macOS, iOS and Linux**, `setRangeText(id, text)` replaces the
+current selection; `setRangeText(id, text, start, end[, selectionMode])`
+replaces the given UTF-16 range. `selectionMode` is `preserve` by default,
+or `select`, `start`, `end`, following HTML. It does not focus the field,
+apply `maxlength`, or create an undo step. Apple clears the edited field's
+existing undo history when its value changes. Invalid ranges, modes, unsupported
+input types and missing ids log a refusal without editing. The Markdown
+editor, Windows, Android and terminal do not support this command yet.
+
+**Deliberate deviation (Charlie, 2026-10-12):** unlike the DOM method,
+Exact fires one noncancelable `input` after a successful replacement, even
+when the value is unchanged. Wire `input` to update your bound value. Its
+`InputEvent.inputType` is `insertReplacementText`. This type also describes
+hatch replacements and browser spelling corrections; it does not identify
+a `setRangeText` call uniquely. The DOM event also carries replacement `data`;
+Contract does not expose `data` yet. The browser
+still delivers its own `select`/`selectionchange` events. Chrome delivers
+`select` after the added input, only when the selection changes; native
+hosts queue replacement selects after the action's commands and report the
+field's current value and selection at delivery. macOS Chrome resets direction
+to `none` on replacement; Apple follows it. URL inputs strip leading and trailing
+ASCII whitespace after removing CR/LF. Contract's
+field `selectionchange` and `beforeinput` remain unimplemented (issue #275).
 
 ```text
 action edited(text: string, e: InputEvent)
@@ -1427,7 +1453,7 @@ controls and inline links inherit this state; an explicit
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
 `playSound`, `playSounds`, `stopSounds`
@@ -1445,6 +1471,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
+| `setRangeText(id, text[, start, end[, selectionMode]])`: plain-field range replacement, one `input`, preserve selection by default, no undo step ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |

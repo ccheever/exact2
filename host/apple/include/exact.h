@@ -395,6 +395,7 @@ uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
  * 40 = a text field's input, 41 its change, 42 its select (UTF-8
  *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
  *      the whole value verbatim; x2apps codeedit #2);
+ * 48 = range replacement input (same payload as 40, inputType insertReplacementText);
  * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
  *      true|false for repeat;

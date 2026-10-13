@@ -706,6 +706,7 @@ public final class ExactSession {
         presenter.onInput = { [unowned self] id, value in
             apply(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
         }
+        presenter.fieldSelections.onReplacement = { [unowned self] id, value, selection in apply(runtime.replacementInput(id, value, selection, now: now())) }
         presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in apply(runtime.fieldSelect(id, value, selection, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.
@@ -1095,8 +1096,8 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }
-                if name == "setSelectionRange" {
-                    app.deliver { [weak self] in self?.presenter.fieldSelections.setSelectionRange(args) }
+                if name == "setSelectionRange" || name == "setRangeText" {
+                    app.deliver { [weak self] in if name == "setRangeText" { self?.presenter.fieldSelections.setRangeText(args) } else { self?.presenter.fieldSelections.setSelectionRange(args) } }
                     continue
                 }
                 if name == "blur" { app.deliver { [weak self] in self?.presenter.blurElement(args) }; continue }

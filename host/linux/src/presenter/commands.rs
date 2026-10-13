@@ -53,6 +53,7 @@ impl<D: DataSource> Presenter<D> {
                 "selectText" => self.select_text(&c.args),
                 // A text field's selection, the focus unmoved (x2apps codeedit #2).
                 "setSelectionRange" => self.set_selection_range(&c.args),
+                "setRangeText" => self.set_range_text(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
                 // `Element.scrollBy(x, y)`, by its id.
@@ -102,6 +103,7 @@ impl<D: DataSource> Presenter<D> {
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
+        self.drain_field_select_tasks();
         if self.pending_update {
             self.pending_update = false;
             match self.activate_update(data()) {

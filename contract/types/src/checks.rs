@@ -911,6 +911,9 @@ pub(super) fn check_command(
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);
     }
+    if name == "setRangeText" {
+        return crate::selection::range_text_args(args, scope, shapes, span);
+    }
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);
     }

@@ -904,7 +904,7 @@ export const onPress = (e, kind, f, l) => { if (!e.matches("button, a[href], inp
 export const onValue = (e, kind, f, l) => { return l(kind, ev => {
       if (ev instanceof CustomEvent) return f(ev.detail);
       const box = e.type === "checkbox", radio = e.type === "radio", v = box ? e.checked : e.type === "range" ? Number(e.value) : e.value;
-      f(v, inputRecord(e, box || radio ? e.value : String(v), box ? e.checked : radio));
+      f(v, inputRecord(e, box || radio ? e.value : String(v), box ? e.checked : radio, ev));
       if (box && e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked;
       if (radio) settleRadios(e, r => r.$checked);
     }); };
@@ -1115,9 +1115,9 @@ export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () 
 /** The `InputEvent` record (contract/types selection.rs's order): the value,
  * whether checked, and a text field's selection (UTF-16, the DOM's); a type
  * with none has its caret after its text, a control 0, 0, `none`. */
-function inputRecord(e, value, checked) {
+function inputRecord(e, value, checked, event) {
   const n = e.value?.length ?? 0, field = textField(e);
-  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none"];
+  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none", event?.inputType === "insertReplacementText" ? "insertReplacementText" : ""];
 }
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
  * the node's own `--exact-press` (css.rs). */

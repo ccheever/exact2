@@ -419,6 +419,10 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, selection == nil ? 23 : 40, n, now))
         }
     }
+    /// The scripted replacement's one input, with its DOM inputType (kind 48).
+    func replacementInput(_ view: UInt32, _ value: String, _ selection: FieldSelection, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 48, write(selection.payload(value)), now)) }
+    }
     /// A text field's `select` (kind 42, x2apps codeedit #2): its value and
     /// the selection it now has.
     func fieldSelect(_ view: UInt32, _ value: String, _ selection: FieldSelection, now: Double) -> Batch {

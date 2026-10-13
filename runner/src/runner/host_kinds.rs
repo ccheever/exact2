@@ -73,7 +73,7 @@ impl Event {
                 .ok_or("invalid resize rect"),
             // A text field's `input`, `change` and `select` with its
             // selection (x2apps codeedit #2).
-            40..=42 => Event::field_payload(kind, payload).ok_or("invalid field selection"),
+            40..=42 | 48 => Event::field_payload(kind, payload).ok_or("invalid field selection"),
             _ => Err("unknown event kind"),
         }
     }

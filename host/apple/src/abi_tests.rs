@@ -963,7 +963,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     text = value
   view
     box
-      input testId="field" value=text change=edit
+      input testId="field" value=text input=edit change=edit
 "#,
     )
     .unwrap()
@@ -996,6 +996,13 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
         assert!(out.contains(&format!("unknown event kind {kind}")), "{out}");
         assert_eq!(slots(&bridge), hello);
     }
+    let len = bridge.input_write(b"typed");
+    let n = bridge.dispatch(view, 48, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("invalid field selection"), "{out}");
+    let len = bridge.input_write(b"5,5,none,range");
+    bridge.dispatch(view, 48, len, 0.);
+    assert_eq!(slots(&bridge), vec![("text".into(), Value::str("range"))]);
     let len = bridge.input_write(b"typed");
     bridge.dispatch(view, 1, len, 0.);
     assert_eq!(slots(&bridge), vec![("text".into(), Value::str("typed"))]);

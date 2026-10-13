@@ -357,7 +357,14 @@ final class ElementHatches {
             #endif
             // The app is told whatever the hatch wrote, and that is the text it knows from here.
             node.toldText = value
-            self.presenter.typed(id, value, input: node.handlers.contains("input"))
+            if FieldSelections.tracks(node) {
+                let end = value.utf16.count, selection = FieldSelection(start: end, end: end)
+                self.presenter.fieldSelections.set(node, selection, notify: false)
+                self.presenter.typed(id, value, input: false)
+                self.presenter.fieldSelections.replacementInput(node, value, selection)
+            } else {
+                self.presenter.typed(id, value, input: node.handlers.contains("input"))
+            }
             self.said(id, "input (\(node.props["type"] == "password" ? "protected" : "\(value.count) chars"), delivery: hatch)")
         }
     }

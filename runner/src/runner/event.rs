@@ -135,13 +135,17 @@ pub enum ControlValue {
     /// A text field's text with its selection as the edit left it, which
     /// its `InputEvent` reports (x2apps codeedit #2).
     Field(String, super::FieldSelection),
+    /// A scripted range replacement: one noncancelable insertReplacementText input.
+    Replacement(String, super::FieldSelection),
 }
 
 impl ControlValue {
     /// The value as the action receives it.
     pub(super) fn value(&self) -> Value {
         match self {
-            Self::Text(text) | Self::Field(text, _) => Value::str(text),
+            Self::Text(text) | Self::Field(text, _) | Self::Replacement(text, _) => {
+                Value::str(text)
+            }
             Self::Checked(on) => Value::Bool(*on),
             Self::Files(files) => Value::list(files.iter().map(|f| f.value()).collect()),
         }
@@ -1045,15 +1049,20 @@ impl<D: DataSource> Runner<D> {
         let (control, record) = match (&event, control) {
             (Event::Input(v) | Event::Change(v), Some(p)) => {
                 let reported = match v {
-                    ControlValue::Field(_, s) => Some(*s),
+                    ControlValue::Field(_, s) | ControlValue::Replacement(_, s) => Some(*s),
                     _ => None,
                 };
-                let record = self.input_record(view, &p, reported);
+                let record = self.input_record(
+                    view,
+                    &p,
+                    reported,
+                    matches!(v, ControlValue::Replacement(..)),
+                );
                 (Some(p), Some(record))
             }
             (Event::FieldSelect(text, s), _) => (
                 None,
-                Some(self.input_record(view, &Value::str(text), Some(*s))),
+                Some(self.input_record(view, &Value::str(text), Some(*s), false)),
             ),
             _ => (None, None),
         };

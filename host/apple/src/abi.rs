@@ -1010,9 +1010,9 @@ impl<D: DataSource> Bridge<D> {
             // the clipboard's three, a text's selectionchange, and
             // beforeunload, wheel and drop, and a text field's `input`,
             // `change` and `select` with its selection (x2apps codeedit #2),
-            // and a key's down (6), up (43) and capture (44) with its code and repeat
+            // replacement input (48), and a key's down (6), up (43) and capture (44) with its code and repeat
             // (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 => {
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 48 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
