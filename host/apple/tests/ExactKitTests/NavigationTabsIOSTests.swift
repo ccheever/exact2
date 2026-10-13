@@ -32,6 +32,20 @@ final class NavigationTabsIOSTests: XCTestCase {
 
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
+    private func turn() {
+        let turned = expectation(description: "queued focus work ran")
+        DispatchQueue.main.async { turned.fulfill() }
+        wait(for: [turned], timeout: 5)
+        window?.layoutIfNeeded()
+    }
+
+    private func settle(_ session: ExactSession) {
+        turn()
+        let agent = Agent(session: session)
+        until("native work settled") { !agent.nativeInFlight() }
+        window?.layoutIfNeeded()
+    }
+
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
@@ -68,7 +82,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         if module {
             session.natives.installArtifact(try XCTUnwrap(env["EXACT_FIXTURE_MODULE"], "build.mjs --test --ios builds the fixture's module"))
         }
-        spin(0.3)
+        settle(session)
         return session
     }
 
@@ -419,7 +433,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         let list = try node(session, "list-second")
         let scroll = try XCTUnwrap(list.scroll)
         scroll.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
-        spin(0.2)
+        settle(session)
         // In CSS terms: under a collapsing title UIKit moves the offset by
         // what the title gives up, and keeps the offset plus its inset.
         let css = { scroll.contentOffset.y + scroll.adjustedContentInset.top }
@@ -462,7 +476,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         presenter.applyKeyboard(top: 460, duration: 0, curve: 0)
         let scroll = try XCTUnwrap(try node(session, "list-second").scroll)
         scroll.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
-        spin(0.2)
+        settle(session)
         let css = { scroll.contentOffset.y + scroll.adjustedContentInset.top }
         let scrolled = css()
         // UIKit announces the keyboard's hide inside the resign, the field
@@ -482,7 +496,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         // A person's focus: the keyboard that shows for it brings the draft into view.
         presenter.blurElement([])
         XCTAssertNil(presenter.focusReturned)
-        spin(0.1)
+        until("the draft resigned focus") { !field.isFirstResponder }
         scroll.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
         XCTAssertTrue(field.becomeFirstResponder())
         presenter.applyKeyboard(top: 460, duration: 0, curve: 0)
@@ -506,9 +520,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         mark.resigned(true)
         leave()
         enter()
-        spin(0.05)
+        turn()
         leave()
-        spin(0.05)
+        turn()
         // The pop: UIKit gives the focus back in the call that adds the view.
         enter()
         var returning = false
@@ -518,7 +532,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         mark.resigned(true)
         leave()
         enter()
-        spin(0.05)
+        turn()
         _ = mark.becoming(field) { returning = mark.returning; return true }
         XCTAssertFalse(returning)
         // The presenter's own `focus()` is never a return.

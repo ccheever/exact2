@@ -115,21 +115,6 @@ final class RouteController: UIViewController {
         settle()
         #endif
     }
-    // A bar back in portrait over a `scroll` at its top stayed inline (iOS
-    // 26.5), where UIKit's own scroll view expands: its titles are set
-    // again once the rotation ends. A grouped list's collection view is
-    // UIKit's own and does as UIKit's does (inline on 26.5, large on 27.2).
-    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
-        super.viewWillTransition(to: size, with: coordinator)
-        #if !os(tvOS)
-        guard let scroll = contentScrollView(for: .top), !(scroll is GroupedScroller),
-              navigationItem.largeTitleDisplayMode == .always else { return }
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-            self?.settleOwed = true
-            DispatchQueue.main.async { self?.settle() }
-        }
-        #endif
-    }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         inferMarginsAgain()
@@ -253,7 +238,12 @@ final class RouteController: UIViewController {
                 bar.layoutIfNeeded()
             }
         }
-        if let scroll { measureScrollBarAgain(scroll) }
+        if let scroll {
+            measureScrollBarAgain(scroll)
+            // Rebinding can leave the safe area unchanged, so no inset
+            // callback samples the new scroll owner's logical origin.
+            host?.reportCovers()
+        }
     }
     /// UIKit sizes a scroller's scroll bar from insets it caches when the
     /// scroller's safe area changes, the large title it holds left out. A

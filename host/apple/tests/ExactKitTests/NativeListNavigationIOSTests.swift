@@ -40,6 +40,17 @@ final class NativeListNavigationIOSTests: XCTestCase {
 
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
+    private func settle(_ p: Presenter) {
+        window?.layoutIfNeeded()
+        let turned = expectation(description: "queued title and layout work ran")
+        DispatchQueue.main.async { turned.fulfill() }
+        wait(for: [turned], timeout: 5)
+        guard let session = p.session else { return }
+        let agent = Agent(session: session)
+        until("native work settled") { !agent.nativeInFlight() }
+        window?.layoutIfNeeded()
+    }
+
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
@@ -66,7 +77,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
         view.layoutIfNeeded()
         host.beginAppearanceTransition(true, animated: false)
         host.endAppearanceTransition()
-        spin(0.3)
+        settle(session.presenter)
         return session
     }
 
@@ -259,8 +270,9 @@ final class NativeListNavigationIOSTests: XCTestCase {
         XCTAssertEqual(collection.contentInsetAdjustmentBehavior, .never)
         XCTAssertTrue(route.contentScrollView(for: .bottom) === replacement, "the bottom edge follows the replacement too")
         XCTAssertEqual(replacement.contentInsetAdjustmentBehavior, .always)
-        XCTAssertEqual(node.scrollOrigin, 0, "the previous backend's title inset is not carried over")
-        XCTAssertEqual(node.scrollCollapsed, 0)
+        XCTAssertEqual(node.scrollOrigin, replacement.adjustedContentInset.top, "the replacement uses its own title inset")
+        XCTAssertEqual(node.scrollCollapsed, replacement.adjustedContentInset.top)
+        XCTAssertEqual(replacement.contentOffset.y + node.scrollTopInset(replacement), 0, accuracy: 0.5, "the replacement keeps the logical start")
         XCTAssertTrue(navigation.shownScroll(navigation.contentScroller(of: route)) === replacement)
     }
 
@@ -629,7 +641,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
         let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
         let route = try XCTUnwrap(nav.topViewController as? RouteController)
         until("the tab's route is in the window") { route.view.window === self.window }
-        spin(0.3)
+        settle(p)
         return (nav, route)
     }
 
@@ -655,7 +667,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
     /// Followed by the bar, its scroll view at its start and its large title shown.
     private func followed(_ testId: String, by route: RouteController, in nav: UINavigationController, _ p: Presenter) throws {
         until("the route's bar follows \(testId)") { self.node(p, testId)?.scrollView.map { route.contentScrollView(for: .top) === $0 } ?? false }
-        spin(0.3)
+        settle(p)
         let n = try XCTUnwrap(node(p, testId)), scroll = try XCTUnwrap(n.scrollView)
         XCTAssertTrue(route.collapseScroll === n)
         XCTAssertEqual(fromStart(n, scroll), 0, accuracy: 0.5, "\(testId) rests at its start")
@@ -672,7 +684,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
         let p = try lifecycle()
         try press(p, "control-arrive")
         until("the hidden tab's list is built") { self.node(p, "arriving-list")?.scrollView != nil }
-        spin(0.3)
+        settle(p)
         let (nav, route) = try select(p, tab: 2)
         try followed("arriving-list", by: route, in: nav, p)
     }
@@ -683,7 +695,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
         try followed("later-list", by: route, in: nav, p)
         try press(p, "control-between")
         until("the bar stops following the list") { route.collapseScroll == nil && route.collapseScrollView == nil }
-        spin(0.3)
+        settle(p)
         // UIKit's bar over no scroller shows its large title, still.
         try largeTitleShows(nav, route, "the title shows over a list the bar no longer follows")
         try press(p, "control-between")
@@ -708,7 +720,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
     private func pushAndPop(_ p: Presenter, _ nav: UINavigationController, _ root: RouteController, byApp: Bool = false) throws {
         try press(p, "control-open")
         until("the pushed route is shown") { nav.topViewController !== root && nav.transitionCoordinator == nil }
-        spin(0.3)
+        settle(p)
         let pushed = try XCTUnwrap(nav.topViewController as? RouteController)
         XCTAssertGreaterThan(shownTitle(nav, pushed), 0, "the pushed route shows a title")
         if byApp {
@@ -722,7 +734,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
             nav.popViewController(animated: true)
         }
         until("the root is shown again") { nav.topViewController === root && nav.transitionCoordinator == nil }
-        spin(0.3)
+        settle(p)
         XCTAssertEqual(nav.viewControllers, [root], "one route left, the root")
     }
 
@@ -788,7 +800,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
         list.applyPendingScroll()
         nav.navigationBar.setNeedsLayout()
         nav.navigationBar.layoutIfNeeded()
-        spin(0.3)
+        settle(p)
         let before = fromStart(list, collection)
         XCTAssertGreaterThan(before, 100, "the root is scrolled past its large title")
         try pushAndPop(p, nav, root)
@@ -816,7 +828,7 @@ final class NativeListNavigationIOSTests: XCTestCase {
             list.applyPendingScroll()
             nav.navigationBar.setNeedsLayout()
             nav.navigationBar.layoutIfNeeded()
-            spin(0.3)
+            settle(p)
             let before = fromStart(list, scroll), bar = nav.navigationBar.frame
             XCTAssertGreaterThan(before, 100, "\(testId) is scrolled past its large title")
             _ = try select(p, tab: 0)
@@ -854,12 +866,12 @@ final class NativeListNavigationIOSTests: XCTestCase {
         // it is before a route first gives its list (the title not in it).
         root.track(nil)
         nav.navigationBar.layoutIfNeeded()
-        spin(0.3)
+        settle(p)
         measureAgain()
         // The list given back: UIKit moves the title into it, its safe area unchanged.
         root.track(scroll)
         until("the bar follows the list again") { root.contentScrollView(for: .top) === scroll }
-        spin(0.3)
+        settle(p)
         let cached = effective().top
         measureAgain()
         XCTAssertEqual(effective().top, followedTop, accuracy: 0.5)

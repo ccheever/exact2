@@ -697,13 +697,36 @@ final class NavigationBasicsIOSTests: XCTestCase {
         list.pendingScrollTop = 100_000
         list.applyPendingScroll()
         until("the physical end and its scroll event have settled") {
-            metrics != nil && abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
+            guard let event = metrics else { return false }
+            return abs(event[3] - event[1] - event[5]) < 0.5 &&
+                abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
         }
         let event = try XCTUnwrap(metrics), room = list.scrollPortInsets(sv)
         XCTAssertEqual(event[5], Double(sv.bounds.height - room.top - room.bottom), accuracy: 0.5)
         XCTAssertEqual(event[3] - event[1] - event[5], 0, accuracy: 0.5)
         let end = sv.convert(CGPoint(x: 0, y: sv.contentSize.height), to: route.view).y
         XCTAssertEqual(end, route.view.bounds.maxY - sv.adjustedContentInset.bottom, accuracy: 0.5)
+    }
+
+    func testALaterPlainScrollWriteWinsWhileTheTitleInsetSettles() throws {
+        let animations = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animations) }
+        let session = try fixture("plain-write-replaced")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        try tapNode(session, "tab-second")
+        until("Second selected") { tabs.selectedIndex == 1 }
+        let node = try node(session, "list-second"), scroll = try XCTUnwrap(node.scroll)
+        until("the scroller has its content") { scroll.window != nil && scroll.contentSize.height > scroll.bounds.height + 100 }
+        node.pendingScrollTop = 100_000
+        node.applyPendingScroll()
+        node.pendingScrollTop = 120
+        node.applyPendingScroll()
+        let agent = Agent(session: session)
+        until("the later logical position settled") {
+            !agent.nativeInFlight() && abs(scroll.contentOffset.y + node.scrollTopInset(scroll) - 120) < 0.5
+        }
+        XCTAssertEqual(scroll.contentOffset.y + node.scrollTopInset(scroll), 120, accuracy: 0.5)
     }
 
     func testPlainShortContentRefitsWhenTheToolbarChangesAndKeepsManualInsetRoom() throws {

@@ -360,28 +360,31 @@ extension NodeView {
         writeScrollPosition(in: sv, left: pendingScrollLeft, top: pendingScrollTop, animated: smooth, titleSlack: true)
     }
 
-    /// Convert a logical write only after native layout. A write can
-    /// collapse the navigation title, and UIKit then moves the offset with the
-    /// inset (a collection's is invalidated; a plain scroll's went 52 points
-    /// past its end from a large title never seen collapsed, whose slack is
-    /// still 0): settle that one inset transition and apply the same intent
-    /// once more.
+    /// UIKit can adjust an automatic inset after the offset write returns.
+    /// Reapply that intent after layout, unless a later write or a drag took over.
     private func writeScrollPosition(in sv: UIScrollView, left: Double?, top: Double?, animated: Bool, titleSlack: Bool) {
-        func target() -> CGPoint {
-            let i = sv.adjustedContentInset, inset = scrollTopInset(sv)
+        func target(_ node: NodeView, _ sv: UIScrollView) -> CGPoint {
+            let i = sv.adjustedContentInset, inset = node.scrollTopInset(sv)
             // CSS ends where a large title rests collapsed.
-            let slack = titleSlack && scrollOrigin > 0 ? max(0, i.top - scrollCollapsed) : 0
+            let slack = titleSlack && node.scrollOrigin > 0 ? max(0, i.top - node.scrollCollapsed) : 0
             let y = top.map { CGFloat($0) - inset == sv.contentOffset.y ? sv.contentOffset.y : min(max(CGFloat($0) - inset, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height - slack)) } ?? sv.contentOffset.y
             let x = left.map { CGFloat($0) == sv.contentOffset.x ? sv.contentOffset.x : min(max(CGFloat($0), -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)) } ?? sv.contentOffset.x
             return CGPoint(x: x, y: y)
         }
-        let initial = target()
-        guard sv.contentOffset != initial else { return }
-        let inset = sv.adjustedContentInset.top
-        sv.setContentOffset(initial, animated: animated)
-        if !animated, sv.adjustedContentInset.top != inset {
-            sv.layoutIfNeeded()
-            let settled = target()
+        more.scrollWriteGeneration &+= 1
+        let generation = more.scrollWriteGeneration
+        more.scrollWriteQueued = false
+        let initial = target(self, sv)
+        if sv.contentOffset != initial { sv.setContentOffset(initial, animated: animated) }
+        guard !animated, top != nil, sv.contentInsetAdjustmentBehavior == .always else { return }
+        more.scrollWriteQueued = true
+        DispatchQueue.main.async { [weak self, weak sv, token = incarnation] in
+            guard let self, incarnation == token, extras?.scrollWriteGeneration == generation else { return }
+            defer { if extras?.scrollWriteGeneration == generation { more.scrollWriteQueued = false } }
+            guard let sv, scrollView === sv, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
+            sv.window?.layoutIfNeeded()
+            guard extras?.scrollWriteGeneration == generation else { return }
+            let settled = target(self, sv)
             if sv.contentOffset != settled { sv.setContentOffset(settled, animated: false) }
         }
     }
