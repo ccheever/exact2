@@ -195,8 +195,10 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var reveal: Int?
     private var syncing = false, aligning = false
     var press = Press.action
-    /// Rows moved into a cell or out of one, and the table's rows told of a
-    /// new height, since the feed began (the tests, the measures).
+    /// Rows the runner made that the feed took to mount, rows moved into a
+    /// cell or the document, and the table's rows told of a new height,
+    /// since the feed began (the tests, the measures).
+    fileprivate(set) var arrivals = 0
     private(set) var moves = 0, noted = 0
     private static let column = NSUserInterfaceItemIdentifier("exact.row")
 
@@ -584,6 +586,7 @@ final class TableHost {
         if node.superview is TableRowCell { return true }
         guard node.superview == nil, let feed = feeds[list], feed.expects(node) else { return false }
         feed.dirty = true
+        feed.arrivals += 1
         return true
     }
     /// A row in a cell takes layout's frame in the cell's space. Any other
