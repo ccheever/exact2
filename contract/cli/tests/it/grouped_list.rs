@@ -745,7 +745,8 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
 
 #[test]
 fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
+    // A percentage is of the list's content width, 400
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1 width=400\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=\"5%\" margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
     assert_eq!(

@@ -61,6 +61,9 @@ struct StyleRow {
     codec: String,
     #[serde(rename = "admitsAuto", default)]
     admits_auto: bool,
+    /// A dimension row CSS gives no percentage (`column-width`).
+    #[serde(rename = "refusesPercent", default)]
+    refuses_percent: bool,
     #[serde(default)]
     layout: bool,
     #[serde(default)]
@@ -727,6 +730,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
             "Whether `auto` is a legal value (dimension rows only).",
             (|r: &StyleRow| r.admits_auto) as fn(&StyleRow) -> bool,
         ),
+        (
+            "refuses_percent",
+            "Whether CSS gives the row no percentage, alone or in a calculation (dimension rows only).",
+            |r| r.refuses_percent,
+        ),
         ("affects_layout", "Whether a change re-runs layout.", |r| {
             r.layout
         }),
@@ -1216,49 +1224,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "        Ok(())").unwrap();
     writeln!(w, "    }}").unwrap();
-    writeln!(
-        w,
-        "    /// Validate every masked row against the schema's closed value domain."
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "    pub fn validate_domain(&self) -> Result<(), StyleDomainError> {{"
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "        self.check_finite().map_err(StyleDomainError::NonFinite)?;"
-    )
-    .unwrap();
-    for row in &schema.styles {
-        let id = pascal(&row.field);
-        let field = &at(row);
-        match parse_codec(&row.codec) {
-            Codec::LineHeight => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidLineHeight); }}").unwrap();
-            }
-            Codec::Dimension if !row.admits_auto => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && matches!(self.{field}, Dimension::Auto) {{ return Err(StyleDomainError::AutoNotAdmitted(StyleId::{id})); }}").unwrap();
-            }
-            Codec::Tracks => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridTrack(StyleId::{id})); }}").unwrap();
-            }
-            Codec::Placement => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridSpan(StyleId::{id})); }}").unwrap();
-            }
-            Codec::Transitions => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
-            }
-            Codec::Animations => {
-                let check = ["validate", "validate_ending"][row.ends as usize];
-                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
-            }
-            _ => {}
-        }
-    }
-    writeln!(w, "        Ok(())").unwrap();
-    writeln!(w, "    }}").unwrap();
+    write_validate_domain(w, schema);
     writeln!(
         w,
         "    /// Set one row from an untyped value and mark it. The one place a producer"

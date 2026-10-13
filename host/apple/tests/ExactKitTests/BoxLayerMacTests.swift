@@ -2,6 +2,7 @@
 import AppKit
 import ImageIO
 import XCTest
+import CExact
 @testable import ExactKit
 
 /// A box Core Animation can paint keeps no bitmap on AppKit, as on UIKit
@@ -224,6 +225,29 @@ final class BoxLayerMacTests: XCTestCase {
         n.display()
         XCTAssertNil(n.imageLayer)
         XCTAssertNotNil(n.layer?.contents, "a radius over a padded content box draws")
+    }
+
+    /// LLP 1116: a padding that resolves at layout (`min(10%, 20px)`
+    /// arrives as a calculation's handle) reads the content box the kernel published,
+    /// for the box and for each side; without one, the authored points.
+    func testAPaddingResolvedAtLayoutReadsTheKernelsContentBox() throws {
+        let bytes = Array("min(10%, 20px)".utf8)
+        let handle = bytes.withUnsafeBufferPointer { exact_calc_parse($0.baseAddress, $0.count) }
+        let padding = try XCTUnwrap(CalculatedLength([
+            "calc": .number(Double(handle)),
+            "env": [0, 0, 0, 0, 300, 600, 1, 1]
+        ]))
+        let knots: NodeStyle = ["padding_top": .calculation(padding)]
+        XCTAssertNil(FlatPaint(knots), "a layer would not keep the published box")
+        XCTAssertNotNil(FlatPaint(["padding_top": 4]))
+        var style = knots
+        style["padding_left"] = 6; style["border_width"] = 2
+        let n = node(style, size: CGSize(width: 300, height: 120))
+        n.applyFieldContent(["rect": [8.0, 22.0, 290.0, 96.0]])
+        XCTAssertEqual(n.contentBox(), CGRect(x: 8, y: 22, width: 290, height: 96))
+        XCTAssertEqual(["top", "right", "bottom", "left"].map { n.padding($0) }, [20, 0, 0, 6])
+        n.applyFieldContent(["rect": NSNull()])
+        XCTAssertEqual(n.contentBox(), CGRect(x: 8, y: 2, width: 290, height: 116))
     }
 
     private func node(_ style: NodeStyle, kind: String = "view", size: CGSize = CGSize(width: 300, height: 120)) -> NodeView {

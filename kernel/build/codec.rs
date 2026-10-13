@@ -2,7 +2,7 @@ const CODEC_PATHS: [&str; 6] = [
     "../vendor/taffy/src/style/grid.rs",
     "build.rs",
     "build/codec.rs",
-    "src/style/compare.rs",
+    "src/style/calc/wire.rs",
     "src/style/grid.rs",
     "src/wire/codec.rs",
 ];

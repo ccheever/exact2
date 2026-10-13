@@ -138,9 +138,9 @@ refused with the block to write.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
-`calc(<percent> ± <px>)`, `env(safe-area-inset-*)` and `calc(env(…) ± <px>)`,
-or `min()`, `max()` and `clamp()` over px, insets and viewport lengths
-(`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
+`env(safe-area-inset-*)`, `env(viewport-segment-* x y)`, or a `calc()`,
+`min()`, `max()` or `clamp()` of these (`clamp(15px,
+env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
 is `lower-attr-value`, with the kernel's reason.
 
 `-exact-fit="shrink"` on a `text` (CSS has no such property; LLP 1116.001 D1.4) draws

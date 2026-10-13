@@ -70,3 +70,22 @@ fn a_box_that_is_not_sticky_has_no_constraint_and_no_scroller_means_the_root() {
     assert_eq!(c.natural, [0.0, 30.0, 800.0, 60.0]);
     assert_eq!(c.insets, [Some(10.0), None, None, None]);
 }
+
+/// A sticky inset that is a comparison with a percentage resolves against
+/// the scrollport, as any percentage inset does (LLP 1116 D5).
+#[test]
+fn a_comparison_sticky_inset_resolves_against_the_scrollport() {
+    let nodes = vec![(
+        2,
+        1,
+        css_rows("position:sticky;top:min(10%, 20px);height:30px"),
+    )];
+    let k = lay_out_with(
+        props(&css_rows("display:block;height:400px")),
+        nodes,
+        &[],
+        &[],
+    );
+    let c = k.sticky_constraint(k.arena().key_of(2).unwrap()).unwrap();
+    assert_eq!(c.insets[0], Some(20.0));
+}

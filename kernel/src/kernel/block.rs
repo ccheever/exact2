@@ -127,6 +127,7 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     let Some(block) = arena.blocks.get(slot) else {
         return;
     };
+    let _env = crate::style::LayoutEnv::set(arena.env());
     let in_flow = s.position != Position::Absolute;
     if s.position == Position::Static {
         s.position = Position::Relative;

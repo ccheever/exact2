@@ -68,12 +68,7 @@ impl StickyConstraint {
 }
 
 fn length(d: Dimension, basis: f32, env: &crate::style::Env) -> Option<f32> {
-    match d.resolve(env) {
-        Dimension::Points(p) => Some(p),
-        Dimension::Percent(p) => Some(basis * p / 100.0),
-        Dimension::Calc(p, pt) => Some(basis * p / 100.0 + pt),
-        _ => None,
-    }
+    (d.resolve(env) != Dimension::Auto).then(|| d.at_basis(env, basis))
 }
 
 impl Kernel {

@@ -46,9 +46,11 @@ impl<D: DataSource> Host<D> {
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
-        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
-            (node.style.width, node.style.height)
-        else {
+        let env = kernel.arena().env();
+        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) = (
+            node.style.width.resolve(env),
+            node.style.height.resolve(env),
+        ) else {
             return None;
         };
         // No `background-color` is `currentcolor`: the text colour fills it.
