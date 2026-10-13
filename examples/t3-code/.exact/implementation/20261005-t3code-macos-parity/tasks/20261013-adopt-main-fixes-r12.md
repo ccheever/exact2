@@ -77,8 +77,8 @@ the reference itself is ambiguous).
 
 ## Adopted main
 
-**`46f300937`**, then **`96ea7d177`**, **`ffe36f63a`** and, in review round 1, **`aa9705c33`** and **`169ea1efb`** (main's tip at the last merge,
-445 commits past round 11's `b0e4a6c22`):
+**`46f300937`**, then **`96ea7d177`**, **`ffe36f63a`** and, in review round 1, **`aa9705c33`**, **`169ea1efb`** and **`0b956d63d`** (main's tip at
+the last merge, 459 commits past round 11's `b0e4a6c22`):
 
 - `d7a0e0477`: this record's first version.
 - Before any merge: the T3 tip `8c21a129d`'s bundle built in this worktree and driven (lane `adopt-main-fixes-r12-before`).
@@ -102,6 +102,10 @@ the reference itself is ambiguous).
 - `4b09f25e7`: `git merge --no-ff origin/main` at `169ea1efb` before the checks (five commits, web only: the web dev and static
   servers take a dotted deep link as the app's document, a web modal sheet's neutral ground; `host/web`, `host/web-js`,
   `scripts/origin.mjs`; nothing on the Mac path the clone runs). No conflict.
+- `7ad1899bf`: `git merge --no-ff origin/main` at `0b956d63d`, which main reached while the checks ran on `368deabcc` (14
+  commits: LLP 1116.014's diagnostic edits in the compiler, a refusal that names its fix; the difftest's JS glue, #521;
+  QUEUE). No conflict; `contract build` exit 0 with the same plan (6,470 slots, 120,810 nodes, 33,309,129 bytes, the same
+  warnings), so nothing the clone writes is refused or compiles differently. The checks ran again on this head.
 
 On the final head after a fresh fetch: `git merge-base --is-ancestor origin/main HEAD`, `git rev-list --count
 HEAD..origin/feat(example)/t3-code` and `git diff origin/main HEAD -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'`
@@ -195,8 +199,8 @@ uncapped analysis).
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| AD-1: the branch contains main | pass at the final merge (main `169ea1efb`) | Adopted main; Checks |
-| AD-1: the framework tree is main's | pass: empty after `7c02ad186`, `7b0ab1cc8`, `e71f9d7cb`, `3c00d8b3b`, `4b09f25e7` and on the final head | Adopted main; Checks |
+| AD-1: the branch contains main | pass at the final merge (main `0b956d63d`) | Adopted main; Checks |
+| AD-1: the framework tree is main's | pass: empty after `7c02ad186`, `7b0ab1cc8`, `e71f9d7cb`, `3c00d8b3b`, `4b09f25e7`, `7ad1899bf` and on the final head | Adopted main; Checks |
 | AD-1: the checks pass | see Checks | Checks |
 | AD-1: the clone works | pass: session 1 (shell, Settings General, Appearance, Providers, Tab from Back, Usage, the fixture thread, the file viewer, Settings from it, Back) exits 0 on both; every screen is pixel-equal but for the update pill (147 px, RT-3 X70). The lists and popovers keep the reference's presentation under `--chrome platform` (session 3b, after only) | [shell](https://raw.githubusercontent.com/ccheever/exact2/186077d9d38fbd2a946cd86e2d36383e056797d3/adopt-main-fixes-r12/ad1-shell.png), [thread and file viewer](https://raw.githubusercontent.com/ccheever/exact2/97497c53393374936d136fdb3d460a882f6832c2/adopt-main-fixes-r12/ad1-thread-files.png), [Mac presentations](https://raw.githubusercontent.com/ccheever/exact2/88a5316be91eadf0d6b1da893b54da236a0878ba/adopt-main-fixes-r12/ad1-platform-chrome.png), readouts |
 | AD-1: the later merges run (review round 1) | pass: the bundle of `3c00d8b3b` (main `aa9705c33`), sessions 1 and 2b again: exit 0, all 15 screens pixel-equal to the live drive's (main `46f300937`), Tab from Back on the pill (node 1376) | [readouts-r1](https://raw.githubusercontent.com/ccheever/exact2/f7a58fe10fe5387a3cd716dbe9c4b11e1fd868d0/adopt-main-fixes-r12/readouts-r1.txt) |
