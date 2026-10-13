@@ -75,3 +75,8 @@ ids such as `paint-surface-card`). If Charlie closes X69 as not planned, this be
 ## Next action
 
 Wait for X69's `issue-open` (reproduce, deduplicate against #321, report with the user's approval). No PR until then.
+
+Since then (checked 2026-10-13): X69 was filed on main by #386 (`issues/20261010-paint-role-node-list-read.md`), and
+main closed it on 2026-10-12 by `afe11ead5` (an action's `querySelectorAll` over declared data words, beside
+`elementsFromPoint`; now `issues/closed/`), not adopted yet. After an adoption round takes it, check it against the
+unblock condition above before building.
