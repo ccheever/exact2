@@ -8,7 +8,7 @@
 //! ([`Presenter::serve_windows`]: the Canvas host's reader, as it boots).
 //! With no such shell (desktop Linux, a headless run, the agent) nothing
 //! here runs: a popover's invoker and a dialog's button are refused as they
-//! were, `showModal` is an unknown command, and nothing is presented.
+//! were; action dialog commands journal their refusal, and nothing is presented.
 //!
 //! **How a surface is painted.** Not by the kernel's layout of the authored
 //! rows, which no native host shows either. The shape rule (`top/shape.rs`)

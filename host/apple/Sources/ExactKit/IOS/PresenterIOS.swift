@@ -400,7 +400,7 @@ package final class Presenter {
         if root.frame.size != size { root.frame = CGRect(origin: .zero, size: size) }
         if viewport.contentSize != size { viewport.contentSize = size }
     }
-    var onPress: ((UInt32) -> Void)?
+    var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
     /// Host intrinsic sizes, several at once under one layout.
     var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?

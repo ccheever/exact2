@@ -63,7 +63,7 @@ function media(say, id, name, seconds) {
 
 function modal(id, say, method) {
   const e = document.getElementById(id);
-  if (e instanceof HTMLDialogElement) { if (method === "close") e.close(); else if (!e.open) e.showModal(); return; }
+  if (e instanceof HTMLDialogElement) { if (method === "close") e.close(); else if (!e.open) e.showModal(); else say(`showModal "${id}" ignored: dialog is already open`); return; }
   if (e?.popover != null && e.getAttribute("role") === "alertdialog") { if (method === "close") e.hidePopover(); else if (!e.matches(":popover-open")) e.showPopover(); return; }
   if (method === "showModal") say(`showModal "${id}" refused: no dialog or alertdialog popover has that id`);
 }

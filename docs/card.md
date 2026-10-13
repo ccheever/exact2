@@ -66,7 +66,7 @@ tags: attributes; on events. Every tag takes CSS's style attributes (flex gap pa
   progress: value max
   list: listStyle appearance virtualized refreshing scroll-start; on reachstart reachend refresh
   scroll: scrollTop navigationScroll keyboardDismissMode; on scroll
-  dialog: closedby; on cancel
+  dialog: closedby; on cancel close
 
 parts: use X from "exact:content"; an option is none or some(…)
   SummaryCard(label="Streak", value="12", detail="days in a row", progress=some(0.4), symbol=some("symbol:star"))

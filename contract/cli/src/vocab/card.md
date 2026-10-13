@@ -56,7 +56,7 @@ option | value
 progress | value max
 list | listStyle appearance virtualized refreshing scroll-start | reachstart reachend refresh
 scroll | scrollTop navigationScroll keyboardDismissMode | scroll
-dialog | closedby | cancel
+dialog | closedby | cancel close
 
 ## rules
 - An event hands its action its payload after the captured arguments: the text for a field, a `select` or a date; the bool for a checkbox or switch; the number for a range; nothing for `press` and `submit`. `change=set(i.id)` calls `set(id, payload)`.

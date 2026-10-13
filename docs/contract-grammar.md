@@ -871,7 +871,12 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
-| None | `beforeunload`, `cancel`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+| None | `beforeunload`, `cancel`, `close`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+
+A dialog's `close=action` runs after dismissal and focus restoration on the web,
+macOS and iOS, whether an action, an invoker button or Escape closed it. It takes
+no payload. Closing an already-closed dialog fires nothing; removing a dialog or
+resetting the session does not fire `close`.
 
 An `audio` is HTML's: `video`'s props and events without `poster`, `playsinline`
 or `playbackVisibilityThreshold`; no box unless `controls` (then Chrome's 300×54,

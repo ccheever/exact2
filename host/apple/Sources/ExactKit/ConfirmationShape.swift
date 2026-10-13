@@ -28,3 +28,14 @@ enum ConfirmationShape {
         return (title, rest.isEmpty ? nil : rest.joined(separator: "\n"))
     }
 }
+
+extension NodeView {
+    /// HTML queues `close` after restoring focus; app code may open it again.
+    func queueDialogClose() {
+        guard props["semanticTag"] == "dialog", handlers.contains("close") else { return }
+        DispatchQueue.main.async { [weak self, weak presenter] in
+            guard let self, let presenter, presenter.views[self.id] === self, self.superview != nil else { return }
+            presenter.onClose?(self.id)
+        }
+    }
+}

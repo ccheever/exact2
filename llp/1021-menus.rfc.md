@@ -170,6 +170,15 @@ lowers the HTML absolute-position default so it consumes no ordinary flow.
 No application open-state slot or host script reproduces the browser's dialog.
 Root navigation Escape and global authored shortcuts respect its input owner.
 
+`showModal(id)` and `close(id)` use the same presentation as the invoker on the
+web (both targets), macOS and iOS. A dialog's `close` handler is queued after
+closing and restoring focus, once per close, including Escape and invoker
+buttons. An alert dismissal still queues it when its chosen action becomes
+stale; only that press is suppressed. A repeated close and a removed or reset
+dialog fire nothing, including a web dialog whose render scope has ended. Bare
+`close()` remains the window's command. The headless/DRM Linux host names
+`showModal(id)` and `close(id)` as unsupported.
+
 UIKit admits the existing confirmation grammar: direct explanatory text, one
 handled action, and one handlerless closing Cancel, with `closedby="any"`.
 Other dialog content and close policies are unsupported. The same session-owned
