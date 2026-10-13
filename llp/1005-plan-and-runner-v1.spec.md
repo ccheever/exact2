@@ -955,9 +955,11 @@ Replace the parked `Host::advance_clock` loop and the split work in
 `Presenter::{advance, animation_frame, tick, clock, clock_until_request,
 clocked}` with one driver and thin mode wrappers. `Presenter::tick` runs
 that driver, then calls the motion seek at its **landed instant**, never
-at an unreached wall-time target. Route the paired advance/frame and tick
-calls in `display.rs`, `canvas.rs::frame_held` and `android.rs` through the
-same wake scope below. `Host::{advance_effects, frame, advance_until_request}`
+at an unreached wall-time target. Route each complete live iteration in
+`display.rs`, the canvas carrier and `android.rs` through the same wake
+scope below: open it before pump, commands and input, and retain it through
+advance/frame and tick. Every `Host::dispatch_at` reached by those calls
+belongs to that scope. `Host::{advance_effects, frame, advance_until_request}`
 become bounded runner steps under the driver.
 
 **`Host::tick` remains a motion seek.** It retires presses, seeks the motion
@@ -1000,19 +1002,43 @@ stricter than main for any agent operation. `clock_within`'s `rounds` and
 **One live shell wake shares one budget.** The shell opens a driver scope
 for its live work, carrying `AdvanceBudget`, the landed clock, any
 `TimerFireLimit` stop, and the live event-turn boundary. All catch-up in
-that scope shares the allowance, including `pump`, input catch-up,
-`advance`, `animation_frame` and `tick`; an internal return cannot refresh
-it. In `display.rs` it lasts through the iteration's advance/frame and
-motion tick. In `canvas.rs::frame_held` it includes the initial non-quick
-pump, advance/frame and tick. In `android.rs` it lasts through the
-pre-paint calls, `display_frame`/`display_complete`, deferred collections
-and `advance_after`'s post-paint `advance(wall())`. A later `wall()` in that
-same wake changes the requested destination, not the allowance. Standalone
-live entry calls open a scope only when none is active. Agent calls keep
-the separate boundaries above.
+that scope shares the allowance, including `pump`, `run_commands`, pointer
+and key dispatch, hatches, `advance`, `animation_frame` and `tick`, and
+**every nested `Host::dispatch_at`** they reach. A helper call or return
+cannot open another scope or refresh the allowance. The boundaries are:
 
-A `TimerFireLimit` stop is retained until that wake ends. Later wrappers
-must not retry catch-up toward either the original or a newer wall time:
+- **Display:** open at the start of the live iteration, before
+  `p.pump(wall())`, `p.poll_update()`, `p.run_commands(D::default)` and the
+  entire input loop's `pointer::dispatch` calls (including key events).
+  Keep it through `hatch_turn`, `follow_local_offset`, advance/frame, tick
+  and the rest of the iteration. Closing at the end, rather than opening
+  at advance/frame, also covers dispatches caused by commands and replies.
+- **Canvas:** open before the carrier callback's first native work. The
+  fd callbacks in `Owner.kt` and `ExactView.kt` under `host/android/canvas`
+  call `Native.poll()` before producing a frame; input callbacks likewise
+  call `Native.touch`/`Native.key` before producing one. Share the scope
+  across those native calls through `CanvasHost::frame` and `frame_held`,
+  including the non-quick pump, `run_commands`, advance/frame and tick.
+  Expose wake begin/end to the JNI carrier so returning from `poll` or
+  input does not close it before the same callback's frame. Close on
+  callback exit, including an early return with no frame. A standalone
+  `CanvasHost::frame` opens before its first presenter work; `frame_held`
+  only borrows that scope.
+- **Android display:** open before the loop's initial `p.pump(wall())`,
+  `poll_update`, `run_commands` and `rx.try_recv()` command/input loop.
+  Keep it through tick, `display_frame`/`display_complete`, deferred
+  collections, `advance_after`'s post-paint `advance(wall())` and iteration
+  exit. This is also the scope carrying the paint barrier below.
+
+A later `wall()` in the same wake changes the requested destination, not
+the allowance or landed clock. Standalone live calls open a scope only
+when there is no enclosing shell/carrier scope; the shell must open its
+scope before invoking them. Agent calls keep the separate boundaries above.
+
+A `TimerFireLimit` stop is retained until that wake ends and reported once
+by its owning scope. Later wrappers observe that stop without another
+catch-up attempt or a second limit error. They must not retry catch-up
+toward either the original or a newer wall time:
 they can apply already produced receipts and seek motion at the returned
 landed clock, but cannot advance it. A `frame` refused by that limit has
 not run its frame tasks; a subsequent `tick` neither runs them nor retries
@@ -1067,10 +1093,14 @@ destination. Apply receipts already returned; keep unconsumed timers,
 continuations and queued events pending. Keep the original caller's refusal
 policy: clock/advance return the error, frame retains its existing guard,
 and `dispatch_at` still executes its direct event after a timer refusal.
-For that input path, bounded `Host::dispatch_at` performs the budgeted
-catch-up once, then uses `Runner::dispatch`; it must not call
-`Runner::dispatch_at` and get another fresh catch-up allowance inside the
-same call. On refusal the action sees the landed runner clock, as on main.
+For that input path, `Host::dispatch_at` executes only after Presenter has
+driven catch-up with the active scope's budget and applied the intervening
+completions and commands. It uses
+`Runner::dispatch`, not `Runner::dispatch_at`; it neither catches up again
+nor creates a fresh budget. This includes dispatches made inside pump,
+`run_commands`, pointer/key handling and their default actions. On refusal
+the direct action still runs once at the landed runner clock, as on main,
+even if an earlier wrapper in this wake encountered the refusal.
 Host and Presenter must not seek ahead of that returned time. Report the
 error and landed clock in the agent reply (`settled: false` for settle).
 If no further guarded action is due through the destination, reaching the
@@ -1151,9 +1181,13 @@ deferred as above is different from an unserviced deadline.
 Route `pump`, live input dispatch, `wheel_at_time`, reader samples, display
 acknowledgements and agent clock drives through this owner **before** their
 new input can change offsets. Timestamp a live arrival without assigning
-it to `Host.now` until earlier known work has run. Raw `Host::dispatch_at`
-must be private to this path, called only at the already landed instant;
-its internal runner advance cannot provide presenter catch-up. Classify
+it to `Host.now` until earlier known work has run. In particular,
+`Host::fulfill_all` must receive the driver's landed timestamp, not the
+pump's requested wall time; its current `now_ms = now_ms.max(self.now_ms)`
+must not jump the host ahead of pending deadlines or a budget stop. The
+same restriction applies to the assignment in `Host::dispatch_at`.
+Raw `Host::dispatch_at` must be private to this path, called only at the
+already landed instant; remove its independent runner catch-up. Classify
 offset changes at their source: input samples, instant command/binding,
 animation, layout clamp or restoration. `clamp_scroll` reports position without calling the
 same completion arming path as `scrollBy`; collection feedback does not
@@ -1282,16 +1316,37 @@ Additional regressions when implementation resumes:
   fixture may use a wheel to manufacture the 100 ms deadline.
   Also test an earlier timer that scrolls/hides/removes and the timer/end
   tie at 100. Runner actions and their batch effects win that tie.
-- Exercise the actual live call sequences in `display.rs` and
-  `canvas.rs::frame_held`, including the latter's non-quick pump. With a
-  repeating 1 ms timer, first tick at 1, seek wall time 1,000,000 in one
-  wake. Test both `advance` then `tick` and `animation_frame` then `tick`,
-  with motion requiring that tick. Require exactly 4,096 timer actions,
+- Exercise a **whole display iteration**, starting the scope before pump:
+  `pump`, `poll_update`, `run_commands`, one `pointer::dispatch`,
+  `hatch_turn`, `follow_local_offset`, advance/frame and tick. With a
+  repeating 1 ms timer first due at 1, give every wall-time entry
+  1,000,000. Include a harmless queued reply with no `then` to exercise
+  `fulfill_all`, and prepare the pointer so the one event invokes a
+  recording handler. Test both advance/tick and animation-frame/tick,
+  with motion requiring tick; the frame variant is already in presenting
+  mode. Count across the **entire iteration**, including nested
+  `Host::dispatch_at` calls: exactly 4,096 timer actions and **one**
   `TimerFireLimit`, runner/Host clocks at 4096 ms, motion engine at 4.096 s,
-  and the next timer still due at 4097 after **every** subsequent wrapper
-  in that wake. An actual frame-task counter must stay unchanged after the refused frame
-  and its following tick. Only a new wake gets another allowance. Also
-  start a wake with `advance(4095)`, then call `tick(1_000_000)`: it has
+  next timer due at 4097. The pointer action runs once at 4096 after the
+  refusal; it must not run another 4,096 timers or adopt 1,000,000. Neither
+  may any later wrapper. Assert Host's clock never transiently becomes
+  1,000,000 during pump or dispatch. An actual frame-task counter remains
+  unchanged after the refused frame and tick. Add an owned completion
+  due at 1100 and record the existing repeating timer's tick at 1105:
+  require E@1100, T@1105, then the pointer action at 4096. The end's direct
+  receipt does not reduce the timer allowance. Only a new wake gets a
+  fresh allowance. Repeat with a key event to cover that dispatch path.
+  Exercise the corresponding complete canvas callback (poll/commands or
+  input through frame/`frame_held`) and Android iteration (initial pump,
+  commands/input through tick and any post-paint advance), with the same
+  aggregate limit and retained-clock assertions.
+- In a separate whole-iteration fixture, a reader sample at 1000 owes
+  E@1100, a timer is due at 1105, and pump plus pointer arrival are at
+  1116. Starting before pump and including commands and input, require
+  E@1100, T@1105, press@1116, order `"etp"`, final clock 1116 and no
+  refusal. Run the key variant too. This catches completion delivery
+  bypassed by input catch-up even when the timer allowance is ample.
+- Within one wake, `advance(4095)` then `tick(1_000_000)` has
   one timer receipt left, not 4,096. Give this fixture an owned completion
   at 4096; it must deliver E@4096 after T@4096 and before refusal at the
   next tick, without a new allowance. Keep live handler continuations
