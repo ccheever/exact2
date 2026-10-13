@@ -51,6 +51,10 @@ private final class ExactSegmentedControl: NSSegmentedControl {
         trackingMode = .selectOne
     }
     required init?(coder: NSCoder) { nil }
+    // As the other native controls (X85): a Control-click a `contextmenu`
+    // above answers never starts this control's tracking, so no segment is
+    // chosen. AppKit's own right-click route does not fire in every window.
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
     func nativeSegment(at index: Int) -> NSAccessibilityElement? {
         exposingNativeChildren = true
         defer { exposingNativeChildren = false }

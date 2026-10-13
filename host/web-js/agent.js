@@ -57,7 +57,9 @@ export function install(exact) {
     // The intent `tree --ax` reads (LLP 1080.002 D7), as the runner names it.
     if (el.hasAttribute('inert')) props.inert = true;
     // A disabled control, as the runner's tree gives its `disabled` prop (LLP 1116.010 D3: `expect disabled`, and a press refused the same on every host).
-    if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') props.disabled = true;
+    // `aria-disabled` is its own prop, as the runner gives it: it reads as disabled, but a press still dispatches.
+    if (el.matches(':disabled')) props.disabled = true;
+    if (el.getAttribute('aria-disabled') === 'true') props.accessibilityDisabled = true;
     if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
     if (el.getAttribute('aria-modal') === 'true' && !sheet) props.accessibilityModal = true;
     if (el.getAttribute('aria-busy') === 'true') props.accessibilityBusy = true;

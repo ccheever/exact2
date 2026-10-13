@@ -1411,7 +1411,6 @@ test('world diff matches names across reordered slots, distinguishes unnamed ids
   ]);
   expect(diffWorlds(a,structuredClone(a)).total).toBe(0);
 });
-
 test('world diff bounds output, counts omitted changes, and never claims hash equality from JSON', () => {
   const a = diffCapture(), b = structuredClone(a);
   b.resources.Match.score = 2; b.entities[0].components.Health.hp = 0;
@@ -1420,7 +1419,6 @@ test('world diff bounds output, counts omitted changes, and never claims hash eq
   expect(formatWorldDiff(hashOnly)).toContain('not a complete binary save comparison');
   expect(()=>diffWorlds(a,b,{limit:0})).toThrow('positive integer');
 });
-
 test('world diff refuses partial, malformed, duplicate, and cross-game captures', () => {
   const a = diffCapture();
   for (const b of [null, {...a,truncated:true}, {...a,resources:undefined},
@@ -1429,7 +1427,6 @@ test('world diff refuses partial, malformed, duplicate, and cross-game captures'
   expect(diffWorlds({...a,resources:{x:null}}, {...a,resources:{x:[]}}).changes)
     .toEqual([{path:'resources.x',kind:'changed',before:null,after:[]}]);
 });
-
 test('capture uses existing reads and refuses mixed-tick or incomplete results', async () => {
   const a = diffCapture(), calls = [];
   const world = {name:a.name,tick:a.tick,hash:a.hash,entities:1,resources:a.resources,...a.simulation};
@@ -1442,7 +1439,6 @@ test('capture uses existing reads and refuses mixed-tick or incomplete results',
   world.tick--; world.entities++;
   await expect(captureWorld(session)).rejects.toThrow('incomplete');
 });
-
 test('offline world diff CLI reports differences and refuses invalid captures with distinct exits', () => {
   const dir = mkdtempSync(resolve(tmpdir(),'world-diff-'));
   try {
@@ -1457,8 +1453,6 @@ test('offline world diff CLI reports differences and refuses invalid captures wi
     writeFileSync(b,'{}'); expect(run().exitCode).toBe(2);
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
-
-
 test('game proof outputs do not invalidate host freshness, but game sources do', async () => {
   const { newerThan } = await import('../scripts/agent-launch.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'game-freshness-'));
@@ -1472,8 +1466,6 @@ test('game proof outputs do not invalidate host freshness, but game sources do',
     expect(changed[0].endsWith('/logic/changed')).toBe(true);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
-
-
 test('repin provenance distinguishes commit-less games from broken Git repositories', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'repin-revision-'));
   try {
@@ -1486,7 +1478,6 @@ test('repin provenance distinguishes commit-less games from broken Git repositor
     expect(() => pinRevision(dir, 'digest')).toThrow('git provenance failed');
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
-
 test('a split clock grows at most 4x a step and never past ten world minutes', async () => {
   const {clockSpan} = await import('../scripts/agent.mjs');
   expect(clockSpan(1000, 1)).toBe(4000);
