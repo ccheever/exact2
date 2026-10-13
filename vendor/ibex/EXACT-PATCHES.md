@@ -61,7 +61,7 @@ and the workspace boundaries below.
 | 11. Host work in flight | Context count plus owned registry/worker/completion accounting | Owned-handle retirement and cancellation witnesses pass; JS continuation semantics below |
 | 12. Bounded native filesystem results | Explicit `ResultLimits`; bounded reads/enumeration and batched recursive removal | Exact 16 MiB native/app/document cap tests pass, preserving the typed result-limit error |
 | 13. Async fetch | Fallible preparation, infallible accepted activation, terminal retirement, bounded portable workers | Admission refusal, physical retirement, all six base-start failure positions and bounded-worker lifetime tests pass |
-| Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; Exact Windows runtime remains unqualified here |
+| Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; native Windows Exact storage, document and ordinary TypeScript host requalification is recorded below |
 
 Patch 9's app interface stays Exact's and is replayed on a refresh:
 `bindings/storage.d.ts` declares `compressImage(from, to, {maxDimension,
@@ -74,6 +74,35 @@ patch in `stdlib/fs_image.rs` keeps the codes apps branch on: a source over the
 read cap is `compressImage: too-large:` (not the generic result limit), and a
 trial deadline that expires, in the source read or before publication, is
 `compressImage: timeout:` (`data/host/src/tests.rs` covers `too-large`).
+
+### Native Windows consumer requalification — 2026-10-13
+
+Exact `dfa6a26344cf238f4b642805492806795e01ddfd`, with Ibex source pin
+`de11540`, ran on x86_64 Windows with the authenticated
+`hermes-vanilla-d412d3bd8512-v4` bundle. Its receipt uses schema
+`ibex/hermes-upstream-pinned-receipt/2` and has SHA-256
+`38714ce6a52d8511b4a0f03128ec1a3f4b6338d9e0d6572afbb2fd4d29819bb0`.
+
+`cargo test --locked --offline -j 4 -p exact-data-host -p exact-js
+--no-fail-fast` passed 25 data-host tests, 2 JS library tests and 101 JS
+integration tests; one manual startup diagnostic stayed ignored. This includes
+native chosen-document reads and writes, queued document ownership, storage
+result bounds, redirect/deadline/cancellation contracts, and the linked-lean
+test that loads its bytecode prelude and refuses source text. A host without an
+installed image codec refuses after grant admission and before source/provider
+reads; Apple retains its ImageIO assertions.
+
+The existing ignored ordinary TypeScript fixture then built through
+`bun host/windows/build.mjs` with four Cargo jobs. The native agent launched
+the packaged EXE at 640×360 and delivered two platform button presses: its
+Hermes-backed resource changed from `ts count: 0` to `1` and `2`, and the
+owned process exited. The EXE SHA-256 is
+`e40dadb300adcf003e2e28f16951b6bc7f9372480db81e7fa39967d3ebc08516`.
+
+This does not qualify an actual HTTP exchange through `exact-render` on
+Windows. Its library still imports Unix-only `UnixStream`, `AsRawFd` and
+`libc::poll`, so the focused loopback executor test does not compile there.
+`issues/20261013-exact-render-windows-http.md` records that host boundary.
 
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.
