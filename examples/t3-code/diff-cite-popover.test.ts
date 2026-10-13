@@ -250,13 +250,10 @@ describe('DC-2: the rest of Cite', () => {
     expect(named.at('1', 'code') - named.at('1', '')).toBe('ts\n'.length);
   });
 
-  test('every word, code span and code block text reports its part; Cite sends the frame of the text holding the end', async () => {
+  test('every word, code span and code block text reports its part (Cite\'s place and frame: cite-selection-anchor.test.ts)', async () => {
     const md = await source('markdown.contract');
     expect(md.match(/selectionchange=cite\(blockId, run\.id\)/g)?.length).toBe(3);
     expect(md.match(/id=`cite-\$\{source\}-\$\{block\.id\}-code` selectionchange=cite\(block\.id, "code"\)/g)?.length).toBe(6);
     expect(md).toContain('  action selected(blockId: string, runId: string, s: Selection)\n    let key = runId == "" ? blockId : `${blockId}-${runId}`');
-    const cite = await source('diff-cite.contract');
-    expect(cite).toContain('let end = frame(`cite-${source}-${indexOf(last, "|") < 0 ? last : slice(last, 0, indexOf(last, "|"))}`)');
-    expect(cite).toContain('|${end.unavailable ? "" : `${end.x},${end.y},${end.width},${end.height}`}|${stream}`');
   });
 });
