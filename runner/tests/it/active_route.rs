@@ -3,7 +3,7 @@
 //! and a covered copy is the target only when no active screen carries it.
 use exact_kernel::Kernel;
 use exact_plan::Value;
-use exact_runner::{agent, DataError, DataSource, Runner};
+use exact_runner::{agent, DataError, DataSource, Head, Runner};
 
 struct NoData;
 impl DataSource for NoData {
@@ -163,4 +163,56 @@ fn a_test_id_resolves_on_the_selected_tab_and_the_other_tabs_are_flagged() {
     let tree = agent::tree(&r);
     assert_eq!(field(by_test_id(&tree, "panel-b"), "inactive"), "true");
     assert!(!by_test_id(&tree, "panel-a").contains("\"inactive\""));
+}
+
+#[test]
+fn the_head_follows_the_selected_tabs_top_screen() {
+    let plan = contract::compile(include_str!(
+        "../../../host/web-js/conformance/heads-tabs.contract"
+    ))
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let home = Head {
+        title: Some("Home".into()),
+        description: Some("Base description".into()),
+        robots: Some("noindex".into()),
+        ..Head::default()
+    };
+    let detail = Head {
+        title: Some("Detail".into()),
+        canonical: Some("/detail".into()),
+        status: Some(410),
+        ..home.clone()
+    };
+    let saved = Head {
+        title: Some("Saved".into()),
+        description: Some("Saved description".into()),
+        image: Some("/saved.png".into()),
+        canonical: Some("/saved".into()),
+        robots: Some("nofollow".into()),
+        status: Some(404),
+        edited: true,
+    };
+    assert_eq!(r.head(), home);
+    for (action, args, expected) in [
+        ("pick", vec![Value::str("saved")], &saved),
+        ("pick", vec![Value::str("home")], &home),
+        ("push", vec![], &detail),
+        ("pick", vec![Value::str("saved")], &saved),
+        ("pick", vec![Value::str("home")], &detail),
+        ("back", vec![], &home),
+        ("pick", vec![Value::str("saved")], &saved),
+        ("pick", vec![Value::str("home")], &home),
+    ] {
+        r.act(action, args).unwrap();
+        assert_eq!(&r.head(), expected, "after {action}");
+        assert_eq!(&r.document_tree().unwrap().head(), expected, "document");
+    }
 }

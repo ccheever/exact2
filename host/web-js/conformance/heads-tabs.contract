@@ -1,0 +1,40 @@
+// Retained tabs must not contribute document fields while unselected.
+// The saved head is deeper and later than the selected home stack's heads.
+routes nav
+  tab home "/"
+    detail "/detail"
+  tab saved "/saved"
+
+component HeadsTabs
+  action pick(name: string)
+    nav = select(nav, name)
+  action push
+    nav = push(nav, "/detail")
+  action back
+    nav = back(nav)
+  view
+    column width="100%" height="100%" background-color="#ffffff"
+      head description="Base description" robots="noindex"
+      main navigationKey=`${top(nav).id}` navigationBack="back" flex=1
+        column
+          each t in nav.tabs key=t.name
+            column role="tabpanel" id=`panel-${t.name}`
+              each e in t.stack key=e.id
+                column navigationKey=`${e.id}` testId=`route-${e.name}`
+                  text e.name
+                  when e.name == "home"
+                    head title="Home"
+                    button press=push testId="push-detail"
+                      text "Detail"
+                  when e.name == "detail"
+                    head title="Detail" canonical="/detail" status=410
+                    button press=back testId="back"
+                      text "Back"
+                  when e.name == "saved"
+                    column
+                      head title="Saved" description="Saved description" image="/saved.png" canonical="/saved" robots="nofollow" status=404 edited=true
+        row role="tablist"
+          button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") testId="tab-home"
+            text "Home"
+          button role="tab" aria-controls="panel-saved" aria-selected=(nav.tab == "saved") press=pick("saved") testId="tab-saved"
+            text "Saved"
