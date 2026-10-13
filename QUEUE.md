@@ -824,11 +824,6 @@ sits on that list carries the trade it would take.
   early), retirement versus a reading reader, unwind in a start or a reader, two drops under the
   lock, three tests. Only worth doing if §5's gate passes.
 - **Gaps the Bluesky clone's workers hit** (bsky5, b28–b31, 2026-10-12), as reported:
-  - **The web JS target refuses `reachend` on a plain `list`** ("the `reachend` event is not in the
-    JS target", `host/web-js/src/emit.rs`), and a virtualized list wants exactly one direct `each`,
-    so a masonry of columns can't page. A JS-target gap, not a one-line bug: the end needs an
-    observer on the list's last row, as the virtualized one has.
-    Not a JS-target gap alone (2026-10-13): LLP 1010 (about line 811) gives edge events to non-empty virtualized collections only, the runner makes no collection for a plain list, and Apple listens for none there. Charlie's: edges on a plain list on every host, or a compile-time refusal everywhere instead of the web build's.
   - **A dynamic exit animation fails the web build only** (`exit-animation=(reduced ? "none" :
     "…")`: "a dynamic `exit_animation` is not one declaration", `host/web-js/src/style.rs`). iOS
     builds it and `contract build` says nothing. Reporting it at compile time is not cheap

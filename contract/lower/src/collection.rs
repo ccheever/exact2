@@ -39,6 +39,18 @@ impl Lowerer<'_> {
             && attrs
                 .iter()
                 .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+        if !virtualized {
+            if let Some(edge) = attrs
+                .iter()
+                .find(|a| matches!(a.name.as_str(), "reachstart" | "reachend"))
+            {
+                return err(
+                    "lower-collection-edge",
+                    super::vocab::collection_edge_refusal(&edge.name),
+                    edge.span,
+                );
+            }
+        }
         if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
             if !virtualized {
                 return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `each`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);

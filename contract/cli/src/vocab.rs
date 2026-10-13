@@ -318,6 +318,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if matches!(name, "intersect" | "intersect-margin") {
             println!("  IntersectionObserver: nearest scroller or viewport, threshold 0; mount and enter/leave. Optional final IntersectionObserverEntry: isIntersecting (bool), intersectionRatio (number). intersect-margin is a literal 1–4 px/% rootMargin, default 0px. Browser executors and shared AppKit/UIKit/Linux layout/scroll delivery; native geometry qualification remains open, see LLP 1001 for geometry deviations (LLP 1005).");
         }
+        if matches!(name, "reachstart" | "reachend") {
+            println!("  {}", vocab::collection_edge_refusal(name));
+        }
         if name == "resize" {
             println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
         }
@@ -607,6 +610,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "transform" {
         doc["note"] = vocab::BOX_TRANSFORM_REFUSAL.into();
+    }
+    if matches!(name, "reachstart" | "reachend") {
+        doc["note"] = vocab::collection_edge_refusal(name).into();
     }
     doc
 }
