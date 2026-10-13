@@ -67,7 +67,7 @@ async function allow(client: T3Client, nativeInput: Native | null | undefined, o
 }
 
 /** Merge only directories reachable from the actual root; search adds its own results. */
-export function mobileFileTreeProjection(client: T3Client, selectedPath: string): FileTreeItem[] {
+function fileTreeProjection(client: T3Client, selectedPath: string): { rows: FileTreeItem[]; reachableDirectories: Set<string> } {
   const state = filesState(client), entries = new Map<string, ProjectEntry>(), seen = new Set<string>();
   if (state.query.trim()) for (const entry of state.search?.entries ?? []) entries.set(entry.path, entry);
   const visit = (path: string) => {
@@ -80,15 +80,21 @@ export function mobileFileTreeProjection(client: T3Client, selectedPath: string)
   visit('');
   const expanded = new Set(state.expanded);
   const parts = selectedPath.split('/'); for (let index = 1; index < parts.length; index++) expanded.add(parts.slice(0, index).join('/'));
-  return flattenFileTree({ nodes: buildFileTree([...entries.values()]), expanded, searchQuery: state.query }).map(({ node, depth }) => ({
+  const rows = flattenFileTree({ nodes: buildFileTree([...entries.values()]), expanded, searchQuery: state.query }).map(({ node, depth }) => ({
     id: node.path, path: node.path, name: node.name, directory: node.kind === 'directory', expanded: expanded.has(node.path), selected: node.path === selectedPath,
     ignored: node.ignored === true, depth, loaded: state.dirs.has(node.path), count: String(node.children.length), token: fileIconToken(node.path) }));
+  return { rows, reachableDirectories: seen };
+}
+export function mobileFileTreeProjection(client: T3Client, selectedPath: string): FileTreeItem[] {
+  return fileTreeProjection(client, selectedPath).rows;
 }
 export function mobileFilesSnapshot(selectedPath = '', client: T3Client = mobileClient): FileTreeSnapshot {
   const access = accessOf(client), state = filesState(client), query = state.query;
-  const error = access.permissionError || access.tree.error || (access.allowed ? state.errors.get('') || (query.trim() ? state.search?.error : '') || [...state.errors.values()][0] || '' : '');
+  const tree = access.allowed ? fileTreeProjection(client, selectedPath) : null;
+  const error = access.permissionError || access.tree.error || (access.allowed ? state.errors.get('') || (query.trim() ? state.search?.error : '')
+    || [...state.errors].find(([path]) => path !== '' && tree?.reachableDirectories.has(path))?.[1] || '' : '');
   return { owner: access.owner, revision: client.revision, title: workspaceOf(client).projectName || 'Files', query, selectedPath,
-    rows: access.allowed ? mobileFileTreeProjection(client, selectedPath) : [], loading: access.tree.checking || state.loading > 0,
+    rows: tree?.rows ?? [], loading: access.tree.checking || state.loading > 0,
     error, truncated: access.allowed && !!query.trim() && state.search?.truncated === true,
     emptyTitle: error ? 'Files unavailable' : 'No files found', emptyDetail: error || (query.trim() ? 'Try a different search.' : 'The workspace is empty.') };
 }
