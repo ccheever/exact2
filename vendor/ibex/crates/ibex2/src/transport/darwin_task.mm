@@ -167,6 +167,11 @@ NSString *endpoint(NSString *address, NSNumber *port) {
 @property(nonatomic, strong) NSURLSessionDataTask *task;
 @property(nonatomic, strong) Ibex2TaskDelegate *delegate;
 @property(nonatomic, copy) NSString *refusal;
+// Guarded by @synchronized(self): a cancel before activation waits for it,
+// so a suspended task, which a cancel would complete at once, calls back
+// only once activated, and is never resumed.
+@property(nonatomic, assign) BOOL activated;
+@property(nonatomic, assign) BOOL cancelled;
 @end
 @implementation Ibex2Start
 @end
@@ -249,6 +254,9 @@ void *ibex2_darwin_task_start(void *handle, const char *method, const char *url,
     delegate.keep = lane.keep;
     Ibex2Start *start = [[Ibex2Start alloc] init];
     start.delegate = delegate;
+    // Kept by the lane until its metrics have come (`release_`): queued now,
+    // ahead of anything the task can call back, on the same serial queue.
+    [lane.queue addOperationWithBlock:^{ [delegate.keep addObject:delegate]; }];
     NSURL *nsurl = refusal != nullptr ? nil : [NSURL URLWithString:[NSString stringWithUTF8String:url]];
     if (nsurl == nil) {
       start.refusal = refusal != nullptr ? [NSString stringWithUTF8String:refusal]
@@ -281,18 +289,23 @@ void ibex2_darwin_task_activate(void *handle) {
     Ibex2TaskDelegate *delegate = start.delegate;
     NSURLSessionDataTask *task = start.task;
     NSString *refusal = start.refusal;
-    // Kept by the lane until its metrics have come (`release_`); queued
-    // before the task can call back, on the same serial queue.
-    [delegate.queue addOperationWithBlock:^{
-      [delegate.keep addObject:delegate];
-      if (task == nil) {
+    BOOL cancelled;
+    @synchronized(start) {
+      if (start.activated) return;
+      start.activated = YES;
+      cancelled = start.cancelled;
+    }
+    if (task == nil) {
+      [delegate.queue addOperationWithBlock:^{
         delegate.ended = YES;
         delegate.measured = YES;
         ibex2_async_end(delegate.ctx, utf8(refusal));
         [delegate release_];
-      }
-    }];
-    if (task != nil) {
+      }];
+    } else if (cancelled) {
+      // Never resumed: it completes as cancelled, sending nothing.
+      [task cancel];
+    } else {
       delegate.resumed = [NSDate date];
       [task resume];
     }
@@ -300,7 +313,16 @@ void ibex2_darwin_task_activate(void *handle) {
 }
 
 void ibex2_darwin_task_cancel(void *handle) {
-  @autoreleasepool { [((__bridge Ibex2Start *)handle).task cancel]; }
+  @autoreleasepool {
+    Ibex2Start *start = (__bridge Ibex2Start *)handle;
+    @synchronized(start) {
+      if (!start.activated) {
+        start.cancelled = YES;
+        return;
+      }
+    }
+    [start.task cancel];
+  }
 }
 
 void ibex2_darwin_task_release(void *handle) {

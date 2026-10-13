@@ -149,7 +149,8 @@ impl Exchange {
         }
     }
 
-    /// Stop the exchange. Its sink still gets `end` once activated.
+    /// Stop the exchange. Its sink still gets `end` once activated; one
+    /// cancelled before activation sends nothing.
     pub fn cancel(&self) {
         (self.cancel)()
     }
@@ -352,7 +353,7 @@ impl FetchTask {
         });
         let exchange = Arc::new(self.transport.start(request, sink));
         // Recorded before it may deliver; activated whatever happened since,
-        // so that its sink gets an end, and cancelled if it is not wanted.
+        // so that its sink gets an end.
         let wanted = {
             let mut state = self.state.lock().unwrap();
             let wanted = !state.done && state.hop == hop && state.ended < hop;
@@ -361,10 +362,11 @@ impl FetchTask {
             }
             wanted
         };
-        exchange.activate();
+        // An unwanted one is cancelled first, so activating it sends nothing.
         if !wanted {
             exchange.cancel();
         }
+        exchange.activate();
     }
 }
 

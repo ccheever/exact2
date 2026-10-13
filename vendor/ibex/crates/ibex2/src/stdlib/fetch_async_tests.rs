@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Started {
     request: HopRequest,
     sink: Box<dyn Sink>,
-    activated: Arc<AtomicUsize>,
-    cancelled: Arc<AtomicUsize>,
+    /// "activate" and "cancel", in the order the task called them.
+    calls: Arc<Mutex<Vec<&'static str>>>,
 }
 
 #[derive(Default)]
@@ -23,24 +23,19 @@ struct Scripted {
 
 impl AsyncTransport for Scripted {
     fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange {
-        let (activated, cancelled) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        let (on, off) = (activated.clone(), cancelled.clone());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (on, off) = (calls.clone(), calls.clone());
         self.started.lock().unwrap().push(Started {
             request,
             sink,
-            activated,
-            cancelled,
+            calls,
         });
         if let Some(hook) = self.on_start.lock().unwrap().take() {
             hook();
         }
         Exchange::new(
-            move || {
-                on.fetch_add(1, Ordering::SeqCst);
-            },
-            move || {
-                off.fetch_add(1, Ordering::SeqCst);
-            },
+            move || on.lock().unwrap().push("activate"),
+            move || off.lock().unwrap().push("cancel"),
         )
     }
 }
@@ -296,7 +291,7 @@ fn an_abort_reports_at_once_and_cancels_the_exchange() {
     abort.abort();
     assert_eq!(events.outcome().unwrap_err(), aborted());
     let mut hop = transport.take(0);
-    assert_eq!(hop.cancelled.load(Ordering::SeqCst), 1);
+    assert_eq!(*hop.calls.lock().unwrap(), ["activate", "cancel"]);
     assert_eq!(hop.sink.head(head(200, &[], None)), Flow::Stop);
     hop.sink.end(cancel_error());
     assert_eq!(events.outcome().unwrap_err(), aborted());
@@ -422,8 +417,7 @@ fn every_exchange_is_activated_and_an_unwanted_one_cancelled() {
     let (transport, _events, _abort) =
         start(Request::get("https://a.example/x"), None, &["a.example"]);
     let hop = transport.take(0);
-    assert_eq!(hop.activated.load(Ordering::SeqCst), 1);
-    assert_eq!(hop.cancelled.load(Ordering::SeqCst), 0);
+    assert_eq!(*hop.calls.lock().unwrap(), ["activate"]);
     // Aborted while the transport was starting it: activated, so its sink
     // ends, then cancelled.
     let (transport, events, abort) = (
@@ -443,8 +437,9 @@ fn every_exchange_is_activated_and_an_unwanted_one_cancelled() {
     );
     assert_eq!(events.outcome().unwrap_err(), aborted());
     let hop = transport.take(0);
-    assert_eq!(hop.activated.load(Ordering::SeqCst), 1);
-    assert_eq!(hop.cancelled.load(Ordering::SeqCst), 1);
+    // Cancelled first, so its activation sends nothing; activated, so its
+    // sink still gets an end.
+    assert_eq!(*hop.calls.lock().unwrap(), ["cancel", "activate"]);
 }
 
 #[test]
@@ -519,7 +514,7 @@ fn an_abort_from_a_hop_end_does_not_replace_a_response() {
 
 #[test]
 fn head_204_and_304_declare_no_body_to_refuse() {
-    for (method, status) in [("HEAD", 200), ("GET", 204), ("GET", 304)] {
+    for (method, status) in [("HEAD", 200), ("GET", 204), ("GET", 205), ("GET", 304)] {
         let mut request = Request::get("https://a.example/x");
         request.method = method.into();
         request.max_body = Some(1);
@@ -690,4 +685,39 @@ fn a_cross_origin_hop_drops_cookie_and_proxy_authorization() {
     let second = transport.take(0);
     assert_eq!(second.request.headers.get("cookie"), None);
     assert_eq!(second.request.headers.get("proxy-authorization"), None);
+}
+
+#[test]
+fn a_stopped_fetch_lets_its_upload_go_while_the_task_is_still_held() {
+    let released = Arc::new(AtomicUsize::new(0));
+    let flag = released.clone();
+    let upload = Upload::new(
+        b"body".to_vec(),
+        Some(Box::new(move || {
+            flag.fetch_add(1, Ordering::SeqCst);
+        })),
+    );
+    let transport = Arc::new(Scripted::default());
+    let events = Arc::new(Recorded::default());
+    let abort = AbortController::new();
+    let mut request = Request::get("https://a.example/x");
+    request.method = "POST".into();
+    request.max_body = Some(1);
+    let task = FetchTask::start(
+        transport.clone(),
+        granted(&["a.example"]),
+        request,
+        Some(upload),
+        abort.signal(),
+        CAPS,
+        events.clone(),
+    );
+    let mut hop = transport.take(0);
+    hop.sink.head(head(200, &[], Some(2)));
+    hop.sink.end(cancel_error());
+    // The platform's copy (the hop's request) is the last holder.
+    assert_eq!(released.load(Ordering::SeqCst), 0);
+    drop(hop);
+    assert_eq!(released.load(Ordering::SeqCst), 1, "not held by the task");
+    drop(task);
 }

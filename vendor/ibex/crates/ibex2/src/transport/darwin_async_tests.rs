@@ -47,6 +47,31 @@ struct Recorder {
     flow: Flow,
 }
 
+/// Counts the drops of the sink it is part of.
+struct Dropped(Arc<AtomicUsize>);
+impl Drop for Dropped {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// A recorder that also counts its own drops.
+struct Counted(Recorder, Dropped);
+impl Sink for Counted {
+    fn head(&mut self, head: Head) -> Flow {
+        self.0.head(head)
+    }
+    fn data(&mut self, bytes: &[u8]) -> Flow {
+        self.0.data(bytes)
+    }
+    fn end(&mut self, result: Result<(), HostError>) {
+        self.0.end(result)
+    }
+    fn metrics(&mut self, metrics: HopMetrics) {
+        self.0.metrics(metrics)
+    }
+}
+
 impl Sink for Recorder {
     fn head(&mut self, head: Head) -> Flow {
         let _ = self
@@ -130,7 +155,12 @@ fn a_response_arrives_as_head_data_end_and_metrics() {
     });
     let metrics = metrics.expect("metrics, before or after the end");
     assert_eq!(metrics.protocol.as_deref(), Some("http/1.1"));
-    assert!(metrics.remote.is_some_and(|r| r.contains("127.0.0.1")));
+    assert!(metrics.remote.as_ref().is_some_and(|r| r.contains("127.0.0.1")));
+    // Queued from resume, not from the task's creation: small on localhost.
+    assert!(
+        metrics.queued_ms.is_some_and(|q| q < 1_000.0),
+        "{metrics:?}"
+    );
     server.join().unwrap();
 }
 
@@ -389,4 +419,55 @@ fn the_lane_keeps_no_cookies_and_no_cache_and_takes_its_host_limit() {
     // SAFETY: the lane is live; the out pointers are this frame's.
     unsafe { ibex2_darwin_lane_state(lane.lane(), &mut cookies, &mut cache, &mut per_host) };
     assert_eq!((cookies, cache, per_host), (0, 0, 32));
+}
+
+#[test]
+fn the_sink_is_freed_once_after_its_end_and_metrics() {
+    let (url, server) = server(0, |mut stream, _| {
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx")
+            .unwrap();
+    });
+    let lane = DarwinLane::new(0);
+    let drops = Arc::new(AtomicUsize::new(0));
+    let (events, received) = mpsc::channel();
+    let sink = Counted(
+        Recorder {
+            events,
+            flow: Flow::Continue,
+        },
+        Dropped(drops.clone()),
+    );
+    let exchange = lane.start(get(&url), Box::new(sink));
+    exchange.activate();
+    until_end(&received);
+    // Past the second metrics get, whether or not they came.
+    thread::sleep(Duration::from_millis(1200));
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    server.join().unwrap();
+}
+
+#[test]
+fn a_cancel_before_activation_sends_nothing_and_still_ends() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let lane = DarwinLane::new(0);
+    let (events, received) = mpsc::channel();
+    let exchange = lane.start(
+        get(&url),
+        Box::new(Recorder {
+            events,
+            flow: Flow::Continue,
+        }),
+    );
+    exchange.cancel();
+    assert!(
+        received.recv_timeout(Duration::from_millis(300)).is_err(),
+        "nothing before activation"
+    );
+    exchange.activate();
+    let seen = until_end(&received);
+    assert!(seen.iter().any(|e| matches!(e, Event::End(Err(_)))), "{seen:?}");
+    assert!(listener.accept().is_err(), "no connection was made");
 }
