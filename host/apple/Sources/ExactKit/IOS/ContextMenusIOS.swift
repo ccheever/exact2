@@ -233,7 +233,9 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
               let name = source.props["contextPopover"], menus.eligible(source) else { return nil }
         // UIKit's row menu wins over text selection. An authored menu
         // nearer the hit still belongs to that node (LLP 1115.000 D11.6).
-        if let hit = source.hitTest(location, with: nil) as? NodeView,
+        let hit = source.hitTest(location, with: nil)
+        guard !source.hitsNativeEditor(hit) else { return nil }
+        if let hit = hit as? NodeView,
            let nearest = hit.contextMenuSource, nearest !== source { return nil }
         guard let pop = popover(named: name) else { log("context menu \(name) refused: no popover has that id"); return nil }
         // A press released before its menu showed never reached `willEnd`.

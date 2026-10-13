@@ -316,6 +316,13 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertEqual(menus, [6])
         XCTAssertNil(p.textSelection.selection)
         host.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        let readOnly = UITextView(); readOnly.isEditable = false
+        for editor in [UITextField(), UITextView(), readOnly] as [UIView] {
+            editor.frame = row.bounds; row.container.addSubview(editor)
+            XCTAssertTrue(row.hitsNativeEditor(row.hitTest(at, with: nil)))
+            XCTAssertNil(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: at), "a native editor keeps its long press")
+            editor.removeFromSuperview()
+        }
         paragraph.handlers = ["contextmenu"]; paragraph.updateContextGestures()
         XCTAssertNil(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: at), "the paragraph's own menu stays nearest")
         paragraph.handlers = []; paragraph.updateContextGestures()

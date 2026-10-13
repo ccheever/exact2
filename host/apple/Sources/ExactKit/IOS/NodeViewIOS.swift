@@ -183,15 +183,23 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
         }
         #endif
-        // A nested editor owns its selection gestures, including read-only
-        // text. A containing bubble's reply/Tapback recognizers must yield.
+        if hitsNativeEditor(touch.view) { return false }
         var hit = touch.view
         while let current = hit, current !== self {
-            if current is UITextView || current is UITextField { return false }
             if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer || gestureRecognizer === transformContact?.pinch), current is UIScrollView { return false }
             hit = current.superview
         }
         return true
+    }
+    /// A nested editor owns its selection gestures, including read-only
+    /// text. Plain gestures and native context menus use the same boundary.
+    func hitsNativeEditor(_ view: UIView?) -> Bool {
+        var hit = view
+        while let current = hit, current !== self {
+            if current is UITextView || current is UITextField { return true }
+            hit = current.superview
+        }
+        return false
     }
     func updateContextGestures() {
         if handlers.contains("contextmenu"), contextRecognizer == nil {
