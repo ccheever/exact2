@@ -1048,29 +1048,60 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
 },60000);
 
 test('E10 Beacons and skinned Linux proof hashes match release under the fast profile', async () => {
+  const {cpSync, existsSync} = await import('node:fs');
   const root=mkdtempSync(resolve(tmpdir(),'e10-profiles-'));
+  // The shared filesystem helper builds below this excluded output container.
+  mkdirSync(resolve(import.meta.dir,'../target'),{recursive:true});
   try {
     for(const name of ['beacons','skinned-fixture']) {
       const rows=[];
       for(const profile of ['gpu-dev','release']) {
-        const out=resolve(root,`${name}-${profile}`);mkdirSync(out,{recursive:true});
-        const child=Bun.spawn([process.execPath,resolve(import.meta.dir,'games',name,'proof.mjs'),'linux'],{
-          cwd:resolve(import.meta.dir,'..'),
-          env:{...process.env,EXACT_PROOF_OUT:out,EXACT_GAME_PROOF_PROFILE:profile},
-          stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
-        });
-        const code=await child.exited;
-        if(code !== 0) throw new Error(`${name} ${profile}: ${readFileSync(resolve(out,'run.log'),'utf8').slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
-        expect(code).toBe(0);
-        const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
-        expect(row.status).toBe('PASS'); rows.push(row);
+        // Keep relative proof imports working while giving each profile fresh,
+        // private outputs. Never remove a developer's assets or compiler cache.
+        const app=mkdtempSync(resolve(import.meta.dir,'games',`e10-${name}-`));
+        const source=resolve(import.meta.dir,'games',name);
+        try {
+          for(const entry of readdirSync(source)) {
+            if(['target','artifacts','.shells','dist','dist.previous','dist-windows','assets','.baked-assets.json'].includes(entry)) continue;
+            cpSync(resolve(source,entry),resolve(app,entry),{recursive:true});
+          }
+          const receipt=resolve(app,'artifacts',profile==='gpu-dev'?'build-linux-gpu.sha256':'build-linux.sha256');
+          let stable;
+          for(const phase of ['fresh','stable','cached']) {
+            const out=resolve(root,`${name}-${profile}-${phase}`);mkdirSync(out,{recursive:true});
+            const child=Bun.spawn([process.execPath,resolve(app,'proof.mjs'),'linux'],{
+              cwd:resolve(import.meta.dir,'..'),
+              env:{...process.env,CARGO_TARGET_DIR:resolve(app,'target'),EXACT_PROOF_OUT:out,EXACT_GAME_PROOF_PROFILE:profile},
+              stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
+            });
+            const code=await child.exited, log=readFileSync(resolve(out,'run.log'),'utf8');
+            const expected=phase==='fresh'?1:0;
+            if(code !== expected) throw new Error(`${name} ${profile} ${phase}: ${log.slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
+            const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
+            if(phase==='fresh') {
+              expect(row.status).toBe('FAIL');
+              expect(row.failures).toEqual(['proof interrupted']);
+              expect(log).toContain('app or asset directories changed during build; rerun the proof');
+              expect(log).not.toContain('authored proof inputs changed during build');
+              expect(existsSync(receipt)).toBe(false);
+            } else {
+              expect(row.status).toBe('PASS'); expect(existsSync(receipt)).toBe(true);
+              if(phase==='stable') { stable=row; rows.push(row); }
+              else {
+                expect(log).toContain('BUILD cached');
+                expect(row.worlds).toEqual(stable.worlds); expect(row.pins).toEqual(stable.pins);
+              }
+            }
+            console.log(`E10 ${name} ${profile} ${phase}: ${row.status}${phase==='fresh'?' (required rerun)':''}`);
+          }
+        } finally {rmSync(app,{recursive:true,force:true});}
       }
       expect(rows[0].worlds).toEqual(rows[1].worlds);
       expect(rows[0].pins).toEqual(rows[1].pins);
     }
   } finally {rmSync(root,{recursive:true,force:true});}
-// Each authored game owns its compiler intermediates, including on the first
-// cold run. This is a hash-equivalence check, not a build-latency assertion.
+// Four fresh-output builds, each followed by exactly one stable rerun and a
+// cache hit. This checks hash equivalence and receipt policy, not build latency.
 },1200000);
 
 
