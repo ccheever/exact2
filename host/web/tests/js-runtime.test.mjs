@@ -169,7 +169,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-for (const f of ['rt.js', 'font-family.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],

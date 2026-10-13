@@ -2554,6 +2554,22 @@ height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are
 not truncated. It does not apply to `input type="number"`.
 
+`intersect=seen` observes geometric intersection with the nearest ancestor
+scroll container (or viewport). `action seen(e: IntersectionObserverEntry)`
+reads `e.isIntersecting` and `e.intersectionRatio`; authored arguments precede
+the optional record. It fires once on mount, including offscreen, then on
+enter/leave at threshold 0. The ratio is a snapshot, not a continuous progress
+signal; edge contact may be true with ratio 0. `intersect-margin="200px"`
+expands the root for overscan; a literal of one to four `px`/`%` lengths (units
+are case-insensitive) has IntersectionObserver's `rootMargin` semantics (percentages use the corresponding
+root dimension, as in Chrome).
+Removing a node stops observation, with no synthetic leave. Both web targets
+use the browser. AppKit, UIKit and Linux sample native layout and scrolling;
+inline runs, moving presentation geometry, rotated roots and SVG clip references
+remain unqualified (LLP 1005, intersection visibility; LLP 1001 records the
+percentage-margin spec deviation). Other native hosts remain unqualified.
+Container queries and live-position feedback are still deferred.
+
 `resize="none"` disables browser resize handles. Other CSS resize values are
 refused with a native geometry explanation. Given an action instead,
 `resize=fit` is the element resize event, `ResizeObserver`'s: `fit` hears the

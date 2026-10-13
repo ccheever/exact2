@@ -736,8 +736,7 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
-        let resized = self.deliver_resizes();
-        error.or(refined).or(geometry).or(resized)
+        error.or(refined).or(geometry)
     }
 
     // Collection feedback calls this directly: never recurse through refinement.

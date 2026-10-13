@@ -1313,6 +1313,7 @@ impl Em<'_> {
                 | EventKind::Pan
                 | EventKind::Cancel
                 | EventKind::Resize
+                | EventKind::Intersect
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight

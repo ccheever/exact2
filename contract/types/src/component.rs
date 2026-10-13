@@ -580,6 +580,7 @@ fn refine_params_from_view(
                             | "navigate"
                             | "cancel"
                             | "resize"
+                            | "intersect"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),

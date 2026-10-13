@@ -462,6 +462,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "paste" => AttrTarget::Handler("paste"),
         "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
+        "intersect" => AttrTarget::Handler("intersect"),
+        "intersect-margin" => AttrTarget::Prop(p("intersectMargin")),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "refresh" => AttrTarget::Handler("refresh"),

@@ -22,7 +22,7 @@ const STANDINS = { 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection
 function runtime(name, appDir) {
   const dir = resolve(root, name), ship = code => appDir ? developmentStore(code, appDir) : code;
   mkdirSync(dir);
-  for (const f of ['rt.js', 'font-family.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'persist.js']) writeFileSync(resolve(dir, f), ship(readFileSync(resolve(webJs, f), 'utf8')));
+  for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'persist.js']) writeFileSync(resolve(dir, f), ship(readFileSync(resolve(webJs, f), 'utf8')));
   writeFileSync(resolve(dir, 'storage-environment.js'), ship(readFileSync(resolve(web, 'storage-environment.js'), 'utf8')));
   for (const [file, names] of Object.entries(STANDINS)) writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n'));
   writeFileSync(resolve(dir, 'media.js'), ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'].map(n => `export const ${n} = () => {};`).join('\n') + '\nexport const MEDIA_EVENTS = new Set();');

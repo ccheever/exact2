@@ -16,6 +16,7 @@ pub(crate) fn piece(event: EventKind) -> Option<&'static str> {
         EventKind::Transformrelease => Some("onTRelease"),
         EventKind::Reorderdrop => Some("onDrop"),
         EventKind::Resize => Some("onResize"),
+        EventKind::Intersect => Some("onIntersect"),
         _ => None,
     }
 }

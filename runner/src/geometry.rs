@@ -24,6 +24,9 @@
 //! compiler requires `measure`'s id to be a literal, which is what lets the
 //! runner find them all first.
 
+mod intersection;
+pub(crate) use intersection::intersection;
+
 use exact_kernel::{
     Display, Frame, Kernel, NodeFlags, NodeKey, Overflow, PointerEvents, PropId, StyleId, ViewId,
     Visibility,

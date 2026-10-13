@@ -645,3 +645,52 @@ Send button, Shift's release), `FieldCompositionIOSTests`, and
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
 completed swipe. Move/cancel samples do not enter the runner.
+
+## Intersection visibility (Charlie, 2026-10-12)
+
+Implementer: Codex, 2026-10-12; web targets and native geometry slice.
+Charlie's ruling: "intersect=: admit now — intersect=action
+{isIntersecting, intersectionRatio}, intersect-margin, root = nearest scroller,
+threshold 0, fires on mount + enter/leave". Consumer: T3 sidebar subscriptions
+and timeline minimap. This admits no container queries or reactive geometry.
+
+`intersect=action` offers an optional final `IntersectionObserverEntry` record,
+after authored arguments: `isIntersecting: bool`, `intersectionRatio: number`.
+It does not bubble. The root is the nearest ancestor CSS scroll container
+(`overflow: auto`, `scroll` or `hidden` on either axis), or the viewport.
+`intersect-margin` is a literal rootMargin string: one to four signed `px` or
+`%` lengths, default `"0px"`; the compiler normalizes case-insensitive units
+and requires CSS number syntax (digits after a decimal point or exponent).
+Percentages follow Chrome: root height for top/bottom, root width for left/right. The margin expands only the root;
+intervening clips still apply. This is geometric intersection, not occlusion or painted visibility.
+
+The browser's IntersectionObserver with threshold 0 supplies initial delivery
+(including an offscreen node), then enter/leave. Edge contact may report true
+with ratio 0; a zero-area target reports ratio 1 when intersecting. A ratio
+change alone does not deliver. Removed nodes stop observing without a synthetic
+leave; a new mount gets a fresh initial delivery. Callback entries retain browser
+order within a root/margin observer; different observers have no ordering
+guarantee. Static rendering dispatches nothing.
+A changed nearest root restarts observation with a fresh initial delivery.
+
+Host coverage: both web targets use the same browser adapter. AppKit, UIKit
+(including tvOS) and Linux use one runner sampler over laid-out frames and
+reported scroll offsets. Native hosts sample after the resize loop and scroll turns,
+mark entries before dispatch, and generation-check queued entries so removal
+or recycling cannot deliver to a replacement. A handler that changes geometry
+is observed on the next host turn. Apple samples at the next executor pump,
+after the presenter has applied the previous batch and reported authored scroll
+offsets. The runner preserves registration order within a root/margin group,
+including when keyed targets move; a changed root re-registers at the end.
+The browser adapter starts after first paint. A failed observer construction
+retires that target's registration without interrupting other targets.
+
+Native qualification remains incomplete: inline text runs, presentation-time
+motion/sticky/fixed geometry, rotated roots and SVG clip references are not
+qualified by this slice. Native transforms use the committed two-dimensional
+rows, as `frame()` does, not animation samples. Percentage margins follow the
+local Chrome oracle's per-axis basis. This differs from the W3C draft's width
+rule and is recorded as a spec deviation in LLP 1001. Windows and Android inherit the Linux
+sampler but their carriers are unqualified; terminal does not call the sampler. These deviations are also in LLP 1001; the issue
+stays open until native presenter tests and drives and the remaining geometry
+cases are qualified.

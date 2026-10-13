@@ -43,6 +43,11 @@ impl<D: DataSource> Bridge<D> {
     pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().scrolled((!page).then_some(view), left, top);
+            if !h.runner_mut().intersect_due().is_empty() {
+                if let Some(executor) = self.executor.as_deref() {
+                    executor.notify();
+                }
+            }
         }
     }
 

@@ -267,6 +267,13 @@ pub enum Event {
     /// The element's content box after layout, ResizeObserver's
     /// `contentRect` (`super::resize`).
     Resize(super::ResizeRect),
+    /// IntersectionObserver's threshold-zero entry (LLP 1005).
+    Intersect {
+        /// Whether the target intersects the root, including edge contact.
+        is_intersecting: bool,
+        /// Intersection area divided by target area, in the range 0 to 1.
+        intersection_ratio: f64,
+    },
     /// Incremental recognized pan displacement in viewport CSS pixels.
     /// @ref LLP 1043.000 §3 D8 — the action commits layout state, never a hold.
     Pan(f64, f64),
@@ -472,6 +479,13 @@ impl Event {
             Event::Wheel(w) => Some(w.value()),
             Event::Drop(d) => Some(d.value()),
             Event::Resize(r) => Some(r.value()),
+            Event::Intersect {
+                is_intersecting,
+                intersection_ratio,
+            } => Some(Value::record(vec![
+                Value::Bool(*is_intersecting),
+                Value::Number(*intersection_ratio),
+            ])),
             Event::Scroll(s) => Some(Value::record(
                 [
                     s.left,
@@ -975,6 +989,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Refresh => "refresh",
                 Event::Scroll(_) => "scroll",
                 Event::Resize(_) => "resize",
+                Event::Intersect { .. } => "intersect",
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
@@ -1091,6 +1106,7 @@ impl<D: DataSource> Runner<D> {
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_) => (EventKind::Scroll, None, "scroll"),
             Event::Resize(_) => (EventKind::Resize, None, "resize"),
+            Event::Intersect { .. } => (EventKind::Intersect, None, "intersect"),
             Event::Media(kind, value) => (
                 *kind,
                 match kind {

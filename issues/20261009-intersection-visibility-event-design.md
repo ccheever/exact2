@@ -9,7 +9,183 @@
 
 ## Current scope
 
-Select bounded IntersectionObserver-shaped event payload/margin/consumer first. Anchors coordinate with #112; container queries, derive-time frame and general live geometry remain deferred. This is a visibility candidate, not the original umbrella.
+Charlie's issue-fix ruling 5 (2026-10-12) admits `intersect=action` with
+`{isIntersecting, intersectionRatio}`, `intersect-margin`, the nearest scroller
+as root, threshold 0, and mount + enter/leave delivery. Consumer: T3 sidebar
+subscriptions and timeline minimap. Anchors coordinate with #112; container
+queries, derive-time frame and general live geometry remain deferred.
+
+## First slice, 2026-10-12
+
+The Contract compiler, typed event/ABI, vocabulary and both web targets now carry
+the admitted shape (LLP 1005 "Intersection visibility"). The margin is a literal
+one-to-four px/% rootMargin. Both web executors use one lazy browser adapter;
+removal disconnects it and a changed nearest scroller starts a new observation.
+The admission and incomplete-host deviation are recorded in DEFERRED and LLP 1001.
+
+**What remains (issue stays Open):** see the c1 continuation below for the
+shared native implementation, its qualification limits and pending drives.
+
+Regression coverage: `geometry::intersect_compiles_and_dispatches_its_entry_after_authored_arguments`
+(the baseline failed with `lower-unknown-attr`), the Chrome oracle test in
+`host/web/tests/intersect.test.mjs`, and `host/web-js/conformance/intersect.contract`
+with its scroll, removal and remount drive. Verification results are reported by
+the lane; the existence of a fixture is not a claim that a host passed it.
+
+## c1 continuation, 2026-10-12
+
+The five first-slice failures are repaired and each passed by name: both type
+choice diagnostics, the VS Code event vocabulary, the schema digest snapshot,
+and the reserved `data-intersectmargin` host attribute.
+
+AppKit/UIKit and Linux now share `Runner::intersect_due` over the kernel's
+post-layout geometry and the scroll offsets already reported for `frame()`.
+The native hooks deliver mount and threshold-zero enter/leave, including edge
+contact and zero-area targets. They use the nearest scroll container (including
+`overflow: hidden`), root margins, committed 2D transforms and intervening CSS
+path bounds. Generation-checked samples are marked before dispatch; a removed
+or recycled target cannot receive an earlier queued entry. No Swift visibility
+calculator or new ABI entry point was added. Apple wakes its existing executor
+when an offset changes; Linux samples in its existing geometry turn.
+
+The shared Rust regression first failed with no initial entry. Its first
+implementation exposed default CSS border widths incorrectly shrinking the
+root even for `border-style: none`; subtracting only used borders fixed that.
+The Apple host regression then exposed implicit `<scroll>`/`<list>` overflow:
+root selection now consults the same semantic default as kernel layout.
+Both shared tests pass with `cargo test -p contract --test intersect`.
+They cover scrolling, mount/remount, stale-entry rejection, root changes,
+viewport edges, zero area, display:none, transforms and intervening clips.
+The Apple host and Linux presenter regression each pass via
+`cargo test -p exact-apple -p exact-linux --lib native_intersect --no-fail-fast`.
+They and `IntersectionMacTests` / `IntersectionIOSTests` use
+`scripts/fixtures/intersect.contract`, with no authored scroll handler.
+
+The Chrome adapter test passes. Its new numeric assertion establishes that
+Chrome's percentage root margins use root height for vertical sides and root
+width for horizontal sides. Native now follows that observed behavior;
+LLP 1001 records the discrepancy from the W3C draft's all-width rule.
+
+The filtered AppKit run passed one test in `ExactKitTests.IntersectionMacTests`
+with real native scrolling: `ONLY_CLASSES=ExactKitTests.IntersectionMacTests bun host/apple/build.mjs --test`. The temporary class filter in `xctest.mjs`
+was restored afterward.
+
+**Remaining qualification:** run `IntersectionIOSTests` on a lane-owned simulator
+and the full macOS/iOS/Linux app drives. No simulator was booted in c1.
+Qualify/fix inline text targets, sticky/fixed and animated presentation geometry,
+rotated-root ratios and SVG clip references. Windows and Android inherit the
+Linux presenter path but have not been exercised; terminal does not call the
+sampler. The shared sampler uses committed transform rows, as `frame()`
+does; it does not observe animation samples. The issue stays open.
+
+The conformance `--build` run is deliberately skipped under the machine's
+current load, as instructed for c1. No full web-executor parity is claimed.
+Scoped Clippy (`contract`, `contract-lower`, `exact-kernel`, `exact-runner`,
+`exact-apple`, `exact-linux`, all targets), formatting, caps and issue format
+passed. The semantics quick check was started, then stopped during compilation
+after confirming Lake is absent from both PATH and `~/.elan/bin/lake`.
+The remaining check results are recorded in the lane's final report. Prepared
+tests are not a claim that a native presenter passed.
+
+## Review fix round 1, 2026-10-12
+
+All four review findings reproduced before the fix:
+
+- Apple sampled mount before the presenter applied `scrollTop=150`. The
+  AppKit fixture reported `2:true:1` (a false entry followed by a true entry),
+  instead of the browser's single `1:true:1`. Sampling now runs at the start
+  of the next executor pump, after presentation, before new pump commits.
+  `native_intersect_waits_for_presented_authored_scroll` and the authored-scroll
+  addition to `IntersectionMacTests` cover this boundary.
+- Native batches used hash-map iteration rather than registration order.
+  `native_intersect_entries_follow_registration_order` failed for 32 mounted
+  rows. The runner now orders existing observations by their registration,
+  fresh observations by monotonic mount ids, and reobserves changed roots at
+  the end. Both native hosts consume that order.
+- `200PX` compiled but native geometry treated it as zero.
+  `native_intersect_margin_units_are_case_insensitive` failed on that spelling;
+  the compiler now normalizes units once for all hosts. Mixed-case and
+  four-sided forms are covered too.
+- Linux delivered ratio `0.4` before a resize handler removed an 80px spacer,
+  then never updated it to `1` because the target remained intersecting.
+  `native_intersect_samples_after_resize_handlers` reproduced it. Every Linux
+  geometry turn now completes the resize loop before intersection sampling,
+  with nested sampling suppressed while resize callbacks run.
+
+The Chrome test `intersection initial entries follow scroll, resize and
+registration order` supplies the expected results, including uppercase units
+and registration order after a DOM move. The issue remains Open for the
+qualification listed above; this round does not claim the remaining geometry
+cases or full app drives.
+
+The focused runner/compiler and Apple/Linux regressions, Chrome adapter tests,
+and filtered AppKit `IntersectionMacTests` passed. Scoped Clippy passed for
+`contract`, `contract-lower`, `exact-runner`, `exact-apple` and `exact-linux`.
+The related `resize` filter passed 18 Apple/Linux tests; the compiler integration
+`intersect` filter passed two. Formatting, staged caps and issue format passed.
+`cargo run -p contract-difftest -- quick` reached the driver and exited 2:
+`lake build: No such file or directory` (Lean is not installed). The temporary
+`ONLY_CLASSES` filter was restored after AppKit. No simulator was booted in
+this review round; UIKit and the broader qualification above remain open.
+
+## Review fix round 2, 2026-10-12
+
+Reviewer A's malformed-margin finding reproduced: the compiler accepted
+`1.px`, and Chrome threw `SyntaxError` both for that target and for a valid
+target registered afterward. `intersect_margin_requires_css_number_syntax`
+first failed on the accepted literal. The browser regression
+`invalid margins cannot block later intersection targets` first failed on
+both constructor errors; it also checks Chrome's refusal of eight malformed
+forms and acceptance of seven signed, fractional and exponent forms.
+
+The compiler now validates CSS number syntax before float parsing. The shared
+web adapter retires failed registrations and reports the error without
+interrupting other targets. Its regression covers a newly invalid existing
+target and explicit re-registration after correcting a margin, too.
+Reviewer B reported no finding. This round does not change native sampling;
+the issue remains Open for the native qualification above.
+
+Verification: `cargo test -p contract -p contract-lower -p exact-web --lib
+--bins --tests --no-fail-fast` passed 1,433 tests (13 ignored), and the focused
+`cargo test -p contract --test intersect --no-fail-fast` passed all five.
+`bun test host/web/tests/intersect.test.mjs` passed all three Chrome tests.
+`cargo clippy -p contract -p contract-lower -p exact-web --all-targets -- -D warnings`,
+`cargo fmt --all -- --check`, staged caps and issue format passed.
+`cargo run -p contract-difftest -- quick` exited 2 because `lake build` could
+not start: Lean is not installed. No native presenter or full app drive was
+rerun for this parser/adapter-only correction.
+
+## Rebase qualification, 2026-10-12
+
+The orchestrator reports `IntersectionIOSTests` passed on an iOS 27 simulator
+before this rebase (lane head `776debde4`). This is the UIKit presenter result
+from the orchestrator's run, not a new simulator run by this continuation.
+The earlier pending UIKit class run is therefore satisfied. Full app drives
+and the geometry/carrier qualifications listed above remain open.
+
+Rebased onto `origin/main` at `57ab536e3`. Main's `keycapture` keeps host ABI
+kind 44; `intersect` now uses 45 in the web bridge, browser dispatcher, shared
+decoder and compiler regression. Both event names remain in the plan format,
+vocabulary and editor grammar. The runtime copies and test stand-ins retain
+main's font-family, querySelectorAll and contextAt support alongside observers.
+The handler array length and schema digest snapshot are updated for the union.
+
+The digest test first printed `11178576454759414984`; the snapshot now records
+`0x9b22480f187afcc8`, and the full kernel test run passed it. The first caps run
+found `host/apple/src/host.rs` three lines over the limit after merging main;
+shortened comments and removal of a misplaced doc line restored the cap.
+
+Post-rebase verification:
+
+- `cargo build --all-targets --keep-going` — passed.
+- `cargo test -p exact-linux --lib --tests native_intersect` — both targeted tests passed.
+- `cargo test -p exact-web-js --bins --no-fail-fast` — 41 passed, including the Chrome paint corpus.
+- `ONLY_CLASSES=ExactKitTests.IntersectionMacTests bun host/apple/build.mjs --test` — one AppKit class, one test, zero failures. The temporary `ONLY_CLASSES` filter was restored; no test-runner change is committed.
+- `cargo clippy --all-targets --keep-going -- -D warnings` — passed.
+- `cargo run -p contract-difftest -- quick` — exited 2: `lake build: No such file or directory (os error 2)`; Lean is still unavailable.
+- `cargo test -p exact-kernel -p contract -p contract-lower -p exact-runner -p exact-web -p exact-apple --lib --bins --tests --no-fail-fast` — 2,995 passed, 32 ignored.
+- `bun test host/web/tests/intersect.test.mjs host/web/tests/js-runtime.test.mjs host/web/tests/js-link-press.test.mjs host/web/tests/js-storage-scope.test.mjs host/web/tests/form-chrome.test.mjs` — 52 passed.
+- `cargo fmt --all -- --check`, `git add -A && bun scripts/caps.mjs`, `bun scripts/issue.mjs check`, and `bun scripts/boot.mjs` — passed.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 

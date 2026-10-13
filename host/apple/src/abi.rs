@@ -263,6 +263,9 @@ impl<D: DataSource> Bridge<D> {
             ..
         } = self;
         if let (Some(h), Some(x)) = (host.as_mut(), executor.as_deref()) {
+            if !h.runner_mut().intersect_due().is_empty() {
+                x.notify();
+            }
             x.forget(&|ticket| h.runner().holds(ticket));
             if !h.has_ordered_request_refusals() {
                 for (ticket, reason) in x.resume_ordered() {

@@ -19,9 +19,11 @@ pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
 mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};
+mod intersect;
 mod reorder;
 mod reorder_codec;
 mod reorder_group;
+pub use intersect::Intersection;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod root_font;
@@ -379,6 +381,7 @@ pub struct Runner<D: DataSource> {
     scrolled: crate::geometry::Scrolled,
     /// Each `resize` handler's node and the content box last delivered.
     resized: resize::Resized,
+    intersections: intersect::Intersections,
     /// Refused requests, for `state` (LLP 1070.000 §2.2).
     into_view_refused: std::collections::VecDeque<String>,
     surfaces: Vec<SurfaceUpdate>,
@@ -824,6 +827,7 @@ impl<D: DataSource> Runner<D> {
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),
+            intersections: Vec::new(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             renewed: Vec::new(),
@@ -1122,13 +1126,6 @@ impl<D: DataSource> Runner<D> {
     /// The kernel, for layout and export.
     pub fn kernel(&self) -> &Kernel {
         &self.kernel
-    }
-
-    /// A scroll container the host presents now stands at `(left, top)` CSS
-    /// px, or the page does (`None`): what `frame` and `measure` subtract
-    /// from the kernel's scroll-free box natively. Noted, never dispatched.
-    pub fn scrolled(&mut self, view: Option<ViewId>, left: f64, top: f64) {
-        self.scrolled.note(&self.kernel, view, left, top);
     }
 
     /// The kernel, mutably (a host lays out through it).

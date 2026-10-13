@@ -20,7 +20,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // -exact-exit-animation and -exact-layout-transition, after paint at first use (LLP 1063)
-let mediaModule, soundModule, soundOut, imageHold, geometry = null, resizes = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
+let mediaModule, soundModule, soundOut, imageHold, geometry = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js, LLP 1096 D7); animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4); the element resize event (resize-glue.js)
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLMediaElement)) return;
   el.exactMedia ??= { props: {}, handlers: [] };
@@ -556,6 +556,8 @@ function attach(el, id, handlers) {
     } else if (kind === "heightrelease") {
       motion.attachHeightDrag(el, id, on);
     } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on); } else if (kind === "resize") { (resizes ??= loadAfterPaint('./resize-glue.js', 'observeResize')).then(observe => observe(el, r => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 39, writeIn(`${r.x},${r.y},${r.width},${r.height}`), now())); })); // ResizeObserver's contentRect, host kind 39
+    } else if (kind === "intersect") {
+      (intersects ??= loadAfterPaint('./intersect-glue.js', 'observeIntersect')).then(observe => { if (views.get(id) === el && !retiredViews.has(el)) el.exactIntersect = observe(el, r => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 45, writeIn(`${Number(r.isIntersecting)},${r.intersectionRatio}`), now())); }); });
     } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, writeIn(r), now())); }); on("pointerdown", e => own()?.(e)); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`)
     } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, "start,end,text"
       onSelection(el, (text, a, b) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn(`${a},${b},${text}`), now())); });
@@ -596,7 +598,7 @@ function viewFor(op, id) {
 function apply(batch) {
   // Retire dispatch before children ops can synchronously blur removed views; a leaving view's box is read before any op moves it (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") { const el = views.get(op.id); if (el) retiredViews.add(el); }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactIntersect?.(); } }
   }
   presence.live?.before(batch, views);
   listSelection?.before();
@@ -821,7 +823,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -1253,7 +1255,6 @@ async function clock(request) {
     if (rounds >= 15) return reply(false);
   }
 }
-
 let ticker = null, timerFactory = null, toldOffset = null;
 // The zone's offset follows the clock (habits F6): told again before an advance whose instant finds it changed (a DST
 // change, a new zone), and after the agent's `clock`; an unchanged one is not told.
@@ -1369,7 +1370,6 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
   return performance.now() - t;
 }
-
 // `agent`, `agentSettled` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;

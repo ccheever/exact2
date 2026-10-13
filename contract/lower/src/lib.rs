@@ -33,6 +33,7 @@ mod fonts;
 mod grouped;
 mod handlers;
 mod identity;
+mod intersect;
 mod keyframes;
 mod lint;
 mod media;
@@ -986,6 +987,9 @@ impl<'a> Lowerer<'a> {
                 let aria_disabled = values::aria_disabled_literal(prop, &a.value);
                 let value = if prop == exact_kernel::PropId::GlassGroup {
                     glass = values::glass_group(&a.value)?;
+                    &glass
+                } else if prop == exact_kernel::PropId::IntersectMargin {
+                    glass = crate::intersect::margin(&a.value, a.span)?;
                     &glass
                 } else if let Some(width) = values::split_width(prop, &a.value) {
                     glass = width;

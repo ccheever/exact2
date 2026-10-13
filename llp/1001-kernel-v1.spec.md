@@ -20,6 +20,16 @@ disagree, the code and its tests are the authority and this document is stale.
 Under `rules/RULES.md` this spec is legitimate because the implementer and date
 are on it and the code exists. It is not a promise about anything not yet built.
 
+Intersection visibility host deviation (2026-10-12, LLP 1005 "Intersection
+visibility"): both web targets use the browser; AppKit, UIKit and Linux now
+share the runner's post-layout/post-scroll sampler. Native inline runs,
+presentation-time motion/sticky/fixed positions, rotated roots and SVG clip
+references remain unqualified. Percentage root margins follow measured Chrome
+behavior: height for top/bottom, width for left/right, diverging from the
+[W3C draft's width rule](https://w3c.github.io/IntersectionObserver/#dom-intersectionobserver-rootmargin).
+Windows and Android inherit the Linux path without carrier qualification;
+terminal does not sample. The issue stays open. The margin is an observer option, not a CSS layout row.
+
 ## 1. One declaration authority (WS-B)
 
 `kernel/tables/schema.json` is the only place node types, props, style rows, enum

@@ -1164,3 +1164,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `accessibilityAttributeValue(.enabled)` or `tree --ax`; checkbox, radio,
   popup, slider and date cells keep reporting enabled until they answer that
   attribute themselves. `NSSwitch` has no cell.
+
+- **Vertical percentage `intersect-margin` follows Chrome's root height.**
+  Horizontal percentages use root width. The native sampler matches the
+  measured browser behavior, which differs from the W3C draft's all-width
+  rule (LLP 1001). Use `px` when the overscan is an absolute distance.

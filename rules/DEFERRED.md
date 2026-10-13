@@ -883,3 +883,11 @@ identity or profile for a consumer that re-signs it (AppDrop). Unblocks handing
 an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
+
+**Admitted (Charlie, 2026-10-12, issue-fix ruling 5; take waived):**
+"intersect=: admit now — intersect=action {isIntersecting, intersectionRatio},
+intersect-margin, root = nearest scroller, threshold 0, fires on mount + enter/leave".
+Consumer: T3 sidebar subscriptions and timeline minimap. LLP 1005 records the
+bounded event, browser executors and the shared AppKit/UIKit/Linux geometry
+slice; native qualification remains open. Container
+queries, derive-time frame and general live-position feedback stay deferred.

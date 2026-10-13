@@ -810,6 +810,8 @@ impl<D: DataSource> Host<D> {
         now_ms: f64,
     ) -> String {
         self.now_ms = now_ms.max(self.now_ms);
+        // Sample the presented batch's authored scroll before this pump changes geometry.
+        let (batch, intersect_error) = self.intersect_round(Batch::new(), None);
         // Announced topics first: what the device said before these replies.
         let (announced, failed) = self.runner.apply_announced();
         let mut error = failed.map(|e| format!("{e:?}"));
@@ -833,7 +835,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        self.commit(&receipts, error)
+        self.commit_into(&receipts, error.or(intersect_error), batch)
     }
 
     /// Strict common LE viewport feedback followed by any runner edge action.
@@ -1451,8 +1453,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         };
         out.insert(id.name().to_string(), text);
     }
-    // Swift paints a paragraph from its runs' `text`: the string the kernel
-    // measured, `text-transform` applied (LLP 1064 D5).
+    // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
         out.insert(PropId::Text.name().to_string(), shown);
     }

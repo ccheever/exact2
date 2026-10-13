@@ -897,3 +897,70 @@ fn a_column_childs_percentage_padding_is_of_the_column() {
         "10% of the 200-wide column"
     );
 }
+
+#[test]
+fn intersect_compiles_and_dispatches_its_entry_after_authored_arguments() {
+    contract::compile("component App\n  state calls = 0\n  action seen\n    calls = calls + 1\n  view\n    box intersect=seen intersect-margin=\"20px 5%\"\n").unwrap();
+    let plan = contract::compile(
+        r#"component App
+  state seen = "none"
+  action observe(label: string, e: IntersectionObserverEntry)
+    seen = `${label}:${e.isIntersecting}:${e.intersectionRatio}`
+  view
+    box id="row" intersect=observe("row") intersect-margin="20px 5%"
+"#,
+    )
+    .unwrap();
+    assert_eq!(plan.handlers[0].event, exact_plan::EventKind::Intersect);
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_id("row")[0];
+    let view = r.kernel().arena().local_id(key.index);
+    for (payload, expected) in [
+        ("0,0", "row:false:0"),
+        ("1,0.25", "row:true:0.25"),
+        ("1,0", "row:true:0"),
+        ("1,1", "row:true:1"),
+    ] {
+        r.dispatch(
+            view,
+            exact_runner::Event::of_host_kind(45, payload).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r.slot("seen").and_then(Value::as_str), Some(expected));
+    }
+    for bad in [
+        "true,1", "1,-1", "1,1.1", "1,NaN", "1,inf", "1,0,0", "0,0.5",
+    ] {
+        assert!(exact_runner::Event::of_host_kind(45, bad).is_err(), "{bad}");
+    }
+    for margin in ["0px", "-20px 5%", ".5px 1px 2% 3px", "1e2px"] {
+        contract::compile(&format!(
+            "component App\n  view\n    box intersect-margin={margin:?}\n"
+        ))
+        .unwrap();
+    }
+    for margin in ["", "0", "10em", "auto", "NaNpx", "1px 2px 3px 4px 5px"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    box intersect-margin={margin:?}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "lower-intersect-margin", "{margin}: {error:?}");
+    }
+    let error = contract::compile(
+        "component App\n  state margin = \"10px\"\n  view\n    box intersect-margin=margin\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-intersect-margin");
+    let error = contract::compile("component App\n  action seen(e: ScrollEvent)\n    let x = e.scrollTop\n  view\n    box intersect=seen\n").unwrap_err();
+    assert!(
+        error.id.starts_with("type") || error.id.starts_with("analyze"),
+        "{error:?}"
+    );
+}

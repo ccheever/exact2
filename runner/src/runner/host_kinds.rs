@@ -12,7 +12,8 @@ impl Event {
     /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
     /// (beforeunload), 37 (wheel), 38 (drop) or 39 (resize, its
-    /// `contentRect` as `x,y,width,height`) from its UTF-8 payload.
+    /// `contentRect` as `x,y,width,height`), or 45 (intersect, `0|1,ratio`)
+    /// from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code
@@ -48,6 +49,25 @@ impl Event {
             38 => super::DropEvent::parse(payload)
                 .map(Event::Drop)
                 .ok_or("invalid drop event"),
+            45 => {
+                let (hit, ratio) = payload
+                    .split_once(',')
+                    .ok_or("invalid intersection entry")?;
+                let is_intersecting = match hit {
+                    "0" => false,
+                    "1" => true,
+                    _ => return Err("invalid intersection entry"),
+                };
+                let intersection_ratio = exact_num::parse_f64(ratio)
+                    .ok()
+                    .filter(|r| (0.0..=1.0).contains(r))
+                    .filter(|r| is_intersecting || *r == 0.0)
+                    .ok_or("invalid intersection entry")?;
+                Ok(Event::Intersect {
+                    is_intersecting,
+                    intersection_ratio,
+                })
+            }
             39 => super::ResizeRect::parse(payload)
                 .map(Event::Resize)
                 .ok_or("invalid resize rect"),

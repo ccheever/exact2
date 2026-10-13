@@ -57,6 +57,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         // codeedit #2, survey #2): its value, checked state and selection.
         "input" | "change" => Some("InputEvent"),
         "resize" => Some("DOMRectReadOnly"),
+        "intersect" => Some("IntersectionObserverEntry"),
         "reorderdrop" => Some("ReorderEvent"),
         // @ref LLP 1098 D2 — the Media Session's actions, as
         // `setActionHandler` hands them.
@@ -68,6 +69,13 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
 }
 
 pub(super) fn declare(shapes: &mut Shapes) {
+    shapes.map.insert(
+        "IntersectionObserverEntry".into(),
+        vec![
+            ("isIntersecting".into(), Ty::Bool),
+            ("intersectionRatio".into(), Ty::Number),
+        ],
+    );
     shapes.map.insert(
         "MarkdownSelection".into(),
         vec![

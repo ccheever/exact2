@@ -832,6 +832,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | One string | `message`, `error` |
 | A string, then optionally a `KeyboardEvent` | `keycapture` (capture-phase `keydown`), `key` (bubble-phase `keydown`) and `keyup`: the key's name; an action taking one more parameter also hears the [modifiers, the physical key and whether it repeats](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
+| Zero or one `IntersectionObserverEntry` | `intersect`: `isIntersecting` (bool) and `intersectionRatio` (number), mount then enter/leave at threshold 0; currently web only |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
 | One boolean | `hover`; `fullscreenchange` (whether the video is now full screen) |
 | One boolean, then optionally an `InputEvent` | `change`, `input` on a checkbox or `switch` |
@@ -899,6 +900,15 @@ list virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
 As on the web, the event comes when the offset changes (a follow of the end
 moves it); content that grows below a reader who is not following it changes
 no offset and sends none.
+
+`intersect=action` offers an optional final `IntersectionObserverEntry` after
+any authored arguments. The record contains `isIntersecting: bool` and
+`intersectionRatio: number`. The nearest ancestor CSS scroll container is the
+root, otherwise the viewport; threshold is fixed at 0. `intersect-margin` is a
+literal rootMargin string (one to four px/% lengths, default `"0px"`). It fires
+on mount and enter/leave, not every ratio change; removal stops observation
+without a leave event. Both web targets implement it; native delivery remains
+owed (LLP 1005, "Intersection visibility").
 
 `resize` is two things, told apart by its value, as nowhere else: a string
 (`resize="none"`) is CSS's `resize` property, and an action is the element

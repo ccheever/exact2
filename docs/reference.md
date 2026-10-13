@@ -1346,3 +1346,22 @@ checks geometry, echo and recovery. Substitute `linux` on an actual Linux host
 or select `--app markdown-stress` / `completion-storm` (with its fixture running).
 It records raw command acknowledgments and executable identity; AppKit window
 resizing and Linux headless presenter resizing do not measure physical refresh.
+
+### Intersection visibility
+
+`intersect=action` on a node offers a final `IntersectionObserverEntry` record
+(`isIntersecting: bool`, `intersectionRatio: number`) after authored arguments.
+The nearest ancestor scroll container is the root, otherwise the viewport;
+threshold is fixed at 0. It delivers after mounting and on enter/leave, not
+on every ratio change. Entries in one root/margin group follow observation order,
+after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
+is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
+Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
+Percentages use the corresponding root dimension.
+This can keep T3 sidebar subscriptions active near the viewport and track timeline turns.
+Removal cancels observation without a leave callback. Both web targets use the
+browser's IntersectionObserver after first paint. AppKit, UIKit and Linux use
+the shared native sampler after resize settlement and presented scrolling.
+Native inline runs, moving presentation geometry, rotated roots and SVG clip references remain unqualified;
+percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
+visibility deviation; other native hosts remain unqualified.

@@ -326,7 +326,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 60] = [
+pub const HANDLERS: [&str; 61] = [
     "press",
     "change",
     "input",
@@ -409,6 +409,7 @@ pub const HANDLERS: [&str; 60] = [
     // The element resize event, ResizeObserver's: an action given to
     // `resize`, whose string is CSS's property ([`is_handler`]).
     "resize",
+    "intersect",
 ];
 
 /// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
