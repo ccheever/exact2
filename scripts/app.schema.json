@@ -355,6 +355,15 @@
                 "type": "string"
               }
             },
+            "queriesSchemes": {
+              "description": "Other apps' URL schemes a native module may ask `canOpenURL` about, to see whether the app is installed (Info.plist's LSApplicationQueriesSchemes): iOS answers false for any scheme not listed, and honours at most 50. A scheme as RFC 3986 writes it, without `:`.",
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
+              }
+            },
             "team": {
               "type": "string"
             }

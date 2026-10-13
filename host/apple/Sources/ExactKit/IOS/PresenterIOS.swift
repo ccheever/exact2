@@ -1,18 +1,15 @@
-// The UIKit presenter (LLP 1008 §9): the viewport scroll view over a
-// content-sized document, one `NodeView` per kernel node, the host's
-// batches applied, the keyboard's inset and the field it reveals. It
-// belongs to one session (LLP 1031 D1) and reaches the session's canvases,
-// web views, and menus through it.
+// The UIKit presenter (LLP 1008 §9): a viewport scroll view over a content-sized
+// document, one `NodeView` per kernel node, host batches, keyboard insets and
+// field reveal. It belongs to one session (LLP 1031 D1) and reaches that session's
+// canvases, web views and menus.
 #if os(iOS) || os(tvOS)
 import UIKit
 import CoreText
 import os
-
 package final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
-
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
@@ -23,7 +20,7 @@ package final class Presenter {
     /// turn, without waiting for a batch an idle app may never commit (LLP
     /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
     /// heights, switches), then tab bars and controls.
-    func requestProjectionSync() {
+    package func requestProjectionSync() {
         guard !projectionSyncOwed else { return }
         projectionSyncOwed = true
         DispatchQueue.main.async { [weak self] in
@@ -174,12 +171,10 @@ package final class Presenter {
     /// What scrollers took below their content to show a field above pinned
     /// content, while the keyboard is up (`PinnedRoom`).
     let pinnedRoom = PinnedRoom()
-
     var hasKeyboardEditor: Bool {
         views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
             || hasNativeKeyboardEditor
     }
-
     /// A native module's own text input (a composer's UITextView) focused
     /// inside this viewport: the keyboard is this session's business as for
     /// its own fields, so the page resizes above it.
@@ -283,7 +278,7 @@ package final class Presenter {
     /// A drag is moving the keyboard: on the scroller that shows, a grouped list's collection view included.
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
-            guard node.scroll != nil, let sv = navigation.shownScroll(node) else { return false }
+            guard let sv = node.scrollView else { return false }
             return sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging)
         }
     }
@@ -808,7 +803,7 @@ package final class Presenter {
         for op in batch.ops {
             let kind = op.op
             switch kind {
-            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
+            case .create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent: touchedIDs.append(op.id)
             default: break
             }
             if kind == .create || kind == .frame || kind == .content { moved = true }
@@ -824,7 +819,7 @@ package final class Presenter {
                 navigation.installInitialOwner(batch)
             }
             let id = op.id
-            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
+            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy || kind == .fieldContent) }
             switch kind {
             case .transformDrag:
                 if let binding = TransformDragBinding(op.payload) {
@@ -858,6 +853,9 @@ package final class Presenter {
                 if flats.create(op) { continue }
                 let reused = pool.take(id)
                 let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
+                #if os(iOS)
+                v.groupedOwner = op.kind == "list" && op.props["listStyle"] != nil
+                #endif
                 v.handlers = op.handlers
                 // Before the style makes it a scroll container: a swipe row's waits.
                 v.swipeOwner = op.props["swipeContent"] != nil
@@ -957,6 +955,7 @@ package final class Presenter {
                     flats.promote(id)
                 }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
+                anchorChanges.notePresentation(op, on: v)
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
@@ -980,19 +979,9 @@ package final class Presenter {
         session?.canvases.cancelMovedControls()
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
-        for id in scrollers.union(pendingScrolls).union(materialNodes) {
-            guard let node = views[id] else { continue }
-            // A modal's live source retains its old geometry until release.
-            // Its scroll writes must wait too, especially on newly added rows
-            // whose extent is still zero. releaseBackground applies both.
-            if !modals.defersGeometry(for: node) {
-                if !collections.owns(node.id) { node.restoreScrollPosition() }
-                if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
-                node.applyPendingScroll()
-            }
-            if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
-        }
-        pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
+        let changed = touchedAndAbove(touchedIDs)
+        swipeActions.sync(changed: changed)
+        groupedLists?.sync(changed: changed)
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)
         menuKey.sync()
@@ -1007,13 +996,6 @@ package final class Presenter {
         #endif
         menus.sync()
         glassGroups.reconcile()
-        let changed = touchedAndAbove(touchedIDs)
-        swipeActions.sync(changed: changed)
-        groupedLists?.sync(changed: changed)
-        // `prepare` put carried rows back under the list's hidden sheet, where
-        // the pass above judged a segmented control in one unavailable (shown
-        // dimmed, deaf to a finger); judge it again where it shows, in its cell.
-        if groupedLists?.carriesRows == true { segments.sync() }
         positionContexts()
         let ariaMoved = Set(batch.ops.filter { $0.op == .children }.flatMap(\.ids).filter { id in
             guard let node = views[id] else { return false }
@@ -1025,6 +1007,23 @@ package final class Presenter {
         afterBatch { [weak self] in
             guard let self else { return }
             navigation.batchApplied(batch, rowsOnly: rowsOnly)
+            keyboardToolbars.finishBackendChange()
+            for id in scrollers.union(pendingScrolls).union(materialNodes) {
+                guard let node = views[id] else { continue }
+                // A modal's live source retains its old geometry until release.
+                // Its scroll writes must wait too, especially on newly added rows
+                // whose extent is still zero. releaseBackground applies both.
+                if !modals.defersGeometry(for: node) {
+                    // Navigation can resize a native port after its row projection.
+                    // Settle that layout before restoring or authoring an offset.
+                    if node.groupedOwner { node.scrollView?.layoutIfNeeded() }
+                    if !collections.owns(node.id) { node.restoreScrollPosition() }
+                    if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
+                    node.applyPendingScroll()
+                }
+                if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
+            }
+            pendingScrolls = pendingScrolls.filter { self.views[$0]?.pendingScrollTop != nil || self.views[$0]?.pendingScrollLeft != nil }
             syncAccessibility(changed: changed.union(ariaMoved), disabledRoots: disabledRoots)
         }
         #if os(iOS)
@@ -1479,21 +1478,5 @@ extension CGRect {
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> CGRect {
         CGRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
-}
-
-/// The window's first responder, found the way UIKit offers: an action sent
-/// to nil reaches it.
-enum FirstResponder {
-    private static weak var found: UIResponder?
-    static var current: UIResponder? {
-        found = nil
-        UIApplication.shared.sendAction(#selector(UIResponder.exactReportFirstResponder), to: nil, from: nil, for: nil)
-        return found
-    }
-    fileprivate static func report(_ responder: UIResponder) { found = responder }
-}
-
-extension UIResponder {
-    @objc fileprivate func exactReportFirstResponder() { FirstResponder.report(self) }
 }
 #endif

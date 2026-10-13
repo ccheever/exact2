@@ -1413,8 +1413,10 @@ fn stack_lines(children: &[Node], own: &[Attr]) -> Vec<Node> {
                 let at = *span;
                 let size =
                     |title: bool| Expr::Str(if title { BODY } else { SUBHEADLINE }.into(), at);
+                // A title inherits the row's tint and authored colour, as
+                // the unconditional first line does by writing no colour.
                 let colour =
-                    |title: bool| Expr::Str(if title { LABEL } else { SECONDARY }.into(), at);
+                    |title: bool| Expr::Str(if title { "inherit" } else { SECONDARY }.into(), at);
                 let choose = |c: &Expr, a: Expr, b: Expr| {
                     Expr::Ternary(Box::new(c.clone()), Box::new(a), Box::new(b), at)
                 };

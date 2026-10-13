@@ -3,6 +3,7 @@
 
 mod animation;
 mod canvas_defer;
+mod content_box;
 mod content_region;
 mod controls;
 mod development;
@@ -21,5 +22,6 @@ mod layout_refusal;
 mod paint;
 mod presence;
 mod segments;
+mod symbol;
 mod textflow;
 mod viewport;

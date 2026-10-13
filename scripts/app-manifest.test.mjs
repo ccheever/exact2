@@ -50,3 +50,23 @@ test('Apple bundles register declared protocol schemes and keep their templates'
     assert.match(plist, /<string>\/open\?u=%s<\/string>/);
   }
 });
+
+test('an iOS app lists the schemes canOpenURL may ask about, and a malformed or 51st one is refused', async () => {
+  const { infoPlist } = await import('../host/apple/build.mjs');
+  const { readManifest } = await import('./app.mjs');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const plist = infoPlist({ id: 'dev.exact.maps', displayName: 'Maps', manifest: { host: { ios: { queriesSchemes: ['comgooglemaps', 'waze'] } } } });
+  assert.match(plist.replace(/\s+/g, ''), /<key>LSApplicationQueriesSchemes<\/key><array><string>comgooglemaps<\/string><string>waze<\/string><\/array>/);
+  assert.doesNotMatch(infoPlist({ id: 'dev.exact.maps', displayName: 'Maps', manifest: {} }), /LSApplicationQueriesSchemes/);
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-queries-'));
+  try {
+    const save = (queriesSchemes) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Maps', app: { id: 'dev.exact.maps', name: 'Maps' }, host: { ios: { queriesSchemes } } }));
+    save(['comgooglemaps', 'waze']);
+    assert.deepEqual(readManifest(dir, 'maps').host.ios.queriesSchemes, ['comgooglemaps', 'waze']);
+    for (const [schemes, says] of [[['waze://'], /does not match/], [Array.from({ length: 51 }, (_, i) => `s${i}`), /more than 50 items/]]) {
+      save(schemes);
+      assert.throws(() => readManifest(dir, 'maps'), says);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

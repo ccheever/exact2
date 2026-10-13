@@ -172,6 +172,9 @@ final class BackMacTests: XCTestCase {
         // No navigation root: no stack, and no toolbar.
         p.apply(wireBatch([["op": "props", "id": 1, "set": [:], "clear": ["navigationBack"]]]))
         XCTAssertNil(window.toolbar, "an app with no stack has no toolbar")
+        XCTAssertFalse(p.toolbar.validateToolbarItem(back), "AppKit can still validate the retired Back item")
+        back.tag = Int.max
+        XCTAssertFalse(p.toolbar.validateToolbarItem(back), "an unrepresentable tag is not a node ID")
         XCTAssertEqual(bar, bare)
         XCTAssertEqual(window.contentView?.frame.size, content, "and keeps it as the toolbar goes")
         p.toolbar.detach()

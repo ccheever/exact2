@@ -25,8 +25,12 @@ pub use grid::{
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks,
 };
-pub mod compare;
-pub use compare::Comparison;
+pub mod calc;
+mod floor;
+mod handles;
+pub use calc::Comparison;
+use handles::calc_handle;
+pub(crate) use handles::{calc_handle_in, resolve_calc, tree_handle, LayoutEnv};
 pub mod env;
 pub use env::link as link_segments;
 pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
@@ -79,37 +83,11 @@ pub enum Dimension {
     Segment(SegmentVar, u8, u8, f32),
     /// A percentage of a viewport dimension, resolved at layout.
     Viewport(ViewportUnit, f32),
-    /// CSS's `min()`, `max()` or `clamp()` over points, insets and viewport
-    /// lengths (`clamp(15px, env(safe-area-inset-bottom), 60px)`), resolved
-    /// at layout as `env()` is; interned, so the row holds a handle.
+    /// A math function the other forms do not hold exactly: its simplified
+    /// calculation tree (CSS Values 4 §10.10), interned, so the row holds a
+    /// handle; resolved as `env()` is, or at layout against its basis when
+    /// it holds a percentage ([`calc`]).
     Compare(Comparison),
-}
-
-/// The `calc()` pairs the engine holds by handle: Taffy keeps one opaque
-/// pointer per length, so a pair is interned here and named by its index,
-/// shifted past the three tag bits Taffy reserves. Equal pairs share a
-/// handle, so an unchanged style still compares equal by value.
-static CALC_PAIRS: std::sync::Mutex<Vec<(f32, f32)>> = std::sync::Mutex::new(Vec::new());
-
-fn calc_handle(percent: f32, points: f32) -> *const () {
-    let mut pairs = CALC_PAIRS.lock().unwrap_or_else(|e| e.into_inner());
-    let index = pairs
-        .iter()
-        .position(|(p, x)| p.to_bits() == percent.to_bits() && x.to_bits() == points.to_bits())
-        .unwrap_or_else(|| {
-            pairs.push((percent, points));
-            pairs.len() - 1
-        });
-    ((index + 1) << 3) as *const ()
-}
-
-/// The points a `calc()` handle resolves to against `basis`, the size its
-/// percentage is a fraction of — what [`crate::LayoutTree`] gives Taffy.
-pub(crate) fn resolve_calc(handle: *const (), basis: f32) -> f32 {
-    let index = (handle as usize >> 3) - 1;
-    let pairs = CALC_PAIRS.lock().unwrap_or_else(|e| e.into_inner());
-    let (percent, points) = pairs[index];
-    basis * percent / 100.0 + points
 }
 
 impl Dimension {
@@ -126,46 +104,33 @@ impl Dimension {
         }
     }
 
-    /// A `calc()` of one percentage and one pixel length by CSS's grammar —
-    /// `calc(<p>% + <n>px)` or `calc(<n>px - <p>%)`, either order, the
-    /// operator set off by whitespace as CSS requires — or `None` when the
-    /// text is not one. Two of a kind, a bare number, or `*` and `/` are not.
+    /// Whether it resolves against a percentage basis: a percentage, alone
+    /// or in a calculation.
+    pub fn has_percent(self) -> bool {
+        match self {
+            Dimension::Percent(_) | Dimension::Calc(..) => true,
+            Dimension::Compare(c) => c.has_percent(),
+            _ => false,
+        }
+    }
+
+    /// A math function as the dimension it simplifies to ([`calc`]), or
+    /// `None`.
     pub fn parse_calc(text: &str) -> Option<Dimension> {
-        let body = text.trim().strip_prefix("calc(")?.strip_suffix(')')?;
-        let b = body.as_bytes();
-        let op = (1..b.len().saturating_sub(1)).find(|&i| {
-            matches!(b[i], b'+' | b'-')
-                && b[i - 1].is_ascii_whitespace()
-                && b[i + 1].is_ascii_whitespace()
-        })?;
-        let sign = if b[op] == b'-' { -1.0 } else { 1.0 };
-        let term = |t: &str| -> Option<(bool, f32)> {
-            let t = t.trim();
-            let px = t.len() > 2
-                && t.get(t.len() - 2..)
-                    .is_some_and(|u| u.eq_ignore_ascii_case("px"));
-            match t.strip_suffix('%') {
-                Some(p) => exact_num::parse_f32(p).ok().map(|v| (true, v)),
-                None if px => parse_pixel_length(t).map(|v| (false, v)),
-                None => None,
-            }
-        };
-        let dim = match (term(&body[..op])?, term(&body[op + 1..])?) {
-            ((true, percent), (false, points)) => Dimension::Calc(percent, sign * points),
-            ((false, points), (true, percent)) => Dimension::Calc(sign * percent, points),
-            _ => return None,
-        };
-        dim.is_finite().then_some(dim)
+        calc::parse(text).ok().flatten()
     }
 
     /// An `env()` length by CSS's grammar, or `None` when the text is not one:
     /// `env(safe-area-inset-<edge>)`, `env(viewport-segment-<var> <x> <y>)`
-    /// (LLP 1078 D3), or either inside `calc(env(…) ± <n>px)`. No fallback
-    /// argument: the host always defines the insets, and an undefined
-    /// segment takes the row's initial value. A text that names one of the
-    /// variables wrongly is `None` too; [`env::parse`] says why.
+    /// (LLP 1078 D3), either with a fallback, or a math function
+    /// ([`Self::parse_calc`]). An undefined segment without a fallback takes
+    /// the row's initial value. A text that names one of the variables
+    /// wrongly is `None` too; [`env::parse`] says why.
     pub fn parse_env(text: &str) -> Option<Dimension> {
-        env::parse(text).ok().flatten()
+        env::parse(text)
+            .ok()
+            .flatten()
+            .or_else(|| Self::parse_calc(text))
     }
 
     /// The points an `env()` length resolves to under `env`; any other
@@ -174,42 +139,48 @@ impl Dimension {
     /// [`StyleProps::to_taffy`] substitutes exactly before lowering.
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
-            // Clamp the completed compact sum, not terms inside a comparison.
-            // CSS Values 4 §10.9.2 keeps infinities internal to calculations.
             Dimension::Env(edge, plus) => {
-                Dimension::Points((env.inset(edge) + plus).clamp(f32::MIN, f32::MAX))
+                Dimension::Points(calc::narrow(f64::from(env.inset(edge)) + f64::from(plus)))
             }
-            Dimension::Viewport(unit, n) => Dimension::Points(unit.basis(env) * n / 100.0),
+            Dimension::Viewport(unit, n) => Dimension::Points(calc::narrow(
+                f64::from(unit.basis(env)) * f64::from(n) / 100.0,
+            )),
             Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
-            Dimension::Compare(c) => Dimension::Points(c.value(env)),
+            Dimension::Compare(c) if c.undefined(env) => Dimension::Auto,
+            Dimension::Compare(c) => match c.substituted(env) {
+                // A tree needs a basis only where it reads a percentage
+                Some(Dimension::Compare(t)) if t == c => {
+                    c.value(env, None).map_or(self, Dimension::Points)
+                }
+                // A text substituted is the row's value it reads as
+                Some(d) => d.resolve(env),
+                None => Dimension::Auto,
+            },
             other => other,
         }
     }
 
-    /// This length plus `points`, resolved under `env`: what a host's
-    /// covered edge adds to an authored padding (LLP 1075.003 §3.5).
-    pub(crate) fn plus(self, env: &Env, points: f32) -> Dimension {
+    /// The points this length is against `basis`, the size its percentage is
+    /// a fraction of, under `env`; zero for `auto` or an undefined segment.
+    /// What a host that sizes a box itself (a radius, a native control's
+    /// padding) reads.
+    pub fn at_basis(self, env: &Env, basis: f32) -> f32 {
+        let basis = f64::from(basis);
         match self.resolve(env) {
-            Dimension::Auto => Dimension::Points(points),
-            Dimension::Points(v) => Dimension::Points(v + points),
-            Dimension::Percent(p) => Dimension::Calc(p, points),
-            Dimension::Calc(p, v) => Dimension::Calc(p, v + points),
-            _ => unreachable!("resolved above"),
+            Dimension::Points(v) => v,
+            Dimension::Percent(p) => calc::narrow(basis * f64::from(p) / 100.0),
+            Dimension::Calc(p, x) => calc::narrow(basis * f64::from(p) / 100.0 + f64::from(x)),
+            Dimension::Compare(c) => calc::narrow(c.wide(env, Some(basis)).unwrap_or(0.0)),
+            _ => 0.0,
         }
     }
 
     /// Whether this is a segment length `env` does not define (LLP 1078 D3).
     fn undefined_segment(self, env: &Env) -> bool {
-        matches!(self, Dimension::Segment(_, x, y, _) if env.segment(x, y).is_none())
-    }
-
-    fn to_taffy(self, env: &Env) -> taffy::style::Dimension {
-        match self.resolve(env) {
-            Dimension::Auto => auto(),
-            Dimension::Points(v) => length(v),
-            Dimension::Percent(v) => percent(v / 100.0),
-            Dimension::Calc(p, v) => taffy::style::Dimension::calc(calc_handle(p, v)),
-            _ => unreachable!("resolved above"),
+        match self {
+            Dimension::Segment(_, x, y, _) => env.segment(x, y).is_none(),
+            Dimension::Compare(c) => c.undefined(env),
+            _ => false,
         }
     }
 
@@ -219,23 +190,14 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentageAuto::calc(calc_handle(p, v)),
+            Dimension::Compare(c) => {
+                taffy::style::LengthPercentageAuto::calc(tree_handle(c, false, 0.0))
+            }
             _ => unreachable!("resolved above"),
         }
     }
 
-    /// Rows that do not admit `auto` (padding) lower it to zero; the decoder
-    /// already refuses `auto` there, so this arm is unreachable from the wire.
-    pub(crate) fn to_lp(self, env: &Env) -> taffy::style::LengthPercentage {
-        match self.resolve(env) {
-            Dimension::Auto => length(0.0_f32),
-            Dimension::Points(v) => length(v),
-            Dimension::Percent(v) => percent(v / 100.0),
-            Dimension::Calc(p, v) => taffy::style::LengthPercentage::calc(calc_handle(p, v)),
-            _ => unreachable!("resolved above"),
-        }
-    }
-
-    /// Whether [`Self::to_lp`] gives zero as the engine compares lengths, by
+    /// Whether a padding lowers to zero as the engine compares lengths, by
     /// bits: `auto`, or `+0` points or percent — never `-0`.
     fn lp_is_zero(self, env: &Env) -> bool {
         match self.resolve(env) {
@@ -243,7 +205,7 @@ impl Dimension {
             Dimension::Points(v) => v.to_bits() == 0,
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
             // A calc() is a handle the engine resolves, never its zero length.
-            Dimension::Calc(..) => false,
+            Dimension::Calc(..) | Dimension::Compare(_) => false,
             _ => unreachable!("resolved above"),
         }
     }
@@ -422,8 +384,9 @@ impl StyleValue<'_> {
                 style, expected: "nonnegative finite length in points/px (percentage shape-margin is not implemented in exact2 v1)",
             });
         }
-        // @ref LLP 1053 G3 — CSS refuses a negative flex factor.
-        if matches!(style, StyleId::FlexGrow | StyleId::FlexShrink) {
+        // @ref LLP 1053 G3 — CSS refuses a negative flex factor, gap or
+        // border width.
+        if calc::nonnegative_row(style) {
             return match self {
                 StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
                 _ => Err(StyleValueError::WrongKind {
@@ -483,7 +446,6 @@ impl StyleValue<'_> {
         style: StyleId,
         admits_auto: bool,
     ) -> Result<Dimension, StyleValueError> {
-        let nonnegative = compare::no_negative_lengths(style);
         let value = match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
@@ -497,18 +459,35 @@ impl StyleValue<'_> {
             {
                 Ok(Dimension::Auto)
             }
-            StyleValue::Text(t) => match (compare::parse(t), env::parse(t)) {
-                (Err(reason), _) => Err(StyleValueError::BadComparison { style, reason }),
-                // CSS clamps a math function to the row's range: 0 or more
-                // on a row without negative lengths (CSS Values 4 §10.12).
-                (Ok(Some(d)), _) if nonnegative => compare::at_least_zero(d)
-                    .map(Some)
-                    .map_err(|reason| StyleValueError::BadComparison { style, reason }),
-                (Ok(Some(d)), _) => Ok(Some(d)),
-                (Ok(None), Err(refusal)) => Err(StyleValueError::BadEnv { style, refusal }),
-                (Ok(None), Ok(parsed)) => Ok(parsed),
+            // An `env()` with a fallback is substituted before this row's
+            // grammar reads the value (CSS Environment Variables 1 §3): held
+            // as written, its syntax checked
+            StyleValue::Text(t)
+                if calc::substitutes(t).map_err(|r| match r {
+                    calc::Refused::Env(refusal) => StyleValueError::BadEnv { style, refusal },
+                    calc::Refused::Comparison(reason) => {
+                        StyleValueError::BadComparison { style, reason }
+                    }
+                })? =>
+            {
+                let text = t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
+                // Refuse a text the wire's string cannot carry
+                if text.len() > crate::wire::codec::MAX_STRING_BYTES as usize {
+                    return Err(StyleValueError::BadComparison {
+                        style,
+                        reason: calc::refusal::TOO_LONG,
+                    });
+                }
+                return Ok(Dimension::Compare(Comparison::substitution(text, style)));
+            }
+            StyleValue::Text(t) => match calc::parse(t) {
+                Err(calc::Refused::Comparison(reason)) => {
+                    Err(StyleValueError::BadComparison { style, reason })
+                }
+                Err(calc::Refused::Env(refusal)) => Err(StyleValueError::BadEnv { style, refusal }),
+                Ok(Some(d)) => Ok(Some(d)),
+                Ok(None) => env::parse(t).map_err(|refusal| StyleValueError::BadEnv { style, refusal }),
             }?
-            .or_else(|| Dimension::parse_calc(t))
             .or_else(|| viewport::parse(t))
                 .or_else(|| {
                     parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
@@ -519,30 +498,24 @@ impl StyleValue<'_> {
                 .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
-                    expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp() of px, env(safe-area-inset-*) and viewport lengths",
+                    expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, env(safe-area-inset-*), env(viewport-segment-* x y), a calc() of these (+ and - between lengths, * and / by a number), or min()/max()/clamp() of these",
                 }),
             _ => Err(StyleValueError::WrongKind {
                 style,
-                expected: "number, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp()",
+                expected: "number, percent, auto, env(safe-area-inset-*), env(viewport-segment-* x y), a calc() of these (+ and - between lengths, * and / by a number), or min()/max()/clamp()",
             }),
         }?;
-        let radius = matches!(
-            style,
-            StyleId::BorderRadiusTopLeft
-                | StyleId::BorderRadiusTopRight
-                | StyleId::BorderRadiusBottomRight
-                | StyleId::BorderRadiusBottomLeft
-        );
-        if radius
-            && (!value.is_finite()
-                || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
-        {
+        // A row CSS gives no percentage refuses one inside a math function
+        // too: there is no basis to resolve it against (CSS Values 4 §10.9)
+        if style.refuses_percent() && value.has_percent() {
             return Err(StyleValueError::WrongKind {
                 style,
-                expected: "nonnegative finite length or percentage",
+                expected: "a length or auto: CSS takes no percentage here, nor one inside calc(), min(), max() or clamp()",
             });
         }
-        Ok(value)
+        // CSS clamps a math function to the row's range (CSS Values 4 §9.1)
+        let math = matches!(self, StyleValue::Text(t) if calc::names_math(t) && !calc::is_env(t));
+        calc::signed(style, value, math)
     }
 
     /// A colour as a row holds it. `light-dark(a, b)` is the one text a
@@ -1161,8 +1134,11 @@ impl StyleProps {
             self.padding_left,
         ]
         .into_iter()
-        .all(|p| p.lp_is_zero(env))
-            && self.border_widths().into_iter().all(|w| w.to_bits() == 0)
+        .all(|p| match p.resolve(env) {
+            Dimension::Points(v) => v <= 0.0,
+            Dimension::Percent(v) => v / 100.0 <= 0.0,
+            _ => p.lp_is_zero(env),
+        }) && self.border_widths().into_iter().all(|w| w.to_bits() == 0)
     }
 
     /// Lower to engine style. `node_type` supplies the per-tag defaults the
@@ -1284,16 +1260,16 @@ impl StyleProps {
         s.scrollbar_width = 0.0;
 
         s.size = taffy::geometry::Size {
-            width: self.width.to_taffy(env),
-            height: self.height.to_taffy(env),
+            width: self.width.floor_taffy(env),
+            height: self.height.floor_taffy(env),
         };
         s.min_size = taffy::geometry::Size {
-            width: self.min_width.to_lpa(env),
-            height: self.min_height.to_lpa(env),
+            width: self.min_width.floor_lpa(env),
+            height: self.min_height.floor_lpa(env),
         };
         s.max_size = taffy::geometry::Size {
-            width: self.max_width.to_lpa(env),
-            height: self.max_height.to_lpa(env),
+            width: self.max_width.floor_lpa(env),
+            height: self.max_height.floor_lpa(env),
         };
         s.aspect_ratio = self.aspect_ratio.preferred();
         s.aspect_ratio_content_box = self.aspect_ratio.content_box();
@@ -1321,10 +1297,10 @@ impl StyleProps {
             left: self.margin_left.to_lpa(env),
         };
         s.padding = taffy::geometry::Rect {
-            top: self.padding_top.to_lp(env),
-            right: self.padding_right.to_lp(env),
-            bottom: self.padding_bottom.to_lp(env),
-            left: self.padding_left.to_lp(env),
+            top: self.padding_top.floor_lp(env, 0.0),
+            right: self.padding_right.floor_lp(env, 0.0),
+            bottom: self.padding_bottom.floor_lp(env, 0.0),
+            left: self.padding_left.floor_lp(env, 0.0),
         };
         let [top, right, bottom, left] = self.border_widths_in(env);
         s.border = taffy::geometry::Rect {
@@ -1336,7 +1312,7 @@ impl StyleProps {
 
         s.flex_direction = flex_direction(self.flex_direction);
         s.flex_wrap = flex_wrap(self.flex_wrap);
-        s.flex_basis = self.flex_basis.to_taffy(env);
+        s.flex_basis = self.flex_basis.floor_taffy(env);
         s.flex_grow = self.flex_grow;
         s.flex_shrink = self.flex_shrink;
         s.justify_content = justify_content(self.justify_content);

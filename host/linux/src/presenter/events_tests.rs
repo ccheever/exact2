@@ -583,6 +583,37 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
     );
 }
 
+/// An `svg` paints its content where its hits land: inside the padding
+/// layout resolved, a percentage of the containing block's width (CSS Box
+/// Model 3 §4.1), so x 20 here and not 10.
+#[test]
+fn an_svg_paints_its_content_where_it_is_hit() {
+    const ART: &str = r##"component App
+  view
+    column width=400 height=200 background-color="#ffffff"
+      svg width=200 height=100 box-sizing="border-box" padding-left="5%"
+        rect x=0 y=0 width=20 height=20 fill="#ff0000"
+"##;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(ART).unwrap().encode(),
+        Keeps,
+        (400., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let frame = p.frame();
+    let red = |x| frame.pixel(x, 5).map(|c| (c.red(), c.green(), c.blue())) == Some((255, 0, 0));
+    assert_eq!((red(15), red(35)), (false, true));
+    let rect = |p: &mut Presenter<Keeps>, x| {
+        p.hit(x, 5.)
+            .is_some_and(|id| p.host.kernel().node(id).unwrap().node_type == NodeType::SvgRect)
+    };
+    assert_eq!((rect(&mut p, 15.), rect(&mut p, 35.)), (false, true));
+}
+
 /// A `wheel` is heard by a disabled box (it means nothing on a `<div>`, as
 /// in Chrome) and a disabled link (an `<a>`), and not by a disabled button
 /// (review b5-b 4, b5-delta).

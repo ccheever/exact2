@@ -40,6 +40,14 @@ fn neutral_typography(style: &StyleProps, size: Option<f32>) -> StyleProps {
     out
 }
 
+/// Geometry resolved by `ButtonFaceStyle::resolve_geometry` before host layout.
+fn points(d: Dimension) -> f32 {
+    match d {
+        Dimension::Points(n) => n,
+        _ => 0.0,
+    }
+}
+
 fn typography(style: &StyleProps, scale: f32) -> StyleProps {
     let mut out = style.clone();
     // Linux's control typography is independent of an ancestor's font.
@@ -131,12 +139,6 @@ fn face_layout(
         AxisOffer::MinContent => Some(0.0),
         AxisOffer::MaxContent => None,
     };
-    let length = |d: Dimension| match d {
-        Dimension::Points(n) => n,
-        Dimension::Percent(n) => offer.unwrap_or(0.0) * n / 100.0,
-        Dimension::Calc(n, p) => n + offer.unwrap_or(0.0) * p / 100.0,
-        _ => 0.0,
-    };
     // The neutral look's box (LLP 1115.000 D17), the page's: a 1 px line
     // every style keeps, the look's padding inside it (less beside a lone
     // symbol), and a floor each way. A size the author wrote is theirs, so
@@ -182,7 +184,7 @@ fn face_layout(
     ]
     .map(|(id, d, default, look)| {
         edge + if rows.button.mask.has(id) {
-            length(d)
+            points(d)
         } else if neutral {
             look
         } else {
@@ -422,12 +424,7 @@ impl Painter {
         ]
         .map(|(id, radius)| {
             if rows.button.mask.has(id) {
-                match radius {
-                    Dimension::Points(n) => n,
-                    Dimension::Percent(n) => rect.2.min(rect.3) * n / 100.0,
-                    Dimension::Calc(n, p) => n + rect.2.min(rect.3) * p / 100.0,
-                    _ => 0.0,
-                }
+                points(radius)
             } else if neutral {
                 // One shape for every style, and a capsule where one is said.
                 match rows.button.control_corner_style {

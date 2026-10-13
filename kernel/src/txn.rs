@@ -347,6 +347,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         StyleDomainError::AutoNotAdmitted(style) => {
                             ApplyError::AutoNotAdmitted { op_index, style }
                         }
+                        StyleDomainError::PercentNotAdmitted(style) => {
+                            ApplyError::PercentNotAdmitted { op_index, style }
+                        }
                         StyleDomainError::TooManyTracks { style, count } => {
                             ApplyError::TooManyTracks {
                                 op_index,
@@ -722,6 +725,7 @@ pub(crate) fn continue_document(
                             invalidate_text_sources(arena, slot);
                         }
                     }
+                    source_changed(arena, slot, *prop, receipt);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
@@ -753,6 +757,7 @@ pub(crate) fn continue_document(
                                 invalidate_text_sources(arena, slot);
                             }
                         }
+                        source_changed(arena, slot, *prop, receipt);
                         touched.push(arena.key(slot));
                     }
                 }
@@ -1170,6 +1175,36 @@ fn count(entries: usize, attached: usize) {
     });
 }
 
+/// An image's source changed: it may have become a system symbol or
+/// stopped being one (`remeasure_symbol`).
+fn source_changed(arena: &mut NodeArena, slot: u32, prop: PropId, receipt: &mut CommitReceipt) {
+    if prop == PropId::ImageSource && arena.node_type(slot) == NodeType::Image {
+        remeasure_symbol(arena, slot, receipt);
+    }
+}
+
+/// A system symbol's font changed, its own or an inherited size or weight
+fn symbol_font_changed(
+    arena: &mut NodeArena,
+    slot: u32,
+    rows: StyleMask,
+    receipt: &mut CommitReceipt,
+) {
+    if rows.intersects(StyleMask::TEXT) && crate::replaced::symbol_role(arena, slot).is_some() {
+        remeasure_symbol(arena, slot, receipt);
+    }
+}
+
+/// Measure an image's symbol again before the next layout
+/// (`Kernel::measure_symbols`). The size measured for its old inputs stops
+/// being the kernel's at once, so a report its host makes first (a picture's)
+/// is its size.
+fn remeasure_symbol(arena: &mut NodeArena, slot: u32, receipt: &mut CommitReceipt) {
+    arena.measured_symbols.remove(slot);
+    arena.symbols_owed.insert(slot);
+    receipt.layout_invalidated = true;
+}
+
 fn invalidate_text(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
     let owner = arena.measure_owner(slot);
     arena.revise_text(owner, true);
@@ -1283,6 +1318,7 @@ fn style_changed(
         invalidate_text(arena, layout, slot);
         receipt.layout_invalidated = true;
     }
+    symbol_font_changed(arena, slot, mask, receipt);
     if !mask.minus(StyleMask::LAYOUT).is_empty() {
         arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
         if !mask.intersects(StyleMask::TEXT) {
@@ -1347,6 +1383,7 @@ fn inherited_changed(
         invalidate_text(arena, layout, slot);
         receipt.layout_invalidated = true;
     }
+    symbol_font_changed(arena, slot, rows, receipt);
     if !rows.minus(StyleMask::TEXT).is_empty() {
         arena.mark_export_dirty(slot, NodeFlags::PAINT_DIRTY);
         if !rows.intersects(StyleMask::TEXT) {

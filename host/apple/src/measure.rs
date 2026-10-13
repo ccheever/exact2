@@ -132,6 +132,19 @@ pub type MeasureFn = extern "C" fn(ctx: *mut c_void, request: *const CRequest) -
 pub type LinesFn =
     extern "C" fn(ctx: *mut c_void, request: *const CRequest, out: *mut f32, cap: usize) -> usize;
 
+/// A system symbol's natural size (an Apple symbol name, UTF-8, at a point
+/// size and CSS weight): writes width and height and answers 1, or 0 when it
+/// cannot say. Called on the runtime's thread with the context
+/// `exact_set_measure` was given.
+pub type SymbolFn = extern "C" fn(
+    ctx: *mut c_void,
+    name: *const u8,
+    len: usize,
+    font_size: f32,
+    font_weight: u16,
+    out: *mut f32,
+) -> u8;
+
 /// One declared face in the synchronous boot catalog callback. The UTF-8
 /// strings live for the duration of the callback and are not NUL-terminated.
 #[repr(C)]
@@ -258,6 +271,11 @@ pub struct CallbackMeasurer {
     button_measure: Option<crate::control_text::ButtonMeasureFn>,
     measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
     lines: Option<LinesFn>,
+    symbol: Option<SymbolFn>,
+    /// Each symbol's answer by its Apple name, point size and weight, under
+    /// the measuring traits of `symbols_revision`
+    symbols: std::collections::HashMap<(String, u32, u16), Option<(f32, f32)>>,
+    symbols_revision: u64,
     ctx: *mut c_void,
     memo: identified::Memo,
     /// The document language (`TextMeasurer::set_language`), for `hyphens: auto`.
@@ -275,6 +293,9 @@ impl CallbackMeasurer {
             button_measure: None,
             measure_revision: None,
             lines,
+            symbol: None,
+            symbols: Default::default(),
+            symbols_revision: 0,
             ctx,
             memo: identified::Memo::default(),
             language: String::new(),
@@ -312,6 +333,12 @@ impl CallbackMeasurer {
         callback: Option<crate::control_text::FieldChromeFn>,
     ) -> Self {
         self.field_chrome = callback;
+        self
+    }
+
+    /// Measure system symbols with `f` (`TextMeasurer::symbol_size`).
+    pub fn with_symbol(mut self, f: Option<SymbolFn>) -> Self {
+        self.symbol = f;
         self
     }
 
@@ -460,6 +487,36 @@ impl TextMeasurer for CallbackMeasurer {
     ) -> Option<exact_kernel::ButtonMeasure> {
         self.button_measure
             .map(|f| crate::control_text::button_measure(f, self.ctx, request))
+    }
+
+    fn symbol_size(&mut self, request: &exact_kernel::SymbolRequest<'_>) -> Option<(f32, f32)> {
+        let f = self.symbol?;
+        let revision = self.measure_revision();
+        if revision != self.symbols_revision {
+            self.symbols_revision = revision;
+            self.symbols.clear();
+        }
+        let name = exact_kernel::apple_symbol_name(request.role);
+        let key = (
+            name.to_string(),
+            request.font_size.to_bits(),
+            request.font_weight,
+        );
+        if let Some(known) = self.symbols.get(&key) {
+            return *known;
+        }
+        let mut out = [0f32; 2];
+        let answered = f(
+            self.ctx,
+            name.as_ptr(),
+            name.len(),
+            request.font_size,
+            request.font_weight,
+            out.as_mut_ptr(),
+        );
+        let size = (answered == 1).then_some((out[0], out[1]));
+        self.symbols.insert(key, size);
+        size
     }
 
     fn set_language(&mut self, language: &str) {

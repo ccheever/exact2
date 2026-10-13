@@ -137,8 +137,18 @@ fn style_json_rows(
             RowValue::ShapeOutside(_) => false, // LLP 1043.000 M3
             // Layout only (LLP 1053 G1): the kernel sizes the box.
             RowValue::AspectRatio(_) => false,
+            // Sent as laid out: clamped at zero on a row with no negative
+            // values.
             RowValue::Dimension(d) => {
-                push_dimension(&mut out, env.map_or(d, |e| d.resolve(e)));
+                let d = match env.map_or(d, |e| d.resolve(e)) {
+                    Dimension::Points(v) | Dimension::Percent(v)
+                        if v < 0.0 && exact_kernel::style::calc::nonnegative_row(id) =>
+                    {
+                        Dimension::Points(0.0)
+                    }
+                    d => d,
+                };
+                push_length(&mut out, d, env);
                 true
             }
             // @ref LLP 1061 D6 — `[x, y]`, each points or `{"pct": n}`.
@@ -453,6 +463,20 @@ fn style_json_rows(
     (out, skipped)
 }
 
+/// A length row: a calculation tree with its handle and environment, which
+/// Swift resolves against its basis by the kernel's evaluator
+/// (`exact_calc_resolve`, LLP 1116 D5); anything else as [`push_dimension`]
+/// writes it.
+fn push_length(out: &mut String, d: Dimension, env: Option<&exact_kernel::Env>) {
+    let Dimension::Compare(c) = d else {
+        return push_dimension(out, d);
+    };
+    // A native button's face arrives resolved without its environment: its
+    // terms read the default one
+    let fallback = exact_kernel::Env::default();
+    crate::calc::write(out, c, env.unwrap_or(&fallback));
+}
+
 fn push_dimension(out: &mut String, d: Dimension) {
     match d {
         Dimension::Auto => out.push_str("\"auto\""),
@@ -473,7 +497,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
         | Dimension::Segment(..)
         | Dimension::Viewport(..)
         | Dimension::Compare(..) => {
-            unreachable!("resolved")
+            unreachable!("resolved, and a calculation written by push_length")
         }
     }
 }
@@ -965,7 +989,7 @@ pub fn style_json_presented(
             }
             if let RowValue::Dimension(d) = computed.get(id) {
                 let mut value = String::new();
-                push_dimension(&mut value, d.resolve(env));
+                push_length(&mut value, d.resolve(env), Some(env));
                 let comma = if json == "{}" { "" } else { "," };
                 json.pop();
                 let _ = write!(json, "{comma}\"{}\":{value}}}", id.name());
@@ -1406,5 +1430,24 @@ mod flow_tests {
         let json: serde_json::Value =
             serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
         assert!(json.get("system_colors").is_none(), "{json}");
+    }
+}
+
+#[cfg(test)]
+mod negative_rows {
+    use super::*;
+    use exact_kernel::{StyleId, StyleValue};
+
+    /// Presenters read padding from this dictionary.
+    #[test]
+    fn a_negative_calculated_padding_is_sent_as_zero() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(
+            StyleId::PaddingLeft,
+            &StyleValue::Text("calc(0px - 10px)".into()),
+        )
+        .unwrap();
+        let (json, _) = style_json(&s, &Env::default());
+        assert!(json.contains("\"padding_left\":0"), "{json}");
     }
 }

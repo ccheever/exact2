@@ -41,7 +41,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { evictArms } from './arms.mjs';
 import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
@@ -403,6 +404,8 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   Object.assign(dict, transportSecurity(tv ? {} : ios, ios.localNetworking ? { NSAllowsLocalNetworking: true } : {}));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
+  // The schemes `canOpenURL` may ask about; iOS answers false for any other (`UIApplication.canOpenURL(_:)`)
+  if (ios.queriesSchemes?.length) dict.LSApplicationQueriesSchemes = ios.queriesSchemes;
   // @ref LLP 1096 D8 — the audio session's category, which ExactKit's one owner reads.
   if (app.manifest.audio_session) dict.ExactAudioSession = app.manifest.audio_session;
   // The manifest's `file_handlers`, as on the Mac, opened in place from
@@ -992,27 +995,27 @@ async function main(args) {
   } else {
     webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos${targets.macos}`);
   }
-  // Each arm is one Swift file: compile it once per source, arguments and
-  // compiler, kept in the scratch path. Rebuilt into a fresh directory, the
-  // two cost 93 s of every build at load 120. The host's own arms are kept
-  // in the shared scratch, one compile for every app; an app's module
-  // artifact (`own`) in its own directory, so two apps never evict each
-  // other's. Each is written under this process's name and renamed, since
-  // another app's build may be compiling the same arm. A compile starts here,
-  // beside the Swift link, and what is returned waits for it and places it.
+  // Each arm is one Swift file, compiled once per source, arguments and
+  // compiler and kept in the scratch path (rebuilt every time, the two cost
+  // 93 s of every build at load 120). The host's own arms are shared by every
+  // app's build; an app's module artifact (`own`) stays in its own directory.
+  // Each is written under this process's name and renamed, since another
+  // app's build may compile the same arm at once. A cached arm is copied out
+  // at once and marked used, so another build's `evictArms` keeps it.
   const arm = (args, source, built, extra = '', own = false) => {
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
-    if (existsSync(cached)) return async () => copyFileSync(cached, built);
+    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => {}; } catch {} // none, or evicted meanwhile
     mkdirSync(dir, { recursive: true });
     const making = `${cached}.${process.pid}.tmp`;
     const compile = startApple('xcrun', args.map(a => a === built ? making : a), resolve(webBuildDir, `arm-${beside.length}.log`));
     beside.push(compile);
     return async () => {
       await compile.done();
+      // Place this build's result before publishing it to the shared eviction pool.
+      copyFileSync(making, built);
       renameSync(making, cached);
-      for (const old of readdirSync(dir)) if (old.endsWith(`-${basename(built)}`) && resolve(dir, old) !== cached) rmSync(resolve(dir, old), { force: true });
-      copyFileSync(cached, built);
+      evictArms(dir, basename(built));
     };
   };
   const arms = [];
@@ -1420,7 +1423,6 @@ async function test(args) {
     run('cargo', ['rustc', '--crate-type', 'staticlib', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
     const libDir = ios ? resolve(app.target, iosTarget, HOST_DEV) : resolve(app.target, HOST_DEV);
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
-    // The filter kernels the Metal chain's tests run (no bundle to find them in).
     mkdirSync(paths.namespace, { recursive: true });
     env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
     if (ios) env.TEST_RUNNER_EXACT_SVG_METALLIB = env.EXACT_SVG_METALLIB;
@@ -1451,7 +1453,7 @@ async function test(args) {
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
-    for (const [name, key] of [['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE']]) { const plan = env[`TEST_RUNNER_EXACT_${key}_PLAN`] = resolve(fixtureDir, `${name}.plan`); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]); }
+    for (const [name, key] of [['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE']]) { const plan = env[`TEST_RUNNER_EXACT_${key}_PLAN`] = resolve(fixtureDir, `${name}.plan`); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, `scripts/fixtures/${name}.contract`), '-o', plan]); }
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
     const before = simulators();
     const idle = before.filter(d => /SimRuntime\.iOS/.test(d.runtime) && /^iPhone \d+ Pro$/.test(d.name) && d.state !== 'Booted');

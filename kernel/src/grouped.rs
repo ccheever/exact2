@@ -13,7 +13,7 @@ use crate::generated::{
 };
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
-use crate::style::ColorValue;
+use crate::style::{ColorValue, Env};
 
 /// A grouped list as a host draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -289,7 +289,9 @@ impl Kernel {
             sections,
             space_below: None,
         };
-        authored_space(&mut list, &shown);
+        // A section's percentage margin is of the list's content box
+        let basis = crate::svg::scene::content_box(self, &self.node(view)?).2;
+        authored_space(&mut list, &shown, self.arena().env(), basis);
         Some(list)
     }
 
@@ -481,14 +483,11 @@ fn collapse(a: f32, b: f32) -> f32 {
 /// margins that meet there collapsed, as block margins do (§6.4). A margin
 /// is the author's when its row says so (LLP 1115.000 D2), whatever its
 /// number; the sheet's (LLP 1084 §2) stands in for the platform's gap.
-fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
+fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>], env: &Env, basis: f32) {
     use crate::style::Dimension;
     let mut below: Option<(f32, bool)> = None;
     for (section, node) in list.sections.iter_mut().zip(shown) {
-        let points = |d: Dimension| match d {
-            Dimension::Points(p) => p,
-            _ => 0.0,
-        };
+        let points = |d: Dimension| d.at_basis(env, basis);
         let top = points(node.style.margin_top);
         let authored = node.style.written.has(StyleId::MarginTop);
         section.space_above = match below {

@@ -226,7 +226,7 @@ collection changes are observed afresh.
 | `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` / **the mouse's buttons** (2026-10-07, #107): `{…,"mouse"｜"dblclick"｜"contextmenu"｜"auxclick":true}` or `{…,"clicks":1｜2｜3}`, each with `"at":[x,y]` (a point in the target) and `"modifiers":"Shift+Meta"`, both also on a wheel; `"modifiers"` on a contact's `down` (held to its lift; a `move` or `up` naming others holds those from it on) and on a drag — CLI `tap <target> auxclick｜clicks <n>｜… [at <x> <y>] [modifiers <M>]`, `wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>]`, `down [at <x> <y>] [modifiers <M>]`, `drag … [modifiers <M>]`; a word the parser does not use is refused by name, never dropped, and a form a carrier cannot deliver as a hand's answers `delivery: "unsupported"` (iOS, Linux, Windows, Firefox and WebKit, for a middle click, `clicks`, a wheel or double click at a point, and modifiers through a button other than a plain press's or a contact) / `{…,"history":n}` on the navigation root (LLP 1038 D11; CLI `tap <root> history -1` or `tap <root> {"history":-1}`) / **a contact's phases** (2026-09-09, LLP 1035.003 D1): `{…,"phase":"down"[,"x","y"]}`, then `{"op":"tap","phase":"move","x","y"｜"dx","dy"[,"ms"]}`, `"hold"[,"ms"]`, `"up"`, `"cancel"` — CLI `tap <target> down [at <x> <y>]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap hold [<ms>]`, `tap up`, `tap cancel`, the phase words read as phases only while a contact is down / **one whole gesture** (2026-10-03, LLP 1080.000 §11): CLI `tap <target> drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]` — press, one straight drag, hold, lift, with reads and `clock` run while the finger is down | `tapped`, `at` (+ `hover`); a phase replies `phase`, `at`; **every input reply carries `delivery`** — `platform` (a real input event through the platform's path: CDP mouse/touch, `NSWindow.sendEvent`), `recognized` (an already-recognized event injected: iOS `contextmenu`/`dblclick`/`hover`), `activation` (a hit-test and a direct call: iOS `tap`), or `unsupported` — plus `carrier` and `mode`, added by the driver from the host's answer and its own table (D2); the driver adds `target`. On iOS (2026-08-30) a tap also does what a touch up does first: the nearest node that takes the focus takes it, and when none does the field being edited is blurred (LLP 1008 §9); a phase on iOS or Linux is `unsupported`, never an activation dressed as a finger | host input path (the web: CDP touch events under touch emulation, switched on by the first contact; macOS: the mouse button held across requests, a timed move as dragged events with the run loop turning between them, `cancel` unsupported because AppKit has none; a simulator under `--touch platform` (2026-10-03, LLP 1080.000): a plain `tap` is a real touch from the XCTest touch runner (`host/apple/touches.mjs`), aimed by the host and confirmed by the window's dispatch log, `delivery: platform`; without the flag, `activation`; a contact's phases are `unsupported` on iOS, since no touch stays down across requests (P3), and a `drag` is the runner's one call, the same barrier plus its travel; without the runner a `drag` takes the carrier's own phases and their delivery (on iOS a `pan` node's or a canvas's recognized contact, else `unsupported`); the desktop pointer of 2026-09-10 is deleted; a phone: unsupported) |
 | `type` | `{"op":"type","id":V,"text":…}` / `{…,"key":"Enter"}` | `typed` (+ `value` on macOS) / `key`; the driver adds `target`. On the navigation root, text is a location: `type <navigation root> "/post/42"` dispatches `navigate` once, with `delivery: recognized`, without focusing an editor (LLP 1038 D11); the same target resolution applies | host text or navigation event path |
 | `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle`; under `EXACT_AGENT_TIMING=platform` (2026-09-10, LLP 1035.003 D5 — `open({timing:'platform'})`, `--timing platform`: UIKit's push/pop, sheet and keyboard animations keep their natural timing while the driver still owns the runner's clock) `settle` also waits, bounded at two seconds, for the iOS navigation and modal hosts to leave a transition and for a list's smooth correction to land (2026-10-03, iOS and macOS), and replies `settled: false, reason: "transition"` past the bound | host, both clocks |
-| `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture) | host |
+| `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture). **A drive's `--scale <n>` (2026-10-08)**: the driver shrinks the PNG by area to n pixels a point (`--scale 1`: an iPhone's 1206×2622 becomes 402×874, one pixel a point as on the web) and the reply's `scale` is n; an n above the capture's is refused, never enlarged | host (the driver shrinks) |
 | `prefer` | `{"op":"prefer","media":{"prefers-reduced-motion":"reduce"}}` — CSS's media feature names: `prefers-reduced-motion` and `prefers-reduced-transparency` (`reduce`/`no-preference`), `prefers-color-scheme` (`dark`/`light`); an unnamed feature stays; CLI `prefer <feature> <value> […]` (2026-09-27, LLP 1061 D5); **the fold (2026-10-02, LLP 1078 D7)**: `{…,"fold":{"posture":"folded","cols":2,"rows":1,"gap":40}}`, CLI `prefer posture folded｜continuous`, `prefer segments <cols>x<rows> [gap <points>]` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold (a Duo on 27.1) refuses: the device decides; `0x1`, `1x0` and a gap wider than the viewport are refused by name | `media{…}`: all three as the host now reports them; `fold{…}`: the four `layout.env` names | host (the web: `Emulation.setEmulatedMedia`; Apple: the accessibility settings replaced for the process, the window scene's style or, on macOS while the app follows the system, `NSApp.appearance`; Linux: the runner and the painter's system scheme). An unknown feature is refused and nothing applies |
 
 Errors are `{"error":"…"}` on the wire; the session throws `"<op>: <message>"`.
@@ -589,9 +589,39 @@ layout   viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [
 logs     "(N earlier lines dropped by the journal ring)" when dropped > 0;
          the journal lines as they are; the host's lines indented two spaces;
          "(nothing new)" when there is nothing at all
-state    the JSON, indented two spaces (JSON.stringify(reply, null, 2))
+state    [epoch E · incarnation I · clock C ms], then one line per other section:
+         {name} {its JSON on one line}; an app's state without its empty sections
+tap      [ERROR {error} · ]tapped #{id} "{target}" [· at X,Y] · delivery D · epoch E
+         [· incarnation I, when not 1] · clock C ms [· key=JSON for each other field but carrier and mode]
+type     the same, `typed`; a reply with an error or `delivery: unsupported` reads `tap`｜`type`, a contact's phase `tap {phase}`,
+         a held request's answer `answered @{ticket} "{choice}"`; `at` shows for a phase and a drag only, and an
+         input delivered whose answers did not land keeps its verb and adds `landing failed: …` (`landError`)
 others   the JSON on one line
 ```
+
+**What an agent pays to read (2026-10-08, revised 2026-10-09; measured while
+an agent built and drove a 30-screen app).** A
+`tap` printed its whole reply, 144–165 bytes, so 60 taps were about 9 KB; it
+is now one line of 74–92 bytes. `delivery` stays, since it says whether a
+finger was simulated or substituted (LLP 1080.000). A failed input says
+`ERROR` first, and neither it nor an `unsupported` form reads `tapped`; a
+contact's `down` reads `tap down`, held; a phase or a drag keeps `at`, where
+the finger is; an input delivered whose answers then failed to land keeps
+`tapped` and says `landing failed` (the reply's `landError`, not `error`),
+so an agent does not send it again; a test still stops there. `state` was the JSON pretty-printed,
+which cost an app's state over half again its compact JSON; it is now one
+line a section (Caltrain, web: 13,654 → 8,150 bytes; on an iPad simulator
+24,123 → 14,202; a one-node app 1,237 → 761). An app's state (a reply with
+`slots`) leaves out a top-level section that is null, an empty list or an
+empty record (`emptySection` in `scripts/agent-inspect.mjs`), and judges
+nothing else: a first cut that also hid each host's defaults (a hidden
+keyboard, an idle navigation, the agent-mode storage refusal) saved about 300
+bytes more on Caltrain and hid real values in three review rounds (a keyboard
+still insetting the content, a task due at 0, a route named `idle`). A
+world's or an entity's reply has no `slots` and is never filtered: an empty
+`busy` is its answer. `tree` is unchanged and is now most of a drive's text
+(15.9 of 24.4 KB in a seven-op Caltrain drive on the web). `--json` prints
+every field.
 
 A part in `[brackets]` appears when its field is present — `!= null`, so an
 empty string shows (`label=""`); `(handlers)` when the array is non-empty;

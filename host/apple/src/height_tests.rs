@@ -787,3 +787,103 @@ fn accordion_measurement_refusal_preserves_frames_and_retries_without_panicking(
     good(&h.tick(1250.));
     assert_eq!(height(&h, "first-body"), 240.);
 }
+
+/// Symbols a point taller per measuring revision, as after a content size change
+struct Revised(std::rc::Rc<std::cell::Cell<u64>>, MonospaceMeasurer);
+
+impl exact_kernel::TextMeasurer for Revised {
+    fn measure_revision(&self) -> u64 {
+        self.0.get()
+    }
+    fn measure(
+        &mut self,
+        request: &exact_kernel::TextMeasureRequest<'_>,
+    ) -> exact_kernel::TextMetrics {
+        self.1.measure(request)
+    }
+    fn symbol_size(&mut self, request: &exact_kernel::SymbolRequest<'_>) -> Option<(f32, f32)> {
+        let size = request.font_size + self.0.get() as f32;
+        Some((size, size))
+    }
+}
+
+/// New measuring traits with the same control fonts measure again the auto
+/// height a running transition targets: it ends at the content's new height.
+#[test]
+fn a_measuring_trait_change_retargets_a_running_auto_height_transition() {
+    let source = r#"component App
+  state open = false
+  action toggle
+    open = not open
+  view
+    column width="100%" height="100%" interpolate-size="allow-keywords"
+      button testId="toggle" press=toggle
+        text "Toggle"
+      column testId="body" height=(open ? "auto" : "0px") box-sizing="border-box" overflow="hidden" align-items="flex-start" transition="height 1000ms linear"
+        image "symbol:sf/gear" font-size=20
+"#;
+    let revision = std::rc::Rc::new(std::cell::Cell::new(0));
+    let measurer = Revised(revision.clone(), MonospaceMeasurer::default());
+    let mut h = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        Box::new(measurer),
+        400.,
+        800.,
+    )
+    .unwrap()
+    .0;
+    let styles = control_styles(17.);
+    good(&h.set_control_text_styles(styles.clone()));
+    good(&press(&mut h, "toggle"));
+    good(&h.tick(250.));
+    let body = motion_node(key(&h, "body"));
+    assert_eq!(
+        h.engine.target(body, Property::Height),
+        Some(Value::scalar(20.))
+    );
+    revision.set(10);
+    good(&h.set_control_text_styles(styles));
+    assert_eq!(
+        h.engine.target(body, Property::Height),
+        Some(Value::scalar(30.))
+    );
+}
+
+fn control_styles(size: f32) -> exact_kernel::ControlTextStyles {
+    let font = exact_kernel::ControlFont {
+        family: "UIKit body".into(),
+        family_id: 0,
+        size,
+        weight: 400,
+        style: exact_kernel::FontStyle::Normal,
+    };
+    exact_kernel::ControlTextStyles {
+        field: font.clone(),
+        textarea: font.clone(),
+        button: font,
+    }
+}
+
+/// New measuring traits lay a screen out again though no control reads the
+/// control fonts they change: its symbols are measured under them.
+#[test]
+fn new_measuring_traits_measure_the_symbols_of_a_screen_with_no_controls() {
+    let source = "component App\n  view\n    row\n      image \"symbol:sf/gear\" font-size=20 testId=\"gear\"\n";
+    let revision = std::rc::Rc::new(std::cell::Cell::new(0));
+    let measurer = Revised(revision.clone(), MonospaceMeasurer::default());
+    let mut h = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        Box::new(measurer),
+        400.,
+        800.,
+    )
+    .unwrap()
+    .0;
+    good(&h.set_control_text_styles(control_styles(17.)));
+    assert_eq!(height(&h, "gear"), 20.);
+    revision.set(10);
+    good(&h.set_control_text_styles(control_styles(19.)));
+    assert_eq!(height(&h, "gear"), 30.);
+}

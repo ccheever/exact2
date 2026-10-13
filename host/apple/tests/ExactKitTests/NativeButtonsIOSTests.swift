@@ -536,11 +536,11 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertTrue(fade.isGlass)
         let slot = try XCTUnwrap(node.glassSlot, "a glass button in a group gets a slot")
         XCTAssertTrue(fade.superview === slot.contentView)
-        XCTAssertNil(slot.effect, "joined")
+        XCTAssertFalse(slot.isolates, "joined")
         p.apply(wireBatch([["op": "present", "id": 3, "property": "opacity", "x": 0.3, "y": 0.0, "w": 0.0, "h": 0.0]]))
-        XCTAssertNotNil(slot.effect, "fading: isolated")
+        XCTAssertTrue(slot.isolates, "fading: isolated")
         p.apply(wireBatch([["op": "present", "id": 3, "property": "opacity", "x": 1.0, "y": 0.0, "w": 0.0, "h": 0.0]]))
-        XCTAssertNil(slot.effect)
+        XCTAssertFalse(slot.isolates)
         // Two more batches: the control host and the pass leave it where it is.
         p.apply(wireBatch([])); p.apply(wireBatch([]))
         XCTAssertTrue(fade.superview === slot.contentView)
@@ -596,6 +596,23 @@ final class NativeButtonsIOSTests: XCTestCase {
         try button(p, 2).traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
         try button(p, 2).layoutIfNeeded()
         XCTAssertGreaterThan(try button(p, 2).naturalSize.height, regular.height)
+    }
+
+    /// A content box layout sends alone (a percentage padding whose
+    /// containing block shrank) touches the button as any change to it
+    /// does: its face, whose padding the kernel resolved against the new
+    /// block, is asked for again, so UIKit insets the title by the padding
+    /// its pointer offsets use.
+    func testAContentBoxSentAloneAsksForTheFaceAgain() throws {
+        var faces: [UInt32: ButtonFace] = [2: face("Send")]
+        faces[2]?.rows.button = ["padding_left": 20]
+        let p = presenter(native(2) + [["op": "roots", "ids": [2]]])
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [20.0, 0.0, 100.0, 34.0]]]))
+        XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 20)
+        faces[2]?.rows.button = ["padding_left": 10]
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [10.0, 0.0, 110.0, 34.0]]]))
+        XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 10)
     }
 
     func testNativeWorldLayoutFollowsAnEqualBoundsChildsAncestor() {

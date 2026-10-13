@@ -129,7 +129,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipBox: NSView?
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
-    var nativeFieldContent: NSRect?
+    var kernelContentBox: NSRect?
     var fieldInCell = false // a grouped form's field, which is borderless (NativeFieldsMac.swift)
     var boxFill: CALayer?
     /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
@@ -830,18 +830,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return f
     }
 
-    /// The input's content box: padding and border sit on the node, the
-    /// field is the text inside — CSS's rule, so a placeholder lines up
-    /// with a native one.
-    func contentBox() -> NSRect {
-        let uniform = number("border_width")
-        return bounds.insetBy(
-            left: number("border_width_left", uniform) + number("padding_left"),
-            top: number("border_width_top", uniform) + number("padding_top"),
-            right: number("border_width_right", uniform) + number("padding_right"),
-            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
-    }
-
     func applyPlaceholder(_ f: NSTextField) {
         if pageField != nil { return syncBarField() }
         let text = props["placeholder"] ?? ""
@@ -1331,11 +1319,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // natural size, `scale-down` the smaller of none and contain;
             // an unknown value is the initial `fill`.
             let fit = style["object_fit"]?.string ?? "fill"
-            let content = bounds.insetBy(
-                left: number("border_width_left", uniform) + number("padding_left"),
-                top: number("border_width_top", uniform) + number("padding_top"),
-                right: number("border_width_right", uniform) + number("padding_right"),
-                bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+            let content = contentBox()
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
             let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()

@@ -938,10 +938,11 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) ± <n>px)`,
   or `calc(<n>px + env(…))`, since addition commutes (2026-10-03: the Signal
   Clone's `calc(300px + env(…))` was refused while the other order compiled;
-  `<n>px - env(…)` negates the inset, which no dimension holds, and is still
-  refused), parsed once in `style.rs` (`Dimension::parse_env`; text on a dimension row is
+  `<n>px - env(…)`, which negates the inset, and any other sum are LLP 1078
+  D3's linear `calc()`), parsed once in `style.rs` (`Dimension::parse_env`; text on a dimension row is
   that or a rejection; wire kinds 3–6, one per edge, the `f32` the added points;
-  no fallback argument, since the host always defines the four). The kernel
+  a fallback argument is CSS Environment Variables 1's, substituted where its
+  variable is undefined, which the host never leaves the four). The kernel
   holds one `Env` — the four insets in points, the host's, set with the viewport
   (`Kernel::set_env`; a `reset` keeps it, a rehydration carries it) — and
   resolves every `env()` length against it where the engine style is derived
@@ -950,69 +951,71 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   when something can move. Zero until the host says otherwise, as a browser
   reports the insets for a page without `viewport-fit=cover` (LLP 1008 §9).
   `tests/env.rs`.
-- **Comparisons** (2026-10-07; approved by Charlie 2026-10-06, via the lead:
-  "standard CSS"). A dimension row takes CSS's `min()`, `max()` and `clamp()`
-  (CSS Values 4 §10.2) over the lengths the kernel resolves before layout: px
-  and the other absolute units, `env(safe-area-inset-<edge>)`, the viewport
-  lengths, and sums of them, written in an argument directly or in `calc()`,
-  nested in each other and in `calc()` as CSS allows. The Bluesky clone asked
-  for its bottom bar's padding and its compose button's offset: Bluesky's
-  `clamp(insets.bottom, 15, 60)` is a value bounded to 15–60, which CSS
-  spells `clamp(15px, env(safe-area-inset-bottom), 60px)` (CSS's order is
-  `clamp(MIN, VAL, MAX)`, `max(MIN, min(VAL, MAX))`, so MIN wins over MAX),
-  and the button sits at `calc(clamp(15px, env(safe-area-inset-bottom),
-  60px) + 15px + 44px)`. Parsed once, in `style/compare.rs`, before the other
-  length grammars (a text naming no comparison falls through to them
-  unchanged). The row holds `Dimension::Compare(Comparison)`, a handle to an
-  interned tree — a term (points, an inset or a viewport length, plus points)
-  or a comparison of trees plus points — with equal trees sharing a handle,
-  so an unchanged style still compares equal by value, as `calc()` pairs are
-  interned for Taffy. A handle keeps `Dimension` `Copy`, which every reader
-  in the kernel and the four hosts takes by value: a boxed tree would change
-  all of them, and lists of the existing linear forms cannot hold a
-  comparison nested in a `calc()` with points added, or a viewport length
-  plus px. `Dimension::resolve` turns a comparison into points against the
-  `Env` exactly where an `env()` length becomes points (`taffy_style`), and
-  `uses_env` counts it, so `set_env` and a viewport change re-derive and
-  dirty its node; every host that reads a resolved length (Apple's style
-  JSON, the Linux painter, both hosts' content sizes) sees points (their
-  matches name the variant only as resolved away). On a row CSS gives no
-  negative length (a size, its minimum and maximum, a padding, a flex
-  basis, a border radius, an SVG `r`/`rx`/`ry`, a column width), the tree is
-  held as `max(0px, …)` unless it has a floor at 0 or more (an inset is 0 or
-  more, `clamp(lo, …)` is `lo` or more), and folded points at 0 or more, as
-  CSS clamps a math function to the property's range (a tree with no room
-  left for the wrap under the limits below is refused); margins and insets
-  keep negative lengths (Astra's review, 2026-10-07: a folded `-8px` width
-  was written as a `width:-8px` the browser drops). A replaced header padded
-  by a comparison that reads the top inset hands that inset to the bar, as
-  one padded by `env(safe-area-inset-top)` does (`kernel/cover.rs`). The
-  readers that never resolved `env()` or viewport lengths (SVG geometry, the
-  Apple canvas clip, `svg::scene::content_box`) take an unresolved comparison
-  as 0, as they take those (QUEUE.md). The web writes CSS's own functions for the browser to resolve
-  (`host/web/src/css.rs`, the wasm page and the JS target's static rows; a
-  JS target binding writes its text as authored), and the agent prints the
-  same text. Wire kind 24: a zero `f32`, then the tree (a tag: 0 points, 1 an
-  inset and its edge, 2 a viewport length and its unit and number, 3–5
-  `min`/`max`/`clamp` with a count and the arguments; then each node's
-  points), a nonzero leading `f32` refused, decoded to what the parser accepts or refused as
-  `DecodeError::InvalidComparison` (the 64-term limit counted across the
-  whole tree as it is read, so a wide tree is refused before it is built). Refused by name at the bake
-  (`StyleValueError::BadComparison`, `lower-attr-value`): a percentage (it
-  has no basis where the insets resolve; resolving one would put the tree in
-  Taffy's `calc()` resolver, left until an app asks), `rem`/`em`, a unitless
-  number, zero too (inside a math function a `0` is a number, not a length,
-  CSS Values 4 §10.9), `env(viewport-segment-*)`, a sum with two terms that read
-  the environment or one subtracted (it negates the variable, which no
-  length holds, as `<n>px - env(…)` already is), `*` and `/`, a sum outside
-  `calc()`, a `clamp()` of other than three, an empty `min()`/`max()`, and
-  more than 8 levels or 64 terms. A text that reads nothing folds to points
-  at the parse. The interned table grows with each distinct tree, as the
-  `calc()` pairs do: a bound text that changes every frame grows it.
-  `tests/compare.rs`, `wire/codec.rs`
-  (`comparisons_round_trip_and_a_malformed_tree_is_refused`),
+- **Comparisons** (2026-10-07; approved by Charlie 2026-10-06).
+  Dimension rows accept `calc()`, `min()`, `max()` and `clamp()` over absolute
+  lengths, `ch`/`lh`, percentages, viewport units, safe-area insets and viewport
+  segments. Functions can nest; multiplication and division take a numeric
+  factor or divisor. For example,
+  `bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
+  CSS orders the bounds as `clamp(MIN, VAL, MAX)`; MIN wins when it exceeds MAX.
+
+  `style/calc/` parses, simplifies and serializes calculation trees according to
+  CSS Values 4 §10.10–§10.13. An undefined `env()` substitutes its fallback
+  tokens before parsing the property's value. Without a fallback, an undefined
+  segment anywhere in the expression makes the property take its initial value.
+  Property restrictions still apply: `column-width`, for example, rejects
+  percentages inside math functions too.
+
+  Arithmetic uses `f64`, preserving infinities and NaN inside the tree. The
+  final result follows §10.9.2's exceptional-value rules and narrows to `f32`.
+  Numeric precision is
+  [implementation-defined](https://www.w3.org/TR/css-values-4/#numeric-types).
+  For example, `calc(1e9 * min(1%, 1px) + 10px - 1e9 * min(1%, 1px))`
+  resolves to 10px at a 200px basis here; Chromium can lose the 10px during
+  intermediate rounding.
+
+  Expressions exactly representable by `Points`, `Percent`, `Calc`, `Env`,
+  `Segment` or `Viewport` keep that compact form. Others use an interned
+  `Dimension::Compare(Comparison)` handle. Equal trees share a handle, keeping
+  `Dimension` copyable and style equality stable. Trees without percentages
+  resolve against `Env` before layout. Trees with percentages resolve against
+  their layout basis through `style/handles.rs`; `LayoutEnv` supplies the
+  current environment. Environment changes dirty dependent nodes and invalidate
+  layout memos even when handles are unchanged. The global interners retain each
+  distinct expression, so a bound expression that changes every frame grows them.
+
+  Hosts that resolve lengths outside layout use `Dimension::at_basis`.
+  Layout publishes resolved padding and borders with document and content-region
+  frames. Apple publishes a content box when padding is not plain points;
+  presenters use it for content placement and pointer coordinates. Native editor
+  geometry remains platform-specific (LLP 1104 D5). Apple's calculation wire is
+  `{"calc": n, "env": [...]}`: each Swift style owns its environment snapshot
+  and calls `exact_calc_resolve` with the current basis. Native SVG geometry
+  is outside this work; math support remains incomplete for nested viewports,
+  `<use>` placement and sizing, and other scene geometry.
+
+  Nonnegative properties clamp math results to zero: sizes, min/max sizes,
+  padding, flex basis, border radius and column width. Constant results clamp
+  when parsed; unresolved results clamp at use (CSS Values 4 §9.1). Margins and
+  insets retain negative values. A replaced header whose padding reads the top
+  safe-area inset delegates that inset to the bar (`kernel/cover.rs`).
+
+  The web and agent serialize trees using §10.13 (`host/web/src/css.rs`);
+  JS target bindings preserve authored text. Wire kind 24 contains a zero `f32`
+  followed by the tree (`style/calc/wire.rs`). Decoding rejects a nonzero prefix,
+  a tree whose serialized text does not parse back identically, or a tree that
+  has a compact representation (`DecodeError::InvalidComparison`).
+
+  Unsupported values are rejected at compile time with `BadComparison` and
+  `lower-attr-value`: `em`/`rem`, unitless lengths (including zero), `var()` and
+  other functions, length-by-length multiplication or division, sums outside a
+  math function, malformed argument lists, and more than 32 values or 32 nesting
+  levels. `clamp()` requires three arguments; `none` is allowed only for bounds.
+  `min()` and `max()` require at least one argument.
+
+  Coverage: `tests/compare.rs`, `wire/codec.rs`,
   `contract/cli/tests/it/insets.rs`, `host/web/tests/it/host/css_tests.rs`,
-  and the conformance plan `host/web-js/conformance/comparisons.contract`.
+  and `host/web-js/conformance/comparisons.contract`.
 
 ## 3. One write path (WS-D, WS-F, 0507 §4)
 

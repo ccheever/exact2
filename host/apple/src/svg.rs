@@ -194,7 +194,11 @@ impl SvgState {
         let moved: Vec<ViewId> = self
             .sent
             .iter()
-            .filter(|(id, (_, bx))| kernel.node(**id).is_some_and(|n| content_box(&n) != *bx))
+            .filter(|(id, (_, bx))| {
+                kernel
+                    .node(**id)
+                    .is_some_and(|n| content_box(kernel, &n) != *bx)
+            })
             .map(|(id, _)| *id)
             .collect();
         self.dirty.extend(moved);
@@ -205,7 +209,7 @@ impl SvgState {
                 self.sent.remove(&root);
                 continue;
             };
-            let bx = content_box(&node);
+            let bx = content_box(kernel, &node);
             let scene = scene(kernel, engine, &self.pressable, &node, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);

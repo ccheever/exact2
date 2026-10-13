@@ -164,6 +164,14 @@ data, cache and temporary roots too; a fresh drive clears them, and only picked
 temporary documents are cleared on each launch. A nameless drive keeps no secrets.
 To show what survives a restart on any host, use an authored test's `reload` step (below).
 
+The driver prints each reply in a short text form. A `tap` or `type` is one line
+(`tapped #15 "add" · delivery platform · epoch 2 · clock 0 ms`); a failed one starts
+with `ERROR`. `state` prints one line a section (`slots {"count":1}`) and leaves out
+the empty ones (null, `[]`, `{}`). `--json` prints every field of every reply.
+`--scale <n>` shrinks each screenshot to n pixels a point: an iPhone's are
+1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
+web, at about a ninth of the pixels. Use `--scale 1` unless you check fine pixels.
+
 Inside the exact2 checkout, for Caltrain:
 
 ```sh
@@ -1923,8 +1931,12 @@ For a drag still built by hand, test the dragged node's visual centre (the middl
 its `frame(id)`, which includes the `translate` the drag gave it), not the
 pointer: the box under a lifted card is the card.
 
-SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
-refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
+SVG uses SVG names. Native SVG geometry has incomplete support for `calc()`,
+`min()`, `max()` and `clamp()`, including nested SVG viewports and `<use>`
+placement and sizing. Use numeric lengths or percentages there; CSS layout math
+on the outer SVG element does not imply support inside its scene.
+`foreignObject` compiles and renders on the web; native hosts refuse it at run
+time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
 hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
 others) and implemented by the module; its unknown attributes pass through
@@ -1946,6 +1958,12 @@ or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
 `AccentColor` is the app's accent on Apple hosts (`NSAccentColorName`; the
 accent section above). Catalog changes require a
 new native build; they are not web assets or live update payloads.
+
+An iOS native module that uses `canOpenURL` to check for another app lists
+its schemes in `app.json`: `"host": { "ios": { "queriesSchemes":
+["comgooglemaps", "waze"] } }`. The build writes `LSApplicationQueriesSchemes`.
+List at most 50 schemes, without `:` or `://`; changing the list requires a
+native rebuild.
 
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
@@ -2439,18 +2457,21 @@ On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
 
-The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
-<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
-those insets and viewport lengths, with sums inside them (`max(15px,
-env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+The same rows take `env(safe-area-inset-top|right|bottom|left)` and CSS's
+`calc()`, `min()`, `max()` and `clamp()` over px (and in/cm/mm/q/pt/pc/ch/lh),
+percentages, those insets, viewport segments and viewport lengths. Functions
+can nest, add or subtract lengths, and multiply or divide by a number:
 `padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
-`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
-CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
-max)`. Native hosts resolve them as the insets change; the web writes CSS's own
-functions. On a size, a padding or a radius a result below zero is 0, as CSS
-clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
-number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
-sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`,
+`width="min(50%, calc(100vw - 2 * env(safe-area-inset-left)))"`.
+`clamp()` takes `none` for either bound (`clamp(none, 20px, 50px)`). CSS's
+order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min, max)`.
+Native hosts resolve percentages during layout and update calculations when
+insets or viewport dimensions change. The web uses CSS functions directly.
+Sizes, padding and radii clamp negative results to zero; margins and insets keep
+them. Unsupported: `rem`/`em`, a unitless number where a length goes
+(write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
+"Comparisons").
 
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an

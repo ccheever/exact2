@@ -254,11 +254,7 @@ final class DialogHost {
         }
     }
     private func length(_ value: BatchValue?, _ basis: CGFloat) -> CGFloat? {
-        if let n = value?.number { return CGFloat(n) }
-        if case .object(let parts) = value {
-            return CGFloat(parts["pct"]?.number ?? 0) * basis / 100 + CGFloat(parts["px"]?.number ?? 0)
-        }
-        return nil
+        value?.length(basis: basis)
     }
     /// The dialog's stops in tree order, and how many of them come before
     /// `start` when it is one of the dialog's nodes.

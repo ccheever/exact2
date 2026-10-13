@@ -12,12 +12,21 @@ import XCTest
 final class NavigationTabsIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
+    private var animationsWereEnabled = true
+
+    override func setUp() {
+        super.setUp()
+        // Hostless UIKit does not finish an animated tab selection.
+        animationsWereEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+    }
 
     override func tearDown() {
         for session in sessions { session.destroy() }
         sessions = []
         window?.isHidden = true
         window = nil
+        UIView.setAnimationsEnabled(animationsWereEnabled)
         super.tearDown()
     }
 
@@ -653,6 +662,23 @@ final class NavigationTabsIOSTests: XCTestCase {
         let route = try XCTUnwrap(navigation.tabPanels.last.flatMap { navigation.tabNavigations[$0] }?.viewControllers.first)
         until("the screen is contained") { route.children.count == 1 }
         XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
+    }
+
+    /// A `tabContainer` hook that keeps none of the stacks leaves them in
+    /// Exact's container, its bar showing the selected tab.
+    func testATabContainerHookThatKeepsNoneLeavesTheSelectedTabShown() throws {
+        defer { NativeViews.uninstallTable() }
+        let session = try fixture("tabs-kept", module: true)
+        let navigation = session.presenter.navigation
+        let log = { session.agent(#"{"op":"logs","since":0}"#) }
+        until("the module connected") { log().contains("hatch tabs: built") }
+        until("the hook was asked") { navigation.tabContainerAsked }
+        let container = try XCTUnwrap(navigation.tabController)
+        let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
+        XCTAssertEqual(container.viewControllers?.count, stacks.count)
+        XCTAssertTrue(zip(container.viewControllers ?? [], stacks).allSatisfy { $0 === $1 }, "Exact's container keeps its stacks")
+        XCTAssertNotNil(container.tabBar.selectedItem, "the bar shows a tab selected")
+        XCTAssertEqual(container.tabBar.selectedItem, container.tabBar.items?[container.selectedIndex])
     }
 
     func testTheTabsHatchAContainerTheAppOwnsAndANativeScreen() throws {

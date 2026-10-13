@@ -1,16 +1,8 @@
-//! Style rows → CSS declarations.
-//!
-//! @ref LLP 1115 §2 (names stay CSS: a row's CSS name is
-//! the row's name with `-` for `_`, and its value the CSS value; the few rows
-//! that are not one CSS property each are listed here by hand)
-//! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
-//! deviation and is not emitted as CSS)
-//!
-//! Every set row of a node becomes one declaration, read through the
-//! kernel's generated `StyleProps::get`, so a row added to `schema.json`
-//! reaches the page with no change here unless it needs a unit or a name
-//! this table does not know — in which case it is skipped and named in
-//! [`Skipped`], never guessed.
+//! Style rows → CSS declarations (LLP 1115 §2, LLP 1002 D2).
+//! CSS names replace `_` with `-`; exceptions are mapped below. Spring timing
+//! is not emitted as CSS. Each set row is read through `StyleProps::get`, so
+//! new schema rows need no mapping unless their name or unit differs.
+//! Unsupported rows are reported in [`Skipped`].
 
 mod fonts;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
@@ -640,6 +632,15 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             if matches!(id, StyleId::MaxWidth | StyleId::MaxHeight) =>
         {
             out.push_str("none")
+        }
+        // Only a calculation can be negative here; written as `calc()` the
+        // browser clamps it rather than dropping it (CSS Values 4 §10.12).
+        RowValue::Dimension(
+            d @ (Dimension::Points(v) | Dimension::Percent(v) | Dimension::Viewport(_, v)),
+        ) if *v < 0.0 && exact_kernel::style::calc::nonnegative_row(id) => {
+            out.push_str("calc(");
+            dimension(out, *d);
+            out.push(')');
         }
         RowValue::Dimension(d) => dimension(out, *d),
         RowValue::Color(c) => rgba_into(out, *c),

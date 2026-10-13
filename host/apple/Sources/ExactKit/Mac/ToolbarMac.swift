@@ -610,7 +610,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     }
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
         if item === backItem { return toolbar != nil && window?.toolbar === toolbar && presenter.navigation.canGoBack }
-        guard let node = presenter.views[UInt32(item.tag)], items[node.id] === item else { return false }
+        guard let id = UInt32(exactly: item.tag), let node = presenter.views[id], items[node.id] === item else { return false }
         return available(node)
     }
     @objc private func performBack(_ item: NSToolbarItem) {

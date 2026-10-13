@@ -85,7 +85,7 @@ mod activation_tests;
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
-use layout::content_size;
+use layout::{content_size, published_content_box};
 #[path = "resize.rs"]
 mod resize;
 #[path = "scale.rs"]
@@ -1479,10 +1479,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         {
             out.insert(
                 "symbolName".into(),
-                role.strip_prefix("sf/")
-                    .or_else(|| exact_kernel::generated::symbol(role).map(|s| s.0))
-                    .unwrap_or("")
-                    .into(),
+                exact_kernel::apple_symbol_name(role).into(),
             );
         }
     }
