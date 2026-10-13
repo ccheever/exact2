@@ -16,3 +16,15 @@ menu heard
 # popover its node names opens.
 menu check
 menu other
+
+key other Escape
+key trigger ArrowDown
+tap first
+tap trigger
+key trigger Escape
+tap twice
+tap outside
+tap roundtrip
+tap missing
+tap trigger
+tap trigger

@@ -273,3 +273,99 @@ fn a_paragraph_s_height_bound_caps_its_columns() {
         assert_eq!(starts.split(';').nth(2), Some("200,0"), "{root}: {starts}");
     }
 }
+
+/// A height bound that holds a percentage caps the columns where its basis
+/// is definite, as layout resolved it: an authored height or a stretched
+/// flex item gives one (LLP 1116 D5; Chrome 154 puts the fourth 20-point
+/// block at the top of the second column of a 60-point cap, the sixth of a
+/// 100-point one).
+#[test]
+fn a_calculated_height_bound_caps_the_columns() {
+    use exact_kernel::{StyleId::*, StyleProps, StyleValue};
+    let row = |rows: &[(exact_kernel::StyleId, &str)]| {
+        let mut p = StyleProps::default();
+        for (id, v) in rows {
+            let value = v
+                .parse()
+                .map_or_else(|_| StyleValue::Text((*v).into()), StyleValue::Number);
+            p.set_dynamic(*id, &value).unwrap();
+        }
+        Box::new(p)
+    };
+    let columns = |cap: &str| {
+        row(&[
+            (ColumnCount, "2"),
+            (ColumnGap, "0"),
+            (ColumnFill, "auto"),
+            (MaxHeight, cap),
+        ])
+    };
+    let lay_out = |tree: Vec<(u32, Box<StyleProps>, Vec<u32>)>, blocks: (u32, u32)| {
+        let mut ops = Vec::new();
+        let (holder, count) = blocks;
+        for (id, style, _) in &tree {
+            ops.push(Op::CreateView {
+                id: *id,
+                node_type: NodeType::View,
+            });
+            ops.push(Op::SetStyle {
+                id: *id,
+                patch: style.clone(),
+            });
+        }
+        for i in 0..count {
+            ops.push(Op::CreateView {
+                id: 100 + i,
+                node_type: NodeType::View,
+            });
+            ops.push(Op::SetStyle {
+                id: 100 + i,
+                patch: row(&[(Height, "20px")]),
+            });
+        }
+        for (id, _, children) in &tree {
+            ops.push(Op::SetChildren {
+                id: *id,
+                children: children.clone(),
+            });
+        }
+        ops.push(Op::SetChildren {
+            id: holder,
+            children: (100..100 + count).collect(),
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        let mut k = kernel();
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        k
+    };
+    let k = lay_out(
+        vec![
+            (1, row(&[(Width, "400px"), (Height, "400px")]), vec![2]),
+            (2, columns("min(50%, 60px)"), vec![]),
+        ],
+        (2, 8),
+    );
+    assert_eq!(
+        rects(&k, 103),
+        "200,0,200,20",
+        "the fourth block opens the second column"
+    );
+    let k = lay_out(
+        vec![
+            (
+                1,
+                row(&[(Display, "flex"), (Width, "400px"), (Height, "200px")]),
+                vec![2],
+            ),
+            (2, row(&[(Width, "400px")]), vec![3]),
+            (3, columns("min(50%, 100px)"), vec![]),
+        ],
+        (3, 15),
+    );
+    assert_eq!(
+        rects(&k, 105),
+        "200,0,200,20",
+        "the sixth block opens the second column"
+    );
+}

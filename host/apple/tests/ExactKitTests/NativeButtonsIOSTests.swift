@@ -118,6 +118,43 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(named.first?["role"] as? String, "button")
     }
 
+    /// What `testADestructiveButtonDrawsInThePlatformsRedUnlessTheAuthorPaintedIt`
+    /// leaves unheld (LLP 1115.000 D15's measurements on iOS 27): the red is the configuration's base colour and not a
+    /// transformer's, so what UIKit draws is `systemRed` in each scheme and,
+    /// for a disabled one, the grey of a disabled button UIKit configured
+    /// itself; and the prop paints it when it arrives and stops when it leaves.
+    func testADestructiveButtonIsRedAsDrawnGreyWhenDisabledAndFollowsItsProp() throws {
+        let plain = face("Delete", style: "plain", ios: "plain")
+        let p = presenter(box(1) + native(2, ["destructive": "true"]) + native(3) + native(6, ["destructive": "true", "disabled": "true"])
+                          + [["op": "children", "id": 1, "ids": [2, 3, 6]], ["op": "roots", "ids": [1]]],
+                          faces: [2: plain, 3: plain, 6: plain])
+        XCTAssertEqual(try button(p, 2).configuration?.baseForegroundColor, .systemRed)
+        XCTAssertNil(try button(p, 3).configuration?.baseForegroundColor, "not destructive: UIKit's own ink")
+        var hand = UIButton.Configuration.plain(); hand.title = "Delete"
+        let uikit = UIButton(configuration: hand)
+        uikit.isEnabled = false
+        window.addSubview(uikit)
+        for scheme in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = scheme
+            window.updateTraitsIfNeeded()
+            for b in [try button(p, 2), try button(p, 6), uikit] {
+                b.setNeedsUpdateConfiguration(); b.updateConfiguration(); b.layoutIfNeeded()
+            }
+            XCTAssertEqual(rgba(try button(p, 2).titleLabel?.textColor, scheme), rgba(.systemRed, scheme), "\(scheme.rawValue)")
+            XCTAssertEqual(rgba(try button(p, 6).titleLabel?.textColor, scheme), rgba(uikit.titleLabel?.textColor, scheme), "disabled, \(scheme.rawValue)")
+            XCTAssertNotEqual(rgba(try button(p, 6).titleLabel?.textColor, scheme), rgba(.systemRed, scheme), "disabled is not red, \(scheme.rawValue)")
+        }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["destructive": "true"]]]))
+        XCTAssertEqual(try button(p, 3).configuration?.baseForegroundColor, .systemRed)
+        p.apply(wireBatch([["op": "props", "id": 3, "clear": ["destructive"]]]))
+        XCTAssertNil(try button(p, 3).configuration?.baseForegroundColor)
+    }
+    private func rgba(_ color: UIColor?, _ scheme: UIUserInterfaceStyle) -> [Int] {
+        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        color?.resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map { Int(($0 * 255).rounded()) }
+    }
+
     func testItsActionPressesOnceItsOwnOrAnAncestorsHandler() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
@@ -183,6 +220,64 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(focused, [2])
     }
 
+    /// LLP 1116.008 (team-kanban: "Delete is not styled as destructive"): an ordinary
+    /// `button destructive=true` draws in the platform's destructive red, as a hand-built
+    /// screen's does: red ink on the plain, gray, bordered and tinted styles, a red fill
+    /// under UIKit's white on the filled ones, whatever accent it only inherits. What the
+    /// author wrote wins: an accent on the button, a colour on its title.
+    func testADestructiveButtonDrawsInThePlatformsRedUnlessTheAuthorPaintedIt() throws {
+        let indigo: [Int] = [97, 85, 245, 255]
+        let orange: [Int] = [255, 141, 40, 255]
+        func node(_ id: Int, destructive: Bool, accent: [Int], wrote: Bool = false) -> [[String: Any]] {
+            var ops = native(id, destructive ? ["destructive": "true"] : [:])
+            ops[0]["style"] = ["appearance": "auto", "accent_color": accent, "written": wrote ? ["accent_color"] : [String]()]
+            return ops
+        }
+        var green = face("Green", style: "plain", ios: "plain")
+        green.rows.title["text_color"] = .array([.number(0), .number(128), .number(0), .number(255)])
+        let faces: [UInt32: ButtonFace] = [
+            2: face("Delete", style: "bordered", ios: "bordered"), 3: face("Delete", style: "plain", ios: "plain"),
+            4: face("Delete", style: "tinted", ios: "tinted"), 5: face("Delete", style: "bordered-prominent", ios: "borderedProminent"),
+            6: face("Delete", style: "filled", ios: "filled"), 7: face("Keep", style: "plain", ios: "plain"),
+            8: face("Delete", style: "plain", ios: "plain"), 9: green,
+        ]
+        let p = presenter(box(1)
+            + node(2, destructive: true, accent: indigo) + node(3, destructive: true, accent: indigo) + node(4, destructive: true, accent: indigo)
+            + node(5, destructive: true, accent: indigo) + node(6, destructive: true, accent: indigo)
+            + node(7, destructive: false, accent: indigo) + node(8, destructive: true, accent: orange, wrote: true) + node(9, destructive: true, accent: indigo)
+            + [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 9]], ["op": "roots", "ids": [1]]], faces: faces)
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        p.controls.sync()
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        func ink(_ id: UInt32) throws -> UIColor? { try button(p, id).configuration?.baseForegroundColor?.resolvedColor(with: light) }
+        let red = UIColor.systemRed.resolvedColor(with: light)
+        // Red ink where the style's ink is its own: the plain, gray, bordered and tinted; deepened a notch
+        // on the ones with a fill of their own, so it reads 3:1 on it (`check`).
+        XCTAssertEqual(try ink(3), red, "plain: systemRed")
+        for id: UInt32 in [2, 4] {
+            let c = try XCTUnwrap(try ink(id), "\(id)")
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            XCTAssertTrue(c.getRed(&r, green: &g, blue: &b, alpha: nil))
+            XCTAssertGreaterThan(r, 0.85, "\(id): red"); XCTAssertLessThan(g, 0.3, "\(id): red"); XCTAssertLessThan(b, 0.3, "\(id): red")
+        }
+        // The tint is red whatever accent it inherits: the tinted fill, the filled one's fill under UIKit's white.
+        for id: UInt32 in [2, 3, 4, 5, 6] { XCTAssertEqual(try button(p, id).tintColor.resolvedColor(with: light), red, "\(id): the tint") }
+        XCTAssertNil(try ink(5), "borderedProminent keeps UIKit's ink, white, on the red fill")
+        XCTAssertNil(try ink(6), "filled keeps UIKit's ink, white, on the red fill")
+        // Not destructive: the accent it inherits, UIKit's own ink.
+        XCTAssertNil(try ink(7))
+        XCTAssertEqual(try button(p, 7).tintColor.resolvedColor(with: light), UIColor(red: 97 / 255, green: 85 / 255, blue: 245 / 255, alpha: 1))
+        // What the author wrote wins: an accent on the button itself, a colour on its title.
+        XCTAssertNil(try ink(8), "a written accent keeps UIKit's ink")
+        XCTAssertEqual(try button(p, 8).tintColor.resolvedColor(with: light), UIColor(red: 255 / 255, green: 141 / 255, blue: 40 / 255, alpha: 1))
+        let title = try XCTUnwrap(try button(p, 9).configuration?.titleTextAttributesTransformer)
+        XCTAssertEqual(title(AttributeContainer()).uiKit.foregroundColor?.cgColor.components, [0, 128 / 255, 0, 1])
+        XCTAssertEqual(try ink(9)?.cgColor.components, [0, 128 / 255, 0, 1], "the author's colour, not the red ink")
+        // Dark and increased contrast keep systemRed's own.
+        let dark = UITraitCollection(userInterfaceStyle: .dark)
+        XCTAssertEqual(try XCTUnwrap(try button(p, 2).configuration?.baseForegroundColor).resolvedColor(with: dark), UIColor.systemRed.resolvedColor(with: dark))
+    }
+
     func testAuthoredColoursFollowALightToDarkSwitch() throws {
         var f = face("Scheme", symbol: "lock.fill", style: "filled", ios: "filled")
         let pair: BatchValue = .array([.array([.number(0), .number(0), .number(0), .number(255)]),
@@ -204,6 +299,36 @@ final class NativeButtonsIOSTests: XCTestCase {
         override var view: UIView? { target }
         override func location(in view: UIView?) -> CGPoint { target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view) }
     }
+    func testPopoverActionCommandsAndToggleEvents() throws {
+        let p = presenter(box(1) + native(2, ["id": "trigger"]) + native(3)
+            + box(4, ["popover": "auto", "id": "choices"]) + native(5)
+            + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "children", "id": 4, "ids": [5]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Open"), 3: face("Outside"), 5: face("Item")])
+        let pop = try XCTUnwrap(p.views[4])
+        pop.handlers.insert("toggle")
+        var events: [String] = []
+        p.onClipboard = { _, kind, payload in XCTAssertEqual(kind, 50); events.append(payload) }
+        func delivered(_ count: Int) {
+            let limit = Date(timeIntervalSinceNow: 20)
+            while events.count < count && Date() < limit { RunLoop.main.run(mode: .default, before: limit) }
+            XCTAssertEqual(events.count, count)
+        }
+        p.menus.action("showPopover", ["choices", "trigger"])
+        p.menus.action("showPopover", ["choices", "trigger"])
+        XCTAssertTrue(p.menus.isOpen(pop)); XCTAssertEqual(p.menus.observation()?["source"] as? Int, 2)
+        delivered(1); XCTAssertEqual(events.last, "closed,open")
+        p.menus.lightDismiss(p.views[3]!)
+        delivered(2); XCTAssertEqual(events.last, "open,closed")
+        p.menus.action("togglePopover", ["choices", "trigger"])
+        delivered(3)
+        XCTAssertTrue(p.keyDown(at: p.views[2], "Escape"))
+        delivered(4); XCTAssertEqual(events.last, "open,closed")
+        p.menus.action("showPopover", ["choices"])
+        XCTAssertTrue(p.menus.observation()?["source"] is NSNull)
+        p.menus.action("hidePopover", ["choices"])
+        delivered(5); XCTAssertEqual(events.last, "closed,closed")
+    }
+
     func testProductionTouchesLightDismissAndHideANativeInvokersPopover() throws {
         let p = presenter(box(1) + native(2, ["popovertarget": "choices"]) + native(3)
             + box(4, ["popover": "auto", "id": "choices"]) + native(5, ["popovertarget": "choices", "popovertargetaction": "hide"], handlers: [])
@@ -441,11 +566,11 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertTrue(fade.isGlass)
         let slot = try XCTUnwrap(node.glassSlot, "a glass button in a group gets a slot")
         XCTAssertTrue(fade.superview === slot.contentView)
-        XCTAssertNil(slot.effect, "joined")
+        XCTAssertFalse(slot.isolates, "joined")
         p.apply(wireBatch([["op": "present", "id": 3, "property": "opacity", "x": 0.3, "y": 0.0, "w": 0.0, "h": 0.0]]))
-        XCTAssertNotNil(slot.effect, "fading: isolated")
+        XCTAssertTrue(slot.isolates, "fading: isolated")
         p.apply(wireBatch([["op": "present", "id": 3, "property": "opacity", "x": 1.0, "y": 0.0, "w": 0.0, "h": 0.0]]))
-        XCTAssertNil(slot.effect)
+        XCTAssertFalse(slot.isolates)
         // Two more batches: the control host and the pass leave it where it is.
         p.apply(wireBatch([])); p.apply(wireBatch([]))
         XCTAssertTrue(fade.superview === slot.contentView)
@@ -501,6 +626,23 @@ final class NativeButtonsIOSTests: XCTestCase {
         try button(p, 2).traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraLarge
         try button(p, 2).layoutIfNeeded()
         XCTAssertGreaterThan(try button(p, 2).naturalSize.height, regular.height)
+    }
+
+    /// A content box layout sends alone (a percentage padding whose
+    /// containing block shrank) touches the button as any change to it
+    /// does: its face, whose padding the kernel resolved against the new
+    /// block, is asked for again, so UIKit insets the title by the padding
+    /// its pointer offsets use.
+    func testAContentBoxSentAloneAsksForTheFaceAgain() throws {
+        var faces: [UInt32: ButtonFace] = [2: face("Send")]
+        faces[2]?.rows.button = ["padding_left": 20]
+        let p = presenter(native(2) + [["op": "roots", "ids": [2]]])
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [20.0, 0.0, 100.0, 34.0]]]))
+        XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 20)
+        faces[2]?.rows.button = ["padding_left": 10]
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [10.0, 0.0, 110.0, 34.0]]]))
+        XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 10)
     }
 
     func testNativeWorldLayoutFollowsAnEqualBoundsChildsAncestor() {

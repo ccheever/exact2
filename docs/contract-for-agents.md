@@ -108,14 +108,20 @@ bar hides (`lower-header-unplaced`), a content heading that says the bar's title
 again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
-(`lower-level-without-heading`), screens swapped by a `when` in an app with no
+(`lower-level-without-heading`), a content-box `width="100%"` with padding, wider than
+its parent by the padding (`lower-width-padding`), screens swapped by a `when` in an app with no
 `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), a
-state read after its own action assigned it (`analyze-read-after-assign`) or a
+state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
-site past the cap); each names its repair, and fixing it is part of the edit.
+site past the cap), and a name or key a host would refuse or ignore at run time: a
+swipe row's `swipeTrailing` naming a button outside its `scroll` (`lower-swipe-wiring`),
+a navigation root's `navigationKey` that never meets its routes' (`lower-navigation-key`),
+a `navigationSplit` off the root route (`lower-navigation-split`), an `image` source
+that is a bare word, neither a symbol nor a file (`lower-image-source`), and a literal `RoundButton`
+label of more than the 7 characters its circle holds (`lower-round-button-label`); each names its repair, and fixing it is part of the edit.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
 `fmt` writes. Formatting changes spacing and breaks only: a result that would
@@ -157,6 +163,14 @@ and the page's `localStorage` on the web. Apple native modules use that store's
 data, cache and temporary roots too; a fresh drive clears them, and only picked
 temporary documents are cleared on each launch. A nameless drive keeps no secrets.
 To show what survives a restart on any host, use an authored test's `reload` step (below).
+
+The driver prints each reply in a short text form. A `tap` or `type` is one line
+(`tapped #15 "add" · delivery platform · epoch 2 · clock 0 ms`); a failed one starts
+with `ERROR`. `state` prints one line a section (`slots {"count":1}`) and leaves out
+the empty ones (null, `[]`, `{}`). `--json` prints every field of every reply.
+`--scale <n>` shrinks each screenshot to n pixels a point: an iPhone's are
+1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
+web, at about a ninth of the pixels. Use `--scale 1` unless you check fine pixels.
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -245,9 +259,12 @@ is an ordinary name there, so `action searchKey(key: string)` and `action refres
 compile. Shape fields, named arguments and members take any word
 ([grammar](contract-grammar.md#lexical-rules)).
 
-`contract vocab` lists every built-in tag, attribute, CSS property and standard
-function the compiler accepts, with each property's value kind and default and each
-function's signature; `contract vocab <name>` answers for one (a function's rules and
+`contract vocab` prints the card, what an app writes in one read (at most 12 KB: every
+function, the tags with their attributes and events, each part's call, the test steps,
+the agent's operations, and how to do a second screen, a sheet, a timer, colour, data, a
+test; `docs/card.md` is the same text, checked in); `contract vocab --all` lists every built-in tag, attribute, CSS
+property and standard function the compiler accepts, with each property's value kind and
+default and each function's signature; `contract vocab <name>` answers for one (a function's rules and
 an example too: `contract vocab formatDate`), or says what to write instead
 (`contract vocab sort`). Check there before guessing at CSS or a function.
 
@@ -674,7 +691,7 @@ component Water
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
 | `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
-| `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-green"`), ink the host picks for contrast; `none` is the neutral grey with the label's ink |
+| `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-red"`), ink the host picks for contrast; a light hue (green, mint, teal, cyan, yellow, orange) is the platform's tinted style, the hue at low opacity under the label's ink; `none` is the neutral grey with the label's ink |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
 
 - Props have no defaults: pass `none` for an option. A symbol is an `image` source:
@@ -987,6 +1004,20 @@ a property's admitted value space; this does not add general union types.
 On a number-only row such as `opacity`, a computed branch known to be a string
 is refused at build time even when another branch is numeric.
 
+`background-image` takes up to four linear, radial, conic or repeating linear
+gradients; `mask-image` takes one. Stops take percentages, or px lengths for
+linear/radial gradients (unitless zero is allowed). For example,
+`background-image="repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"`.
+A repeating gradient’s px period stays fixed as a box resizes; mixed px/%
+and omitted stops use CSS fix-up after layout. A zero period paints its last
+stop, as Chrome does. `background-attachment="local"` is still
+refused: separate row backgrounds restart at each row, and repetition alone
+does not make a virtualized list’s background follow its content.
+`contract vocab background-image` gives the grammar and limits. AppKit’s captured
+hatch matches Chrome exactly; UIKit qualification is pending. On UIKit, repeating
+backgrounds share the existing drawn-gradient limitation for
+`background-attachment="fixed"` ([open issue](../issues/20261011-repeating-hatch-across-list-rows.md)).
+
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
 `each`, and one flow root per row. A vertical list needs `height`, `max-height`
@@ -1083,6 +1114,42 @@ On macOS, iOS and the web, an action can call `showModal(id)` or `close(id)`
 for a `dialog`. macOS and the web follow the invoker's modal focus path; iOS
 presents the dialog as an alert. Bare `close()` still closes the window.
 
+On the Mac a `dialog` that is not a confirmation is a sheet on its window, as
+iOS's is a sheet (LLP 1115.002 D7.2): AppKit centres it, dims the window under
+it and keeps clicks from it. It is as large as its content, at most the
+window's content area, and laid out as written (an authored `width` is used,
+`width="100%"` is all of that area; its insets are not, since AppKit places
+it). Escape and ⌘. close it, the one `buttonStyle="filled"` button answers
+Return, `closedby="none"` leaves only its own buttons, and `closedby="any"`
+also takes a click on the window behind it. A popover that is not a menu is
+AppKit's popover beside its invoker (D7.3), with AppKit's arrow and material,
+on the side its `position-area` names (`top …` above, `right …` beside, else
+below): `popover="auto"` closes on Escape, a click elsewhere or another window,
+`popover="manual"` only by its own buttons. Write no surface for either: the
+sheet and the popover are the platform's. A popover of a dialog's is written
+inside it, as in HTML (outside it, it is inert while the dialog is open). Under
+the agent both paint in the page as before; `--chrome platform` on `macos`
+shows them, `tap`, `type` and `tree` reach what is in them, and `screenshot
+"file" window` draws them over the window.
+
+A route with `navigationPresentation="modal"` is the same sheet on the Mac
+(LLP 1115.002 D7.4), as large as its content (an authored `width` or `height`
+is used; its `inset` is not), under the window's content area. Its `header`
+is the sheet's own: the heading a title row at the top, and at the bottom
+right the `id="back"` control (Cancel) and then the one prominent button
+(`buttonStyle="filled"` or `"bordered-prominent"`), which answers Return.
+Anything else in the header (a search field, a menu's button) stays in it, at
+the top of the sheet. Escape and ⌘. go back as the `id="back"` control does;
+`closedby` is a dialog's. A heading inside a pressable keeps the route painted
+in the window, and `logs` says so. `--chrome platform` shows the sheet: `tap
+"add-save"` presses its button (`native: "NSButton"`), `back` dismisses it,
+and `state navigation.sheet` names its title, its buttons and its size.
+
+With no `buttonStyle` a button is the platform's default: plain tinted text on
+iOS, a push button on macOS, bordered on the web. Say what the action is:
+`buttonStyle="filled"` on the screen's main action, `"bordered"` on one that
+must read as a button, nothing on a secondary or inline one; and
+`destructive=true` on one that deletes, which iOS draws in the system red.
 `buttonStyle` needs a native button; on a default button that comes out bare,
 `lower-button-style` names the first reason and says to remove it or write
 `appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
@@ -1112,10 +1179,10 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
-| `input type="range"` | `UISlider` |
+| `input type="range"` (as wide as what holds it; in a `row`, `flex=1 min-width=0` beside its label) | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` its pill shows your `placeholder` (`placeholder="Add a date"`) or, with none, no words, and a choice fills it (LLP 1115.000 D13.1; macOS's field likewise; the web shows the browser's own empty field) |
 | `select` of `option`s | a pop-up button with its menu |
-| `progress value=done max=goal` (a goal, an upload; `width="100%"` to fill) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
+| `progress value=done max=goal` (a goal, an upload; as wide as what holds it) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
@@ -1450,8 +1517,9 @@ work. Use the command's working fixture and inspect its host result.
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an
 absolute path pattern, optional tab membership, parentage by indentation, and
-optional rendering/activation policies. `notfound` is a bare fallback. Do not
-redeclare the implicit router state with `state`.
+optional rendering/activation policies. `notfound` is a bare fallback: with none, the
+compiler writes it and a "Page not found" screen with a way home (the location keeps its URL);
+write it to draw your own. Do not redeclare the implicit router state with `state`.
 
 Assign the results of `open`, `push`, `replace`, `go`, `select`, or `back` to that
 router state. Use `path("route", args…)` to construct checked locations. A
@@ -1540,7 +1608,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - Each route starts with a `header` (its heading, and on a pushed route the
   `id="back"` control), which iOS makes the navigation bar. Leave the tablist's and the
   routes' backgrounds, heights and colours unsaid: the platform draws the bars and the
-  page.
+  page. For an authored design, put `appearance="none"` on the `header` or root
+  `tablist` to keep that bar's layout, colours and type on iOS too. A header
+  button with `appearance="none"` stays authored in place while the rest
+  of the header still projects. A title button keeps its contents; an authored Back
+  replaces UIKit’s Back. Search or a header tablist can opt out on that element
+  (a tab button alone does not opt its parent out of segments). Tabs retain their
+  panels and stacks; other styling alone does not opt a header out.
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
@@ -1555,13 +1629,32 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   presses it through its bar (`native: "tab-bar-item"`, `"bar-button-item"`). The
   bars' own motion runs on real time (`clock +300 real` before a screenshot); the
   software keyboard, another window, is not drawn.
+- On the Mac a root tablist placed as above (the root column's last child) is the
+  window's sidebar: AppKit's source list, one row a tab, with its button in the
+  toolbar and View ▸ Show Sidebar. Under the agent the authored tablist paints, as on
+  iOS; `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
+  presses its row (`native: "sidebar-row"`).
+- On the Mac a route's `header` is the window's title bar and toolbar: its heading the
+  window's title (under a `head title`, over the app's name; there is no large title),
+  its buttons toolbar items, a button whose `popovertarget` is a menu a menu item, a
+  tablist of text tabs the centred segments, its `input type="search"` the toolbar's
+  search field, and the `id="back"` control the bar's own Back. A header holding
+  anything else (a picture, a second text, a pressable title, a button drawn as a box)
+  stays in the page as written, whole, and `logs` says what it was. Under the agent
+  the authored header paints; `--chrome platform` on `macos` shows the bar, `tap` and
+  `type` naming a header's button, tab or search input go through it
+  (`native: "NSToolbarItem"`), and `state window.toolbar.header` names its title, its
+  items by test id and which are in the overflow menu. Its search field arrives with
+  AppKit's own animation (`clock +1200 real` before a screenshot).
 - Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
   tablist with `when`: without it the root has no tabs and the panels' routes are
   found by no host.
 - Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
   over the routes and the native bars on every host, as later siblings do in CSS.
-- A modal route (`navigationPresentation="modal"`) paints its own background; the
-  route under it is dimmed. One pushed over a sheet (a confirmation over a dialog)
+- A modal route (`navigationPresentation="modal"`) is opaque: its unsaid
+  `background-color` is `-exact-background` (the grouped one when it scrolls a grouped
+  list), so the route under it, dimmed, never shows through; write one to say another.
+  One pushed over a sheet (a confirmation over a dialog)
   is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
   under it, and popping both closes both. Under the agent's frozen timing (the
   default) on iOS, a `tap` or `type` that opens or closes a sheet, its answer's `then`
@@ -1699,6 +1792,13 @@ the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
+Use `keycapture=shortcut` on a container when its shortcut must run before
+the focused field's `key=` handler. Capture runs outermost first, then the
+target's capture and `key` handlers, then `key` bubbles outward. A capture
+handler can call `stopPropagation()` to stop later handlers, including the
+target's `key` handler when called there. `preventDefault()` keeps the field
+from editing. The container gains no Tab stop from `keycapture` alone.
+
 `key` is the DOM's keydown and `keyup` its keyup; an action that takes it hears
 a `KeyboardEvent` (`metaKey`, `code`, `repeat`, …). Track a held modifier as a
 page does: set it from the event on every keydown and keyup, and forget it when
@@ -1772,6 +1872,13 @@ one (LLP 1115.000 D7.6). Text, a cancel and at most three buttons make an
 alert; several actions with no text (an "Open in…" chooser) make an action
 sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
+An alert has no outside, on every host (LLP 1115.000 D13.4): Escape and Back
+cancel it and a tap or click beside it does nothing, which is `closedby="closerequest"`,
+implied for the alert's shape, so leave `closedby` unwritten. Write
+`closedby="any"` only to ask for the platform's dismissible form in its place:
+an action sheet on an iPhone (a popover on an iPad), a dialog a click outside
+closes on the web, a sheet a click on the window behind it closes on the Mac, a
+Material dialog a tap outside cancels on Android.
 `close("<id>")` from an action closes it as its Cancel does.
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
@@ -1782,6 +1889,21 @@ it beside its row with `position-area="right span-bottom"`; give its items
 the whole menu; write no `press` on the row that opens it (a native menu never
 runs it); and draw the web's `›` as an `aria-hidden` text, since the native
 menus draw their own arrow ([LLP 1021](../llp/1021-menus.rfc.md) §5.2).
+
+For the Mac menu bar, put `-exact-menu="app"` on an ordinary button to add
+an item without a shortcut. Literal destinations are `app`, `file`, `edit`,
+`view`, `go`, `window`, `help`; explicit placement overrides the usual
+`aria-keyshortcuts` chord filing. Its accessible label or text titles it,
+and `disabled` disables it. Keep the button reachable: the agent taps it,
+and other hosts show that ordinary button, with no application menu.
+On the root, `-exact-menu-remove="show-tab-bar autofill close-all"` removes
+selected standard items. Its whitespace-separated list must be literal; unknown
+ids and non-root use are refused. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
+`minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
+`move-tab-to-new-window`, `merge-all-windows`.
+Other standard items and the development Develop menu remain; other hosts
+ignore removal. See the grammar’s “The Mac’s menu bar”.
+
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
@@ -1794,12 +1916,27 @@ reads an auto-height hypothetical layout at the same origin.
 Neither is a computed style binding to run every render.
 `elementFromPoint(x, y)` names the front-most of the same boxes at a viewport
 point by its nearest `id` (`option<string>`), through the same transforms. For a
-drag still built by hand, test the dragged node's visual centre (the middle of
+point read that sees through an overlay, `elementsFromPoint(x, y)` lists every
+hit node's own id, front to back, including hit ancestors; id-less nodes are
+skipped (except an id-less hit outside its named ancestor's box includes that
+ancestor once). `querySelectorAll("[data-paint~=\"accent\"]")` lists the own ids of
+mounted, displayed, non-inert nodes bearing the declared `data-paint` word in
+tree order. Covered routes and unselected tabs do not answer; a split list
+answers with its detail where the host presents it (the web at desktop widths).
+Closed popovers and dialogs do not answer; open ones do. Point reads skip inert
+subtrees and use the presenter's placement for open top-layer content. Both reads
+run only in actions and give one snapshot. Use `frame(id)`
+for each returned id when drawing outlines.
+For a drag still built by hand, test the dragged node's visual centre (the middle of
 its `frame(id)`, which includes the `translate` the drag gave it), not the
 pointer: the box under a lifted card is the card.
 
-SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
-refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
+SVG uses SVG names. Native SVG geometry has incomplete support for `calc()`,
+`min()`, `max()` and `clamp()`, including nested SVG viewports and `<use>`
+placement and sizing. Use numeric lengths or percentages there; CSS layout math
+on the outer SVG element does not imply support inside its scene.
+`foreignObject` compiles and renders on the web; native hosts refuse it at run
+time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
 hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
 others) and implemented by the module; its unknown attributes pass through
@@ -1821,6 +1958,12 @@ or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
 `AccentColor` is the app's accent on Apple hosts (`NSAccentColorName`; the
 accent section above). Catalog changes require a
 new native build; they are not web assets or live update payloads.
+
+An iOS native module that uses `canOpenURL` to check for another app lists
+its schemes in `app.json`: `"host": { "ios": { "queriesSchemes":
+["comgooglemaps", "waze"] } }`. The build writes `LSApplicationQueriesSchemes`.
+List at most 50 schemes, without `:` or `://`; changing the list requires a
+native rebuild.
 
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
@@ -1846,7 +1989,11 @@ Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDeliver
 not have. `exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
-choose an in-window message over a system notification). Under the agent each
+choose an in-window message over a system notification). A reminder that should
+open a route uses `showNotification(title="Done", navigate="/thread/42")`;
+its click reaches the navigation root as a warm `navigate` event or a cold
+launch location. Under the agent `state.notifications` lists `navigate`, and
+`type <navigation root> "/thread/42"` checks the destination. Under the agent each
 is the drive's (`prefer has-focus false`; `state.device`). Use dimensions,
 media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts
@@ -1949,7 +2096,10 @@ Production artifacts do not need a development source map.
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
-`"prefer prefers-reduced-motion reduce"`). Targets are `testId`s (or view ids): give every control a `testId` and
+`"prefer prefers-reduced-motion reduce"`). The display's scale, which a hairline is one
+device pixel of, is the device's: a simulator's or the Mac's own, and on the web and the
+Linux host what `EXACT_SCALE=2` launches them at (1 otherwise; `"prefer display-scale 2"`
+changes it under a native host, and `layout` shows the boxes that follow). Targets are `testId`s (or view ids): give every control a `testId` and
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
 On a machine with several booted iPhone simulators, name yours: `EXACT_SIM=<udid>`
 for `agent ios` and the smokes, `--sim <udid>` for `host/apple/build.mjs`; a
@@ -2118,7 +2268,7 @@ test "the list shows an error, then retries and loads"
 To write through the app's own server as another person, `request POST "/items"
 {"title": "Bread"} as grace` is the driver calling it (`Authorization: Bearer grace`,
 under app.ts's local URL; a status outside 2xx fails the step with the status and
-body). The app shows the write when it next reads: `clock +<its poll's ms>`, `clock
+body, unless `… as bob expect 409` says it is the refusal the test wants). The app shows the write when it next reads: `clock +<its poll's ms>`, `clock
 data`, then `expect` ([rest-backend](recipes/rest-backend.md),
 [authored tests](contract-grammar.md#authored-tests)).
 
@@ -2169,7 +2319,8 @@ calls `preventDefault()` keeps it open and the test goes on to the app's "Save
 changes?"; macOS and the web), `back` (the platform's Back: a dialog's cancel,
 a sheet's dismissal, the pushed route popped; a refusal is a note, nothing to
 go back from fails),
-`screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
+`screenshot "file"`, `expect tree has|missing "id"`, `expect disabled|enabled "id"` (a control's
+`disabled`; a `tap` on a disabled one fails its step on every host), `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into
@@ -2234,9 +2385,11 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
 | A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
 | A list and its detail (or a form) swapped by `when showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
-| `text "Results" aria-level=2`, a level with no role, which gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
+| `column padding=24 width="100%"`, as wide as its parent's content plus the padding: it runs past the screen's right side (`lower-width-padding`) | Drop the width (a block or a stretched flex item fills its parent), or `box-sizing="border-box"` |
+| `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
 | `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
 | `` `${n} cards` ``, which reads "1 cards" (`lower-count-plural`) | The noun chosen by the number: `` `${n} ${n == 1 ? "card" : "cards"}` `` (`contract vocab plural`) |
+| `RoundButton(label="Start quiz", …)`, cut to "Start q…" in its 80-point circle (`lower-round-button-label`) | The circle is for a word (Start, Stop, Lap); a screen's main action of more words is `button buttonStyle="filled"` with its `text` (`recipes/content-design.md`) |
 | `now = performanceNow()`, then `now` read in the same action (`analyze-read-after-assign`) | Bind it and read the local: `let stamp = performanceNow()`, `now = stamp`, then `stamp` |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
@@ -2304,18 +2457,21 @@ On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
 
-The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
-<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
-those insets and viewport lengths, with sums inside them (`max(15px,
-env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+The same rows take `env(safe-area-inset-top|right|bottom|left)` and CSS's
+`calc()`, `min()`, `max()` and `clamp()` over px (and in/cm/mm/q/pt/pc/ch/lh),
+percentages, those insets, viewport segments and viewport lengths. Functions
+can nest, add or subtract lengths, and multiply or divide by a number:
 `padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
-`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
-CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
-max)`. Native hosts resolve them as the insets change; the web writes CSS's own
-functions. On a size, a padding or a radius a result below zero is 0, as CSS
-clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
-number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
-sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`,
+`width="min(50%, calc(100vw - 2 * env(safe-area-inset-left)))"`.
+`clamp()` takes `none` for either bound (`clamp(none, 20px, 50px)`). CSS's
+order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min, max)`.
+Native hosts resolve percentages during layout and update calculations when
+insets or viewport dimensions change. The web uses CSS functions directly.
+Sizes, padding and radii clamp negative results to zero; margins and insets keep
+them. Unsupported: `rem`/`em`, a unitless number where a length goes
+(write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
+"Comparisons").
 
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an
@@ -2342,11 +2498,37 @@ matching (a family without the face draws its nearest one, never a synthesized
 slant or smear: LLP 1019 §5). Web and Apple retain the ordered glyph fallback cascade. Linux selects the first
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
+Under Charlie's 2026-10-11 ruling, a string from state or data may also name
+an installed or generic family list, as in `font-family=family`. The JS web
+target applies it as CSS; macOS, iOS and Linux register session-scoped stacks
+and resolve installed faces when the string changes. An invalid list (an
+unquoted name that is not CSS identifiers, such as `Arial;` or `1Arial`: quote
+it) and `inherit`, `unset` or `revert` leave the family unset, so the text
+inherits its parent's family, as the browser does; `initial` is `system-ui`. Runtime strings do
+not load font files.
+A runtime choice with a bundled-font literal is refused so it cannot silently
+select an installed face with the same name; write bundled choices as literals.
 
 A `text` with `selectionchange=act` hears the reader's real text selection
-on the web and macOS: `action act(s: Selection)` gets `s.text`, `s.start` and
+on the web, macOS and iOS: `action act(s: Selection)` gets `s.text`, `s.start` and
 `s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
-Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`.
+Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`; on iOS, where a
+long press or a double tap selects a word of text its author made selectable
+(`user-select="text"`), with `tap <id> contextmenu [at <x> <y>]` or
+`tap <id> dblclick [at <x> <y>]`, whose reply's `selection` says what was
+selected (under `--touch platform`, `tap <id> drag 0 0 press 900` is a real
+long press).
+
+For a plain text field on the **web, macOS, iOS and Linux**, `setRangeText(id, text[, start,
+end[, selectionMode]])` replaces its selection or a UTF-16 range. Selection
+is preserved by default (`select`, `start`, `end` are the other modes).
+Exact deliberately fires one `input` so its action can update the bound
+value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
+step. That input type also covers hatch replacements and browser spelling
+corrections, so it does not uniquely identify this command. `select` follows
+input only when the selection changes. URL inputs trim surrounding ASCII
+whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` and `beforeinput` are still unavailable.
+See [form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange).
 
 Book typography is CSS's on every host. `text-align="justify"` fills all but
 a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
@@ -2355,6 +2537,13 @@ a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
 and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
 language on the web and Apple (Linux has no dictionary and breaks only at soft
 hyphens).
+
+`text-wrap="balance"` (CSS's `text-wrap-style`, inherited) evens a short
+paragraph's lines, for a tooltip, a toast or an empty state's message: the
+lines before its first forced break take the narrowest width that keeps their
+count, as Chrome's do, on every host. It balances up to six lines (more, or a
+`line-clamp`, wrap as usual), moves only the breaks (the box measures as
+before, and `text-align` places the lines in it), and `auto` turns it off. `pretty` and `stable` are refused; supported values are `auto | balance`.
 
 `text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),
 to centre a label in a pill or line a heading's cap height up with an icon
@@ -2399,7 +2588,26 @@ A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
 `url`, `number` or no type, and `textarea` outside the Markdown editor) is the
 platform's own field by default (LLP 1104). On the web it inherits the page's
 font and colour, as a CSS reset does; other platforms use their control's own
-text style. Disabled and placeholder appearances are the platform's.
+text style. Disabled and placeholder appearances are the platform's. To colour
+the placeholder, write CSS's `::placeholder` as a block under the field (its
+value may compute) or in a `style`; it admits `color` alone, with its own
+alpha, and without it the placeholder keeps the platform's colour (LLP 1104
+D3; `contract vocab ::placeholder`):
+
+```contract
+style Field
+  ::placeholder
+    color="#6b7280"
+
+component App
+  state dark = false
+  view
+    column
+      input placeholder="Search" class=Field
+      textarea placeholder="Notes"
+        ::placeholder
+          color=(dark ? "#9ca3af" : "#6b7280")
+```
 
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes
@@ -2414,16 +2622,35 @@ editor keep the bare text-input box or their existing specialised control.
 A focused field shows the platform's ring: the OS's on a native field, Exact's
 on a bare one (LLP 1104 D6). `outline="none"` (or `outline-style="none"`)
 takes it off on every host, for a field whose focus you draw yourself, such as
-a ring on the card around a composer: draw that from the field's `focus` and
-`blur` handlers (an ancestor does not yet hear the focus enter its subtree: no
-`focusin` or `:focus-within`), since a field with no visible focus fails WCAG
-2.4.7. Tab still reaches the field and its accessibility is unchanged. Only
+a ring on the card around a composer: the card's `focusin` and `focusout`
+handlers hear the field's focus on every host without making the card a Tab
+stop. `focusout` also fires when focus moves between descendants and when the
+focused node is removed; use its `FocusEvent.relatedTarget` to identify a
+subtree exit. `stopPropagation()` stops a focus event at its current handler;
+autofocus delivers these events too, with IDs read when focus moves.
+A field with no visible focus fails WCAG 2.4.7. Tab still reaches the field and its accessibility is unchanged. Only
 `none` is admitted, and only on a text field or a `textarea`.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are
 not truncated. It does not apply to `input type="number"`.
+
+`intersect=seen` observes geometric intersection with the nearest ancestor
+scroll container (or viewport). `action seen(e: IntersectionObserverEntry)`
+reads `e.isIntersecting` and `e.intersectionRatio`; authored arguments precede
+the optional record. It fires once on mount, including offscreen, then on
+enter/leave at threshold 0. The ratio is a snapshot, not a continuous progress
+signal; edge contact may be true with ratio 0. `intersect-margin="200px"`
+expands the root for overscan; a literal of one to four `px`/`%` lengths (units
+are case-insensitive) has IntersectionObserver's `rootMargin` semantics (percentages use the corresponding
+root dimension, as in Chrome).
+Removing a node stops observation, with no synthetic leave. Both web targets
+use the browser. AppKit, UIKit and Linux sample native layout and scrolling;
+inline runs, moving presentation geometry, rotated roots and SVG clip references
+remain unqualified (LLP 1005, intersection visibility; LLP 1001 records the
+percentage-margin spec deviation). Other native hosts remain unqualified.
+Container queries and live-position feedback are still deferred.
 
 `resize="none"` disables browser resize handles. Other CSS resize values are
 refused with a native geometry explanation. Given an action instead,
@@ -2436,8 +2663,14 @@ ordinary text selection; `auto` is the default, and on the Mac it is AppKit's:
 a label inside a button, link or other control, or in a `header`, `nav`,
 `footer`, toolbar, tablist or menu, is not selectable, while an `article`'s text
 and other content text is (so put prose a reader copies in `article`, not a
-`header`). Text/all/contain need iOS and Linux selection executors and are
-refused precisely. These rows take literals
+`header`). On iOS `auto` is UIKit's, where a label selects nothing: write
+`user-select="text"` on prose a reader copies (on the text or anything above
+it), and a long press or a double tap there selects a word with the system's
+handles and its Copy, Look Up, Translate and Share menu, one paragraph (one
+`text`) at a time. A label inside a control stays unselectable unless the
+`text` is said on it or inside the control. Linux, Windows, Android and tvOS
+have no text selection, so `text` changes nothing there. `all` and `contain`
+are refused by name: no native host has them. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
 
 **Colours: say a role, not a value.** Leave a colour unsaid where you can (text,
@@ -2507,7 +2740,12 @@ key on the web and iOS. A bare number on a length row is pixels (except
 `line-height`, where it is CSS's multiple of the font size), and the row takes
 CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
 `padding="1.5rem"`; `stroke-width="2px"` but no `rem` there), bound or literal
-(``font-size=`${size}px` ``). A row whose value is a number and no text
+(``font-size=`${size}px` ``). A separator's thickness is `-exact-hairline`, one
+device pixel on whatever display the app is on (a third of a point on a phone,
+half on a Retina Mac, a pixel on a 1x screen), where `0.5` is one only at 2x:
+`border-bottom="-exact-hairline solid -exact-separator"`, or `hr`, which is that
+line with no margin of its own (space around it is the `gap` or `margin` you
+write). A row whose value is a number and no text
 (`opacity`, `flex-grow`, `z-index`, `font-weight`, `column-count`,
 `column-rule-width`) takes a number where it is computed: a string-typed
 expression there is refused, since the native hosts read no text on it (the
@@ -2515,6 +2753,9 @@ literal keywords and `px` of `column-count` and `column-rule-width` compile to
 their numbers). `max-width` and `max-height` take `none`, CSS's initial maximum, or `auto`, and the web writes
 `none` for either. A number field's (`input type="number"`, written so)
 `min`, `max` and `step` take numbers, as a range's do; its `value` is its text.
+On the Mac, Up/Down and accessibility increment/decrement step the number even with
+`appearance="textfield"`. Apple number fields filter typing and paste while keeping signs,
+fractions, exponents and input-method composition; `inputmode` alone does not filter text.
 
 `autocomplete` on an `input` or `textarea` is HTML's attribute, written as
 HTML writes it (`autocomplete="username"`, `"section-login current-password"`,
@@ -2544,7 +2785,11 @@ What the app stores (`state.slots`, its data module) is the app's own; an
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,
-unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.
+unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid/inset/dotted/dashed.
+The web and native GUI hosts paint dotted and dashed while keeping their widths.
+At 1×, AppKit and Linux dot and curved-join pixels have a bounded raster
+difference from Chrome. UIKit uses AppKit's painter; its simulator parity is
+still unmeasured (LLP 1001, border semantics).
 Other CSS border styles are diagnosed as native painter gaps. `text-decoration`
 takes none, underline, line-through, or both lines; solid/currentcolor/auto
 components retain the supported defaults. Color/style/thickness extensions are

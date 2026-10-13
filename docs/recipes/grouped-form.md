@@ -1,6 +1,6 @@
 # Recipe: a grouped form
 
-A settings-style form: a grouped list with a text field, a quantity, a switch and a
+A settings form: a grouped list with a text field, a quantity, a switch and a
 date picker, validated after the first Save.
 
 ```contract
@@ -29,9 +29,9 @@ component Profile
       each e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="form" position="absolute" inset=0
           display="flex" flex-direction="column"
-          header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-            text "Profile" role="heading" aria-level=1
-            button press=save testId="save"
+          header display="flex" align-items="center" padding="8px 16px"
+            text "Profile" role="heading" aria-level=1 flex=1
+            button press=save buttonStyle="filled" testId="save"
               text "Save"
           list id="form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
@@ -65,9 +65,9 @@ test "an error shows after the first Save and clears when fixed"
 ```
 
 - Leave a field in a grouped row unsaid: each platform draws its own, as it does a switch, a
-  date picker and a pop-up menu (`select` of `option "Metric" value="metric"`).
+  date picker and a menu (`select` of `option "Metric" value="metric"`).
 - A quantity from 1 to 99 is `input type="number" min=1 max=99 step=1`: the platform draws its
   stepper; the field stays editable and its `value` is text (`parseNumber` it).
-- A `text` and a control in a row are a title and its accessory; any other row is a flex row.
+- A `text` and a control in a row are a title and its accessory; any other is a flex row.
   Show a validation derive only after the first Save, under the field in `-exact-system-red`
   with `aria-invalid`; `submit=save` makes Enter save (no `form`).

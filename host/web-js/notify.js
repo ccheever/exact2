@@ -5,19 +5,19 @@
 // checked, listed under the agent (a tag replacing its older one; agent.js
 // reads `exact.notices` for `state.notifications`), else posted by the web
 // host's notify-glue.js, fetched on first use. The outcome is a journal line.
-import { journal, clock, Hosts, data } from './rt.js';
+import { journal, clock, Hosts, data, navigateRoot, locationOf } from './rt.js';
 
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const notices = (globalThis.exact ??= {}).notices = [];
 const untag = tag => { for (let i = notices.length; i--;) if (notices[i].tag === tag) notices.splice(i, 1); };
 const glue = () => import('./notify-glue.js').then(() => globalThis.exact.notifications);
-Hosts.showNotification = (title, body, tag, showTrigger) => {
+Hosts.showNotification = (title, body, tag, showTrigger, navigate) => {
   const refuse = why => say(`showNotification: refused: ${why}`);
   if (typeof title !== 'string' || !title) return refuse('needs a title=');
   if (showTrigger != null && !(Number.isFinite(showTrigger) && showTrigger >= 0)) return refuse('showTrigger= is a time in epoch milliseconds');
   if (!/^\s*device\.notifications\s/m.test(data.grants ?? '')) return refuse('the grants name no device.notifications');
-  const notice = { title, body: body ?? null, tag: tag ?? null, showTrigger: showTrigger ?? null };
-  if (!clock.agent) return glue().then(n => n.show(notice, say));
+  const notice = { title, body: body ?? null, tag: tag ?? null, showTrigger: showTrigger ?? null, navigate: navigate ?? null };
+  if (!clock.agent) return glue().then(n => n.show(notice, say, href => navigateRoot(locationOf(href))));
   say(`showNotification: listed${tag == null ? '' : ` (${tag})`}`);
   if (tag != null) untag(tag);
   notices.push(notice);

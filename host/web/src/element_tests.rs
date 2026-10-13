@@ -107,9 +107,11 @@ fn a_progress_with_a_value_is_htmls_progress_element() {
     }
     let css = super::host_css_of(&facts, None, String::new(), "progress");
     assert!(!css.contains("contain"), "the browser's box: {css}");
-    // The page draws its bar (LLP 1116.003; tests/document.test.mjs).
+    // The page draws its bar (LLP 1116.003; tests/document.test.mjs), and
+    // gives the element the intrinsic size the kernel measures, `10em` by
+    // `1em`, and no automatic minimum (LLP 1115.000 D10.2).
     assert!(include_str!("../index.html").contains(
-        "progress { display: block; appearance: none; border: none; background: none; }"
+        "progress { display: block; appearance: none; border: none; background: none; contain: size; contain-intrinsic-size: 10em 1em; min-width: 0; }"
     ));
 }
 
@@ -330,6 +332,18 @@ fn every_data_name_the_host_writes_is_a_reserved_word() {
         unreserved.is_empty(),
         "not reserved in contract/lower/src/dataset.rs: {unreserved:?}"
     );
+}
+
+#[test]
+fn menu_hints_write_no_dom_attributes() {
+    for (kind, prop, value) in [
+        (NodeType::Pressable, PropId::MenuPlacement, "help"),
+        (NodeType::View, PropId::MenuRemove, "close-all"),
+    ] {
+        let out = written(kind, prop, PropValue::Str(value.into()));
+        assert!(out.get("data-menuplacement").is_none());
+        assert!(out.get("data-menuremove").is_none());
+    }
 }
 
 #[test]

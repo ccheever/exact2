@@ -106,8 +106,16 @@ enum ScrollAnchoring {
         let live = { (n: NodeView) in scroller.presenter?.views[n.id] === n }
         let roots = space.subviews.compactMap { $0 as? NodeView }
         let rect = { (n: NodeView) in n.convert(n.bounds, to: space) }
+        let children = { (node: NodeView) -> [NodeView] in
+            #if os(iOS) || os(tvOS)
+            let scrolls = node.scrollView != nil
+            #else
+            let scrolls = node.scroll != nil
+            #endif
+            return scrolls ? [] : node.container.subviews.compactMap { $0 as? NodeView }
+        }
         guard let node = select(roots, port: port,
-                                children: { $0.scroll == nil ? $0.container.subviews.compactMap { $0 as? NodeView } : [] },
+                                children: children,
                                 excluded: { !live($0) || excluded($0, scroller: scroller) }, rect: rect) else { return nil }
         return (node, rect(node).minY)
     }

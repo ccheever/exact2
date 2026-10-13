@@ -8,6 +8,10 @@
 // `input` and then `change` with the new text. `appearance="textfield"` leaves
 // the bare field; an input of any other `type` never has one.
 //
+// A value typed past `min` or `max` is held to them too, when the edit
+// commits (LLP 1116.008 D5): the field shows the bound, and the app hears it
+// as it hears a step, `input` and then the `change` that committed.
+//
 // The stepper's own value is only ever the field's, held to `min` and `max`;
 // each step is computed from the field's text and the value put back,
 // whatever AppKit did to its own.
@@ -113,11 +117,25 @@ extension NodeView {
         step(up: up)
     }
 
+    /// A committed edit of this field (`Presenter.commitEdit`): the typed
+    /// number past `min` or `max`, written into the field as the bound it
+    /// passed, else nil (within them, no number, or no stepper). The
+    /// stepper shows it; the presenter tells the app.
+    func clampTypedNumber(_ text: String) -> String? {
+        guard wantsStepper, let field, let bound = NumberStepping(props).clamped(text) else { return nil }
+        if let editor = field.currentEditor() as? NSTextView { writeValue(bound, into: editor) } else { field.stringValue = bound }
+        toldText = bound
+        updateNumberStepper()
+        return bound
+    }
+
     /// The text of the field one step up or down; false when there is none to take
     /// (the value is at the bound it steps toward).
     @discardableResult
     func step(up: Bool) -> Bool {
-        guard let field, let next = NumberStepping(props).stepped(shownFieldText, up: up) else { return false }
+        guard !disabled, !inert, props["editable"] != "false", let field,
+              let next = NumberStepping(props).stepped(shownFieldText, up: up) else { return false }
+        defer { updateNumberStepper() }
         if let editor = field.currentEditor() as? NSTextView { writeValue(next, into: editor) } else { field.stringValue = next }
         toldText = next
         presenter?.typed(id, next, input: handlers.contains("input"))

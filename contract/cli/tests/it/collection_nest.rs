@@ -103,6 +103,7 @@ fn report(
             port_main: port,
             port_cross: 400.0,
             cross: 400.0,
+            padding: [0.0; 2],
             measurements: c
                 .rows
                 .iter()

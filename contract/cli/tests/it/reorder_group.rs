@@ -182,6 +182,7 @@ fn report<D: DataSource>(r: &mut Runner<D>, list: &str, pin: Option<NodeKey>, to
         port_cross: 100.,
         port_main: 100.,
         cross: 100.,
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()
@@ -652,6 +653,7 @@ fn remeasure<D: DataSource>(r: &mut Runner<D>, list: &str, size: f64) {
         port_cross: 100.,
         port_main: 100.,
         cross: 100.,
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()

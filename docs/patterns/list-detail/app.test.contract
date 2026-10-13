@@ -79,3 +79,14 @@ test "a locked item shows its badge, and Delete is disabled, saying why"
   type "lock-item" "false"
   clock data
   expect state lib.0 .locked == false
+
+test "an id that names nothing says so, and Back returns to the list"
+  clock data
+  type "app" "/item/999"
+  clock settle
+  expect text "detail-title" == "Not Found"
+  expect tree has "missing-back"
+  tap "missing-back"
+  clock settle
+  expect tree has "add-item"
+  expect tree missing "missing-back"

@@ -39,6 +39,7 @@ enum TextMetricKey {
         h.combine(spec.textIndent); h.combine(spec.hyphens)
         if spec.hyphens == 2 { h.combine(spec.language) }
         h.combine(spec.textBoxTrim); h.combine(spec.textBoxOver); h.combine(spec.textBoxUnder)
+        h.combine(spec.balance ? 1 : 0)
         return h.finalize()
     }
     static func hash(_ request: ExactMeasureRequest) -> Int {
@@ -60,6 +61,7 @@ enum TextMetricKey {
         // source run; a plain request hashes as its Spec does.
         if request.markup != 0 { h.combine(Int(request.markup)) }
         h.combine(Int(request.text_box_trim)); h.combine(Int(request.text_box_over)); h.combine(Int(request.text_box_under))
+        h.combine(Int(request.text_wrap_style))
         return h.finalize()
     }
     private static func equalFields(_ raw: ExactTextRun, _ owned: Run) -> Bool {
@@ -79,7 +81,7 @@ enum TextMetricKey {
               Int(request.direction) == geometry.direction, Int(request.white_space) == geometry.whiteSpace,
               CGFloat(request.text_indent) == geometry.textIndent, Int(request.hyphens) == geometry.hyphens,
               Int(request.text_box_trim) == geometry.textBoxTrim, Int(request.text_box_over) == geometry.textBoxOver,
-              Int(request.text_box_under) == geometry.textBoxUnder,
+              Int(request.text_box_under) == geometry.textBoxUnder, (request.text_wrap_style == 1) == geometry.balance,
               let strut = geometry.strut, equalFields(request.strut, strut) else { return false }
         let runs = UnsafeBufferPointer(start: request.runs, count: request.count)
         for i in runs.indices {

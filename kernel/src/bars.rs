@@ -27,7 +27,7 @@
 //! route's, never the root's.
 
 use crate::control::ControlKind;
-use crate::generated::{Display, NodeType, PropId};
+use crate::generated::{Appearance, Display, NodeType, PropId, StyleId};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 use crate::props::PropValue;
@@ -55,6 +55,10 @@ pub mod fact {
     pub const HIDDEN: u32 = 1 << 7;
     /// A route that says it has no bar (`navigationBar="none"`).
     pub const NO_BAR: u32 = 1 << 8;
+    /// The author wrote `appearance: none` on it (LLP 1075.003 §9.10): a
+    /// header that says so keeps its authored bar. Only a written one: a
+    /// row the compiler implied is no opt-out.
+    pub const AUTHORED: u32 = 1 << 9;
     /// A heading's `aria-level`, 1 to 6, shifted this far; 0 where it says
     /// none (ARIA's default is then 2).
     pub const LEVEL: u32 = 16;
@@ -233,7 +237,8 @@ pub fn header_shape<T: Tree>(
 /// (`navigationBar="none"`, LLP 1115.000 D5.2), where its header paints in
 /// the page as written, or its header is hidden as authored
 /// (`display: none`): a header the web does not show is no bar's (LLP
-/// 1075.003 §9.10).
+/// 1075.003 §9.10). A header whose author wrote `appearance: none` keeps
+/// its authored bar on every host (§9.10, Charlie's ruling for #393).
 pub fn header_bar<T: Tree>(
     tree: &T,
     route: T::Node,
@@ -243,7 +248,7 @@ pub fn header_bar<T: Tree>(
         return None;
     }
     header_shape(tree, route, back_is_platforms)
-        .filter(|shape| tree.facts(shape.header) & fact::HIDDEN == 0)
+        .filter(|shape| tree.facts(shape.header) & (fact::HIDDEN | fact::AUTHORED) == 0)
 }
 
 /// A host's own mirror of a route, as words: the route, then the subtree of
@@ -391,6 +396,11 @@ impl Tree for Live<'_> {
             fact::HEADER,
         );
         set(node.style.display == Display::None, fact::HIDDEN);
+        set(
+            node.style.appearance == Appearance::None
+                && node.style.written.has(StyleId::Appearance),
+            fact::AUTHORED,
+        );
         set(
             props.str(PropId::NavigationBar) == Some("none"),
             fact::NO_BAR,

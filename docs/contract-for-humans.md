@@ -899,10 +899,10 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
 `width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
-the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+percentages, the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
 env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
-env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
-resolves them before layout). Supported values are property-specific; this is not
+env(safe-area-inset-bottom)) + 44px)"`, `width="min(50%, 600px)"`. Supported values
+are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 
@@ -935,8 +935,8 @@ and SVG presentation properties. The actual declaration inventory is
 and shorthands resolved by [`tags.rs`](../contract/lower/src/tags.rs). Use those
 instead of assuming every CSS property or unit exists. A value is held to one
 grammar on every host, a computed one too: `background-image` takes
-`linear-`, `radial-` and `conic-gradient()` with percentage stops, so a
-template naming `repeating-linear-gradient(` or `url(` fails the build, and a
+`linear-`, `radial-`, `conic-` and `repeating-linear-gradient()` with percentage
+stops; linear/radial stops also take px lengths. A template naming `url(` fails the build, and a
 computed value that is refused at run time is dropped and journaled on the web
 as on a Mac (`invalid background-image value …; unset`), never painted by the
 browser alone.
@@ -1004,7 +1004,8 @@ A text field is the platform's own by default (LLP 1104): `input` with no type
 or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
 outside the Markdown editor. On the web it inherits the page's font and
 colour, as a CSS reset does. Disabled and placeholder appearances are the
-platform's. A background, border or radius makes it your own box, as in a
+platform's; CSS's `::placeholder` block, under the field or in a `style`,
+colours its placeholder (`color` alone, its alpha its own). A background, border or radius makes it your own box, as in a
 browser; `appearance="none"` says so explicitly. A row on any conditional
 class or value arm counts. `appearance="auto"` asks for the native field and
 refuses those rows; `background-clip` and `background-attachment` are allowed.
@@ -1124,7 +1125,12 @@ The kernel's optional host measure hook supplies the fitting size before the
 first frame and handles wrapping at the offered width. Existing hosts keep
 their intrinsic-size report until they implement it.
 
-`buttonStyle` needs a native button and defaults to `bordered`. If the default
+`buttonStyle` needs a native button. With none, a button is the platform's
+default: plain tinted text on iOS, as UIKit's and SwiftUI's own button is, a push
+button on macOS, and bordered on the web, where a bare text button reads as
+unstyled. So say what the action is: `filled` for the screen's main action,
+`bordered` for one that must read as a button, and nothing for a
+secondary or inline one (`contract vocab button`). If the default
 makes your button bare, `lower-button-style` names the first reason: remove it,
 or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,

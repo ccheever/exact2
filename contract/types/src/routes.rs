@@ -13,7 +13,7 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
             routes.span,
         );
     }
-    let table = exact_route::Table {
+    let mut table = exact_route::Table {
         routes: routes
             .rows
             .iter()
@@ -39,6 +39,18 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
             e.message,
             routes.rows.get(e.route).map_or(routes.span, |r| r.span),
         );
+    }
+    // @ref LLP 1116.009 D2 — the `notfound` the compiler writes, beside the
+    // table the author wrote and checked: the check above is of that table,
+    // so a missing `/` is still refused.
+    if contract_syntax::implicit_notfound(file) {
+        table.routes.push(exact_route::Route {
+            name: "notfound".into(),
+            pattern: String::new(),
+            parent: None,
+            tab: false,
+            notfound: true,
+        });
     }
     for s in &file.shapes {
         if matches!(s.name.as_str(), "Router" | "Tab" | "Entry" | "Params") {

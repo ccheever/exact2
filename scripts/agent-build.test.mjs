@@ -108,6 +108,54 @@ test('a missing or stale build is built first, said in one line; a fresh one run
   }
 });
 
+// LLP 1116.008 D2: never a stale build. The receipt is written at the build's end, so a file edited while the build ran
+// is older than it, though the build read the file before the edit (polls: a prebuild tested the old UI); the receipt's
+// `started` bounds it. And a build another process claims between the check and this one is waited for, not failed on.
+test('a source edited while the build ran is stale; a build claimed meanwhile is waited for, then the check is made again', async () => {
+  const previous = process.env.EXACT_APP_DIR, macBin = process.env.EXACT_MAC_BIN;
+  const { dir, write } = scratchApp('race-log');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    delete process.env.EXACT_MAC_BIN;
+    const app = resolveApp('race-log');
+    const at = seconds => new Date(Date.now() + seconds * 1000), stamp = (file, seconds) => utimesSync(resolve(dir, file), at(seconds), at(seconds));
+    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
+    mkdirSync(bundle, { recursive: true });
+    // Built from t-20 s to t+10 s; the contract edited at t-5 s, while it ran.
+    const built = (started) => { writeFileSync(receipt, JSON.stringify({ target: 'aarch64-apple-ios-sim', ...(started ? { started: at(-20).toISOString() } : {}) })); utimesSync(receipt, at(10), at(10)); };
+    stamp('app.contract', -5);
+    built(false);
+    assert.deepEqual(nativeBuild('ios', app).changed, [], 'a receipt without `started` is trusted by its time, as it was');
+    built(true);
+    assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [resolve(dir, 'app.contract')]);
+    assert.match(buildReason(nativeBuild('ios', app), app), /^the build is older than its sources \(app\.contract changed\)$/);
+    stamp('app.contract', -60); // read before the build began: fresh
+    assert.deepEqual(nativeBuild('ios', app).changed, []);
+
+    // Two drives started together: the second's build finds the claim taken, waits for the first's, and finds it fresh.
+    stamp('app.contract', 60);
+    const said = [], builds = [];
+    let waits = 0;
+    const code = await buildFirst('ios', app, {
+      say: line => said.push(line), wait: () => { waits++; },
+      build: async (args) => { builds.push(args); stamp('app.contract', -60); built(true); return { code: 1, output: `Error: Apple build busy for com.exact.race-log: {"pid":1} (${dir}/.apple-build.lock); remove this lock explicitly\n` }; },
+    });
+    assert.deepEqual([code, builds.length, waits], [0, 1, 2]);
+    assert.equal(said.length, 1);
+    assert.match(said[0], /^building for iOS: the build is older than its sources/);
+    // Another failure is still the build's: said, with its code.
+    stamp('app.contract', 120);
+    said.length = 0;
+    assert.equal(await buildFirst('ios', app, { say: line => said.push(line), wait: () => {}, build: async () => ({ code: 101, output: 'error: could not compile\n' }) }), 101);
+    assert.match(said.at(-1), /the iOS build failed \(exit 101\)/);
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a build already running ends before the check: the drive neither races it nor is refused as busy', async () => {
   const previous = process.env.EXACT_APP_DIR;
   const { dir } = scratchApp('busy-log');

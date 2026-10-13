@@ -66,7 +66,7 @@ impl Lowerer<'_> {
                         );
                     }
                     // The same literal on both sides is that literal: what lets
-                    // a shared `font-family`, literal-only in v1, be chosen.
+                    // a shared `font-family` be chosen.
                     let value = match (&va, &vb) {
                         (Expr::Str(x, _), Expr::Str(y, _)) if x == y => va.clone(),
                         (Expr::Number(x, _), Expr::Number(y, _)) if x == y => va.clone(),

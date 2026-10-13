@@ -27,16 +27,15 @@ impl<D: DataSource> Bridge<D> {
         if let Some(revision) = &self.measure_revision {
             revision.set(revision.get().wrapping_add(1));
         }
-        let styles = self
-            .control_text
-            .map(|f| crate::control_text::text_styles(f, hooks.ctx));
-        let out = match (self.host.as_mut(), styles) {
-            (Some(host), Some(styles)) => host.set_control_fonts(
-                styles,
-                self.control_text
-                    .map(|f| crate::control_text::button_fonts(f, hooks.ctx)),
-            ),
-            _ => not_booted(),
+        let fonts = self.control_text.map(|f| {
+            (
+                crate::control_text::text_styles(f, hooks.ctx),
+                Some(crate::control_text::button_fonts(f, hooks.ctx)),
+            )
+        });
+        let out = match self.host.as_mut() {
+            Some(host) => host.measuring_traits_changed(fonts),
+            None => not_booted(),
         };
         self.emit(out)
     }

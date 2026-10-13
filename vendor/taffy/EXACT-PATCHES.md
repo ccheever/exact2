@@ -1072,3 +1072,8 @@ word at `max-width: 130px`. On macOS the issue's probe lays out cases A to D
 at 132, 132, 130 and 132 pt (898, 434, 656 and 706 before), and a column
 holding a content-sized textarea typed past its maximum stays at the
 textarea's height.
+
+## Patch 34: invalidate row-layout memo after environment changes
+
+The row-layout memo exposes `forget_memo` so an environment change invalidates
+recordings whose calc handles keep the same identity but resolve differently.

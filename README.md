@@ -307,7 +307,7 @@ bun exact.mjs ios --run                     # an iOS Simulator
 `apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
 [`docs/start-here.md`](docs/start-here.md), the one guide it must read, and at `bun
 exact.mjs help` for the commands, including `bun exact.mjs contract …` for the compiler
-and `contract vocab` for every tag and property Contract accepts. Before any of
+and `contract vocab` for the card of what an app writes (`--all`: every tag and property Contract accepts). Before any of
 it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
 is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
@@ -373,7 +373,7 @@ component Todos
           text `${left} left` role="heading" testId="count"
         row
           input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 min-width=0
-          button press=add testId="add"
+          button press=add buttonStyle="filled" testId="add"
             text "Add"
       section
         each t in todos key=t.id

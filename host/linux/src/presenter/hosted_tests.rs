@@ -182,7 +182,7 @@ fn read(words: &[i32]) -> Vec<Told> {
 
 /// The statement as it now stands, whether or not it was told before.
 fn told(p: &mut Presenter<Nothing>) -> Vec<Told> {
-    p.hosted_reset();
+    p.hosted.last.clear();
     read(&p.reader_fields(1.0).expect("a statement"))
 }
 
@@ -353,6 +353,58 @@ fn an_edit_is_the_fields_text_and_the_app_answers_it_by_its_number() {
     assert_eq!((after[0].generation, after[0].seq), (1, 0));
     let heard = "ab|abc||[ab 2-2]<0-2><1-2>";
     assert_eq!(log(&p), heard, "the command's `select`, and no `input`");
+}
+
+/// LLP 1115.000 §5, ruling 6: the app hears `input` at every change, the
+/// composing text included, and a value it writes meanwhile is held, the
+/// last one, until the composition ends.
+#[test]
+fn a_value_the_app_writes_while_a_field_composes_is_held_until_it_ends() {
+    let (_shell, _hosting) = shell();
+    let mut p = boot(FORM);
+    p.serve_requests();
+    p.reader_fields(1.0);
+    let low = id(&p, "low");
+    p.reader_field_focused(low, 0, true, 1.0);
+    // The keyboard marks "A": the reader says the field composes, then
+    // the edit. The app hears it and writes "a", which is not told: the
+    // statement answers the edit with the field's own text, so the reader
+    // replaces nothing and the composition stands.
+    p.reader_field_composing(low, 0, true, "A");
+    p.reader_field_edited(low, (0, 1), "A", (1, 1), 2.0);
+    assert!(log(&p).starts_with("|a|"), "the app heard it: {}", log(&p));
+    let after = told(&mut p);
+    assert_eq!((after[2].seq, after[2].value.as_str()), (1, "A"));
+    // Each change of the marked text is heard, and each value held.
+    p.reader_field_edited(low, (0, 2), "AB", (2, 2), 3.0);
+    assert!(log(&p).starts_with("|ab|"), "{}", log(&p));
+    let after = told(&mut p);
+    assert_eq!((after[2].seq, after[2].value.as_str()), (2, "AB"));
+    // The keyboard commits the word with a space: the composition ended,
+    // said before the edit that ended it. The app hears that text, and
+    // the statement then says the value the app shows, the last it wrote.
+    p.reader_field_composing(low, 0, false, "AB ");
+    p.reader_field_edited(low, (0, 3), "AB ", (3, 3), 4.0);
+    assert!(log(&p).starts_with("|ab |"), "{}", log(&p));
+    let after = told(&mut p);
+    assert_eq!((after[2].seq, after[2].value.as_str()), (3, "ab "));
+    // The next word composes, and its composition is cancelled as it
+    // stands (the keyboard put away): no edit follows, and the held value
+    // is told all the same.
+    p.reader_field_composing(low, 0, true, "ab C");
+    p.reader_field_edited(low, (0, 4), "ab C", (4, 4), 5.0);
+    let after = told(&mut p);
+    assert_eq!((after[2].seq, after[2].value.as_str()), (4, "ab C"));
+    p.reader_field_composing(low, 0, false, "ab C");
+    let after = told(&mut p);
+    assert_eq!((after[2].seq, after[2].value.as_str()), (4, "ab c"));
+    // A field renewed for another item composes nothing, and what the
+    // reader says of the generation before is dropped.
+    p.reader_field_composing(low, 0, true, "ab cD");
+    p.hosted_renewed(&[low]);
+    p.reader_field_composing(low, 0, true, "stale");
+    let after = told(&mut p);
+    assert_eq!((after[2].generation, after[2].value.as_str()), (1, "ab c"));
 }
 
 #[test]

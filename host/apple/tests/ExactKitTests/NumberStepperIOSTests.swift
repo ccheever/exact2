@@ -26,6 +26,37 @@ final class NumberStepperIOSTests: XCTestCase {
         return (node, { heard }, session)
     }
 
+    func testNumberInsertionFiltersLettersAndKeepsFractionAndExponentCharacters() throws {
+        let (node, _, session) = fixture(["value": ""])
+        defer { session.destroy() }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertFalse(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 0), replacementString: "a"))
+        XCTAssertFalse(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 0), replacementString: "4a4"))
+        XCTAssertEqual(field.text, "44")
+        XCTAssertTrue(node.textField(field, shouldChangeCharactersIn: NSRange(location: 0, length: 2), replacementString: "-1.5e+2"))
+        XCTAssertEqual(field.keyboardType, .decimalPad)
+    }
+
+    func testNumericSignsFollowChromesEditorIncludingIncompleteValues() throws {
+        let (node, _, session) = fixture(["value": ""])
+        defer { session.destroy() }
+        let field = try XCTUnwrap(node.field)
+        for (typed, expected) in [("12-", "12-"), ("--1", "--1"), ("1e2-", "1e2"), ("1e2+", "1e2"), ("1e-+2", "1e-2"), ("-1.5e+2", "-1.5e+2")] {
+            field.text = ""
+            for char in typed {
+                let text = field.text ?? ""
+                if node.textField(field, shouldChangeCharactersIn: NSRange(location: text.utf16.count, length: 0), replacementString: String(char)) {
+                    field.text = text + String(char)
+                }
+            }
+            XCTAssertEqual(field.text, expected, "typing \(typed)")
+            let range = NSRange(location: 0, length: (field.text ?? "").utf16.count)
+            if node.textField(field, shouldChangeCharactersIn: range, replacementString: typed) { field.text = typed }
+            XCTAssertEqual(field.text, expected, "inserting \(typed)")
+        }
+        XCTAssertEqual(field.keyboardType, .decimalPad)
+    }
+
     /// The plus or the minus: the stepper's value moves a step, as UIKit's
     /// does when a finger lifts on either half, and its `valueChanged` action
     /// runs (a test bundle has no application to send it, so it is called, as
@@ -192,6 +223,95 @@ final class NumberStepperIOSTests: XCTestCase {
         XCTAssertEqual(heard(), [])
         node.applyProps(set: [:], clear: ["editable"])
         XCTAssertTrue(stepper.isEnabled)
+    }
+
+    /// Typing into the field, as UIKit reports it: the text changes and says so.
+    private func type(_ node: NodeView, _ text: String) throws {
+        let field = try XCTUnwrap(node.field)
+        field.text = text
+        node.fieldChanged()
+    }
+
+    /// LLP 1116.008 D5 (grocery-list, round 10): a typed 250 against a `max` of
+    /// 99 saved 250 while the stepper's plus was dimmed. The edit commits as the
+    /// bound it passed, written into the field and told as a step is: `input`
+    /// (the app that listens to it holds the same number the field shows), then
+    /// the `change`. What was typed while typing is unchanged.
+    func testATypedValuePastABoundCommitsAsTheBoundAndTheFieldShowsIt() throws {
+        let (node, heard, session) = fixture()
+        defer { session.destroy() }
+        let field = try XCTUnwrap(node.field), stepper = try XCTUnwrap(node.stepper)
+        try type(node, "250")
+        XCTAssertEqual(heard(), ["input 250"], "typing is as it was")
+        XCTAssertEqual(field.text, "250")
+        node.textFieldDidEndEditing(field)
+        XCTAssertEqual(heard(), ["input 250", "input 99", "change 99"])
+        XCTAssertEqual(field.text, "99")
+        XCTAssertEqual(stepper.value, 99, "the stepper shows it")
+        // Under the floor the same way, from an edit Return commits.
+        try type(node, "0")
+        _ = node.textFieldShouldReturn(field)
+        XCTAssertEqual(heard().suffix(3), ["input 0", "input 1", "change 1"])
+        XCTAssertEqual(field.text, "1")
+        XCTAssertEqual(stepper.value, 1)
+        // The commit that ends the editing after Return says nothing again.
+        let count = heard().count
+        node.textFieldDidEndEditing(field)
+        XCTAssertEqual(heard().count, count)
+        // A fraction past the top comes back to it, and an edit within the bounds is as it was.
+        try type(node, "99.5")
+        node.textFieldDidEndEditing(field)
+        XCTAssertEqual(field.text, "99")
+        try type(node, "42")
+        node.textFieldDidEndEditing(field)
+        XCTAssertEqual(field.text, "42")
+        XCTAssertEqual(heard().suffix(2), ["input 42", "change 42"])
+    }
+
+    func testTextThatIsNoNumberAndAnEditWithoutBoundsAreLeftAlone() throws {
+        let (node, heard, session) = fixture()
+        defer { session.destroy() }
+        let field = try XCTUnwrap(node.field)
+        try type(node, "abc")
+        node.textFieldDidEndEditing(field)
+        XCTAssertEqual(field.text, "abc")
+        XCTAssertEqual(heard(), ["input abc", "change abc"])
+        node.applyProps(set: ["value": ""], clear: ["min", "max"])
+        try type(node, "250")
+        node.textFieldDidEndEditing(field)
+        XCTAssertEqual(field.text, "250", "no bounds written: the web's, none")
+        XCTAssertEqual(heard().suffix(2), ["input 250", "change 250"])
+    }
+
+    func testOnlyAFieldWithAStepperHoldsItsBoundsAndTheHandlersItHasHearIt() throws {
+        // `appearance="textfield"`: the bare field, whose bounds are the browser's validation.
+        let (bare, bareHeard, bareSession) = fixture()
+        defer { bareSession.destroy() }
+        bare.applyStyle(["appearance": .string("textfield")])
+        XCTAssertNil(bare.stepper)
+        try type(bare, "250")
+        bare.textFieldDidEndEditing(try XCTUnwrap(bare.field))
+        XCTAssertEqual(bare.field?.text, "250")
+        XCTAssertEqual(bareHeard(), ["input 250", "change 250"])
+        // Another type never has a stepper, whatever its bounds say.
+        let (text, textHeard, textSession) = fixture(["type": "text"])
+        defer { textSession.destroy() }
+        try type(text, "250")
+        text.textFieldDidEndEditing(try XCTUnwrap(text.field))
+        XCTAssertEqual(text.field?.text, "250")
+        XCTAssertEqual(textHeard(), ["input 250", "change 250"])
+        // A handler the app has not written is not called.
+        let (change, changeHeard, changeSession) = fixture(handlers: ["change"])
+        defer { changeSession.destroy() }
+        try type(change, "250")
+        change.textFieldDidEndEditing(try XCTUnwrap(change.field))
+        XCTAssertEqual(changeHeard(), ["change 99"])
+        let (input, inputHeard, inputSession) = fixture(handlers: ["input"])
+        defer { inputSession.destroy() }
+        try type(input, "250")
+        input.textFieldDidEndEditing(try XCTUnwrap(input.field))
+        XCTAssertEqual(inputHeard(), ["input 250", "input 99"])
+        XCTAssertEqual(input.field?.text, "99")
     }
 
     func testTheFieldKeepsPriorityInABoxTooNarrowForBoth() throws {

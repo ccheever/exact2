@@ -441,3 +441,41 @@ fn inline_zero_frames_and_rehydrated_complete_geometry_remain_exact() {
     let again = ready(&mut rebuilt, 400., 1);
     projected_matches_ordinary(&rebuilt, &ordinary, &again);
 }
+
+/// A region's nodes publish the padding and border their own layout
+/// resolved, with their frames: a reader of the content box (an SVG's hit
+/// test, a painter) gets what the ordinary layout would, never the document
+/// tree the region's nodes are not in.
+#[test]
+fn a_region_publishes_the_padding_and_border_it_resolved() {
+    let mut k = fixture();
+    let mut padded = StyleProps::default();
+    padded.mask = mask(&[
+        StyleId::PaddingLeft,
+        StyleId::PaddingTop,
+        StyleId::BorderWidthLeft,
+        StyleId::BorderStyleLeft,
+    ]);
+    padded.padding_left = Dimension::Points(20.);
+    padded.padding_top = Dimension::Percent(5.);
+    padded.border_width_left = 2.;
+    padded.border_style_left = BorderStyle::Solid;
+    style(&mut k, 3, padded);
+    let mut ordinary = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+    ordinary
+        .compute_layout(1, Offer::definite(400., 300.))
+        .unwrap();
+    register(&mut k);
+    assert!(ready(&mut k, 400., 1).current);
+    let content = key(&k, 3);
+    let expected = ordinary.resolved_padding(key(&ordinary, 3));
+    assert_eq!(expected, Some((20., 20., 0., 0.)));
+    assert_eq!(k.resolved_padding(content), expected);
+    assert_eq!(
+        k.resolved_border(content),
+        ordinary.resolved_border(key(&ordinary, 3))
+    );
+    let boxed = |k: &Kernel| svg::scene::content_box(k, &k.node(3).unwrap());
+    assert_eq!(boxed(&k), boxed(&ordinary));
+    assert_eq!(boxed(&k).0, 22.);
+}

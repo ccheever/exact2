@@ -649,10 +649,21 @@ impl Backend for Gpu {
             ),
         };
         let a = self.affine(ts);
+        // Vello samples the ramp at integer device coordinates; CSS uses
+        // pixel centres. Shift the repeating brush, not its clipped shape.
+        let placed = if g.repeat {
+            Some(a.inverse() * Affine::translate((-0.5, -0.5)) * a)
+        } else {
+            placed
+        };
         self.scene.fill(
             Fill::NonZero,
             a,
-            &brush.with_stops(stops.as_slice()),
+            &brush.with_stops(stops.as_slice()).with_extend(if g.repeat {
+                vello::peniko::Extend::Repeat
+            } else {
+                vello::peniko::Extend::Pad
+            }),
             placed,
             &shape(s),
         );
@@ -660,6 +671,9 @@ impl Backend for Gpu {
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let a = self.affine(ts);
+        if let Some(ring) = &part.ring_clip {
+            self.scene.push_clip_layer(Fill::EvenOdd, a, &bez(ring));
+        }
         if let Some(clip) = &part.clip {
             self.scene.push_clip_layer(Fill::NonZero, a, &bez(clip));
         }
@@ -671,6 +685,9 @@ impl Backend for Gpu {
             &bez(&part.region),
         );
         if part.clip.is_some() {
+            self.scene.pop_layer();
+        }
+        if part.ring_clip.is_some() {
             self.scene.pop_layer();
         }
     }

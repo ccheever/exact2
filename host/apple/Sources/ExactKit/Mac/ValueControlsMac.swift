@@ -39,7 +39,10 @@ extension ControlHost {
     /// select (D3), which its cell measures and its intrinsic size may not.
     func naturalSize(_ control: NSControl) -> CGSize {
         let natural = control.intrinsicContentSize
-        // A slider has no natural width; Chrome's range is 129 wide.
+        // A slider has no width of its own: it is as wide as its node, which
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
+        // range's intrinsic width on every host (`ControlKind::default_size`):
+        // what the node falls back to where that has nothing to resolve against.
         if control is NSSlider { return CGSize(width: 129, height: ceil(natural.height)) }
         guard control is NSPopUpButton, let cell = control.cell else { return natural }
         return CGSize(width: ceil(max(natural.width, cell.cellSize.width)), height: natural.height)

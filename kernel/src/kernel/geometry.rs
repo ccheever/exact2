@@ -109,12 +109,19 @@ impl Kernel {
     /// is the presented one, as in the ordinary layout. Exclusions and
     /// multi-column fragments are not settled in that tree. The ordinary
     /// engine tree, its caches, frames and the epoch are untouched (LLP
-    /// 1075.003 §9.11). `None` as for [`Kernel::laid_out_frame`], or when
-    /// the trial's layout fails.
+    /// 1075.003 §9.11), but for the symbols owed a measurement, which are
+    /// measured first, as the next layout would (`measure_symbols`). `None`
+    /// as for [`Kernel::laid_out_frame`], or when the trial's layout fails.
     pub fn fit_content_height(&mut self, key: NodeKey) -> Option<f32> {
         use taffy::style::{Dimension, LengthPercentage, LengthPercentageAuto};
         let (frame, _) = self.laid_out_frame(key)?;
+        self.measure_symbols();
         let slot = key.index;
+        // A block's root has no parent to stand in for: its used size is
+        // its content's already (`Kernel::host_block_size`).
+        if self.arena.blocks.holds(slot) {
+            return None;
+        }
         let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let parent = self.arena.parent(slot);
         let holder = parent.map(|p| (p, self.arena.taffy(p).map(|n| tree_ref.layout(n))));
@@ -254,26 +261,26 @@ impl Kernel {
     /// The padding the last layout resolved, in points: left, top, right,
     /// bottom. A percentage is of the containing block's width, which in a
     /// multi-column container is the column's (CSS Multi-column §3.4).
-    /// `None` when the node has no engine layout.
+    /// Whichever engine laid the node out publishes it, a content region's
+    /// own included: zero for a hidden node, `None` before any layout or for
+    /// a node the document's engine has no node for.
     pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
-        let slot = self.arena.resolve(key)?;
-        let node = self.arena.taffy(slot)?;
-        let pad = self.layout.as_deref()?.tree_ref()?.layout(node).padding;
-        Some((pad.left, pad.top, pad.right, pad.bottom))
+        let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.padding;
+        Some((left, top, right, bottom))
     }
 
     /// The border the last layout resolved, in points: left, top, right,
-    /// bottom. `None` when the node has no engine layout.
+    /// bottom, published as [`Kernel::resolved_padding`] is.
     pub fn resolved_border(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
-        let slot = self.arena.resolve(key)?;
-        let node = self.arena.taffy(slot)?;
-        let b = self.layout.as_deref()?.tree_ref()?.layout(node).border;
-        Some((b.left, b.top, b.right, b.bottom))
+        let [left, top, right, bottom] = self.arena.inset(self.arena.resolve(key)?)?.border;
+        Some((left, top, right, bottom))
     }
 
     /// The root `slot` is laid out under, when nothing between them was
     /// `display: none` when last laid out (a batch since may have changed a
-    /// `display`; the layout last shown hasn't).
+    /// `display`; the layout last shown hasn't). A subtree a host gave a
+    /// containing block is laid out from the node that has it (LLP
+    /// 1115.002 D8.2), whose flag says whether anything above hid it.
     fn root_above(&self, slot: u32) -> Option<u32> {
         let mut top = slot;
         let mut at = Some(slot);
@@ -282,6 +289,12 @@ impl Kernel {
                 return None;
             }
             top = s;
+            if self.arena.blocks.holds(s) {
+                while let Some(above) = self.arena.parent(top) {
+                    top = above;
+                }
+                return self.arena.is_root(top).then_some(s);
+            }
             at = self.arena.parent(s);
         }
         self.arena.is_root(top).then_some(top)

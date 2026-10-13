@@ -88,6 +88,11 @@ never to block. Its design documents are imported under `llp/research/`.
 
 ## What exists
 
+`font-family` accepts a CSS family-list string from state or data on web,
+macOS, iOS and Linux. A change resolves the new installed or generic family
+and remeasures affected text. Bundled faces are declared at compile time on
+every host; a runtime string does not load a font file.
+
 | Crate | What it is | Spec |
 |---|---|---|
 | `kernel/` (`exact-kernel`) | Typed columnar arena, EXWF wire frames, validate-then-apply transactions, Taffy layout with changed-geometry receipts, EXNODE columnar export, injected text measurement. Builds for `wasm32-unknown-unknown`. | `llp/1001-kernel-v1.spec.md` |
@@ -333,6 +338,18 @@ and libraries are signed before the outer bundle; `exact release` signs them
 with its release identity. Resource changes require a new binary, not an asset
 update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
 module. This field applies only to macOS bundles.
+
+Mach-O code in content-addressed `assets/`, `deck/` or `shaders/` is refused
+when assembling a Mac bundle: place helpers in `host.macos.resources` instead.
+The release signs GPU modules before baking their digests and preserves those
+signatures through packaging. iOS archives package primary and named GPU modules
+as signed frameworks; development builds keep their loose dylibs.
+Combining `--device --archive out.ipa --embed` produces both the IPA and the
+embed directory without a connected phone. The embed directory contains the
+static library, C header, assets, shaders, compatibility and capability metadata,
+receipt, and signed GPU frameworks (primary and named modules). Copy those
+frameworks intact into the embedding app's `Frameworks/`; their binaries must
+retain the baked digests.
 
 ## Open the same development URL on Apple hosts
 
@@ -630,7 +647,7 @@ are `bigint`: convert them to a Contract-compatible value before returning.
 
 ### Notifications
 
-`showNotification(title=…, body=…, tag=…, showTrigger=…)` posts a local
+`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local
 notification; `closeNotification(tag)` takes one away, shown or still
 waiting. The names are the Notification API's (`showTrigger` is the
 Notification Triggers draft's member, given as the time in epoch
@@ -640,17 +657,34 @@ with the same `tag` replaces the older. The app's grants must name
 iOS shows its own fixed prompt text), or the command is refused. Permission
 is asked the first time; the outcome is a journal line
 (`showNotification: shown`, `scheduled`, `refused: denied`, …).
+`navigate=` is a route location, such as `"/thread/42"`; relative paths and
+custom-scheme URLs are reduced by the router's `location_of` on every host
+(`app://thread/42` becomes `/thread/42`; `app:/thread/42` and
+`app:///thread/42` become `//thread/42`). A plain click on the
+notification delivers one `navigate` event to the navigation root while the
+app runs, or makes that location the launch location when it starts the app.
+Notifications posted before the app last quit still navigate after it reopens.
+An embedded Mac host must receive launch callbacks before sizing or attaching
+its Exact views: either can boot a session. Boot once with the launch location,
+then attach the view.
+Without `navigate=`, a click just brings the app forward. Action buttons,
+replies, and badges are not available.
 
 | host | now | at `showTrigger` |
 | --- | --- | --- |
-| web | `new Notification(title, {body, tag})` | while the page is open: the web has no trigger that outlives the page |
+| web | `new Notification(title, {body, tag})`; a click navigates and focuses the open page | while the page is open: the web has no trigger that outlives the page |
 | macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
 | Linux | refused: `unavailable` | the same |
 
+On macOS, system notifications need an app bundle (`bun host/apple/build.mjs
+--bundle`); the bare development executable refuses them because it has no
+notification centre.
+
 Under the agent nothing reaches the system on any host: `state.notifications`
-lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
+lists what the app posted (`{title, body, tag, showTrigger, navigate}`, a tag replacing
 its older one, `closeNotification` removing it), so a drive reads a reminder
-without a permission prompt. Scheduling is one time per call: a daily
+without a permission prompt. A drive can then `type` the listed location into
+the navigation root to check its screen. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
 
 ### Apple Health
@@ -934,6 +968,17 @@ gesture recognizer, set a navigation bar's look, draw into a view. It configures
 what Exact made; it never replaces a route's authored tree. (LLP 1075.003,
 1075.003.000, 1075.003.000.001; its §13 is the as-built record.)
 
+A route's `header` or navigation root's `tablist` with `appearance="none"`
+keeps its authored bar on iOS, including layout and type; a header button with
+it keeps that button and its contents authored in place; the rest of the header
+still projects. An authored Back replaces UIKit’s Back. Search and a header
+tablist can opt out on their own element too. Tab/tabpanel navigation and retained stacks
+remain intact. An opted-out root tablist also stays authored on the Mac and in wide
+web windows instead of becoming a sidebar, and either stays the page's on Android
+(the shared rule, `kernel/src/bars.rs`). On the Mac a header button with it keeps
+the whole header painted: the window's bar shows a header whole or not at all.
+See [tabs](recipes/tabs.md).
+
 ```sh
 bun scripts/exact.mjs hatch avatar <app>     # in an app `exact new` made: bun exact.mjs hatch avatar
 bun scripts/exact.mjs hatch --app <app>      # the app scope; --window for the window's
@@ -953,6 +998,17 @@ column hatch="avatar" data-tone=(busy ? "busy" : "idle")
 Elsewhere the node is shown and no hatch is called for it. A hatch reads state
 only through the node's `data-*` words (declared in `app.json` `data`), and is
 called again when one changes.
+
+An action can read those same declared words with
+`querySelectorAll("[data-tone~=\"busy\"]")`: it returns the own ids of
+mounted, displayed, non-inert matches in tree order; covered routes and
+unselected tabs are hidden; a split list answers alongside its detail where
+the host presents it (the web at desktop widths). Closed popovers
+and dialogs are hidden, and open ones answer. For an Inspect overlay,
+`elementsFromPoint(x, y)` returns the own ids of the boxes under a viewport
+point, front to back. Both are action snapshots; `frame(id)` gives each
+returned node's box for an outline. Point reads skip inert subtrees and use
+the presenter's placement and order for open top-layer content.
 
 | Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
 |---|---|---|
@@ -1313,3 +1369,22 @@ checks geometry, echo and recovery. Substitute `linux` on an actual Linux host
 or select `--app markdown-stress` / `completion-storm` (with its fixture running).
 It records raw command acknowledgments and executable identity; AppKit window
 resizing and Linux headless presenter resizing do not measure physical refresh.
+
+### Intersection visibility
+
+`intersect=action` on a node offers a final `IntersectionObserverEntry` record
+(`isIntersecting: bool`, `intersectionRatio: number`) after authored arguments.
+The nearest ancestor scroll container is the root, otherwise the viewport;
+threshold is fixed at 0. It delivers after mounting and on enter/leave, not
+on every ratio change. Entries in one root/margin group follow observation order,
+after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
+is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
+Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
+Percentages use the corresponding root dimension.
+This can keep T3 sidebar subscriptions active near the viewport and track timeline turns.
+Removal cancels observation without a leave callback. Both web targets use the
+browser's IntersectionObserver after first paint. AppKit, UIKit and Linux use
+the shared native sampler after resize settlement and presented scrolling.
+Native inline runs, moving presentation geometry, rotated roots and SVG clip references remain unqualified;
+percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
+visibility deviation; other native hosts remain unqualified.

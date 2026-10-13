@@ -17,9 +17,12 @@ pub(super) fn laid_out<T>(
     node: NodeId,
     handle: impl Fn(u32) -> Option<NodeId>,
 ) -> Vec<NodeId> {
+    // A child a host gave a containing block is out of this layout, the
+    // root of its own (LLP 1115.002 D8.2).
     let mut items: Vec<(i32, NodeId)> = arena
         .children(parent)
         .iter()
+        .filter(|&&c| !arena.blocks.holds(c))
         .filter_map(|&c| Some((arena.style(c).order, handle(c)?)))
         .collect();
     let orders = taffy

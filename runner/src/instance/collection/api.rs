@@ -35,6 +35,10 @@ pub struct CollectionFeedback {
     /// The rows' available cross size, after content padding and any
     /// scrollbar reservation: a vertical list's row width.
     pub cross: f64,
+    /// The main-axis padding before the first row and after the last, as
+    /// the host laid it out: the room `offset` counts past and the scroll
+    /// range runs into (LLP 1010 §6.9).
+    pub padding: [f64; 2],
     /// Only currently mounted row wrappers may be measured.
     pub measurements: Vec<RowMeasurement>,
     /// Focused authored descendant; pins at most its containing row.
@@ -176,8 +180,9 @@ impl CollectionFeedback {
     pub fn encode(&self) -> Result<Vec<u8>, FeedbackError> {
         self.encode_with(CollectionFill::default())
     }
-    /// Portable LE wire version 3 (LLP 1070 H1): u32 version, u32 view, u64
-    /// revision, u64 sequence, f64 offset/port_main/port_cross/cross, u32
+    /// Portable LE wire version 4 (LLP 1070 H1): u32 version, u32 view, u64
+    /// revision, u64 sequence, f64 offset/port_main/port_cross/cross, f64
+    /// padding start/end (LLP 1010 §6.9), u32
     /// focus and interaction (zero means none), f64 velocity, u32 limit
     /// (`u32::MAX` means none), u32 flags (bit 0: an ancestor list is
     /// moving; bit 1: build only; bit 2: retire only; bit 3: lean), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
@@ -188,13 +193,15 @@ impl CollectionFeedback {
             return Err(FeedbackError);
         }
         let mut w = Writer::default();
-        w.u32(3);
+        w.u32(4);
         w.u32(self.view);
         w.u64(self.revision);
         w.u64(self.scroll_sequence);
         for n in [self.offset, self.port_main, self.port_cross, self.cross] {
             w.f64(n);
         }
+        w.f64(self.padding[0]);
+        w.f64(self.padding[1]);
         w.u32(self.focus_view.unwrap_or(0));
         w.u32(self.interaction_view.unwrap_or(0));
         w.f64(fill.velocity);
@@ -230,7 +237,7 @@ impl CollectionFeedback {
     pub fn decode_with_fill(bytes: &[u8]) -> Result<(Self, CollectionFill), FeedbackError> {
         let mut r = Reader::new(bytes);
         let out = (|| -> Result<(Self, CollectionFill), exact_plan::PlanError> {
-            if r.u32()? != 3 {
+            if r.u32()? != 4 {
                 return Err(exact_plan::PlanError::BadCount(0));
             }
             let view = r.u32()?;
@@ -240,6 +247,7 @@ impl CollectionFeedback {
             let port_main = r.f64()?;
             let port_cross = r.f64()?;
             let cross = r.f64()?;
+            let padding = [r.f64()?, r.f64()?];
             let focus = r.u32()?;
             let interaction = r.u32()?;
             let velocity = r.f64()?;
@@ -276,6 +284,7 @@ impl CollectionFeedback {
                 port_main,
                 port_cross,
                 cross,
+                padding,
                 measurements,
                 focus_view: (focus != 0).then_some(focus),
                 interaction_view: (interaction != 0).then_some(interaction),
@@ -295,9 +304,15 @@ impl CollectionFeedback {
             || self.focus_view == Some(0)
             || self.interaction_view == Some(0)
             || !(self.offset.is_finite() && self.offset.abs() <= f32::MAX as f64)
-            || ![self.port_main, self.port_cross, self.cross]
-                .into_iter()
-                .all(valid)
+            || ![
+                self.port_main,
+                self.port_cross,
+                self.cross,
+                self.padding[0],
+                self.padding[1],
+            ]
+            .into_iter()
+            .all(valid)
         {
             return Err(FeedbackError);
         }

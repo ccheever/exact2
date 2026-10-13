@@ -43,6 +43,18 @@ impl<D: DataSource> Bridge<D> {
     pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().scrolled((!page).then_some(view), left, top);
+            if !h.runner_mut().intersect_due().is_empty() {
+                if let Some(executor) = self.executor.as_deref() {
+                    executor.notify();
+                }
+            }
+        }
+    }
+
+    /// `exact_top_layer`: the presenter's currently open popovers and dialogs.
+    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])]) {
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().top_layer_frames(frames);
         }
     }
 
@@ -164,7 +176,8 @@ impl<D: DataSource> Bridge<D> {
     /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
     /// empty) for a node that is not a button, the symbol as the platform
     /// names it, the style's row of the `buttonStyles` table (`bordered` for a
-    /// name not in it). Not a batch: nothing changes.
+    /// name not in it); with no `buttonStyle` written, `"style":null` and no
+    /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
         let json = self.host.as_ref().map_or_else(
             || "{\"button\":false}".into(),
@@ -174,8 +187,7 @@ impl<D: DataSource> Bridge<D> {
                 let rows = kernel.button_face_style(view);
                 let style = kernel
                     .node(view)
-                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle))
-                    .unwrap_or("bordered");
+                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle));
                 crate::button::face_json(face.as_ref(), rows.as_ref(), style)
             },
         );
@@ -241,6 +253,44 @@ impl<D: DataSource> Bridge<D> {
             None => "{\"group\":[],\"next\":null,\"previous\":null}".into(),
         };
         self.output = json.into_bytes();
+        self.output.len() as u32
+    }
+
+    /// A navigation root's tabs (`exact_root_tabs`; `Kernel::root_tabs`, LLP
+    /// 1115.001 D11), as JSON in the output buffer: `{"tablist":view,
+    /// "tabs":[view...],"panels":[view...],"unsaid":bool}`, the tabs that
+    /// name a panel and those panels in tab order, or `null` for a root with
+    /// one stack. `unsaid`: the app left the bar's placement unsaid, by the
+    /// web's rule for its own sidebar (`host/web/navigation.js` `unsaidBar`,
+    /// LLP 1116.004 D1.1): the tablist is a direct child of the root, not
+    /// vertical, in flow in the root's flex column, and itself a row. It is
+    /// read here because the layout rows it asks of never cross to the
+    /// presenter (`style::presenter_ignores`). Not a batch: nothing changes.
+    pub fn root_tabs(&mut self, view: u32) -> u32 {
+        use exact_kernel::{Display, FlexDirection, PositionType, PropId};
+        let list = |ids: &[u32]| ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        let json = self.host.as_ref().and_then(|h| {
+            let kernel = h.runner().kernel();
+            let tabs = kernel.root_tabs(view)?;
+            let (root, bar) = (kernel.node(view)?, kernel.node(tabs.tablist)?);
+            let column = |d| matches!(d, FlexDirection::Column | FlexDirection::ColumnReverse);
+            let unsaid = root.children().contains(&tabs.tablist)
+                && bar.props.str(PropId::AccessibilityOrientation) != Some("vertical")
+                && root.style.display == Display::Flex
+                && column(root.style.flex_direction)
+                && matches!(
+                    bar.style.position_type,
+                    PositionType::Static | PositionType::Relative
+                )
+                && !column(bar.style.flex_direction);
+            Some(format!(
+                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"unsaid\":{unsaid}}}",
+                tabs.tablist,
+                list(&tabs.tabs),
+                list(&tabs.panels)
+            ))
+        });
+        self.output = json.unwrap_or_else(|| "null".into()).into_bytes();
         self.output.len() as u32
     }
 

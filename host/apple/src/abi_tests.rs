@@ -32,6 +32,19 @@ fn the_first_preboot_launch_location_is_the_boot_fact() {
     assert_eq!(bridge.launch.as_deref(), Some("/first"));
 }
 
+#[test]
+fn the_launch_time_is_the_last_valid_one_told_and_set_time_leaves_it() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.set_launch_time(1_790_000_000_000.0, -420.0);
+    bridge.set_launch_time(f64::NAN, 0.0);
+    bridge.set_time(1_800_000_000_000.0, 60.0);
+    let time = bridge.launch_time.unwrap();
+    assert_eq!(
+        (time.epoch_at_zero, time.utc_offset),
+        (1_790_000_000_000.0, -420.0)
+    );
+}
+
 #[derive(Clone, Default)]
 struct DocumentOwnerSource {
     owner: u64,
@@ -963,7 +976,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     text = value
   view
     box
-      input testId="field" value=text change=edit
+      input testId="field" value=text input=edit change=edit
 "#,
     )
     .unwrap()
@@ -989,7 +1002,21 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    for kind in [44, 99, u32::MAX] {
+    // focusin and focusout (#283) carry a length-prefixed target and an
+    // optional related id; a payload that does not parse is refused.
+    for kind in [46, 47] {
+        let len = bridge.input_write(b"5:field0");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        // Decoded and named: the field has no such handler, not a bad kind.
+        assert!(out.contains("NoHandler"), "{out}");
+        let len = bridge.input_write(b"typed");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("invalid focus event"), "{out}");
+        assert_eq!(slots(&bridge), hello);
+    }
+    for kind in [45, 99, u32::MAX] {
         let len = bridge.input_write(b"typed");
         let n = bridge.dispatch(view, kind, len, 0.);
         let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
@@ -997,8 +1024,43 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
         assert_eq!(slots(&bridge), hello);
     }
     let len = bridge.input_write(b"typed");
+    let n = bridge.dispatch(view, 48, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("invalid field selection"), "{out}");
+    let len = bridge.input_write(b"5,5,none,range");
+    bridge.dispatch(view, 48, len, 0.);
+    assert_eq!(slots(&bridge), vec![("text".into(), Value::str("range"))]);
+    let len = bridge.input_write(b"typed");
     bridge.dispatch(view, 1, len, 0.);
     assert_eq!(slots(&bridge), vec![("text".into(), Value::str("typed"))]);
+}
+
+#[test]
+fn keycapture_abi_kind_reaches_the_runner() {
+    let bytes = contract::compile(
+        r#"component App
+  state heard = ""
+  action captured(k: string, e: KeyboardEvent)
+    heard = `${k}:${e.code}`
+  view
+    box keycapture=captured testId="root"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let key = host.runner().kernel().find_by_test_id("root")[0];
+    let view = host.runner().kernel().node_by_key(key).unwrap().id;
+    let len = bridge.input_write(b"x\nKeyX\nfalse");
+    let n = bridge.dispatch(view, 44, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(
+        bridge.host.as_ref().unwrap().carry().slots,
+        vec![("heard".into(), Value::str("x:KeyX"))]
+    );
 }
 
 #[test]

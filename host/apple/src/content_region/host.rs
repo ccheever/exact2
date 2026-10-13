@@ -28,6 +28,7 @@ impl<D: DataSource> Host<D> {
             false,
             Some(registration),
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -199,6 +200,7 @@ impl<D: DataSource> Host<D> {
             Some(registration),
             Some(limits),
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -536,7 +538,7 @@ impl<D: DataSource> Host<D> {
                 .ok_or("native current node missing")?;
             let parent = live.parent.and_then(|id| kernel.node(id)).map(|p| p.frame);
             n.mirror.frame = Some(relative(projected.frame, parent));
-            n.mirror.field_content = live.field_content_rect();
+            n.mirror.field_content = published_content_box(&live, kernel);
             n.mirror.field_cell = live.is_cell_field();
             if style::effective_overflow(&live) != (Overflow::Visible, Overflow::Visible) {
                 // Preserve the ordinary native overflow computation while current;

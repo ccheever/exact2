@@ -27,7 +27,7 @@ impl Executor {
     ) -> Self {
         let wake = wake.map(|(f, ctx)| (f, ctx as usize));
         Self {
-            core: core::Core::start(
+            core: core::Core::start_switched(
                 bindings,
                 grants,
                 Box::new(move || {

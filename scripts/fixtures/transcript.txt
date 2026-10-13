@@ -45,57 +45,28 @@ t=1500 advance → 1 timer fired, epoch 3
 t=4990000 advance → 1 timer fired, epoch 9
 
 --- state
-{
-  "clock": 1500,
-  "slots": {
-    "query": "",
-    "stationId": null
-  },
-  "derives": {
-    "selectedId": "mv"
-  },
-  "resources": {
-    "station": {
-      "id": "mv",
-      "name": "Mountain View"
-    },
-    "board": [
-      {
-        "id": "a",
-        "at": 1
-      }
-    ]
-  },
-  "focus": {
-    "logical": 7,
-    "editor": 7,
-    "responder": "UITextField",
-    "pending": null
-  },
-  "keyboard": {
-    "visible": true,
-    "overlap": 335,
-    "top": 539,
-    "guide": 539,
-    "policy": "resizes-content",
-    "interactive": false
-  },
-  "navigation": {
-    "route": "compose",
-    "stack": [
-      "compose"
-    ],
-    "presentation": "modal",
-    "closedby": "closerequest",
-    "transition": {
-      "interactive": false,
-      "phase": "idle"
-    }
-  }
-}
+epoch 4 · incarnation 1 · clock 1500 ms
+slots {"query":"","stationId":null}
+derives {"selectedId":"mv"}
+resources {"station":{"id":"mv","name":"Mountain View"},"board":[{"id":"a","at":1}]}
+focus {"logical":7,"editor":7,"responder":"UITextField","pending":null}
+keyboard {"visible":true,"overlap":335,"top":539,"guide":539,"policy":"resizes-content","interactive":false}
+navigation {"route":"compose","stack":["compose"],"presentation":"modal","closedby":"closerequest","transition":{"interactive":false,"phase":"idle"}}
+head {"title":null,"description":null,"edited":false}
+storage {"available":false,"code":"agent","message":"storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"}
+mediaSession {"owner":null,"claimants":[],"actions":[],"playbackState":"none","published":"none"}
 
 --- tap
-{"at":[210,45.5],"tapped":3,"target":"go","delivery":"platform","carrier":"macos","mode":"agent"}
+tapped #3 "go" · delivery platform
+
+--- type
+typed #4 "q" · delivery platform · epoch 5 · clock 1500 ms
+
+--- tap unsupported
+tap #3 "Sky off" · delivery unsupported · epoch 5 · incarnation 2 · clock 1500 ms · reason="linux has no pinch (LLP 1057.001 §4)" · pinch=2
+
+--- tap up
+tap up · delivery platform · epoch 6 · clock 1516 ms
 
 --- ax
 ax       chrome-cdp · Chrome 153.0.0.0 · order tree · epoch 4 · incarnation 1 · clock 0 ms · 5 elements

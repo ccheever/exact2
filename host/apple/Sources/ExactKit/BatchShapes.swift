@@ -212,10 +212,10 @@ struct BatchFields {
         switch op.op {
         case .create:
             op.kind = try string("kind") ?? "view"
-            op.props = try strings("props"); op.style = try object("style")
+            op.props = try strings("props"); op.style = try CalculatedLength.decode(object("style"))
             op.handlers = Set(try array("handlers", Self.string))
         case .props: op.props = try strings("set"); op.clear = try array("clear", Self.string)
-        case .style: op.style = try object("style")
+        case .style: op.style = try CalculatedLength.decode(object("style"))
         case .paragraph: op.runs = try array("runs") { try Self(Self.object($0)).inline() }
         case .children, .roots: op.ids = try array("ids", Self.id)
         case .frame, .content, .present:

@@ -85,7 +85,7 @@ impl Doc {
 
 fn resolve(k: &Kernel, svg: u32) -> scene::Scene {
     let node = k.node(svg).unwrap();
-    let content = scene::content_box(&node);
+    let content = scene::content_box(k, &node);
     scene::resolve(k, &node, content, &|_, _| None)
 }
 
@@ -472,7 +472,7 @@ fn animated_inherited_values_flow_to_descendants() {
     let mut engine = Engine::new();
     k.motion_sync(&receipt).apply(&mut engine).unwrap();
     let node = k.node(svg).unwrap();
-    let content = scene::content_box(&node);
+    let content = scene::content_box(&k, &node);
     let s = scene::resolve(&k, &node, content, &|key, p| {
         engine.sampled_value(exact_kernel::motion_node(key), p)
     });
@@ -1025,7 +1025,7 @@ fn geometry_moves_and_blends_resolve() {
     d.children(svg, &[dot, bar]);
     let k = d.kernel(&[svg], 400.0);
     let node = k.node(svg).unwrap();
-    let content = scene::content_box(&node);
+    let content = scene::content_box(&k, &node);
     let presented = |_: exact_kernel::NodeKey, p: Property| match p {
         Property::Cx => Some(Value::scalar(40.0)),
         Property::Y => Some(Value::scalar(30.0)),
@@ -1083,7 +1083,7 @@ fn a_transitioning_d_draws_the_path_between() {
     k.motion_sync(&receipt).apply(&mut engine).unwrap();
     let ys = |k: &Kernel, engine: &Engine| -> Vec<f32> {
         let node = k.node(svg).unwrap();
-        let s = scene::resolve(k, &node, scene::content_box(&node), &Shown(engine));
+        let s = scene::resolve(k, &node, scene::content_box(k, &node), &Shown(engine));
         let Kind::Shape(shape) = &find(&s.items, chev).unwrap().kind else {
             panic!("a shape")
         };
@@ -1115,4 +1115,48 @@ fn a_transitioning_d_draws_the_path_between() {
         None
     );
     assert!(engine.quiescent());
+}
+
+/// A box's content box is inside the padding layout resolved: a percentage
+/// of the containing block's width, not of the box's (CSS Box Model 3 §4.1).
+/// A containing block that changes alone republishes the box.
+#[test]
+fn a_content_box_is_inside_the_padding_layout_resolved() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let parent = d.node(View, &[(StyleId::Width, "400")], &[]);
+    let svg = d.node(
+        Svg,
+        &[
+            (StyleId::Width, "200"),
+            (StyleId::Height, "100"),
+            (StyleId::BoxSizing, "border-box"),
+            (StyleId::PaddingLeft, "5%"),
+            (StyleId::PaddingRight, "10%"),
+            (StyleId::PaddingTop, "1%"),
+        ],
+        &[],
+    );
+    d.children(parent, &[svg]);
+    let mut k = d.kernel(&[parent], 400.0);
+    let node = k.node(svg).unwrap();
+    assert_eq!(scene::content_box(&k, &node), (20.0, 4.0, 140.0, 96.0));
+    k.apply(0, 2, &[style(parent, &[(StyleId::Width, "300")])])
+        .unwrap();
+    let receipt = k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+    let node = k.node(svg).unwrap();
+    assert!(receipt.updated.contains(&node.key));
+    assert_eq!(scene::content_box(&k, &node), (15.0, 3.0, 155.0, 97.0));
+    let key = node.key;
+    k.apply(0, 3, &[style(parent, &[(StyleId::Display, "none")])])
+        .unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+    assert_eq!(k.resolved_padding(key), Some((0., 0., 0., 0.)));
+    k.apply(0, 4, &[style(parent, &[(StyleId::Display, "block")])])
+        .unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+    assert_eq!(
+        scene::content_box(&k, &k.node(svg).unwrap()),
+        (15.0, 3.0, 155.0, 97.0)
+    );
 }

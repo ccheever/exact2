@@ -9,7 +9,211 @@
 
 ## Current scope
 
-Add field selectionchange/beforeinput and pin range-edit semantics first. Charlie measured setRangeText select/selectionchange without input or a new undo step: original acceptance is superseded. Preserve selectionMode, document deviations, and test IME/noncancelable edits.
+Field selectionchange/beforeinput remain open. Native range-edit execution is implemented; its verification limits are recorded below. The original requested undo step is superseded; Charlie's ruling and the web slice are recorded below. Preserve selectionMode, document deviations, and test IME/noncancelable edits in the remaining work.
+
+### Rangeedit first slice — 2026-10-12
+
+Charlie subsequently ruled: “setRangeText: (b) fire one input
+(insertReplacementText) as recorded deviation; selectMode preserve; no undo
+step — for now”. This supersedes the original requested undo step and pins
+the extra input as a deviation from HTML.
+
+The first slice implements `setRangeText(id, text[, start, end[, selectionMode]])`
+on the web's JS and wasm targets for plain text inputs and textareas. It uses
+the DOM method, preserves selection by default, then emits one noncancelable
+`insertReplacementText` input to synchronize the app's bound value. It adds
+no undo step. LLP 1069.001 and the author guides record the deviation and limit.
+
+### Native continuation — 2026-10-12
+
+The same host command now executes on AppKit's NSTextField field editor and
+NSTextView, UIKit's UITextField and UITextView, and Linux's field model.
+It keeps focus, implements all four DOM selection modes with `preserve` as
+the default, and emits one replacement input. `InputEvent.inputType` now
+reports `insertReplacementText` on all implemented hosts, including both web
+targets; other input types and `data` remain future work. Newline handling
+counts the raw replacement for selection adjustment before sanitizing the
+value, as Chrome does. A selection start exactly at the replaced range's end
+moves to the replacement's start in preserve mode (also checked in Chrome).
+
+No host adds an undo step. **Native limit:** a changed Apple buffer clears
+that field's existing undo history, as an authoritative value write does;
+Linux has no field undo history. Native strings replace split UTF-16
+surrogates with U+FFFD. These limits are recorded beside the extra-input
+deviation in LLP 1069.001.
+
+AppKit's `FieldSelectionMacTests` passed all six tests after the new test
+first failed on the unimplemented command. UIKit's `FieldSelectionIOSTests`
+passed all five tests on an iPhone 17 / iOS 27 simulator booted by this lane.
+Linux's command regression also first failed on the unimplemented command;
+both `set_range_text` tests now pass. The runner replacement-input test and both named Contract integration tests pass.
+The rebuilt web JS/wasm range-edit fixture matches on all 16 steps; the
+Chrome method comparison passes 207 assertions.
+The macOS app drive also passed: five successful commands produced five inputs,
+UTF-16 selections matched, and a reversed range left state unchanged.
+`contract-difftest quick` built but could not run because `lake`/Lean is absent.
+
+### Review fixes — 2026-10-12
+
+The replacement callback now records Apple's last-reported text, so deleting
+an inserted value back to an unchanged empty prop emits input and a pending
+change. Native URL replacements strip surrounding ASCII whitespace, retaining
+non-ASCII whitespace. Native `select` is suppressed when the selection is
+unchanged. Chrome assertions show the added input arrives synchronously and
+`select` later, so the reviewed claim of select-before-input was rejected.
+
+`insertReplacementText` is not exclusive to this command: the web hatch and
+browser correction events also carry it. Apple hatch input now reports the
+same type and retains its pending change. The web mapping is preserved;
+script tagging is unnecessary because ABI kind 48 carries only the edit type,
+not scripted-edit bookkeeping. Field-selection tests on both Apple platforms
+and Linux, plus the existing Chrome range-edit test, cover these regressions.
+This round's AppKit class passed ten tests; Linux passed 740 tests and the web suites
+passed 391 assertions. The final UIKit bundle compiled, but three focused
+runtime launch attempts never reached the test class (test-daemon startup
+and simulator launchd/boot timeouts); no UIKit runtime pass is claimed for
+these review fixes. The earlier five-test result above predates this round.
+
+### Review round 3 — 2026-10-12
+
+The synchronous native replacement `select` finding was real: the new AppKit
+and Linux two-command tests first observed `input:A, select:A, input:AB,
+select:AB`. Replacement selects now wait until the action's commands finish
+and read the field at delivery, yielding `input:A, input:AB, select:AB,
+select:AB`, as Chrome does. This corrects the previous round's incomplete
+claim about native event timing.
+
+The JS file-picker finding was real: its record had only five fields and
+`e.inputType == ""` was false. The picker now supplies the sixth field as an
+empty string. Auditing the other web producers found the shared JS
+`inputRecord` already supplies all six; the wasm host sends ABI events and
+the runner constructs its complete record. The browser regression exercises
+the production picker callback and the empty-string branch.
+
+The proposed Apple direction change was not supported by the oracle.
+Installed macOS Chrome 155.0.8059.39, in both headed and headless runs,
+focused and unfocused, resets the forward 0–2 range to `none` and emits
+`select`; it also resets the backward 1–4 range to `none` while moving its
+end to 5. Both web targets match. Apple retains that measured behavior;
+new native and browser assertions cover both directional cases. No claim
+of preserving `forward` is made.
+
+Round 3 verification: AppKit passed all 12 field-selection tests; the Linux
+and web-JS Rust suites passed 960 tests (10 ignored); Chrome passed 262
+assertions headed and the focused headless web suites passed 428 assertions.
+The rebuilt JS/wasm conformance fixture matched all 16 steps with no failures.
+UIKit compiled; after two interrupted/unavailable attempts, its final run
+executed all 11 tests. Both new regressions passed, as did the existing
+queued-select condition test. Ten tests passed; the existing
+`testRangeReplacementDoesNotSwallowTheNextUserDeletion` failed two assertions
+for `UITextField`: after deleting the inserted `"x"`, inputs contained only
+`["x"]` rather than `["x", ""]`, and `edited` was nil rather than field 3.
+No full UIKit pass is claimed; this remaining regression is not fixed in the
+last review round.
+
+A concurrent Apple test process initially held the app-build lock and its
+temporary `build.mjs` edit exceeded the line cap. After that process exited
+and restored its edit, caps passed. The rebuilt macOS app drive then passed:
+one button issued both replacements and state reported `body="AB"` and
+`input:A input:AB select:AB select:AB`. The simulator booted by this lane was
+shut down after testing.
+
+### UIKit deletion follow-up — 2026-10-12
+
+The two failures above reproduce, but the AppKit reporting fix already
+reaches UIKit: `FieldSelections.replacementInput` sets `NodeView.toldText`
+on both platforms, and both UIKit delegates compare through `typedText`.
+The first follow-up added UITextField's `.editingChanged` control event after
+its programmatic `deleteBackward()`, checked the replacement's reported-text
+baseline, and resigned first responder to check the pending `change`.
+That simulation was still wrong: the orchestrator's subsequent run at
+`168bc226a` executed all 11 tests and the deletion test still failed four
+assertions. The callback correction and runtime proof are recorded below.
+
+Verification commands from this follow-up (in this worktree):
+
+```sh
+cargo test -p exact-apple --lib --tests --no-fail-fast
+cargo clippy -p exact-apple --all-targets -- -D warnings
+cargo fmt --all -- --check
+git add -A && bun scripts/caps.mjs
+bun scripts/issue.mjs check
+```
+
+All passed: 406 Rust tests, 16 ignored. The original UIKit class reproduced
+the reported two assertions before the test correction. A temporary mutation
+removing `replacementInput`'s `toldText` assignment compiled, but its runtime
+launch was stopped before tests began (first a simulator collision with
+another lane, then an Xcode startup wait); no mutation result is claimed.
+The assignment was restored before the final verification run.
+
+```sh
+/private/tmp/claude-501/-Users-ccheever-projects-exact2/5f1c298e-7e97-40bc-8a1a-486f1889060d/scratchpad/ios-verify.sh /Users/ccheever/projects/exact2-iss-rangeedit FieldSelectionIOSTests C25DD7E7-E600-415E-A7FA-A729AD1FC140
+/private/tmp/claude-501/-Users-ccheever-projects-exact2/5f1c298e-7e97-40bc-8a1a-486f1889060d/scratchpad/ios-verify.sh /Users/ccheever/projects/exact2-iss-rangeedit FieldSelectionIOSTests AC228731-1097-4E4A-A81B-34A2BEEE90EC
+```
+
+The first command reproduced the original two assertions (11 tests, 10
+passed), then built the corrected test for the mutation attempt without
+reaching runtime. The second command was the final production-source run;
+it stalled for several minutes in `simctl list devices available -j` before
+Xcode and was stopped. **The corrected UIKit test compiles, but its final
+runtime verification remains blocked; no UIKit pass is claimed.** The final
+log is `/Users/ccheever/projects/exact2-iss-rangeedit.ios.log`; the original
+failure log is `target/rangeedit-ios-before.log`. Temporary source and build
+script edits were restored. Only this lane's stalled processes were stopped.
+The iPhone Air booted for the retry could not be confirmed shut down:
+`xcrun simctl shutdown AC228731-1097-4E4A-A81B-34A2BEEE90EC` timed out after
+30 seconds. The other lane's iPhone 17 was left running.
+
+### UIKit callback verification — 2026-10-12 (ios2)
+
+The diagnostic run names every assertion's control: only `line`
+(`UITextField`, id 3) failed, with four assertions; `editor` (`UITextView`,
+id 2) passed. The text became empty, but `sendActions(for: .editingChanged)`
+did not invoke the registered callback in this XCTest host. This host limit
+is also documented in `NavigationTabsIOSTests`. The corrected regression
+asserts that `.editingChanged` is registered to `fieldChanged`, then calls
+that callback after `deleteBackward()`, as `FieldCompositionIOSTests` and
+`KeyboardFocusIOSTests` do. The text view still drives its real delegate
+through `UITextInput` without a manual callback.
+
+The regression requires `toldText == "x"` before the edit, then exactly one
+empty-value input, a pending user change, and exactly one empty-value change
+on blur. Temporarily removing only `replacementInput`'s `toldText` assignment
+made both controls fail those assertions (10 assertion failures in this one
+test; the other 10 tests passed). The target-registration assertion passed.
+The mutation was restored; no production change is needed for this follow-up.
+These are programmatic UIKit edits and callbacks, not physical-keyboard tests.
+
+Final verification on iPhone Air / iOS 27 passed all 11 `FieldSelectionIOSTests`
+with zero failures. The same command was run three times: diagnostic failure
+(four assertions, `line` only), expected mutation failure (10 assertions,
+both controls), then the restored production source passed:
+
+```sh
+/private/tmp/claude-501/-Users-ccheever-projects-exact2/5f1c298e-7e97-40bc-8a1a-486f1889060d/scratchpad/ios-verify.sh /Users/ccheever/projects/exact2-iss-rangeedit FieldSelectionIOSTests AC228731-1097-4E4A-A81B-34A2BEEE90EC
+```
+
+Logs: `target/rangeedit-ios2-before.log`, `target/rangeedit-ios2-mutation.log`,
+`target/rangeedit-ios2-final.log`. The runner shut down the simulator; the
+explicit `xcrun simctl shutdown AC228731-1097-4E4A-A81B-34A2BEEE90EC`
+confirmed it was already in `Shutdown`. `cargo test -p exact-apple --lib --tests
+--no-fail-fast` passed 406 tests (16 ignored); `cargo clippy -p exact-apple
+--all-targets -- -D warnings` and `cargo fmt --all -- --check` passed.
+
+**What remains (issue stays open):**
+
+- Field `selectionchange` with `InputEvent` selection offsets on caret and
+  pointer moves, independent of a text reader's `Selection` event.
+- Cancelable `beforeinput`, other input types, and `InputEvent.data`.
+- Paste cancellation, undo/redo reporting, and IME/noncancelable-event cases.
+- Windows, Android, terminal and Markdown-editor range execution are unsupported.
+
+Regression coverage for this slice: `set_range_text_is_a_typed_host_command_with_dom_overloads`
+in the compiler/runner integration tests, `host/web/tests/field-range.test.mjs`
+against Chrome's method, and `host/web-js/conformance/range-edit.*` for bound
+state and selection on both web targets. Verification results belong to the
+lane's commit report; this note does not claim the remaining acceptance passed.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 

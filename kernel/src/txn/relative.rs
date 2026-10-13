@@ -2,7 +2,9 @@
 //! root font size the host set since the last commit reaches the nodes that
 //! inherit it, and every row written in `rem`/`em` is given the pixels it now
 //! means — parents before children, so an `em` font size builds on its
-//! parent's resolved one, as CSS computes it.
+//! parent's resolved one, as CSS computes it. A hairline row (LLP 1115.000
+//! D10.3) is resolved with them, against the display's scale as the host
+//! last set it.
 use super::*;
 use crate::generated::StyleProps;
 use crate::style::relative::MEDIUM;
@@ -39,9 +41,13 @@ pub(crate) fn resolve(
             }
         }
     }
+    if let Some(scale) = arena.display_scale_next.take() {
+        arena.display_scale = Some(scale);
+    }
     if arena.relative_slots.is_empty() {
         return;
     }
+    let device = crate::style::relative::device_pixel(arena.display_scale.unwrap_or(1.0));
     let depth = |arena: &NodeArena, mut slot: u32| {
         let mut depth = 0u32;
         while let Some(parent) = arena.parent(slot) {
@@ -78,7 +84,7 @@ pub(crate) fn resolve(
             if id != StyleId::FontSize {
                 continue;
             }
-            let px = n * unit.basis(root, parent);
+            let px = n * unit.basis(root, parent, device);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }
@@ -90,7 +96,7 @@ pub(crate) fn resolve(
             if id == StyleId::FontSize {
                 continue;
             }
-            let px = n * unit.basis(root, font);
+            let px = n * unit.basis(root, font, device);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }

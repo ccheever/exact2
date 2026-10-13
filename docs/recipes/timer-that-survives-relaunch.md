@@ -46,6 +46,7 @@ test "a running timer keeps its start mark across a relaunch"
   clock +5000
   expect text "elapsed" == "0:05"
   reload
+  expect text "elapsed" == "0:05"
   expect state startedAt == 1791624600000
 
 test "stop banks the time, and reset clears it"
@@ -63,6 +64,6 @@ test "stop banks the time, and reset clears it"
   is a duration (`banked`), safe to keep.
 - Read `performanceNow()` in the action itself, not the `now` the timer last wrote, which can be
   250 ms old.
-- Under the driver, `reload` starts the clock over at the test's epoch, so a running timer reads
-  less after it than before: assert the saved mark, as above.
+- A test's `reload` relaunches at the virtual time the test had reached, so a running timer reads
+  as it did before it (`0:05` above); `performanceNow()` starts at 0 again.
 - The readout is deliberate design: its size, with `tabular-nums` ([numeric-readout](numeric-readout.md)).

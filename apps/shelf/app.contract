@@ -678,10 +678,11 @@ component WorkRow
           text work.title font="-exact-headline" line-clamp=2
           text work.author font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
         when added
-          button disabled=true testId=`added-${work.key}` flex-shrink=0
+          button disabled=true buttonStyle="bordered" testId=`added-${work.key}` flex-shrink=0
             text "Added"
         else
           button press=add(work)
+            buttonStyle="bordered"
             aria-label=`Add ${work.title}`
             testId=`add-${work.key}`
             flex-shrink=0
@@ -753,14 +754,15 @@ component Empty
       text title role="heading" aria-level=3 text-align="center"
       text message color="-exact-secondary-label" text-align="center" testId=`${tid}-message`
 
-// A determinate progress bar, 0 to 100, across its column: the platform's own
-// (`UIProgressView` in the tint, LLP 1116 D8), which says its value itself.
+// A determinate progress bar, 0 to 100: the platform's own (`UIProgressView`
+// in the tint, LLP 1116 D8), which says its value itself. It is as wide as its
+// column with nothing written (LLP 1115.000 D10.2).
 component Meter
   props
     value: number
     tid: string
   view
-    progress value=value max=100 width="100%" testId=tid
+    progress value=value max=100 testId=tid
 
 // Five stars, filled to the rating, in the tint.
 component Stars

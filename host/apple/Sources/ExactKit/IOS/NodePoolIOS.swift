@@ -502,6 +502,8 @@ extension NodeView {
         // The next node's hatch decides again.
         hatchReusable = false
         content = .zero
+        // The next node's layout sends its own content box, if any
+        kernelContentBox = nil
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.
         if layer.contents != nil { layer.contents = nil }
@@ -524,7 +526,7 @@ extension NodeView {
         content = .zero
         if let e = extras {
             e.beforeLayoutScroll = nil; e.hiddenScroll = nil; e.followedScroll = nil
-            e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = .zero
+            e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = (.zero, 0)
             e.readingAnchors.removeAll(); e.activeReadingAnchor = nil; e.scrollAnchor = nil
             e.pendingScrollTop = nil; e.pendingScrollLeft = nil
         }

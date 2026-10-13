@@ -223,6 +223,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// the insets are the view's (`ExactView.syncInsets`).
     func coverChrome() {
         let cover = view.viewportFit == "cover"
+        sidebar?.viewportFitChanged()
         if cover {
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
             window.titlebarAppearsTransparent = !view.hasWindowToolbar
@@ -230,12 +231,20 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             window.backgroundColor = session.pageBackground
             if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = view.hasWindowToolbar ? .automatic : .none }
         } else {
-            if window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
+            // A sidebar runs the window's full height, under the title bar
+            // (LLP 1115.002 D3): the content is full size for it, and the
+            // page starts under the bar in its own pane.
+            if sidebar != nil, !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+            if sidebar == nil, window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
             window.titlebarAppearsTransparent = false
             window.titleVisibility = .visible
             if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .automatic }
         }
-        if view.hasWindowToolbar { window.toolbarStyle = .unifiedCompact }
+        // The bar a hand-built window has on this macOS, SwiftUI's own (LLP
+        // 1115.002 D2): `.unified`, about 52 points on macOS 27, which is what
+        // AppKit gives the style and not a number set here. A route's header
+        // is this bar, so it has room for a title beside its items.
+        if view.hasWindowToolbar { window.toolbarStyle = .unified }
         view.syncInsets()
     }
 
@@ -243,8 +252,54 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// first window's boot is `finishLaunching`'s), then the window's
     /// chrome follows the app's.
     func attach() {
-        window.contentView = view
+        view.onWindowSidebar = { [weak self] in self?.compose() }
+        compose()
+    }
+
+    /// The window's content while the app's root tab bar is its sidebar.
+    private var sidebar: ExactSidebarController?
+
+    /// The window's content: the view; or, for an app whose root tab bar is
+    /// the window's sidebar (LLP 1115.002 D3), a split view of that sidebar
+    /// and the view. Composed when the view is attached and again when the
+    /// app gains or loses such a tab bar. The window keeps its width and its
+    /// top edge, and the area under its bars its height, as when a toolbar
+    /// comes or goes. The page keeps the minimum width the window had, as
+    /// its pane's: with the sidebar's own that is the narrowest the window
+    /// goes. A script's window is the size asked for, so it has a minimum
+    /// only where the script names one.
+    private func compose() {
+        let wanted = view.wantsWindowSidebar
+        if !wanted, sidebar == nil {
+            // No sidebar, before or now: the view is the window's content.
+            guard window.contentView !== view else { return }
+            window.contentView = view
+            view.attachWindowToolbar(to: window)
+            return
+        }
+        guard wanted != (sidebar != nil) else { return }
+        let was = window.frame, under = window.contentLayoutRect.height
+        if wanted {
+            // Out of the window's content before the split view takes it.
+            if window.contentView === view { window.contentView = NSView() }
+            let minimum = scripted && ExactEnv.environment["EXACT_WINDOW_MINWIDTH"] == nil ? 0 : minimumSize.width
+            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum)
+            sidebar = split
+            // Full-size content, then the split view: the order AppKit
+            // places a source list's first row by.
+            split.install(in: window)
+        } else {
+            sidebar?.release()
+            sidebar = nil
+            window.contentViewController = nil
+            window.contentView = view
+        }
+        coverChrome()
         view.attachWindowToolbar(to: window)
+        coverChrome()
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        let height = window.frame.height + under - window.contentLayoutRect.height
+        window.setFrame(NSRect(x: was.minX, y: was.maxY - height, width: was.width, height: height), display: false)
     }
 
     /// Hand documents to this window's session.
@@ -291,7 +346,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        DevMenu.session = session
+        DevMenu.select(session: session)
         if !stamped, label == "main" { stamped = true; ExactEnv.stamp("windowDidBecomeKey") }
         agentReady()
     }
@@ -306,7 +361,10 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         // After AppKit has finished closing the window this holds.
         DispatchQueue.main.async { [self] in
             windows.removeAll { $0 === self }
-            if DevMenu.session === session { DevMenu.session = windows.last?.session }
+            if DevMenu.session === session {
+                if let next = windows.last { DevMenu.select(session: next.session) }
+                else { DevMenu.session = nil }
+            }
             session.destroy()
         }
     }
@@ -333,6 +391,9 @@ window.center()
 /// when the name goes on: setting it saves the current frame. Every app's
 /// is kept, declared size or not, as AppKit apps keep theirs (LLP 1115 D8).
 let frameName = scripted ? nil : (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".main" }
+/// Where a sidebar's width, and whether the person hid it, are kept (LLP
+/// 1115.002 D3): AppKit's autosave, as the frame's is, and not a script's.
+let sidebarName = scripted ? nil : (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".sidebar" }
 if let frameName { window.setFrameUsingName(frameName) }
 // Agent-driven apps run side by side (every session's smoke launches one):
 // centred, each would cover the last and starve its Metal layer of drawables.
@@ -421,6 +482,9 @@ Agent.hostState = {
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        exact.installNotificationClicks { session in windows.first { $0.session === session }?.front() }
+    }
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
     /// document app does, for File ▸ New Window, Open and the Dock (LLP 1115 D8).

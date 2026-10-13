@@ -1,7 +1,7 @@
-// LLP 1116.000 D4 in a real browser: the shell's stylesheet and the
+// LLP 1116.000 D4 in a real browser: a default build's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run)
-// over nodes as the hosts write them. A pushed route's app bar draws Back as
-// iOS draws UIKit's (a route above its stack's root, not a sheet, whose header
+// over nodes as the hosts write them. A pushed route's app bar draws Back,
+// in the bar's own ink (a route above its stack's root, not a sheet, whose header
 // does not hold the root's `navigationBack` control), and a block `link` of
 // text is in the accent with the pointing hand while an authored colour, a
 // row inside it, a `role` or a `buttonStyle` keeps the author's look. The
@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -26,7 +27,8 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 // A root with two tabs. The first tab's stack: a root, a pushed route, one
 // whose Back control is in its content, and a sheet. The second's: a root
 // with a long title, a pushed route, and one whose header holds its control.
-const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+// Under the stylesheet a default build's page has (look.mjs).
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">
   <main id="nav" navigationKey="2" navigationBack="back" style="display:block">
     <div role="tabpanel" id="p1">
@@ -41,7 +43,9 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
           <a data-view href="mailto:b@b.c" id="l-role" role="button"><div data-exact-text>Button</div></a>
           <a data-view href="mailto:s@b.c" id="l-style" data-button-style="plain"><div data-exact-text>Styled</div></a>
           <div style="--exact-accent:rgb(10, 20, 30)"><a data-view href="tel:557" id="l-accent"><div data-exact-text>Tinted</div></a></div>
-          <div data-exact-text>An <a data-view href="/x" id="l-run" style="color:LinkText">inline run</a>.</div>
+          <div data-exact-text>An <a data-view href="/x" id="l-run" style="color:LinkText">inline run</a>, <a data-view id="l-plain" style="color:inherit">a run whose href is empty</a>.</div>
+          <a data-view id="l-blank"><div data-exact-text>A block link whose href is empty</div></a>
+          <span id="ink" style="color:var(--exact-label)"></span><span id="accent" style="color:var(--exact-accent, AccentColor)"></span>
         </div>
       </div>
       <div navigationKey="3" id="r3"><header><h2>More</h2></header><button id="back">Done</button></div>
@@ -109,7 +113,8 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
   expect(await evaluate(`const busy = document.getElementById('exact-root'); busy.setAttribute('aria-busy', 'true'); document.querySelector('#r3 #back').disabled = true; select('2'); const n = backs().length; busy.removeAttribute('aria-busy'); document.querySelector('#r3 #back').disabled = false; n`)).toBe(3);
   // The renderer's children stay its own: the button is the header's shadow root's, before its slot, at the leading edge.
   expect(await evaluate(`[document.querySelector('#r2 > header').children.length, document.querySelector('#r2 > header').shadowRoot.querySelector('button').getBoundingClientRect().right <= document.getElementById('title2').getBoundingClientRect().left]`)).toEqual([1, true]);
-  expect(await evaluate(`getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color`)).toBe('rgb(0, 117, 255)');
+  // It is one of the bar's buttons, so in the bar's ink, the label's (LLP 1116 D1's look drew it in the accent, as UIKit does).
+  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('ink')).color, getComputedStyle(document.getElementById('ink')).color === getComputedStyle(document.getElementById('links')).color]`)).toEqual([true, false]);
 
   // Keyboard: the first Tab stop of the shown route; Enter goes back (the runner's own, with no entry beneath known).
   await evaluate('document.activeElement.blur()');
@@ -130,15 +135,22 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
 check('a block link of text is in the accent and points; the author\'s look wins', () => inChrome(async (evaluate) => {
   // A link of text (or a symbol and text) is in the accent, the app's when it names one; an authored colour, a row
   // inside it, a role or a buttonStyle keeps the author's look; an inline run keeps its LinkText row. Every link points.
-  expect(await evaluate(`['l-text', 'l-symbol', 'l-authored', 'l-row', 'l-role', 'l-style', 'l-accent', 'l-run'].map(id => { const s = getComputedStyle(document.getElementById(id)); return id + ' ' + s.color + ' ' + s.cursor + ' ' + s.display + ' ' + s.textDecorationLine; })`)).toEqual([
-    'l-text rgb(0, 117, 255) pointer block none',
-    'l-symbol rgb(0, 117, 255) pointer block none',
+  // (The page's accent is the look's: the browser's own hue, fitted to read as text. Each engine words it its own way.)
+  // An `href` that turns out empty is not written (LLP 1115 §3): that `<a>` is no link, so it does not point and is not
+  // in the accent; the run's `inherit` is the compiler's row for an empty value.
+  const accent = await evaluate(`getComputedStyle(document.getElementById('accent')).color`);
+  expect(['rgb(1, 2, 3)', 'rgb(0, 0, 0)', 'rgba(0, 0, 0, 0)'].includes(accent)).toBe(false);
+  expect(await evaluate(`['l-text', 'l-symbol', 'l-authored', 'l-row', 'l-role', 'l-style', 'l-accent', 'l-run', 'l-plain', 'l-blank'].map(id => { const s = getComputedStyle(document.getElementById(id)); return id + ' ' + s.color + ' ' + s.cursor + ' ' + s.display + ' ' + s.textDecorationLine; })`)).toEqual([
+    `l-text ${accent} pointer block none`,
+    `l-symbol ${accent} pointer block none`,
     'l-authored rgb(204, 0, 0) pointer block none',
     'l-row rgb(1, 2, 3) pointer block none',
     'l-role rgb(1, 2, 3) pointer block none',
     'l-style rgb(1, 2, 3) pointer block none',
     'l-accent rgb(10, 20, 30) pointer block none',
     'l-run rgb(0, 0, 238) pointer inline none',
+    'l-plain rgb(1, 2, 3) auto inline none',
+    'l-blank rgb(1, 2, 3) auto block none',
   ]);
 }), 30000);
 
@@ -244,3 +256,53 @@ check('a closed sheet or a popped screen leaves the route beneath it live when t
   const refusal = 'log navigationKey "0" matches no route among the root\'s children or those of the tabpanels its tablist names; the stack is unchanged';
   expect(await evaluate(`calls.filter(c => c.startsWith('log '))`)).toEqual([refusal, refusal]);
 }, keyed), 30000);
+
+check('the bar says its own word, "Back", only on a page in English; elsewhere the chevron alone, named by the title beneath', () => inChrome(async (evaluate) => {
+  // LLP 1115.000 D4.14. No `lang` reads as English, as every app here is until it says otherwise.
+  const english = ['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back'];
+  expect(await evaluate('backs()')).toEqual(english);
+  // In another language the app's own words stay (a short title beneath, the Back control's) and are the name; the
+  // bar's word is not said, so a long title beneath leaves the chevron alone, named by that title.
+  expect(await evaluate(`document.documentElement.lang = 'de'; select('2'); backs()`)).toEqual(['r2:People|People', 'r3:Done|Done', 't2:|Favorites of everyone']);
+  expect(await evaluate(`(b => [b.lastChild.hidden, b.hidden])(document.querySelector('#t2 > header').shadowRoot.querySelector('button'))`)).toEqual([true, false]);
+  for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
+}), 30000);
+
+// LLP 1116.009 D4 (the neutral look's): a sheet's bar centres its title whatever flanks it, as UIKit's does; a page's stays leading. The
+// author's flow wins: a header with its own `justify-content` (the host names it, `data-exact-said`) and a title with a
+// margin of its own are left where they were written. Buttons 60 px wide, so what is centred is exact.
+const bars = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), 'neutral').match(/<style>[\s\S]*?<\/style>/)[0] + `<div id="exact-root">
+  ${[
+    ['s1', 'modal', '', '', '<button>Cancel</button>', '', '<button>Save</button>'],
+    ['s2', 'modal', '', '', '<button>Back</button>', '', ''],
+    ['s3', 'modal', '', '', '', '', ''],
+    ['p1', null, '', '', '<button>Back</button>', '', ''],
+    ['s4', 'modal', 'data-exact-said="justify-content"', 'justify-content:space-between', '<button>Back</button>', '', ''],
+    ['s5', 'modal', '', '', '<button>Back</button>', 'style="margin:0"', ''],
+  ].map(([id, how, mark, flow, before, title, after]) => `<div navigationKey="${id}" id="${id}"${how ? ` navigationPresentation="${how}"` : ''}>
+    <header style="display:flex;align-items:center;${flow}" ${mark}>${before.replace('<button>', '<button style="flex:none;width:60px">')}<h2 id="${id}-title" ${title}>Create an event</h2>${after.replace('<button>', '<button style="flex:none;width:60px">')}</header></div>`).join('\n  ')}
+</div>
+<script>
+  window.edges = id => { const h = document.querySelector('#' + id + ' > header').getBoundingClientRect(), t = document.getElementById(id + '-title').getBoundingClientRect(); return { left: Math.round(t.left - h.left), right: Math.round(h.right - t.right), centre: Math.round((t.left + t.right) / 2 - (h.left + h.right) / 2), width: Math.round(t.width) }; };
+  window.ready = true;
+</script>`;
+
+check('a sheet\'s bar centres its title, a page\'s stays leading, and the author\'s flow wins', () => inChrome(async (evaluate) => {
+  // The padding is 16 px a side. Cancel and Save the same width: the title is on the bar's centre.
+  const s1 = await evaluate(`edges('s1')`);
+  expect(Math.abs(s1.centre)).toBeLessThanOrEqual(1);
+  // A lone Back: centred between it and the bar's end, nowhere near the end (the free space is the same either side).
+  const s2 = await evaluate(`edges('s2')`);
+  expect(Math.abs((s2.left - 16 - 60) - (s2.right - 16))).toBeLessThanOrEqual(1);
+  expect(s2.right).toBeGreaterThan(100);
+  // Nothing flanking it.
+  expect(Math.abs((await evaluate(`edges('s3')`)).centre)).toBeLessThanOrEqual(1);
+  // A page's title stays leading: right after the Back, with its end free.
+  const p1 = await evaluate(`edges('p1')`);
+  expect(p1.left).toBe(16 + 60);
+  // A header flowing its own items (space-between, the title last) and a title with its own margin are the author's.
+  expect((await evaluate(`edges('s4')`)).right).toBe(16);
+  expect((await evaluate(`edges('s5')`)).left).toBe(16 + 60);
+  // Centred in its own text where it fills the space (a title the author grew).
+  expect(await evaluate(`document.getElementById('s3-title').style.flexGrow = '1'; getComputedStyle(document.getElementById('s3-title')).textAlign`)).toBe('center');
+}, bars), 30000);

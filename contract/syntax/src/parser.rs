@@ -14,6 +14,7 @@ mod expr;
 mod keyframes;
 mod media_session;
 mod names;
+mod parts;
 #[path = "routes.rs"]
 mod routes;
 mod sounds;
@@ -523,20 +524,23 @@ impl Parser {
         let span = self.expect_word("style")?;
         let name = self.named_ident(span)?;
         self.newline()?;
-        let attrs = self.literal_attrs(&format!("style {name}"))?;
+        // A part's block (`::placeholder`) beside the rows (parts.rs).
+        let owner = format!("style {name}");
+        let mut attrs = Vec::new();
+        self.block(|p| {
+            if p.at_part() {
+                p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else {
+                attrs.extend(p.literal_line(&owner)?);
+                Ok(())
+            }
+        })?;
+        unique_attrs(&attrs, &owner)?;
         Ok(StyleDecl { name, attrs, span })
     }
 
-    /// An indented block of `attr=literal` lines, several to a line, each
-    /// name once: the body of a `style` or of a keyframe.
-    fn literal_attrs(&mut self, owner: &str) -> R<Vec<Attr>> {
-        let lines = self.block(|p| p.literal_line(owner))?;
-        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
-        unique_attrs(&attrs, owner)?;
-        Ok(attrs)
-    }
-
-    /// One line of `attr=literal` pairs, through its newline.
+    /// One line of `attr=literal` pairs, through its newline: a `style`'s
+    /// (several to a line, each name once) or a keyframe's.
     fn literal_line(&mut self, owner: &str) -> R<Vec<Attr>> {
         let mut attrs = Vec::new();
         while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
@@ -1160,7 +1164,7 @@ impl Parser {
             {
                 let aspan = self.next().span;
                 self.next();
-                let value = self.expr()?;
+                let value = self.attr_value()?;
                 self.unquoted_unit(&name, &value)?;
                 if attrs.iter().any(|a: &Attr| a.name == name) {
                     return Err(SyntaxError {
@@ -1202,6 +1206,35 @@ impl Parser {
             }
         }
         Ok(())
+    }
+
+    /// An attribute's value. A negation of a lone number, as the whole value,
+    /// is the negative literal (`min=-40`, `margin-top=-8`, `step=-0.5`,
+    /// `min=-1e300`; the formatter's `- 1` is the same), the number it is, as
+    /// the positive one is: every place that reads a literal number reads it,
+    /// it is a constant in the plan, and `margin-top=-8px` is the unquoted
+    /// length it is. Anything else is the expression it was: `a - b`, `-x`,
+    /// `-(1 + 2)`, `-8 + a`. A `-exact-` name is no `-`: the lexer makes one
+    /// token of it where it is an attribute's name, and a string holds it
+    /// anywhere else.
+    fn attr_value(&mut self) -> R<Expr> {
+        Ok(match self.expr()? {
+            Expr::Unary(UnOp::Neg, inner, minus) => match *inner {
+                Expr::Number(n, at) => Expr::Number(
+                    -n,
+                    Span {
+                        end_col: if at.line == minus.line {
+                            at.end_col
+                        } else {
+                            minus.end_col
+                        },
+                        ..minus
+                    },
+                ),
+                inner => Expr::Unary(UnOp::Neg, Box::new(inner), minus),
+            },
+            other => other,
+        })
     }
 
     /// `width=10px` lexes as the number `10` and then a name `px` written

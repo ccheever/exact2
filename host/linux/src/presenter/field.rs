@@ -305,6 +305,145 @@ impl<D: DataSource> Presenter<D> {
         self.command_select(id, FieldSelection::clamped(at(1), at(2), direction, len));
     }
 
+    /// HTML's scripted range edit: no user-change/undo transaction, one
+    /// replacement input, and a selection that never moves the focus.
+    pub(crate) fn set_range_text(&mut self, args: &[exact_plan::Value]) {
+        let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
+            return;
+        };
+        let result = (|| {
+            let id = self.text_field(name)?;
+            let node = self.host.kernel().node(id).ok_or("no live field")?;
+            let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
+            if node.props.str(PropId::Markup) == Some("markdown")
+                || (!textarea
+                    && !matches!(
+                        node.props.str(PropId::Type).unwrap_or("text"),
+                        "text" | "search" | "url" | "tel" | "password"
+                    ))
+            {
+                return Err("not a plain text field");
+            }
+            let text = args
+                .get(1)
+                .and_then(exact_plan::Value::as_str)
+                .ok_or("replacement required")?;
+            let old = self.field_selection(id);
+            let (start, end) = if args.len() == 2 {
+                (old.start, old.end)
+            } else {
+                let number = |i: usize| {
+                    args.get(i)
+                        .and_then(exact_plan::Value::as_number)
+                        .ok_or("offset required")
+                };
+                let at =
+                    |n| FieldSelection::clamped(n, n, SelectionDirection::None, u32::MAX).start;
+                (at(number(2)?), at(number(3)?))
+            };
+            if start > end {
+                return Err("start exceeds end");
+            }
+            let mode = args
+                .get(4)
+                .and_then(exact_plan::Value::as_str)
+                .unwrap_or("preserve");
+            let value: Vec<u16> = self.field_value(id).encode_utf16().collect();
+            let start = (start as usize).min(value.len());
+            let end = (end as usize).min(value.len());
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let after = start + units.len();
+            let delta = units.len() as i64 - (end - start) as i64;
+            let (a, b) = match mode {
+                "select" => (start as u32, after as u32),
+                "start" => (start as u32, start as u32),
+                "end" => (after as u32, after as u32),
+                "preserve" => (
+                    if old.start > end as u32 {
+                        (i64::from(old.start) + delta) as u32
+                    } else if old.start > start as u32 {
+                        start as u32
+                    } else {
+                        old.start
+                    },
+                    if old.end > end as u32 {
+                        (i64::from(old.end) + delta) as u32
+                    } else if old.end > start as u32 {
+                        after as u32
+                    } else {
+                        old.end
+                    },
+                ),
+                _ => return Err("invalid selectionMode"),
+            };
+            let next = String::from_utf16_lossy(&[&value[..start], &units, &value[end..]].concat());
+            let next = if textarea {
+                next.replace("\r\n", "\n").replace('\r', "\n")
+            } else {
+                next.replace(['\r', '\n'], "")
+            };
+            let next = if !textarea && node.props.str(PropId::Type) == Some("url") {
+                next.trim_matches([' ', '\t', '\n', '\r', '\u{c}'])
+                    .to_owned()
+            } else {
+                next
+            };
+            let selection = FieldSelection::clamped(
+                f64::from(a),
+                f64::from(b),
+                SelectionDirection::None,
+                utf16_len(&next),
+            );
+            Ok((id, next, selection, old != selection))
+        })();
+        let (id, next, selection, moved) = match result {
+            Ok(edit) => edit,
+            Err(reason) => {
+                self.host
+                    .log(format!("setRangeText \"{name}\" refused: {reason}"));
+                return;
+            }
+        };
+        let bound = self.bound_text(id);
+        self.host.values.watch(id, Some(bound.clone()));
+        self.chosen.insert(id, (next.clone(), bound.clone()));
+        self.mark_field(id, &next, selection, true);
+        if self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Input)
+        {
+            if let Some(error) = self.host.dispatch_at(
+                id,
+                Event::Input(ControlValue::Replacement(next.clone(), selection)),
+                self.host.now(),
+            ) {
+                self.host.log(format!("setRangeText: {error}"));
+            }
+            if let Some(error) = self.after_commit() {
+                self.host.log(format!("setRangeText: {error}"));
+            }
+        }
+        self.keep_typed(id, next.clone(), bound);
+        if moved {
+            self.field_select_tasks.push(id);
+        }
+    }
+
+    pub(super) fn drain_field_select_tasks(&mut self) {
+        for id in std::mem::take(&mut self.field_select_tasks) {
+            if self.host.kernel().node(id).is_some() {
+                self.field_select(
+                    id,
+                    &self.field_value(id),
+                    self.field_selection(id),
+                    self.host.now(),
+                );
+            }
+        }
+    }
+
     /// `selectText(id)`: focused, as `focus()` does, and its whole text
     /// selected, as `select()` does — which the next key replaces.
     pub(crate) fn select_text(&mut self, args: &[exact_plan::Value]) {

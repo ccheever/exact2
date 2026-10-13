@@ -82,7 +82,8 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
-        // @ref LLP 1021 D1 — HTML's separator, its UA sheet's rows; void.
+        // @ref LLP 1021 D1 — HTML's separator, one hairline (LLP 1115.000
+        // D10.3); void.
         "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),
@@ -434,11 +435,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "rows" => AttrTarget::Prop(p("rows")),
         "maxlength" => AttrTarget::Prop(p("maxlength")),
         "cancel" => AttrTarget::Handler("cancel"),
+        "close" => AttrTarget::Handler("close"),
+        "toggle" => AttrTarget::Handler("toggle"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),
+        "focusin" => AttrTarget::Handler("focusin"),
+        "focusout" => AttrTarget::Handler("focusout"),
         "key" => AttrTarget::Handler("key"),
+        "keycapture" => AttrTarget::Handler("keycapture"),
         // DOM's `keyup`: a key's release, bubbling as `key` does (#140).
         "keyup" => AttrTarget::Handler("keyup"),
         "submit" => AttrTarget::Handler("submit"),
@@ -460,6 +466,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "paste" => AttrTarget::Handler("paste"),
         "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
+        "intersect" => AttrTarget::Handler("intersect"),
+        "intersect-margin" => AttrTarget::Prop(p("intersectMargin")),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "refresh" => AttrTarget::Handler("refresh"),
@@ -558,6 +566,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
+        "-exact-menu" => AttrTarget::Prop(p("menuPlacement")),
+        "-exact-menu-remove" => AttrTarget::Prop(p("menuRemove")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
@@ -1276,15 +1286,25 @@ impl crate::Lowerer<'_> {
     /// author's rows, so a `color` on the link, the run or a class wins. A
     /// terminal entry's block link is left as it is: what a terminal shows
     /// for a link is the terminal's to decide (`QUEUE.md`).
+    ///
+    /// An `href` that turns out empty is no link (`Props::link` is how a
+    /// host reads the value), so the row follows the value: a computed
+    /// `href` chooses between the role and `inherit` as it changes, and a
+    /// written `href=""` gets no row. A package that writes `href=r.href`
+    /// on every run of a paragraph, empty for plain prose, then colours
+    /// only its links.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn link_color(
         &mut self,
         tag: &str,
         parent_tag: Option<&str>,
         attrs: &[contract_syntax::Attr],
         children: &[contract_syntax::Node],
+        scope: &crate::Scope,
+        locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) {
-        use contract_syntax::Node;
+        use contract_syntax::{BinOp, Expr, Node, TemplatePart};
         // Texts and images alone, a `when` or an `each` of them included.
         fn words(node: &Node) -> bool {
             match node {
@@ -1298,16 +1318,42 @@ impl crate::Lowerer<'_> {
             }
         }
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
-        let run = tag == "text" && parent_tag == Some("text") && has("href");
+        let href = attrs.iter().rev().find(|a| a.name == "href");
+        let run = tag == "text" && parent_tag == Some("text") && href.is_some();
         let block = tag == "link"
             && self.profile != crate::Profile::Terminal
             && !has("role")
             && !children.is_empty()
             && children.iter().all(words);
-        if run || block {
-            let link = self.fixed(true, "LinkText");
-            bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
+        if !(run || block) {
+            return;
         }
+        let link = match href.map(|a| &a.value) {
+            Some(Expr::Str(to, _)) if to.is_empty() => return,
+            // A written target, a template with words of its own, or a
+            // block `link` that is its `press`: a link whatever happens.
+            None | Some(Expr::Str(..)) => self.fixed(true, "LinkText"),
+            Some(Expr::Template(parts, _))
+                if parts
+                    .iter()
+                    .any(|p| matches!(p, TemplatePart::Text(t) if !t.is_empty())) =>
+            {
+                self.fixed(true, "LinkText")
+            }
+            Some(to) => {
+                let span = to.span();
+                let word = |w: &str| Box::new(Expr::Str(w.into(), span));
+                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), word(""), span);
+                let chosen =
+                    Expr::Ternary(Box::new(empty), word("inherit"), word("LinkText"), span);
+                // A value the attribute's own lowering refuses is said there.
+                let Ok(code) = self.expr_code(&chosen, scope, locals) else {
+                    return;
+                };
+                code
+            }
+        };
+        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
     }
 
     /// @ref LLP 1115 D3 — a heading is the platform's text style for its

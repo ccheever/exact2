@@ -384,7 +384,7 @@ export function pointerGap(host, browser, opts) {
     opts.auxclick && 'a middle-button click (auxclick)',
     opts.clicks !== undefined && `clicks ${opts.clicks}`,
     opts.wheel && opts.at !== undefined && 'a wheel at a point',
-    opts.dblclick && opts.at !== undefined && 'a double click at a point',
+    opts.dblclick && opts.at !== undefined && !['ios', 'host-ios'].includes(host) && 'a double click at a point', // iOS: the double tap that selects a word there
     host === 'web' && opts.mouse && 'a mouse click', // the Playwright carrier has none
     held && (opts.contextmenu || opts.dblclick || opts.mouse || opts.down || opts.drag || opts.phase) && 'modifiers held through a context menu, a double click, a mouse click, a contact or a drag',
   ].filter(Boolean);

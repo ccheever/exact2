@@ -33,6 +33,9 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = host.set_root_font_size(runner.host_root_font_size()) {
             return Err(HostError::Layout(error));
         }
+        if let Some(error) = host.set_display_scale(runner.display_scale()) {
+            return Err(HostError::Layout(error));
+        }
         let time = self.host.runner().wall_time();
         if let Some(error) = host.set_place(self.host.runner().place()) {
             return Err(HostError::Layout(error));

@@ -1,6 +1,5 @@
 //! Logical text and key lookups over virtualized lists. LLP 1010 §6.
 use super::*;
-use crate::instance::collection::IntoViewStatus;
 
 /// A text position that survives retirement of a list row's native views.
 #[derive(Debug, Clone, Copy)]
@@ -32,6 +31,7 @@ impl<D: DataSource> Runner<D> {
         }
         let mut ids = Ids::default();
         let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+        u.fonts = Some(self.fonts.clone());
         Ok(self
             .tree
             .as_ref()
@@ -43,21 +43,11 @@ impl<D: DataSource> Runner<D> {
     /// the host restarts it — never a half-applied frame.
     pub(super) fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
         let requests = std::mem::take(&mut self.into_view);
-        let into_view = self.links.lists.map(|lists| lists.into_view);
-        let mut statuses = Vec::new();
-        let receipt = self.update_tree(true, |tree, u| {
-            tree.update(u)?;
-            for request in &requests {
-                statuses.push(match into_view {
-                    Some(into_view) => into_view(tree, u, request)?,
-                    None => IntoViewStatus::Refused("this artifact doesn't link lists".into()),
-                });
-            }
-            Ok(())
-        })?;
-        for (request, status) in requests.iter().zip(statuses) {
-            self.record_into_view(request, Some(status));
-        }
+        let receipt = if requests.is_empty() {
+            self.update_tree(true, |tree, u| tree.update(u))?
+        } else {
+            self.update_into_views(&requests, true)?
+        };
         self.release_compiled();
         Ok(receipt)
     }
@@ -67,48 +57,7 @@ impl<D: DataSource> Runner<D> {
         settled: bool,
         update: impl FnOnce(&mut Tree, &mut Update<'_>) -> Result<(), crate::instance::InstanceError>,
     ) -> Result<CommitReceipt, RunnerError> {
-        let mut tree = self.tree.take().expect("booted");
-        let mut ids = std::mem::take(&mut self.ids);
-        let rows = std::mem::take(&mut self.row_writes);
-        let result = {
-            let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
-            u.full = self.full;
-            u.discard = self.kernel.is_detached();
-            u.rows = rows;
-            u.reuse = self.reuse;
-            update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces, u.notes, u.renewed, u.shown))
-        };
-        self.ids = ids;
-        self.tree = Some(tree);
-        let (ops, surfaces) = match result {
-            Ok((ops, surfaces, notes, renewed, shown)) => {
-                self.notes = notes;
-                self.renewed = renewed;
-                self.shown.extend(shown);
-                if settled {
-                    let tree = self.tree.as_mut().expect("booted");
-                    tree.last_work.rows_scanned += self.lookup_rows.take();
-                    tree.last_work.derives_evaluated = self.derives_evaluated;
-                    tree.last_work.store_bytes_copied =
-                        self.store.copied_bytes() - self.copied_at_checkpoint;
-                }
-                (ops, surfaces)
-            }
-            Err(e) => {
-                if settled || e != crate::instance::InstanceError::InvalidCollectionFeedback {
-                    self.poison();
-                }
-                return Err(e.into());
-            }
-        };
-        // Only ordinary settlement wakes deferred collection edges; geometry-only
-        // feedback must not replenish this work.
-        if settled {
-            if let Err(error) = self.wake_deferred_edges() {
-                self.poison();
-                return Err(error);
-            }
-        }
+        let (ops, surfaces, _) = self.update_ops(settled, update)?;
         match self.apply(ops) {
             Ok(receipt) => {
                 self.publish_surfaces(surfaces);
@@ -126,4 +75,65 @@ impl<D: DataSource> Runner<D> {
             }
         }
     }
+    /// Evaluate one phase without publishing it. Ordinary settlement runs once;
+    /// a request phase only realizes the requested windows.
+    pub(super) fn update_ops(
+        &mut self,
+        settled: bool,
+        update: impl FnOnce(&mut Tree, &mut Update<'_>) -> Result<(), crate::instance::InstanceError>,
+    ) -> Result<UpdateOps, RunnerError> {
+        let mut tree = self.tree.take().expect("booted");
+        let mut ids = std::mem::take(&mut self.ids);
+        let rows = std::mem::take(&mut self.row_writes);
+        let result = {
+            let scroll_padding = |view| super::collection::scroll_padding(&self.kernel, view);
+            let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            u.fonts = Some(self.fonts.clone());
+            u.scroll_padding = Some(&scroll_padding);
+            u.full = self.full;
+            u.discard = self.kernel.is_detached();
+            u.rows = rows;
+            u.reuse = self.reuse;
+            update(&mut tree, &mut u)
+                .map(|_| (u.ops, u.surfaces, u.notes, u.renewed, u.shown, u.work))
+        };
+        self.ids = ids;
+        self.tree = Some(tree);
+        let (ops, surfaces, work) = match result {
+            Ok((ops, surfaces, notes, renewed, shown, work)) => {
+                self.notes = notes;
+                self.renewed = renewed;
+                self.shown.extend(shown);
+                if settled {
+                    let tree = self.tree.as_mut().expect("booted");
+                    tree.last_work.rows_scanned += self.lookup_rows.take();
+                    tree.last_work.derives_evaluated = self.derives_evaluated;
+                    tree.last_work.store_bytes_copied =
+                        self.store.copied_bytes() - self.copied_at_checkpoint;
+                }
+                (ops, surfaces, work)
+            }
+            Err(e) => {
+                if settled || e != crate::instance::InstanceError::InvalidCollectionFeedback {
+                    self.poison();
+                }
+                return Err(e.into());
+            }
+        };
+        // Only ordinary settlement wakes deferred collection edges; geometry-only
+        // feedback must not replenish this work.
+        if settled {
+            if let Err(error) = self.wake_deferred_edges() {
+                self.poison();
+                return Err(error);
+            }
+        }
+        Ok((ops, surfaces, work))
+    }
 }
+
+type UpdateOps = (
+    Vec<exact_kernel::Op>,
+    Vec<crate::SurfaceUpdate>,
+    crate::instance::InstanceWork,
+);

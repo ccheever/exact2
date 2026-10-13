@@ -11,7 +11,7 @@
 // A verb with `more` (LLP 1116.003 D5) shows what a first build needs; `--help all`
 // adds its other flags and `bodyAll`'s lines (the ports, the rarer forms).
 //
-//   bun scripts/help.mjs [<verb>] [all]      a verb's help, or the index
+//   bun scripts/help.mjs [<verb>] [all]      a verb's help (all: every flag and the ports), or the index
 
 /** A flag's spec is its name, then its argument if it takes one (`--port <n>`); one row may hold
  * several, joined by " · ". */
@@ -23,20 +23,21 @@ const takesValue = (spec) => spec.includes(' ');
 // (`runTests` reads all but those `test` lists as internal).
 const DRIVE = [
   ['--storage <name>', 'a scratch store, kept between drives by name'],
-  ['--size <w>x<h>', 'the viewport (default 420x900; a simulator has its own)'],
-  ['--chrome platform', 'Apple: real navigation and tab bars (default: the authored ones, painted)'],
+  ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
+  ['--scale <n>', 'shrink screenshots to n pixels per point; 1 captures points'],
+  ['--chrome platform', 'Apple: UIKit\'s bars, the Mac\'s sidebar (default: painted)'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
-  ['--epoch <ISO|ms|now>', 'the date at the agent clock\'s zero (default 2026-01-01T00:00:00Z)'],
+  ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
-  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone, else the newest Pro)'],
+  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
-  ['--json', 'one compact JSON object per op reply, one per line (default: indented text)'],
+  ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
 const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
@@ -56,6 +57,7 @@ export const HELP = {
   web: {
     line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
+    common: ['web [--port <n>]    for a person watching: its URL, rebuilt on save'],
     flags: [
       ['--port <n>', 'listen on <n>, refused if taken (default 8765, else the first free port to 8864)'],
       ['--lan', 'bind every interface, so a phone on this network opens the printed LAN URL'],
@@ -65,11 +67,9 @@ export const HELP = {
       ['--wasm', 'the resident wasm loop (a game\'s always): a plan restarts in place, state carried'],
     ],
     internal: ['--app <name>', '--serve-as <port>'],
-    body: `Runs     in the foreground until ^C, printing its URL. test web and agent web build and
-         serve their own copy, so they do not need it. To keep it while you work:
-           bun exact.mjs web > .exact/web.log 2>&1 &      # $! is its PID; kill <PID> stops it
-         If your tool's shell ends background jobs when the command returns, use the
-         tool's own background mode.`,
+    body: `Runs     in the foreground until ^C, printing its URL. The dev loop is for a person watching
+         the app change: verify, test and agent build and serve their own copy, so checking
+         the app needs no dev server.`,
     bodyAll: `Ports    one HTTP port on 127.0.0.1 (--lan: every interface), printed with the URL. A native
          client opening <url>__dev/open starts the producers on a second, loopback-only port.
          The server stops with its process however it ends.`,
@@ -90,6 +90,7 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
   test: {
     line: 'run app.test.contract (or the files named) on a host: web by default',
     usage: 'bun exact.mjs test [web|ios|macos|linux|android] [<file.test.contract>|<glob>]… [flags]',
+    common: ['test [web|ios] [<file>…] [--size <w>x<h>] [--sim <name>]'],
     flags: DRIVE.filter(naming(['--size', '--sim'], true)),
     more: [
       ['--test <file>', 'a test file, as a bare path or glob is (from the current directory)'],
@@ -103,11 +104,12 @@ store, after its first data has landed; its leading lines (size, epoch, fail fet
 override flags.
 Server   an app with its own (server.ts, the rest pattern's): test runs it where app.ts calls it,
          on an empty database (DB=.exact/test/db.sqlite), then stops it, as verify does; one
-         already answering there (a dev server) is refused, named, never written to.
+         already answering there (a dev server) is refused, named, never written to; so is a
+         server entry that does not read DB (process.env.DB), with the fix.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, back, fail|pass fetch,
-         request <METHOD> "/path" [json] [as <persona>]: docs/recipes/tests.md; all:
-         docs/contract-grammar.md "Authored tests".`,
+Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
+         fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
+         all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
          port fixed by its own store's name (20000-47999).
@@ -117,12 +119,15 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
   agent: {
     line: 'drive the app as a person would: tree, tap, type, state, screenshot, clock … on a host',
     usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
+    common: ['agent [web|ios] [--storage <name>] [--size <w>x<h>] [--sim <name>] <op> …',
+      '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>"',
+      '  "state [<name>]" tree "check [both]" "screenshot <png>" "resize <w>x<h>" "prefer <feature> <value>" back'],
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app anew each drive (building first when missing or stale, said on stderr), runs
-each op (one quoted argument each) on the agent's clock, prints its reply. Without
---storage, storage is refused. Runs to completion.
+    body: `Launches the app anew each drive (building first if stale, said on stderr), runs each op (one
+quoted argument each) on the agent's clock, prints its reply. Without --storage, storage is
+refused. An app's server.ts runs for the drive, its database kept per --storage. Runs to completion.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · logs · layout [<target>]
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
@@ -131,8 +136,7 @@ Ops      a target is a testId, else a view's exact text or label
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
-    bodyAll: `Trace    trace <file> reads a saved development trace. Every op's forms: docs/contract-for-agents.md
-         "Inspection and testing", or agent web with no op.
+    bodyAll: `Trace    trace <file> reads a saved trace. Op forms: docs/contract-for-agents.md, "Inspection and testing".
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
          with --storage one fixed by app and store (20000-47999; "in use": another drive has it).
          ${NATIVE_PORTS}`,
@@ -140,9 +144,11 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
   },
   verify: {
     line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--json]',
+    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
+    common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
+      ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/ (a test\'s own `screenshot` steps too)'],
       ['--json', 'the report as one JSON object'],
     ],
     internal: ['--app <name>'],
@@ -156,19 +162,21 @@ short report: the build if it built, the compiler's warnings (as contract build 
 built or not), the tests, check's findings (each once, naming the screens it was on), the
 relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. One
 screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
-each test's named by the test, the relaunch's): look at them at milestones.
+each test's named by the test, the relaunch's): look at them when the features work.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's) and the compiler's warnings are counted, never
          fail it. A screen no test ends on is not checked: end a test there.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
          it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops
-         it; one already answering there (a dev server) is refused, named, never written to.
+         it; one already answering there (a dev server) is refused, named, never written to; so is
+         a server entry that does not read DB (process.env.DB), with the fix.
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
-    example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
+    example: 'bun exact.mjs verify            # bun exact.mjs verify ios once at the end, for an iPhone app',
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
     usage: 'bun exact.mjs ios [--run|--prebuild] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
+    common: ['ios [--run] [--sim <name>]    build for a simulator; --run launches it'],
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
       PREBUILD,
@@ -232,11 +240,13 @@ Ports    none. Runs to completion.`,
   contract: {
     line: 'the Contract compiler: build, types, vocab, fmt, symbols …',
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
+    common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property or colour role (no name: the card)'],
     flags: [],
     body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
   types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
-  vocab [--json] [<name> …]               the tags, attributes, CSS properties and functions Contract takes;
-                                          each name's entry in turn, exit 1 if one is unknown
+  vocab [--json] [--all] [<name> …]       no name: the card, what an app writes, in one read (--all: every
+                                          tag, attribute, CSS property and function); each name's entry in
+                                          turn, exit 1 if one is unknown
   fmt [--check | --stdout] <file.contract> · fmt --uses <file.contract>
   symbols <file.contract> [--name <name>] · sources <file.contract>
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)
@@ -249,6 +259,7 @@ Ports    none. Runs to completion: exit 0 when it compiled.`,
   pattern: {
     line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
     usage: 'bun exact.mjs pattern [<name>] [--force]',
+    common: ['pattern [<name>]    a working, tested starter'],
     flags: [['--force', 'replace a file you edited (without it, it is refused, named)']],
     body: `With no name, lists the patterns. With one, writes its app.contract, app.ts and
 app.test.contract here (and what else it needs: rest's server.ts) with this
@@ -362,18 +373,21 @@ export function helpText(verb, { all = false } = {}) {
   return [entry.usage, `  ${entry.line}`, '', ...(flags ? [flags, ''] : []), body, `Example  ${entry.example}`, ...more].join('\n');
 }
 
-/** The index: each verb of an app's exact.mjs, then the app's own (app.json `commands`). */
+/** The index: each verb of an app's exact.mjs, then the app's own (app.json `commands`), then the forms a build uses
+ * (LLP 1116.009 D6: builders read `help` and then four or five verbs' `--help` for the same flags, each a step carried in
+ * context to the end; every flag a form names is one its script parses, help.test.mjs). */
 export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new'), own = {} } = {}) {
   const names = [...verbs, ...Object.keys(own)], width = Math.max(...names.map((v) => v.length));
   const line = (verb) => HELP[verb]?.line ?? (own[verb] ? `app.json commands: ${own[verb].join(' ')}` : '');
+  const forms = verbs.flatMap((verb) => HELP[verb]?.common ?? []);
   return [
     'bun exact.mjs <verb> [arguments]    from the app\'s directory (EXACT2=<path> picks another exact2)',
     '',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
+    ...(forms.length ? ['', 'The forms a build uses:', ...forms.map((form) => `  ${form}`)] : []),
     '',
-    'bun exact.mjs <verb> --help: what a first build needs, whether it stays in the foreground, and',
-    'an example; --help all: every flag and the ports it opens. Read it when a flag is in question,',
-    'not exact2\'s scripts.',
+    'bun exact.mjs <verb> --help: what each flag does, whether it stays in the foreground, an example;',
+    'bun exact.mjs <verb> --help all: every other flag and the ports it opens. Read it only for a flag not above.',
   ].join('\n');
 }
 
@@ -412,4 +426,4 @@ export function guardFlags(verb, argv, { parsed = false, say = console.log, fail
   return exit(2);
 }
 
-if (import.meta.main) process.exit(printHelp(process.argv[2] ?? '', { all: process.argv[3] === 'all' }));
+if (import.meta.main) { const args = process.argv.slice(2); process.exit(printHelp(args.find((a) => a !== 'all') ?? '', { all: args.includes('all') })); }

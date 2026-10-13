@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
+import { DEFAULT_LOOK, LOOK } from '../host/web/look.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -172,6 +173,8 @@ export function parseFlags(argv) {
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
+    else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
     else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
@@ -262,6 +265,14 @@ export function withFaults(href, failFetch) {
   if (failFetch === undefined) return href;
   const url = new URL(href);
   if (failFetch) url.searchParams.set('failFetch', failFetch); else url.searchParams.delete('failFetch');
+  return url.href;
+}
+
+/** The page address at another date at the clock's zero (a test's `reload`, LLP 1116.009 D1): `epoch` Unix ms, else the address as it is. */
+export function withEpoch(href, epoch) {
+  if (epoch === undefined) return href;
+  const url = new URL(href);
+  url.searchParams.set('epoch', String(epoch));
   return url.href;
 }
 
@@ -513,7 +524,10 @@ export function notBuildInput(dir, keep = []) {
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
-  const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
+  const { build, target, started } = JSON.parse(readFileSync(receipt, 'utf8'));
+  // A file edited while the build ran is newer than what it read, though older than the receipt written at its end
+  // (LLP 1116.008 D2): the build's own start bounds it, else (an older receipt) the receipt's time.
+  const since = Math.min(statSync(receipt).mtimeMs, Date.parse(started) || Infinity);
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   // A game's proof, pins and helper scripts are not native inputs either
   // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
@@ -560,11 +574,13 @@ export function webInputs(app, js, since = -Infinity) {
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
-/** Content digests of every input of a web build, recorded in its marker. */
+/** Content digests of every input of a web build, recorded in its marker; and the look it was built in, where that is
+ * not the default one (LLP 1115.000 D4 part B; host/web/look.mjs): a setting, so no file's digest says it. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+  return { ...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), ...(LOOK === DEFAULT_LOOK ? {} : { [LOOK_INPUT]: LOOK }) };
 }
+const LOOK_INPUT = 'EXACT_WEB_LOOK';
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
  * change. A marker without digests (an older build) trusts the times. */
@@ -574,7 +590,9 @@ export function webChanges(dist, app) {
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
-  const appChanges = own.filter(changed), shared = roots.filter(changed);
+  // A build in another look than this drive's is stale, whatever its files say.
+  const look = built.inputs && (built.inputs[LOOK_INPUT] ?? DEFAULT_LOOK) !== LOOK ? [`${LOOK_INPUT}=${LOOK}`] : [];
+  const appChanges = own.filter(changed), shared = [...roots.filter(changed), ...look];
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 

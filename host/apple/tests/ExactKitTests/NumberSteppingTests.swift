@@ -57,7 +57,8 @@ final class NumberSteppingTests: XCTestCase {
         XCTAssertEqual(stepped("1.", ["step": "1"]), "2", "a point on its way to a fraction is the number before it")
         XCTAssertEqual(stepped("\u{2212}3"), "-2", "a typographic minus is a minus")
         XCTAssertEqual(stepped("", ["min": "1"]), "1")
-        XCTAssertNil(stepped("", up: false, ["min": "1"]), "from 0, below the floor: nothing, as the web")
+        XCTAssertEqual(stepped("", up: false, ["min": "1"]), "1", "Chrome: an empty field steps into the bounds in either direction")
+        XCTAssertEqual(stepped("", ["min": "-10", "max": "-1"]), "-1")
         XCTAssertEqual(stepped("", ["min": "5"]), "5")
         XCTAssertEqual(stepped(" 7 "), "8")
     }
@@ -80,5 +81,35 @@ final class NumberSteppingTests: XCTestCase {
         XCTAssertEqual(stepping.shown("50"), 50)
         XCTAssertEqual(stepping.shown("500"), 99)
         XCTAssertEqual(NumberStepping([:]).shown("-7"), -7)
+    }
+
+    /// LLP 1116.008 D5: a value typed past a bound commits as that bound, as
+    /// the stepper holds its own value; a number within them, text that is no
+    /// number and a field with no bounds keep what was typed (nil: no change).
+    func testAValueTypedPastABoundCommitsAsTheBoundItPassed() {
+        let bounds = NumberStepping(["min": "1", "max": "99"])
+        XCTAssertEqual(bounds.clamped("250"), "99", "grocery-list: 250 against a max of 99")
+        XCTAssertEqual(bounds.clamped("99.5"), "99")
+        XCTAssertEqual(bounds.clamped("1e3"), "99")
+        XCTAssertEqual(bounds.clamped("0"), "1")
+        XCTAssertEqual(bounds.clamped("-7"), "1")
+        XCTAssertEqual(bounds.clamped("\u{2212}7"), "1", "a typographic minus is a minus")
+        XCTAssertEqual(bounds.clamped(" 250 "), "99")
+        XCTAssertNil(bounds.clamped("1"))
+        XCTAssertNil(bounds.clamped("42"))
+        XCTAssertNil(bounds.clamped("99"))
+        XCTAssertNil(bounds.clamped("1."), "a point on its way to a fraction is the number before it")
+        for text in ["", "abc", "-", "1,5", "5abc", "."] { XCTAssertNil(bounds.clamped(text), "\"\(text)\" is no number: left alone") }
+    }
+
+    func testABoundTheAuthorDidNotWriteIsTheWebsNone() {
+        XCTAssertEqual(NumberStepping(["min": "0"]).clamped("-3"), "0")
+        XCTAssertNil(NumberStepping(["min": "0"]).clamped("5000"))
+        XCTAssertEqual(NumberStepping(["max": "10"]).clamped("11"), "10")
+        XCTAssertNil(NumberStepping(["max": "10"]).clamped("-5000"))
+        XCTAssertNil(NumberStepping([:]).clamped("250"))
+        XCTAssertNil(NumberStepping(["min": "x", "max": ""]).clamped("250"), "bounds that read as no number are none")
+        XCTAssertEqual(NumberStepping(["min": "0.5", "max": "2.5"]).clamped("3"), "2.5", "a fractional bound keeps its fraction")
+        XCTAssertEqual(NumberStepping(["min": "5", "max": "3"]).clamped("9"), "5", "a max under min is min")
     }
 }

@@ -7,6 +7,7 @@ mod browser_cases;
 mod browser_columns;
 mod browser_controls;
 mod browser_flex;
+mod browser_host_block;
 mod browser_paint_order;
 mod browser_position;
 mod browser_ratio;
@@ -26,6 +27,7 @@ mod flow;
 mod flow_auto;
 mod flow_rows;
 mod geometry;
+mod hairline;
 mod handoff;
 mod head;
 mod height_binding;
@@ -41,6 +43,7 @@ mod presence;
 mod presented_height;
 mod reader;
 mod rem;
+mod symbol;
 mod support {
     pub mod reader;
 }

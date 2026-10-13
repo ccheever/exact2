@@ -9,7 +9,7 @@
 //! bytes no longer decode, or whose value no longer fits the declared shape
 //! is simply not used, and the compiled empty-store placeholder stands.
 
-use super::{DataSource, Runner, RunnerError};
+use super::{DataSource, ResourceState, Runner, RunnerError};
 use crate::store::Store;
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
@@ -25,6 +25,40 @@ pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
 pub(super) struct Keeping {
     pub(super) on: bool,
     pub(super) too_big: Vec<usize>,
+    /// Kept answers this boot refused, by resource, with why: journaled
+    /// with the ones it shows, so a refusal is never silent.
+    pub(super) refused: Vec<(usize, String)>,
+}
+
+/// Note that resource `i`'s kept answer, kept for `kept`, was refused
+/// for this launch's identifying `now` (or, with `now` unknown, because
+/// they read a store reader still on its fallback). Once per resource.
+pub(super) fn refuse(
+    keeping: &mut Keeping,
+    plan: &exact_plan::Plan,
+    i: usize,
+    kept: &[Value],
+    now: Option<&[Value]>,
+) {
+    if keeping.refused.iter().any(|(r, _)| *r == i) {
+        return;
+    }
+    let json = |args: &[Value]| {
+        let mut out = String::new();
+        crate::agent::untyped_json(&Value::list(args.to_vec()), &mut out);
+        out
+    };
+    let why = match now {
+        Some(now) => format!(
+            "this launch asks for {}",
+            super::lines::shortened(&json(now))
+        ),
+        None => "this launch's arguments read a store reader still on its fallback".into(),
+    };
+    let name = plan.str(plan.resources[i].name);
+    keeping
+        .refused
+        .push((i, super::lines::kept_refused(name, Some(&json(kept)), &why)));
 }
 
 /// The store name a resource's kept answer lives under.
@@ -122,6 +156,116 @@ pub(super) fn decode(bytes: &[u8]) -> Option<(Vec<Value>, Value)> {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Whether resource `i`'s identifying call arguments (not its `with`
+    /// context) read, directly or through derives, a store-reading resource
+    /// still on its fallback, its compiled answer or placeholder, before its
+    /// source is ready: its identity is not yet known, so its kept answer
+    /// must wait. An account resource with no kept answer of its own shows
+    /// its placeholder (`did: ""`), and that empty id would match whatever
+    /// another launch kept (LLP 1027.005 D3, 2026-10-10). Kept seeds,
+    /// carried and checkpoint answers and non-store values are known.
+    pub(super) fn identity_unknown(&self, i: usize, states: &[Option<ResourceState>]) -> bool {
+        use crate::instance::Input;
+        let deps = self.sites.deps();
+        let row = &self.plan.resources[i];
+        let identity = row.args.len as usize - usize::from(row.context);
+        let mut work: Vec<_> = row
+            .args
+            .iter()
+            .take(identity)
+            .map(|a| deps.reads_of(&self.plan, self.plan.arg(a).expr))
+            .collect();
+        let mut derives = vec![false; self.plan.derives.len()];
+        while let Some(reads) = work.pop() {
+            for input in deps.inputs(&reads) {
+                match input {
+                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
+                        if self.store_readers[r]
+                            && states[r]
+                                .as_ref()
+                                .is_some_and(|s| s.placeholder || s.value.is_compiled()) =>
+                    {
+                        return true;
+                    }
+                    Input::Derive(d) if !derives[d] => {
+                        derives[d] = true;
+                        work.push(deps.derives[d].clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// What the first frame shows from the bake until its source is ready
+    /// (LLP 1048.003 D6; feed F24: say so in the journal), and each store
+    /// reader whose build-time answer a store holding secrets passed over
+    /// for its placeholder (LLP 1027 D4, 2026-10-10).
+    pub(super) fn journal_build_time(&mut self) {
+        let secrets = self.store.opened_with_secrets();
+        for i in 0..self.stale.len() {
+            let Some(state) = self.resources[i].as_ref().filter(|_| self.stale[i]) else {
+                continue;
+            };
+            let name = self.plan.str(self.plan.resources[i].name);
+            let line = if state.value.is_compiled() {
+                super::lines::build_time(name)
+            } else if state.placeholder
+                && secrets
+                && self.store_readers[i]
+                && self.plan.resources[i].initial.len > 0
+            {
+                super::lines::secrets_unseen(name)
+            } else {
+                continue;
+            };
+            self.log(line);
+        }
+    }
+
+    /// Journal each kept answer the first frame shows, with the arguments it
+    /// was kept for (development tools read the journal; its request lines
+    /// already carry URLs), so a stale answer is traceable to its key.
+    pub(super) fn journal_kept_seeds(&mut self) {
+        self.journal_refused();
+        for i in 0..self.plan.resources.len() {
+            if let Some(state) = self.resources[i].as_ref().filter(|s| s.kept_seed) {
+                let mut args = String::new();
+                crate::agent::untyped_json(&Value::list(state.args.clone()), &mut args);
+                let line =
+                    super::lines::kept_shown(self.plan.str(self.plan.resources[i].name), &args);
+                self.log(line);
+            }
+        }
+    }
+
+    /// Journal the kept answers refused by a settlement that stood: at
+    /// boot, and at a later commit before readiness (an identity changed).
+    pub(super) fn journal_refused(&mut self) {
+        for (_, line) in std::mem::take(&mut self.keeping.refused) {
+            self.log(line);
+        }
+    }
+
+    /// The kept answer that may seed resource `i`'s first frame: its
+    /// identifying arguments and value, when they still decode, count as
+    /// many arguments as the call identifies and fit its shape; otherwise
+    /// the refusal is noted for the journal.
+    pub(super) fn kept_seed(&mut self, i: usize) -> Option<(Vec<Value>, Value)> {
+        let row = &self.plan.resources[i];
+        let name = self.plan.str(row.name);
+        let entry = self.store.kept(&kept_name(name))?;
+        let identity = row.args.len as usize - usize::from(row.context);
+        let seed = decode(entry)
+            .filter(|(args, value)| args.len() == identity && self.check_shape(i, value).is_ok());
+        if seed.is_none() {
+            let line = super::lines::kept_refused(name, None, "it no longer decodes or fits");
+            self.keeping.refused.push((i, line));
+        }
+        seed
+    }
+
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
