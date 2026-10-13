@@ -1,7 +1,7 @@
 # LLP 1121: A design system in any language — tokens, dials and modes as plan data
 
 **Type:** RFC
-**Status:** Draft r3, 2026-10-13. Blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh) (`llp/reviews/rfc-2026-10-13-design-system-r{1,2,3}.{astra,grok}.md`): round 1 RIGHT WITH CHANGES and WRONG, round 2 RIGHT WITH CHANGES from both. r2 and r3 take every finding (§0). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), which is being built on a branch and is stage 1 here, not redesigned. The editor (stage 7) needs DEFERRED admissions (§9 Q7).
+**Status:** Draft r4, 2026-10-13. Three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh) (`llp/reviews/rfc-2026-10-13-design-system-r{1,2,3}.{astra,grok}.md`): round 1 RIGHT WITH CHANGES and WRONG; rounds 2 and 3 RIGHT WITH CHANGES from both. r2–r4 take every finding; round 3's are written in without another round, the last allowed (§0). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), which is being built on a branch and is stage 1 here, not redesigned. The editor (stage 7) needs DEFERRED admissions (§9 Q7).
 **Systems:**
 - A new leaf crate, `design/` (`exact-design`): the `.design` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -13,7 +13,7 @@
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-13
-**Implementer:** Claude (Opus 5.5), stage 2 when accepted. Stages 3–8 are not accepted until each has an implementer and a date (`rules/RULES.md` §Scope).
+**Implementer:** Claude (Opus 5.5), stage 2, starting the day it is accepted (it waits on stage 1's landing). Stages 3–8 are not accepted until each has an implementer and a date (`rules/RULES.md` §Scope).
 **Related:**
 - LLP 1095 (platform colours): D1 the interned reference and its fallback pair, D4 `theme`, D5 per-view resolution, D6 trait changes transition, D9 keyframes, D10 `color-mix()` and relative colour, D11 the web role sheet, §3 the wire, §5 item 6 (the theme port and the reach ruling).
 - LLP 1115 (write the web, ship the platform), LLP 1115.000 D6 (press and disabled feedback; the 2026-10-13 ruling, built as `contract/lower/src/disabled_look.rs`), D10.3 (the hairline), D12.3 (Bold Text), D16 (a list row's highlight), D17 and the schema's `_metrics` (looks as data).
@@ -153,6 +153,47 @@ found the same blocker. Each finding is taken:
   example's default is Black (`black | dim`), and `setMode` lays out only when a selected
   value is in a layout row (D5); stage 2 has an implementer (header).
 
+**Round 3** (r3 → r4, written in without another round). Astra: RIGHT WITH CHANGES, no
+BLOCKER (9 MAJOR). Grok: RIGHT WITH CHANGES (1 BLOCKER, 10 MAJOR, 4 MINOR). Both confirmed
+the round-2 fixes to the web's boundaries, state order, overlays, binding context,
+retention, the capability and the DTCG tuple export. Each finding is taken:
+- **Inherited colour under a pin in the kernel and the wasm host** (Grok B1). The kernel's
+  inheritance walks past ancestors without the row, so comparing a node's tuple with its
+  parent's missed the case. Now one rule on every target: **a mode boundary re-specifies
+  each inherited token row** with its value for the boundary's tuple, as an implied row on
+  the boundary node, which the wasm host emits and descendants inherit (D7).
+- **Re-specified fonts would compound `em`** (Astra M4): re-selection is for colour rows; an
+  inherited non-colour row may not name a token that varies by app axis
+  (`design-inherited-axis`) (D7).
+- **Role variables resolve where a custom property is declared** (Astra M1): only the accent
+  is element-contextual on the web, so an element with an authored `accent-color`
+  redeclares the token properties whose values name it (D7).
+- **Lookup keys** (Grok M3): every full tuple has an entry, by exact match (D5, D7).
+- **Folding** (Astra M2, Grok M10): `Fixed` only for what CSS serializes as legacy `rgb()`;
+  a `light-dark()` with a modern half is one `Wide` with its dark side (D7, §3).
+- **Typography** (Astra M3, Grok M2): LLP 1115.000 D12.2 (unsaid weight and leading resolved
+  per platform) is stage 4's prerequisite, and a type token sets only the longhands it writes
+  (D6).
+- **Previews** (Grok M4): a mode pin does not change the scheme; a Light preview is
+  `color-scheme="light"`, Dim and Black are `color-scheme="dark"` plus the pin (D5).
+- **Swift colours and app modes** (Grok M5): the provider reads its place's tuple, and the
+  binding invalidates the view on `setMode`, a pin and a swap (D12).
+- **A token in a row expression** (Grok M6) becomes a synthetic token folded per tuple at
+  build (D3).
+- **Role-override keys** (Grok M7): D4's bare key and the spelled role are the same override
+  in both files (D3).
+- **The lexer** (Grok M8): the design lexer is the Contract lexer extended with `|`, `..` and
+  CSS value text (§3).
+- **Retention** (Grok M9, Astra M5): one rule, in D7, with role and control-role overrides as
+  unconditional roots (D7, D11).
+- **Live edits** (Astra M6/M7/M8, Grok M11): state-part and motion-token edits rebuild and
+  reload; the design endpoint lives in the dev-loop process, so its own write is skipped
+  in-process; reclaimable live colour storage is stage 7's prerequisite, since `Wide`
+  entries are global, immutable and capped at 4,096 (D13).
+- **DTCG import** (Astra M9): values are compared with the exported baseline per tuple (D14).
+- **Minors** (Grok m12–m15): roles and `platform-color` on an `under` axis; `border-color`
+  expanded before the state order; `design-motion-axis`; the implementer's start (header).
+
 ## 1. Motivation
 
 ### What the Bluesky clone hit
@@ -230,8 +271,8 @@ not an authored colour, and Bold Text weights the system font (LLP 1115.000 D12.
 ### D2 — One source, the `.design` file; a generated IR; one build evaluator, in Rust
 
 **The source is `app.design`** beside `app.contract` (or named in `app.json` as `"design"`).
-Its grammar is Contract's lexical grammar: indentation blocks, `name = value` lines, `//`
-comments. Its values are written in CSS's syntax, with token names where CSS would write
+Its grammar is Contract's lexical grammar, extended (§3): indentation blocks, `name =
+value` lines, `//` comments, plus `|` and `..`, with each value read as CSS value text. Its values are written in CSS's syntax, with token names where CSS would write
 `var()` (§3). LLP 1095 D4's `theme` block in a `.contract` file stays legal and stays what D4
 says: colour entries only, with no `when` lines and no other kinds. An app that wants more
 moves it to `app.design`, whose `theme` block is a superset. An app has one or the other
@@ -272,7 +313,9 @@ person can still edit, comments kept.
 `space.row`, `type.body`, `icon.reply`. A segment is an identifier (`s4`, not `4`). A name
 spelled as a role is written (`-exact-secondary-label`, `CanvasText`: what
 `kernel/src/style/roles.rs` reads as a colour) overrides that role, within the reach ruling;
-role names are the one exception to the keyword refusal. Any other name equal to a CSS
+role names are the one exception to the keyword refusal. LLP 1095 D4's bare key
+(`secondary-label`) and the spelled role (`-exact-secondary-label`) are the same override, in
+an inline `theme` and in `app.design`. Any other name equal to a CSS
 keyword or named colour is refused, as D4 refuses it. LLP 1095 D4's
 undotted app names (`brand`, `card`, `defrost-on`) stay legal; dots are a convention for
 grouping, which the editor and DTCG use.
@@ -288,7 +331,7 @@ and why):
 | `type` | CSS `font` syntax: style, weight, size (px, `rem`, or a text style), `/line-height`, family | `font` | the four longhands `font` sets today (`contract/lower/src/shorthands.rs`) plus `font-family` |
 | `family` | a font-family stack | `font-family` | the row |
 | `box-shadow`, `text-shadow` | each row's own syntax (`text-shadow` has no spread) | that row | the row's codec |
-| `duration`, `easing` | CSS time; `cubic-bezier()`, a keyword | a component of a `transition` or `animation` value (`transition="background-color duration.fast easing.standard"`) | substituted into the value at build, before the row's codec reads it; so these may not vary by app axis |
+| `duration`, `easing` | CSS time; `cubic-bezier()`, a keyword | a component of a `transition` or `animation` value (`transition="background-color duration.fast easing.standard"`) | substituted into the value at build, before the row's codec reads it; so a `when` on one is refused (`design-motion-axis`), and an edit to one rebuilds (D13) |
 | `icon` | `icon(…)` (D10) | `symbol` | a symbol source |
 
 A gradient is colour tokens in its stops; there is no gradient kind. The hairline stays the
@@ -297,7 +340,10 @@ named length `-exact-hairline`, usable as a length token's value.
 **A row names a token as a string**, as LLP 1095 D4 does: `background-color="surface.card"`,
 `padding="space.row"`, `font="type.body"`. Inside an expression in a row, a token is a bare
 name: `color="color-mix(in srgb, brand 60%, transparent)"`. The compiler checks every literal
-name (`design-unknown-token`). A name computed at run time (from data) is resolved by the
+name (`design-unknown-token`). A row expression that names a token is lowered to a
+synthetic token holding the whole expression, folded per tuple at build like any other, so
+the row still holds one reference and no device evaluates the mix. A name computed at run
+time (from data) is resolved by the
 runtime parser against the plan's table, as D4 resolves `"brand"`; an unknown name is an
 invalid value in the log.
 
@@ -352,13 +398,18 @@ theme
     when density=compact: 8px
 ```
 
-- **The mode key.** The compiler expands each token into disjoint rows, one per distinct
-  value, keyed by the tuple of app-axis values it holds for. A `when` that names more axes
-  wins over one that names fewer; two that both hold and neither names more are refused
+- **The mode key.** The compiler resolves each token for every full tuple of app-axis
+  values: the table holds, per token that varies, an entry for each tuple (pointing at one
+  of its distinct values), and the kernel looks a node's tuple up by exact match. A token
+  that varies by no axis has one value and no entries. A `when` that names more axes wins
+  over one that names fewer; two that both hold and neither names more are refused
   (`design-when-ambiguous`). An axis declared `under scheme=dark` is resolved by the host
-  side: its rows hold `light-dark(<the default's light side>, <the axis value's dark side>)`,
-  so the light side never varies by it, and a `when` on it whose light side differs from
-  the default's is refused (`design-under-light`). Only colours may vary by such an
+  side: its values are `light-dark(<the default's light side>, <the axis value's dark
+  side>)`, so the light side never varies by it. A `when` on it may write one colour, its dark
+  side, or a `light-dark()` whose light side is the default's; another light side is refused
+  (`design-under-light`). A role or `platform-color` has no light side to keep, so as such a
+  `when`'s value, or as the default of a token that has one, it is refused unless written
+  inside a `light-dark()` (`design-under-role`). Only colours may vary by such an
   axis: the kernel picks a length's slice without knowing the scheme, so a non-colour `when`
   on it is refused (`design-under-kind`). A design whose axes multiply past 64 tuples is
   refused with the axes named.
@@ -368,8 +419,10 @@ theme
   a selected value is in a layout row. Undeclared axes and values are refused at compile.
 - **A subtree pins app modes** with `-exact-mode="dark-style:dim"` (several, comma-separated),
   as `color-scheme` pins the scheme (LLP 1034 §8). A pin inherits the axes it does not name
-  from above. This is how a settings screen previews the three appearances side by side,
-  and how the editor shows one screen in every mode.
+  from above. A mode pin never changes the scheme: a settings screen previews the three
+  appearances side by side as `color-scheme="light"`, and `color-scheme="dark"` with
+  `-exact-mode="dark-style:dim"` or `"dark-style:black"`. The editor shows one screen in
+  every mode the same way.
 - **Bluesky:** its three-way appearance is `setScheme` for light, dark or system, and
   `setMode("dark-style", …)` for Dim or Black. No palette is threaded; the 244 literals
   become names.
@@ -383,11 +436,14 @@ theme
   "InterVariable"` takes the body style's size and weight, with `line-height: 1.35` and
   `font-family: "InterVariable"`; it follows Dynamic Type and the browser's setting (LLP 1115 D3). A px
   size is the author's choice not to scale, and `design check` warns (`design-type-fixed`).
-- **A type token on a text style goes through `font`'s existing path.** `font="type.body"`
-  is `font="-exact-body"`, which supplies the style's size, weight and leading as set, not
-  written (`contract/lower/src/shorthands.rs`), and then the parts the token writes, as
-  written rows: here `line-height` and `font-family`. A part it does not write stays the
-  style's.
+- **A type token sets only the longhands it writes.** `font="type.body"` writes
+  `font-size: -exact-body`, `line-height: 1.35` and `font-family: "InterVariable"`, each a
+  written row; the weight it omits stays unsaid, so the text style's own weight applies.
+  Today's `font` shorthand cannot do that: it writes a numeric weight and `line-height:
+  normal` and marks all four written (`contract/lower/src/shorthands.rs`). LLP 1115.000
+  D12.2, an unsaid weight and leading resolved per platform with per-longhand provenance, is
+  therefore stage 4's prerequisite. When a token's value changes which longhands it writes
+  (an update, a dev reload), the ones it no longer writes are cleared.
 - **Bold Text is not a consequence of an unsaid weight.** It is the accessibility pass on the
   system font, which weights it even under an authored weight and leaves a bundled font
   alone (LLP 1115.000 D12.3). A token's weight is an authored weight like any other.
@@ -404,8 +460,8 @@ theme
 This widens LLP 1095 D1 and D4 ("the theme ships in the plan as part of the reference
 table") from colours to the kinds in D3, keyed by app modes.
 
-**The table.** One row per token the build keeps: `{ kind, rows: [(app tuple, value)],
-fallback }`.
+**The table.** One row per token the build keeps: `{ kind, values, entries: [value index
+per full app tuple], fallback }` (D5's mode key).
 - **A value is an existing form**, not a new one. A colour is a `ColorValue` the kernel
   already has (`Fixed`, `LightDark`, `Role`, `Platform`, `Wide`, `Profiled`; a mix once LLP
   1095 D10's table lands). A length is a dimension or an entry of the relative side table.
@@ -413,30 +469,43 @@ fallback }`.
 - **The build folds everything else.** An expression over literals and dials folds to a
   constant: any CSS Color 4/5 function (`oklch()`, relative colour with channel `calc()`,
   `contrast-color()`). The folded colour keeps the form the author would get by writing the
-  result as CSS serializes it, under LLP 1100's rules: a legacy sRGB result (hex, `rgb()`,
-  `hsl()`, a named colour, and a mix of those in `srgb`) is `Fixed`; a result in a modern
-  space (`oklch()`, `lab()`, `color()`, a mix in `oklab`) is `Wide` in that space even when
-  it is inside sRGB, so its precision and its interpolation in a transition
-  (`kernel/src/motion.rs`) are what the literal's would be. An expression over a host value (a role, a pair's side, a `platform-color`) may only
+  result as CSS Color 5 serializes it, under LLP 1100's rules: `Fixed` only when CSS
+  serializes the result in legacy `rgb()` form (a hex, `rgb()`, `hsl()`, `hwb()` or named
+  colour, or a token that is one); every other result, a `color-mix()` in any space and a
+  relative colour included, serializes as `color()` or its own space and is `Wide`, even
+  inside sRGB, so its precision and its interpolation in a transition
+  (`kernel/src/motion.rs`) are what the literal's would be. A `light-dark()` whose halves
+  are both legacy is `LightDark`; one with a modern half is one `Wide` with its dark side
+  (`kernel/src/style/wide.rs`), as the parser makes it. An expression over a host value (a role, a pair's side, a `platform-color`) may only
   be one LLP 1095 D10 admits (`color-mix(in srgb|oklab)`, `rgb(from X r g b / a)`, depth 2),
   and only once D10 is built; any other is refused (`design-residual`, naming the host value
   that stops the fold). `contrast-color()` of a role is refused for that reason.
 - **The fallback is a pair**, D1's rule: light and dark, for the default app tuple, with
   roles at their fallback pairs. The kernel, Linux and headless runs always have a value.
-- **Pruning.** The build keeps every token a literal names and its dependency closure. A
-  plan whose computed strings may name a token (a string from data in a colour row) keeps
-  every token of that kind, as LLP 1095 D11 keeps the whole role sheet for computed roles.
-  An app with generated bindings (D12) keeps every token, unless its design lists an
-  `exports` block, which then bounds what the bindings may name.
+- **Retention, the one rule** (packages included, D11). The build keeps the closure of:
+  every token a literal names; every role and control-role override, unconditionally, since
+  a kernel default (`CanvasText` for unsaid text) or a native control may read it with no
+  row naming it; every token of a kind that a computed string may name (a string from data
+  in a colour row), as LLP 1095 D11 keeps the whole role sheet for computed roles; and, in
+  an app with generated bindings (D12), every token, unless its design lists an `exports`
+  block, which then bounds what the bindings may name.
 
 **The kernel picks the slice, per node.** A node's app tuple is the window's (`setMode`),
 overridden axis by axis by the nearest `-exact-mode` above it. The kernel stores the
 selected value in the row, so every reader sees an ordinary value, and keeps the token beside
-it. **Inheritance carries the token, not only the value.** An inherited row (`color`, `fill`,
-a font) whose value came from a token is copied to the child with its token; at a node whose
-tuple differs from its parent's, the kernel selects that token's value for the node's own
-tuple. So text inside a Dim preview under a Black page is Dim's colour, though the row was
-written on the page.
+it.
+
+**A mode boundary re-specifies inherited colour tokens.** Inheritance copies the nearest
+ancestor's row past nodes that lack it (`kernel/src/arena.rs`), so comparing a node with its
+parent cannot catch a pin. Instead, at each node with `-exact-mode`, the kernel writes every
+inherited colour row (`color`, `fill`, `stroke`, `-exact-tint-color` …) whose inherited
+value came from a token as an implied row on that node, holding the token's value for the
+node's tuple. Descendants inherit it as any row; the wasm host emits it in the boundary's
+CSS (`host/web/src/element.rs`); the JS target does the same (below). So text inside a Black
+preview on a Dim page is Black's colour, though its row was written on the page. **Only
+colours re-select.** Re-specifying a font would compound an `em` size at the boundary
+(`kernel/src/style/relative.rs`), so an inherited non-colour row may not name a token that
+varies by an app axis (`design-inherited-axis`).
 
 **What refreshes when a slice or a row changes.** The kernel keeps, per token, the nodes
 whose rows hold it, maintained when a node mounts, retires, moves under another pin, or has
@@ -444,8 +513,8 @@ a row rewritten by a binding. A change marks those nodes by the **row** they use
 the schema's existing flags (a `number` in `opacity` is paint, in `line-height` layout; an
 icon whose source changes size is layout). Then the existing paths run:
 - **inherited colour and `currentcolor`** follow the parent's computed value as today
-  (`kernel/src/txn.rs`'s propagation), re-selected at a pin as above; the index records the
-  node that holds the row and every pin under it that re-selects;
+  (`kernel/src/txn.rs`'s propagation), re-specified at a boundary as above; the index
+  records the node that holds the row and every boundary under it;
 - **text** colours and fonts invalidate the host's text caches, as an appearance change does
   (LLP 1034 D2);
 - **a `transition`** on a row eases the change, as a trait change does (LLP 1095 D6); without
@@ -472,15 +541,22 @@ Android's reader repaint from the kernel's resolved rows (`host/linux/src/paint.
   selected by exact match, and each rule declares **every** token that varies by any app
   axis, default values included. So a Black pin inside a Dim page restores Black, and no
   property is inherited across a boundary. No token's value is a `var()` of another token;
-- **a boundary re-specifies inherited token rows.** CSS inherits `color` as a computed
-  colour, so text inside a pin would keep its ancestor's. The runtime knows, for each
-  inherited row, whether its nearest specified value is a token; at a boundary it writes
-  that row again (`color: var(--x-text-primary)`) on the boundary element, so the subtree
-  computes it against its own slice;
+- **a boundary re-specifies inherited colour tokens**, the kernel's rule: CSS inherits
+  `color` as a computed colour, so the runtime, which knows for each inherited row whether
+  its nearest specified value is a token, writes that row again (`color:
+  var(--x-text-primary)`) on the boundary element;
+- **the accent is the one element-contextual role.** A `var()` inside a custom property is
+  substituted on the element that declares it, so a token whose value names
+  `var(--exact-accent, …)` would keep the root's accent under a child with its own
+  `accent-color` (`kernel/src/style/roles.rs`'s nearest-accent rule). Every other role
+  variable is declared once at the root and its value is a `light-dark()` pair or a
+  keyword, which survive substitution and resolve at use. So an element with an authored
+  `accent-color` redeclares, for its own tuple, every token property whose value names the
+  accent;
 - `setMode` and a changed pin rewrite `data-x-modes` on the boundary and recompute the tuples
   of the boundaries beneath it, which inherit the axes they do not pin;
-- the wasm host computes its CSS from the kernel's rows as today, so it gets the kernel's
-  path.
+- the wasm host computes its CSS from the kernel's rows as today, the boundary's implied
+  rows included.
 
 **Wire and compatibility.** The reference table's widening to every kind, and the app tuple
 on the row, change the kernel schema digest once, so every native host needs a new binary
@@ -531,7 +607,9 @@ style PostButton
   glue (`data-pressed`), never a stylesheet `:active` rule, which would match ancestors and
   nodes with no `press` handler. A written `-exact-press-scale="0.97"` is that state's
   scale.
-- **Composition, per row**, from lowest to highest:
+- **Composition, per row**, after shorthands are expanded (`border-color` to its four
+  sides, so a state's `border-color` overrides each side the base wrote, longhand or not),
+  from lowest to highest:
   1. the class's rows, then the node's own rows (the node wins, as today);
   2. `:checked`, the class's then the node's;
   3. `:disabled`, the class's then the node's;
@@ -631,8 +709,8 @@ under its package (`reading.measure`, `reading.body`), which its views use. The 
 may set any of them by full name. Two definitions of one name from different files are a
 compile error, unless the app's design sets it. Dials and axes are the app's alone: a package
 may not declare them, and a package token's `when` lines may name only the app's axes, which
-the app must declare or the package's token is refused. Only tokens a plan references (and
-their closure) are kept (D7).
+the app must declare or the package's token is refused. What a build keeps of a package's
+tokens is D7's one retention rule.
 
 ### D12 — Every language gets generated names over the one table
 
@@ -658,7 +736,9 @@ committed.
   or a session's root for a host screen outside any node. It resolves for that place's app
   tuple, so two views in one session under different `-exact-mode` pins answer differently.
   A Swift colour is a dynamic provider over the view's traits, so scheme and contrast resolve
-  as LLP 1095 D5 says. A font, a symbol and a Kotlin colour int are values for now, so
+  as LLP 1095 D5 says, and it reads its place's app tuple each time it resolves; since the
+  app tuple is not a trait, the binding also invalidates the view on `setMode`, a pin change
+  above it and an editor swap. A font, a symbol and a Kotlin colour int are values for now, so
   `observe` fires on every input they depend on: `setMode`, a pin above the place, scheme,
   contrast, the root font size and Dynamic Type, Bold Text, an update, a dev reload and an
   editor swap.
@@ -678,7 +758,8 @@ without a reload.
 |---|---|---|
 | `set-dial name value` | a dial | every token it reaches, transitively |
 | `set-token name [when …] value` | a token's default or a `when` | that token and every token folded from it |
-| `set-state style state row value` | a state part (D8), through `contract fmt` | a host-known state's look: swapped like a row; a runner-known state (`:disabled`, `:checked`), which is compiled into conditional rows: the ordinary rebuild and reload |
+| `set-state style state row value` | a state part (D8), through `contract fmt` | the ordinary rebuild and reload: state parts are compiled into conditional rows and interned state looks, outside the token table |
+| `set-token` on a `duration` or `easing`, or `set-dial` on a dial one folds from | the design | the ordinary rebuild and reload: motion tokens are substituted at build (D3) |
 | `add-token`, `rename-token`, `add-axis-value` | structure | the dev loop's ordinary rebuild and reload, which carries state (LLP 1007 §6) |
 | `preview axis=value` | nothing | pins an app mode on a connected app, as `prefer` does |
 
@@ -687,10 +768,10 @@ without a reload.
    the `.contract` file) as the client last saw it; a different digest on disk is a
    conflict, and nothing is written;
 2. the evaluator checks the edited design; a refused edit writes nothing and says why;
-3. `design fmt` writes the file (one line changes). The dev server marks the write as its
-   own, so the dev loop's watcher (`host/web-js/dev.mjs`, the native loop's likewise) does
-   not rebuild and reload for it; the server rebuilds the plan in the background so the next
-   ordinary reload carries the new values;
+3. `design fmt` writes the file (one line changes). The design endpoint runs inside the dev
+   loop's own process (`host/web-js/dev.mjs`, and the native loop's), which watches the
+   file, so it skips the reload for the one write it made, by its digest, in-process; it
+   rebuilds the plan in the background so the next ordinary reload carries the new values;
 4. the evaluator re-folds **every** token that depends on what changed, transitively, and
    builds one batch of all changed rows, tagged with the plan's **structure digest** (the
    plan without its design table), the design digest it applies to, and the new one;
@@ -749,7 +830,10 @@ declared on-pairs), and the app's own screens pinned per mode with `-exact-mode`
   - dials: `$extensions` on the root;
   - icons: not tokens (DTCG has no icon `$type`), listed in a root `$extensions` block.
 
-  Re-import compares the `$extensions` source where there is one, not the lossy `$value`.
+  Re-import compares each incoming `$value`, per context, with the value exported for it
+  (the export keeps that baseline in `.exact/`). An unchanged value keeps its source
+  expression; a changed one is proposed (below), even when the other tool preserved the
+  `$extensions` source, as DTCG requires it to.
   Tokens Studio's dialect is a separate exporter.
 - **Import proposes.** A changed value becomes `set-token` operations with a diff. A change
   to a token folded from a dial is offered as a dial change, where one dial explains it, or
@@ -784,8 +868,14 @@ where CSS would write `var(--name)`. So the file is not CSS a browser can read: 
 rewrites each value, folding it or emitting it as `var(--x-…)` (D7). A kind is inferred from
 the value where it can be and written where it cannot.
 
-**Folding** is in f64, quantised once at the end into the row's stored form (8-bit sRGB, or
-`Wide`), so every host gets the same bits: there is one evaluator.
+**The lexer** is Contract's (`contract/syntax/src/lexer.rs`) for the structure (indentation,
+identifiers, `=`, `:`, comments), extended with `|` and `..`. After a token's or a `when`'s
+`=` or `:`, the rest of the line is **CSS value text**, read by the crate's CSS value
+parser, so `-exact-body/1.35` is a text style and a line height, not a negation and a
+division as Contract's expression lexer would read it.
+
+**Folding** is in f64. Only a legacy result (D7) is quantised, once, to 8-bit sRGB; a `Wide`
+result keeps LLP 1100's storage. Every host gets the same bits: there is one evaluator.
 
 **Example: the Bluesky clone, in part** (values illustrative; the port takes the clone's
 own):
@@ -845,8 +935,10 @@ Android's reader and the terminal.
    app tuple on reference rows. Hosts: all. **Gate:** the Bluesky clone's 244 literals become
    names, with Light, Dim and Black from the root and no palette threaded; every compared
    screen identical on the web, iOS and the Mac in all three; a settings screen with three
-   `-exact-mode` previews renders each correctly on the web and iOS, including a Black pin
-   inside a Dim page with text whose colour is inherited from the page; a Dim switch on a 1,000-row list does not relayout (`perf`); Expose and the readers
+   previews (Light by `color-scheme`, Dim and Black by `color-scheme="dark"` and a pin) renders
+   each correctly on the web, the wasm host and iOS, including a Black pin inside a Dim page
+   with text whose colour is inherited from the page, and a token naming the accent under a
+   child with its own `accent-color`; a Dim switch on a 1,000-row list does not relayout (`perf`); Expose and the readers
    unchanged; an app without a design unchanged in behaviour, with no design payload.
    **Alongside, independent:** `setRootFontSize("125%")` (QUEUE's item). Gate: the clone's
    font-size setting scales Dynamic Type at two Dynamic Type sizes.
@@ -858,7 +950,9 @@ Android's reader and the terminal.
    operations.
 4. **Length, number, type, shadow and motion tokens.** Digest break: the new reference forms
    on those rows. Hosts: all. **Gate:** Expose's 48 `font-family` writes and its radii become
-   tokens with screens identical; Bold Text still weights a text-style type token.
+   tokens with screens identical; under Bold Text a system-font type token is bolded, one with
+   an authored weight too, and a bundled family is not. Prerequisite: LLP 1115.000 D12.2
+   (D6).
    `calc()` with `rem` in a token waits on QUEUE's `rem`/`em` item.
 5. **State parts and control roles** (D8, D9). Digest break: state looks; the control-role
    table. Hosts: all that paint a press. **Gate:** the clone's Post button and switches are
@@ -869,12 +963,16 @@ Android's reader and the terminal.
 6. **Icon tokens** (D10). Digest break: none if the symbol wire already takes an SVG source
    per node, else one. **Gate:** the clone's ~100 `symbol:sf/…` uses draw on the web from
    icon tokens; a missing source fails the build with the target named.
-7. **The editor and the live table** (D13). Needs Charlie's DEFERRED admission. No digest
+7. **The editor and the live table** (D13). Needs Charlie's DEFERRED admission, and
+   reclaimable live colour storage first: `Wide` entries are process-global, immutable and
+   capped at 4,096 (`kernel/src/style/wide.rs`), so continuous edits would exhaust them;
+   the policy says what a running transition keeps alive. No digest
    break beyond stage 2. **Gate:** a dial drag reaches the clone running on the iOS
    simulator, the Mac and the web at once, with no state lost (a scrolled list stays
    scrolled, a draft stays typed); a write without the capability is refused, and a `--lan`
    client cannot obtain it; a stale digest conflicts; a session that reconnects after
-   missing a batch gets the snapshot and matches the file; a value edit causes no reload; `tree`'s provenance and the use count are right on every host.
+   missing a batch gets the snapshot and matches the file; a value edit causes no reload; more than 4,096 distinct colour edits in one session drop
+   none and leave live colour storage bounded; `tree`'s provenance and the use count are right on every host.
 8. **Figma import** (D14). **Gate:** a changed accent in a Variables or DTCG file is proposed
    as a dial change; a changed folded value as a pinned override.
 
