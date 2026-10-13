@@ -99,7 +99,7 @@ Records: `.exact/implementation/20261005-t3code-macos-parity/` (`plan.md` "Statu
    follow-up [r12-kept-workarounds](.exact/implementation/20261005-t3code-macos-parity/tasks/20261013-r12-kept-workarounds.md) holds them (13 rows, Inspect app colors
    among them: main closed #321 and #281 by `aa9705c33`). X86's box
    went in round 11 (`realinput-1011c` DCP-F passed). The uncapped analysis: the same 21 `analyze-read-after-assign`.
-6. Main adoption, round 13 ([adopt-main-fixes-r13](.exact/implementation/20261005-t3code-macos-parity/tasks/20261014-adopt-main-fixes-r13.md)): `feat(example)/t3-code` takes main `898ca3a09`, then `95f2fd3e7` and `2ba30e401` (19 commits past `0b956d63d`), with
+6. Main adoption, round 13 ([adopt-main-fixes-r13](.exact/implementation/20261005-t3code-macos-parity/tasks/20261014-adopt-main-fixes-r13.md)): `feat(example)/t3-code` takes main `898ca3a09`, then `95f2fd3e7`, `2ba30e401` and `958523176` (20 commits past `0b956d63d`), with
    #523: X87 is fixed. Round 12's agent trigger (a press held on the timeline's empty area, ⌘1, ⌘2, the up, Settings,
    Back) aborts the T3 tip's bundle at ⌘1's batch (SIGABRT) and runs on round 13's, as the reference
    ([image](https://raw.githubusercontent.com/ccheever/exact2/7dd69a98a9c5f5041bf1440cd42178394fa77386/adopt-main-fixes-r13/rt1-x87.png), [readouts](https://raw.githubusercontent.com/ccheever/exact2/7099db73d3c2cb67e1ae32017c222e65e5c206bf/adopt-main-fixes-r13/readouts.txt)). Main's other commits (Ibex's consumer adoption, the sticky-target
