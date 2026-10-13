@@ -1,12 +1,12 @@
 ---
 name: 20261014-composer-chips-accessibility
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: pending
+implementation: done
+verification: verified
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: feat(example)/t3-code-composer-chips-accessibility
+branch: 'feat(example)/t3-code-composer-chips-accessibility'
 pr_url:
 verified_commit:
 ---
@@ -74,3 +74,169 @@ T3 Code `1e2ecbd975` (MIT), `target/t3-ref/src-1e2ecbd975/apps/web/src/component
 - `chat/ContextWindowMeter.tsx`, `ui/popover.tsx`: the meter's PopoverPopup (a dialog).
 - `realinput-1011c` reads: `b1-2set/g18/{ref,clone}.txt`, `b6-voiceover/G5-D{1,4}-ax-{clone,ref}.txt`,
   `b6x-voiceover/DCP-Gv-ax.txt`, and the session notes `00-b1-notes.txt`, `00-b6-notes.txt`, `00-b6x-notes.txt`.
+
+## Cause and fix
+
+**G1-8, G5-D4, DCP-Gv: one mechanism.** The composer is Exact's `TextArea` (an NSTextView) holding the prompt's Markdown
+source; the chips are that source drawn over by `T3ComposerStyler` (X20, #276: a permanent declared difference). AppKit
+therefore served the source as the text (`[Terminal 2 lines 1-738](t3-context://…)`, `$frontend-design`,
+`[Assistant quote](t3-citation://…)`), and the module's chip buttons were the skill chips and the citations' comment
+buttons only, `AXButton`s. Fix, in `T3ComposerAccessibility.swift`:
+
+- Every chip is an accessibility element of the text view, in text order, with the role and name its node view has in
+  T3 Code, as Chromium serves them (the reference's own composer, read over CDP with the same draft): a terminal excerpt
+  with text `AXPopUpButton` "Terminal excerpt, <label>. Show details" (expired: "…, expired"); a skill `AXPopUpButton`
+  "Skill <label>. Show details"; a file mention `AXButton` "Preview <path>"; a citation its source link `AXLink` "View
+  cited assistant text: <label>" and its comment button `AXPopUpButton` "Add comment to citation" / "Edit citation
+  comment"; the context kinds as composerContextPresentation names them (thread link, file, image and video
+  attachments, review comment, preview annotation, pull request); a reference with no record "Unavailable context,
+  <label>". AXPress is offered where the clone builds the press (a skill's and a terminal excerpt's details, a
+  citation's comment).
+- The text view's accessibility text is a projection of the source: each chip reads as its label, the hidden Markdown
+  markers (`**`, backticks, task markers) are left out, a citation's run carries its link element as AXLink, and every
+  range (selection, AXSelectedTextRange set by VoiceOver, bounds, lines, index and style ranges, position) maps to the
+  source; a chip is one unit (any index in it names its whole label, its bounds are its pill). The text view is
+  Exact's and the hatch cannot subclass it, so these answers are added to its class at run time (the typed
+  NSAccessibility accessors, which AppKit serves standard attributes from, and the attribute-name methods); each passes
+  to the class's own answer for a text view with no projection (no chip, no hidden marker, a composition open, or the
+  text mid-edit), so every other text area answers as before.
+- Found while proving it: AppKit's server reads a text view's set children through the typed accessor
+  (`realinput-1011c` read the skill button out of process) while NSTextView's `accessibilityAttributeValue(.children)`
+  does not return them; and the agent's `tree --ax` joins an element under a native text view to no Exact view
+  (`AgentAccessibility.axOwner`), so only an unscoped read lists the chips (a framework detail of the agent, not
+  filed: the coordinator's call).
+
+**G1-8, the glyph and the press.** `T3ComposerIcons` had no terminal glyph: a terminal excerpt fell to the default
+`message-square-text`. It now draws lucide's TerminalIcon. A terminal excerpt that holds text is ContextChipPopover's
+trigger in T3 Code: a press (pointer, or AXPress from VoiceOver) now opens its details in the window's chip popover layer
+(`composer-chip-popover.contract`, the terminal's name, "Line N" / "Lines a–b", the captured output in a 20rem scroller),
+from the draft's terminal context record (`composer-chip-popover.ts` `terminalPopover`); its hover tooltip (the raw
+output) is gone, as the reference shows none. A reference with no record drew as an expired excerpt (`composer-editor.ts`
+gave every terminal reference an entry); it is now composerContextPresentation's UnresolvedContextChip: CircleDashedIcon
+on the neutral chip, "Unavailable context, <label>", "This context is no longer available…".
+
+**G5-D1.** The context window meter's details were `ComposerMenus`' column with `role="menu"` and the fallback label
+"Runtime mode". As a menu the column was no accessibility element, so its items were the window's children, which AppKit
+orders by position: the composer's Message area, under the popover, fell between the note and the bar (reproduced on a
+one-file probe of the markup). The details are now an unnamed `role="dialog"` (ContextWindowMeter's PopoverPopup), one
+group VoiceOver keeps together; the meter says `aria-haspopup="dialog"`.
+
+**X30-ATTACH.** `EXACT2-GAPS.md` X30 (the table row, the issue row, the detail line) and STATUS §3's bucket 5 now name
+main's `3657d330a` (any-type file input admitted 2026-10-11, adopted in round 11 by `6b6446e97`). `T3ComposerAttach`'s
+NSOpenPanel is kept: it also transcodes a picked HEIC to PNG natively (codecs stay deferred), and the optional move to
+`input type="file" multiple` needs its own drive comparing the two, which this task's one drive did not cover. X20's row
+names the chips' accessibility answers as a kept workaround.
+
+## Acceptance results
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| G1-8 | pass (module render on the tip's and this branch's modules; AppKit tests; agent drive; reference over CDP with the same draft): before, a speech bubble on a terminal excerpt and no element; after, TerminalIcon, an `AXPopUpButton` "Terminal excerpt, Terminal 2 lines 1-6. Show details" whose AXPress and pointer press open the details (the terminal's name, "Lines 1–6", the output) as the reference's ContextChipPopover; a reference with no record is the reference's CircleDashed "Unavailable context". The send half: real input (step 1) | [glyph](https://raw.githubusercontent.com/ccheever/exact2/c7eea9e2e683f5247b45db1b9a33b42d41872346/composer-chips-accessibility/g18-glyph.png), [details](https://raw.githubusercontent.com/ccheever/exact2/563f79e3d1310dad07d113728123e62a5dfe4d36/composer-chips-accessibility/g18-details.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
+| G5-D4 | pass in process and in the agent's tree (VoiceOver's half: real input, step 2): before, the text read `$frontend-design`; after, the Message area reads "Use Frontend Design on …" and the chip is an `AXPopUpButton` "Skill Frontend Design. Show details" child in navigation order whose AXPress opens its details | [drive](https://raw.githubusercontent.com/ccheever/exact2/09b12702e59215ac81450bb4097e1ba090229595/composer-chips-accessibility/chips-drive.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
+| DCP-Gv | pass in process and in the agent's tree (VoiceOver: step 3): before, the text read `[Assistant quote](t3-citation://…)`; after, "… with Fixture answer now", the citation an `AXLink` "View cited assistant text: Fixture answer" and its `AXPopUpButton` "Add comment to citation", as the reference's composer | [drive](https://raw.githubusercontent.com/ccheever/exact2/09b12702e59215ac81450bb4097e1ba090229595/composer-chips-accessibility/chips-drive.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
+| G5-D1 | pass on a one-file probe of the markup (AppKit's navigation order; VoiceOver: step 4): before, the popover's texts, bar and note were window children ordered by position with "Message" between the note and "Compact context"; after, one `AXApplicationDialog` group holding them in order | [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) §4 |
+| X30-ATTACH | pass: the cells name `3657d330a`; the NSOpenPanel move not made (above) | this record |
+| VoiceOver rows | implemented, not verified (the Mac's screen is locked; out-of-process AX reads of windows answer `AXApplication` under the lock): Real-input batch steps below | — |
+
+Drives (agent mode, 1280×840, lane `composer-chips-accessibility`, clone server 16442): before on this worktree's build
+of the T3 tip `609f392d5` before any change (lane `…-before`); after on this branch's bundle (`d5727019d`'s code), the
+same steps (type the prompt below into the composer, `screenshot … window`, `tree --ax composer`), run once and retried
+once with an unscoped `tree --ax` (the scoped read drops elements under a native text view). The terminal excerpt's
+record cannot be made by the agent (choosing Add to chat is the AppKit tests'), so G1-8's resolved chip is a render of
+the module on a real text view (tip modules, branch modules) and its details a one-file probe of `ChipPopoverLayer` on
+the clone's host binary. Reference: T3 Code `1e2ecbd975` on 16440/16441, the same draft written to its
+`t3code:composer-drafts:v1` store (with a terminal record and a citation href its parser accepts), read over CDP.
+Prompt: `[Terminal 1 lines 1-2](t3-context://v1/terminal/terminal_lane1) Use $frontend-design on [notes.md](notes.md) with
+[Assistant quote](t3-citation://v1/thread-1/message-1?text=Fixture+answer) now`.
+
+## Real-input batch steps
+
+Launch this branch's bundle as a lane copy (its own bundle id, the lane home outside any git checkout) and the reference
+T3 Code (Alpha) lane app. Turn VoiceOver on (⌘F5) only for these steps and off after. Never send a message to a real
+provider.
+
+1. **G1-8.** In both apps, a thread with the drawer's terminal: run `printf 'one\ntwo\nthree\n'`, drag-select the three
+   lines, Add to chat. Expected in both: the chip "Terminal 1 lines …" with the `>_` glyph; VO on the Message area reads
+   the chip's label ("Terminal 1 lines 2-4 …"), not a link; VO-⇧-↓ into the text and VO-→ through it, or VO-→ from the
+   Message area: record whether VO lands on "Terminal excerpt, Terminal 1 lines …. Show details, pop up button" in each
+   app (the reference's half was never observed); VO-Space on it opens the details (the terminal's name, "Lines a–b", the
+   output) in both; Escape closes them. A plain click on the chip opens them too. The send half (G1-8 c): only against the
+   lane's fake provider if the session has one, else not run (no provider messages).
+2. **G5-D4.** Clone, a new thread, type `$frontend-design now ` (no Return). VO reads "Frontend Design now" in the Message
+   area, not `$frontend-design`; reach the chip as in step 1 ("Skill Frontend Design. Show details, pop up button");
+   VO-Space opens its details; Escape. The reference's half needs a skill its lane lists (else it shows plain text).
+3. **DCP-Gv.** Clone, an answer in the fixture thread: select a phrase, Cite. VO on the Message area reads the quote (or
+   the comment), not `[Assistant quote](t3-citation://…)`; VO lands on "View cited assistant text: …, link" and "Add
+   comment to citation, pop up button" (VO-Space opens the comment; Escape).
+4. **G5-D1.** Clone, Settings › Context window indicator (legacy) on, a thread with token usage, the ring's popover
+   open (focus on Compact context): VO-Left goes note → bar → "26% · …" with no "Message" between, and VO names the group
+   "Context Window, and N more items, dialog" as the reference does.
+
+## Tests
+
+- `macos/tests/composer/chipaccessibility.swift` (AppKit, 9): the text read as labels both ways (typed accessors and
+  attribute names: AXValue, characters, string, attributed string with the citation's AXLink element, a chip one unit,
+  lines); ranges mapped both ways (selection read, AXSelectedTextRange set, bounds on the pill, range at a point); the
+  chips as elements in text order with the reference's roles and names, in navigation order, on their pills; the
+  terminal excerpt's AXPress and pointer press open its details (`kind` "terminal", the context id), no tooltip; an
+  expired excerpt a plain shell; a reference with no record "Unavailable context"; the terminal glyph; a plain prompt and
+  another text view keep their own answers; the read text follows an edit. `chippress.swift` and `citationpress.swift`
+  take the reference's roles and names (pop-up buttons, the citation's link). 74 tests in the composer binary.
+- `composer-chips-accessibility.test.ts` (Bun, 7): the terminal excerpt's popover (name, lines, output, rows; no record,
+  another kind or no text shows nothing); the contract branch's parts; the native press and glyph; G5-D1's dialog role,
+  empty label and the meter's `aria-haspopup`; a terminal reference with no record gets no context entry.
+  `composer-chip-popover.test.ts` takes the shape's two new fields.
+
+## Checks
+
+On the final head (`origin/feat(example)/t3-code` `609f392d5` merged: already up to date):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4863 pass, 1 skip, 0 fail (329 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,453 lines; 120,818 nodes, 33,310,902 bytes |
+| `cargo test -p t3-code-macos --lib` | 0 | 25 passed |
+| AppKit `macos/tests/composer` (README recipe) | 0 | 74 tests, 0 failures |
+| AppKit `sidebar`, `r9-input`, `r5-composer` | 0 | `r9-input`'s first run failed `testClickFocusReachesTheNodeOnce` (4 assertions: the focus bridge's async first-responder observation and its 20 ms tick); three reruns of the same binary pass, and the binary built from the tip's modules passes |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once on the tip (before), then on `f802b1a3c`'s code and again on `d5727019d`'s (the unresolved reference) before the live drive |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,353 passed, 0 failed |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+## Not done / not verified
+
+- VoiceOver on the four rows (Real-input batch steps 1-4): the Mac's screen is locked, so VoiceOver cannot run and
+  another process reads every window as `AXApplication`; AppKit's answers were read in process (the typed accessors
+  AppKit serves standard attributes from, and the attribute names), and in the live app through the agent's `tree --ax`.
+  Whether VO-Right from the Message area lands on a chip is VoiceOver's own navigation of a text area: the chips are now
+  its children in navigation order, as the reference's, but neither app's behaviour there was ever observed.
+- G1-8's send half: it sends a message, which the rules forbid here (step 1 says when it may run).
+- X30-ATTACH's optional move of `T3ComposerAttach` to `input type="file" multiple`: not made; it needs a drive comparing
+  the NSOpenPanel with the host's picker (multiple selection, the HEIC transcode the module keeps), outside this task's
+  one drive.
+
+## Seen while building, not a finding row
+
+- Composer chips whose press the clone never built: in T3 Code a mention opens the file's preview, a file, video or
+  image attachment opens or expands, a thread chip opens the thread, a citation's source link jumps to the cited text, a
+  pull request chip opens it, and review comment and preview annotation chips open popovers. The clone's click places
+  the caret; their elements now carry the reference's names and offer no AXPress.
+- An expired terminal excerpt (a record with no text): the reference draws ContextChip's invalid state (destructive
+  colours, solid border); the clone keeps its dashed look.
+- The agent's `tree --ax <target>` drops an element whose accessibility parent is a native view inside a node
+  (`AgentAccessibility.axOwner` joins it to no view), so a scoped read of the composer lists no chip; the unscoped read
+  does (framework, not filed).
+- Exact serves a `text` node's `aria-label` as its value too: the details' output reads "Captured terminal output" as its
+  value, where Chromium's `pre` has that name and the output as its text (the timeline's terminal popover is the same).
+
+## Delivery
+
+Draft PR into `feat(example)/t3-code`; the coordinator reviews and merges.
+
+## Next action
+
+The coordinator: review the draft PR; run Real-input batch steps 1-4 in the final session.
