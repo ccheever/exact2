@@ -321,18 +321,21 @@ test "offline, a note is kept, then delivered on reconnect"
 
 /** The driver's mount, from the app to this checkout: relative always, since the native bake refuses an absolute one. */
 function driverMount(dir, online = false) {
-  return relative(realpathSync(dir), realpathSync(resolve(ROOT, online ? 'snapback4/online' : 'snapback4/ts')));
+  return relative(realpathSync(dir), realpathSync(resolve(ROOT, online ? 'snapback4/online' : 'snapback4/ts'))).replaceAll('\\', '/');
 }
+
+const onlineMount = path => /(?:^|\/)snapback4\/online\/?$/.test((path ?? '').replaceAll('\\', '/'));
 
 /** `bun exact.mjs snapback` (and the end of \`exact new --snapback\`): what the README's setup block did. Generates the backend's
  * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
  * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
-export function wireSnapback(dir, { build = true, port = null, online = false } = {}) {
+export function wireSnapback(dir, { build = true, port = null, online = null } = {}) {
   dir = resolve(dir);
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
   const parent = dirname(dir), said = [], version = snapbackVersion();
   const existing = JSON.parse(readFileSync(manifestPath, 'utf8')).typescript?.sources ?? {};
+  online ??= onlineMount(existing.snapback4);
   const expected = { snapback4: driverMount(dir, online), backend: '../snapback/generated' };
   for (const [name, path] of Object.entries(expected)) {
     if (existing[name] !== undefined && resolve(dir, existing[name]) !== resolve(dir, path))
@@ -772,8 +775,13 @@ const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs upda
 /** The notes' backend paragraph: an app `bun exact.mjs snapback` wired (app.json mounts `snapback4`), or how to wire one. */
 function snapbackNotes(dir) {
   const readme = pathFrom(dir, resolve(ROOT, 'snapback4/README.md'));
-  let wired = false;
-  try { wired = Boolean(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).typescript?.sources?.snapback4); } catch {}
+  let wired = false, online = false;
+  try { const mount = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).typescript?.sources?.snapback4; wired = Boolean(mount); online = onlineMount(mount); } catch {}
+  if (online) return `A backend: this app uses the server-only Snapback adapter; read ${readme} before changing data code.
+\`app.json\` mounts \`snapback4/online\` as \`snapback4\`, and the generated operations as \`backend\`.
+Use \`new Snapback({origin, headers})\`, \`read(api.query, args)\` and \`send(api.mutation, args)\`.
+There is no wasm device, SQLite partition or offline outbox. Start the server with \`bun exact.mjs backend\`.
+\`snapback\` and \`update\` preserve this adapter selection. \`failure(x).code\` preserves a domain refusal code.`;
   if (wired) return `A backend: this app's data is Snapback 4's (${readme}). The backend is above it:
 \`../snapback/schema.q\`, with \`snapback4@${snapbackVersion()}\` installed. \`app.json\` mounts the driver and
 \`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback --rebuild\` generates operations
@@ -1020,7 +1028,7 @@ function updateApp(dir, name) {
     const text = readFileSync(manifestPath, 'utf8');
     let next = text.replace(/("\$schema"\s*:\s*)"[^"]*"/, (_, head) => head + JSON.stringify(pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json'))));
     // A Snapback app's driver mount follows the checkout, as the Cargo paths below do (`bun exact.mjs snapback` wrote it).
-    next = next.replace(/("snapback4"\s*:\s*)"[^"]*"/, (line, head) => JSON.parse(next).typescript?.sources?.snapback4 ? head + JSON.stringify(driverMount(dir)) : line);
+    next = next.replace(/("snapback4"\s*:\s*)"[^"]*"/, (line, head) => JSON.parse(next).typescript?.sources?.snapback4 ? head + JSON.stringify(driverMount(dir, onlineMount(JSON.parse(next).typescript.sources.snapback4))) : line);
     if (next !== text) writeFileSync(manifestPath, next);
   }
   // An older app may predate the generated test command. Preserve authored

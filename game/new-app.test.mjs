@@ -534,6 +534,16 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /origin is not a literal URL/);
     assert.ok(!readFileSync(resolve(custom, 'app.ts'), 'utf8').includes('api.post'));
     assert.ok(!readFileSync(resolve(custom, 'app.contract'), 'utf8').includes('Guestbook'));
+    const online = resolve(parent, 'online');
+    createApp(online, { snapback: { online: true, build: false, port: 4414 } });
+    assert.match(wireSnapback(online, { build: false }), /Online-only adapter/);
+    const onlineManifest = JSON.parse(readFileSync(resolve(online, 'app.json'), 'utf8'));
+    onlineManifest.typescript.sources.snapback4 = '..\\moved\\snapback4\\online';
+    writeFileSync(resolve(online, 'app.json'), JSON.stringify(onlineManifest));
+    createApp(online, { update: true });
+    assert.equal(realpathSync(resolve(online, JSON.parse(readFileSync(resolve(online, 'app.json'), 'utf8')).typescript.sources.snapback4)), resolve(root, 'snapback4/online'));
+    assert.match(readFileSync(resolve(online, 'AGENTS.md'), 'utf8'), /server-only Snapback adapter/);
+    assert.equal(existsSync(resolve(online, 'assets/snapback4.wasm')), false);
     assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
     // The app's exact.mjs runs it, with the app's directory.
     const sdk = resolve(parent, 'sdk');

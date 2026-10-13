@@ -44,6 +44,7 @@ starter app is kept: write its sources for those generated operations.
 `snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
 together. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
+For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
 grants. A computed origin or grants declaration needs an explicit edit.
 After upgrading Snapback4 or Exact's device, run `bun exact.mjs snapback --rebuild`.

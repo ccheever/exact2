@@ -595,11 +595,11 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
-  exact new <path> --snapback [--port <n>]
+  exact new <path> --snapback [--port <n>] [--online]
                                a new app wired to a Snapback backend in the
                                directory above (a guestbook to start from; the
                                origin's port, 4400 unless --port)
-  exact snapback <app> [--port <n>]
+  exact snapback <app> [--port <n>] [--online]
                                wire an app to the backend above it; --port moves
                                its loopback origin, grants and test fetch prefixes
   exact new <path> --game      a new game (game/README.md): a Rust world under
@@ -911,6 +911,7 @@ async function main(argv) {
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
     const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1));
+    if (args.includes('--online') && !args.includes('--snapback')) throw new Error('exact new: --online requires --snapback and an existing backend schema');
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
     const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined, online: args.includes('--online') } : null;
     return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets'), snapback});
@@ -935,7 +936,7 @@ async function main(argv) {
     const args = guardFlags('snapback', argv.slice(1)), port = args.indexOf('--port');
     const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
     // Always ask Cargo to validate its inputs; cached or unstamped bytes never block repair.
-    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') }));
+    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null }));
     app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     const nextOrigin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];

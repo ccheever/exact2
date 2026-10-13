@@ -63,7 +63,7 @@ the app (`app.contract`, `app.ts` at that origin with its grants,
 the backend's operations: write the view and data sources for those operations.
 For a server-only app, write its schema first, then use `new app --snapback --online`
 (or `snapback --online` on an app with no driver mount). This mounts `snapback4/online`,
-which exports `Snapback` with typed `read(api.query, args)` and `send(api.mutation, args)`:
+which `snapback` and `update` preserve. It exports `Snapback` with typed `read(api.query, args)` and `send(api.mutation, args)`:
 `new Snapback({origin, headers})`. It loads no wasm and opens no SQLite partition.
 Reads return the server's `data` envelope; mutations return `sent` with `result` or
 `failed` with `why`. An interrupted write throws: its server fate may be unknown,

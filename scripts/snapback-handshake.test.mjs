@@ -53,6 +53,9 @@ mutation post(body: text 1..200):
     }
     run(process.execPath, [join(sdk, 'scripts/exact.mjs'), 'new', app, '--snapback', ...(online ? ['--online'] : []), '--port', String(port)]);
     if (online) {
+      run(process.execPath, ['exact.mjs', 'update'], app);
+      run(process.execPath, ['exact.mjs', 'snapback'], app);
+      assert.match(JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).typescript.sources.snapback4, /snapback4\/online$/);
       assert.equal(existsSync(join(app, 'assets/snapback4.wasm')), false);
       writeFileSync(join(app, 'app.contract'), `shape Choice
   value: enum<"a", "b">
