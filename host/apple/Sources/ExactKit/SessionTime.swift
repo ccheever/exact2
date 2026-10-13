@@ -44,10 +44,12 @@ extension ExactSession {
     /// settle, so an argument reading the zone's offset (a kept answer's
     /// identity) is the real one, not zero until `tellTime`.
     func primeTime() {
-        // Before a re-boot too: a running runner hears the same fact (no
-        // commit), and the boot after it starts from today's date.
+        // Before a re-boot too, so it starts from today's date: the running
+        // runner hears it as well, and what that commits is presented, as
+        // the old host stays if the boot fails.
         guard state != .destroyed else { return }
         let date = dateNow()
-        _ = runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset)
+        let out = runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset)
+        if booted { apply(out) }
     }
 }
