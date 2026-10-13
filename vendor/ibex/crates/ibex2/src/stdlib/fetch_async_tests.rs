@@ -418,8 +418,8 @@ fn every_exchange_is_activated_and_an_unwanted_one_cancelled() {
         start(Request::get("https://a.example/x"), None, &["a.example"]);
     let hop = transport.take(0);
     assert_eq!(*hop.calls.lock().unwrap(), ["activate"]);
-    // Aborted while the transport was starting it: activated, so its sink
-    // ends, then cancelled.
+    // Aborted while the transport was starting it: cancelled first, so its
+    // activation sends nothing, and activated, so its sink still ends.
     let (transport, events, abort) = (
         Arc::new(Scripted::default()),
         Arc::new(Recorded::default()),

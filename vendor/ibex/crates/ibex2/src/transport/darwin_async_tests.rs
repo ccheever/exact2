@@ -542,3 +542,51 @@ fn queued_time_counts_from_activation_not_from_the_tasks_creation() {
     assert!(queued.is_some_and(|q| q < 300.0), "{seen:?}");
     server.join().unwrap();
 }
+
+#[test]
+fn a_malformed_url_ends_once_after_activation_and_lets_its_body_go() {
+    let lane = DarwinLane::new(0);
+    let (drops, released) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let flag = released.clone();
+    let (events, received) = mpsc::channel();
+    let sink = Counted(
+        Recorder {
+            events,
+            flow: Flow::Continue,
+        },
+        Dropped(drops.clone()),
+    );
+    let mut request = get("http://[::1");
+    request.method = "POST".into();
+    request.body = Some(Upload::new(
+        b"body".to_vec(),
+        Some(Box::new(move || {
+            flag.fetch_add(1, Ordering::SeqCst);
+        })),
+    ));
+    let exchange = lane.start(request, Box::new(sink));
+    assert!(received.recv_timeout(Duration::from_millis(300)).is_err());
+    exchange.activate();
+    let seen = until_end(&received);
+    assert_eq!(
+        seen.iter()
+            .filter(|e| matches!(e, Event::End(Err(_))))
+            .count(),
+        1,
+        "{seen:?}"
+    );
+    drop(exchange);
+    for _ in 0..200 {
+        if drops.load(Ordering::SeqCst) == 1 && released.load(Ordering::SeqCst) == 1 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        (
+            drops.load(Ordering::SeqCst),
+            released.load(Ordering::SeqCst)
+        ),
+        (1, 1)
+    );
+}
