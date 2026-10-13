@@ -212,8 +212,9 @@ fn main() {{
                 .env_remove("CARGO_BUILD_BUILD_DIR")
                 .env_remove("CARGO_ENCODED_RUSTFLAGS")
                 .env_remove("RUSTFLAGS")
-                .env_remove("RUSTC_WRAPPER")
-                .env_remove("RUSTC_WORKSPACE_WRAPPER")
+                // Empty overrides Cargo config; removing the variable does not.
+                .env("RUSTC_WRAPPER", "")
+                .env("RUSTC_WORKSPACE_WRAPPER", "")
                 .output()
                 .unwrap();
             assert!(
@@ -293,8 +294,9 @@ fn main() {{
                 .env_remove("CARGO_BUILD_BUILD_DIR")
                 .env_remove("CARGO_ENCODED_RUSTFLAGS")
                 .env_remove("RUSTFLAGS")
-                .env_remove("RUSTC_WRAPPER")
-                .env_remove("RUSTC_WORKSPACE_WRAPPER")
+                // Empty overrides Cargo config; removing the variable does not.
+                .env("RUSTC_WRAPPER", "")
+                .env("RUSTC_WORKSPACE_WRAPPER", "")
                 .output()
                 .unwrap();
             assert!(

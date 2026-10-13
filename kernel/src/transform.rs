@@ -111,6 +111,10 @@ fn zero(v: Dimension) -> bool {
 }
 
 fn zero_insets(s: &StyleProps) -> bool {
+    // A negative padding lays out as zero.
+    let none = |v: Dimension| {
+        zero(v) || matches!(v, Dimension::Points(p) | Dimension::Percent(p) if p < 0.0)
+    };
     [
         s.padding_top,
         s.padding_right,
@@ -118,6 +122,6 @@ fn zero_insets(s: &StyleProps) -> bool {
         s.padding_left,
     ]
     .into_iter()
-    .all(zero)
+    .all(none)
         && s.border_widths().into_iter().all(|v| v == 0.0)
 }

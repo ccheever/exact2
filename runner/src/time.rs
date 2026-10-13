@@ -20,6 +20,13 @@ pub const FIELDS: &[&str] = &[
     "seed",
 ];
 
+/// The launch seed is a whole number below this, 2^32, on every host
+/// (LLP 1116.005 D5), so `%` and `>>> 0` take all of it. A source mixes a
+/// round into it in 32-bit steps (`Math.imul`, `>>> 0`), as
+/// docs/recipes/random-and-shuffle.md shows: a multiply by a large constant
+/// still passes 2^53.
+pub const SEED_LIMIT: f64 = 4_294_967_296.0;
+
 /// What the host said about the date. Zero until it says: the bake, and a
 /// host that has not supplied it, answer an unknown date as `0`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -28,6 +35,33 @@ pub struct WallTime {
     pub epoch_at_zero: f64,
     /// Minutes east of UTC in the viewer's zone (UTC+2 is `120`).
     pub utc_offset: f64,
+}
+
+std::thread_local! {
+    static LAUNCH: std::cell::Cell<Option<WallTime>> = const { std::cell::Cell::new(None) };
+}
+
+/// Boot under `time`, the date the host knows at launch: a runner booted
+/// inside reads it from its first settle, so a resource whose arguments
+/// read the time (the zone's offset in a kept answer's identity) is asked
+/// with the real one, not with zero until the host's first `set_time`.
+/// `None`, or a fact that does not validate, boots on zero as before.
+pub fn launching<T>(time: Option<WallTime>, boot: impl FnOnce() -> T) -> T {
+    /// Puts the outer date back however `boot` leaves, an unwind too.
+    struct Restore(Option<WallTime>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LAUNCH.with(|l| l.set(self.0));
+        }
+    }
+    let time = time.filter(|t| t.validate().is_ok());
+    let _restore = Restore(LAUNCH.with(|l| l.replace(time)));
+    boot()
+}
+
+/// The date a boot under [`launching`] reads first.
+pub(crate) fn launch_time() -> WallTime {
+    LAUNCH.with(|l| l.get()).unwrap_or_default()
 }
 
 impl WallTime {
@@ -62,10 +96,10 @@ pub struct Place {
     pub locale: String,
     /// IANA, the device's current zone.
     pub time_zone: String,
-    /// A whole number below 2^53 from the platform's secure random source,
-    /// drawn once per launch: the explicit entropy a source mixes with the
-    /// date and a counter for ids (LLP 1027.000's seed, supplied). Zero
-    /// until the host says.
+    /// A whole number below 2^32 ([`SEED_LIMIT`]) from the platform's
+    /// secure random source, drawn once per launch: the explicit entropy a
+    /// source mixes with the date and a counter for ids (LLP 1027.000's
+    /// seed, supplied). Zero until the host says.
     pub seed: f64,
 }
 
@@ -94,7 +128,7 @@ impl Place {
             && self.seed.is_finite()
             && self.seed >= 0.0
             && self.seed.fract() == 0.0
-            && self.seed < 9_007_199_254_740_992.0
+            && self.seed < SEED_LIMIT
         {
             Ok(())
         } else {

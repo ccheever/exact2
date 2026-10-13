@@ -1,45 +1,54 @@
 //! Read-only text projection for virtual rows. Uses the same realization and
 //! binding evaluation as rendering, but commits no kernel or host operations.
 use super::*;
-use crate::ListTextPosition;
+use crate::{ListTextPolicy, ListTextPosition};
 use exact_kernel::{PropId, StyleId};
 
 /// A virtualized list's rows as logical text sees them: every row, mounted
-/// or not.
+/// or not. Given the plan, also whether the list's text may be selected:
+/// the host policy and the `user-select` it has or takes from above.
 fn list_region<'a>(
+    plan: Option<&Plan>,
     children: &'a [Child],
     view: ViewId,
     frames: &mut Vec<Frame>,
-) -> Option<&'a collection::Collection> {
+    policy: ListTextPolicy,
+) -> Option<(&'a collection::Collection, Selection)> {
     fn walk<'a>(
+        plan: Option<&Plan>,
         children: &'a [Child],
         view: ViewId,
         frames: &mut Vec<Frame>,
-    ) -> Option<&'a collection::Collection> {
+        selectable: Selection,
+        policy: ListTextPolicy,
+    ) -> Option<(&'a collection::Collection, Selection)> {
         for child in children {
             match child {
                 Child::Node(n) => {
+                    let selectable = plan.map_or(selectable, |p| selectable.at(n, p, policy));
                     if n.view == view {
-                        return n.collection.as_deref();
+                        return n.collection.as_deref().map(|c| (c, selectable));
                     }
                     // A nested list lives in a mounted row (LLP 1070 §4.7).
                     if let Some(c) = &n.collection {
                         for (_, row) in c.mounted_rows() {
                             frames.push(row.frame.clone());
-                            if let Some(r) = walk(&row.roots, view, frames) {
+                            if let Some(r) =
+                                walk(plan, &row.roots, view, frames, selectable, policy)
+                            {
                                 return Some(r);
                             }
                             frames.pop();
                         }
                     }
-                    if let Some(r) = walk(&n.children, view, frames) {
+                    if let Some(r) = walk(plan, &n.children, view, frames, selectable, policy) {
                         return Some(r);
                     }
                 }
                 Child::Region(r) => match &r.active {
                     Active::Arm { roots, frame, .. } => {
-                        frames.push(frame.clone());
-                        if let Some(r) = walk(roots, view, frames) {
+                        frames.push(frame.scope());
+                        if let Some(r) = walk(plan, roots, view, frames, selectable, policy) {
                             return Some(r);
                         }
                         frames.pop();
@@ -47,7 +56,9 @@ fn list_region<'a>(
                     Active::Rows { rows } => {
                         for row in rows {
                             frames.push(row.frame.clone());
-                            if let Some(r) = walk(&row.roots, view, frames) {
+                            if let Some(r) =
+                                walk(plan, &row.roots, view, frames, selectable, policy)
+                            {
                                 return Some(r);
                             }
                             frames.pop();
@@ -58,7 +69,7 @@ fn list_region<'a>(
         }
         None
     }
-    walk(children, view, frames)
+    walk(plan, children, view, frames, Selection::default(), policy)
 }
 
 fn hidden(n: &NodeInst, plan: &Plan) -> bool {
@@ -70,44 +81,130 @@ fn hidden(n: &NodeInst, plan: &Plan) -> bool {
     })
 }
 
+/// Top-down equivalent of AppKit's `textSelectable` walk. A nearer
+/// authored value wins over a control; a nearer control wins over an
+/// ancestor's value. Document/chrome defaults matter only without either.
+#[derive(Clone, Copy, Default)]
+struct Selection {
+    explicit: Option<bool>,
+    document: bool,
+    chrome: bool,
+}
+impl Selection {
+    fn at(self, n: &NodeInst, plan: &Plan, policy: ListTextPolicy) -> Self {
+        let mut next = self;
+        let node = plan.node(n.node);
+        let prop = |id| n.bound_prop(plan, id).and_then(Value::as_str).unwrap_or("");
+        let native_button =
+            node.node_type == NodeType::Control as u8 && prop(PropId::Type) == "button";
+        if native_button {
+            next.explicit = Some(false);
+        }
+        if policy == ListTextPolicy::MacOS {
+            let role = prop(PropId::AccessibilityRole);
+            let tag = prop(PropId::SemanticTag);
+            let control = [NodeType::Pressable as u8, NodeType::Control as u8]
+                .contains(&node.node_type)
+                || node
+                    .handlers
+                    .iter()
+                    .any(|h| plan.handler(h).event == exact_plan::EventKind::Press)
+                || [
+                    "button",
+                    "link",
+                    "tab",
+                    "menuitem",
+                    "menuitemcheckbox",
+                    "menuitemradio",
+                    "option",
+                    "checkbox",
+                    "radio",
+                    "switch",
+                    "treeitem",
+                ]
+                .contains(&role);
+            if control {
+                next.explicit = Some(false);
+            }
+            next.document |= tag == "article" || ["article", "document"].contains(&role);
+            next.chrome |= ["header", "nav", "footer"].contains(&tag)
+                || ["toolbar", "tablist", "menubar", "menu", "listbox", "tree"].contains(&role);
+        }
+        match n
+            .bound_style(plan, StyleId::UserSelect)
+            .and_then(Value::as_str)
+        {
+            Some("none") => next.explicit = Some(false),
+            None | Some("auto") => {}
+            Some(_) => next.explicit = Some(true),
+        }
+        next
+    }
+    fn selectable(self) -> bool {
+        self.explicit.unwrap_or(self.document || !self.chrome)
+    }
+}
+
+/// A row's paragraphs: each outer text, its inline texts joined in, and
+/// whether it may be selected. Text without a host paragraph (an AppKit
+/// native title) is omitted; every other text counts, selectable or not.
 fn collect(
     u: &mut Update<'_>,
     children: &[Child],
     frames: &[Frame],
     inline: bool,
-    out: &mut Vec<String>,
+    selectable: Selection,
+    policy: ListTextPolicy,
+    out: &mut Vec<(String, bool)>,
 ) -> Result<(), InstanceError> {
     for child in children {
         match child {
             Child::Node(n) if !hidden(n, u.env.plan) => {
+                let selectable = selectable.at(n, u.env.plan, policy);
+                if policy == ListTextPolicy::MacOS
+                    && u.env.plan.node(n.node).node_type == NodeType::Control as u8
+                    && n.bound_prop(u.env.plan, PropId::Type)
+                        .and_then(Value::as_str)
+                        == Some("button")
+                {
+                    continue;
+                }
                 let text = u.env.plan.node(n.node).node_type == NodeType::Text as u8;
                 if text && !inline {
-                    out.push(String::new());
+                    out.push((String::new(), selectable.selectable()));
                 }
                 if text {
                     if let Some(value) = n
                         .bound_prop(u.env.plan, PropId::Text)
                         .and_then(Value::as_str)
                     {
-                        if let Some(last) = out.last_mut() {
+                        if let Some((last, _)) = out.last_mut() {
                             last.push_str(value);
                         }
                     }
                 }
-                collect(u, &n.children, frames, inline || text, out)?;
+                collect(
+                    u,
+                    &n.children,
+                    frames,
+                    inline || text,
+                    selectable,
+                    policy,
+                    out,
+                )?;
             }
             Child::Node(_) => {}
             Child::Region(r) => match &r.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
-                    collect(u, roots, &inner, inline, out)?;
+                    inner.push(frame.scope());
+                    collect(u, roots, &inner, inline, selectable, policy, out)?;
                 }
                 Active::Rows { rows } => {
                     for row in rows {
                         let mut inner = frames.to_vec();
                         inner.push(row.frame.clone());
-                        collect(u, &row.roots, &inner, inline, out)?;
+                        collect(u, &row.roots, &inner, inline, selectable, policy, out)?;
                     }
                 }
             },
@@ -119,19 +216,31 @@ fn collect(
 impl Tree {
     /// Resolve a row key without creating its views.
     pub fn list_index(&self, view: ViewId, key: &str) -> Option<usize> {
-        list_region(&self.children, view, &mut Vec::new())?.logical_index(key)
+        list_region(
+            None,
+            &self.children,
+            view,
+            &mut Vec::new(),
+            ListTextPolicy::Web,
+        )?
+        .0
+        .logical_index(key)
     }
 
     /// Text for all rows, or two stable UTF-16 endpoints, without mutation.
+    /// Text the reader cannot select (`user-select: none`) is left out; it
+    /// still counts toward an endpoint's paragraph ordinal.
     pub fn list_text(
         &self,
         u: &mut Update<'_>,
         view: ViewId,
         range: Option<(ListTextPosition<'_>, ListTextPosition<'_>)>,
+        policy: ListTextPolicy,
     ) -> Result<String, InstanceError> {
         let mut frames = Vec::new();
-        let list = list_region(&self.children, view, &mut frames)
-            .ok_or(InstanceError::List("unknown list"))?;
+        let (list, selectable) =
+            list_region(Some(u.env.plan), &self.children, view, &mut frames, policy)
+                .ok_or(InstanceError::List("unknown list"))?;
         let mut start = (0, 0, 0);
         let mut end = (list.logical_len().saturating_sub(1), usize::MAX, usize::MAX);
         if let Some((a, b)) = range {
@@ -159,9 +268,17 @@ impl Tree {
             let mut inner = frames.clone();
             inner.push(row.frame.clone());
             let mut paragraphs = Vec::new();
-            collect(u, &row.roots, &inner, false, &mut paragraphs)?;
-            for (p, text) in paragraphs.into_iter().enumerate() {
-                if (i, p) < (start.0, start.1) || (i, p) > (end.0, end.1) {
+            collect(
+                u,
+                &row.roots,
+                &inner,
+                false,
+                selectable,
+                policy,
+                &mut paragraphs,
+            )?;
+            for (p, (text, selectable)) in paragraphs.into_iter().enumerate() {
+                if !selectable || (i, p) < (start.0, start.1) || (i, p) > (end.0, end.1) {
                     continue;
                 }
                 let units: Vec<_> = text.encode_utf16().collect();

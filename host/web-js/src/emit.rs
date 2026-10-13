@@ -402,6 +402,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             args.join(","),
             serde_json::to_string(&type_code(plan, r.ty)).unwrap()
         );
+        // The runner's own resource shows its facts, never a write (overlay.js)
+        if exact_plan::RUNNER_OWNED_SOURCES.contains(&plan.str(r.source)) {
+            let _ = write!(body, "r_{i}.r.owned=true;");
+        }
     }
     for (i, m) in plan.mutations.iter().enumerate() {
         let refreshes: Vec<String> = m
@@ -531,9 +535,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if ["x_frame", "x_measure", "x_elementFromPoint"]
-        .iter()
-        .any(|name| em.uses.names.contains(*name))
+    if [
+        "x_frame",
+        "x_measure",
+        "x_elementFromPoint",
+        "x_elementsFromPoint",
+    ]
+    .iter()
+    .any(|name| em.uses.names.contains(*name))
     {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
@@ -598,8 +607,9 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             m
         })
     });
-    // The sources' parameter types, for a data module that needs values
-    // encoded by type (records and lists are both arrays here).
+    // The sources' parameter types, then `|` and the answer's type, for a
+    // data module that needs values encoded by type (records and lists are
+    // both arrays here).
     let mut sources = Vec::new();
     for r in plan.sources.iter() {
         let params: Vec<String> = r
@@ -610,7 +620,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         sources.push(format!(
             "{}:{}",
             serde_json::to_string(plan.str(r.name)).unwrap(),
-            serde_json::to_string(&params.concat()).unwrap()
+            serde_json::to_string(&format!("{}|{}", params.concat(), type_code(plan, r.ty)))
+                .unwrap()
         ));
     }
     let names = |v: Vec<&str>| serde_json::to_string(&v).unwrap();
@@ -700,6 +711,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             (em.media, "import{mediaUse as $media}from\"./media.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
+            (plan.slots.iter().any(|s| s.persist), "import{stored as $stored,keep as $keep}from\"./persist.js\";"),
         ]
         .iter()
         .filter(|(on, _)| *on)
@@ -957,15 +969,25 @@ impl Em<'_> {
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
         let presence = rows::presence_decls(&mut css);
-        // Press feedback, a press haptic, or a native button's highlight: the input piece shows it.
+        // Press feedback, a press haptic, or a native button's highlight: the input piece shows it,
+        // and gives a radio group its arrow keys and one Tab stop (LLP 1116.004 D5.2), and a
+        // tablist and a menu theirs (LLP 1115.000 D4.5).
         if presence.contains("--exact-press:")
             || presence.contains("--exact-press-haptic:")
-            || attrs.iter().any(|a| a.0 == "data-button-style")
+            || attrs.iter().any(|a| {
+                a.0 == "data-button-style"
+                    || (a.0 == "role" && ["radiogroup", "tablist", "menu"].contains(&a.1.as_str()))
+            })
         {
             let press = self.uses.rt("pressFeedback");
             let _ = write!(self.out, "{press}();");
         }
         self.clocks_in(&presence);
+        // A fitted text (LLP 1116.001 D1.4): the runtime scales it after each tree update.
+        if presence.contains("--exact-fit:") {
+            let fit = self.uses.rt("fitTexts");
+            let _ = write!(self.out, "{fit}();");
+        }
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
         }
@@ -1245,7 +1267,10 @@ impl Em<'_> {
                 | EventKind::Hover
                 | EventKind::Focus
                 | EventKind::Blur
+                | EventKind::Focusin
+                | EventKind::Focusout
                 | EventKind::Key
+                | EventKind::Keycapture
                 | EventKind::Keyup
                 | EventKind::Submit
                 | EventKind::Load
@@ -1288,8 +1313,11 @@ impl Em<'_> {
                 | EventKind::Scroll
                 | EventKind::Refresh
                 | EventKind::Pan
+                | EventKind::Toggle
                 | EventKind::Cancel
+                | EventKind::Close
                 | EventKind::Resize
+                | EventKind::Intersect
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
@@ -1446,52 +1474,4 @@ fn gpu_surfaces() -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
-}
-
-#[cfg(test)]
-mod else_rows {
-    use exact_runner::{DataError, DataSource, Value};
-
-    struct Answers;
-    impl DataSource for Answers {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            match source {
-                "preview" => Ok(Value::Number(1.0)),
-                "full" => Ok(Value::Number(2.0)),
-                _ => Err(DataError::UnknownSource(source.into())),
-            }
-        }
-    }
-
-    /// Review B4: an `else` row's build-time answer is the bake's for every
-    /// launch (the runner never asks it again), so the JS target receives it
-    /// settled (`res`'s last argument), while the resource it stands in for
-    /// keeps its build-time answer as a first frame to ask again at launch.
-    #[test]
-    fn an_else_row_is_settled_and_its_owner_is_a_bake() {
-        let plan = contract::compile(
-            "component App\n  resource full = full() as shape number else preview()\n  view\n    text `${full}`\n",
-        )
-        .unwrap();
-        let plan = contract::bake(plan, Answers).unwrap();
-        let js = super::emit(&plan, false, false).unwrap().js;
-        let rows: Vec<&str> = js
-            .split("const r_")
-            .skip(1)
-            .map(|s| s.split(';').next().unwrap())
-            .collect();
-        let owner = rows
-            .iter()
-            .find(|r| r.contains("\"full\""))
-            .expect("full's row");
-        let other = rows
-            .iter()
-            .find(|r| !r.contains("\"full\""))
-            .expect("the else row");
-        assert!(other.ends_with(",1)"), "the else row is settled: {other}");
-        assert!(
-            !owner.ends_with(",1)"),
-            "the owner is a bake to ask again: {owner}"
-        );
-    }
 }

@@ -1043,7 +1043,7 @@ impl<D: DataSource> Runner<D> {
             let Some(node) = self.kernel.node(view) else {
                 continue;
             };
-            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&node);
+            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&self.kernel, &node);
             let bitmap = self.canvas_bitmap(view);
             let settings = self.canvas_settings(view);
             self.set_canvas_geometry(

@@ -96,7 +96,7 @@ final class RegionWorkerLayout {
         let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
         var baselines: [CGFloat] = []
         var maxWidth: CGFloat = 0
-        var y: CGFloat = 0
+        var y: CGFloat = 0, lastBaseline: CGFloat = 0
         var start = 0
         var lineCount = 0
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
@@ -105,6 +105,41 @@ final class RegionWorkerLayout {
         // emergency breaks from ordinary opportunities (including CJK).
         let boundaries = spec.overflowWrap == 0 && width.isFinite ? preparation.lineBreakBoundaries : []
         var boundaryIndex = 0
+        func next(_ start: Int, _ room: Double, _ cursor: inout Int) -> Int {
+            let from = cursor
+            let count = preparation.suggestBreak(at: start, width: room, cursor: &cursor)
+            // A soft hyphen's break shows one, which must fit, as in the
+            // paragraph (TextEngine.fitSoftHyphen).
+            return TextEngine.fitSoftHyphen(start: start, count: count, room: room, boundaries: preparation.lineBreakBoundaries,
+                                            source: attributed, typesetter: typesetter, length: length) { room in
+                cursor = from
+                return preparation.suggestBreak(at: start, width: room, cursor: &cursor)
+            }
+        }
+        // CSS `text-wrap-style: balance`, as a paragraph's (LineBreakPlan.balance).
+        var balanced: (until: Int, room: Double)?
+        var greedyWidest: CGFloat = 0
+        if source.balance, spec.lineClamp == 0, width.isFinite, width > 0 {
+            let until = preparation.breakEnds.hard.first ?? length
+            func lines(_ room: Double, widest: Bool = false) -> Int {
+                var start = 0, n = 0, cursor = 0
+                while start < until && n <= TextEngine.balanceMaxLines {
+                    var count = next(start, room, &cursor)
+                    if count <= 0 { count = length - start }
+                    if widest {
+                        let range = CFRangeMake(start, count)
+                        let line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: attributed, range: range)
+                        greedyWidest = max(greedyWidest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+                    }
+                    start += count; n += 1
+                }
+                return n
+            }
+            if let room = TextEngine.balancedLimit(limit, lines: { lines($0) }) {
+                balanced = (until, room)
+                _ = lines(limit, widest: true)
+            }
+        }
         while start < length {
             if lineCount % 128 == 0 { try beforeMetadata() }
             if spec.lineClamp > 0 && lineCount == spec.lineClamp { break }
@@ -114,15 +149,7 @@ final class RegionWorkerLayout {
             // `break-word` and `anywhere` take the same opportunities, breaking
             // inside a word only when none fits (suggestBreak's emergency).
             if width.isFinite && width > 0 {
-                let cursor = boundaryIndex
-                count = preparation.suggestBreak(at: start, width: limit, cursor: &boundaryIndex)
-                // A soft hyphen's break shows one, which must fit, as in the
-                // paragraph (TextEngine.fitSoftHyphen).
-                count = TextEngine.fitSoftHyphen(start: start, count: count, room: limit, boundaries: preparation.lineBreakBoundaries,
-                                                 source: attributed, typesetter: typesetter, length: length) { room in
-                    boundaryIndex = cursor
-                    return preparation.suggestBreak(at: start, width: room, cursor: &boundaryIndex)
-                }
+                count = next(start, balanced.map { start < $0.until ? $0.room : limit } ?? limit, &boundaryIndex)
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
                 while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
@@ -187,12 +214,13 @@ final class RegionWorkerLayout {
             }
             explicit = explicit || aboveExplicit || belowExplicit
             if retainHits || lineCount == 0 { baselines.append(y + above) }
+            lastBaseline = y + above
             y += above + below
             if retainHits { lineBottoms.append(y) }
             maxWidth = max(maxWidth, w)
             if retainHits {
                 if compact {
-                    summaries.append(RegionLine(line, flush: flush, width: width, captureHits: false,
+                    summaries.append(RegionLine(line, flush: flush, width: width, rtl: source.direction == 1, captureHits: false,
                                                 conservativeInk: lineInk.isNull ? .zero : lineInk))
                 } else { lines.append(line) }
             }
@@ -202,6 +230,7 @@ final class RegionWorkerLayout {
         if lineCount == 0 {
             // Empty editors retain the paragraph's own line box.
             baselines.append(minimum.0)
+            lastBaseline = minimum.0
             y = minimum.0 + minimum.1
             explicit = source.strutExplicit
         }
@@ -210,14 +239,21 @@ final class RegionWorkerLayout {
         // Check before metadata and at its coarse line boundaries. No partial
         // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
+        maxWidth = max(maxWidth, greedyWidest)
+        var height = explicit ? y : ceil(y)
+        // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts any paragraph, which an empty editor's line box is not
+        if source.textBox.trim != 0, lineCount > 0, let root = source.strut?.value, let first = baselines.first {
+            let cut = TextEngine.textBoxTrim(source.textBox, root: root, first: first, last: lastBaseline, height: height)
+            TextEngine.trimLines(cut, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)
+        }
         let metadata: RegionParagraph
         if compact {
             metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                 lines: summaries, baselines: baselines, lineBottoms: lineBottoms,
-                width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y), offeredWidth: width)
+                width: CSSLineBox.layoutWidth(maxWidth), height: height, offeredWidth: width)
         } else {
             metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
-                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y),
+                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: height,
                 lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
                 metadataCheckpoint: beforeMetadata)
         }

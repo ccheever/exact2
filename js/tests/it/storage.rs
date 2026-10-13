@@ -128,7 +128,7 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
         .module()
         .with_native(|_| Box::new(Native { data: None }));
     assert!(!root.0.exists());
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     m.activate().unwrap();
     assert_eq!(call(&mut m, &mut s, "native", "persisted"), "persisted");
     assert_eq!(
@@ -186,7 +186,7 @@ fn native_later_answers_from_the_modules_own_thread() {
     }
     let root = Root::new();
     let mut m = root.module().with_native(|_| Box::new(Native));
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     m.activate().unwrap();
     let native = m.native().expect("a module offers its native handle");
     for (value, expected) in [
@@ -230,7 +230,7 @@ fn native_later_without_a_handler_answers_now() {
     }
     let root = Root::new();
     let mut m = root.module().with_native(|_| Box::new(Native));
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     m.activate().unwrap();
     assert_eq!(call(&mut m, &mut s, "later", "quick"), "now:quick");
 }
@@ -240,7 +240,7 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     let root = Root::new();
     let other = Root::new();
     let mut m = root.module();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert!(!m.is_loaded());
     assert!(!root.0.exists());
     m.activate().unwrap();
@@ -286,7 +286,7 @@ fn storage_refuses_during_bake_even_if_a_host_configured_it() {
     assert_eq!(std::fs::read_dir(root.0.join("data")).unwrap().count(), 0);
     let mut unconfigured = Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap();
     unconfigured.bind(&plan());
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(
         call(&mut unconfigured, &mut s, "bake", ""),
         "Unavailable:unsupported:storage is unsupported by this host"
@@ -306,7 +306,7 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let aa = args("fetch", "a");
     let bb = args("fetch", "b");
     let pending = vec![
@@ -335,7 +335,7 @@ fn storage_an_answer_does_not_await_still_lands() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "unawaited", "first"), "answered");
     assert_eq!(call(&mut m, &mut s, "read-at", "unawaited"), "first");
     assert_eq!(call(&mut m, &mut s, "queued", "second"), "answered");
@@ -364,7 +364,7 @@ fn storage_chained_across_answers_settles_each_answer() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let aa = args("serial", "a");
     let bb = args("serial", "b");
     let pending = vec![
@@ -414,7 +414,7 @@ component App
     for _ in 0..200 {
         for request in runner.take_requests() {
             let token = request.request.continuation.expect("storage continuation");
-            match runner.dispatch_work(token) {
+            match crate::runnable(runner.dispatch_work(token)) {
                 exact_runner::Dispatch::Run(w) => work.push((request.ticket, w)),
                 exact_runner::Dispatch::Held => {
                     ever_held = true;
@@ -436,7 +436,7 @@ component App
         let outcome = std::thread::spawn(w).join().unwrap();
         runner.fulfill(ticket, outcome).unwrap();
         for (token, dispatch) in runner.release_work() {
-            let exact_runner::Dispatch::Run(w) = dispatch else {
+            let exact_runner::Dispatch::Run(w) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             let ticket = held.remove(&token).expect("released work was held");
@@ -466,7 +466,7 @@ fn unload_invalidates_continuations_and_configuration_survives_reload() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(
         call(&mut m, &mut s, "file", "before unload"),
         "before unload"
@@ -729,12 +729,12 @@ component App
         .unwrap()
         .1
         .clone();
-    let identity = Value::list(vec![Value::str("status"), Value::str("A")])
-        .to_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    assert_eq!(encoded.split_once('|').unwrap().0, identity);
+    // The entry starts with its identifying arguments' canonical list
+    let mut kept = exact_plan::bytes::Reader::new(&encoded);
+    assert_eq!(
+        Value::decode(&mut kept).unwrap(),
+        Value::list(vec![Value::str("status"), Value::str("A")])
+    );
     drop(first);
 
     let mut next = Runner::boot_stored(
@@ -842,7 +842,7 @@ component App
     ) {
         for request in runner.take_requests() {
             let token = request.request.continuation.expect("storage continuation");
-            match runner.dispatch_work(token) {
+            match crate::runnable(runner.dispatch_work(token)) {
                 exact_runner::Dispatch::Run(w) => work.push_back((request.ticket, w)),
                 exact_runner::Dispatch::Held => {
                     held.insert(token, request.ticket);
@@ -851,7 +851,7 @@ component App
             }
         }
         for (token, dispatch) in runner.release_work() {
-            let exact_runner::Dispatch::Run(w) = dispatch else {
+            let exact_runner::Dispatch::Run(w) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             if let Some(ticket) = held.remove(&token) {
@@ -999,7 +999,7 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let target = Target::Resource(0);
     let a = args("walk", "x");
     let mut answer = m.answer_for(target, &mut s, "work", &a).unwrap();
@@ -1022,7 +1022,7 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
                 // waits and is asked again once that step is delivered
                 // (LLP 1097 D3). `continuation` of that wait is the worker
                 // refusal; a host dispatches it.
-                answer = match m.dispatch(token, &s) {
+                answer = match crate::runnable(m.dispatch(token, &s)) {
                     Dispatch::Run(Work::Now(work)) => {
                         let outcome = std::thread::spawn(work).join().unwrap();
                         m.parse_for(target, &mut s, "work", &a, outcome).unwrap()
@@ -1035,7 +1035,8 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
                                 if released != token {
                                     panic!("only the walk is waiting");
                                 }
-                                let Dispatch::Run(Work::Now(work)) = dispatch else {
+                                let Dispatch::Run(Work::Now(work)) = crate::runnable(dispatch)
+                                else {
                                     panic!("released work runs");
                                 };
                                 let outcome = std::thread::spawn(work).join().unwrap();
@@ -1063,7 +1064,7 @@ fn storage_refusals_carry_a_stable_code() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
     let codes: Vec<String> = call(&mut m, &mut s, "codes", "")
         .lines()
@@ -1093,9 +1094,10 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     std::fs::write(folder.join("a.txt"), "A").unwrap();
     std::fs::write(folder.join("sub/b.txt"), "B").unwrap();
     let doc = exact_data::documents::mint(&folder, 9101).unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable failed";
     let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
+    agent.set_document_owner(9101);
     agent.set_budget_ms(f64::INFINITY);
     agent.bind(&plan());
     agent.activate().unwrap();
@@ -1104,13 +1106,52 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
         format!("{expected} Unavailable agent")
     );
     let mut m = dir.module();
+    m.set_document_owner(9101);
     m.activate().unwrap();
     assert_eq!(
         call(&mut m, &mut s, "doc", &doc),
         format!("{expected} Unavailable ENOENT")
     );
     assert!(!folder.join("new.txt").exists());
+    let mut other = dir.module();
+    other.set_document_owner(9103);
+    other.activate().unwrap();
+    assert_eq!(
+        call(&mut other, &mut s, "doc-link", &format!("{doc}/a.txt")),
+        ["refused"; 8].join(" ")
+    );
     exact_data::documents::forget(9101);
+}
+
+#[test]
+fn typescript_file_reads_obey_the_encoded_result_boundary() {
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("large");
+    let boundary = ((exact_data::storage::MAX_BYTES - 13) / 4) * 3;
+    std::fs::File::create(&file)
+        .unwrap()
+        .set_len(boundary as u64)
+        .unwrap();
+    let doc = exact_data::documents::mint(&file, 9120).unwrap();
+    let mut module = root.module();
+    module.set_document_owner(9120);
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    assert_eq!(
+        call(&mut module, &mut store, "read-size", &doc),
+        boundary.to_string()
+    );
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len((boundary + 1) as u64)
+        .unwrap();
+    assert!(call(&mut module, &mut store, "read-size", &doc)
+        .contains("storage result exceeds its byte limit"));
+    exact_data::documents::forget(9120);
 }
 
 #[test]
@@ -1127,8 +1168,9 @@ fn typescript_document_operations_refuse_descendant_symlinks() {
     symlink(&outside, folder.join("dir-link")).unwrap();
     let doc = exact_data::documents::mint(&folder, 9102).unwrap();
     let mut module = root.module();
+    module.set_document_owner(9102);
     module.activate().unwrap();
-    let mut store = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     for leaf in ["link", "dir-link/secret"] {
         assert_eq!(
             call(
@@ -1244,7 +1286,7 @@ fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unl
                 let Some((target, args)) = held.remove(&token) else {
                     continue;
                 };
-                let Dispatch::Run(Work::Now(work)) = dispatch else {
+                let Dispatch::Run(Work::Now(work)) = crate::runnable(dispatch) else {
                     panic!("released work runs");
                 };
                 let outcome = work();
@@ -1270,7 +1312,7 @@ fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unl
                 }
                 Answer::Later(request) => {
                     let token = request.continuation.expect("continuation");
-                    match m.dispatch(token, s) {
+                    match crate::runnable(m.dispatch(token, s)) {
                         Dispatch::Run(Work::Now(work)) => {
                             let outcome = work();
                             let next = m.parse_for(target, s, "work", &args, outcome).unwrap();

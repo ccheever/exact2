@@ -3,7 +3,7 @@
 component App
   state at = 1800000000000
   action remind
-    showNotification(title="Stretch", body="Five minutes, at your desk", tag="stretch", showTrigger=at)
+    showNotification(title="Stretch", body="Five minutes, at your desk", tag="stretch", showTrigger=at, navigate="/notifications")
   action now
     showNotification(title="Price alert")
   action stop

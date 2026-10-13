@@ -154,7 +154,7 @@ dependencies. The bake checks Cargo's unfiltered dependency graph. Hooks cannot
 mutate the saved world through `RenderWorld`; gameplay state stays in logic.
 The render crate receives normal strict Clippy and package tests, while the simulation
 determinism lints remain scoped to logic. Run the ordinary bake after declaring the
-crate, or `bun game/app/shells.mjs ./my-game --update-lock` when adding dependencies.
+crate, or `bun exact.mjs lock` when adding dependencies.
 Source/manifest edits invalidate GPU builds and proof inputs; declared shaders keep
 their existing reflection, delivery and live-reload behavior.
 
@@ -263,7 +263,7 @@ The dev compiler retains its last good plan on an error.
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
 | Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
 | A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
-| Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` |
+| Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` ([team colour from a saved `Team`](render/tests/instances.rs): `p.insert(e, MaterialOverrides(vec![MaterialOverride { material: 0, color: Some(team_rgba), ..Default::default() }]))`) |
 | Cheaper far trees and crowds | `ModelLod { levels: vec![LodLevel { distance: 30., model: "tree_low.model".into() }], hide: Some(120.) }` on the entity |
 | Fade a tree between camera and player | `Opacity(0.3)` on the entity from `Game::present`: a dithered fade, no sorting, never in a save or pin |
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
@@ -545,8 +545,13 @@ subset; each version must be the SDK lock's, so bakes, deploys and proofs still 
 lock lacks but exact2's root `Cargo.lock` pins (a core crate's new dependency) is
 admitted at the root lock's version and checksum until the SDK lock is refreshed. A game that adds a
 dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
-`exact-game.workspace = true`) and captures its own `Cargo.lock` with
-`bun game/app/shells.mjs ./my-game --update-lock`; commit and review that lock. SDK
+`exact-game.workspace = true`) and captures its own `Cargo.lock` with `bun exact.mjs
+lock` (from exact2, `bun game/app/shells.mjs ./my-game --lock`): it fetches what the
+graph needs, resolves with the SDK lock's versions first and prints what changed
+(`--update-lock` resolves offline from the cache alone); commit and review that lock.
+When exact2 moves under a captured lock, a build refuses it by name ("exact2 moved since
+this game's Cargo.lock was captured (added: …; updated: …)") and `lock` refreshes it;
+`bun exact.mjs update` says so too, and generating `.shells/` alone warns. SDK
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries

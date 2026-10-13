@@ -579,8 +579,11 @@ mod owned_spec {
             line_clamp: 0,
             overflow_wrap: exact_kernel::OverflowWrap::Normal,
             white_space: exact_kernel::WhiteSpace::Normal,
+            text_wrap_style: exact_kernel::TextWrapStyle::Auto,
             direction: exact_kernel::Direction::Ltr,
             text_indent: 0.0,
+            text_box_trim: exact_kernel::TextBoxTrim::None,
+            text_box_edge: exact_kernel::TextBoxEdge::Auto,
         }
     }
     fn stamp_tree(text: &str) -> Kernel {

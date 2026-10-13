@@ -28,6 +28,47 @@ fn catalog_with_bad(missing: bool) -> catalog::Catalog {
     catalog::Catalog::from_bytes(&[GOOD, bad.as_slice()], "DejaVu Sans")
 }
 
+#[test]
+fn runtime_installed_family_uses_first_available_fallback() {
+    let mut catalog = catalog::Catalog::from_bytes(&[GOOD], "DejaVu Sans");
+    catalog.install_runtime(8, &["Missing, 'DejaVu Sans', monospace".into()]);
+    assert!(matches!(&catalog.families[8], FamilyChoice::Declared(name) if name == "DejaVu Sans"));
+    catalog.install_runtime(
+        8,
+        &[
+            "Missing, 'DejaVu Sans', monospace".into(),
+            "ui-monospace".into(),
+        ],
+    );
+    assert!(matches!(catalog.families[9], FamilyChoice::Monospace));
+}
+
+#[test]
+fn a_foreseen_paragraph_is_reshaped_after_its_family_is_registered() {
+    let mut engine = TextEngine::with_catalog(catalog::Catalog::from_bytes(&[GOOD], "DejaVu Sans"));
+    let mut spec = crate::paint::text_spec(&StyleProps::default(), "The quick brown fox");
+    spec.strut.family = 8;
+    spec.runs[0].family = 8;
+    let foreseen = engine.paragraph(&spec, Some(572.));
+    let shaped_before = engine.shape_calls;
+    engine.install_runtime(8, &["DejaVu Sans".into()]);
+    let mounted = engine.paragraph(&spec, Some(572.));
+    assert!(!Rc::ptr_eq(&foreseen, &mounted));
+    assert!(engine.shape_calls > shaped_before);
+    assert!(mounted
+        .lines()
+        .faces
+        .iter()
+        .any(|face| face.font.data.data() == GOOD));
+}
+
+#[test]
+fn quoted_generic_looks_up_an_installed_name_before_the_fallback() {
+    let mut catalog = catalog::Catalog::from_bytes(&[GOOD], "DejaVu Sans");
+    catalog.install_runtime(8, &["'monospace', DejaVu Sans".into()]);
+    assert!(matches!(&catalog.families[8], FamilyChoice::Declared(name) if name == "DejaVu Sans"));
+}
+
 fn admitted(bytes: Vec<u8>) -> Option<fontique::FontInfo> {
     let source = fontique::SourceInfo::new(
         fontique::SourceId::new(),

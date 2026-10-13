@@ -245,3 +245,67 @@ fn decode_reference(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     }
     Some((out, w, h))
 }
+
+/// A part of a picture is the whole decode's pixels of that part, bit for
+/// bit, charged as the part; a key names it, and a part outside the decode
+/// (or of a size the planner would not decode at) is refused.
+#[test]
+fn a_part_is_the_whole_decodes_pixels() {
+    let bytes = png(200, 120);
+    let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+    let whole = DecodePlan::new(header, (100, 60)).unwrap();
+    let all = decode_rows(Cursor::new(&bytes), &whole, || false).unwrap();
+    for (x, y, w, h) in [
+        (17u32, 5u32, 40u32, 30u32),
+        (0, 0, 100, 13),
+        (63, 59, 37, 1),
+        (99, 0, 1, 60),
+    ] {
+        let part = whole.part(x, y, (w, h)).unwrap();
+        assert_eq!((part.pixels.width, part.pixels.height), (w, h));
+        assert_eq!(part.output_bytes(), u64::from(w) * u64::from(h) * 4);
+        assert_eq!(part.cost.scratch_bytes, whole.cost.scratch_bytes);
+        assert_eq!((part.full(), part.natural()), (whole.pixels, (200, 120)));
+        let cut = decode_rows(Cursor::new(&bytes), &part, || false).unwrap();
+        for row in 0..h {
+            let from = (((y + row) * 100 + x) * 4) as usize;
+            assert_eq!(
+                &cut.data()[(row * w * 4) as usize..((row + 1) * w * 4) as usize],
+                &all.data()[from..from + (w * 4) as usize],
+                "row {row} of {w}x{h} at {x},{y}"
+            );
+        }
+        // The key that names the part gives the same plan back.
+        let key = exact_raster::RasterKey {
+            source: 1,
+            generation: 1,
+            pixels: part.pixels,
+            variant: 1,
+            crop: part.crop,
+        };
+        let again = DecodePlan::of_key(header, &key).unwrap();
+        assert_eq!(
+            (again.pixels, again.crop, again.cost),
+            (part.pixels, part.crop, part.cost)
+        );
+    }
+    // The whole is itself, not a part.
+    assert!(whole.part(0, 0, (100, 60)).unwrap().crop.whole());
+    for (x, y, w, h) in [
+        (0u32, 0u32, 101u32, 60u32),
+        (61, 0, 40, 60),
+        (0, 31, 10, 30),
+        (0, 0, 0, 5),
+        (u32::MAX, 0, 2, 2),
+    ] {
+        assert!(whole.part(x, y, (w, h)).is_err(), "{w}x{h} at {x},{y}");
+    }
+    assert!(
+        whole
+            .part(1, 1, (5, 5))
+            .unwrap()
+            .part(0, 0, (2, 2))
+            .is_err(),
+        "a part of a part"
+    );
+}

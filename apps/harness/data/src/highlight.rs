@@ -21,6 +21,30 @@ enum Lang {
     Plain,
 }
 
+/// The lexer state at the start of a code line.
+///
+/// Streaming Markdown keeps this between completed lines so a new token
+/// only highlights the line it can still change. `highlight` below uses the
+/// same state, keeping the two paths byte-for-byte equivalent.
+#[derive(Clone, Copy)]
+pub(super) struct CodeHighlighter {
+    lang: Lang,
+    in_block: bool,
+}
+
+impl CodeHighlighter {
+    pub(super) fn new(lang: &str) -> CodeHighlighter {
+        CodeHighlighter {
+            lang: lang_of(lang),
+            in_block: false,
+        }
+    }
+
+    pub(super) fn line(&mut self, text: &str) -> Line {
+        highlight_line(&expand_tabs(text, 4), self.lang, &mut self.in_block)
+    }
+}
+
 fn lang_of(name: &str) -> Lang {
     match name.trim().to_ascii_lowercase().as_str() {
         "rust" | "rs" => Lang::Rust,
@@ -130,10 +154,9 @@ pub fn expand_tabs(text: &str, stop: usize) -> String {
 
 /// Highlight `code` written in `lang`: one line per source line.
 pub fn highlight(code: &str, lang: &str) -> Vec<Line> {
-    let lang = lang_of(lang);
-    let mut in_block = false;
+    let mut highlighter = CodeHighlighter::new(lang);
     code.split('\n')
-        .map(|l| highlight_line(&expand_tabs(l, 4), lang, &mut in_block))
+        .map(|line| highlighter.line(line))
         .collect()
 }
 
@@ -147,11 +170,14 @@ fn push(line: &mut Line, text: &str, fg: &str, italic: bool) {
 }
 
 fn highlight_line(text: &str, lang: Lang, in_block: &mut bool) -> Line {
-    let mut line = Line::default();
     if lang == Lang::Plain {
-        push(&mut line, text, "", false);
-        return line;
+        return if text.is_empty() {
+            Line::default()
+        } else {
+            Line::plain(text)
+        };
     }
+    let mut line = Line::default();
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let at = |i: usize| chars.get(i).map(|c| c.1);
     let byte = |i: usize| chars.get(i).map(|c| c.0).unwrap_or(text.len());

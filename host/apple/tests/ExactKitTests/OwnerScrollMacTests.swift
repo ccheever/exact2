@@ -58,7 +58,7 @@ final class OwnerScrollMacTests: XCTestCase {
         XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 320, height: 240)).error)
         func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
         let deadline = Date().addingTimeInterval(5)
-        while session.presenter.views.values.first(where: { $0.kind == "list" }).map({ $0.subviewsDeep.count < 3 }) ?? true, Date() < deadline { spin(0.02) }
+        while session.presenter.views.values.first(where: { $0.kind == "list" }).map({ $0.subviewsDeep.count < 3 }) ?? true, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         let list = try XCTUnwrap(session.presenter.views.values.first { $0.kind == "list" })
         let clip = try XCTUnwrap(list.scroll?.contentView)
         let extent = (list.scroll?.documentView?.frame.height ?? 0) - clip.bounds.height

@@ -19,7 +19,7 @@ import UIKit
 extension NodeView {
     /// The handlers that make a node focusable: the web's rule that only a
     /// focusable element hears these (a clipboard event goes to the focus).
-    static let focusEvents: Set<String> = ["focus", "blur", "key", "copy", "cut", "paste"]
+    static let focusEvents: Set<String> = ["focus", "blur", "key", "keyup", "copy", "cut", "paste"]
 
     /// The event an edit action is, and the node that hears it here. A
     /// field's or text area's is its editor's (`fieldClipboard`).
@@ -39,11 +39,6 @@ extension NodeView {
         #endif
         guard let node = chain.lazy.compactMap({ $0 as? NodeView }).first(where: { $0.handlers.contains(name) && !$0.disabled }) else { return nil }
         return (kind, node)
-    }
-
-    /// Whether a field's editor would be heard for `action`: the node or an ancestor has the handler.
-    func hearsFieldClipboard() -> Bool {
-        [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains { clipboardHearer($0) != nil }
     }
 
     /// The `copy`, `cut` or `paste` this field's or text area's editor is
@@ -105,12 +100,28 @@ extension NodeView {
         return super.responds(to: aSelector)
     }
     #else
-    package override func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { super.copy(sender) } }
-    package override func cut(_ sender: Any?) { if !clipboard(#selector(cut(_:))) { super.cut(sender) } }
-    package override func paste(_ sender: Any?) { if !clipboard(#selector(paste(_:))) { super.paste(sender) } }
+    // UIView implements none of the three: forwarding an unheard one to
+    // super raised doesNotRecognizeSelector (a field's Cut, empty, crashed).
+    /// Unheard, a copy is the text selection's, as on the Mac: the edit
+    /// menu's Copy over text its author made selectable (`TextSelectionIOS`).
+    package override func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { copySelectedText() } }
+    package override func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
+    package override func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
+    /// A copy, cut or paste is this node's only while a node hears it, and
+    /// a copy while text of it is selected; UIResponder's default would
+    /// claim it because the class implements it.
     package override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        clipboardTarget(action) != nil || super.canPerformAction(action, withSender: sender)
+        if action == #selector(copy(_:)), hasSelectedText { return true }
+        if [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains(action) { return clipboardTarget(action) != nil }
+        return super.canPerformAction(action, withSender: sender)
     }
+    #if os(iOS)
+    private var hasSelectedText: Bool { presenter?.textSelection.text(for: self)?.selected.length ?? 0 > 0 }
+    private func copySelectedText() { presenter?.textSelection.copy(self) }
+    #else
+    private var hasSelectedText: Bool { false } // tvOS has no text selection
+    private func copySelectedText() {}
+    #endif
     #endif
 }
 

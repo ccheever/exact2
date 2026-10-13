@@ -458,7 +458,7 @@ theorem advance_preserves {p o} (I : Config → Prop) (A : List String)
 /-- A boot is refused with the empty configuration, or it initialized the
 slots, started the timers and rendered the program's view. -/
 theorem boot_cases {p o c out} (h : boot p o = (c, out)) :
-    c = Config.empty ∨ ∃ slots₀ timers st live, initSlots p = .ok slots₀ ∧
+    c = Config.empty ∨ ∃ slots₀ timers st live, initSlots p o = .ok slots₀ ∧
       startTimers p slots₀ = .ok timers ∧ lateSlots p st slots₀ = .ok c.slots ∧
       (∃ cx, render fuel cx [] p.view [] = .ok (c.view, live)) ∧
       c.timers.map (·.action) = timers.map (·.action) := by
@@ -517,11 +517,13 @@ theorem startTimers_actions {p slots timers} (h : startTimers p slots = .ok time
     exact List.mem_map_of_mem ht
 
 /-- Where a slot's value at boot comes from: a root state's initializer
-(or `()`, for a late slot before boot settlement), or a mutation, which
-starts as `none`, or the router slot, which starts at the launch of `/`. -/
+(or `()`, for a late slot before boot settlement, or the device's stored
+value of its type, for a persisted state), or a mutation, which starts as
+`none`, or the router slot, which starts at the launch of `/`. -/
 def SlotOrigin (p : Program) (x : String) (v : Value) : Prop :=
   (∃ st ∈ p.states, st.name = x ∧ st.owner = .none ∧
-    ((st.late = true ∧ v = .unit) ∨ ∃ env, EvalR env false [] st.init v)) ∨
+    ((st.late = true ∧ v = .unit) ∨ (∃ env, EvalR env false [] st.init v) ∨
+     (st.persist = true ∧ conforms p v st.ty = true))) ∨
   (∃ m ∈ p.mutations, m.name = x ∧ v = .none) ∨
   (p.router = .some x ∧ ∃ r, Route.launch p.routes "/" = .ok r ∧ v = Route.routerValue p.routes r)
 
@@ -585,7 +587,10 @@ theorem boot_slots_origin {p o c out} (h : boot p o = (c, out)) :
       · exact hb x v hx
       · simp only [List.mem_singleton, Prod.mk.injEq] at hx
         obtain ⟨rfl, rfl⟩ := hx
-        exact .inl ⟨a, ha, rfl, by simpa using ‹¬a.owner.isSome = true›, .inr ⟨_, eval_sound hw⟩⟩
+        have hown : a.owner = .none := by simpa using ‹¬a.owner.isSome = true›
+        rcases restore_cases p o a w with hr | ⟨hp, -, hc⟩
+        · rw [hr]; exact .inl ⟨a, ha, rfl, hown, .inr (.inl ⟨_, eval_sound hw⟩)⟩
+        · exact .inl ⟨a, ha, rfl, hown, .inr (.inr ⟨hp, hc⟩)⟩
     intro x v hx
     rcases List.mem_append.mp hx with hx | hx
     · exact this x v hx
@@ -608,7 +613,7 @@ theorem boot_slots_origin {p o c out} (h : boot p o = (c, out)) :
   · exact hb x v hx
   · have hown : a.owner = .none := by
       cases h' : a.owner <;> simp_all
-    exact .inl ⟨a, ha, rfl, hown, .inr ⟨_, eval_sound hw⟩⟩
+    exact .inl ⟨a, ha, rfl, hown, .inr (.inl ⟨_, eval_sound hw⟩)⟩
 
 /-! ## Runs -/
 

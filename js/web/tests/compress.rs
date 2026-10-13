@@ -29,7 +29,7 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
             )
         })
         .collect::<serde_json::Map<_, _>>();
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
         .env("CHROME", chrome)
         .env(
@@ -151,8 +151,11 @@ fn check(engine: &str, report: &serde_json::Value) {
         serde_json::json!({"path":"app:/data/rust.jpg","type":"image/jpeg","width":24,"height":32,"sized":true}),
         "{engine}: {report}"
     );
-    assert_eq!(
-        report["rustDenied"], "denied: fs.write",
+    // The refusal names the operation first, then how to grant it.
+    assert!(
+        report["rustDenied"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("denied: fs.write")),
         "{engine}: {report}"
     );
     assert_eq!(

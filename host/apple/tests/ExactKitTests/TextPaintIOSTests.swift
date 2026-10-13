@@ -67,6 +67,34 @@ final class TextPaintIOSTests: XCTestCase {
         XCTAssertNil(node.paragraphSpec().runs.last?.background, "a hidden inline parent paints no background behind its visible child")
     }
 
+    /// LLP 1116.001 D1.4: a fitted paragraph is drawn at the scale the kernel's
+    /// layout chose (`fitScale`): its runs' sizes, line heights and letter
+    /// spacing and its strut, in the kernel's f32 arithmetic; and back at its
+    /// size when the prop goes.
+    func testAFittedParagraphIsDrawnAtTheKernelsScale() throws {
+        let session = ExactApp.shared.makeSession(label: "fit-text")
+        defer { session.destroy() }
+        let p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "00:48.12", "fitScale": "0.38223"],
+             "style": ["font_size": 238.5, "letter_spacing": 2.0, "line_height": "300px", "white_space": "nowrap", "font_variant_numeric": 1]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 16, "y": 0, "w": 370, "h": 115],
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        let scale = Float(0.38223)
+        let run = try XCTUnwrap(node.paragraphSpec().runs.first)
+        XCTAssertEqual(run.size, CGFloat(Float(238.5) * scale))
+        XCTAssertEqual(run.letterSpacing, CGFloat(Float(2) * scale))
+        XCTAssertEqual(run.lineHeight, CGFloat(Float(300) * scale))
+        XCTAssertEqual(node.paragraphSpec().strut?.size, CGFloat(Float(238.5) * scale))
+        let width = { CGFloat(CTLineGetTypographicBounds(try XCTUnwrap(node.paragraphLayout()?.lines.first), nil, nil, nil)) }
+        let fitted = try width()
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [String: String](), "clear": ["fitScale"]]]))
+        XCTAssertEqual(node.paragraphSpec().runs.first?.size, 238.5, "at its size again")
+        XCTAssertEqual(fitted, try width() * CGFloat(scale), accuracy: 1, "the line drawn at the scale's width")
+    }
+
     /// `-exact-content-transition: numeric` rolls the ink layer's new pixels in. An
     /// HDR `text-shadow` is a layer of its own under it, and rolls with it.
     func testAnHDRTextShadowRollsWithItsNumerals() throws {

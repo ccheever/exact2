@@ -15,7 +15,6 @@
 use super::length::Viewport;
 use super::transform::{self as tf, Affine, TransformOrigin};
 use super::{circle, dash_scale, geometry, view_box, view_box_transform, Paint, Path};
-use crate::generated::BorderStyle;
 use crate::generated::{
     Display, FillRule, NodeType, Overflow, PropId, StrokeLinecap, StrokeLinejoin, StyleId,
     StyleMask, StyleProps, TransformBox, VectorEffect, Visibility,
@@ -242,30 +241,15 @@ pub struct Shape {
     pub markers: Vec<Item>,
 }
 
-/// The content box inside a box's border box: x, y, width, height. A
-/// border takes space only when its style draws one (CSS: `none` and
-/// `hidden` compute the width to zero, whatever `medium` says).
-pub fn content_box(node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
-    let s = node.style;
-    let len = |d: Dimension| match d {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => node.frame.width * p / 100.0,
-        _ => 0.0,
-    };
-    let border = |w: f32, style: BorderStyle| match style {
-        BorderStyle::None | BorderStyle::Hidden => 0.0,
-        _ => w,
-    };
-    let left = len(s.padding_left) + border(s.border_width_left, s.border_style_left);
-    let top = len(s.padding_top) + border(s.border_width_top, s.border_style_top);
-    let w = node.frame.width
-        - left
-        - len(s.padding_right)
-        - border(s.border_width_right, s.border_style_right);
-    let h = node.frame.height
-        - top
-        - len(s.padding_bottom)
-        - border(s.border_width_bottom, s.border_style_bottom);
+/// The content box inside a box's border box: x, y, width, height. The
+/// padding and border are what the last layout resolved, so a percentage is
+/// of the containing block; zero for a node with no engine layout.
+pub fn content_box(kernel: &Kernel, node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
+    let (pl, pt, pr, pb) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let (bl, bt, br, bb) = kernel.resolved_border(node.key).unwrap_or_default();
+    let (left, top) = (pl + bl, pt + bt);
+    let w = node.frame.width - left - pr - br;
+    let h = node.frame.height - top - pb - bb;
     (left, top, w.max(0.0), h.max(0.0))
 }
 

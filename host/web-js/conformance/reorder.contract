@@ -34,9 +34,9 @@ component Arrange
     column testId="root" height="100%" display="flex" flex-direction="column" background-color="#ffffff"
       text `${last} · ${drops}` testId="last" flex-shrink=0 padding=8
       row flex-shrink=0 gap=8
-        button testId="fewer" press=fewer
+        button appearance="none" testId="fewer" press=fewer
           text "fewer"
-        button testId="more" press=more
+        button appearance="none" testId="more" press=more
           text "more"
       list id="arrange" reorderdrop=dropped virtualized=true estimated-item-height=56 testId="list" flex=1 min-height=0 width="100%" overflow-x="hidden"
         each p in filter(rows, r => r.rank < limit) key=p.id

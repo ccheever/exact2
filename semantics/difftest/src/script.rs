@@ -49,6 +49,10 @@ pub struct Case {
     pub events: Vec<Event>,
     /// The file it was read from, when it resolves `use`s.
     pub path: Option<std::path::PathBuf>,
+    /// Whether the device's store holds persisted states at launch
+    /// (LLP 1116 D5, [`crate::oracle::Oracle::with_store`]); an authored
+    /// test's starts empty.
+    pub stored: bool,
 }
 
 /// A corpus case: a [`Case`] whose script also holds expectations.
@@ -170,6 +174,8 @@ pub fn test_case(
             // are, and those are compared; a step that reads the table is
             // the runner's tests' and conformance's.
             Step::ExpectSound { .. } => continue,
+            // A control's `disabled` is read from the host's tree (LLP 1116.010 D3), which Lean has no model of.
+            Step::ExpectDisabled { .. } => continue,
             // The media session is the host's (LLP 1098 D12): an assertion on
             // it has no oracle, and a test that only asserts it still runs.
             // Its `tap` form is not a press, so it reaches `other` and the
@@ -196,6 +202,7 @@ pub fn test_case(
             source: source.to_string(),
             events,
             path: path.map(std::path::Path::to_path_buf),
+            stored: false,
         },
         items,
     })

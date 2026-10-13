@@ -9,6 +9,7 @@ const { format } = dateFormatter;
 const parts = dateFormatter.formatToParts.bind(dateFormatter);
 const formatGetter = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, "format")!.get!;
 const calls: Record<string, () => unknown> = {
+  idle: () => "idle",
   now: () => Date.now(),
   new: () => new Date(),
   call: () => Date(),

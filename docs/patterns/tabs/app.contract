@@ -1,0 +1,73 @@
+// Starter: two tabs, each its own stack: a list that pushes a detail in each.
+// The root tablist is the iOS tab bar; a screen a tab pushed survives a visit to the other.
+routes nav
+  tab places "/"
+    place "/place/:id"
+  tab saved "/saved"
+    savedPlace "/saved/:id"
+
+shape Place
+  id: string
+  name: string
+  area: string
+  about: string
+
+fn nameOf(places: list<Place>, id: string): string = match first(filter(places, p => p.id == id)) { case some(p) => p.name, case none => "" }
+
+component App
+  state saved = [] persist
+  resource places = loadPlaces() as shape list<Place> else empty()
+  action pick(name: string)
+    nav = select(nav, name)
+  // A row is a link to its place; the browser's Back, Forward and a deep link arrive here too.
+  action follow(url: string)
+    nav = go(nav, url)
+  action toggle(id: string)
+    saved = includes(saved, id) ? filter(saved, s => s != id) : concat(saved, [id])
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      display="flex" flex-direction="column" accent-color="-exact-system-indigo"
+      column flex=1 min-height=0 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            each e in t.stack key=e.id
+              column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
+                display="flex" flex-direction="column"
+                header display="flex" align-items="center" padding="8px 16px"
+                  text (e.name == "places" ? "Starter" : e.name == "saved" ? "Saved" : nameOf(places, e.params.id))
+                    role="heading" aria-level=(e.name == "places" or e.name == "saved" ? 1 : 2) flex=1
+                  when e.name == "place" or e.name == "savedPlace"
+                    button press=toggle(e.params.id) aria-label=(includes(saved, e.params.id) ? "Remove from Saved" : "Save")
+                      testId=`save-${t.name}`
+                      image (includes(saved, e.params.id) ? "symbol:bookmark-fill" : "symbol:bookmark")
+                when e.name == "places" or e.name == "saved"
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      each p in (e.name == "saved" ? filter(places, x => includes(saved, x.id)) : places) key=p.id
+                        link href=(e.name == "saved" ? path("savedPlace", p.id) : path("place", p.id)) testId=`${t.name}-${p.id}`
+                          column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
+                            text p.name
+                            text p.area font="-exact-subheadline" color="-exact-secondary-label"
+                          image "symbol:forward-chevron"
+                      footer
+                        text (e.name == "saved" and length(saved) == 0 ? "Nothing saved yet. Open a place and tap the bookmark." : "")
+                          testId=`${t.name}-empty`
+                else
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    each p in filter(places, x => x.id == e.params.id) key=p.id
+                      section
+                        row
+                          text "Area"
+                          text p.area
+                      section
+                        row padding-top=10 padding-bottom=10
+                          text p.about flex=1 min-width=0 testId=`about-${t.name}`
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-places" aria-selected=(nav.tab == "places") press=pick("places")
+          testId="tab-places" flex=1
+          image "symbol:home"
+          text "Places"
+        button role="tab" aria-controls="panel-saved" aria-selected=(nav.tab == "saved") press=pick("saved")
+          testId="tab-saved" flex=1
+          image "symbol:bookmark"
+          text "Saved"

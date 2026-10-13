@@ -114,6 +114,7 @@ impl<D: DataSource> Host<D> {
         token: ReorderToken,
         geometry: ReorderGeometry,
     ) -> Result<bool, String> {
+        // The presenter advances effects before certifying native geometry.
         let receipt = self
             .runner
             .drop_reorder(token, geometry)

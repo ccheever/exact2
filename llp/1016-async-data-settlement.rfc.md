@@ -123,8 +123,10 @@ The host runs it with the executor it has, and brings the outcome back:
   `exact_fulfill(ticket, status, len)` with the body in the input buffer (a
   failure is `status 0` and a message — the glue's convention for a rejected
   `fetch`, not Fetch's response model). The browser is the executor and the
-  authority (CORS); the glue holds the grant list too (D6) so the refusal is
-  the same on both hosts. An ordinary request keeps the browser's HTTP-cache
+  authority (CORS); the glue holds the grant list too (D6). Native admits
+  each redirect before contact; the web checks the final response URL, with
+  the render server's CSP also restricting which hops the browser can contact
+  ("Browser redirects" below). An ordinary request keeps the browser's HTTP-cache
   semantics (the web's default; never a global `no-store`); a request the
   app forced (§4's `refresh`) goes with `cache: "reload"`; a source marks a
   mutation-adjacent read `cache-control: no-cache` itself, as a web app does;
@@ -159,13 +161,27 @@ The alternative — the data source blocks on a worker thread and the runner
 waits — was rejected because it cannot exist on the web, and the web is the
 standard.
 
-**Browser redirect restriction (2026-09-24):** all app fetches, including early
-module GETs, use `redirect: "error"`. Fetch's manual mode returns an opaque
-redirect without its Location, so the browser host cannot re-admit the next
-origin before sending a request. Same-origin redirects are refused too; apps
-must request the final URL. Native executors retain per-hop grant admission.
-Ordered browser responses use the native 64 MiB streaming ceiling; independent
-requests retain their declared smaller limit.
+**Browser redirects (amended 2026-10-11; supersedes the 2026-09-24
+restriction):** app fetches, including early module GETs, follow redirects by
+default and check the final response URL against the grants. An explicit
+`redirect: "error"` refuses redirects. Fetch's manual mode hides a
+cross-origin redirect's Location, so the browser cannot check every hop
+before contact. On render-server pages, CSP `connect-src` allows the page's
+own origin and the app's granted origins, while request admission uses the
+narrower source scope. It blocks a hop outside the page origin and app grants
+before contact; fetch reports `Network`, while native refuses that hop as
+`Refused`. A source-ungranted hop still permitted by app CSP can receive a
+307's POST body and return to a source-granted final URL, succeeding on web
+while native refuses before contacting it. Static and dev pages have no CSP:
+an ungranted intermediate origin can receive a request, including a 307's
+body; if the chain ends at a granted origin, the web accepts the response while native
+refuses before contacting the ungranted hop. Without CSP, an ungranted final
+URL is refused after contact. A browser failure before a response is visible,
+including CORS rejection, is `Network` rather than native's per-hop `Refused`
+(LLP 1071, "Found beside them"). Native executors retain per-hop grant
+admission. Ordered browser responses use the native
+64 MiB streaming ceiling; independent requests retain their declared smaller
+limit.
 
 ### D3 — Pending: the resource keeps its value, and the app can ask
 
@@ -243,8 +259,8 @@ not a `refresh`, a declared refresh, `data_ready` or a store-revision re-ask
 no continuation, storage or surface operation), the ticket is **kept**. Its
 reply is parsed with the newest arguments and nothing new is sent. The newest
 arguments still win; the duplicate fetch is what goes. A mutation's request is
-never kept. LLP 1054.000.000 D1 adds the other half: `mutation m … refreshes
-r` re-asks `r`, forced, when `m` is sent and when its reply lands.
+never kept. LLP 1054.000.000 D1 adds the other half:
+`mutation m … refreshes r` re-asks `r`, forced, when its reply lands.
 
 The native JavaScript executor keeps a sent mutation queued behind a storage turn
 even when a newer send forgets its reply. Such mutations run their storage work
@@ -287,10 +303,13 @@ credentials (vendor/ibex/crates/ibex2 patch 1). The app's data crate declares it
 `pub const GRANTS: &str = "net.fetch https://api.castle.xyz\n";` — that the
 `host!` macros hand to `Host::endow` on Apple and that `glue.js` receives at
 boot (a string list) and checks before `fetch`, so a request outside the grant
-fails identically everywhere, as `Failed { kind: Refused }`. The grant is a
-boundary beside CORS, not instead of it: the browser still enforces its own
-(and can send some cross-origin requests whose responses it will not let the
-page read); the grant is what the app declared it would reach. Exact has no
+fails as `Failed { kind: Refused }` before contact everywhere. Redirects can
+produce different failures or outcomes by host (D2). Native grants are
+a capability boundary. On the web they admit Exact API fetches, not direct
+page code; the browser still enforces CORS and the render server's CSP where
+present (and without CSP can send some cross-origin requests whose responses
+it will not let the page read). The grant is what
+the app declared for Exact API fetches. Exact has no
 manifest yet; when it has one (LLP 0068 §4 says the same grammar), the
 constant becomes a section of it. A grant in `app.contract` itself was
 considered and deferred: the language does not name hosts today, and a

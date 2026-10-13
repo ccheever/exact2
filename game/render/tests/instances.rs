@@ -706,15 +706,12 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
     );
 }
 
-#[test]
-fn material_overrides_recolour_one_material_and_keep_instances_together() {
-    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-        return;
-    };
+/// One armoured unit: material 0, the armour, authored pure red (blue and
+/// green are zero factors); material 1, the body, white.
+fn armoured() -> Model {
     let mut model = Model {
         meshes: vec![panel(0), panel(1)],
         materials: vec![
-            // Authored pure red: blue and green are zero factors.
             material([0.9, 0., 0., 1.], AlphaMode::Opaque),
             material([1., 1., 1., 1.], AlphaMode::Opaque),
         ],
@@ -729,6 +726,53 @@ fn material_overrides_recolour_one_material_and_keep_instances_together() {
             ..Default::default()
         });
     }
+    model
+}
+/// `world`'s units front on, 128 × 64: the armour at (32, 32), the body at (96, 32).
+fn draw_armoured(
+    gpu: &exact_gpu::Gpu,
+    model: &Model,
+    world: &World,
+) -> (exact_game_render::Stats, fixture::Pixels) {
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(world, &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 128,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-2., 2., -1., 1., 0.1, 20.),
+        camera_position: eye,
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    f.environment.background = Some([0.; 3]);
+    let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
+    (stats, fixture::read(gpu, &texture).unwrap())
+}
+
+#[test]
+fn material_overrides_recolour_one_material_and_keep_instances_together() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let model = armoured();
     let blue = MaterialOverrides(vec![MaterialOverride {
         material: 0,
         color: Some([0.1, 0.3, 0.9, 1.]),
@@ -747,37 +791,7 @@ fn material_overrides_recolour_one_material_and_keep_instances_together() {
             sim.world_mut()
                 .spawn((Transform::at(0., 0., -3.), Mesh::asset("panels.model")));
         }
-        let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        renderer.prepare_model("panels.model", &model).unwrap();
-        let mut feed = Feed::default();
-        feed.feed(sim.world(), &mut renderer).unwrap();
-        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: 128,
-                height: 64,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let eye = Vec3::new(0., 0., 5.);
-        let mut f = exact_game_render::FrameInput {
-            view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
-            proj: directx::orthographic(-2., 2., -1., 1., 0.1, 20.),
-            camera_position: eye,
-            sun: None,
-            ..Default::default()
-        };
-        f.environment.fog = None;
-        f.environment.bloom = None;
-        f.environment.background = Some([0.; 3]);
-        let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
-        (stats, fixture::read(&gpu, &texture).unwrap())
+        draw_armoured(&gpu, &model, sim.world())
     };
     let (one, plain) = render(None, false);
     let (_, recoloured) = render(Some(&blue), false);
@@ -793,4 +807,71 @@ fn material_overrides_recolour_one_material_and_keep_instances_together() {
     );
     // Instances with different overrides share their batches.
     assert_eq!((two.draws, two.instances), (one.draws, 2 * one.instances));
+}
+
+/// Which side a unit fights for: simulation state, saved and hashed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Component)]
+struct Team(u8);
+/// Team colour as LLP 1046.011 §8 rules it and `game/README.md` ("Team
+/// colours") shows it: appearance derived from the saved `Team` in `present`,
+/// one model for every team, no second model per tint.
+struct Teams;
+impl Game for Teams {
+    const ID: &'static str = "instances-teams";
+    const ASSETS: &'static [&'static str] = &["panels.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "model",
+            (Transform::default(), Mesh::asset("panels.model"), Team(1)),
+        );
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn present(p: &mut Present<'_>, _: &()) {
+        // Each team's armour colour; material 0 is the armour in the unit's model.
+        const ARMOUR: [[f32; 4]; 2] = [[0.9, 0.1, 0.1, 1.], [0.1, 0.3, 0.9, 1.]];
+        let mut units = Vec::new();
+        p.for_each::<Team>(|e, team| units.push((e, team.0)));
+        for (e, team) in units {
+            p.insert(
+                e,
+                MaterialOverrides(vec![MaterialOverride {
+                    material: 0,
+                    color: Some(ARMOUR[usize::from(team)]),
+                    ..Default::default()
+                }]),
+            );
+        }
+    }
+}
+
+#[test]
+fn a_team_colour_written_from_present_recolours_only_the_armour() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let model = armoured();
+    // Setup ends with a present, so the unit already wears its team's colour.
+    let mut sim = Sim::<Teams>::new(()).unwrap();
+    sim.asset("panels.model", Some(&bin::to_vec(&model)))
+        .unwrap();
+    assert!(sim.world().get::<MaterialOverrides>("model").is_some());
+    let (_, pixels) = draw_armoured(&gpu, &model, sim.world());
+    // The same unit with no present: its authored look.
+    let mut plain = Sim::<Test>::new(()).unwrap();
+    plain
+        .asset("panels.model", Some(&bin::to_vec(&model)))
+        .unwrap();
+    let (_, authored) = draw_armoured(&gpu, &model, plain.world());
+    let armour = pixels.at(32, 32);
+    assert!(
+        armour[2] > armour[0] + 30,
+        "team 1's blue armour: {armour:?}"
+    );
+    assert_eq!(
+        pixels.at(96, 32),
+        authored.at(96, 32),
+        "the body keeps its authored look"
+    );
 }

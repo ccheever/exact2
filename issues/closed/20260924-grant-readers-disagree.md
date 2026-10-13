@@ -44,6 +44,8 @@ per-hop check. This is a declared web deviation. Every redirect for which a
 `Response` exists keeps the rule above. Grants are parity, not a security
 boundary: app code is the page and can call the browser's fetch directly.
 
+**Correction (2026-10-11):** The contact and outcome split above applies to static and dev pages without CSP. Render-server pages send `connect-src 'self'` plus granted origins; a redirect to an ungranted origin outside the page's own origin is blocked before contact, and the browser fetch reports `Network`. `host/render/src/serve_tests.rs` checks the CSP list.
+
 The JS target reports `FetchError` with string `FailureKind`, gives Rust an
 absent scope as that Rust executor's own set, and applies the same admission to
 portable storage, file operations and secrets. The TypeScript store returns

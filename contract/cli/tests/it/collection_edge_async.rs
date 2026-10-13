@@ -88,6 +88,7 @@ fn feedback(r: &mut Runner<AsyncRows>) {
             port_cross: 640.,
             port_main: 320.,
             cross: 640.,
+            padding: [0.0; 2],
             measurements: vec![],
             focus_view: None,
             interaction_view: None,

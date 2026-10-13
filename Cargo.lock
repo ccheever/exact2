@@ -351,6 +351,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "caltrain-android"
+version = "0.1.0"
+dependencies = [
+ "caltrain-data",
+ "contract",
+ "exact-bake",
+ "exact-linux",
+]
+
+[[package]]
 name = "caltrain-apple"
 version = "0.1.0"
 dependencies = [
@@ -688,6 +698,7 @@ dependencies = [
  "contract-analyze",
  "contract-syntax",
  "contract-types",
+ "exact-color",
  "exact-kernel",
  "exact-motion",
  "exact-num",
@@ -1134,6 +1145,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "contract-syntax",
  "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",
@@ -1250,6 +1262,7 @@ dependencies = [
  "caltrain-data",
  "cc",
  "contract",
+ "exact-apple",
  "exact-data",
  "exact-data-host",
  "exact-js-value",
@@ -1316,6 +1329,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "smol_str",
  "taffy",
 ]
 
@@ -1572,8 +1586,11 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-textflow",
+ "libc",
  "png",
  "rustix 1.1.4",
+ "signal-hook",
+ "smol_str",
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "vt100",
@@ -1629,6 +1646,7 @@ dependencies = [
  "exact-runner",
  "exact-textflow",
  "exact-web-capabilities",
+ "serde_json",
 ]
 
 [[package]]
@@ -2107,6 +2125,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "exact-terminal",
  "markdown-parse",
  "png",
  "rustix 1.1.4",
@@ -2119,6 +2138,7 @@ dependencies = [
 name = "harness-terminal"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-terminal",
  "harness-data",
 ]
@@ -2738,12 +2758,14 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "markdown-parse",
+ "memchr",
 ]
 
 [[package]]
 name = "llp-terminal"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-terminal",
  "llp-data",
 ]
@@ -4351,10 +4373,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "shelf-android"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "shelf-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "shelf-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
 
 [[package]]
 name = "signature"
@@ -5009,6 +5082,16 @@ name = "unicode-width"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "unsaid-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "hello-data",
+]
 
 [[package]]
 name = "untrusted"

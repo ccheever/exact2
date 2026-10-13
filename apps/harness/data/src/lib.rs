@@ -9,7 +9,9 @@
 //! answer, which bake calls too — only from sends.
 //!
 //! Sources:
-//! - `session()` → `Session` (topic "session")
+//! - `session(mode)` → `Session` (topic "session"); inline answers a
+//!   prefix until the host prints and retires it, fullscreen answers all.
+//! - `workspace()` → `Workspace` (startup Git metadata, on the host worker)
 //! - `animation(name, tick, cols, rows)` → `Frame`
 //! - `submit(text)`, `approve(id, choice)`, `interrupt()`, `setModel(id)`,
 //!   `setKey(provider, key)`, `retire(id)` → `Ack`
@@ -37,18 +39,27 @@ mod tools;
 mod value;
 
 use exact_plan::Value;
-use exact_runner::{Answer, DataError, DataSource, Native, Store};
+use exact_runner::{Answer, DataError, DataSource, Native, Outcome, Request, Response, Store};
 use state::{Entry, Shared, State};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub use anim::NAMES as ANIMATIONS;
 pub use providers::mock::FAST as MOCK_FAST;
+
+// Bound the mounted inline transcript, including during a single large
+// producer burst. The entire burst exists in State immediately; the next
+// prefix becomes visible only after the host acknowledges printing this
+// one. Fullscreen keeps its transcript for scrolling.
+const INLINE_ENTRIES: usize = 32;
 
 /// The harness's data source. Clones share one session, as [`Native`]
 /// handles do: a clone kept outside the runner reaches the same state.
 #[derive(Clone)]
 pub struct Harness {
     shared: Arc<Shared>,
+    branch_requests: Vec<u64>,
+    branch_lookup: Arc<OnceLock<String>>,
+    next_request: u64,
 }
 
 impl Default for Harness {
@@ -76,6 +87,25 @@ fn git_branch() -> String {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default()
+}
+
+// A request reply completes the banner before inline mode prints it. Its
+// model and directory remain those shown when that banner was created.
+fn finish_branch(shared: &Shared, branch: String) {
+    let mut s = shared.lock();
+    if !s.branch_loading {
+        return;
+    }
+    s.branch_loading = false;
+    for entry in &mut s.entries {
+        if entry.kind == "banner" && entry.busy {
+            art::banner_branch(&mut entry.blocks, &branch);
+            entry.busy = false;
+        }
+    }
+    s.branch = branch;
+    drop(s);
+    shared.changed();
 }
 
 /// Where a harness keeps its configuration and what it may reach at
@@ -147,10 +177,9 @@ impl Harness {
             .and_then(catalog::cached)
             .unwrap_or_else(catalog::fallback);
         let cwd = home_relative(&std::env::current_dir().unwrap_or_default());
-        let branch = git_branch();
         let mut state = State {
             cwd: cwd.clone(),
-            branch: branch.clone(),
+            branch_loading: true,
             phase: "idle".into(),
             keys,
             catalog,
@@ -164,7 +193,8 @@ impl Harness {
         let model = state.model.clone();
         state.push(Entry {
             kind: "banner".into(),
-            blocks: art::banner(&model, &cwd, &branch),
+            blocks: art::banner(&model, &cwd, ""),
+            busy: true,
             ..Entry::default()
         });
         let probe = (!state.keys.has("OLLAMA_HOST")).then(|| providers::ollama_host(&state.keys));
@@ -184,12 +214,17 @@ impl Harness {
                 });
             }
         }
-        Harness { shared }
+        Harness {
+            shared,
+            branch_requests: Vec::new(),
+            branch_lookup: Arc::new(OnceLock::new()),
+            next_request: 0,
+        }
     }
 
     /// The session as `shape Session`.
     pub fn session(&self) -> Value {
-        value::session(&self.shared.lock())
+        value::session(&self.shared.lock(), usize::MAX)
     }
 
     fn call(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
@@ -204,7 +239,26 @@ impl Harness {
             })
         };
         let ok = match source {
-            "session" => return Ok(self.session()),
+            "workspace" => return Ok(Value::record(vec![Value::str(&self.shared.lock().branch)])),
+            "session" => {
+                // Before the host publishes its first record, mode is
+                // empty and the Contract view already chooses inline.
+                let state = self.shared.lock();
+                let entries = if matches!(args.first().and_then(Value::as_str), Some("" | "inline"))
+                {
+                    // Nothing after the unfinished banner can reach scrollback
+                    // yet. Keep that prefix small even if a command has already
+                    // produced a burst; all entries remain in State.
+                    if state.branch_loading {
+                        1
+                    } else {
+                        INLINE_ENTRIES
+                    }
+                } else {
+                    usize::MAX
+                };
+                return Ok(value::session(&state, entries));
+            }
             "animation" => {
                 let (title, lines) = anim::frame(
                     text(0)?,
@@ -212,7 +266,7 @@ impl Harness {
                     number(2)?.max(0.0) as usize,
                     number(3)?.max(0.0) as usize,
                 );
-                return Ok(value::frame(&title, &lines));
+                return Ok(value::frame(&title, lines));
             }
             "submit" => commands::submit(&self.shared, text(0)?),
             "approve" => commands::approve(&self.shared, text(0)?, text(1)?),
@@ -252,6 +306,47 @@ impl DataSource for Harness {
         if source == "session" {
             store.observe_topic("session");
         }
+        if source == "workspace" && self.shared.lock().branch_loading {
+            self.next_request += 1;
+            self.branch_requests.push(self.next_request);
+            return Ok(Answer::Later(Request::continuation(self.next_request)));
+        }
+        self.call(source, args).map(Answer::Now)
+    }
+
+    fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        let at = self
+            .branch_requests
+            .iter()
+            .position(|request| *request == token)?;
+        self.branch_requests.swap_remove(at);
+        let branch = self.branch_lookup.clone();
+        Some(Box::new(move || {
+            Outcome::Response(Response {
+                status: 200,
+                headers: Vec::new(),
+                body: branch.get_or_init(git_branch).as_bytes().to_vec(),
+            })
+        }))
+    }
+
+    fn parse(
+        &mut self,
+        _store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        if source != "workspace" {
+            return Err(DataError::UnknownSource(source.into()));
+        }
+        let branch = match outcome {
+            Outcome::Response(response) if response.status == 200 => {
+                String::from_utf8_lossy(&response.body).into_owned()
+            }
+            _ => String::new(),
+        };
+        finish_branch(&self.shared, branch);
         self.call(source, args).map(Answer::Now)
     }
 

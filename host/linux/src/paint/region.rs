@@ -251,7 +251,7 @@ impl Picture {
                 return Err("content mounted node limit".into());
             }
             let frame = publication.frames()[ordinal].frame;
-            let paint = BoxPaint::capture(&node, scene.kernel, painter.dark, frame.width);
+            let paint = BoxPaint::capture(&node, scene.kernel, painter.dark);
             let geometry = paint.geometry(paint_rect(frame, (0., 0.)));
             let axes = effective_overflow(&node);
             let clips = axes.0 != Overflow::Visible || axes.1 != Overflow::Visible;
@@ -764,7 +764,7 @@ impl<'a> Replay<'a> {
                             if let Some(dst) = object_fit(image.natural(), *fit, g.content) {
                                 painter.backend.image(
                                     image,
-                                    dst,
+                                    image.placed(dst),
                                     &[Shape::rect(g.content), g.outer],
                                     parent,
                                     *tint,

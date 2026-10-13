@@ -6,7 +6,7 @@
 **Systems:** All
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-28
-**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 1007, LLP 0552, LLP 0491, LLP 0507, LLP 0486
+**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 1007, LLP 1115, LLP 0552, LLP 0491, LLP 0507, LLP 0486
 
 ## Summary
 
@@ -109,10 +109,11 @@ and this one does not. Read them first.
   pixel. `apps/caltrain/gpu` is the app's module: the aurora, the glass and the
   deck. The line map left it for Canvas 2D (LLP 1056), drawn by the data crate.
 - `vendor/taffy/` — Taffy 0.9.2 plus six Exact patches (`EXACT-PATCHES.md`).
-- `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
+- `scripts/` — `caps` and `boot` (two of the six checks), `metrics` (the startup and
   speed numbers in one run, diagnostic), `issue` (filesystem issues, `docs/issues.md`),
   and `exact.mjs` (`exact new`, `setup`, `contract`, `run`, `install`).
-- `docs/` — the guides for people and agents building apps: Contract for agents,
+- `docs/` — the guides for people and agents building apps: `start-here.md` (the one
+  required read, LLP 1115 D7) and its recipes, then for lookup Contract for agents,
   for humans, its grammar, the pitfalls, and the developer reference (LLP 1086).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
@@ -141,9 +142,9 @@ motion parity harness, the resident dev driver — the same day again, LLP 1007
 operations once in the runner, one export on each ABI, one driver with a carrier
 per host, and the smoke as a script of its operations.)
 
-## The five checks
+## The six checks
 
-`build` · `test` · `lint` · `caps` · `boot`
+`build` · `test` · `lint` · `caps` · `boot` · `workspace`
 
 ```sh
 cargo build --all-targets --keep-going
@@ -151,17 +152,36 @@ cargo test --lib --bins --tests --no-fail-fast
 cargo clippy --all-targets --keep-going -- -D warnings; cargo fmt --all -- --check
 bun scripts/caps.mjs
 bun scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
+cargo check --workspace --all-targets --keep-going   # every crate compiles; the pinned Bun first on PATH
 ```
 
-Cargo's three cover the root `default-members` (deterministic, in-process
-crates); the async lane runs them with `--workspace`, the UIKit XCTests for commits
-under `host/apple`, then `metrics.mjs --long`.
+Cargo's first three cover the root `default-members` (deterministic, in-process
+crates). The sixth (Charlie, 2026-10-12) compiles every crate of the workspace and
+runs none of their tests: on 2026-10-11 `exact-web-js` and `exact-linux`'s tests
+did not compile on `main` while the five passed. App crates' build scripts run
+Bun, so an older one than `package.json` pins fails it. The async lane runs the
+first three with `--workspace`, tests the separate
+`game/Cargo.toml` workspace with `--locked --no-fail-fast`, runs UIKit XCTests, touch smoke
+and the tvOS compile (`build.mjs --tvos --no-install`: no simulator; Charlie, 2026-10-12)
+when the coalesced commit range changes anything outside documentation-only paths
+(`llp/`, `issues/`, `rules/`, `docs/`, `QUEUE.md`, or a `*.md` file). This includes
+separately built modules, build scripts, and fixtures. The lane then runs
+`metrics.mjs --long`.
+Its hourly tier 2 installs tvOS on an Apple TV simulator and cross-compiles the Linux host with Caltrain
+and the Windows host with Windows Desk for their actual targets. Tier 2
+requires those Rust targets and Zig's C cross compiler on the Mac. These
+Cargo checks qualify source compilation only; window presentation, KMS, and
+input devices still require native machines. Other Linux apps are not yet
+selected: their shared JavaScript host reaches target C++ build inputs not
+qualified by this slice.
 
 ## Durable constraints (from the rules, restated for orientation)
 
-- **The web is the standard.** A semantic that could follow CSS follows CSS —
-  defaults, property names, value vocabularies, behavior. Deviations are declared
-  with a reason (LLP 1001 §1). `AGENTS.md` carries the same rule.
+- **Write the web, ship the platform** (LLP 1115, 2026-10-09; it replaced "the web is
+  the standard" here). Authors write CSS: property names, value vocabularies and
+  layout defaults follow CSS, and a layout deviation is declared with a reason (LLP
+  1001 §1). What the author leaves unsaid that a person can see or feel is the
+  platform's. Author > platform > CSS default. `AGENTS.md` carries the same rule.
 - Delete; don't deprecate. No compat shims before 1.0. Names change.
 - Generated files are built, never committed (`kernel/build.rs` → `OUT_DIR`).
 - 1,500 lines per source file; vendored code exempt.

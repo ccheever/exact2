@@ -36,6 +36,7 @@ enum Pending {
 /// host worker. On the web the dedicated request is executed by browser storage.
 pub struct Storage<D> {
     source: D,
+    document_owner: u64,
     directories: Option<Directories>,
     active: bool,
     effects: bool,
@@ -51,6 +52,7 @@ impl<D> Storage<D> {
     pub fn new(source: D) -> Self {
         Self {
             source,
+            document_owner: 0,
             directories: None,
             active: false,
             effects: false,
@@ -143,6 +145,11 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
+    fn set_document_owner(&mut self, owner: u64) {
+        self.document_owner = owner;
+        self.source.set_document_owner(owner);
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
     }
@@ -257,6 +264,7 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
         let mut next = Self::new(self.source.replacement(plan, receipt, module)?);
         next.directories = self.directories.clone();
+        next.document_owner = self.document_owner;
         next.agent = self.agent;
         Ok(next)
     }
@@ -268,6 +276,15 @@ impl<D: DataSource> DataSource for Storage<D> {
     }
     fn native(&self) -> Option<exact_runner::Native> {
         self.source.native()
+    }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        self.source.overlay(source, args, answer, writes)
     }
     /// Continuation tokens are this source's own: each goes back to its
     /// child's where the child handed one out (a storage request's never
@@ -368,6 +385,7 @@ impl<D: DataSource> DataSource for Storage<D> {
             #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
+                let owner = self.document_owner;
                 let alive = self.alive.clone();
                 let refused =
                     paths.is_none() && self.agent && !native::independent_storage(&payload);
@@ -381,7 +399,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                     if refused {
                         return native::agent_refusal();
                     }
-                    native::run(paths.as_ref(), &grants, &payload)
+                    native::run(paths.as_ref(), &grants, &payload, owner)
                 }))
             }
         }

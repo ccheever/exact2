@@ -6,7 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { resolve } from 'node:path';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 /** Use Xcode when `xcode-select` names the Command Line Tools, which carry
@@ -27,6 +28,31 @@ export function useXcode() {
 }
 const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts }); };
 
+/** A window capture the app drew (`path`, in `r`'s scale) with the software keyboard put in from the simulator's own
+ *  screenshot: UIKit draws the keyboard in a process of its own, so no capture of the app's window has it (round 9:
+ *  "blank keyboard region"). Only the rows from the keyboard's top (`r.keyboard.windowTop`) are taken, so the picture
+ *  stays the app's; what could not be done is said in `note`, and the picture is left as it was. Returns `r`. */
+export function withKeyboard(r, path, udid) {
+  const top = r.keyboard?.windowTop, scale = r.scale;
+  const fail = (why) => { r.note = `the software keyboard is up: it is not in the capture (${why}), and the app above it may be shortened (state shows keyboard.top)`; return r; };
+  if (!(top >= 0) || !(scale > 0)) return fail('no keyboard top');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
+  try {
+    const shot = resolve(dir, 'display.png');
+    const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
+    if (taken.status !== 0 || !existsSync(shot)) return fail(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+    const app = decodePng(readFileSync(path)), display = decodePng(readFileSync(shot));
+    if (app.width !== display.width || app.height !== display.height) return fail(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
+    const y = Math.max(0, Math.min(app.height, Math.round(top * scale)));
+    app.data.set(display.data.subarray(y * app.width * 4), y * app.width * 4);
+    writeFileSync(path, encodePng(app));
+    r.keyboard.captured = true;
+    r.note = 'the software keyboard is up and in the capture from keyboard.top down, as the simulator draws it; the app above it is shortened';
+    return r;
+  } catch (e) { return fail(String(e.message ?? e).split('\n')[0]); }
+  finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 /** Every available simulator: { udid, name, runtime, state, type } — `type`
  *  the device type's last component (`iPhone-18-Pro`, `Apple-TV-4K-…`), which a
  *  renamed simulator keeps. */
@@ -36,15 +62,19 @@ export function simulators() {
   return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state, type: d.deviceTypeIdentifier?.split('.').pop() ?? '' })));
 }
 
-/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else a booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
-export function simulator(pick = process.env.EXACT_SIM, { tv = false } = {}) {
+/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone (refused when several are, naming how to choose: `hint`, the caller's own way), else the iPhone Pro on the newest iOS — booted and waited for. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
+export function simulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>' } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const kind = (d) => d.type || d.name.replaceAll(' ', '-');
   const iphones = all.filter((d) => (tv ? /SimRuntime\.tvOS/.test(d.runtime) && /^Apple-TV/.test(kind(d)) : /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(kind(d)))).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
   let dev = pick ? all.find((d) => d.udid === pick || d.name === pick) : null;
   if (pick && !dev) throw new Error(`no simulator ${pick} (xcrun simctl list devices available)`);
-  dev ??= iphones.find((d) => d.state === 'Booted') ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
+  // Several booted: whose is which is not this process's to guess (an install onto another drive's simulator,
+  // 2026-10-09: build.mjs --ios takes --sim, not --phone, for a simulator). One booted, or none, is still chosen.
+  const booted = iphones.filter((d) => d.state === 'Booted');
+  if (!pick && booted.length > 1) throw new Error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted (${booted.map((d) => `${d.name} ${d.udid}`).join(', ')}): name one with ${hint}`);
+  dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
   if (dev.state !== 'Booted') {
     const b = read('xcrun', ['simctl', 'boot', dev.udid]);

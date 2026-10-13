@@ -12,7 +12,7 @@ component NativeNavigationScroll
     main navigationKey="cold" navigationBack="back" width="100%" height="100%" font-family="system-ui"
       column navigationKey="cold" navigationScroll="cold-native-list" position="absolute" inset=0 display="flex" flex-direction="column"
         header display="flex" align-items="center" padding=12 gap=12 flex-shrink=0
-          text "Native Cold Title" aria-level=1 flex=1
+          text "Native Cold Title" role="heading" aria-level=1 flex=1
           button press=shrink testId="cold-shrink"
             text "Shrink"
           button press=measure testId="cold-measure"

@@ -1,9 +1,18 @@
 import Foundation
 import XCTest
+#if os(macOS)
+import AppKit
+#endif
 @testable import ExactKit
 
 // @ref LLP 1072 T1/T5 — the owner thread's contract.
 final class OwnerTests: XCTestCase {
+    func testDocumentOwnerIsTheRuntimeThatResolvesStorage() {
+        let session = ExactApp.shared.makeSession(label: "document-owner")
+        defer { session.destroy() }
+        XCTAssertEqual(session.documentOwner, UInt64(session.runtime.rt))
+    }
+
     func testSyncRunsOnTheOwnerInOrder() {
         var seen: [Int] = []
         for i in 0..<100 {
@@ -63,4 +72,56 @@ final class OwnerTests: XCTestCase {
         }
         wait(for: [done], timeout: 5)
     }
+
+    #if os(macOS)
+    func testViewResizeFromAServedCallbackReachesTheRootAfterTheCallback() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("app.contract"), plan = dir.appendingPathComponent("app.plan")
+        try "component App\n  view\n    main testId=\"resize-root\" width=\"100%\" height=\"100%\"\n".write(to: source, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", source.path, "-o", plan.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "callback-resize")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: plan), size: CGSize(width: 1024, height: 999)).error)
+        let view = ExactView(session: session)
+        view.setFrameSize(CGSize(width: 1024, height: 999))
+        view.layout()
+        let root = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "resize-root" })
+        XCTAssertEqual(root.frame.height, 999)
+        Owner.shared.sync {
+            Owner.shared.callMain {
+                view.setFrameSize(CGSize(width: 1024, height: 1200))
+                view.layout()
+                view.setFrameSize(CGSize(width: 1024, height: 1366))
+                view.layout()
+            }
+        }
+        let restored = expectation(description: "latest resize applied after native callback")
+        DispatchQueue.main.async {
+            XCTAssertEqual(session.presenter.viewportSize.height, 1366)
+            XCTAssertEqual(root.frame.height, 1366)
+            // A later same-size pass must also keep the restored frame.
+            view.layout()
+            XCTAssertEqual(root.frame.height, 1366)
+            Owner.shared.sync {
+                Owner.shared.callMain {
+                    view.setFrameSize(CGSize(width: 1024, height: 1400))
+                    view.layout()
+                }
+            }
+            session.destroy()
+            let retiredBatches = session.appliedBatches
+            DispatchQueue.main.async {
+                XCTAssertEqual(session.appliedBatches, retiredBatches, "queued layout must not call a destroyed runtime")
+                restored.fulfill()
+            }
+        }
+        wait(for: [restored], timeout: 5)
+    }
+    #endif
 }

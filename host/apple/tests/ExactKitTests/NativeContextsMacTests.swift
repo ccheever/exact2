@@ -7,6 +7,27 @@ import XCTest
 /// its prominent style a prominent item (D2), and a tab drawn as a segment
 /// from its face (D4), its shortcut kept (D7).
 final class NativeContextsMacTests: XCTestCase {
+    func testModuleRootsUseTheNamedStoresRuntimeRootsAcrossSessions() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let first = ExactApp.shared.makeSession(label: "module-store-first")
+        let second = ExactApp.shared.makeSession(label: "module-store-second")
+        defer { first.destroy(); second.destroy() }
+        let roots = ["data": base.appendingPathComponent("data").path,
+                     "cache": base.appendingPathComponent("cache").path,
+                     "tmp": base.appendingPathComponent("temporary").path]
+        first.appFileRoots = roots; second.appFileRoots = roots
+        let a = NativeViews.roots(session: first, agent: true, namedStore: "module-store")
+        let b = NativeViews.roots(session: second, agent: true, namedStore: "module-store")
+        for (written, read) in [(a.data, b.data), (a.cache, b.cache), (a.temporary, b.temporary)] {
+            try FileManager.default.createDirectory(atPath: written, withIntermediateDirectories: true)
+            try "kept".write(toFile: written + "/probe", atomically: true, encoding: .utf8)
+            XCTAssertEqual(try String(contentsOfFile: read + "/probe", encoding: .utf8), "kept")
+        }
+        let unnamed = NativeViews.roots(session: second, agent: true, namedStore: nil)
+        XCTAssertNotEqual(unnamed.data, roots["data"])
+        XCTAssertTrue(unnamed.data.contains("exact-agent-"), "an unnamed drive stays away from real app files")
+    }
     func testANativeButtonIsAToolbarItemItsProminentStyleProminent() throws {
         _ = NSApplication.shared
         let p = Presenter()
@@ -81,6 +102,41 @@ final class NativeContextsMacTests: XCTestCase {
                                    charactersIgnoringModifiers: "2", isARepeat: false, keyCode: 0)!
         XCTAssertTrue(p.shortcuts.perform(key))
         XCTAssertEqual(pressed, [3])
+    }
+
+    /// LLP 1116.004 D5.2: a radio group of radios is AppKit's segmented
+    /// control, as a tablist is: the checked radio selected, a pick pressing it.
+    func testARadioGroupIsASegmentedControlWhosePickPressesItsRadio() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.buttonFace = { id in
+            var f = ButtonFace()
+            f.title = ["Week", "Month", "Year"][Int(id) - 2]
+            return f
+        }
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = p.viewport
+        defer { w.close() }
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view", "props": ["accessibilityRole": "radiogroup", "accessibilityLabel": "Period"], "handlers": [], "style": ["text_color": [0, 0, 0, 255]]],
+                                    ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 30.0]]
+        for (i, id) in [2, 3, 4].enumerated() {
+            ops += [["op": "create", "id": id, "kind": "control", "handlers": ["press"],
+                     "props": ["type": "button", "accessibilityRole": "radio", "accessibilityChecked": i == 1 ? "true" : "false"],
+                     "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                    ["op": "frame", "id": id, "x": Double(i) * 100, "y": 0.0, "w": 100.0, "h": 30.0]]
+        }
+        p.apply(wireBatch(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]]))
+        let segments = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? NSSegmentedControl }.first)
+        XCTAssertEqual(segments.segmentCount, 3)
+        XCTAssertEqual((0..<3).map { segments.label(forSegment: $0) }, ["Week", "Month", "Year"])
+        XCTAssertEqual(segments.selectedSegment, 1, "the checked radio")
+        XCTAssertEqual(p.views[2]?.isHidden, true)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        segments.selectedSegment = 2
+        NSApp.sendAction(try XCTUnwrap(segments.action), to: segments.target, from: segments)
+        XCTAssertEqual(pressed, [4], "a pick presses its radio")
     }
 }
 #endif

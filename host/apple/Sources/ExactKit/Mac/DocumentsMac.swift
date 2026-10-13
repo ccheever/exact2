@@ -98,6 +98,24 @@ public enum ExactDocuments {
         ExactEnv.appMetadata["ExactLaunchMode"] as? String ?? "navigate-existing"
     }
 
+    /// What the adapter tells a window it has just made (LLP 1115.000 D7.9).
+    ///
+    /// It opens with AppKit's own animation: `animationBehavior` is left as
+    /// AppKit made it (it was `.none`). Under the agent, whose windows appear
+    /// as its transitions do, at once, it is none.
+    ///
+    /// Window tabs are for an app whose documents have windows of their own
+    /// (`navigate-new`): its windows share a tabbing identifier and File ▸
+    /// New Window answers the tab bar's +. A one-window app offers none:
+    /// AppKit adds Show Tab Bar and Merge All Windows to the menus of any app
+    /// that allows automatic tabbing, and a + that would open nothing.
+    public static func furnish(_ window: NSWindow, tabs: Bool = launchMode == "navigate-new") {
+        if ExactEnv.agentMode { window.animationBehavior = .none }
+        NSWindow.allowsAutomaticWindowTabbing = tabs
+        window.tabbingMode = tabs ? .automatic : .disallowed
+        if tabs { window.tabbingIdentifier = ExactEnv.appMetadata["CFBundleIdentifier"] as? String ?? ExactEnv.appName }
+    }
+
     /// The host's router: every route in (Launch Services, the command
     /// line, ⌘O, Open Recent) hands its paths here, and the adapter that
     /// owns the windows decides which session each lands in. Unset, a path

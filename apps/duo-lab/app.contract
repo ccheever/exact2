@@ -134,7 +134,9 @@ component DuoLab
   view
     main testId="root" navigationKey=`${current.id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" position="relative" overflow="hidden" background-color="#f4f1ea" color="#1b1a17" font-family="system-ui"
       each entry in stack(nav) key=entry.id
-        column navigationKey=`${entry.id}` class=Screen testId=`screen-${entry.name}`
+        // Every screen draws its own chrome (the note's header and Back), so
+        // it says it has no system bar (LLP 1115.000 D5.2).
+        column navigationKey=`${entry.id}` navigationBar="none" class=Screen testId=`screen-${entry.name}`
           when entry.name == "fold"
             // Two segments across: the list on the first, the detail on the
             // second, each inset by the safe areas on its own side; two down
@@ -167,7 +169,7 @@ component DuoLab
             column flex=1 min-height=0 width="100%" class=Safe
               text "Images" class=Title testId="images-title"
               text `${length(rows)} rows over four pictures; fold mid-scroll.` class=Note
-              list virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" overflow-x="hidden" testId="image-list"
+              list appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" overflow-x="hidden" testId="image-list"
                 each row in rows key=row.id
                   column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`
                     image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="#d9d4c7"

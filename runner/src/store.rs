@@ -28,7 +28,10 @@ pub struct Store {
     unparsed: Option<String>,
     /// A child executor may see only the intersection with its own grants.
     restricted: bool,
-    values: exact_kernel::SortedMap<String, String>,
+    values: exact_kernel::SortedMap<String, Vec<u8>>,
+    /// The snapshot it opened with held a granted secret (LLP 1027 D4,
+    /// 2026-10-10): a launch's fact, unchanged by later writes.
+    opened_with_secrets: bool,
     writes: Vec<StoreWrite>,
     /// Monotonic within a transaction; restored with a refused transaction.
     revision: u64,
@@ -43,7 +46,7 @@ pub struct Store {
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
-    undo: Vec<(String, Option<String>)>,
+    undo: Vec<(String, Option<Vec<u8>>)>,
     /// Bytes copied into `undo` since the store was made.
     copied: usize,
 }
@@ -101,8 +104,8 @@ fn module_secret_names(grants: &str) -> Vec<String> {
 pub struct StoreWrite {
     /// The secret's name.
     pub name: String,
-    /// The value to keep, or `None` to forget.
-    pub value: Option<String>,
+    /// The value to keep, or `None` to forget: a secret's or a state's text, a kept answer's canonical bytes.
+    pub value: Option<Vec<u8>>,
 }
 
 /// Why the store refused.
@@ -133,8 +136,8 @@ pub(crate) struct StoreCheckpoint {
 impl Store {
     /// The store for `grants` (its `secret.keep <name>` lines, when the whole
     /// set parses), filled from `snapshot`; an entry the grant does not name
-    /// is dropped.
-    pub fn new(grants: &str, snapshot: impl IntoIterator<Item = (String, String)>) -> Store {
+    /// is dropped. A value is bytes: a secret's text, or the runner's own.
+    pub fn new(grants: &str, snapshot: impl IntoIterator<Item = (String, Vec<u8>)>) -> Store {
         // One body for every caller's snapshot type (LLP 1047 §6).
         Store::from_snapshot(
             grants,
@@ -147,7 +150,7 @@ impl Store {
     /// (LLP 1047.001).
     pub fn new_linked(
         grants: &str,
-        snapshot: impl IntoIterator<Item = (String, String)>,
+        snapshot: impl IntoIterator<Item = (String, Vec<u8>)>,
         link: crate::grants::GrantsLink,
     ) -> Store {
         Store::from_snapshot(grants, snapshot.into_iter().collect(), link)
@@ -155,7 +158,7 @@ impl Store {
 
     fn from_snapshot(
         grants: &str,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         link: crate::grants::GrantsLink,
     ) -> Store {
         let (granted, unparsed): (Vec<String>, _) = match crate::grants::parse_with(grants, link) {
@@ -169,7 +172,7 @@ impl Store {
     /// validates the complete declaration before loading the snapshot and
     /// atomically validates every returned write. This grants no host access.
     /// Host runners must use `new`, which validates the declaration itself.
-    pub fn module_mirror(grants: &str, snapshot: Vec<(String, String)>) -> Store {
+    pub fn module_mirror(grants: &str, snapshot: Vec<(String, Vec<u8>)>) -> Store {
         Self::from_names(
             module_secret_names(grants),
             None,
@@ -182,18 +185,20 @@ impl Store {
         granted: Vec<String>,
         unparsed: Option<String>,
         scope_reader: ScopeReader,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
     ) -> Store {
         let values = snapshot
             .into_iter()
             .filter(|(n, _)| granted.iter().any(|g| g == n) || Store::is_kept(n))
-            .collect();
+            .collect::<exact_kernel::SortedMap<_, _>>();
+        let opened_with_secrets = values.keys().any(|n| !Store::is_kept(n));
         Store {
             granted,
             scope_reader,
             unparsed,
             restricted: false,
             values,
+            opened_with_secrets,
             writes: Vec::new(),
             revision: 0,
             reads: std::cell::Cell::new(0),
@@ -265,28 +270,40 @@ impl Store {
     /// a read or a revision.
     pub const KEPT: &'static str = "exact.kept.";
 
+    /// The runner's persisted states (LLP 1116 D5): `state … persist`'s
+    /// value lives under this prefix and the state's name, as JSON text,
+    /// owned by the runner as a kept answer is. A host keeps these in the
+    /// platform's preference store, never its secret store.
+    pub const STATE: &'static str = "exact.state.";
+
     fn is_kept(name: &str) -> bool {
-        name.starts_with(Store::KEPT)
+        Store::runner_owned(name)
+    }
+
+    /// Whether `name` is the runner's own — a kept answer or a persisted
+    /// state — which no grant reaches.
+    pub fn runner_owned(name: &str) -> bool {
+        name.starts_with(Store::KEPT) || name.starts_with(Store::STATE)
     }
 
     /// A kept answer, by the runner (uncounted, ungated).
-    pub(crate) fn kept(&self, name: &str) -> Option<&str> {
-        self.values.get(name).map(String::as_str)
+    pub(crate) fn kept(&self, name: &str) -> Option<&[u8]> {
+        self.values.get(name).map(Vec::as_slice)
     }
 
     /// Keep an answer for the next boot, by the runner: a write for the host
     /// to persist that bumps no revision, so store-reading resources do not
     /// re-answer because one of them was answered.
-    pub(crate) fn keep(&mut self, name: &str, value: &str) {
+    pub(crate) fn keep(&mut self, name: &str, value: Vec<u8>) {
         debug_assert!(Store::is_kept(name));
-        if self.values.get(name).map(String::as_str) == Some(value) {
+        if self.values.get(name) == Some(&value) {
             return;
         }
         self.remember(name);
-        self.values.insert(name.to_string(), value.to_string());
+        self.values.insert(name.to_string(), value.clone());
         self.writes.push(StoreWrite {
             name: name.to_string(),
-            value: Some(value.to_string()),
+            value: Some(value),
         });
     }
 
@@ -302,8 +319,16 @@ impl Store {
         }
     }
 
+    /// Whether the snapshot this store opened with held a granted secret:
+    /// then an empty-store answer the bake computed does not describe this
+    /// device (LLP 1027 D4, 2026-10-10). Uncounted, the runner's question.
+    pub(crate) fn opened_with_secrets(&self) -> bool {
+        self.opened_with_secrets
+    }
+
     /// The kept value under `name` — `None` when nothing is kept, or when
-    /// `name` is not granted (the same fact, as `process.env` has it).
+    /// `name` is not granted (the same fact, as `process.env` has it), or
+    /// when what is kept is not text.
     pub fn get(&self, name: &str) -> Option<&str> {
         if Store::is_kept(name) {
             return None;
@@ -312,7 +337,9 @@ impl Store {
         if !self.is_granted(name) {
             return None;
         }
-        self.values.get(name).map(String::as_str)
+        self.values
+            .get(name)
+            .and_then(|v| std::str::from_utf8(v).ok())
     }
 
     /// Keep `value` under `name`, replacing what was there; refused outside
@@ -322,11 +349,11 @@ impl Store {
             return Err(self.refused(name));
         }
         self.remember(name);
-        self.values.insert(name.to_string(), value.to_string());
+        self.values.insert(name.to_string(), value.into());
         self.revision += 1;
         self.writes.push(StoreWrite {
             name: name.to_string(),
-            value: Some(value.to_string()),
+            value: Some(value.into()),
         });
         Ok(())
     }
@@ -357,7 +384,7 @@ impl Store {
     }
 
     /// Everything kept: what a reload carries (`Carried::store`).
-    pub fn snapshot(&self) -> Vec<(String, String)> {
+    pub fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
         self.values
             .iter()
             .filter(|(name, _)| !self.restricted || self.is_granted(name))
@@ -448,7 +475,7 @@ impl Store {
     /// Record `name`'s value before a write, for `restore`.
     fn remember(&mut self, name: &str) {
         let old = self.values.get(name).cloned();
-        self.copied += name.len() + old.as_ref().map_or(0, String::len);
+        self.copied += name.len() + old.as_ref().map_or(0, Vec::len);
         self.undo.push((name.to_string(), old));
     }
 
@@ -499,14 +526,17 @@ mod tests {
         let big = "x".repeat(1 << 20);
         let mut store = Store::new(
             "secret.keep token\n",
-            [(kept.clone(), big.clone()), ("token".into(), "old".into())],
+            [
+                (kept.clone(), big.clone().into_bytes()),
+                ("token".into(), "old".into()),
+            ],
         );
         let c = store.checkpoint();
         store.set("token", "new").unwrap();
         assert!(store.copied_bytes() < 64, "{}", store.copied_bytes());
         store.restore(c);
         assert_eq!(store.get("token"), Some("old"));
-        assert_eq!(store.kept(&kept), Some(big.as_str()));
+        assert_eq!(store.kept(&kept), Some(big.as_bytes()));
         assert!(store.take_writes().is_empty());
     }
 

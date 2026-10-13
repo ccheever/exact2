@@ -594,8 +594,43 @@ fn artifact_graph(
     // whose plan is fixed links these and no other (LLP 1047.001 D2).
     let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
     Ok(
-        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"artifacts":artifacts}),
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"launchBackground":launch_background(plan),"artifacts":artifacts}),
     )
+}
+
+/// LLP 1116.011 D2.3: the ground the app's first route stands on, which the
+/// iOS launch screen shows until its first frame: `"grouped"` where the first
+/// route's `background-color` is the role the compiler gives a route that
+/// scrolls a grouped list (`-exact-grouped-background`, LLP 1116.007 D5),
+/// `"system"` for any other (the platform's page, `systemBackground`). A route
+/// is a node with a `navigationKey` and no `navigationBack` (the navigation
+/// root has both); the first in the plan's order, past the page the compiler
+/// writes for an unknown address (its test id `not-found`), is the first one
+/// the author declared. A route whose background is written or computed is
+/// the author's: the manifest's `background_color` names its launch colour.
+fn launch_background(plan: &exact_plan::Plan) -> &'static str {
+    use exact_kernel::PropId;
+    use exact_plan::BindingKind::{Prop, Style};
+    let literal = |node: &exact_plan::NodesRow, kind, id: u16| {
+        node.bindings.iter().find_map(|b| {
+            let b = plan.binding(b);
+            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, b))
+        })
+    };
+    let route = plan.nodes.iter().find(|node| {
+        let has = |id: PropId| literal(node, Prop, id as u16).is_some();
+        has(PropId::NavigationKey)
+            && !has(PropId::NavigationBack)
+            && literal(node, Prop, PropId::TestId as u16) != Some(Some("not-found"))
+    });
+    let ground = route.and_then(|node| {
+        literal(node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
+    });
+    if ground == Some("-exact-grouped-background") {
+        "grouped"
+    } else {
+        "system"
+    }
 }
 
 /// Refresh the resident compiler's candidate graph beside its plan. The
@@ -749,6 +784,7 @@ mod tests {
                 kind: exact_plan::BindingKind::Prop,
                 id: exact_kernel::PropId::Hatch as u16,
                 expr,
+                written: true,
             }];
             b.node(
                 exact_kernel::NodeType::Video as u8,
@@ -807,6 +843,7 @@ mod tests {
                 kind: exact_plan::BindingKind::Prop,
                 id: prop as u16,
                 expr,
+                written: true,
             }];
             b.node(
                 exact_kernel::NodeType::Video as u8,
@@ -829,6 +866,58 @@ mod tests {
                 (json!(["video"]), json!(claims))
             );
         }
+    }
+
+    /// LLP 1116.011 D2.3: the receipt says what the first route stands on, for
+    /// the iOS launch screen: the grouped grey where the route scrolls a
+    /// grouped list (stopwatch, round 13), the page's own otherwise.
+    #[test]
+    fn a_plan_says_the_ground_its_first_route_stands_on() {
+        const SCREEN: &str = "routes nav
+  home \"/\"
+component App
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll=\"l\" ROUTE position=\"absolute\" inset=0
+          header
+            text \"Laps\" role=\"heading\" aria-level=1
+          LIST
+            section
+              row
+                text \"One\"
+";
+        const GROUPED: &str =
+            "list id=\"l\" appearance=\"auto\" listStyle=\"inset-grouped\" flex=1 min-height=0";
+        let launch = |route: &str, list: &str| {
+            let plan = contract::compile(&SCREEN.replace("ROUTE", route).replace("LIST", list))
+                .unwrap_or_else(|e| panic!("{e}"));
+            artifact_graph(&plan, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+                ["launchBackground"]
+                .clone()
+        };
+        assert_eq!(launch("", GROUPED), json!("grouped"));
+        assert_eq!(
+            launch("", &GROUPED.replace("inset-grouped", "grouped")),
+            json!("grouped")
+        );
+        // Any other scroll, or a page of its own, is the platform's.
+        assert_eq!(
+            launch("", "scroll id=\"l\" flex=1 min-height=0"),
+            json!("system")
+        );
+        assert_eq!(
+            launch("background-color=\"-exact-background\"", GROUPED),
+            json!("system")
+        );
+        // No route at all, as a plan with no navigation root is.
+        let bare =
+            contract::compile("component App\n  view\n    text \"a\" testId=\"a\"\n").unwrap();
+        assert_eq!(
+            artifact_graph(&bare, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+                ["launchBackground"],
+            json!("system")
+        );
     }
 
     #[test]

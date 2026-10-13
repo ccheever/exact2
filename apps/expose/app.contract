@@ -82,8 +82,10 @@ component Expose
   derive replyDone = match reply { case some(r) => r.done, case none => false }
   derive clearedRevision = match cleared { case some(r) => r.revision, case none => 0 }
   derive savedRevision = match saved { case some(r) => r.revision, case none => 0 }
-  resource inbox = inbox(replyRevision + clearedRevision) as shape Inbox
-  derive liveKey = pending(reply) ? floor(nowMs / 1000) : 0
+  // `ask` records the turn when it is sent: the inbox and the conversation are read again from the send, and
+  // each second while the reply is pending (`+ 1` keeps the key off 0, so the send's own commit changes it)
+  derive liveKey = pending(reply) ? floor(nowMs / 1000) + 1 : 0
+  resource inbox = inbox(replyRevision + clearedRevision, liveKey) as shape Inbox
   resource chat = conversation(thread, replyRevision + clearedRevision, liveKey) as shape Conversation
   resource intelligence = intelligence(savedRevision) as shape Intelligence
   derive inThread = screen == "messages" and thread == "expose"

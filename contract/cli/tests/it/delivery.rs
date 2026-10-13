@@ -225,11 +225,12 @@ delete app.host.macos.window;
 assert.deepEqual(validate(app,schema,'',schema),[]);
 assert.ok(!macInfoPlist({id:app.app.id,displayName:app.app.name,manifest:app}).includes('ExactWindow'));
 "#;
-    let output = std::process::Command::new("bun")
-        .args(["--input-type=module", "-e", script])
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .unwrap();
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .args(["--input-type=module", "-e", script])
+            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .output()
+            .unwrap();
     assert!(
         output.status.success(),
         "{}",

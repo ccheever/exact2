@@ -42,7 +42,11 @@ impl Lowerer<'_> {
             })?)
         };
         for font in &file.fonts {
-            if self.font_stacks.contains_key(&font.name) {
+            if self
+                .font_stacks
+                .keys()
+                .any(|name| name.eq_ignore_ascii_case(&font.name))
+            {
                 return err(
                     "lower-font-duplicate",
                     format!(
@@ -171,7 +175,9 @@ impl Lowerer<'_> {
             return Ok(Vec::new());
         };
         let mut names = Vec::new();
-        self.family_arms(&family.value, &mut |name, _| names.push(name.to_string()))?;
+        let mut folded = family.value.clone();
+        fold_constant_families(&mut folded);
+        self.family_arms(&folded, &mut |name, _| names.push(name.to_string()))?;
         let italic = match attrs.iter().find(|a| a.name == "font-style") {
             None => Some(false),
             Some(a) => match &a.value {
@@ -183,8 +189,12 @@ impl Lowerer<'_> {
         };
         let mut uses = Vec::new();
         for name in names {
-            if let Some(font) = self.declared_fonts.get(&name) {
-                debug_assert_eq!(Some(&font.stack), self.font_stacks.get(&name));
+            if let Some((declared, font)) = self
+                .declared_fonts
+                .iter()
+                .find(|(declared, _)| declared.eq_ignore_ascii_case(&name))
+            {
+                debug_assert_eq!(Some(&font.stack), self.font_stacks.get(declared));
                 uses.push(FontUse {
                     font: font.clone(),
                     italic,
@@ -195,14 +205,50 @@ impl Lowerer<'_> {
     }
 
     /// `font-family`'s value with each family name replaced by its stack id,
-    /// resolved now. @ref LLP 1053 G7 — a literal, or a choice (`?:`,
-    /// `match`) whose every arm is one; a runtime string is refused, since
-    /// fonts are declared and resolved at compile time.
+    /// resolved now. A runtime expression stays a string for the host to
+    /// resolve (LLP 1019 D2, 2026-10-11).
     pub(super) fn family_stacks(&mut self, value: &Expr) -> Result<Expr, LowerError> {
-        let mut out = value.clone();
-        self.family_arms(value, &mut |_, _| {})?;
+        let mut folded = value.clone();
+        fold_constant_families(&mut folded);
+        let mut bundled = None;
+        self.family_arms(&folded, &mut |name, span| {
+            if self
+                .declared_fonts
+                .keys()
+                .any(|declared| declared.eq_ignore_ascii_case(name))
+            {
+                bundled = Some(span);
+            }
+        })?;
+        if !Self::literal_arms(&folded) {
+            if let Some(span) = bundled {
+                return err(
+                    "lower-font-runtime-bundled",
+                    "a runtime `font-family` string may name installed or generic families only; use a literal choice for a bundled font",
+                    span,
+                );
+            }
+            return Ok(folded);
+        }
+        let mut out = folded;
         self.replace_arms(&mut out)?;
         Ok(out)
+    }
+
+    pub(super) fn literal_arms(e: &Expr) -> bool {
+        match e {
+            Expr::Str(..) => true,
+            Expr::Ternary(_, yes, no, _) => Self::literal_arms(yes) && Self::literal_arms(no),
+            Expr::Match { some, none, .. } => Self::literal_arms(some) && Self::literal_arms(none),
+            Expr::Let { body, .. } => Self::literal_arms(body),
+            _ => false,
+        }
+    }
+
+    pub(super) fn literal_family_arms(e: &Expr) -> bool {
+        let mut folded = e.clone();
+        fold_constant_families(&mut folded);
+        Self::literal_arms(&folded)
     }
 
     fn replace_arms(&mut self, e: &mut Expr) -> Result<(), LowerError> {
@@ -261,11 +307,14 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// Visit every arm's family name, refusing what is not a known literal.
+    /// Visit the literal family names for validation, including ones beside
+    /// runtime arms; the remaining string is resolved when it changes.
     fn family_arms(&self, e: &Expr, visit: &mut dyn FnMut(&str, Span)) -> Result<(), LowerError> {
         match e {
             Expr::Str(name, span) => {
-                for member in family_names(name, *span)? { visit(&member, *span); }
+                for member in family_names(name, *span)? {
+                    visit(&member, *span);
+                }
                 Ok(())
             }
             Expr::Ternary(_, yes, no, _) => {
@@ -277,12 +326,42 @@ impl Lowerer<'_> {
                 self.family_arms(none, visit)
             }
             Expr::Let { body, .. } => self.family_arms(body, visit),
-            other => err(
-                "lower-font-family-literal",
-                "`font-family` takes a family name, or a choice (`?:` or `match`) whose every arm is one; a family computed at runtime cannot be resolved, because fonts are declared and resolved at compile time",
-                other.span(),
-            ),
+            _ => Ok(()),
         }
+    }
+}
+
+fn fold_constant_families(value: &mut Expr) {
+    match value {
+        Expr::Template(parts, span)
+            if parts.iter().all(|part| {
+                matches!(
+                    part,
+                    contract_syntax::TemplatePart::Text(_)
+                        | contract_syntax::TemplatePart::Expr(Expr::Str(..))
+                )
+            }) =>
+        {
+            let text = parts
+                .iter()
+                .map(|part| match part {
+                    contract_syntax::TemplatePart::Text(text)
+                    | contract_syntax::TemplatePart::Expr(Expr::Str(text, _)) => text.as_str(),
+                    _ => unreachable!(),
+                })
+                .collect::<String>();
+            *value = Expr::Str(text, *span);
+        }
+        Expr::Ternary(_, yes, no, _) => {
+            fold_constant_families(yes);
+            fold_constant_families(no);
+        }
+        Expr::Match { some, none, .. } => {
+            fold_constant_families(some);
+            fold_constant_families(none);
+        }
+        Expr::Let { body, .. } => fold_constant_families(body),
+        _ => {}
     }
 }
 
@@ -356,6 +435,14 @@ fn family_names(value: &str, span: Span) -> Result<Vec<String>, LowerError> {
             }
             if !quoted && ["inherit", "initial", "unset", "revert", "revert-layer"].contains(&name.to_ascii_lowercase().as_str()) {
                 return err("lower-font-family-wide", format!("CSS-wide font-family value `{name}` is not represented by plan stack ids; omit the row for normal inheritance, or name an explicit family list"), span);
+            }
+            // The run-time rule (runner `runtime_family_members`) and the browser's.
+            if !quoted && !exact_plan::is_css_family_name(name) {
+                return err(
+                    "lower-font-family-list",
+                    format!("unquoted font-family name `{name}` is not a sequence of CSS identifiers; quote it"),
+                    span,
+                );
             }
             let generic = [
                 "system-ui",

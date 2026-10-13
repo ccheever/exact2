@@ -19,6 +19,7 @@ pub(crate) struct Still {
     viewport: (u32, u32),
     dark: bool,
     controls: BTreeMap<ViewId, bool>,
+    feedback: (Option<ViewId>, Option<ViewId>),
 }
 
 impl Still {
@@ -62,6 +63,7 @@ impl<D: DataSource> Presenter<D> {
             viewport: bits(self.viewport),
             dark: self.brush.dark,
             controls: self.controls.clone(),
+            feedback: self.brush.feedback,
         })
     }
 

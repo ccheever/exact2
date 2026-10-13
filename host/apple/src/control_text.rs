@@ -27,7 +27,9 @@ pub type ControlTextFn = extern "C" fn(*mut c_void, u8) -> CControlFont;
 /// The kernel's resolved field chrome request.
 #[repr(C)]
 pub struct CFieldChromeRequest {
-    /// 0 field, 1 secure, 2 search, 3 textarea.
+    /// 0 field, 1 secure, 2 search, 3 textarea; plus 4 for a field in a
+    /// grouped list's row, which iOS draws borderless in its cell
+    /// (LLP 1116.005 D2). AppKit's field is the same anywhere.
     pub kind: u8,
     /// Host font registry id.
     pub family_id: u16,
@@ -106,7 +108,7 @@ pub(crate) fn chrome(f: FieldChromeFn, ctx: *mut c_void, r: &FieldChromeRequest)
             FieldKind::SecureField => 1,
             FieldKind::SearchField => 2,
             FieldKind::Textarea => 3,
-        },
+        } | if r.cell { 4 } else { 0 },
         family_id: r.font.family_id,
         size: r.font.size,
         weight: r.font.weight,
@@ -155,7 +157,7 @@ pub(crate) fn button_measure(
     ctx: *mut c_void,
     r: &exact_kernel::ButtonMeasureRequest,
 ) -> exact_kernel::ButtonMeasure {
-    let face = crate::button::face_json(Some(&r.face), Some(&r.style), &r.button_style);
+    let face = crate::button::face_json(Some(&r.face), Some(&r.style), r.button_style.as_deref());
     let (width_kind, width) = match r.width {
         exact_kernel::AxisOffer::Definite(w) => (0, w),
         exact_kernel::AxisOffer::MinContent => (1, 0.0),

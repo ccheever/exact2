@@ -33,6 +33,66 @@ final class MarkupEditorTests: XCTestCase {
         return (node, f, window, presenter)
     }
 
+    func testPlainTextAreaRoutesUndoRedoActionsAndChordsToItsOwnHistory() {
+        let (node, field, window, presenter) = editor("", selection: NSRange(location: 0, length: 0))
+        let session = ExactApp.shared.makeSession(label: "plain-undo")
+        presenter.session = session
+        defer { window.close(); session.destroy() }
+        node.props["markup"] = "none"
+        node.applyTextArea()
+        XCTAssertNil(field.markup)
+        var changes: [String] = []
+        presenter.onInput = { _, value in changes.append(value) }
+        let undo = NSMenuItem(title: "Undo", action: #selector(TextArea.undo(_:)), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: #selector(TextArea.redo(_:)), keyEquivalent: "z")
+        XCTAssertFalse(field.validateMenuItem(undo))
+        XCTAssertFalse(field.validateMenuItem(redo))
+        field.insertText("hello", replacementRange: NSRange(location: 0, length: 0))
+        field.breakUndoCoalescing()
+        XCTAssertTrue(field.validateMenuItem(undo))
+        XCTAssertFalse(field.validateMenuItem(redo))
+        XCTAssertTrue(field.tryToPerform(undo.action!, with: undo), "Edit menu responder action")
+        XCTAssertEqual(field.string, "")
+        XCTAssertFalse(field.validateMenuItem(undo))
+        XCTAssertTrue(field.validateMenuItem(redo))
+        XCTAssertTrue(field.tryToPerform(redo.action!, with: redo))
+        XCTAssertEqual(field.string, "hello")
+        for (flags, expected) in [(NSEvent.ModifierFlags.command, ""), ([.command, .shift], "hello")] {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
+            XCTAssertTrue(field.performKeyEquivalent(with: event))
+            XCTAssertEqual(field.string, expected)
+        }
+        XCTAssertEqual(changes, ["hello", "", "hello", "", "hello"])
+        node.writeValue("authoritative", into: field)
+        XCTAssertFalse(field.validateMenuItem(undo))
+        XCTAssertFalse(field.validateMenuItem(redo))
+    }
+
+    func testUnfocusedPlainTextAreaDoesNotConsumeAnotherEditorsUndoOrRedo() {
+        let (node, first, window, presenter) = editor("", selection: NSRange(location: 0, length: 0))
+        defer { window.close(); _ = presenter }
+        node.props["markup"] = "none"
+        node.applyTextArea()
+        first.insertText("first", replacementRange: NSRange(location: 0, length: 0))
+        first.breakUndoCoalescing()
+        let second = TextArea(usingTextLayoutManager: true)
+        second.frame = NSRect(x: 0, y: 0, width: 200, height: 50)
+        second.isEditable = true
+        node.addSubview(second)
+        XCTAssertTrue(window.makeFirstResponder(second))
+        let undo = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
+        let redo = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
+        XCTAssertFalse(first.performKeyEquivalent(with: undo))
+        XCTAssertEqual(first.string, "first")
+        XCTAssertTrue(first.undoManager?.canUndo == true)
+        XCTAssertFalse(first.performKeyEquivalent(with: redo))
+        XCTAssertEqual(first.string, "first")
+        XCTAssertTrue(window.firstResponder === second)
+    }
+
     func testFormattingIsOneSourceChangeAndNativeUndoRedo() {
         let (node, f, window, presenter) = editor("hello 🎉", selection: NSRange(location: 0, length: 5))
         defer { window.close() }
@@ -150,6 +210,11 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(f.string, "first second")
     }
 
+    /// While text is marked a formatting command is refused, and the app's
+    /// value waits (LLP 1045 D5): the value the editor shows leaves the
+    /// composition alone and holds nothing; a different one is held, and
+    /// applied when the composition ends, which the editor now does itself
+    /// as it unmarks.
     func testMarkedTextDefersValueAndRefusesFormatting() {
         let (node, f, window, presenter) = editor("hello", selection: NSRange(location: 5, length: 0))
         defer { window.close(); _ = presenter }
@@ -159,10 +224,10 @@ final class MarkupEditorTests: XCTestCase {
         node.props["value"] = "external"
         node.applyTextArea()
         XCTAssertEqual(f.string, composing)
+        XCTAssertEqual(f.markedRange(), NSRange(location: 5, length: 1), "the composition stands")
         XCTAssertEqual(node.pendingValue, "external")
         XCTAssertFalse(node.formatMarkup("bold"))
         f.unmarkText()
-        node.textDidChange(Notification(name: NSText.didChangeNotification, object: f))
         XCTAssertEqual(f.string, "external")
         XCTAssertNil(node.pendingValue)
     }
@@ -173,6 +238,7 @@ final class MarkupEditorTests: XCTestCase {
         f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: 0, length: 0))
         node.writeValue(f.string, into: f)
         XCTAssertNil(node.pendingValue)
+        XCTAssertTrue(f.hasMarkedText(), "the echo leaves the composition alone")
         f.unmarkText()
         f.insertText("本", replacementRange: NSRange(location: 1, length: 0))
         XCTAssertEqual(f.string, "に本")

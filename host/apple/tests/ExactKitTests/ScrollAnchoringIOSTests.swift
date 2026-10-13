@@ -73,5 +73,33 @@ final class ScrollAnchoringIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["height": 0.0]], ["op": "props", "id": 1, "set": ["scrollTop": "100"]]] + rows(header: 0)))
         XCTAssertEqual(sv.contentOffset.y, 100)
     }
+
+    func testPresentedTransformsDoNotMoveTheScrollOffset() {
+        for (property, x, y) in [("translate", 0.0, 20.0), ("scale", 1.5, 0.0), ("rotate", 10.0, 0.0)] {
+            let (p, sv) = fixture(top: 200)
+            p.apply(wireBatch([["op": "present", "id": 15, "property": property, "x": x, "y": y]]))
+            XCTAssertEqual(sv.contentOffset.y, 200, "changing the anchor's \(property) suppresses anchoring")
+        }
+    }
+
+    func testUnchangedAndUnrelatedPresentationDoesNotSuppressAnchoring() {
+        for (id, property, x) in [(15, "translate", 0.0), (15, "scale", 1.0), (15, "rotate", 0.0),
+                                  (15, "opacity", 0.5), (17, "translate", 20.0)] {
+            let (p, sv) = fixture(top: 200)
+            p.apply(wireBatch([["op": "present", "id": id, "property": property, "x": x],
+                               ["op": "style", "id": 2, "style": ["height": 0.0]]] + rows(header: 0)))
+            XCTAssertEqual(sv.contentOffset.y, 152, "\(property) on \(id) leaves the fold above anchored")
+        }
+    }
+
+    func testPresentedTransformOnTheAnchorsAncestorSuppressesAnchoring() {
+        let (p, sv) = fixture(top: 200)
+        p.apply(wireBatch([["op": "create", "id": 100, "kind": "view", "props": ["id": "child"]],
+                           ["op": "children", "id": 15, "ids": [100]],
+                           ["op": "frame", "id": 100, "x": 0.0, "y": 3.0, "w": 100.0, "h": 20.0]]))
+        p.apply(wireBatch([["op": "present", "id": 15, "property": "translate", "y": 20.0]]))
+        XCTAssertEqual(sv.contentOffset.y, 200)
+    }
+
 }
 #endif

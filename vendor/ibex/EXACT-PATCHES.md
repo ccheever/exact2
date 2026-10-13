@@ -179,6 +179,14 @@ same admission, parse, open and regular-file check, returning the opened
 `File`) is public too, so the embedder reads in chunks and stops between
 them once its request has ended; `read_capped` reads through it.
 
+### 11. host operations in flight
+
+From exact2 LLP 1069.002 A1.5 (2026-10-09): `Context::in_flight` (`bindings.rs`,
+`RuntimeState::in_flight` in `task.rs`) reads the count `task_started` and
+`task_finished` keep, so an embedder's test of giving up waits for the
+`fs.compressImage` it gave up on to return before it reads what that call did
+not write. No behaviour changes.
+
 ### Windows chosen-document EISDIR
 
 `src/stdlib/windows_directory.rs` opens the document relative to its retained
@@ -186,6 +194,34 @@ parent, refuses reparse points, checks that same handle's metadata, and reads
 through it. `windows_document_tests.rs` covers
 bytes, directory refusal, grant-before-resolution, and ACL denial. This avoids
 a racy precheck and does not reinterpret ordinary access-denied errors.
+
+### 12. bounded native filesystem results
+
+For exact2 LLP 1027.001 D2 (2026-10-11): `fs::read_result` checks metadata,
+then reads at most one byte beyond the largest raw payload whose base64 JSON
+fits the 16 MiB storage result cap. Every native `readFile` path uses it:
+absolute, app-scoped, and chosen documents on Unix and Windows. Directory
+enumerators count JSON-encoded names before retaining each one. The native
+adapter keeps its serialized-size backstop for other result kinds.
+Recursive removal drains at most 256 names per directory pass on Unix and
+Windows, so the listing-result cap does not refuse a write-only removal. Unix
+removal keeps raw directory-entry bytes and fails a pass that removes nothing.
+
+### 13. asynchronous fetch
+
+For exact2 LLP 1120 D1/D2 (2026-10-12): `stdlib/fetch_async.rs` adds a
+transport that starts an exchange and reports it through a `Sink` (`head`,
+`data`, `end`, `metrics`; `Flow::{Continue, Stop, Skip}`), an `Upload` body
+shared across hops and lent without a copy, and `FetchTask`, `fetch_stream`'s
+redirect loop as a state machine over it. The grant check and the redirect
+rules are now `admit_hop` and `redirect_step` in `fetch.rs`, which the
+blocking loop calls too, so the two cannot disagree; the blocking path's
+behaviour is unchanged. `transport/darwin_async.rs` and `darwin_task.mm` are
+the Apple transport: one ephemeral `NSURLSession` per lane, created on first
+use, tasks with their own delegates (redirects refused), callbacks on one
+serial queue, metrics with the protocol and the connection's endpoints.
+`fetch_async_tests.rs` drives `FetchTask` by hand; `darwin_async_tests.rs`
+runs the lane against local servers.
 
 ## Split-crate integration adaptations
 

@@ -59,11 +59,11 @@ component Carousel
           text (eager ? "Virtualized" : "Eager") font-size=13
       when page == "feed"
         when eager
-          list width="100%" flex=1 min-height=0 overflow-x="hidden" scrollTop=feedTop testId="feed"
+          list appearance="none" width="100%" flex=1 min-height=0 overflow-x="hidden" scrollTop=feedTop testId="feed"
             each p in posts key=p.id
               PostView(p=p, virtual=false)
         else
-          list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=180 scrollTop=feedTop testId="feed"
+          list appearance="none" virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=180 scrollTop=feedTop testId="feed"
             each p in posts key=p.id
               PostView(p=p, virtual=true)
       else

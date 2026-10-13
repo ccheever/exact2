@@ -24,6 +24,21 @@ is the storage consumer: notes in SQLite, backups in app-scoped files, and a
 multiline editor on web and Apple. Take: further general-purpose API expansion
 waits behind proving these shipped bindings in the app; Snapback2 stays deferred.
 
+**Expanded (Charlie, 2026-10-08, option A for protocol-handler URL templates):**
+`app.json` `protocol_handlers` carries a complete custom-scheme URL through
+the existing navigation root as an encoded handler location (LLP 1038 D8).
+The OAuth/sign-in callback and return-link consumer of issue #268 can read its
+scheme and fragment. A no-router URL event remains deferred; Charlie's ruling
+keeps the navigation root requirement. Take: no second delivery mechanism is
+added.
+
+**Expanded (Charlie, 2026-10-11, events ruling):** `keycapture=` admits DOM
+capture-phase key dispatch for the coding-agent desktop app's early shortcuts;
+`focusin`/`focusout` admit bubbling subtree focus observation for the clipped
+block and row actions reported in #283. The ruling names no take. Held
+modifiers continue to use `keyup` plus page focus; no new
+keyboard fact or Tab stop is admitted.
+
 **Taken off (Charlie, 2026-09-23: "Take off Messages as the Snapback4
 consumer. We don't need that on the list"):** the trade for web rendering
 (LLP 1048, below). Messages is no longer the Snapback4 consumer admitted
@@ -129,6 +144,9 @@ out of the app's font files at build time and breaks lines with the hosts'
 own `exact-textflow` walker. Unblocks a public comparison on every host with
 no new kernel row and no app-side measurement seam. Take: no Pretext library,
 no runtime font parsing, and auto-height flow (LLP 1043.000 §8) stays owed
+(Charlie, 2026-10-11: the font-picker consumer may supply installed/generic
+`font-family` names as runtime strings under LLP 1019 D2; this does not admit
+runtime font parsing, downloaded files or `loadFont`)
 (built 2026-09-26 as §8's Stage 2, a bounded re-layout restricted to block
 contexts; **accepted (Charlie, 2026-09-27)** on condition that `metrics.mjs`
 shows a still layout costs about nothing and names the worst case for a page
@@ -172,8 +190,10 @@ captioned figures — no camera, no generic file input. **Widened (Charlie,
 `file_handlers`, plus export and import copies to and from `app:/`. Unblocks
 the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
-Still no picker for any file, and no `capture` on the picker (the camera is a
-native module, §Components, 2026-10-02). Linux editing is v2
+**Waived (Charlie, 2026-10-11, coding-agent file attachments):** `input type="file"`
+with no `accept` (or `accept="*/*"`) may pick any file, with no trade.
+Specific `accept` types remain bounded as above. `capture` stays refused
+(the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -252,6 +272,11 @@ header, and a named scroller under an inline title's bar (LLP 1075.003
 §9.10). The Signal Clone's conversation header and photo viewer are the
 consumer. Unblocks them with no module. Take: none offered; waived by
 Charlie's approval. No new attribute, no title menu, no bar added by a route.
+**Clarified (Charlie, 2026-10-12, ruling 11 for #393):** explicit
+`appearance="none"` on a header or root tablist keeps Pocket Budget's authored
+bar; a header button with it remains authored too (LLP 1075.003 §9.10).
+This uses the existing CSS row, admits no new attribute or apparatus, and
+implements the approved feature ruling rather than inferring from styling.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
 (LLP 1084): sections with a header and footer, rows read by shape, UIKit's
@@ -259,8 +284,11 @@ own list on iOS and a measured sheet elsewhere; `listStyle` picks
 `inset-grouped`, `grouped` or `plain`. The Signal Clone's settings screens are
 the consumer. Unblocks native cell highlight, separators, dynamic type and
 VoiceOver rows in a settings screen without a module. Take: none offered;
-waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
-no grouped swipe actions.
+waived by Charlie's approval. No sidebar styles, no virtualized grouped list.
+**Expanded (LLP 1116.001 D1, 2026-10-11, decided under LLP 1116's standing
+instruction):** a grouped row that names swipe actions takes its list cell's
+own swipe on iOS (grocery-list's swipe-to-delete did nothing in round 3).
+Take: none; the one-row table it replaces is not made for such a row.
 **Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
 push"):** hatches on every platform and what the agent sees of them (LLP
 1075.003.000.001). The changes:
@@ -289,6 +317,14 @@ above the data seam on native. Android's hatches are named but not built
 access hatches, and the code word is `hatch` (`hatch="word"`, `app.json`
 `hatches`; LLP 1075.003.000.001 §Rulings). The entries above use the new
 word; nothing is admitted or taken by the rename.
+
+**Expanded (Charlie, 2026-10-12 menubar lane ruling, confirming 2026-10-08):**
+"menu bar: -exact-menu="app|file|edit|view|go|window|help" on button; root
+-exact-menu-remove="…" fixed ids; enabled follows disabled; agent taps button —
+OK for now". The coding-agent desktop app (#141) is the consumer (LLP 1021
+§5.3). Take: none named; Charlie's approval admits this bounded extension.
+Built 2026-10-12: placement and root removal of the fixed standard-item ids
+in LLP 1021 §5.3. Develop remains in development builds.
 
 ## Surfaces
 
@@ -384,7 +420,20 @@ change can break.
 
 ## Features carried over as "no"
 
+**Admitted (Charlie, 2026-10-12, textrows ruling):** bounded
+`text-wrap: balance` and a `::placeholder` part containing only `color` for
+the tooltips, toasts, empty states and themed fields of
+`issues/closed/20261009-balanced-text-placeholder-color.md`. This
+amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
+
 **Runtime**
+
+**Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
+DOM `focusin`/`focusout` with target and related target information bubble to
+an ancestor without adding a Tab stop. The clipped content and row action
+wrappers in `issues/20261009-bubbling-focus-events.md` are the consumers.
+Moves between descendants and removal also dispatch. The approved ruling
+names no take; `:focus-within` remains out.
 
 - GPU / WebGPU substrate. The old repo carries ~139,000 lines of Rust adapter code
   across two files, neither marked generated. The door stays open the way React's
@@ -435,8 +484,22 @@ change can break.
   Take: none offered. Still refused: push delivery from a server, actions and
   replies on a notification, badges, repeating schedules, and a readable
   permission fact.
+  **Expanded (Charlie, 2026-10-11, notification click ruling; LLP 1114.001 D1):**
+  a plain click on a local notification may open its `navigate=` location
+  through the existing router (a warm `navigate` event, a cold launch location).
+  Consumer: the T3 Code clone opens the finished thread from its reminder.
+  This admits the body click only; action buttons and replies, badges, push,
+  repeats, and permission facts remain refused. Take: none named; Charlie's
+  scoped ruling admits this expansion.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
+
+**Expanded (Charlie, 2026-10-12, issue #275 rangeedit ruling):**
+“setRangeText: (b) fire one input (insertReplacementText) as recorded deviation;
+selectMode preserve; no undo step — for now”. Consumer: the issue's editor
+replacing `@name` with a reference. LLP 1069.001 records the web, AppKit, UIKit and Linux implementations
+and remaining host limits. Take: none named; this feature lane is explicitly approved.
+
 **Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
 invented components, not HTML's own elements. A built-in tag is an HTML
 element with HTML's meaning; `select` and `option` are admitted on that
@@ -514,6 +577,7 @@ reading. Nothing that isn't HTML is added by it.
   floating control without a canvas. **Ratified (Charlie, 2026-09-27; take
   waived):** CSS's own row, run natively by the browser and held to Chrome's
   pixels elsewhere; kept as built.
+- **Expanded (Charlie, 2026-10-12, issue-program ruling 9):** “repeating gradients: (a) admit repeating-linear-gradient + length stops held to Chrome; defer background-attachment: local”. The T3 Code clone’s split-diff hatch is the consumer. LLP 1066’s amendment implements the admitted grammar; no new row or apparatus. `local` remains deferred.
 - **CSS visual properties native hosts draw cheaply (Charlie, 2026-10-02: "Waive
   the take"; LLP 1077):** `corner-shape`, `mask-image`, `text-shadow`,
   `box-shadow` lists/`inset`/spread, `conic-gradient()` and stacked
@@ -628,6 +692,15 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   (F4). Unblocks moving cards on a board without a hand-built drag. Take:
   none offered. Still out: reorder on row and nested lists (LLP 1094 §7),
   drags into or out of the app, multi-item drags, grids, a gesture arena.
+  **Expanded (Charlie, 2026-10-11; reads lane):** action-only
+  `elementsFromPoint(x, y)` lists own ids under a point, front to back,
+  including hit ancestors, for the T3 theme editor Inspect overlay. It
+  admits no reactive geometry, pixel readback or devtools inspector.
+  **Expanded (Charlie's ruling 8, 2026-10-11; reads lane):** action-only
+  `querySelectorAll` takes only `[data-<declared word>~="value"]` and lists
+  own ids in tree order, omitting unmounted, `display: none` and inert nodes,
+  for the same editor's role usage count and outlines. General selectors and
+  computed-style reads remain deferred.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on
@@ -767,8 +840,10 @@ accessibility tree — Chrome's computed tree, UIKit's and AppKit's
 accessibility properties; Linux `unavailable` — and the driver reports four
 fixed findings over it: an unnamed interactive element, an element exposed
 under a declared-inert or hidden view, an element exposed outside an open
-modal, and a role or name disagreeing with the web for a `testId`-joined
-fixture control. Still refused: scoring, a rule catalog, WCAG checks
+modal, and a role, a name or a state that two hosts give differently for a
+`testId`-joined fixture control once each is read through its own platform's
+table (UIKit's toggle value is the platform's, not a disagreement with the
+web; LLP 1115.000 D14.4). Still refused: scoring, a rule catalog, WCAG checks
 (contrast, target size, heading structure), reading-order claims, and
 driving VoiceOver. The guessed `accessibleName` on `tree` is deleted because
 the platform's tree supersedes it, not as the take.
@@ -840,3 +915,11 @@ identity or profile for a consumer that re-signs it (AppDrop). Unblocks handing
 an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
+
+**Admitted (Charlie, 2026-10-12, issue-fix ruling 5; take waived):**
+"intersect=: admit now — intersect=action {isIntersecting, intersectionRatio},
+intersect-margin, root = nearest scroller, threshold 0, fires on mount + enter/leave".
+Consumer: T3 sidebar subscriptions and timeline minimap. LLP 1005 records the
+bounded event, browser executors and the shared AppKit/UIKit/Linux geometry
+slice; native qualification remains open. Container
+queries, derive-time frame and general live-position feedback stay deferred.

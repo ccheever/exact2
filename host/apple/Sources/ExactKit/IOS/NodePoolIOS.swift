@@ -329,7 +329,7 @@ final class NodePool {
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
             && v.swipeHold == nil && v.heightHold == nil && v.reorderHold == nil && v.transformHold == nil
-            && !v.pressed && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) })
+            && !v.pressed && !v.hasPressContact && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) })
             && v.interactions.allSatisfy({ contextual($0, of: v) })
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
@@ -483,6 +483,8 @@ extension NodeView {
     /// Parked (`NodePool`): what `forget` drops, except the view's presenter
     /// and its symbol glyph view, which the next row reuses.
     func recycle() {
+        cancelPressContact()
+        pressContact = nil
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
         invalidateText()
@@ -500,6 +502,8 @@ extension NodeView {
         // The next node's hatch decides again.
         hatchReusable = false
         content = .zero
+        // The next node's layout sends its own content box, if any
+        kernelContentBox = nil
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.
         if layer.contents != nil { layer.contents = nil }
@@ -531,8 +535,11 @@ extension NodeView {
     /// a never-used incarnation (LLP 1068 §4.9). The create ops that install
     /// its props and handlers run in this batch, before any callback can.
     func rebind(_ newID: UInt32) {
+        cancelPressContact()
+        pressContact = nil
         id = newID
         incarnation = NodePool.issue()
+        focusedByTouch = false
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }

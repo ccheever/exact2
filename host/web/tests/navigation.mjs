@@ -28,6 +28,8 @@ else cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
 if (!js) for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
 const bytes = [...readFileSync(dir + '/app.plan')];
 const noNavigate = [...readFileSync(dir + '/no-navigate.plan')];
+const noNotfound = [...readFileSync(dir + '/no-notfound.plan')];
+const noRoot = [...readFileSync(dir + '/no-root.plan')];
 // Only substitute the baked plan at the actual wasm's boot ABI. All
 // commits, keyed rows, control presses and journal lines are production.
 function fixture(plan) {
@@ -245,6 +247,12 @@ try {
     assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
     rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
   });
+  // LLP 1115.000 D4.6: this plan has no strings table, so it names no language, and the running page keeps the one
+  // its build wrote from the manifest (the wasm runtime's `language` op used to clear it).
+  await run('the running page keeps the manifest\'s lang', async () => {
+    await fresh();
+    assert.deepEqual(await evaluate('[document.documentElement.lang, document.documentElement.dir]'), ['en', js ? '' : 'ltr']);
+  });
   await run('Back, Forward, replace and programmatic pop', async () => {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);
@@ -299,11 +307,13 @@ try {
     assert.equal(stayed.navigatePresses, 3);
     assert.equal(await evaluate('fixtureBoot'), boot, 'one document across every in-place link');
     const row = { name: 'links in place', documents: 1, clicks: 3, traversals: 2 }; rows.push(row); console.log(JSON.stringify(row));
-    // A link paints and lays out as the bare node the kernel models.
+    // A link lays out as the bare node the kernel models.
     const looks = await evaluate(`[...document.querySelectorAll('[data-testid$="-${key}"]')].filter(el => el.localName === 'a')
       .map(el => { const s = getComputedStyle(el), p = getComputedStyle(el.parentElement); return [el.dataset.testid.replace('-${key}', ''), s.display, s.textDecorationLine, s.cursor, s.color === p.color]; })`);
     assert.deepEqual(looks.filter(([id]) => ['link-post', 'link-person'].includes(id)),
-      [['link-post', 'block', 'none', 'default', true], ['link-person', 'inline', 'none', 'default', true]]);
+      // An inline link run is LinkText (LLP 1115); a block link of text is in the accent, not its parent's colour,
+      // and every link points (LLP 1116.000 D4).
+      [['link-post', 'block', 'none', 'pointer', false], ['link-person', 'inline', 'none', 'pointer', false]]);
     // A same-origin path no pattern declares (a file) is the browser's: a new document.
     await tap('link-file'); await until(`location.pathname==='/manifest.json'`);
     assert.notEqual(await evaluate('globalThis.fixtureBoot ?? null'), boot);
@@ -381,7 +391,9 @@ try {
     await historyTap(-1); await until(`location.pathname==='/post/42'`);
     const back = await record('refused Back', '/post/42', n + 1, 2, 0, 'history: Back refused');
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1, 1]);
-    assert.equal(back.logs.lines.length, 1);
+    // One refusal. The fixture's three resources fail (it has no data), and say so in the same log whenever they
+    // settle: before this step's lines begin on a fast boot, among them on a slower one (a page that loads a face).
+    assert.equal(back.logs.lines.filter(l => l.includes('Back refused')).length, 1, back.logs.lines.join('\n'));
   });
   await run('Back from a route with no Back control follows navigate', async () => {
     const n = await fresh(); await tap('push-notifications'); await record('no-control prelude', '/notifications', n + 1, 2, 0);
@@ -390,6 +402,39 @@ try {
     followed(back);
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'the traversal is accepted where it landed: no restoring go');
     assert.equal(back.logs.lines.filter(l => l.includes('refused')).length, 0);
+  });
+  await run('Back from a route with no Back control and no navigate handler is the runner\'s own back', async () => {
+    const n = await fresh(); await tap('push-notifications');
+    await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNavigate)}))`);
+    await record('no-control, no-handler prelude', '/notifications', n + 1, 2, 0);
+    await historyTap(-1); await until(`location.pathname==='/'`);
+    const back = await record('Back without a control or a handler (LLP 1115 D5)', '/', n + 1, 1, 0, 'host back');
+    assert.equal(back.navigatePresses, 0);
+    assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'accepted where it landed: no restoring go');
+    assert.equal(back.logs.lines.filter(l => l.includes('history:')).length, 0, 'no Back refused');
+  }, 'an in-document plan swap (exact.reload) is the wasm runner\'s; the JS target compiles one plan');
+  // LLP 1115.000 D4.3, on both targets: the handler-less plan is the JS target's own build, and the wasm page's swap.
+  await run('a link to a route and the browser\'s Forward with no navigate handler are the runner\'s own go', async () => {
+    if (js) { served = dir + '/no-navigate'; jsBuild('no-navigate.plan', served); }
+    try {
+      const n = await fresh();
+      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNavigate)}))`);
+      const boot = await evaluate('fixtureBoot'), own = js ? null : 'host go'; // the JS runtime journals no commit
+      await record('no-handler boot', '/', n, 1, 0);
+      await tap('link-post'); await until(`location.pathname==='/post/42'`);
+      const linked = await record('a link with no handler stays in this document', '/post/42', n + 1, 2, 0, own);
+      assert.equal(linked.calls.filter(c => c.name === 'pushState').length, 1, 'the link is one history entry');
+      // Back presses the route's Back control, as ever; Forward is the runner's own `go`, accepted where it landed.
+      await historyTap(-1); await until(`location.pathname==='/'`);
+      await record('Back after the link', '/', n + 1, 1, 1);
+      await historyTap(1); await until(`location.pathname==='/post/42'`);
+      const forward = await record('Forward without a handler', '/post/42', n + 1, 2, 1, own);
+      assert.deepEqual(forward.calls.filter(c => c.name === 'go').map(c => c.args[0]), [1], 'no restoring go');
+      assert.equal(String(forward.stamp.id), forward.navigation.route);
+      assert.equal(forward.navigatePresses, 0, 'no handler ran');
+      assert.equal(forward.logs.lines.filter(l => l.includes('history:')).length, 0, 'nothing refused');
+      assert.equal(await evaluate('fixtureBoot'), boot, 'one document throughout');
+    } finally { served = dist; }
   });
   await run('navigate handler without a matching commit restores once', async () => {
     const n = await fresh(); await tap('push-post'); await historyTap(-1); await tap('refuse-link');
@@ -431,6 +476,43 @@ try {
     assert.equal(await evaluate('location.origin'), url);
     assert.equal(launched.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/x?agent=1');
     assert.deepEqual(consoleLines, [], 'no browser exception for a double-slash notfound location');
+  });
+  // LLP 1116.009 D2, on both targets: an app with no `notfound` route is given one and its screen ("Page not found", a way
+  // home), so a launch at a location no route matches keeps its URL and boots. The JS target builds the plan that declares
+  // none; the wasm page launches the plan that does at the location, then swaps for one that does not, whose table (the
+  // compiler's written `notfound`) still describes the carried stack.
+  await run('a launch at a location no route matches, and no notfound route, keeps its URL and says so', async () => {
+    if (js) { served = dir + '/no-notfound'; jsBuild('no-notfound.plan', served); }
+    try {
+      const lines = consoleLines.length;
+      const n = await fresh('/absent/path');
+      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNotfound)}))`);
+      const kept = await record('unmatched launch', '/absent/path', n, 2, 0);
+      assert.equal(kept.calls.filter(c => c.name === 'pushState').length, 0, 'the entry is replaced, not pushed');
+      assert.equal(await evaluate(`document.querySelector('[data-testid="not-found-message"]')?.textContent`), 'There is no page at /absent/path.');
+      assert.equal(await evaluate(`document.querySelector('[data-testid="not-found-title"]')?.textContent`), 'Page not found');
+      assert.deepEqual(consoleLines.slice(lines), [], 'the app boots: no browser exception');
+      const at = await evaluate(`(()=>{const el=document.querySelector('[data-testid="not-found-home"]'); el.scrollIntoView({block:'center'}); const r=el.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+      await call('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...at });
+      await call('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...at });
+      await until(`location.pathname === '/'`);
+      await record('Go Home opens the first screen', '/', n + 1, 1, 0);
+    } finally { served = dist; }
+  });
+  // The same, where no navigation root draws a screen for it: the first screen opens, the refusal journaled (the runner's
+  // `launch`; router.js `launch`), and the address bar shows it.
+  await run('a launch at a location no route matches, in an app with no navigation root, opens the first screen', async () => {
+    if (js) { served = dir + '/no-root'; jsBuild('no-root.plan', served); }
+    try {
+      const lines = consoleLines.length;
+      await fresh('/absent/path');
+      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noRoot)}))`);
+      await until(`location.pathname === '/'`);
+      const got = await evaluate(`(async()=>{const state=await exact.agent({op:'state'}); return {url:state.slots.nav.tabs[0].stack.at(-1).url, depth:state.slots.nav.tabs[0].stack.length, logs:(await exact.agent({op:'logs',since:0})).lines}})()`);
+      assert.deepEqual([got.url, got.depth], ['/', 1]);
+      assert.equal(got.logs.filter(l => l.includes('router launch refused: no route matches /absent/path')).length, 1, got.logs.join('\n'));
+      assert.deepEqual(consoleLines.slice(lines), [], 'the app boots: no browser exception');
+    } finally { served = dist; }
   });
   await run('accepted entries before boot and queued commits', async () => {
     await call('Page.navigate', {url: url + '/__test-mirror'});

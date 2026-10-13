@@ -72,9 +72,19 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
 
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
-/// the value at creation; the JS target from its presence).
-fn decides_tag(p: PropId) -> bool {
+/// the value at creation; the JS target from its presence). A `progress`'s
+/// `value` is one: with it HTML's `<progress>` bar, without it the drawn
+/// ring (LLP 1116 D8).
+fn decides_tag(plan: &Plan, node: &exact_plan::NodesRow, p: PropId) -> bool {
     matches!(p, PropId::Href | PropId::SemanticTag)
+        || p == PropId::Value
+            && node.bindings.iter().any(|b| {
+                let row = plan.binding(b);
+                row.kind == BindingKind::Prop
+                    && row.id == PropId::Type as u16
+                    && literal(plan, plan.code(row.expr))
+                        .is_some_and(|v| v.as_str() == Some("progress"))
+            })
 }
 
 fn sample(kind: PropKind) -> PropValue {
@@ -145,7 +155,7 @@ pub fn project(
                 }
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
-                    if decides_tag(prop) {
+                    if decides_tag(plan, node, prop) {
                         ops.push(Op::SetProp {
                             id: view(i),
                             prop,
@@ -155,8 +165,10 @@ pub fn project(
                 }
                 // `unset`, or `inherit` on an inherited row: no row (feed F1).
                 (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
+                // With what the binding says of the row (the author wrote it, or the compiler
+                // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {
-                    bridge::set_plan_style(&mut patch, row.id, &v, plan)
+                    bridge::set_binding_style(&mut patch, row, &v, plan)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
                     styled = true;
                 }
@@ -237,7 +249,9 @@ pub fn project(
         for b in node.bindings.iter() {
             let row = plan.binding(b);
             if row.kind == BindingKind::Prop && literal(plan, plan.code(row.expr)).is_none() {
-                if let Some(prop) = PropId::from_wire(row.id).filter(|p| decides_tag(*p)) {
+                if let Some(prop) =
+                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, node, *p))
+                {
                     if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop)
                     {
                         parts.props.remove(&name);
@@ -404,6 +418,42 @@ pub fn color_map(plan: &Plan) -> String {
 
 const PLATFORM: &str = "-exact-platform-color(";
 
+/// A bound row whose code can push a metric's name (LLP 1115.002 D6: a
+/// sheet the compiler wrote, choosing between two by a flag) reads each as
+/// its value in the column of the look this build draws (the neutral
+/// look's, or the web's first under `EXACT_WEB_LOOK=apple`), which is what
+/// the kernel reads a literal one as: a number, the row's own CSS text, or
+/// nothing where the look has no row (`null`: the row unset). `None` when
+/// the code names none.
+pub fn metric_map(plan: &Plan, code: &[u8]) -> Option<String> {
+    use exact_kernel::style::metrics::{column, named, value};
+    let mut pairs: Vec<String> = Vec::new();
+    for i in instructions(code).flatten() {
+        if i.op != Opcode::Str {
+            continue;
+        }
+        let name = plan.str(exact_plan::StrId(i.args[0] as u32));
+        let Some(metric) = named(name) else { continue };
+        let web = match value(metric, column()) {
+            exact_kernel::MetricValue::Number(n) => serde_json::json!(n),
+            exact_kernel::MetricValue::Text("unset") => serde_json::Value::Null,
+            exact_kernel::MetricValue::Text(t) => serde_json::json!(t),
+            // A `length` row's, which no sheet names.
+            exact_kernel::MetricValue::Em(_) | exact_kernel::MetricValue::Rem(_) => continue,
+        };
+        let pair = format!("{}:{web}", serde_json::json!(name));
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+    }
+    (!pairs.is_empty()).then(|| {
+        format!(
+            "(M=>v=>typeof v===\"string\"&&Object.hasOwn(M,v)?M[v]:v)({{{}}})",
+            pairs.join(",")
+        )
+    })
+}
+
 /// A computed `transition`'s entries as an author's (LLP 1081 D5), shared by
 /// the ordinary and the pressed mappers: comments go (CSS removes them, so a
 /// check must too); springs are the engine's; an entry naming the host's
@@ -452,6 +502,26 @@ fn platform_css(text: &str) -> String {
     out
 }
 
+/// A bound `font-size` naming a platform text style (LLP 1115 D3) as css.rs
+/// writes a literal one: the ramp's size at CSS's `medium`, in `rem`. Any
+/// other value is written as it is (a number takes the row's `px`).
+pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use exact_kernel::style::relative::{Unit, MEDIUM};
+    let mut pairs = Vec::new();
+    for (i, s) in exact_kernel::TEXT_STYLES.iter().enumerate() {
+        let rem = Unit::TextStyle(i as u8).basis(MEDIUM, MEDIUM, 1.0) / MEDIUM;
+        let css = format!("{rem}rem");
+        pairs.push(format!("{:?}:{css:?}", format!("-exact-{}", s.name)));
+        if !s.alias.is_empty() {
+            pairs.push(format!("{:?}:{css:?}", s.alias));
+        }
+    }
+    format!(
+        r#"(M=>v=>typeof v==="string"?M[v.trim().toLowerCase()]??v:v)({{{}}})"#,
+        pairs.join(",")
+    )
+});
+
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
@@ -486,6 +556,11 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         map: Some(map),
     };
     Ok(match row {
+        StyleId::FontSize => vec![Write {
+            name: "font-size".into(),
+            unit: "px".into(),
+            map: Some(TEXT_STYLE_MAP.as_str()),
+        }],
         StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large'})[v]??null")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
@@ -503,9 +578,17 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-button-trailing-subtitle-areas", r#"v=>v==null?v:v.startsWith('column')?'"title" "subtitle" "space" "image"':'"title space image" "subtitle space image"'"#),
             with("--exact-button-space-width", "v=>v==null?v:v.startsWith('column')?'0px':'var(--exact-button-column-gap,auto)'"),
             with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,1em)':'0px'"),
-            with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(0,auto)':'auto auto minmax(0,auto)'"),
+            with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(var(--exact-button-title-min,min-content),auto)':'auto auto minmax(var(--exact-button-title-min,min-content),auto)'"),
             with("--exact-button-space", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-space)':'var(--exact-button-column-space)'"),
         ],
+        // @ref LLP 1116 D1 — a native button's title truncates only when the
+        // author keeps it to one line (exact_web's button_css.rs `rows`).
+        StyleId::WhiteSpace => {
+            let (name, unit) = style_row(id)?;
+            let mut writes = one(name, unit);
+            writes.push(with("--exact-button-title-min", "v=>v==null?v:/^\\s*(nowrap|pre)\\s*$/i.test(v)?'0px':null"));
+            writes
+        }
         StyleId::TextAlign => vec![with("text-align", "v=>v"), with("--exact-button-align", "v=>v==null?v:({left:'start',start:'start',right:'end',end:'end'})[v]??'center'")],
         StyleId::Cursor => vec![with("cursor", &CURSOR_MAP)],
         StyleId::ZIndex => vec![with("z-index", crate::paint::Z_INDEX)],
@@ -537,6 +620,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("accent-color", "v=>v"),
             with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
+        StyleId::PositionTryFallbacks => vec![with(
+            "position-try-fallbacks",
+            r#"v=>v==null||/^\s*(?:none|(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?)(?:\s*,\s*(?:flip-block(?:\s+flip-inline)?|flip-inline(?:\s+flip-block)?))*)\s*$/i.test(v)?v:"invalid""#,
+        )],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
         // @ref LLP 1055.002 — `-exact-clock(Name)` is css.rs's clock property and
         // leaves the play state alone; a drag timeline pauses.
@@ -600,6 +687,12 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "color-scheme",
             "v=>v===\"light\"||v===\"dark\"?v:null",
         )],
+        StyleId::TextWrapStyle => one("text-wrap-style", ""),
+        // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
+        StyleId::TextBoxEdge => vec![with(
+            "text-box-edge",
+            "v=>v==null?v:({cap:\"cap text\",ex:\"ex text\"})[v]??v.replace(\"-alphabetic\",\" alphabetic\")",
+        )],
         StyleId::CornerShape => vec![with(
             "corner-shape",
             "v=>v==null?v:/-apple-continuous/i.test(v)?null:v.replace(/-exact-continuous/gi,\"superellipse(1.6)\")",
@@ -642,7 +735,8 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     // kernel restates as CSS's) or a marker (a reference, see emit.rs).
     if matches!(
         row.codec(),
-        StyleCodec::ClipPath
+        StyleCodec::PositionTryFallbacks
+            | StyleCodec::ClipPath
             | StyleCodec::ShapeOutside
             | StyleCodec::Paint
             | StyleCodec::DashArray
@@ -707,6 +801,8 @@ fn css_property(id: StyleId) -> String {
     let name = match id {
         StyleId::TextColor => return "color".into(),
         StyleId::TintColor => return "--exact-tint".into(),
+        // @ref LLP 1104 D3 — css.rs's `spell_property`.
+        StyleId::PlaceholderColor => return "--exact-placeholder-color".into(),
         StyleId::PositionType => return "position".into(),
         StyleId::BackdropFilter => return "backdrop-filter".into(),
         StyleId::SvgMask => return "mask".into(),
@@ -756,6 +852,24 @@ pub fn style_marker(id: StyleId) -> (String, String) {
 pub(crate) mod tests {
     use super::*;
 
+    #[test]
+    fn balanced_wrap_writes_the_same_property_for_bound_values() {
+        let writes = style_writes(StyleId::TextWrapStyle as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "text-wrap-style");
+        assert_eq!(writes[0].unit, "");
+        assert_eq!(writes[0].map, None);
+    }
+
+    /// LLP 1104 D3: a bound `::placeholder` colour writes css.rs's
+    /// private property, which index.html's `::placeholder` rule reads.
+    #[test]
+    fn a_bound_placeholder_colour_writes_the_private_property() {
+        let writes = style_writes(StyleId::PlaceholderColor as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "--exact-placeholder-color");
+    }
+
     /// The role's CSS, as the literal path writes it.
     pub(crate) fn role(name: &str) -> String {
         let id = exact_kernel::COLOR_ROLES
@@ -788,6 +902,25 @@ pub(crate) mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         serde_json::from_slice(&out.stdout).unwrap()
+    }
+
+    /// LLP 1115 D3: a bound text style is written as css.rs writes a
+    /// literal one; a number is left for the row's `px`.
+    #[test]
+    fn a_bound_text_style_is_its_rem() {
+        let out = run(
+            TEXT_STYLE_MAP.as_str(),
+            &[
+                "-exact-title1",
+                " -Apple-System-Headline ",
+                "1.5rem",
+                "-exact-nope",
+            ],
+        );
+        assert_eq!(
+            out,
+            serde_json::json!(["1.6875rem", "1rem", "1.5rem", "-exact-nope"])
+        );
     }
 
     #[test]

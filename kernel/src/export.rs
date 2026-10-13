@@ -8,7 +8,7 @@
 //! ```text
 //! header (40 bytes)
 //!   0  magic        "EXNO"
-//!   4  version      u16 = 1
+//!   4  version      u16 = 2
 //!   6  header_len   u16 = 40
 //!   8  total_len    u32
 //!  12  root_id      u32   wire id of the exported root, or 0 for every root
@@ -20,7 +20,8 @@
 //!   kind u32 · offset u32 · len u32 · fnv1a32 u32
 //! sections (each 8-aligned)
 //!   NODES  (1): node_count × 32-byte rows
-//!   STYLES (2): per node, the masked patch encoding of its set rows
+//!   STYLES (2): per node, the masked patch encoding of its set rows, which
+//!               carries the written mask beside the set one (version 2)
 //!   PROPS  (3): per node, u16 count, then (u16 id, u8 kind, value)
 //! node row (32 bytes)
 //!   0  id          u32
@@ -45,8 +46,9 @@ use std::collections::HashSet;
 
 /// Magic bytes.
 pub const MAGIC: [u8; 4] = *b"EXNO";
-/// Envelope version.
-pub const VERSION: u16 = 1;
+/// Envelope version. 2: a node's style carries its written mask beside
+/// its set mask (LLP 1115.000 D2), so a version 1 style is 32 bytes short.
+pub const VERSION: u16 = 2;
 /// Header size.
 pub const HEADER_LEN: usize = 40;
 /// Directory entry size.
@@ -465,7 +467,7 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
                 });
             }
             let value = match kind {
-                PropKind::Str => PropValue::Str(pr.string()?.to_string()),
+                PropKind::Str => PropValue::Str(pr.string()?.into()),
                 PropKind::Bool => match pr.u8()? {
                     0 => PropValue::Bool(false),
                     1 => PropValue::Bool(true),

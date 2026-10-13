@@ -21,16 +21,25 @@ use exact_runner::{FailureKind, Outcome, Request, MAX_BODY_FROM_BYTES};
 use ibex2::stdlib::app_fs::AppDirectories;
 use std::path::PathBuf;
 
-/// The app's `app:/data`, `app:/cache` and `app:/tmp` handles, opened once
-/// when the host names them (or why they would not open); `None` on a host
-/// or drive that has no app files.
+/// The app's `app:/data`, `app:/cache` and `app:/tmp` handles, opened once,
+/// at the first request whose body is an app file (or why they would not
+/// open); `None` on a host or drive that has no app files.
 pub(super) type Roots<'a> = Option<&'a Result<AppDirectories, String>>;
 
 /// Open the app's directories, made as storage makes them, so their handles
 /// pin the roots from now on: a root renamed or replaced later (by a
 /// symlink to another app's tree, say) is not followed, as `readFile`'s
-/// handles do not follow it.
+/// handles do not follow it. A root that is a symbolic link when first
+/// opened is refused for the same reason.
 pub(super) fn open(roots: &[PathBuf; 3]) -> Result<AppDirectories, String> {
+    // All three are looked at before any is made, so a refusal makes nothing.
+    let link = |root: &&PathBuf| std::fs::symlink_metadata(root).is_ok_and(|m| m.is_symlink());
+    if let Some(root) = roots.iter().find(link) {
+        return Err(format!(
+            "app storage: {} is a symbolic link",
+            root.display()
+        ));
+    }
     for root in roots {
         std::fs::create_dir_all(root).map_err(|e| format!("app storage: {e}"))?;
     }
@@ -164,19 +173,26 @@ pub(super) fn read(
     path: &str,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Vec<u8>, Outcome> {
-    use ibex2::{
-        boundary::HostError,
-        stdlib::fs::{FsOp, FsResult},
-    };
-    let named = |e: HostError| {
-        match e {
-        // As `readFile`'s denial reads (js/src/prelude.js `deniedPath`).
-        HostError::Denied { capability } => refused(format!(
-            "exactBodyFrom {path}: denied: {capability} {path}: no grant covers it; grant `{capability} {path}`"
-        )),
-        e => refused(format!("exactBodyFrom {path}: {e}")),
-    }
-    };
+    size(roots, grants, scope, path)?;
+    read_at_most(
+        roots,
+        grants,
+        scope,
+        path,
+        MAX_BODY_FROM_BYTES,
+        false,
+        cancel,
+    )
+    .map_err(|e| e.unwrap_or_else(|| too_large(path, "it grew to more bytes than".into())))
+}
+
+/// The admitted `grants` and the opened directories for a read of `path`.
+fn open_for<'a>(
+    roots: Roots<'a>,
+    grants: &str,
+    scope: Option<&str>,
+    path: &str,
+) -> Result<(ibex2::grant::GrantSet, &'a AppDirectories), Outcome> {
     let Some(directories) = roots else {
         return Err(Outcome::Failed {
             kind: FailureKind::Unsupported,
@@ -192,42 +208,91 @@ pub(super) fn read(
             "exactBodyFrom {path}: the app's files would not open: {e}"
         ))
     })?;
-    // `stat` admits the read and names a missing file or a folder before
-    // anything is read; the read itself is capped, so a file that grew since
-    // is refused without being read whole.
+    Ok((grants, directories))
+}
+
+fn named(path: &str, e: ibex2::boundary::HostError) -> Outcome {
+    match e {
+        // As `readFile`'s denial reads (js/src/prelude.js `deniedPath`).
+        ibex2::boundary::HostError::Denied { capability } => refused(format!(
+            "exactBodyFrom {path}: denied: {capability} {path}: no grant covers it; grant `{capability} {path}`"
+        )),
+        e => refused(format!("exactBodyFrom {path}: {e}")),
+    }
+}
+
+/// The file's size: `stat` admits the read and names a missing file or a
+/// folder before anything is read, and one over the bound.
+pub(super) fn size(
+    roots: Roots<'_>,
+    grants: &str,
+    scope: Option<&str>,
+    path: &str,
+) -> Result<u64, Outcome> {
+    use ibex2::stdlib::fs::{FsOp, FsResult};
+    let (grants, directories) = open_for(roots, grants, scope, path)?;
     match ibex2::stdlib::fs::run(&grants, Some(directories), FsOp::Stat, path, None, None)
-        .map_err(named)?
+        .map_err(|e| named(path, e))?
     {
         FsResult::Stat(stat) if !stat.is_file => {
-            return Err(refused(format!("exactBodyFrom {path}: not a file")));
+            Err(refused(format!("exactBodyFrom {path}: not a file")))
         }
         FsResult::Stat(stat) if stat.size > MAX_BODY_FROM_BYTES => {
-            return Err(too_large(path, format!("{} bytes is", stat.size)));
+            Err(too_large(path, format!("{} bytes is", stat.size)))
         }
-        _ => {}
+        FsResult::Stat(stat) => Ok(stat.size),
+        _ => Err(refused(format!("exactBodyFrom {path}: not a file"))),
     }
-    // In chunks through the opened descriptor, at most the bound and one
-    // byte, stopping between chunks once the request has ended.
+}
+
+/// At most `cap` bytes of the file, in chunks through the opened
+/// descriptor, stopping between chunks once the request has ended. `Err(None)`
+/// when the file holds more than `cap` (it grew, or was replaced). `exact`:
+/// `cap` is the stat's size, which the async core charged (LLP 1120 D5), and
+/// the buffer is allocated once at that size and one byte, never more.
+pub(super) fn read_at_most(
+    roots: Roots<'_>,
+    grants: &str,
+    scope: Option<&str>,
+    path: &str,
+    cap: u64,
+    exact: bool,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<Vec<u8>, Option<Outcome>> {
+    let (grants, directories) = open_for(roots, grants, scope, path).map_err(Some)?;
     #[cfg(unix)]
     let bytes = {
         use std::io::Read;
         let mut file = directories
             .open_file(&grants, path)
-            .map_err(named)?
-            .take(MAX_BODY_FROM_BYTES + 1);
-        let mut bytes = Vec::new();
+            .map_err(|e| Some(named(path, e)))?
+            .take(cap + 1);
+        let mut bytes = if exact {
+            Vec::with_capacity(cap as usize + 1)
+        } else {
+            Vec::new()
+        };
         loop {
             if cancel.load(std::sync::atomic::Ordering::Acquire) {
-                return Err(refused(format!("exactBodyFrom {path}: the request ended")));
+                return Err(Some(refused(format!(
+                    "exactBodyFrom {path}: the request ended"
+                ))));
             }
             let at = bytes.len();
-            bytes.resize(at + CHUNK, 0);
+            let end = if exact {
+                (at + CHUNK).min(cap as usize + 1)
+            } else {
+                at + CHUNK
+            };
+            bytes.resize(end, 0);
             let n = loop {
                 match file.read(&mut bytes[at..]) {
                     Ok(n) => break n,
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                     Err(e) => {
-                        return Err(refused(format!("exactBodyFrom {path}: filesystem: {e}")))
+                        return Err(Some(refused(format!(
+                            "exactBodyFrom {path}: filesystem: {e}"
+                        ))))
                     }
                 }
             };
@@ -242,18 +307,45 @@ pub(super) fn read(
     // `stat`: refused, naming why, rather than read whole.
     #[cfg(not(unix))]
     let bytes: Vec<u8> = {
-        let _ = (&directories, cancel);
-        return Err(Outcome::Failed {
+        let _ = (&directories, &grants, cancel);
+        return Err(Some(Outcome::Failed {
             kind: FailureKind::Unsupported,
             message: format!(
                 "exactBodyFrom {path}: not on this host yet: it has no capped file read"
             ),
-        });
+        }));
     };
-    if bytes.len() as u64 > MAX_BODY_FROM_BYTES {
-        return Err(too_large(path, "it grew to more bytes than".into()));
+    if bytes.len() as u64 > cap {
+        return Err(None);
     }
     Ok(bytes)
+}
+
+/// Run `job` on a reader thread of its own, holding one of the process's
+/// [`MAX_READERS`] places until it ends; refused, as today's fifth reader
+/// is, when none is free or no thread can be made (LLP 1120 D4).
+pub(super) fn reader(job: impl FnOnce() + Send + 'static) -> Result<(), Outcome> {
+    use std::sync::atomic::Ordering;
+    if READERS
+        .0
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < MAX_READERS).then_some(n + 1)
+        })
+        .is_err()
+    {
+        return Err(refused(format!(
+            "exactBodyFrom: {MAX_READERS} file reads are still running (a stalled disk?); nothing was sent"
+        )));
+    }
+    let place = Reader(&READERS);
+    std::thread::Builder::new()
+        .name("exact-body-from".into())
+        .spawn(move || {
+            let _place = place;
+            job();
+        })
+        .map(|_| ())
+        .map_err(|e| refused(format!("exactBodyFrom: the read could not start: {e}")))
 }
 
 fn too_large(path: &str, size: String) -> Outcome {

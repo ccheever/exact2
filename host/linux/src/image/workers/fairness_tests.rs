@@ -49,6 +49,7 @@ impl Known {
                     generation,
                     pixels: plan.pixels,
                     variant: 1,
+                    crop: exact_raster::Crop::default(),
                 },
                 view: ViewKey {
                     view: id,

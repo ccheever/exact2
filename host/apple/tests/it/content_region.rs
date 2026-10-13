@@ -40,6 +40,13 @@ fn registration() -> ContentRegionRegistration {
 }
 type Fixture = (Host<Data>, String, Rc<Cell<usize>>);
 fn fixture(ids: ContentRegionRegistration) -> Result<Fixture, exact_apple::HostError> {
+    fixture_in(ids, "")
+}
+/// `fixture`, its giant text with `attrs` after its own (a `color`, say).
+fn fixture_in(
+    ids: ContentRegionRegistration,
+    attrs: &str,
+) -> Result<Fixture, exact_apple::HostError> {
     let source = r#"shape Blob
   text: string
 
@@ -53,12 +60,13 @@ component App
       view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
         view id="content" width="100%" height="100%"
           scroll testId="document" width="100%" height="100%"
-            text doc.text font-size=16
+            text doc.text font-size=16 ATTRS
         text "Preparing exact content…" id="pending"
       input value=draft change=edit testId="input"
       text draft testId="echo"
-"#;
-    let plan = contract::compile(source).unwrap().encode();
+"#
+    .replace(" ATTRS", &format!(" {attrs}"));
+    let plan = contract::compile(&source).unwrap().encode();
     let count = Rc::new(Cell::new(0));
     Host::boot_region(
         &plan,
@@ -106,6 +114,37 @@ fn first_layout_uses_real_pending_and_never_calls_foreign_giant() {
     );
     h.resize(601., 800.);
     assert_eq!(calls.get(), 0);
+}
+/// LLP 1115.000 D7.9: a region's runs cross with their colours resolved, so
+/// each says whether its colour is one its author fixed (selected on the Mac,
+/// such text keeps its ink): a literal, a `light-dark()` pair and a colour
+/// from the app's asset catalogue are; a role, a system colour by name and a
+/// colour nobody wrote are not.
+#[test]
+fn a_region_run_says_whether_its_colour_is_fixed() {
+    for (attrs, fixed) in [
+        ("", false),
+        ("color=\"#cc0000\"", true),
+        ("color=\"light-dark(#990000, #ff9999)\"", true),
+        ("color=\"-exact-system-red\"", false),
+        (
+            "color=\"-exact-platform-color(macos named:Brand, ios named:Brand, #c8102e)\"",
+            true,
+        ),
+        (
+            "color=\"-exact-platform-color(macos secondaryLabelColor, ios secondaryLabelColor, #666666)\"",
+            false,
+        ),
+    ] {
+        let (h, _, _) = fixture_in(registration(), attrs).unwrap();
+        let (id, _) = h.pending_region_request().unwrap();
+        let snapshot = h.region_request_json(id).unwrap();
+        assert!(
+            snapshot.contains(&format!(",\"fixed\":{fixed},\"color\":")),
+            "`{attrs}`: {}",
+            &snapshot[snapshot.len().saturating_sub(200)..]
+        );
+    }
 }
 #[test]
 fn stale_bad_metrics_drop_only_their_owner_and_cannot_publish() {
@@ -421,6 +460,7 @@ fn native_collection_epochs_stay_with_selected_rows_until_complete() {
         port_cross: 600.,
         port_main: 400.,
         cross: 600.,
+        padding: [0.0; 2],
         measurements: a
             .rows
             .iter()

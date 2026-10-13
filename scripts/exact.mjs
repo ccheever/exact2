@@ -34,16 +34,17 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { delimiter, resolve } from 'node:path';
+import { basename, delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { createApp, createGame } from '../game/new.mjs';
+import { applyPattern, createApp, createGame, patternList } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 import { signingOrder } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
+import { guardFlags, helpText } from './help.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -111,11 +112,11 @@ function refuseForeignBundle(app, bundle) {
 }
 
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */
-function build(app, { quiet = false, distribution = false } = {}) {
+function build(app, { quiet = false, distribution = false, identity = null } = {}) {
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
-    env: { EXACT_UPDATE_TRUST: 'development', ...process.env },
+    env: { EXACT_UPDATE_TRUST: 'development', ...process.env, ...(identity ? { EXACT_DEVELOPER_ID: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
   });
   if (r.status !== 0) process.exit(r.status ?? 1);
   const bundle = bundleOf(app);
@@ -241,7 +242,7 @@ function release(app) {
   }
   const profile = process.env.EXACT_NOTARY_PROFILE ?? 'exact-notary';
   // The whole-module Swift host and the receipt a shipped bundle carries (host/apple/build.mjs).
-  const bundle = build(app, { distribution: true });
+  const bundle = build(app, { distribution: true, identity });
   const out = resolve(app.target, 'dist', app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
@@ -260,7 +261,7 @@ function release(app) {
   const entitled = macReleaseEntitlements(built.build?.compat);
   const entitlements = resolve(out, 'entitlements.plist');
   if (entitled) writeFileSync(entitlements, entitled);
-  for (const path of signingOrder(staged)) {
+  for (const path of signingOrder(staged, built.build?.compat, identity)) {
     sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
       ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
   }
@@ -507,7 +508,29 @@ export function contract(args, env = process.env) {
   if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (a few minutes on a cold checkout)…');
   const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
+  // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
+  const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
+  if (result.status === 0 && input && basename(input) === 'app.contract') refreshTypes(dirname(resolve(input)), binary);
   return result.status ?? 1;
+}
+
+/** The types `app.ts` imports, `contract types app.contract -o app.contract.d.ts`, rewritten
+ * only when they changed: when a source's signature did (LLP 1116.001 D4.5). The web build and
+ * the native development bake write the same file the same way, so a builder never runs the
+ * step. A drawing app's carry the canvas seam, as both add it. Says so in one line on stderr,
+ * so `--json` stays the build's reply; returns whether it wrote. */
+export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract')) {
+  const ts = resolve(dir, 'app.ts'), out = resolve(dir, 'app.contract.d.ts');
+  if (!existsSync(ts) || !existsSync(binary)) return false;
+  const types = spawnSync(binary, ['types', resolve(dir, 'app.contract')], {encoding: 'utf8', maxBuffer: 1 << 26});
+  if (types.status !== 0) return false;
+  let text = types.stdout;
+  if (/export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(ts, 'utf8'))) text += readFileSync(resolve(ROOT, 'js/bake/src/canvas-types.d.ts'), 'utf8');
+  const before = existsSync(out) ? readFileSync(out, 'utf8') : null;
+  if (before === text) return false;
+  writeFileSync(out, text);
+  console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
+  return true;
 }
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
@@ -823,16 +846,30 @@ fn ${snake}_hatch_ended<H: Hatches>(_element: &Element, _context: &mut Context<'
   return { wrote, todo, platforms };
 }
 
+/** `exact.mjs pattern [<name>] [--force]` (LLP 1116.001 D3): the starter patterns, or one written
+ * into the app (`EXACT_APP_DIR`, else this directory) with the types its app.ts imports. */
+export function pattern(args, say = console.log) {
+  const name = args.find(arg => !arg.startsWith('-'));
+  if (!name) return say(patternList());
+  const dir = process.env.EXACT_APP_DIR ?? process.cwd();
+  const { said, next } = applyPattern(dir, name, { force: args.includes('--force') });
+  say(said);
+  refreshTypes(dir);
+  say(next);
+}
+
 function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
-  if (verb === 'contract') return process.exit(contract(argv.slice(1)));
-  if (verb === 'hatch') return hatch(argv.slice(1));
+  // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
+  if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
+  if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
+  if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = argv.slice(1), path = args.find(arg => !arg.startsWith('--'));
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), path = args.find(arg => !arg.startsWith('--'));
     return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets')});
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }

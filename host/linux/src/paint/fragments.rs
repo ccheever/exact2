@@ -33,7 +33,11 @@ impl Painter {
         // The kernel measures a Text subtree as one paragraph. Inline
         // descendants deliberately have zero frames, not paint boxes.
         let build = || {
-            let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
+            let computed = node.computed_style(StyleMask::INHERITED);
+            let mut spec = text_spec(&computed, "");
+            // A fitted paragraph's line box is at its runs' scale (LLP 1116.001 D1.4).
+            let strut = exact_kernel::TextStyle::from_style(&computed).scaled(node.fit_scale());
+            spec.strut = Run::from_style("", strut);
             spec.runs = node
                 .text_runs()
                 .iter()
@@ -110,7 +114,7 @@ impl Painter {
     ) {
         let s = node.style;
         let width = s.column_rule_width;
-        if s.column_rule_style != exact_kernel::BorderStyle::Solid || width <= 0.0 {
+        if s.column_rule_style != exact_kernel::ColumnRuleStyle::Solid || width <= 0.0 {
             return;
         }
         let Some(columns) = kernel.columns(node.key) else {

@@ -32,7 +32,7 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
     .replace('component RealWorld\n','component RealWorld\n  state reloadProbe = 7\n')
     .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      text `${reloadProbe}` testId="reload-probe"\n');
   const withLogic=text=>text
-    .replace("import type { Answer, Sources, Result } from './app.contract.d.ts';\n","import type { Answer, Sources, Result } from './app.contract.d.ts';\nimport { devReloadValue } from './dev-reload-helper';\n")
+    .replace(/^import type .* from '\.\/app\.contract\.d\.ts';\n/m,line=>`${line}import { devReloadValue } from './dev-reload-helper';\n`)
     .replace('const sources: Sources = {\n',"const sources: Sources = {\n  devReloadAnswer: () => ({ value: devReloadValue() }),\n  devReloadRows: () => [{ id: 'one' }],\n");
   const edited=text=>text.replace('          text "conduit"\n','          text "conduit carried"\n');
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
@@ -259,10 +259,18 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     let identity=true;
     const start=source.indexOf('async function currentWebBuild()');
     const end=source.indexOf('\nif (!await currentWebBuild())',start);
-    const current=new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs',
+    // The startup check of a loop run in `look`, where the default look is the neutral one (look.mjs).
+    const startup=look=>new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs','DEFAULT_LOOK','LOOK',
       'const producersOnly=false;'+source.slice(start,end)+';return currentWebBuild;')
-      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs);
+      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs,'neutral',look);
+    const current=startup('neutral');
     assert.equal(await current(),true);
+    // A bake in another look than this run's is not the loop's (LLP 1115.000 D4 part B): its receipt names its
+    // look where that is not the default one.
+    assert.equal(await startup('apple')(),false);
+    writeFileSync(graphPath,JSON.stringify({...build,binary:{...build.binary,configuration:{flags:{EXACT_WEB_LINK:'all',EXACT_WEB_LOOK:'apple'}}}}));
+    assert.deepEqual([await startup('apple')(),await current()],[true,false]);
+    writeFileSync(graphPath,JSON.stringify(build));
     writeFileSync(join(dir,'notes.txt'),'unrelated edit');
     assert.equal(await current(),true);
     writeFileSync(input,'fn speed() -> u32 { 8 }');

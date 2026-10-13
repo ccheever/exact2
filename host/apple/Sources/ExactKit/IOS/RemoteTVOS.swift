@@ -64,11 +64,11 @@ extension NodeView {
             presenter?.focusGuides.focused(self)
             showFocusRing(true)
             repaintThrough()
-            if handlers.contains("focus") { presenter?.focus(id) }
+            presenter?.focus(id)
         } else if context.previouslyFocusedItem === self {
             showFocusRing(false)
             repaintThrough()
-            if handlers.contains("blur") { presenter?.blur(id) }
+            presenter?.blur(id)
         }
     }
 

@@ -207,7 +207,9 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     if (signal.aborted) return failed(4, 'request aborted');
     if (!active()) return failed(4, 'request source unloaded');
   }
-  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
+  // A browser answers a `manual` redirect with an opaque-redirect response
+  // (Fetch §2.2.6: status 0, no Location)
+  const init = { method, headers, redirect: op.redirect ?? 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
   else if (fileBody) init.body = fileBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
@@ -241,7 +243,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 export function streamed(req, grantSet, message, controller, bodyFile) {
   let body = '';
   for (const b of req.raw ?? []) body += String.fromCharCode(b);
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, redirect: req.redirect, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
     { grantSet, controllers: new Set(), controller, message, bodyFile, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }

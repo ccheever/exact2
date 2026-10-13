@@ -7,8 +7,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchFacts, refuseStale, staleError, warnStale, webChanges, withFaults } from './agent-launch.mjs';
+import { backLayer, launchFacts, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
+import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
@@ -260,6 +261,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         await dialog.dismiss(); await frame();
         return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked to leave, answered "Stay"', delivery: 'browser-window', native: 'page.close' };
       }
+      if (req.op === 'tap' && req.back !== undefined) { const r = await backLayer(req, { evaluate, escape: () => page.keyboard.press('Escape'), frame }); if (r) return r; } // an open dialog's Escape, else the page's Back (LLP 1116.006 D4)
       if (req.op === 'clock' && await page.evaluate(() => typeof ImageDecoder === 'undefined' && [...document.images].some(i => /\.(gif|webp)(?:[?#]|$)/i.test(i.currentSrc || i.src)))) throw new Error(`${name} clock refuses: this engine has no ImageDecoder, so an animated GIF/WebP would run on wall time`);
       return JSON.parse(await page.evaluate(req => globalThis.exact.agentSettled(req).then(JSON.stringify), req));
     };
@@ -304,19 +306,20 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       host: 'web', browser: name, phasedTouch: false, boot, hostLines, evaluate, launchFacts: facts,
       async gpuMs() { const ms = await page.locator('#exact-root').getAttribute('data-gpu-ms'); return ms == null ? null : Number(ms); },
       /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
-      async reset({ keep = false, failFetch } = {}) {
+      async reset({ keep = false, failFetch, epoch } = {}) {
         await pointer.release();
         for (const keys of heldKeys.values()) for (const key of [...keys].reverse()) await page.keyboard.up(key).catch(() => {});
         heldKeys.clear();
         await page.evaluate(async (keep) => { sessionStorage.clear(); if (keep) return; localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); }, keep);
         if (!keep) await context.clearCookies();
-        hostLines.length = 0; await page.goto(withFaults(keep ? page.url() : address.href, failFetch), { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
+        hostLines.length = 0; await page.goto(withEpoch(withFaults(keep ? page.url() : address.href, failFetch), epoch), { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       async prefer(media, pageFacts) {
-        const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
+        const unsupported = Object.entries(media).find(([key, value]) => key === 'display-mode' || (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
+        if (pageFacts['display-scale'] != null && pageFacts['display-scale'] !== 1) throw new Error(`${name} prefer cannot set display-scale ${pageFacts['display-scale']}: a browser's scale is fixed when it launches, and Playwright's is 1 here`);
         Object.assign(emulated, media);
         const options = { colorScheme: emulated['prefers-color-scheme'], reducedMotion: emulated['prefers-reduced-motion'], contrast: emulated['prefers-contrast'] };
         if (Object.keys(options).length) { await page.emulateMedia(options); await frame(); }
@@ -339,8 +342,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); if (r.error) throw new Error(r.error); await frame(); return r; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
-        const point = kind === 'contextmenu' ? opts.at : null;
-        const x = box ? box.x + (point?.[0] ?? box.w / 2) : undefined, y = box ? box.y + (point?.[1] ?? box.h / 2) : undefined;
+        const point = kind === 'contextmenu' || kind === 'press' ? opts.at : null;
+        let x = box ? box.x + (point?.[0] ?? box.w / 2) : undefined, y = box ? box.y + (point?.[1] ?? box.h / 2) : undefined;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press' ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
             : { op: 'type', id, selector: opts.selector, ...(kind === 'key' ? { key: opts.key } : { text: opts.text }) };
@@ -351,6 +354,13 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
           const why = await page.evaluate(({ id, x, y }) => { const el = globalThis.exact.views.get(id), hit = document.elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
+        }
+        // A plain press presses what it names (LLP 1012 §1): beside a control its middle holds, or refused (agent-aim.mjs).
+        let avoided;
+        if (kind === 'press' && id != null && !point && opts.x == null && opts.y == null && opts.selector == null) {
+          const aim = await page.evaluate(pageAim, { id, x, y });
+          if (aim?.error) throw new Error(aim.error);
+          if (aim?.at) { [x, y] = aim.at; avoided = aim.avoided; }
         }
         let deliveredAt = [x, y];
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
@@ -421,9 +431,10 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         }
         else if (kind === 'pinch') throw new Error(`${name} pinch unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
         await frame();
-        return { at: kind === 'wheel' ? deliveredAt : [x, y] };
+        return { at: kind === 'wheel' ? deliveredAt : [x, y], ...(avoided ? { avoided } : {}) };
       },
-      async screenshot(path) {
+      async screenshot(path, window = false, film = false) {
+        if (!film) await ask({ op: 'picture' }); // a transition under way is shown where it ends, unless filmed (LLP 1116.003 D8)
         await frame();
         const pending = await page.evaluate(async () => { const on = i => { const b = i.getBoundingClientRect(); return b.bottom > 0 && b.right > 0 && b.top < innerHeight && b.left < innerWidth; }; const left = () => [...document.images].filter(i => !i.complete && on(i)); const end = performance.now() + 3000; while (left().length && performance.now() < end) await new Promise(r => setTimeout(r, 25)); await globalThis.exact.imageFrames?.(); return left().length; });
         await frame(); await page.screenshot({ path, type: 'png' });

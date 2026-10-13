@@ -49,11 +49,14 @@ final class FlatLeavesIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
+    /// A bar as the host sends one: its rows, and which of them its author
+    /// wrote (LLP 1115.000 D2), which a leaf does not paint.
     private func bar(_ id: Int, x: Double, color: [Int] = [0, 122, 255, 255]) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "view",
           "style": ["width": 3.0, "height": 20.0, "background_color": color,
                     "border_radius_top_left": 1.5, "border_radius_top_right": 1.5,
-                    "border_radius_bottom_right": 1.5, "border_radius_bottom_left": 1.5, "text_color": [0, 0, 0, 255]]],
+                    "border_radius_bottom_right": 1.5, "border_radius_bottom_left": 1.5, "text_color": [0, 0, 0, 255],
+                    "written": ["background_color", "border_radius_top_left"]]],
          ["op": "frame", "id": id, "x": x, "y": 0.0, "w": 3.0, "h": 20.0]]
     }
     /// A pressable row (1) holding bars 2 and 4 around a labelled view 3.

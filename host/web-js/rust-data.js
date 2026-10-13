@@ -17,6 +17,7 @@ function writer() {
     u16(v) { room(2); new DataView(buf.buffer).setUint16(at, v, true); at += 2; },
     u32(v) { room(4); new DataView(buf.buffer).setUint32(at, v, true); at += 4; },
     f64(v) { room(8); new DataView(buf.buffer).setFloat64(at, v, true); at += 8; },
+    u64(v) { room(8); new DataView(buf.buffer).setBigUint64(at, BigInt(v), true); at += 8; },
     bytes(b) { w.u32(b.length); room(b.length); buf.set(b, at); at += b.length; },
     str(s) { w.bytes(utf8.encode(s)); },
     done: () => buf.subarray(0, at),
@@ -48,6 +49,7 @@ function reader(b) {
     u8: () => b[at++],
     u32: () => { const v = d.getUint32(at, true); at += 4; return v; },
     f64: () => { const v = d.getFloat64(at, true); at += 8; return v; },
+    u64: () => { const v = Number(d.getBigUint64(at, true)); at += 8; return v; },
     str: () => { const n = r.u32(), s = text.decode(b.subarray(at, at + n)); at += n; return s; },
     bytes: n => { const x = b.slice(at, at + n); at += n; return x; },
     value() {
@@ -114,7 +116,7 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   const callWith = (code, source, args, store, outcome) => {
     const r = op(code, w => {
       w.str(source); w.u8(6); w.u32(args.length);
-      const t = sources[source] ?? ''; let i = 0; for (const a of args) i = encode(w, a, t, i);
+      const t = (sources[source] ?? '').split('|')[0]; let i = 0; for (const a of args) i = encode(w, a, t, i);
       const pairs = [...store.map].filter(([k]) => admitsSecret(rustGrantSet, k));
       w.u32(pairs.length); for (const [k, v] of pairs) { w.str(k); w.str(v); }
       if (outcome) {
@@ -138,6 +140,30 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts;
   data.answer = ts ? (source, args, store, target) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target); throw e; } } : rust;
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
+  // An overlay (`overlay_request`): what a resource shows while writes affect it; none from the Rust module asks
+  // the TypeScript one's, beside it.
+  const types = s => (sources[s] ?? '|').split('|'), tsOverlay = data.overlay;
+  data.overlay = (source, args, answer, writes) => {
+    const [params, result] = types(source);
+    const r = op(5, w => {
+      w.str(source); w.u8(6); w.u32(args.length); let i = 0; for (const a of args) i = encode(w, a, params, i);
+      encode(w, answer, result); w.u32(writes.length);
+      for (const x of writes) {
+        const [p, res] = types(x.source); w.u64(x.id); w.str(x.mutation); w.str(x.source);
+        w.u8(6); w.u32(x.args.length); let k = 0; for (const a of x.args) k = encode(w, a, p, k);
+        if (x.reply === undefined) w.u8(0); else { w.u8(1); encode(w, x.reply, res); }
+        w.u8(x.answered ? 1 : 0);
+      }
+    });
+    if (r.u8() !== 3) throw new Error('expected an overlay reply');
+    const tag = r.u8();
+    if (tag === 2) throw new Error(r.str());
+    // A source the Rust module does not answer: the TypeScript module's overlay, beside it.
+    if (tag === 3) return tsOverlay?.(source, args, answer, writes);
+    if (tag === 0) return undefined;
+    const value = r.value(), keep = []; for (let n = r.u32(); n--;) keep.push(r.u64());
+    return { value, keep };
+  };
   // The host runs the request under this child's own authority. An absent
   // request scope is therefore the Rust child set, not the mixed-app union.
   // A stream (`Answer::stream`, LLP 1016.000) is the web host's own reader, under the same authority;

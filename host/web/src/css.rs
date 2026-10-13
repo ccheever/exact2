@@ -1,16 +1,11 @@
-//! Style rows → CSS declarations.
-//!
-//! @ref `rules/RULES.md` §Scope (the web is the standard: a row's CSS name is
-//! the row's name with `-` for `_`, and its value the CSS value; the few rows
-//! that are not one CSS property each are listed here by hand)
-//! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
-//! deviation and is not emitted as CSS)
-//!
-//! Every set row of a node becomes one declaration, read through the
-//! kernel's generated `StyleProps::get`, so a row added to `schema.json`
-//! reaches the page with no change here unless it needs a unit or a name
-//! this table does not know — in which case it is skipped and named in
-//! [`Skipped`], never guessed.
+//! Style rows → CSS declarations (LLP 1115 §2, LLP 1002 D2).
+//! CSS names replace `_` with `-`; exceptions are mapped below. Spring timing
+//! is not emitted as CSS. Each set row is read through `StyleProps::get`, so
+//! new schema rows need no mapping unless their name or unit differs.
+//! Unsupported rows are reported in [`Skipped`].
+
+mod fonts;
+pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
@@ -27,6 +22,10 @@ pub struct Skipped {
     /// Why.
     pub reason: &'static str,
 }
+
+/// A hairline for a page without a kernel: the shell's custom property at
+/// one device pixel (LLP 1115.000 D10.3).
+pub const HAIRLINE: &str = "var(--exact-hairline, 1px)";
 
 /// The `cssText` for a node's set rows, plus what was skipped.
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
@@ -55,8 +54,26 @@ fn css_text_in(
         let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
             return false;
         };
-        num_into(out, n);
-        out.push_str(if unit == Unit::Rem { "rem" } else { "em" });
+        match unit {
+            Unit::Rem => {
+                num_into(out, n);
+                out.push_str("rem");
+            }
+            Unit::Em => {
+                num_into(out, n);
+                out.push_str("em");
+            }
+            // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
+            // `medium`, in `rem`, so it follows the browser's root size.
+            Unit::TextStyle(_) => {
+                let medium = exact_kernel::style::relative::MEDIUM;
+                num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
+                out.push_str("rem");
+            }
+            // @ref LLP 1115.000 D10.3 — one device pixel: the page's sheet
+            // keeps `--exact-hairline` at it, whatever the display's scale.
+            Unit::Hairline => out.push_str(HAIRLINE),
+        }
         true
     };
     let mut out = String::new();
@@ -284,6 +301,9 @@ fn css_text_in(
                 });
                 out.push(';');
             }
+            (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
+                crate::text_box_css::push_edge(edge, &mut out)
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
@@ -338,6 +358,13 @@ fn css_text_in(
             (StyleId::PressHaptic, RowValue::Enum(kind)) => {
                 if *kind != "none" {
                     push_text!(&mut out, "--exact-press-haptic:{};", kind);
+                }
+            }
+            // @ref LLP 1116.001 D1.4 — not CSS: the browser lays the text out,
+            // and navigation.js `fitText` scales it by the kernel's rule.
+            (StyleId::Fit, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-fit:{};", kind);
                 }
             }
             // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
@@ -493,7 +520,6 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
     style.rare.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
 }
 
-/// One row → one declaration, by the CSS rule for its name and codec.
 /// Whether a row's value is one CSS declaration here.
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
@@ -563,6 +589,8 @@ fn spell_property(out: &mut String, id: StyleId) {
     let name = match id {
         StyleId::TextColor => return out.push_str("color"),
         StyleId::TintColor => return out.push_str("--exact-tint"),
+        // @ref LLP 1104 D3 — `::placeholder`'s colour, read by index.html.
+        StyleId::PlaceholderColor => return out.push_str("--exact-placeholder-color"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
@@ -604,6 +632,15 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         {
             out.push_str("none")
         }
+        // Only a calculation can be negative here; written as `calc()` the
+        // browser clamps it rather than dropping it (CSS Values 4 §10.12).
+        RowValue::Dimension(
+            d @ (Dimension::Points(v) | Dimension::Percent(v) | Dimension::Viewport(_, v)),
+        ) if *v < 0.0 && exact_kernel::style::calc::nonnegative_row(id) => {
+            out.push_str("calc(");
+            dimension(out, *d);
+            out.push(')');
+        }
         RowValue::Dimension(d) => dimension(out, *d),
         RowValue::Color(c) => rgba_into(out, *c),
         // The browser resolves this one (LLP 1034 D2): handed the function
@@ -626,6 +663,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::PositionTryFallbacks(r) => out.push_str(&r.css()),
         RowValue::DragTimeline(d) => out.push_str(&d.css()),
         RowValue::AnimationTimeline(t) => out.push_str(&t.css()),
         RowValue::AnimationRange(r) => out.push_str(&r.css()),
@@ -1036,6 +1074,16 @@ mod declaration_tests {
         css_text(&style, &fonts).0
     }
 
+    /// LLP 1001 §6's balance; LLP 1104 D3's `::placeholder` colour.
+    #[test]
+    fn balance_and_the_placeholder_colour_are_written_for_the_browser() {
+        let text = |id, v: &str| css(&[(id, StyleValue::Text(v.into()))], &[]);
+        let wrap = text(StyleId::TextWrapStyle, "balance");
+        assert_eq!(wrap, "text-wrap-style:balance;");
+        let ink = text(StyleId::PlaceholderColor, "#00800080");
+        assert_eq!(ink, "--exact-placeholder-color:rgba(0,128,0,0.5019608);");
+    }
+
     #[test]
     fn backdrop_filters_keep_order_and_identity_in_css() {
         exact_kernel::style::link_backdrop_filter();
@@ -1160,7 +1208,9 @@ mod declaration_tests {
     /// the page as CSS.
     #[test]
     fn layout_rows_keep_their_css() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         for (rows, want) in [
             (
                 vec![(StyleId::AspectRatio, t("16/9"))],
@@ -1203,7 +1253,9 @@ mod declaration_tests {
 
     #[test]
     fn every_grid_row_has_css_and_none_is_skipped() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         for (row, value, want) in [
             (
                 StyleId::GridTemplateColumns,
@@ -1241,7 +1293,9 @@ mod declaration_tests {
     /// resolve, and `none` clears.
     #[test]
     fn a_3d_rotate_and_translate_are_one_declaration_each() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::Rotate, t("y 30deg")),
@@ -1271,7 +1325,9 @@ mod declaration_tests {
 
     #[test]
     fn text_stroke_is_the_compat_standards_two_properties() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::TextStrokeWidth, t("2px #ff0000")),
@@ -1285,7 +1341,9 @@ mod declaration_tests {
 
     #[test]
     fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::BorderRadiusTopLeft, StyleValue::Number(10.0)),
@@ -1307,7 +1365,9 @@ mod declaration_tests {
 
     #[test]
     fn background_image_is_one_declaration_over_the_colour() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(
                 &[
@@ -1343,7 +1403,9 @@ mod declaration_tests {
     /// with the angle and skips nothing (kanban F30).
     #[test]
     fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let mut style = StyleProps::default();
         style
             .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
@@ -1357,12 +1419,28 @@ mod declaration_tests {
         assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
     }
 
+    /// `-exact-fit` is the custom property navigation.js `fitText` reads
+    /// (LLP 1116.001 D1.4); its initial value writes nothing.
+    #[test]
+    fn fit_is_navigations_property() {
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
+        assert_eq!(
+            css(&[(StyleId::Fit, t("shrink"))], &[]),
+            "--exact-fit:shrink;"
+        );
+        assert_eq!(css(&[(StyleId::Fit, t("none"))], &[]), "");
+    }
+
     /// The feedback's separate factor leaves the row's scale and
     /// authored transition list intact; 1 needs no effect.
     #[test]
     fn a_press_scale_keeps_the_authored_scale_and_transitions() {
         let n = StyleValue::Number;
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(&[(StyleId::PressScale, n(0.97))], &[]),
             "scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.97;"
@@ -1418,44 +1496,4 @@ mod declaration_tests {
             list.css().replace(" grow,", " grow-exact-press,")
         );
     }
-}
-
-/// CSS family aliases for declared fonts; local families keep their CSS names.
-pub fn font_alias(plan: &exact_plan::Plan, family: exact_plan::FamiliesId) -> String {
-    let row = plan.familie(family);
-    if row.faces.len == 0 {
-        return plan.str(row.name).into();
-    }
-    let i = plan
-        .stacks
-        .iter()
-        .position(|s| {
-            s.members.len == 1
-                && plan.stack_member(s.members.iter().next().unwrap()).family == Some(family)
-        })
-        .unwrap_or(8 + family.0 as usize);
-    format!("ExactPlanStack{i}")
-}
-
-/// Every stack's complete CSS fallback list in authored order.
-pub fn font_family_names(plan: &exact_plan::Plan) -> Vec<String> {
-    plan.stacks
-        .iter()
-        .map(|stack| {
-            stack
-                .members
-                .iter()
-                .map(|id| {
-                    let member = plan.stack_member(id);
-                    match member.kind {
-                        exact_plan::StackMemberKind::Family => {
-                            css_string(&font_alias(plan, member.family.unwrap()))
-                        }
-                        generic => generic_stack(generic.name()).into(),
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join(", ")
-        })
-        .collect()
 }

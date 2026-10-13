@@ -92,6 +92,7 @@ This is HTML's own structure (`section` > `header`, the rows, `footer`), so the 
    - one `text` is the title;
    - two `text`s are the title and its value (UIKit's value cell);
    - a `column` (a flex column: what Contract's sheet styles) of one or two `text`s is the title over its subtitle (the subtitle cell). A `row` or plain box of texts is custom.
+4. **A row that is itself a `column`** (LLP 1116 D2, 2026-10-10) keeps its direction: the sheet stacks its children from the text's margin with the subtitle cell's 15 pt above and below, and the kernel reads it whole, before steps 1–3: one or two `text`s are the subtitle cell, anything else is custom. The sheet wrote it a flex row before, so its children ran across the cell while tests passed (two bake-off apps).
 
 A row of any other shape is **custom**: a raster image, a third text, a nested box. A row with no title is custom too. A custom row carries only its node, its press and its state, and the host shows its views. `destructive` (the existing prop 68) draws the title and symbol red, and `disabled` dims the row and makes it untappable. Roles name symbols as everywhere else, so `forward-chevron` is `chevron.forward`. This RFC adds the role `info` (`info.circle`), so the detail button has a web path.
 
@@ -118,9 +119,11 @@ A row of any other shape is **custom**: a raster image, a third text, a nested b
 - **A row:** a flex row, 52 pt tall at least.
   - It starts at the text: 16 pt in, or 56 pt after a leading symbol. The symbol is pulled into the margin (`margin-left: -40`).
   - Its 1-pt separator is its bottom border, and it overlaps the next row by that width (`margin-bottom: -1`). The group clips away the last row's separator, so no row needs to know it is last, even under `each`.
+  - A stack of lines in a row (a part laid out as a column around two parts or more, not the subtitle stack) keeps the cell's margins: 15 pt above and below it, as a hand-built cell pinned to its content view's margins and a `column` row (§3 step 4) have them. They are the stack's margins, so a taller part beside it (an avatar with its own) sets the row's height as before, and a row whose author wrote its vertical padding gets none. Before 2026-10-10 it had none, and its first line touched the card and its last the separator on every host (team-kanban's cards, household-list's items). A row of controls keeps 52.
+  - Its texts are drawn as the subtitle cell draws its lines (LLP 1116.000 D3.2, 2026-10-10): the first the title, in the row's 17 pt and label colour, a later one 15 pt in the secondary label colour, a text shown by a condition counted as above. It is presentation left unsaid, which LLP 1115 gives the platform. What the author wrote wins row by row: a text's own `font`, `font-size` or `color`, and the stack's own, which its lines inherit (in the subtitle stack too). A control's label (a `button` or `link` stacking lines) keeps its own. Before, every line was a 17-pt title (household-list's items).
 - **Precedence:** the sheet's rows go under the element's classes and its own attributes. The rewrite marks them (`ua:`, a name no author can write), and the lowering takes them out before it expands classes (`grouped::split`).
 - **The inset follows a leading symbol shown by a condition** (`margin-left` becomes a choice on that `when`). A `match` or `each` in first place is styled as no symbol, its image included.
-- **A text after a `when` is styled by that `when`'s condition.** Where the arms write different numbers of texts, its `flex-grow` and colour become choices on the condition, so it is the title or the value as the kernel reads it. Deeper conditions and a `match` count the fewer texts. A text written `display="none"` is not counted.
+- **A text after a `when` is styled by that `when`'s condition.** Where the arms write different numbers of texts, its `flex-grow` and colour become choices on the condition, so it is the title or the value as the kernel reads it. A conditional first line in a stack inherits its row's colour, as an unconditional title does; the subtitle keeps the secondary colour. This preserves destructive and disabled tint and an authored row colour (2026-10-12). Deeper conditions and a `match` count the fewer texts. A text written `display="none"` is not counted.
 - **A subtitle stack is the shape the kernel reads.** It is one `column` of one or two texts, a `when` showing the second line included, between a leading symbol and a trailing accessory (each possibly under a `when`). Any other `column` is the author's.
 - **A native button row** (`button appearance="auto"`, LLP 1069.011) gets only the rows a native button takes (its inset and height). The kernel reads it as custom, so iOS carries the platform's control.
 - **A plain list's sections have no margins.** A header or footer holds exactly one `text`.
@@ -144,6 +147,7 @@ Colours are `light-dark()` pairs of §2's values.
 - **Where the fallbacks differ from UIKit (§6's comparison sheets).** One gap is fixed; the rest are declared.
   - *Fixed: Linux draws symbol roles.* The paint walk strokes a portable role's path the way the web does (`paint/svg.rs` `symbol`): the leading icons, the chevrons, the checkmark and the info button. Before this, Linux painted every `symbol:` image as an empty box. An `sf/` name still draws nothing there (LLP 1035.004.000 D4). This applies to every app on Linux, not only grouped lists. Tested in `host/linux/tests/it/svg.rs`.
   - *Declared: the web's switch is a checkbox.* Chrome has no `switch` attribute, and LLP 1069.001 D1 specifies the checkbox fallback. Drawing a 51 × 31 track in `index.html` would be a few lines of CSS. But it would move every switch's box on the web away from the Chrome-oracle table (`kernel/tests/it/browser_controls.rs`) and the kernel's 13 × 13 default. That is a change to form controls, not a grouped-list fix, so it is queued.
+    > **Amended by LLP 1116 D1 (2026-10-10).** Fixed: the web draws a switch in WebKit's 38 × 22 box, and the oracle table and the kernel's default were recorded again at that size.
   - *Declared: the web's row titles look heavier than UIKit's.* The sheet sets no weight, so a title is `system-ui` at 400. The agent's web screenshots are 1× rasters, while UIKit's are 3×. This was checked in the CSS, not against a 2× capture.
   - *Declared: the web's chevrons are faint.* A role symbol is a stroked path in a 24-unit box (LLP 1035.004.000). In the chevron's 14-pt box the stroke is about 1.4 px. A larger box would draw Apple's own glyph too large on macOS, which fits `chevron.forward` to the box.
   - *Declared: Linux's section headers look bold.* A header is weight 600, UIKit's semibold. The Linux host's pinned face, DejaVu Sans, has no semibold, so 600 draws Bold.
@@ -151,7 +155,7 @@ Colours are `light-dark()` pairs of §2's values.
 - **The sheet has no pressed highlight.** A web row is a `button` and keeps the button's own focus ring.
 - **Symbols on the web are role paths in a 24-unit box** (LLP 1035.004.000), so a sheet-sized chevron draws a little smaller there than UIKit's glyph. An `sf/` name draws nothing on the web or Linux, as everywhere.
 - **A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.
-- **Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**
+- ~~**Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**~~ Closed 2026-10-11 (LLP 1116.001 D1): a row that names them takes its list cell's own swipe, UIKit's actions from `trailingSwipeActionsConfigurationProvider` and its leading twin, a full swipe performing the first. The swipe host keeps the row's controls hidden while the list carries it and makes no table (`SwipeActionsIOS.swift`, `GroupedListIOS.swift`).
 - **A part hidden by a class's `display: none` is counted by the sheet.** The sheet sees only a literal `display="none"` written on the part. A class is applied when that part is lowered, after the row's parts are counted, so the kernel and the sheet can disagree about which text is the title. Write the attribute, or use `when`.
 - **The 35.33-pt first gap goes only to a section written first.** A first section under `when`, `match` or `each` may share its body with others or follow nothing, so it gets the 17.33-pt gap.
 - **A custom row takes no cell highlight.** Its carried views keep their own touch handling, so its press, press feedback and nested controls stay the author's.
@@ -211,6 +215,19 @@ rather than the label colour it wrote.
 
 `GroupedListIOSTests.testASymbolTakesItsAuthoredTintForEachAppearance` covers
 a hidden image before the symbol, a chevron after it, and both appearances.
+
+**Amended 2026-10-11 (LLP 1116.004 D2):**
+- Where a list's box meets an edge of a viewport the safe area keeps short of
+  the screen's, its background goes on to the screen's edge, under the home
+  indicator or the status bar (`GroupedListView.hem`; chat-rooms).
+- A footer's and a cell's texts keep their line feeds where their
+  `white-space` keeps them (`pre-line`, `pre-wrap`, `pre`), and are collapsed
+  as the web collapses them otherwise (unit-converter).
+- The sheet's accent, a leading symbol's and a checkmark's tint, is
+  `AccentColor`, not iOS 27's measured blue: it follows the nearest
+  `accent-color` (LLP 1116.001 D2), as a list cell's image and checkmark
+  follow UIKit's `tintColor`. A standard row's symbol in that accent sets no
+  tint of its own on iOS, so the cell's applies (polls).
 
 ## 6.2 A section without its card (2026-10-04, Signal Clone)
 
@@ -311,5 +328,5 @@ gaps, a titled section's header 20 under the card above).
   UIKit's; a fixture compared in a browser beside UIKit would close it.
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
-- **Swipe actions on rows.** `UICollectionLayoutListConfiguration`'s own `trailingSwipeActionsConfigurationProvider` would replace the one-row table for a grouped list's rows.
+- ~~**Swipe actions on rows.**~~ Built 2026-10-11 (LLP 1116.001 D1; §6.2's entry).
 - **The Signal Clone.** Its `Section`, `Row` and `ActionRow` become a grouped list. That is a change in the clone's repository, not this one.

@@ -18,6 +18,7 @@ struct AimedGradient {
 }
 
 final class NodeExtras {
+    var pressContact: PressContact?
     var inlinePressed: UInt32?
     /// A Markdown link pressed in this text: its target, followed on release over it.
     var linkPressed: String?
@@ -65,7 +66,14 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    #if os(iOS)
+    /// A number input's stepper (`NumberStepperIOS.swift`).
+    var stepper: FieldStepper?
+    #endif
+    var toldText: String?
     var pendingValue: String?
+    /// A native field in a grouped list's row (`isCellField`).
+    var fieldInCell = false
     var video: VideoView?
     var web: UIView?
     var metal: MetalView?
@@ -131,10 +139,12 @@ extension NodeView {
         return made
     }
     var inlinePressed: UInt32? { get { extras?.inlinePressed } set { if newValue != nil || extras != nil { more.inlinePressed = newValue } } }
+    var pressContact: PressContact? { get { extras?.pressContact } set { if newValue != nil || extras != nil { more.pressContact = newValue } } }
     var linkPressed: String? { get { extras?.linkPressed } set { if newValue != nil || extras != nil { more.linkPressed = newValue } } }
     var svgPressed: UInt32? { get { extras?.svgPressed } set { if newValue != nil || extras != nil { more.svgPressed = newValue } } }
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
+    var fieldInCell: Bool { get { extras?.fieldInCell ?? false } set { if newValue || extras != nil { more.fieldInCell = newValue } } }
     var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
     var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
@@ -169,6 +179,9 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    /// The editor's text as the app was last told it; nil once the app has set the value since (`FieldComposition.swift`).
+    var toldText: String? { get { extras?.toldText } set { if newValue != nil || extras != nil { more.toldText = newValue } } }
+    /// A `value` that arrived while text was marked, applied when the composition ends.
     var pendingValue: String? { get { extras?.pendingValue } set { if newValue != nil || extras != nil { more.pendingValue = newValue } } }
     var video: VideoView? { get { extras?.video } set { if newValue != nil || extras != nil { more.video = newValue } } }
     var web: UIView? { get { extras?.web } set { if newValue != nil || extras != nil { more.web = newValue } } }
@@ -230,6 +243,43 @@ extension NodeView {
         let inset = sv.adjustedContentInset, content = extras?.nativeScrollContentInsets ?? .zero
         return UIEdgeInsets(top: inset.top - content.top, left: inset.left - content.left,
                             bottom: inset.bottom - content.bottom, right: inset.right - content.right)
+    }
+    /// The least content height UIKit takes: the box, or for a scroller
+    /// UIKit insets, the port between the insets the kernel lays its content
+    /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
+    /// scroll by the bar and the home indicator, as a table view's does not.
+    func scrollFloor(_ sv: UIScrollView) -> CGFloat {
+        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height }
+        return max(0, sv.bounds.height - top - bottom)
+    }
+}
+extension UIColor {
+    /// LLP 1115 D2: what an unset background is, the platform's —
+    /// `systemBackground` (tvOS has none; white stands in).
+    package static var platformBackground: UIColor {
+        #if os(tvOS)
+        return .white
+        #else
+        return .systemBackground
+        #endif
+    }
+}
+extension NodeView {
+    /// LLP 1115.000 D2: whether the author wrote the row `key` on this node,
+    /// as an attribute or a row of its class. The style says so row by row
+    /// (`written`); it is false of a value the node only inherits and of a
+    /// row the compiler implied (a sheet's, a heading's, a tag's own).
+    func wrote(_ key: String) -> Bool {
+        guard case .array(let rows)? = style["written"] else { return false }
+        return rows.contains(.string(key))
+    }
+    /// LLP 1115 §2, "what the author writes wins": the colour row `key` when
+    /// its author wrote it on this node, a platform colour and one equal to
+    /// its parent's included. Nil leaves the control the platform's (D4).
+    func ownColor(_ key: String) -> BatchValue? { wrote(key) ? style[key] : nil }
+    /// `ownColor` as this node draws it now, or nil.
+    func ownUIColor(_ key: String) -> UIColor? {
+        ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
     }
 }
 extension NodeView {

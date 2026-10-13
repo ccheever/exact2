@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// A transformed box takes the mouse where it is drawn, as CSS hit-tests
 /// through the transform — 2D, or in space (LLP 1077 D8), where a hidden back
@@ -9,6 +10,7 @@ import XCTest
 /// AppKit's own geometry places every box at its frame, so the host maps the
 /// point through the box's plane (`SpaceTransform.swift`).
 final class SpaceHitMacTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil }
 
