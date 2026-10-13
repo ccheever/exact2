@@ -18,13 +18,12 @@ extension ControlHost {
         return slider
     }
 
-    func configureRange(_ slider: RangeSlider, _ owner: NodeView, accent: UIColor?) {
+    func configureRange(_ slider: RangeSlider, _ owner: NodeView) {
         let range = RangeSpec(owner.props)
         // Read before new bounds clamp the thumb's `Float`
         var value = slider.exact
         assign(slider, \.minimumValue, Float(range.min))
         assign(slider, \.maximumValue, Float(range.max))
-        assign(slider, \.minimumTrackTintColor, accent)
         // The bound value is written when it changes, as the web build writes
         // an input's `value` (LLP 1069.001 D4, amended 2026-10-04); new bounds
         // or a new step sanitize the value again, as HTML's do.
@@ -61,7 +60,7 @@ extension ControlHost {
         lastRange[UInt32(slider.tag)] = nil
         guard let (id, value) = reported(slider) else { return }
         presenter.controlValue(id, value, input: false, change: true)
-        if let owner = presenter.views[id] { configureRange(slider, owner, accent: slider.minimumTrackTintColor) }
+        if let owner = presenter.views[id] { configureRange(slider, owner) }
     }
 
     /// The agent's `type <range> <n>` (D9): the value a drag released
@@ -88,7 +87,7 @@ extension ControlHost {
     private func commitRange(_ slider: RangeSlider, _ node: NodeView, _ value: Double) {
         slider.exact = RangeSpec(node.props).sanitize(value)
         presenter.controlValue(node.id, RangeSpec.format(slider.exact), input: true, change: true)
-        if let owner = presenter.views[node.id] { configureRange(slider, owner, accent: slider.minimumTrackTintColor) }
+        if let owner = presenter.views[node.id] { configureRange(slider, owner) }
     }
 }
 

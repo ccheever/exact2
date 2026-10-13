@@ -224,7 +224,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         let tile = try button(session, "control-tile")
         XCTAssertEqual(tile.configuration?.imagePlacement, .top)
         XCTAssertEqual(tile.configuration?.background.cornerRadius, 18)
-        XCTAssertEqual(tile.configuration?.image?.renderingMode, .alwaysOriginal)
+        XCTAssertNotNil(tile.configuration?.imageColorTransformer, "an enabled tile's symbol colour is the configuration's, which UIKit greys behind a modal")
         let subtitle = try button(session, "subtitle")
         XCTAssertEqual(subtitle.configuration?.subtitle, "Updated just now")
         let radius = try button(session, "radius-padding")
@@ -263,7 +263,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         let b = UIButton(configuration: .filled())
         ButtonConfigurationIOS.apply(f, to: b, traits: b.traitCollection, accent: nil)
         XCTAssertEqual(b.titleLabel?.font.pointSize ?? 0, 23, accuracy: 0.01)
-        XCTAssertEqual(b.configuration?.image?.renderingMode, .alwaysOriginal)
+        XCTAssertNotNil(b.configuration?.imageColorTransformer)
         let symbol = try XCTUnwrap(b.configuration?.preferredSymbolConfigurationForImage)
         XCTAssertEqual(symbol, UIImage.SymbolConfiguration(font: UIFont.systemFont(ofSize: 31, weight: .bold)))
         f.rows.title = ["font_weight": .number(700)]
@@ -273,7 +273,8 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         XCTAssertEqual(TextEngine.controlWeight(try XCTUnwrap(b.titleLabel?.font)), 700)
         f.rows.title = [:]; f.rows.symbol = [:]
         ButtonConfigurationIOS.apply(f, to: b, traits: b.traitCollection, accent: nil)
-        XCTAssertEqual(b.configuration?.image?.renderingMode, .automatic, "clearing a symbol tint restores inheritance")
+        XCTAssertNil(b.configuration?.imageColorTransformer, "clearing a symbol tint restores inheritance")
+        XCTAssertEqual(b.configuration?.image?.renderingMode, .automatic)
     }
     func testCacheIncludesFaceRowsStyleOfferAndAllTraitsAndFitsHeightForWidth() throws {
         let session = try fixture(); defer { session.destroy() }

@@ -66,6 +66,28 @@ final class RangeIOSTests: XCTestCase {
         XCTAssertEqual(s.value, 40)
     }
 
+    /// A range's accent is its slider's tint, which draws the filled track
+    /// as a default slider's and greys with the tint behind a modal, where
+    /// an explicit `minimumTrackTintColor` would keep its colour.
+    func testTheAccentIsTheSlidersTint() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "control", "props": ["type": "range", "min": "0", "max": "100", "value": "60"],
+             "handlers": ["input", "change"], "style": ["accent_color": [255, 59, 48, 255]]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 28.0],
+        ]))
+        let s = try XCTUnwrap(p.controls.controls[1] as? RangeSlider)
+        XCTAssertEqual(s.tintColor.cgColor.components?.map { ($0 * 255).rounded() }, [255, 59, 48, 255])
+        XCTAssertNil(s.minimumTrackTintColor, "no colour of its own on the track")
+        p.viewport.tintAdjustmentMode = .dimmed
+        XCTAssertNotEqual(s.tintColor.cgColor.components?.map { ($0 * 255).rounded() }, [255, 59, 48, 255], "the track greys with the tint")
+    }
+
     /// VoiceOver's swipes move a range as WebKit does and report each move
     /// as a released drag does: a written step is one move, and at an end
     /// a swipe reports nothing.
