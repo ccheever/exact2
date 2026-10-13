@@ -3,7 +3,7 @@
 **Type:** RFC
 **Status:** Draft r7, 2026-10-13. r7 is r6 with the system named **Saturi** (Charlie, 2026-10-13); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
-- A new leaf crate, `saturi/` (`exact-saturi`): the `.saturi` grammar, its checker and the build's evaluator.
+- A new leaf crate, `saturi/` (`exact-saturi`): the `.sat` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
 - The Saturi protocol server, `saturi/1` (D13), and the design tool, an Exact app (D14).
 - The plan and the kernel: the reference table the reach is adding, keyed by app modes (D7).
@@ -27,7 +27,7 @@
 
 ## Summary
 
-**Saturi** is Exact's design system. An app names its look once, in a `.saturi` file that
+**Saturi** is Exact's design system. An app names its look once, in a `.sat` file that
 reads like Contract and whose values are written in CSS's syntax. It declares **dials** (a few typed inputs: an accent, a
 roundness), **app axes** (named modes beside light and dark: Bluesky's Dim, a density) and
 **tokens** (named colours, lengths, type, shadows and icons). A token's value is a CSS
@@ -59,7 +59,7 @@ editor control, a group and a priority, so the tool knows what to surface first 
 changes; a design's tokens are the author's values, written once. Nothing here replaces a
 platform control with a look-alike (the reach ruling).
 
-**No language owns the truth.** The `.saturi` file is the source; a JSON IR is generated
+**No language owns the truth.** The `.sat` file is the source; a JSON IR is generated
 from it; Contract checks names against the IR; TypeScript, Rust, Swift and Kotlin get
 generated names and accessors over the same live table; other tools reach it through the
 protocol, or as DTCG.
@@ -111,7 +111,7 @@ kernel's ancestor walk and gives the wasm emitter a row. Each finding is taken:
   `ws://localhost`, so a bridge is optional (Astra m8).
 
 **Charlie's naming** (r6 → r7, 2026-10-13): the system (tokens, dials, modes, params, the
-evaluator and the protocol) is **Saturi**: `.saturi` files, `saturi/1`, `exact-saturi`,
+evaluator and the protocol) is **Saturi**: `.sat` files (`app.sat`; Charlie chose the short extension), `saturi/1`, `exact-saturi`,
 `bun exact.mjs saturi`, `ExactSaturi`, `saturi-*` diagnostics. The design tool on top gets
 its own name later and is called "the design tool" here. Earlier entries below are written
 in the new names, except where they record the old one.
@@ -129,9 +129,9 @@ in the new names, except where they record the old one.
 - **A component library and a base scale** are wanted later: stages 11 and 12, no longer
   non-goals.
 - **Component params** (D15): a `params` section in the Contract component, with types,
-  ranges, controls, labels, groups and priorities; the same block in a `.saturi` file for a
+  ranges, controls, labels, groups and priorities; the same block in a `.sat` file for a
   component that is not Contract. App dials take the same metadata (D4).
-- **The DSL in files** stands; the extension is `.saturi`.
+- **The DSL in files** stands; the extension is `.sat`.
 
 **Round 1** (r1 → r2). Astra: RIGHT WITH CHANGES (2 BLOCKER, 12 MAJOR, 1 MINOR). Grok:
 WRONG (3 BLOCKER, 9 MAJOR, 4 MINOR). They agreed on the core (named tokens as plan data,
@@ -343,14 +343,14 @@ not an authored colour, and Bold Text weights the system font (LLP 1115.000 D12.
 *Rejected:* a neutral brand like exact1's Facet as the default. LLP 1115 exists to stop a look that
 "was not made here".
 
-### D2 — One source, the `.saturi` file; a generated IR; one build evaluator, in Rust
+### D2 — One source, the `.sat` file; a generated IR; one build evaluator, in Rust
 
-**The source is `app.saturi`** beside `app.contract` (or named in `app.json` as `"saturi"`).
+**The source is `app.sat`** beside `app.contract` (or named in `app.json` as `"saturi"`).
 Its grammar is Contract's lexical grammar, extended (§3): indentation blocks, `name =
 value` lines, `//` comments, plus `|` and `..`, with each value read as CSS value text. Its values are written in CSS's syntax, with token names where CSS would write
 `var()` (§3). LLP 1095 D4's `theme` block in a `.contract` file stays legal and stays what D4
 says: colour entries only, with no `when` lines and no other kinds. An app that wants more
-moves it to `app.saturi`, whose `theme` block is a superset. An app has one or the other
+moves it to `app.sat`, whose `theme` block is a superset. An app has one or the other
 (`saturi-two-sources`).
 
 **`exact-saturi` is a leaf crate.** It parses, checks (names, kinds against each using row,
@@ -390,7 +390,7 @@ spelled as a role is written (`-exact-secondary-label`, `CanvasText`: what
 `kernel/src/style/roles.rs` reads as a colour) overrides that role, within the reach ruling;
 role names are the one exception to the keyword refusal. LLP 1095 D4's bare key
 (`secondary-label`) and the spelled role (`-exact-secondary-label`) are the same override, in
-an inline `theme` and in `app.saturi`. Any other name equal to a CSS
+an inline `theme` and in `app.sat`. Any other name equal to a CSS
 keyword or named colour is refused, as D4 refuses it. LLP 1095 D4's
 undotted app names (`brand`, `card`, `defrost-on`) stay legal; dots are a convention for
 grouping, which the editor and DTCG use.
@@ -785,7 +785,7 @@ No spacing or radius scale ships in the base yet: the platform's metrics are alr
 rows. A base scale, with platform values rather than a brand's 4 px grid, is wanted later
 (Charlie, 2026-10-13) and is stage 11.
 
-**Packages.** A package (`packages/reading`) may ship `<package>.saturi` with tokens named
+**Packages.** A package (`packages/reading`) may ship `<package>.sat` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
 may set any of them by full name. Two definitions of one name from different files are a
 compile error, unless the app's design sets it. Dials and axes are the app's alone: a package
@@ -834,7 +834,7 @@ through a development-only editor. The API is public and versioned. External too
 Paper, Pencil and the like) connect through it, and the design tool (D14) is built on
 it and is the main way designs are edited. Files are its durable storage.
 
-**The server.** `bun exact.mjs saturi serve` owns one project's design: its `.saturi` files and
+**The server.** `bun exact.mjs saturi serve` owns one project's design: its `.sat` files and
 the `params` sections and state parts in its `.contract` files (D15, D8). It runs inside
 whichever dev loop is running (`host/web/dev.mjs`, whose `exact_web::dev::Session` compiles
 the plan, or `host/web-js/dev.mjs`), or alone, with no app running, for a tool that edits
@@ -900,7 +900,7 @@ whole dependency closure, not the operation's name:
   looks; a `duration` or `easing` token, or any dial or param they fold from, which D3
   substitutes at build): the ordinary rebuild and reload, which carries state (LLP 1007 §6).
 
-The same rule applies to a hand edit: saving a value change in `app.saturi` is a live-table
+The same rule applies to a hand edit: saving a value change in `app.sat` is a live-table
 edit too.
 
 **The live table.**
@@ -908,7 +908,7 @@ edit too.
   file, and publishing it is what restarts the page (`exact_boot_plan`, LLP 1007 §6) and the
   Apple hosts (`EXACT_DEV_PLAN`, LLP 1008), losing scroll, focus and drafts; the JS loop
   reloads the page on any change in the app directory (`host/web-js/dev.mjs`). So both
-  loops' watchers, and `Session`, ask the evaluator whether a change to a `.saturi` file left
+  loops' watchers, and `Session`, ask the evaluator whether a change to a `.sat` file left
   the structure digest unchanged; if so they publish no plan and do not reload. The decision
   is by content, so it holds across processes and for a hand edit.
 - **The batch travels on the channel the builds already hold to the dev server** (the dev
@@ -1053,7 +1053,7 @@ component PostButton
   components share the name (`saturi-param-ambiguous`); an import alias (`use X as Y`)
   resolves to the declaring identity, so renaming an import or reordering imports never
   redirects an override.
-- **The app's value.** The app's `.saturi` file may set a param by name, with `when` lines like
+- **The app's value.** The app's `.sat` file may set a param by name, with `when` lines like
   any token; `set-param` writes there and `unset-param` removes it. The component's file keeps
   its default. One value per design: every instance shares it.
 - **Params are not props.** A prop is per instance and runtime data; a param is the design's,
@@ -1085,13 +1085,13 @@ component PostButton
 - **Checks.** A param must be reached from a root: a row or a state part of its component,
   through any chain of params (`pressed` above is read by `:active` only, so it lands with
   state parts, stage 8), or, for a component that is not Contract, its declaration in a
-  `.saturi` file, which makes all its params roots. Otherwise it is refused
+  `.sat` file, which makes all its params roots. Otherwise it is refused
   (`saturi-param-unused`). A param's kind is checked against every row that uses it (D3).
 - **Language-neutral.** The `params` section lowers into the IR's `components` block: per
   component its identity, and per param its name, kind, default expression, range, step,
   control, options, label, help, group and priority. A component that is not Contract (a
   native module's view in Swift or Kotlin, a Rust canvas component) declares the same block
-  in a `.saturi` file, in the `.saturi` grammar (bare CSS values, `in a..b`):
+  in a `.sat` file, in the `.sat` grammar (bare CSS values, `in a..b`):
 
 ```
 component MapCard
@@ -1107,7 +1107,7 @@ component MapCard
   `group` and `priority` the admitted attributes. One `params` section per component. No new
   token in the Contract lexer: the range is a string.
 
-## 3. The `.saturi` grammar
+## 3. The `.sat` grammar
 
 ```ebnf
 saturi-file  = "saturi" IDENT NL { block } ;
@@ -1201,7 +1201,7 @@ Android's reader and the terminal.
 
 1. **LLP 1095 D4 and its reach** (its branch). Gate: LLP 1095 §5 item 6's measurement and
    Charlie's word.
-2. **Colour tokens and app axes.** The crate; `app.saturi` or inline `theme`; dials; app axes
+2. **Colour tokens and app axes.** The crate; `app.sat` or inline `theme`; dials; app axes
    with `setMode`, `-exact-mode` and `prefer mode`; colour tokens on the reach's table, keyed
    by app tuple; the web's mode boundaries; the retention rule. Digest break: the app tuple
    on reference rows. Hosts: all. **Gate:** the Bluesky clone's 244 literals become names,
@@ -1228,7 +1228,7 @@ Android's reader and the terminal.
    storage first: `Wide` entries are process-global, immutable and capped at 4,096
    (`kernel/src/style/wide.rs`); the policy says what a running transition keeps alive. No
    digest break beyond stage 2; the new kernel entry `exact_design_rows` on every host.
-   **Gate:** a dial drag in the design tool, and a hand edit of a value in `app.saturi`,
+   **Gate:** a dial drag in the design tool, and a hand edit of a value in `app.sat`,
    reach the clone on the iOS simulator, the Mac and the web at once, with no plan
    published, no reload and no state lost (a scrolled list stays scrolled, a draft stays
    typed); a structure edit still reloads; a build that reconnects after missing a batch gets
@@ -1251,7 +1251,7 @@ Android's reader and the terminal.
    starts here. **Gate:** the clone's post action row and Post button declare params; the
    design tool lists them by group and priority with their controls and `select` options; a
    `set-param` reaches every instance live, and one on a duration param rebuilds instead; a
-   Swift native view's `.saturi` params appear beside them and draw through
+   Swift native view's `.sat` params appear beside them and draw through
    `ExactSaturi(view)`; an unused param, an ambiguous short name and a `rem` value on a ranged
    length are refused; renaming an import keeps an override on its component.
 8. **State parts and control roles** (D8, D9). Digest break: state looks; the control-role
@@ -1291,7 +1291,7 @@ an app with a design.
   for row changes; the protocol server and the design tool; later, the stages' own pieces.
 - Docs: a section in `docs/contract-for-agents.md`, a recipe in `docs/recipes/`, and the
   protocol's reference (`docs/saturi-protocol.md`), versioned with it. The required read grows
-  by one line: "a brand is an `app.saturi`; a colour or size names a role or a token".
+  by one line: "a brand is an `app.sat`; a colour or size names a role or a token".
 - It removes per-app `Theme` records, threaded palettes, repeated `light-dark` pairs, the
   clone's hand-fixed switches, and the `data-paint` workaround.
 
@@ -1323,7 +1323,7 @@ an app with a design.
 
 **Ruled (2026-10-13):** an API is the way a design changes, public and versioned, with the
 design tool its main client and the files its storage (D13, D14); the system is named
-**Saturi**, with `.saturi` files, and the design tool will be named separately; a component
+**Saturi**, with `.sat` files, and the design tool will be named separately; a component
 library and a base scale are wanted later (stages 11 and 12); components declare their params
 in Contract (D15); a DSL in files is right.
 
