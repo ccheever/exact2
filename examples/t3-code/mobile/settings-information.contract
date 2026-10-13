@@ -119,7 +119,7 @@ component InformationAboutRow
     roles: SettingsTextRoles
     navigate: action
   view
-    button press=navigate(target, "") padding=0 aria-label=label testId=`about-${target}`
+    button press=navigate(target, "") padding=0 text-align="start" aria-label=label testId=`about-${target}`
       row gap=14 padding=14 align-items="center"
         t3-symbol symbol-name=icon point-size=22 symbol-tint=colors.icon width=22 height=22
         text label flex=1 font-size=roles.headline.size color=colors.foreground
