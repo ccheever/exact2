@@ -46,6 +46,17 @@ impl Parser {
         };
         self.expect_word("in")?;
         let list = self.expr()?;
+        // @ref LLP 1116.014 D1 — the edit, with the variable the author named. The
+        // parser knows no item type, so the field is described, not named.
+        if !self.at_ident("key") {
+            return self.err(
+                "syntax-expected",
+                format!(
+                    "add `key={var}.<its id field>`, a field no two items share: an `each` keeps \
+                     each row's state by its key"
+                ),
+            );
+        }
         self.expect_word("key")?;
         self.expect_punct("=")?;
         let key = self.expr()?;
