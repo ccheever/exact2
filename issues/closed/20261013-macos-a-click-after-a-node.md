@@ -1,6 +1,7 @@
 # macOS: a click after a node leaves the tree under a held press crashes in NodeView.releaseHold
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #519
 **Systems:** host/apple macOS
 **Severity:** P1
 **Author:** Daehyeon Mun (via the T3 Code clone)
