@@ -134,7 +134,7 @@ export function mobileHomeCanArchive(thread: Obj): boolean {
   return runtime?.status === 'queued' ? !runtime.activeRunId : !['preparing', 'starting', 'running'].includes(runtime?.status ?? '');
 }
 
-/** A single root mutation owns prompt, permission check and actual command. */
+/** Root queues local Copy separately from remote prompts, permission checks and commands. */
 export async function mobileHomeAction(requestRoute: string, environmentId: string, threadId: string, kind: string, value: string, now: number,
   nativeInput?: Native | null, client: T3Client = mobileClient, background: EnvironmentFleet = fleet, storage?: Files): Promise<HomeActionResult> {
   const invocation = kind.startsWith('swipe:') ? 'swipe' : 'menu';
@@ -156,7 +156,7 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
   const currentSurface = () => !!surface && surfaces.get(client) === surface && surface.requestRoute === requestRoute && (surface.homeVisible || surface.sidebarVisible);
   if (kind === 'draft-open' || kind === 'draft-discard')
     return mobileHomeDraftAction(requestRoute, environmentId, threadId, kind, value, currentSurface, client, nativeInput, storage);
-  if (!currentSurface() || held.has(key)) return result();
+  if (!currentSurface() || kind !== 'copy-thread-id' && held.has(key)) return result();
   if (kind === 'pending-open') {
     const inventory = mobileOutboxSnapshot(client);
     const exact = (record: typeof inventory.rows[number]['record']) => record.creation
@@ -177,6 +177,34 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
   const endpointCurrent = () => focused ? client.environmentId === environmentId && client.origin === origin && client.generation === generation && client.ready
     : !!entry && background.entries.get(entry.key) === entry && entry.origin === origin && entry.environmentId === environmentId && entry.generation === generation && entry.phase === 'connected' && entry.synchronized === generation;
   const check = () => { if (!currentSurface() || !endpointCurrent()) throw new ClientError('The thread action changed.', 'superseded'); };
+  if (kind === 'copy-thread-id') {
+    // The source menu grant admits this local action; remote writes keep their
+    // own locks and unknown outcomes. Copy neither acquires nor clears them.
+    if (!initial.allowed || !initial.thread || !nativeInput?.available) return result('This connection cannot change threads.');
+    const base = letGoAware(mobileNative(nativeInput));
+    const checkCopy = () => {
+      check(); const current = row(environmentId, threadId, client, background);
+      if (!current.allowed || !current.thread) throw new ClientError('That thread is no longer available.');
+    };
+    const local = async (request: Obj) => {
+      checkCopy(); const reply = await bridgeReply(base, request); check();
+      if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+      return obj(reply.value);
+    };
+    try {
+      const results = await Promise.allSettled([
+        local({ op: 'copyText', text: threadId, generation }),
+        local({ op: 'mobileHomeHaptic', kind: 'light' }),
+      ]);
+      for (const answer of results) if (answer.status === 'rejected' && letGo(answer.reason)) throw answer.reason;
+      const copy = results[0]!;
+      if (copy.status === 'rejected') throw copy.reason;
+      return result(copy.value.copied === true ? '' : 'Clipboard access is unavailable in this session.');
+    } catch (error) {
+      if (letGo(error)) throw error;
+      return currentSurface() ? result(error instanceof Error ? error.message : 'The thread ID could not be copied.') : result();
+    }
+  }
   const pendingKey = JSON.stringify([origin, environmentId, threadId]), pending = uncertainSet(client).get(pendingKey);
   mobileHomeOrder(client, mobileHomeSources(client, background), now);
   const unknownMove = homeOrderState(client).unknown;
@@ -249,11 +277,6 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
       if (str(original.branch)) query.set('branch', str(original.branch));
       if (str(original.worktreePath)) query.set('worktreePath', str(original.worktreePath));
       return result('', `/new/draft?${query}`);
-    }
-    if (kind === 'copy-thread-id') {
-      const reply = await local({ op: 'copyText', text: threadId, generation });
-      if (reply.copied === false) return result('Clipboard access is unavailable in this session.');
-      await local({ op: 'mobileHomeHaptic', kind: 'light' }); return result();
     }
     let renamed = '', customSnoozedUntil = '';
     if (kind === 'snooze:custom') {

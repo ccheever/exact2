@@ -4,7 +4,22 @@ use NewTaskFlowResult from "./new-task-flow.contract"
 // Pure presentation transitions. App retains requests, guards and route commits.
 use ArchiveChromeEvent from "./archive-chrome.contract"
 use AttachmentDocumentAction from "./attachment-document.contract"
-use MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent, Change from "./app-shapes.contract"
+use HomeActionResult, MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent, Change from "./app-shapes.contract"
+
+shape HomeReplyPlan
+  archiveRefresh: number
+  alertTitle: string
+  message: string
+  nextLocation: string
+fn homeReplyPlan(previousArchiveRefresh: number, reply: option<HomeActionResult>, route: string): HomeReplyPlan = match reply {
+  case some(result) => HomeReplyPlan(
+    archiveRefresh=previousArchiveRefresh + (result.archiveChanged ? 1 : 0),
+    alertTitle=result.alertTitle,
+    message=(result.requestRoute == route ? result.message : ""),
+    nextLocation=(result.requestRoute == route ? result.nextLocation : "")
+  ),
+  case none => HomeReplyPlan(archiveRefresh=previousArchiveRefresh, alertTitle="", message="", nextLocation="")
+}
 
 fn followedLocation(reply: option<AppLink>, route: string): string = match reply {
   case some(result) => not result.ignore and result.requestRoute == route ? result.location : "",

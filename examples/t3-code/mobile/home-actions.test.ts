@@ -5,6 +5,7 @@ import { initialShell, obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
 import { mobileHomeActionsObserve as observe, mobileHomeMenu as menu, mobileHomeAction as action,
   mobileHomeSnoozePresets as presets, mobileHomeSnoozeSelection as snoozeSelection } from './home-actions';
+import { homeOrderState } from './home-order';
 const now = Date.parse('2026-10-07T12:00:00Z');
 const capabilities = { serverResolvedCommandContext: true, threadSettlement: true, threadSnooze: true,
   threadPinning: true, threadPinReorder: true, threadAutoSettleOptOut: true, threadTitleRegeneration: true };
@@ -117,6 +118,142 @@ test('branch navigation keeps literal query data; Copy acknowledges actual clipb
   await f.run('copy-thread-id'); expect(f.calls.find(item => item.op === 'copyText')).toMatchObject({ text: 't' });
   const g = fixture(request => request.op === 'copyText' ? { ok: true, generation: 3, value: { copied: false } } : undefined);
   expect(await g.run('copy-thread-id')).toMatchObject({ message: 'Clipboard access is unavailable in this session.' });
+});
+
+test('Copy uses the admitted row grant without an auth read or orchestration request', async () => {
+  const f = fixture(request => request.op === 'http' ? Promise.reject(new Error('Copy must not read auth.')) : undefined);
+  expect(await f.run('copy-thread-id')).toMatchObject({ message: '', nextLocation: '', uncertain: false });
+  expect(f.calls.map(request => request.op)).toEqual(['copyText', 'mobileHomeHaptic']);
+  expect(f.calls[0]).toMatchObject({ text: 't', generation: 3 });
+  expect(f.client.threadId).toBe('t'); expect(f.client.draft).toBe('Retain draft');
+  expect(f.writes()).toHaveLength(0);
+});
+
+test('Copy after uncertain Pin preserves the marker and still refuses another write', async () => {
+  const f = fixture(request => request.method === 'orchestration.dispatchCommand'
+    ? { ok: false, generation: 3, error: { kind: 'transport', message: 'Unknown Pin outcome', uncertain: true } } : undefined);
+  expect(await f.run('pin')).toMatchObject({ uncertain: true });
+  const beforeCopy = f.calls.length;
+  expect(await f.run('copy-thread-id')).toMatchObject({ message: '', uncertain: false });
+  expect(f.calls.slice(beforeCopy).map(request => request.op)).toEqual(['copyText', 'mobileHomeHaptic']);
+  expect(await f.run('pin')).toMatchObject({ uncertain: true });
+  expect(f.writes()).toHaveLength(1);
+});
+
+test('Copy after uncertain Move preserves its exact owner and subsequent move protection', async () => {
+  const f = fixture(request => request.method === 'orchestration.dispatchCommand'
+    ? { ok: false, generation: 3, error: { kind: 'transport', message: 'Unknown Move outcome', uncertain: true } } : undefined);
+  f.client.shell.threads = [thread({ pinnedAt: '2026-01-02', pinOrderKey: 'a' }),
+    thread({ id: 'neighbor', pinnedAt: '2026-01-01', pinOrderKey: 'b' })];
+  expect(await f.run('move-down')).toMatchObject({ uncertain: true });
+  const unknown = homeOrderState(f.client).unknown, beforeCopy = f.calls.length;
+  expect(unknown).not.toBeNull();
+  expect(await f.run('copy-thread-id')).toMatchObject({ message: '', uncertain: false });
+  expect(homeOrderState(f.client).unknown).toBe(unknown);
+  expect(f.calls.slice(beforeCopy).map(request => request.op)).toEqual(['copyText', 'mobileHomeHaptic']);
+  expect(await f.run('move-down')).toMatchObject({ uncertain: true });
+  expect(f.writes()).toHaveLength(1);
+});
+
+test('Copy while Pin is held neither acquires nor releases that remote lock', async () => {
+  const started = deferred<void>(), gate = deferred<unknown>();
+  const f = fixture(request => { if (request.method === 'orchestration.dispatchCommand') { started.resolve(); return gate.promise; } });
+  const pin = f.run('pin'); await started.promise;
+  try {
+    expect(await f.run('copy-thread-id')).toMatchObject({ message: '', uncertain: false });
+    expect(f.calls.filter(request => request.op === 'copyText')).toHaveLength(1);
+    await f.run('pin'); expect(f.writes()).toHaveLength(1);
+  } finally { gate.resolve({ ok: true, generation: 3, value: {} }); await pin; }
+});
+
+test('sidebar Copy uses its background row grant and local clipboard for colliding thread IDs', async () => {
+  const f = fixture(); f.remote(); f.client.scopes = []; observe('route', false, true, f.client);
+  expect(await f.run('copy-thread-id', '', 'two')).toMatchObject({ message: '', nextLocation: '' });
+  expect(f.calls.map(request => request.op)).toEqual(['copyText', 'mobileHomeHaptic']);
+  expect(f.calls[0]).toMatchObject({ text: 't', generation: 8 });
+  expect(f.calls.every(request => request.fleet === undefined)).toBe(true);
+  expect(f.client.environmentId).toBe('one'); expect(f.client.draft).toBe('Retain draft');
+  const g = fixture(), remote = g.remote(); remote.scopes = [];
+  expect(await g.run('copy-thread-id', '', 'two')).toMatchObject({ message: 'This connection cannot change threads.' });
+  expect(g.calls).toHaveLength(0);
+});
+
+test('Copy retains menu admission for readonly, departed, missing and disconnected rows', async () => {
+  for (const change of ['readonly', 'departed', 'missing', 'archived', 'subagent', 'disconnected', 'unavailable']) {
+    const f = fixture();
+    if (change === 'readonly') f.client.scopes = [];
+    if (change === 'departed') observe('other', false, false, f.client);
+    if (change === 'missing') f.client.shell.threads = [];
+    if (change === 'archived') f.client.shell.threads[0]!.archivedAt = 'date';
+    if (change === 'subagent') f.client.shell.threads[0]!.lineage = { relationshipToParent: 'subagent' };
+    if (change === 'disconnected') f.client.connection = 'disconnected';
+    if (change === 'unavailable') f.native.available = false;
+    await f.run('copy-thread-id'); expect(f.calls).toHaveLength(0);
+  }
+});
+
+test('Copy starts light feedback beside a pending clipboard and tolerates ordinary haptic failure', async () => {
+  const started = deferred<void>(), gate = deferred<unknown>();
+  const f = fixture(request => {
+    if (request.op === 'copyText') { started.resolve(); return gate.promise; }
+    if (request.op === 'mobileHomeHaptic') return Promise.reject(new Error('Haptic unavailable'));
+  });
+  const copy = f.run('copy-thread-id'); await started.promise;
+  try { expect(f.calls.map(request => request.op)).toEqual(['copyText', 'mobileHomeHaptic']); }
+  finally { gate.resolve({ ok: true, generation: 3, value: { copied: true } }); }
+  expect(await copy).toMatchObject({ message: '', uncertain: false });
+  expect(f.writes()).toHaveLength(0);
+});
+
+test('Copy requires a positive clipboard acknowledgement and ignores ordinary feedback refusal', async () => {
+  for (const copied of [false, undefined, 'true']) {
+    const f = fixture(request => request.op === 'copyText' ? { ok: true, generation: 3, value: { copied } } : undefined);
+    expect(await f.run('copy-thread-id')).toMatchObject({ message: 'Clipboard access is unavailable in this session.' });
+    expect(f.writes()).toHaveLength(0);
+  }
+  const g = fixture(request => request.op === 'mobileHomeHaptic'
+    ? { ok: false, generation: 3, error: { kind: 'native', message: 'No feedback', uncertain: false } } : undefined);
+  expect(await g.run('copy-thread-id')).toMatchObject({ message: '', uncertain: false });
+});
+
+test('actual Exact letGo from either local Copy request propagates without an orchestration write', async () => {
+  for (const operation of ['copyText', 'mobileHomeHaptic']) {
+    const f = fixture(request => request.op === operation
+      ? Promise.reject(Object.assign(new Error('Exact let go'), { name: 'FetchError', kind: 'Aborted' })) : undefined);
+    await expect(f.run('copy-thread-id')).rejects.toMatchObject({ kind: 'superseded' });
+    expect(f.writes()).toHaveLength(0);
+  }
+});
+
+test('pending clipboard completion refuses a changed route, endpoint or background incarnation', async () => {
+  for (const change of ['route', 'generation', 'origin', 'disconnect', 'background']) {
+    const started = deferred<void>(), gate = deferred<unknown>();
+    const f = fixture(request => { if (request.op === 'copyText') { started.resolve(); return gate.promise; } });
+    if (change === 'background') f.remote();
+    const copy = f.run('copy-thread-id', '', change === 'background' ? 'two' : 'one'); await started.promise;
+    if (change === 'route') { observe('other', false, false, f.client); observe('route', true, false, f.client); }
+    if (change === 'generation') f.client.generation++;
+    if (change === 'origin') f.client.origin = 'https://replacement.test';
+    if (change === 'disconnect') f.client.connection = 'disconnected';
+    if (change === 'background') f.background.entries.set('remote', { ...f.background.entries.get('remote')! });
+    gate.resolve({ ok: true, generation: 3, value: { copied: true } });
+    await expect(copy).rejects.toMatchObject({ kind: 'superseded' });
+    expect(f.writes()).toHaveLength(0);
+  }
+});
+
+test('Copy keeps a positive clipboard acknowledgement after later row or cached grant loss', async () => {
+  for (const change of ['removed', 'grant']) {
+    const started = deferred<void>(), gate = deferred<unknown>();
+    const f = fixture(request => { if (request.op === 'copyText') { started.resolve(); return gate.promise; } });
+    const copy = f.run('copy-thread-id'); await started.promise;
+    if (change === 'removed') f.client.shell.threads = [];
+    else f.client.scopes = [];
+    gate.resolve({ ok: true, generation: 3, value: { copied: true } });
+    expect(await copy).toMatchObject({ message: '', nextLocation: '', archiveChanged: false, uncertain: false });
+    expect(f.calls.filter(request => request.op === 'copyText')).toHaveLength(1);
+    expect(f.writes()).toHaveLength(0);
+  }
 });
 
 test('snooze resolves relative presets on tap, retains vanished future calendar time and leaves custom to its picker', async () => {
