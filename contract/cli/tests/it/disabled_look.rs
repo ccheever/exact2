@@ -45,6 +45,10 @@ component App
         text "a"
       button press=go disabled=busy width=(busy ? 10 : 20) testId="no-paint"
         text "a"
+      button press=go disabled=busy border=(busy ? "1px solid #ccc" : "1px solid #06f") testId="border"
+        text "a"
+      button press=go disabled=busy color=join(map(["red"], busy => busy), "") testId="shadowed"
+        text "a"
 "##;
 
 #[test]
@@ -67,7 +71,14 @@ fn a_node_that_styles_its_own_disabled_state_is_marked_and_no_other() {
             .bool(PropId::DisabledStyled)
             == Some(true)
     };
-    for id in ["opacity", "reads", "template", "class", "literal-opacity"] {
+    for id in [
+        "opacity",
+        "reads",
+        "template",
+        "class",
+        "literal-opacity",
+        "border",
+    ] {
         assert!(marked(id), "{id}: marked");
     }
     for id in [

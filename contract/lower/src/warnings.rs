@@ -23,7 +23,7 @@ mod counts;
 mod miswiring;
 mod parts;
 mod roles;
-pub(crate) mod screens;
+mod screens;
 mod title;
 mod width;
 
