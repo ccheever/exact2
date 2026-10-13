@@ -106,14 +106,14 @@ final class SplitMacTests: XCTestCase {
         """
     }
 
-    private func boot(tabs: Bool, size: CGSize) throws -> ExactSession {
+    private func boot(tabs: Bool, size: CGSize, source: String? = nil) throws -> ExactSession {
         _ = NSApplication.shared
         let dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("../../target/split-test-" + UUID().uuidString).standardizedFileURL
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let contract = dir.appendingPathComponent("app.contract"), plan = dir.appendingPathComponent("app.plan")
-        try app(tabs: tabs).write(to: contract, atomically: true, encoding: .utf8)
+        try (source ?? app(tabs: tabs)).write(to: contract, atomically: true, encoding: .utf8)
         let compiler = Process(), said = Pipe()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
         compiler.arguments = ["build", contract.path, "-o", plan.path]
@@ -328,6 +328,72 @@ final class SplitMacTests: XCTestCase {
         width(window, 200)
         XCTAssertEqual(window.contentView?.frame.width ?? 0, 200 + 320 + columns.splitView.dividerThickness, accuracy: 1)
         XCTAssertFalse(p.navigation.canGoBack)
+    }
+
+    func testAListKeepsItsSplitWhenEmptyButLosesItWhenHiddenOrRemoved() throws {
+        let source = """
+        routes nav
+          library "/"
+            book "/book/:id"
+        component App
+          state mode = "shown"
+          state ids = ["a", "b"]
+          action follow(url: string)
+            nav = go(nav, url)
+          action back
+            nav = back(nav)
+          action change(value: string)
+            mode = value
+          action empty
+            ids = []
+          action refill
+            ids = ["a", "b"]
+          view
+            main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
+              width="100%" height="100%"
+              each e in stack(nav) key=e.id
+                column navigationKey=`${e.id}` position="absolute" inset=0
+                  when e.name == "library"
+                    button press=change("hidden") testId="hide"
+                      text "Hide"
+                    button press=change("shown") testId="show"
+                      text "Show"
+                    button press=change("removed") testId="remove"
+                      text "Remove"
+                    button press=empty testId="empty"
+                      text "Empty"
+                    button press=refill testId="refill"
+                      text "Refill"
+                    when mode != "removed"
+                      list testId="changing-list" display=(mode == "hidden" ? "none" : "block")
+                        each id in ids key=id
+                          link href=path("book", id) testId=`row-${id}`
+                            text id
+                  when e.name == "book"
+                    text "Detail"
+        """
+        let session = try boot(tabs: false, size: CGSize(width: 900, height: 500), source: source)
+        let split = session.presenter.navigation.split
+        let columns = compose(ExactView(session: session), width: 900, sidebar: false)
+        let list = try node("changing-list")
+        XCTAssertTrue(split.active)
+        try press("empty")
+        XCTAssertTrue(split.active, "an existing list keeps its empty detail")
+        XCTAssertEqual(split.shown?.table, list.id)
+        try press("refill")
+        XCTAssertTrue(split.active)
+        try press("hide")
+        XCTAssertFalse(split.active, "an authored hidden list no longer asks for a split")
+        XCTAssertFalse(columns.splits)
+        try press("show")
+        XCTAssertTrue(split.active)
+        try press("remove")
+        XCTAssertFalse(has("changing-list"))
+        XCTAssertFalse(split.active, "a removed list must not keep its cached split")
+        XCTAssertFalse(columns.splits)
+        try press("show")
+        XCTAssertTrue(split.active)
+        XCTAssertEqual(split.shown?.table, try node("changing-list").id, "the current list owns the split")
     }
 
     func testAnUnsupportedDeclaredToolbarKeepsBothSplitHeadersPainted() throws {
