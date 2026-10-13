@@ -2520,7 +2520,10 @@ refused.
 
 Transitions animate translate/scale/rotate/opacity, box paint (color,
 background-color, border colors, -exact-tint-color, box-shadow), SVG paint/geometry
-and the admitted numeric height path. `width` and other general layout
+and pixel heights. On Apple, numeric `height` transitions work with either
+`box-sizing`, without `interpolate-size="allow-keywords"`. An `auto` endpoint
+requires that opt-in and `box-sizing="border-box"`; automatic height transitions
+require one layout root and no registered content region. `width` and other general layout
 properties cannot interpolate yet: native layout is not run per frame.
 The diagnostic names this engine limit; `-exact-layout-transition` animates a
 change in the laid-out box using the existing measured projection.

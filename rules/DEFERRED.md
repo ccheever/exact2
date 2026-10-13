@@ -746,6 +746,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Take: other animated layout properties and decorative effects remain behind
   that consumer. The first increment accepts several numeric samples; automatic
   content-height measurement and host adoption remain unfinished.
+  **Numeric-height issue fix (2026-10-13):** authored pixel-height transitions
+  on Apple use that projection for either box sizing, without a keyword opt-in.
+  This unblocks the T3 terminal drawer; other layout properties and height units
+  remain deferred. `auto` retains the accordion's border-box and
+  `interpolate-size: allow-keywords` requirements (LLP 1041 §8.12).
   **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1063):** `-exact-layout-transition`
   (a box's laid-out position and surface size, moved by the engine natively and by
   a measured offset on the web) and `-exact-exit-animation` (a removed node stays, out of
