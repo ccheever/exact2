@@ -1,6 +1,7 @@
 # [Bug] macOS: a window minimized with ⌘M still reads visible
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #528
 **Systems:** host/apple macOS, page facts
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
