@@ -1132,6 +1132,22 @@ the agent both paint in the page as before; `--chrome platform` on `macos`
 shows them, `tap`, `type` and `tree` reach what is in them, and `screenshot
 "file" window` draws them over the window.
 
+For an invoker popover with an authored CSS area, use
+`position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline"`.
+A fresh opening takes the first fitting attempt, retaining the base if none fits.
+An open popover keeps its chosen option while it fits, including across resize;
+if none fits after movement, the current option may overflow. Commas separate
+attempts; spaces combine flips. `none` disables fallbacks. The web and painted Apple layers implement these flips; an authored
+fallback row selects painted placement on macOS for a non-menu popover, including
+when added while open. Removing the row restores platform presentation; focus
+and text selection survive either change. Native
+menus and confirmations keep platform placement. Physical areas also accept
+`top span-left`, `bottom span-left`, `left`/`right` with `span-top`,
+`span-bottom` or `span-all`, and the four `top|bottom left|right` corners.
+This slice does not implement `flip-start`, logical areas, named rules, or
+area-dependent sizing. Use fixed sizes, zero insets and default self-alignment
+for native parity; percentage margins are not resolved by the native layer.
+
 A route with `navigationPresentation="modal"` is the same sheet on the Mac
 (LLP 1115.002 D7.4), as large as its content (an authored `width` or `height`
 is used; its `inset` is not), under the window's content area. Its `header`

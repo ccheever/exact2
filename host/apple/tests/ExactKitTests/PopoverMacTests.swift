@@ -126,6 +126,38 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertEqual(presses, [], "no page ancestor or focused page control is activated")
         XCTAssertTrue(p.menus.isOpen(pop))
     }
+    func testAuthoredFlipOrderPlacesTheOpenPopoverAndTracksItsInvoker() throws {
+        let p = fixture(), source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+        let window = try XCTUnwrap(p.viewport.window)
+        defer { p.menus.reset() }
+        p.menus.painted = false
+        window.setContentSize(NSSize(width: 420, height: 600))
+        window.orderFrontRegardless()
+        p.apply(wireBatch([
+            ["op": "frame", "id": 2, "x": 332, "y": 560, "w": 80, "h": 32],
+            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 322, "h": 122],
+            ["op": "style", "id": 3, "style": ["position_area": "bottom span-right", "position_try_fallbacks": "flip-block, flip-inline, flip-block flip-inline"]],
+        ]))
+        p.menus.show(pop, from: source)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertNil(p.menus.entries.first?.native, "authored CSS placement wins over NSPopover's screen-based choice")
+        XCTAssertEqual(pop.frame, CGRect(x: 90, y: 438, width: 322, height: 122))
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0, "y": 0, "w": 420, "h": 1200]]))
+        p.viewport.contentView.scroll(to: NSPoint(x: 0, y: 10))
+        p.viewport.reflectScrolledClipView(p.viewport.contentView)
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: 90, y: 428), "scroll notifications move the open popover")
+        p.viewport.contentView.scroll(to: .zero)
+        p.viewport.reflectScrolledClipView(p.viewport.contentView)
+        window.setContentSize(NSSize(width: 800, height: 800))
+        p.menus.layout()
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: 90, y: 438), "a fitting fallback survives resize, as Chrome keeps it")
+        source.setFrameOrigin(CGPoint(x: 8, y: 8))
+        p.menus.layout()
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: 8, y: 40), "the open popover follows its invoker")
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["position_area": "top span-left", "position_try_fallbacks": "none"]]]))
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: -234, y: -114), "none keeps the overflowing base")
+    }
+
     private var windows: [NSWindow] = []
     override func tearDown() { windows.forEach { $0.close() }; windows.removeAll() }
     /// Tab leaves a popover's form for the page's buttons: Keyboard Navigation on (LLP 1115.000 D7.2).

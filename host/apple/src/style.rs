@@ -137,6 +137,10 @@ fn style_json_rows(
             RowValue::ShapeOutside(_) => false, // LLP 1043.000 M3
             // Layout only (LLP 1053 G1): the kernel sizes the box.
             RowValue::AspectRatio(_) => false,
+            RowValue::PositionTryFallbacks(v) => {
+                let _ = write!(out, "\"{}\"", v.css());
+                true
+            }
             // Sent as laid out: clamped at zero on a row with no negative
             // values.
             RowValue::Dimension(d) => {
@@ -1195,6 +1199,11 @@ mod flow_tests {
         let mut area = StyleProps::default();
         area.set_dynamic(StyleId::PositionArea, &StyleValue::Text("top".into()))
             .unwrap();
+        area.set_dynamic(
+            StyleId::PositionTryFallbacks,
+            &StyleValue::Text("flip-block, flip-inline, flip-block flip-inline".into()),
+        )
+        .unwrap();
         kernel
             .apply(
                 0,
@@ -1207,6 +1216,10 @@ mod flow_tests {
             .unwrap();
         let placed = json(&kernel);
         assert_eq!(placed["position_area"], "top", "{placed}");
+        assert_eq!(
+            placed["position_try_fallbacks"],
+            "flip-block, flip-inline, flip-block flip-inline"
+        );
         assert_eq!(placed["margin_bottom"], 12, "{placed}");
         assert_eq!(placed["margin_left"], "auto", "{placed}");
     }

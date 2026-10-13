@@ -33,10 +33,12 @@ final class MenuHost: NSObject {
         let selection: NSRange?
         let value: String?
         var frame: NSRect
+        var placement = PositionArea.History()
         let layer = PopoverLayer(frame: .zero)
         var menu: NSMenu?
         /// AppKit's popover, while one shows it (PopoversMac.swift).
         var native: NativePopover?
+        var hasFallbacks: Bool
         var focusedItem: NSMenuItem?
         var tracking = false
         /// An alertdialog presented as a menu: what each action showed.
@@ -46,6 +48,7 @@ final class MenuHost: NSObject {
             parent = popover.superview
             index = parent?.subviews.firstIndex(of: popover) ?? 0
             frame = popover.frame; value = popover.props["popover"]
+            hasFallbacks = popover.style["position_try_fallbacks"] != nil
             selection = ((previous as? NSTextField)?.currentEditor() as? NSTextView)?.selectedRange()
                 ?? (previous as? NSTextView)?.selectedRange()
         }
@@ -162,7 +165,7 @@ final class MenuHost: NSObject {
             $0.isHidden || ($0 as? NodeView)?.style["display"]?.string == "none"
         }
     }
-    private func focusOwner(_ window: NSWindow) -> NSView? {
+    func focusOwner(_ window: NSWindow) -> NSView? {
         guard let view = window.firstResponder as? NSView else { return nil }
         return (view as? NSTextView).flatMap { $0.isFieldEditor ? $0.delegate as? NSView : nil } ?? view
     }
@@ -279,7 +282,7 @@ final class MenuHost: NSObject {
         }
         entries.append(entry)
         // A menu's shape under the driver stays the painted menu it was.
-        let windowed = !painted && !(ExactEnv.agentMode && (isMenuShaped(pop) || isConfirmation(pop)))
+        let windowed = wantsWindow(pop)
         presenter.popoverEvents.changed(pop, open: true)
         if let menu = entry.menu {
             // Leave native tracking until the click and its app batch finish.
@@ -300,13 +303,7 @@ final class MenuHost: NSObject {
         } else if windowed, let source, present(entry, from: source, in: window) {
             refresh()
         } else {
-            entry.layer.autoresizingMask = [.width, .height]
-            // Painted where its invoker is: over the page, or in the sheet
-            // of the dialog its invoker is in (a menu under the driver).
-            (window === page ? presenter.viewport : window.contentView ?? presenter.viewport).addSubview(entry.layer)
-            entry.layer.setPaintForeground()
-            entry.layer.addSubview(pop)
-            pop.isHidden = false
+            paint(entry, in: window)
             layout()
             refresh()
             // A plain popover leaves focus alone unless it has autofocus.
@@ -384,14 +381,7 @@ final class MenuHost: NSObject {
             dismiss(native)
             refresh()
         } else if entry.menu == nil {
-            pop.removeFromSuperview()
-            entry.layer.removeFromSuperview()
-            if live(pop), let parent = entry.parent {
-                let siblings = parent.subviews
-                if entry.index < siblings.count { parent.addSubview(pop, positioned: .below, relativeTo: siblings[entry.index]) }
-                else { parent.addSubview(pop) }
-                pop.frame = entry.frame
-            }
+            restore(entry)
             refresh()
         }
         if hadFocus, let window {
@@ -438,6 +428,7 @@ final class MenuHost: NSObject {
                   entry.value == "manual" || source.map({ !hidden($0) || presenter.toolbar.contains($0) }) ?? true,
                   entry.menu == nil || (entry.confirmation.map(valid) ?? isMenuShaped(entry.popover))
             else { close(entry.popover); continue }
+            syncPresentation(entry)
         }
         revalidate()
         var changed = false
@@ -462,7 +453,9 @@ final class MenuHost: NSObject {
             let anchor = entry.source.map { anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
-                                             margins: PositionArea.margins(of: entry.popover), in: entry.layer.bounds)
+                                             margins: PositionArea.margins(of: entry.popover),
+                                             fallbacks: entry.popover.style["position_try_fallbacks"]?.string ?? "none",
+                                             history: &entry.placement, in: entry.layer.bounds)
             if !entry.sourced { box.origin = NSPoint(x: (entry.layer.bounds.width - box.width) / 2, y: (entry.layer.bounds.height - box.height) / 2) }
             if entry.popover.frame != box { entry.popover.frame = box }
         }

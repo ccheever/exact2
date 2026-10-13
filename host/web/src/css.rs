@@ -520,7 +520,6 @@ fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
     style.rare.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
 }
 
-/// One row → one declaration, by the CSS rule for its name and codec.
 /// Whether a row's value is one CSS declaration here.
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
@@ -664,6 +663,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::PositionTryFallbacks(r) => out.push_str(&r.css()),
         RowValue::DragTimeline(d) => out.push_str(&d.css()),
         RowValue::AnimationTimeline(t) => out.push_str(&t.css()),
         RowValue::AnimationRange(r) => out.push_str(&r.css()),
