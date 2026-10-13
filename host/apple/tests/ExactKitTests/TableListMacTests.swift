@@ -178,6 +178,70 @@ final class TableListMacTests: XCTestCase {
         XCTAssertTrue((f.table.view(atColumn: 0, row: 5, makeIfNecessary: false) as? TableRowCell)?.row === (try f.node("row-5")))
         XCTAssertFalse(f.presenter.views.values.contains { $0.props["testId"] == "row-0" }, "the dropped row is gone")
     }
+
+    /// Rows as the list-rows recipe writes them, and Shelf's library: each a
+    /// snap scroller that names its content, a link to the row's route, and
+    /// its swipe action, a button.
+    private static let swiped = """
+    routes nav
+      items "/"
+        item "/item/:id"
+
+    component Swiped
+      state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      state removed = 0 - 1
+      action remove(r: number)
+        removed = r
+      action back
+        nav = back(nav)
+      action follow(url: string)
+        nav = go(nav, url)
+      view
+        main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
+          each e in stack(nav) key=e.id
+            when e.name == "items"
+              column navigationKey=`${e.id}` position="absolute" inset=0
+                text `removed ${removed}` testId="status"
+                list flex=1 min-height=0 width="100%" testId="rows"
+                  each r in seed key=`k${r}`
+                    scroll swipeContent=`row-${r}` swipeTrailing=`delete-${r}` testId=`swipe-${r}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+                      row width="100%"
+                        link id=`row-${r}` href=`/item/${r}` testId=`row-${r}` width="100%" flex-shrink=0 scroll-snap-align="start" display="flex" padding="10px 16px"
+                          text `Row ${r}` testId=`title-${r}`
+                        button id=`delete-${r}` destructive=true press=remove(r) testId=`delete-${r}` flex-shrink=0 scroll-snap-align="start"
+                          text "Delete"
+            when e.name == "item"
+              column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
+                text `Item ${e.params.id}` testId="detail"
+                button id="back" press=back testId="back"
+                  text "Back"
+
+    """
+
+    func testARowThatIsASwipeContainerIsPressedThroughTheContentItNames() throws {
+        let f = try TableFixture(count: 0, source: Self.swiped)
+        fixture = f
+        XCTAssertEqual(f.table.numberOfRows, 10)
+        let swipe = try f.node("swipe-3"), link = try f.node("row-3")
+        let cell = try XCTUnwrap(swipe.superview as? TableRowCell, "the row is its swipe container, in a cell")
+        XCTAssertFalse(swipe.pressable, "the container itself presses nothing")
+        XCTAssertTrue(f.feed.row(at: 3).flatMap(f.feed.pressing) === link, "the row's press is the content the container names")
+        XCTAssertTrue(f.feed.tableView(f.table, shouldSelectRow: 3))
+        // A click on the row's text is the table's, which selects the row and follows the link.
+        let title = try f.node("title-3")
+        let onTitle = cell.convert(NSPoint(x: title.bounds.midX, y: title.bounds.midY), from: title)
+        XCTAssertTrue(cell.hitTest(cell.superview!.convert(onTitle, from: cell)) === f.table, "the table takes a click on the row")
+        XCTAssertTrue(TableRowCell.whatIsThere { cell.hitTest(cell.superview!.convert(onTitle, from: cell)) } === title, "and the hover path sees the row's own text there")
+        // The driver's `layout` names the row from its container and from its link.
+        XCTAssertEqual(f.presenter.tables.observation(link)?["row"] as? Int, 3)
+        XCTAssertEqual(f.presenter.tables.observation(swipe)?["row"] as? Int, 3)
+        XCTAssertEqual(f.presenter.tables.observation(link)?["selectable"] as? Bool, true)
+        f.table.selectRowIndexes([3], byExtendingSelection: false)
+        XCTAssertTrue(f.feed.pressRow(3))
+        f.settle()
+        XCTAssertEqual(try f.node("detail").accessibleText, "Item 3", "pressing the row followed its link")
+        XCTAssertTrue(f.feed.keyTarget === link, "and the keys of the selected row are its link's")
+    }
 }
 
 private extension TableFixture {

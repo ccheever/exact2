@@ -29,13 +29,6 @@ final class TableHost {
     private var said: [UInt32: String] = [:]
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    /// Whether a child of a list the runner does not window is a row: it
-    /// has a box in the list's flow. A child with none (`display: none`), or
-    /// a positioned one, stays in the document as the presenter has it. The
-    /// host is not told a child's `position`; it is told its paint rank
-    /// among its siblings (LLP 1083), which is none for a box in the flow.
-    static func isRow(_ node: NodeView) -> Bool { !node.isHidden && node.frame.height > 0 && node.rank == 0 }
-
     /// Why `list` is not a table; nil when it is one.
     private func refusal(_ list: NodeView) -> String? {
         guard let presenter, list.kind == "list" else { return "it is no list" }
@@ -130,7 +123,7 @@ final class TableHost {
     func observation(_ node: NodeView) -> [String: Any]? {
         if let feed = feeds[node.id] { return feed.summary }
         for feed in feeds.values {
-            guard let row = feed.rows.first(where: { $0.node === node || $0.root == node.id }) else { continue }
+            guard let row = feed.rows.first(where: { $0.node === node || $0.root == node.id || feed.pressing($0) === node }) else { continue }
             return ["view": "NSTableView", "list": Int(feed.id), "row": row.index, "selected": feed.table.selectedRow == row.index,
                     "selectable": feed.tableView(feed.table, shouldSelectRow: row.index), "inCell": row.node.superview is TableRowCell]
         }

@@ -125,7 +125,8 @@ final class TableRowCell: NSTableCellView {
     /// row that has no press (its text is selected as in any paragraph).
     /// The rest of a row that presses is the table's, as a stock table's row
     /// is where no cell's control is: the table takes the keyboard as the
-    /// mouse goes down, its click selects, and the feed presses the row's root.
+    /// mouse goes down, its click selects, and the feed presses the row
+    /// (`TableFeed.pressing`).
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit = super.hitTest(point) else { return nil }
         if Self.asking > 0 { return hit }
@@ -167,6 +168,19 @@ final class RunnerTableView: NSTableView {
     /// table has no menu, and AppKit sends the click on up to the list.
     override func menu(for event: NSEvent) -> NSMenu? {
         feed?.contextClick(event) == true ? NSMenu() : super.menu(for: event)
+    }
+    /// A wheel or a two-finger scroll over a row goes to what is under the
+    /// pointer first, as its clicks do not: a scroller inside the row (the
+    /// swipe that shows a row's action, a strip of cards) takes its own
+    /// axis, and the rest comes up the views to the table and on to the
+    /// list, which scrolls as before. The table is what AppKit finds under
+    /// the pointer (`TableRowCell.hitTest`), so it hands the event down once.
+    private var handing = false
+    override func scrollWheel(with event: NSEvent) {
+        guard !handing, let under = feed?.under(event), under !== self else { return super.scrollWheel(with: event) }
+        handing = true
+        defer { handing = false }
+        under.scrollWheel(with: event)
     }
     /// Home and End are the list's: the table's own ends are estimates.
     override func scrollToBeginningOfDocument(_ sender: Any?) { feed?.scroll(toEnd: false) }
@@ -306,10 +320,11 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// anything in a row that has no press; in one that has, an AppKit
     /// control or a text view, a node that presses, scrolls, edits or draws
     /// for itself, or a link in a paragraph, anywhere between the hit and
-    /// the row's root. The root's own press is the row's, and so the table's.
+    /// the row's pressing node. That node's own press is the row's, and so
+    /// the table's, and so is a click in the row beside it.
     fileprivate func keepsClick(_ hit: NSView, in cell: TableRowCell, at point: NSPoint) -> Bool {
         guard let row = cell.row, let mounted = self.row(of: row) else { return false }
-        guard selectable(mounted) else { return true }
+        guard let pressing = pressing(mounted), !pressing.disabled, !pressing.inert else { return true }
         var view: NSView? = hit
         while let current = view, current !== cell {
             if let node = current as? NodeView {
@@ -317,7 +332,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                     let local = node.convert(point, from: cell.superview)
                     if node.inlineActivationTarget(at: local) != nil || node.inlineLink(at: local) != nil { return true }
                 }
-                if node === row || node.id == mounted.root { return false }
+                if node === pressing || node === row { return false }
                 if node.pressable || node.isButton || node.isSurfaceControl || node.scroll != nil || node.field != nil || node.textArea != nil
                     || ["control", "input", "textarea", "canvas", "native", "video", "iframe"].contains(node.kind)
                     || !node.handlers.isDisjoint(with: ["pointerdown", "pointerup", "pointermove", "contextmenu", "dblclick"]) { return true }
@@ -376,8 +391,22 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             if !ordered { next.sort { $0.index < $1.index } }
             return (snapshot.count, next, [snapshot.revision, UInt64(snapshot.count), UInt64(snapshot.rows.count), snapshot.extent.bitPattern])
         }
-        for node in children ?? [] where presenter.views[node.id] === node && TableHost.isRow(node) {
-            next.append(Row(index: next.count, node: node, root: node.id, kernel: kernel(node)))
+        // A child is a row when it has a box in the list's flow. One with
+        // none (`display: none`) is no row, and neither is a positioned
+        // one, which stays in the document as the presenter has it. The
+        // host is not told a child's `position`. It is told its paint rank
+        // among its siblings (LLP 1083): none for a plain box in the flow,
+        // some for a positioned box and for a scroller in the flow (a row
+        // that swipes). So a ranked child is a row where it stands in the
+        // flow: after the row before it and before the next plain box.
+        let boxes = (children ?? []).filter { presenter.views[$0.id] === $0 && !$0.isHidden }.map { ($0, kernel($0)) }.filter { $0.1.height > 0 }
+        var before = [CGFloat](repeating: .greatestFiniteMagnitude, count: boxes.count + 1)
+        for i in boxes.indices.reversed() { before[i] = boxes[i].0.rank == 0 ? boxes[i].1.minY : before[i + 1] }
+        var end = list?.contentBox().minY ?? 0
+        for (i, (node, frame)) in boxes.enumerated() {
+            if node.rank != 0, frame.minY < end - 0.5 || frame.maxY > before[i + 1] + 0.5 { continue }
+            next.append(Row(index: next.count, node: node, root: node.id, kernel: frame))
+            end = frame.maxY
         }
         return (next.count, next, [UInt64(next.count)])
     }
@@ -626,15 +655,29 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: Selection and the row's press
 
-    /// A row is selected, by a click or a key, when it presses: its
-    /// authored root has a press and is not disabled. Any other row is a
-    /// row of text, as in SwiftUI's list with no selection. A row that is
-    /// not mounted may be reached by a key (the list's last row): what it
-    /// is shows when the runner has made it.
-    private func selectable(_ row: Row) -> Bool {
-        guard let root = presenter?.views[row.root] else { return false }
-        return root.pressable && !root.disabled && !root.inert
+    /// The node a row's click presses: its authored root, when that has a
+    /// press (a `press`, or a link's `href`). Else, where the root is a
+    /// swipe container (`swipeContent`, the row the list-rows recipe
+    /// writes: a snap scroller holding the row and its swipe action), the
+    /// content it names, when that has one. Nil for a row of text.
+    func pressing(_ row: Row) -> NodeView? {
+        guard let presenter, let root = presenter.views[row.root] else { return nil }
+        if root.pressable { return root }
+        guard let name = root.props["swipeContent"], !name.isEmpty else { return nil }
+        func find(_ view: NSView) -> NodeView? {
+            for case let node as NodeView in (view as? NodeView)?.container.subviews ?? view.subviews {
+                if node.props["id"] == name { return node.pressable ? node : nil }
+                if let found = find(node) { return found }
+            }
+            return nil
+        }
+        return find(root)
     }
+    /// A row is selected, by a click or a key, when it presses and is not
+    /// disabled. Any other row is a row of text, as in SwiftUI's list with
+    /// no selection. A row that is not mounted may be reached by a key (the
+    /// list's last row): what it is shows when the runner has made it.
+    private func selectable(_ row: Row) -> Bool { pressing(row).map { !$0.disabled && !$0.inert } ?? false }
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { self.row(at: row).map(selectable) ?? true }
     /// A mounted row's text, for the table's type-select. A row that is not
     /// mounted has none here: the runner has its item, not the host.
@@ -650,7 +693,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// is an action is not known to (the action may push, or delete): the
     /// compiler knows which writes the router and no host is told yet.
     private func navigates(_ row: Row) -> Bool {
-        guard let root = presenter?.views[row.root], let url = root.defaultLink else { return false }
+        guard let url = pressing(row)?.defaultLink else { return false }
         return url.hasPrefix("/") && !url.hasPrefix("//")
     }
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -680,18 +723,26 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// row that pushes is not pushed twice, where the DOM sends two
     /// `click`s before its `dblclick`.
     @objc private func doubleClicked() {
-        guard let row = row(at: table.clickedRow), selectable(row), let root = presenter?.views[row.root], root.handlers.contains("dblclick") else { return }
-        presenter?.dblclick(root.id)
+        guard let pressing = row(at: table.clickedRow).flatMap(pressing), !pressing.disabled, !pressing.inert, pressing.handlers.contains("dblclick") else { return }
+        presenter?.dblclick(pressing.id)
     }
     /// The mouse event a node in a row answered as a context click.
     private var contextEvent: Int?
+    /// What is under an event's point, a row's own views included; nil
+    /// where that is nothing inside the table.
+    fileprivate func under(_ event: NSEvent) -> NSView? {
+        guard let content = table.window?.contentView else { return nil }
+        let point = event.locationInWindow
+        let hit = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(point, from: nil) ?? point) }
+        return hit?.isDescendant(of: table) == true ? hit : nil
+    }
     /// A secondary click at the event's point: the nearest node from what
     /// is under it up to its row's root that answers a context request
     /// hears it. False when none does.
     fileprivate func contextClick(_ event: NSEvent) -> Bool {
-        guard let presenter, let content = table.window?.contentView else { return false }
+        guard let presenter else { return false }
         let point = event.locationInWindow
-        var view = TableRowCell.whatIsThere { content.hitTest(content.superview?.convert(point, from: nil) ?? point) }
+        var view = under(event)
         while let current = view, !(current is TableRowCell), !(current is NSTableView) {
             if let node = current as? NodeView, presenter.views[node.id] === node, node.answersContextMenu, !node.disabled, !node.inert {
                 contextEvent = event.eventNumber
@@ -711,7 +762,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// item's and not an index's.
     var keyTarget: NodeView? {
         guard let presenter else { return nil }
-        return row(at: table.selectedRow).flatMap { presenter.views[$0.root] } ?? list.flatMap { presenter.views[$0.id] === $0 ? $0 : nil }
+        return row(at: table.selectedRow).flatMap { pressing($0) ?? presenter.views[$0.root] } ?? list.flatMap { presenter.views[$0.id] === $0 ? $0 : nil }
     }
     /// `state.tables` and `layout <list>` (the agent).
     var summary: [String: Any] {
@@ -719,11 +770,11 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
          "windowed": children == nil, "selected": table.selectedRow >= 0 ? table.selectedRow : NSNull(), "selectedKey": selectedKey ?? NSNull(),
          "firstResponder": table.window?.firstResponder === table, "estimate": Double(estimate)]
     }
-    /// The press of the row's authored root, as a click on it was.
+    /// The row's press, as a click on its pressing node was.
     @discardableResult
     func pressRow(_ row: Int) -> Bool {
-        guard let mounted = self.row(at: row), selectable(mounted) else { return false }
-        presenter?.press(mounted.root)
+        guard let pressing = self.row(at: row).flatMap(pressing), !pressing.disabled, !pressing.inert else { return false }
+        presenter?.press(pressing.id)
         return true
     }
 
