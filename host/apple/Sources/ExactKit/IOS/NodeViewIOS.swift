@@ -177,16 +177,29 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if CanvasInputs.owns(touch.view) { return false }
         if gestureRecognizer === swipeRecognizer, gestureRecognizer.numberOfTouches == 0 { swipeDownX = touch.location(in: window).x }
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
-        if gestureRecognizer === contextRecognizer, selectsText(under: touch) { return false } // its long press selects (LLP 1115.000 D11.6)
-        // A nested editor owns its selection gestures, including read-only
-        // text. A containing bubble's reply/Tapback recognizers must yield.
+        #if os(iOS)
+        if gestureRecognizer === contextRecognizer {
+            guard presenter?.menus.eligible(self) == true else { return false }
+            if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
+        }
+        #endif
+        if hitsNativeEditor(touch.view) { return false }
         var hit = touch.view
         while let current = hit, current !== self {
-            if current is UITextView || current is UITextField { return false }
             if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer || gestureRecognizer === transformContact?.pinch), current is UIScrollView { return false }
             hit = current.superview
         }
         return true
+    }
+    /// A nested editor owns its selection gestures, including read-only
+    /// text. Plain gestures and native context menus use the same boundary.
+    func hitsNativeEditor(_ view: UIView?) -> Bool {
+        var hit = view
+        while let current = hit, current !== self {
+            if current is UITextView || current is UITextField { return true }
+            hit = current.superview
+        }
+        return false
     }
     func updateContextGestures() {
         if handlers.contains("contextmenu"), contextRecognizer == nil {

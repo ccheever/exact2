@@ -107,7 +107,7 @@ pub enum HostError {
     /// The operation was not admitted by the caller's grants. Carries no detail
     /// about what *would* have been admitted.
     Denied { capability: &'static str },
-    /// A redirect led outside the caller's grants (Exact patch 6).
+    /// A redirect led outside the caller's grants (LLP 0068.000 §2).
     DeniedRedirect {
         capability: &'static str,
         origin: String,

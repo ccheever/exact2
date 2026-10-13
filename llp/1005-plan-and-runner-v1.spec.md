@@ -304,13 +304,20 @@ transition follows Chrome's observed `change`, `blur`, `focusout`, `focus`,
 entry even when UIKit omits its editing delegate callback. The host ABI kinds
 are 46 (`focusin`) and 47 (`focusout`), after 45 (`intersect`).
 
-**Declared native deviation (2026-10-12, issue #283):** if a `blur` handler
-destroys its wrapper, Apple and Linux skip that destroyed wrapper's later
-`focusout` handler while retaining surviving ancestors from the old path.
-Chrome instead dispatches within the detached subtree, without its former
-connected ancestors.
-Keeping destroyed native handler bindings alive through that event is not
-implemented; the issue remains open for this case.
+If a `blur` handler destroys its wrapper, the subsequent `focusout` stays
+inside that detached subtree, as in Chrome; former connected ancestors do
+not hear it. The runner retains the removed handlers' instance scopes through
+that outgoing event, independently of nested focus transitions, and consumes
+each binding once. Linux fixes the detached path when blur finishes, before
+commit processing can autofocus another field or a focusout handler can remove
+more ancestors. Both web targets commit ordinary blur before DOM focusout;
+the wasm host preserves the detached DOM subtree and its outgoing listeners.
+Exit-animation ghosts count as removed: the outgoing event ends at that
+subtree and keeps its IDs after presence strips the DOM IDs. A blur raised
+during a JS tree flush runs before that commit's focus commands or autofocus.
+Apple waits for the next
+responder (or the deferred blur flush) before delivering it, preserving the
+other element's `relatedTarget`.
 
 Not events
 (2026-08-30, the minimal set first): pointer coordinates and moves (a drag)
@@ -719,11 +726,20 @@ including when keyed targets move; a changed root re-registers at the end.
 The browser adapter starts after first paint. A failed observer construction
 retires that target's registration without interrupting other targets.
 
+The sampler applies `Kernel::sticky_constraint` at each ancestor's reported
+scroll offset, outside its own transform, so a sticky target and its descendants
+remain intersecting while pinned and leave at their containing block's end.
+For a root scrolled by the page, the sampler subtracts the root's frame origin
+from the page offset to use the constraint's local coordinates.
+The Chrome and runner tests also agree on partially clipped rotated roots,
+a counter-rotated target, and a rotated/scaled root.
+
 Native qualification remains incomplete: inline text runs, presentation-time
-motion/sticky/fixed geometry, rotated roots and SVG clip references are not
-qualified by this slice. Native transforms use the committed two-dimensional
-rows, as `frame()` does, not animation samples. Percentage margins follow the
-local Chrome oracle's per-axis basis. This differs from the W3C draft's width
+motion, nested/transformed sticky constraints and SVG clip references are not
+qualified by this slice. `position: fixed` is not an admitted schema value.
+Native transforms use the committed two-dimensional rows, as `frame()` does,
+not animation samples. Percentage margins follow the local Chrome oracle's
+per-axis basis. This differs from the W3C draft's width
 rule and is recorded as a spec deviation in LLP 1001. Windows and Android inherit the Linux
 sampler but their carriers are unqualified; terminal does not call the sampler. These deviations are also in LLP 1001; the issue
 stays open until native presenter tests and drives and the remaining geometry

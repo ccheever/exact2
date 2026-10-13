@@ -167,7 +167,7 @@ extension Agent {
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary,
-                                     "sidebar": presenter.sidebar.summary]
+                                     "sidebar": presenter.sidebar.summary, "split": presenter.navigation.split.summary]
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
@@ -617,9 +617,12 @@ extension Agent {
         let page = clip.window, apart = page != nil && win !== page
         let inWindow = { (q: NSPoint) -> NSPoint in apart ? win.convertPoint(fromScreen: page!.convertPoint(toScreen: q)) : q }
         if apart, inlineAt != nil || localAt == nil { p = inWindow(p) }
+        // A node in the detail's pane of a split (LLP 1115.002 D4) stands
+        // beside the viewport, in its window: what shows of it is in its pane.
+        let port: NSView = presenter.navigation.split.pane(holding: v) ?? clip
         if req["wheel"] == nil, !apart,
-           !clip.bounds.contains(clip.convert(p, from: nil)) {
-            return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
+           !port.bounds.contains(port.convert(p, from: nil)) {
+            return ["error": "tap #\(v.id): its middle is outside the \(port === clip ? "viewport" : "detail's pane"); scroll it into view first"]
         }
         if req["hover"] as? Bool == true {
             // The pointer rests here until the next hover: a layout that moves

@@ -13,13 +13,12 @@ use exact_motion::{Easing, Property, TimingFunction, Transition, TransitionPrope
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
-/// Rows this host knows it does not lower (and why), so an author sees a
-/// reason instead of silence.
+/// Rows this host cannot lower, with the reason reported to the author.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skipped {
-    /// The row.
+    /// Schema row omitted from the emitted CSS.
     pub row: StyleId,
-    /// Why.
+    /// Diagnostic shown to the app author.
     pub reason: &'static str,
 }
 
@@ -32,11 +31,8 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     css_text_in(style, font_names, false)
 }
 
-/// [`css_text`] with each row authored in `rem` or `em` written so, not as
-/// the pixels the kernel resolved it to: for a page that keeps no kernel to
-/// re-resolve them (the JS target, through [`crate::host::template`]), so
-/// the browser resolves them against the root's and the parent's font size
-/// as CSS does, and again when either changes.
+/// [`css_text`] preserving authored `rem`/`em` for [`crate::host::template`].
+/// The JS target keeps no kernel; the browser follows root and parent font changes.
 /// @ref LLP 1069.000 D3
 pub fn css_text_relative(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
     css_text_in(style, font_names, true)
@@ -337,12 +333,16 @@ fn css_text_in(
                 out.push_str(flow);
                 out.push(';');
             }
-            // @ref LLP 1069.011 D8 — the accent also as an inherited custom
-            // property a native button's look reads; `auto` is the browser's.
+            // @ref LLP 1069.011 D8 — buttons read the custom property; `auto` is the browser's.
             (StyleId::AccentColor, _) if lowered(id, &value) => {
-                property(&mut out, id);
-                out.push(':');
+                out.push_str("accent-color:");
+                let start = out.len();
                 declared(&mut out, id, &value);
+                // A self-reference invalidates the custom property instead of inheriting it.
+                if &out[start..] == "var(--exact-accent, AccentColor)" {
+                    out.push(';');
+                    continue;
+                }
                 out.push_str(";--exact-accent:");
                 let start = out.len();
                 declared(&mut out, id, &value);

@@ -359,6 +359,39 @@ fn native_intersect_mount_and_scroll_without_a_scroll_handler() {
     };
     let root = id(&p, "port");
     assert_eq!(facts(&p), 1.0, "initial offscreen entry");
+    assert_eq!(
+        p.host.runner().slot("stickyCount"),
+        Some(&Value::Number(1.0))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyInside"),
+        Some(&Value::Bool(true))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyRatio"),
+        Some(&Value::Number(1.0))
+    );
+    let sticky = id(&p, "sticky-port");
+    p.scroll_to(sticky, (0.0, 201.0));
+    settle(&mut p);
+    assert_eq!(
+        p.host.runner().slot("stickyCount"),
+        Some(&Value::Number(2.0))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyInside"),
+        Some(&Value::Bool(false))
+    );
+    p.scroll_to(sticky, (0.0, 60.0));
+    settle(&mut p);
+    assert_eq!(
+        p.host.runner().slot("stickyCount"),
+        Some(&Value::Number(3.0))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyInside"),
+        Some(&Value::Bool(true))
+    );
     assert_eq!(p.host.runner().slot("inside"), Some(&Value::Bool(false)));
     assert_eq!(p.scroll_to(root, (0.0, 60.0)), Some((0.0, 60.0)));
     settle(&mut p);

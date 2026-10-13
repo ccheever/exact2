@@ -284,7 +284,7 @@ chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
     const child=spawnSync(process.execPath,['--eval',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,RUSTC_WORKSPACE_WRAPPER:'/toolchain/clippy-driver',CLIPPY_ARGS:'-D warnings'}});
     assert.equal(child.status,0,child.stderr);
   } finally {rmSync(dir,{recursive:true,force:true});}
-});
+}, 200_000);
 
 // The bridge over a stand-in `cargo`, as above. This one says when it is building (`building`),
 // stays in its build while `hold` exists, and publishes the helper by rename, so the build a

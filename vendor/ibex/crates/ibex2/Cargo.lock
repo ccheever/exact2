@@ -139,14 +139,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "exact-grants"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "url",
-]
-
-[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -301,12 +293,12 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cc",
- "exact-grants",
  "form_urlencoded",
  "getrandom 0.2.17",
  "hermes-lean-sys",
  "ibex2-sqlite",
  "libc",
+ "mio",
  "ring",
  "rustls",
  "rustls-native-certs",
@@ -496,6 +488,18 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "mio"
+version = "1.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
+dependencies = [
+ "libc",
+ "log",
+ "wasi",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -751,6 +751,25 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // arrow key reaches (measured, macOS 27.0). A stock table's action
         // is the mouse's alone, and so is every other row's press here.
         if let mounted, table.keying, navigates(mounted) { pressRow(row) }
+        // The person took the selection off its row (a Command-click): a
+        // split's pane then shows nothing (LLP 1115.002 D4, SplitMac.swift).
+        if row < 0 { presenter?.navigation.split.deselected(id) }
+    }
+    /// The split's word on the selection (SplitMac.swift): the row whose
+    /// press shows the detail beside the list is the selected one, and with
+    /// no detail none is. A row that is not mounted leaves what is selected.
+    /// True when the table shows it.
+    @discardableResult func show(selected press: UInt32?) -> Bool {
+        let index = press.flatMap { id in rows.first { pressing($0)?.id == id }?.index }
+        guard press == nil || index != nil else { return false }
+        let want = index.map { IndexSet(integer: $0) } ?? IndexSet()
+        guard table.selectedRowIndexes != want else { return true }
+        let was = syncing
+        syncing = true
+        defer { syncing = was }
+        table.selectRowIndexes(want, byExtendingSelection: false)
+        remember(index.flatMap { row(at: $0) })
+        return true
     }
     /// A click on a row, when the mouse comes up in it: the table's action.
     /// In a hand-built table on macOS 27.0, key window, nothing a delegate
@@ -819,6 +838,10 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     @discardableResult
     func pressRow(_ row: Int) -> Bool {
         guard let pressing = self.row(at: row).flatMap(pressing), !pressing.disabled, !pressing.inert else { return false }
+        // The list of a split (SplitMac.swift): a route this press brings is this row's detail.
+        let split = presenter?.navigation.split
+        if split?.shown?.table == id { split?.pressing = pressing.id }
+        defer { split?.pressing = nil }
         presenter?.press(pressing.id)
         return true
     }

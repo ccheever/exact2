@@ -72,6 +72,7 @@ pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
+mod split;
 mod surface_record;
 mod time;
 mod viewport;
@@ -79,6 +80,7 @@ mod writes;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
 pub use router::{routing, RouterChange, Routing};
+pub use split::StackSplit;
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
@@ -347,6 +349,8 @@ struct Timer {
     k: u32,
 }
 
+type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
+
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
@@ -355,6 +359,7 @@ pub struct Runner<D: DataSource> {
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
+    detached_focus: Vec<(ViewId, FocusPath)>,
     data: D,
     kernel: Kernel,
     slots: Vec<Value>,
@@ -798,12 +803,14 @@ impl<D: DataSource> Runner<D> {
             Some(routing) => routing(&plan)?,
             None => None,
         };
+        let launched_place = crate::time::launch_place();
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
+            detached_focus: Vec::new(),
             data,
             kernel,
             slots: Vec::new(),
@@ -868,7 +875,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             page: Default::default(),
             time: crate::time::launch_time(),
-            place: Default::default(),
+            place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
             links,

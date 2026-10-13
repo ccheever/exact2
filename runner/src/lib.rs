@@ -105,9 +105,9 @@ pub use runner::{
     KeyModifiers, KeyboardEvent, Limits, ListTextPolicy, ListTextPosition, Native, NativeCall,
     NativeHandler, Overlaid, Picked, PickerLinks, PickerRequest, PointerEvent, PreloadWake,
     ResizeRect, RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent,
-    SelectionDirection, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent, Write, BACKGROUND,
-    JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT,
-    VIRTUAL_FRAME_MS,
+    SelectionDirection, StackSplit, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent, Write,
+    BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
+    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};

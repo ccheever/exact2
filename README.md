@@ -338,6 +338,10 @@ files, or run arbitrary code. That's what data sources are for. Here is a comple
 app: a Contract file, a TypeScript file, and a test. This exact app was built for web,
 macOS, and the iOS Simulator, and its test passed on all three.
 
+To try it in an app created with `exact new`, replace `app.contract` and
+`app.test.contract` with the examples below. In `app.ts`, keep the generated
+`export const appId = …` line and replace the rest with the TypeScript below.
+
 ```contract
 // app.contract: the view, its state, and what each action changes. It names no colour,
 // font or control size: each host draws its own heading, field, button, checkbox and list.
@@ -388,7 +392,6 @@ component Todos
 // app.ts: keeps the list, and answers what app.contract asks for
 import type { Answer, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.todo';
 export const grants = '';  // e.g. 'net.fetch https://api.example.com'
 
 type Todo = { id: string; title: string; done: boolean };

@@ -71,11 +71,12 @@ import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { availableParallelism } from 'node:os';
+import { conformArgs } from './conform-args.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
+import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 /** `spawnSync`'s result without holding the event loop: the other targets'
@@ -91,11 +92,11 @@ const spawned = (command, args, options) => new Promise((done) => {
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const argv = process.argv.slice(2);
-const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
-const wasmRoot = resolve(opt('--wasm-root', '/tmp/e3-wasm'));
-const out = resolve(opt('--out', '/tmp/exact-web-js-conform'));
-const maxSteps = Number(opt('--steps', 10));
-const crossBrowser = opt('--browser', null);
+const { options, named } = conformArgs(argv);
+const wasmRoot = resolve(options['--wasm-root']);
+const out = resolve(options['--out']);
+const maxSteps = Number(options['--steps']);
+const crossBrowser = options['--browser'];
 if (crossBrowser != null && !['firefox', 'webkit'].includes(crossBrowser)) throw new Error(`--browser: firefox or webkit, not ${crossBrowser}`);
 const known = crossBrowser ? JSON.parse(readFileSync(resolve(here, 'conformance', `known-${crossBrowser}.json`), 'utf8')) : [];
 // An entry names one difference exactly, or a class of them: `*` in app, step or
@@ -110,8 +111,7 @@ const knownFor = (app, step, field, what) => knownByKey.get(`${app}\0${step}\0${
   ?? knownClasses.find(c => c.app.test(app) && c.step.test(step) && c.field.test(field) && (!c.pattern || c.pattern.test(what)))?.entry;
 if (known.some(entry => !entry.app || !entry.step || !entry.field || !entry.reason)) throw new Error(`known-${crossBrowser}.json: every entry needs app, step, field, and reason`);
 if (knownByKey.size !== exact.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
-const only = opt('--only', null);
-const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--browser', '--only'].includes(argv[i - 1]));
+const only = options['--only'];
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 // The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
@@ -762,7 +762,7 @@ if (linuxRef && argv.includes('--build') && engineReady) {
   }
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
-if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
+if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${options['--label']}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (synthetic.length) {
   // The compiler is built once, as `cargo run` builds it, and run directly
   // for each fixture: a `cargo run` per fixture repeats Cargo's freshness check.
@@ -779,16 +779,20 @@ if (synthetic.length) {
 }
 // Several targets at once, one queue: `next` is read and advanced with no
 // await between, and each target's failures are its own entries.
-const jobs = Math.max(1, Number(opt('--jobs', Math.min(4, availableParallelism()))));
+const jobs = Math.max(1, Number(options['--jobs']));
 const queue = engineReady ? targets : [];
 let next = 0;
-await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
-  while (next < queue.length) {
-    const t = queue[next++];
-    try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
-    process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
-  }
-}));
+try {
+  await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+    while (next < queue.length) {
+      const t = queue[next++];
+      try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
+      process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
+    }
+  }));
+} finally {
+  closeFilesystemReader();
+}
 // The report lists targets in their order, whatever order they finished in.
 const order = new Map(targets.map((t, i) => [t.name, i]));
 const byOrder = (a, b) => (order.get(a.target) ?? -1) - (order.get(b.target) ?? -1);
@@ -823,3 +827,4 @@ if (argv.includes('--strict') && report.failures.length) {
   }
   process.exit(1);
 }
+process.exit(0);

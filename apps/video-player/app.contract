@@ -67,8 +67,9 @@ component VideoPlayer
     pending = true
     quiet = 0
   action settle
-    quiet = quiet + 1
-    if pending and quiet >= 6
+    let nextQuiet = quiet + 1
+    quiet = nextQuiet
+    if pending and nextQuiet >= 6
       seekTo = (target == seekTo ? target + 0.001 : target)
       position = target
       pending = false

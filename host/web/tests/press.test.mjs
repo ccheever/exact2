@@ -63,6 +63,7 @@ const unsaid = sheet + `
   <button id="native" type="button" data-button-style="filled" data-native="" data-exact-on="press"><span>native</span></button>
   <button id="action" type="button" data-action="jump">action</button>
   <button id="off" type="button" disabled data-exact-on="press">off</button>
+  <button id="ownoff" type="button" disabled data-exact-on="press" data-disabledstyled="true">its own disabled look</button>
   <div role="list" data-listrows="true">
     <div id="row" data-exact-on="press" tabindex="0">row</div>
     <div id="swipe"><div><a id="content" data-view="" href="#book"><span>a row's content</span></a></div></div>
@@ -300,6 +301,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
       return seen;
     };
     expect(await shown('box', 'custom', 'link', 'off')).toBe('1,1,1,0.5'); // at rest only a disabled custom button is dimmed
+    expect(await shown('ownoff')).toBe('1'); // not one whose author styles its own disabled state (Contract's mark, LLP 1115.000 D6)
 
     // The browser's `:active`: this piece marks nothing.
     expect(await held('box', 'box')).toBe('0.65');

@@ -1,12 +1,14 @@
 # `focusin`/`focusout` (or `:focus-within`): an ancestor hears the focus enter its subtree
 
-**Status:** Open
-**Resolution:** Partial: nested Apple stop flags, early web focus replay and UIKit read-only textarea responder entry are fixed; UIKit focus transitions now pass on iOS 27; native delivery to a wrapper destroyed by blur remains a declared deviation.
+**Status:** Closed
+**Resolution:** Preserve outgoing focusout bindings through nested transitions and wrapper removal, including exit-animation ghosts with their original IDs; flush JS blur before post-commit focus. Compiled Contract tests on both web targets, runner scope tests, Linux focus regressions and Apple testBlurRemovesWrapperBeforeFocusout cover the behavior.
 **Systems:** Contract, runner events, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
 **Date:** 2026-10-09
 **Related:** https://github.com/ccheever/exact2/issues/283
+
+Status note (moved verbatim off the **Status:** line by `bun scripts/issue.mjs`; cdcstack issue statuses are exactly `Open` or `Closed`): previous **Resolution:** Partial: nested Apple stop flags, early web focus replay and UIKit read-only textarea responder entry are fixed; UIKit focus transitions now pass on iOS 27; native delivery to a wrapper destroyed by blur remains a declared deviation.
 
 ## 2026-10-11 events lane
 

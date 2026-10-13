@@ -13,8 +13,14 @@ package final class ChainingScrollView: NSScrollView {
     weak var pointerOwner: NodeView?
     private var mouseHeld = false
     private var removeAfterMouseUp = false
+    /// Removed mid-press, the view stays, transparent, until the up, which
+    /// AppKit sends only to it. Only in the window, as `NodeView`'s
+    /// (`MouseChainMac`): one already out hears no up, and AppKit also asks
+    /// here when it frees the parent (`-[NSView _finalize]`). A view that
+    /// stayed would reach its own dealloc still a subview, which AppKit
+    /// raises (the T3 Code clone's abort on a thread change, X87).
     package override func removeFromSuperview() {
-        if mouseHeld {
+        if mouseHeld, window != nil {
             removeAfterMouseUp = true
             alphaValue = 0
         } else { super.removeFromSuperview() }

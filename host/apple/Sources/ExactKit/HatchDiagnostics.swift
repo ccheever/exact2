@@ -22,6 +22,9 @@ import QuartzCore
 final class HatchDiagnostics {
     weak var session: ExactSession?
     static let measuring = !ExactEnv.productionBake
+    private let mediaTime: () -> Double
+
+    init(mediaTime: @escaping () -> Double = CACurrentMediaTime) { self.mediaTime = mediaTime }
 
     // The live sessions' stores by runtime handle, for a call on any thread
     // (`ExactSession.session(for:)` is the main thread's).
@@ -66,9 +69,9 @@ final class HatchDiagnostics {
         guard Self.measuring else { return body() }
         if counts { scopeCalls[scope, default: [:]][moment, default: 0] += 1 }
         inner.append(0)
-        let start = CACurrentMediaTime()
+        let start = mediaTime()
         let out = body()
-        let end = CACurrentMediaTime(), whole = (end - start) * 1000, own = max(0, whole - inner.removeLast())
+        let end = mediaTime(), whole = (end - start) * 1000, own = max(0, whole - inner.removeLast())
         if !inner.isEmpty { inner[inner.count - 1] += whole }
         let key = "\(scope)\n\(site.map(String.init) ?? "")\n\(moment)"
         if timing[key] == nil { timing[key] = Timed(hatch: scope, site: site, moment: moment); timingOrder.append(key) }

@@ -98,6 +98,41 @@ fn a_date_known_at_launch_is_read_from_the_first_frame() {
     assert_eq!(text(&outside()), "0/0");
 }
 
+/// Where the viewer is, known at launch: the first frame reads the locale,
+/// zone and seed, and the same place told after commits nothing; a place
+/// that does not validate boots on the defaults.
+#[test]
+fn a_place_known_at_launch_is_read_from_the_first_frame() {
+    const PLACE_APP: &str = "shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.timeZone}/${time.seed}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(PLACE_APP).unwrap(), NoData).unwrap();
+    let boot = |place: Option<exact_runner::time::Place>| {
+        let launch = exact_runner::time::Launch { time: None, place };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let place = |locale: &str| exact_runner::time::Place {
+        locale: locale.into(),
+        time_zone: "America/Los_Angeles".into(),
+        seed: 7.0,
+    };
+    let mut r = boot(Some(place("fr-FR")));
+    assert_eq!(text(&r), "fr-FR/America/Los_Angeles/7");
+    assert!(r
+        .set_place("fr-FR", "America/Los_Angeles", Some(7.0))
+        .unwrap()
+        .is_none());
+    assert_eq!(text(&boot(Some(place("")))), "en-US/UTC/0");
+    assert_eq!(text(&boot(None)), "en-US/UTC/0");
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]
