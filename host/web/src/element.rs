@@ -698,7 +698,7 @@ fn dom_id(view: exact_kernel::ViewId) -> String {
 /// properties; a `mask`'s and a `pattern`'s region is attributes only, as
 /// is a radial gradient's `cx`, `cy` and `r` are attributes
 /// only (LLP 1055.000 D4, D7).
-fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
+pub fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
     use exact_kernel::StyleId::*;
     match t {
         NodeType::SvgViewport

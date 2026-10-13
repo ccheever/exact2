@@ -119,6 +119,18 @@ impl Em<'_> {
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
+        let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
+        if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
+            .iter()
+            .find(|(attribute, _)| *attribute == id)
+        {
+            let p = self.uses.rt("P");
+            let _ = write!(
+                self.out,
+                "{p}({e},\"{name}\",()=>{{const v=({f})();return v==null||/^\\s*(auto|initial|unset|revert(-layer)?)\\s*$/i.test(v)?null:v}});"
+            );
+            return Ok(());
+        }
         if matches!(
             id,
             StyleId::GridTemplateColumns
