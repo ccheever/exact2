@@ -447,7 +447,7 @@ export function install(exact) {
         // What is in flight: the network's by resource, then held device requests.
         // A stream is pending until its first message, then listed in `streams` (LLP 1016.000 D5).
         const pending = [...exact.resources.filter(r => r.ticket && !r.ticket.messages).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
-        const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced }));
+        const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced, ...(r.ticket.ctl.socket ? { readyState: r.ticket.ctl.socket.readyState, bufferedAmount: r.ticket.ctl.socket.bufferedAmount, sent: r.ticket.ctl.socket.sent } : {}) }));
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
         // Focus, the keyboard's overlap and the document's language, as glue.js's `state` adds them.
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null, activeId = active ? id(active) : null;

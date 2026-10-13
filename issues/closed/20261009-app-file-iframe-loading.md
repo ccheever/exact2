@@ -1,6 +1,7 @@
 # Show a PDF: an `iframe` of an `app:/` file, and a PDF element fitted to its width (rest of #115)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Existing app-file loader qualified in an iOS 27 app: PDF and HTML pixels render, and a driven missing file errors without another load; XCTest checks load/error on both hosts and PDF pixels on macOS.
 **Systems:** web hosts, host/apple web arm, storage
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -11,7 +12,7 @@
 
 Load permitted app:/ documents through typed paths, honoring sandbox/origin policy, URL cleanup and errors. Prove iOS PDF pixels as well as tree state. Separate fitted PDF/object/PDFKit surface stays deferred.
 
-## Implementation and remaining verification
+## Implementation and verification
 
 Scoped loading is implemented in the JS and wasm web hosts and Apple's typed
 WebKit document path. The web browser regression covers HTML document loading, PDF MIME,
@@ -25,14 +26,32 @@ on macOS and an iOS 27 simulator. The emitter and prerender regressions fail on 
 `WebDocumentsTests.testAppFilePDFPixelsAndMissingFileError` passes on macOS,
 including a snapshot of the PDF's red rectangle and the missing-file error.
 
-The same test compiles and loads the document on an iOS 27 iPhone 18 Pro Max
-simulator, but its pixel assertion fails: `0` red pixels, expected more than
-`100`. Both WebKit's snapshot and a subsequent UIKit hierarchy capture are
-black. The hostless XCTest process also reports `UIApp is nil`; these runs do
-not distinguish a rendering failure from a capture limitation. The test keeps
-its UIKit image as an XCTest attachment. After the bounded fix loop, this issue
-remains open for a PDF screenshot from an actual iOS app. Missing-file error
-handling passed on both native hosts. The fitted PDF element remains deferred.
+On iOS, the test checks PDF loading and missing-file errors; the pixel assertion
+is macOS-only. The hostless iOS XCTest process has no `UIApplication` or window
+scene and produces black WebKit snapshots and UIKit hierarchy captures. The
+real iOS app drive below qualifies PDF pixels. The fitted PDF element remains
+deferred.
+
+Both `WebDocumentsTests` cases pass on macOS and the iOS 27.0 iPhone 17
+simulator with their platform-built WebKit arms (2026-10-13). The runs include
+no skips; macOS retains the red-pixel assertion. Logs:
+`target/verifyrest/c1-mac-tests.log` and `target/verifyrest/c1-ios-tests.log`.
+
+The outstanding app-level qualification passed on 2026-10-13 at `2e927ce2b`:
+a scaffolded app writes a 300×200 PDF with a red rectangle and an HTML file
+through its native module into its app data root, then mounts `app:/data/doc.pdf`
+and `app:/data/doc.html` iframes. On the iOS 27.0 iPhone 17 simulator
+(`C25DD7E7-E600-415E-A7FA-A729AD1FC140`), both the simulator display and the
+agent's screenshot show the documents. The PDF region contains 21,186 red
+pixels after reducing the 3× capture to 1×. The tree carries both app-file
+sources; `loaded` is 1. Tapping the missing-file button changes the PDF source
+to `app:/data/missing.pdf`: `failed` becomes
+`iframe: app:/data/missing.pdf: file unavailable`, and `loaded` remains 1.
+
+The first cold app launch exceeded the agent's 20-second socket deadline;
+its warm retry completed the drive.
+Local evidence in this lane: `target/verifyrest/ios-app.png`, `ios-screen.png`,
+`ios-tree.json`, `ios-missing.json`, `ios-pixels.json`, and `ios-tests.log`.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 

@@ -239,10 +239,11 @@ Against Chrome's 1× `border-patterns.contract` screenshot, AppKit and Linux's
 12 cases (1/2/4px, mixed styles and widths, rounded corners and single
 underlines) stay within 5/255 mean absolute channel difference and 5% of
 pixels differing by more than 48 in a 100×70 box. UIKit uses the same
-`BorderPaint` as AppKit. Four UIKit parity tests passed on iOS 27.0 before
-the 1 px edge-phase checks were added. The updated test bundle builds, but
-its round-3 run remains unmeasured: Xcode lost its simulator destination, a
-retry stalled on iOS 26.5, and an iOS 27.0 simulator could not boot.
+`BorderPaint` as AppKit. All four UIKit parity tests, including the 1 px
+edge-phase guards, passed on iOS 27.0 on 2026-10-13. An iPhone 17 app drive's
+3× screenshot, reduced to 1×, also passes this band for all twelve cases:
+maximum mean 3.983/255 and maximum fraction beyond 48 of 4.443%. A fresh
+Chrome 155.0.8059.40 capture matches the checked-in reference exactly.
 Rasterization of thin dots and curved joins accounts for the
 remaining visible pixel variance; the band does not claim identical pixels
 at other device scales.

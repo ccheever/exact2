@@ -100,10 +100,10 @@ DateTimeFormat.prototype = Object.create(NativeFormat.prototype, {
   formatToParts: { configurable: true, writable: true, value(...args) { return args[0] === undefined ? refuse('Intl.DateTimeFormat.formatToParts()') : nativeParts.apply(this, args); } },
 });
 Object.setPrototypeOf(DateTimeFormat, NativeFormat);
-// A data module does no I/O of its own (LLP 1016.000 D3: a socket only
-// listens, opened by the runtime as a `fetch` with `exactStream`): the page's
+// A data module does no I/O of its own (LLP 1016.000 D3, D7: its socket
+// belongs to a resource opened by `fetch` with `exactStream`): the page's
 // XMLHttpRequest, WebSocket and EventSource refuse, as the wasm target's realm
-// refuses them (host/web/module-glue.js), so no frame is sent and no origin
+// refuses them (host/web/module-glue.js), so no independent socket or origin
 // is reached past the grants.
 const noIo = api => function () { throw new Error(`${api} is unavailable in data sources`); };
 const guarded = {

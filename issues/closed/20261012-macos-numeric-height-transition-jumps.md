@@ -1,6 +1,7 @@
 # macOS: a numeric `height` transition jumps unless its box is border-box with `interpolate-size: allow-keywords` (Chrome animates it)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Apple adopts pixel-height transitions for either box sizing without keyword opt-in; numeric_height_transitions_need_neither_keyword_opt_in_nor_border_box and the macOS agent repro verify 70 px opening and 210 px closing at 100 ms; running_auto_height_retargets_to_a_length_when_keyword_opt_in_is_removed verifies interruption at 60 px and continuation to 115 px after 100 ms when the same commit removes the opt-in.
 **Systems:** host/apple, kernel motion (height transitions)
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone, #99 review)

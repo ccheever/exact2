@@ -1,6 +1,7 @@
 # `border-style`: `dotted` and `dashed`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Existing painter qualified on iOS 27: four BorderParityIOSTests pass and all twelve app screenshot cases pass the Chrome raster band.
 **Systems:** kernel schema, Contract, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -105,14 +106,19 @@ dot's position. Reproduced after rebasing onto `63ad4b82e`: restoring the old
 formula makes `round_dots_keep_their_period_along_a_long_side` fail with the
 last dot ending at 1995.4999 px instead of 1998 px.
 
-## What remains
+## iOS qualification (2026-10-13)
 
-Drive the border fixture in the iOS app, then close this issue. All four UIKit
-border parity tests passed on an iOS 27.0 simulator on 2026-10-11, including
-the 1 px dotted underline. The earlier iOS app bundle built, but its fixture
-drive still never opens the agent socket; iOS 26.4 and 26.5 did the same before
-the painter. The app-level iOS screenshot remains unmeasured. The round-3
-UIKit test bundle built on 2026-10-12, but `test-without-building` first lost
-its simulator destination; a targeted retry on iOS 26.5 stalled in its first
-test, and an iOS 27.0 simulator could not boot (`launchd_sim` did not respond).
-The new thin-edge guards have not run on UIKit.
+On `2e927ce2b`, all four `BorderParityIOSTests` passed on the iOS 27.0
+simulator, including the thin-edge ink/gap and dot-phase guards. A scaffolded
+app containing the twelve `border-patterns.contract` boxes was built and
+driven on iPhone 17 (`C25DD7E7-E600-415E-A7FA-A729AD1FC140`). Its 3× agent
+screenshot, reduced to 1× with box averaging, passes the declared per-case
+band: the largest mean difference is 3.983/255 (`dot2`); the largest fraction
+beyond 48 is 4.443% (`round-dot`). A fresh Chrome 155.0.8059.40 capture is
+pixel-identical to the checked-in Chrome reference. The simulator display
+capture also shows all twelve patterns.
+
+The first cold launch exceeded the agent's 20-second socket deadline; the
+app subsequently painted. The warm retry completed the drive and capture.
+Local evidence in this lane: `target/verifyrest/ios-tests.log`,
+`ios-app.png`, `ios-screen.png`, `ios-pixels.json`, and `chrome-borders.png`.
