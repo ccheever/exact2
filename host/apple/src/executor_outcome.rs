@@ -70,12 +70,34 @@ pub(super) const fn build_number(set: Option<&str>, default: usize) -> usize {
         return default;
     };
     let bytes = text.as_bytes();
-    let (mut n, mut i) = (0, 0);
+    let (mut n, mut i): (usize, usize) = (0, 0);
     while i < bytes.len() {
         assert!(bytes[i].is_ascii_digit(), "a build count is digits");
-        n = n * 10 + (bytes[i] - b'0') as usize;
+        n = match n.checked_mul(10) {
+            Some(tens) => match tens.checked_add((bytes[i] - b'0') as usize) {
+                Some(next) => next,
+                None => panic!("a build count past usize"),
+            },
+            None => panic!("a build count past usize"),
+        };
         i += 1;
     }
     assert!(n > 0, "a build count is at least 1");
     n
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_build_count_is_its_digits_or_the_default() {
+        assert_eq!(super::build_number(None, 6), 6);
+        assert_eq!(super::build_number(Some("7"), 6), 7);
+        assert_eq!(super::build_number(Some("32"), 6), 32);
+        for bad in ["", "0", "7a", "18446744073709551623"] {
+            assert!(
+                std::panic::catch_unwind(|| super::build_number(Some(bad), 6)).is_err(),
+                "{bad}"
+            );
+        }
+    }
 }

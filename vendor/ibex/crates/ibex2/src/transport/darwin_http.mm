@@ -19,6 +19,7 @@
 
 #include <cstdlib>
 
+extern "C" int ibex2_metrics_enabled(void);
 extern "C" void ibex2_metrics_note(const char *url, const char *protocol, int reused,
                                    const char *local, const char *remote);
 #include <cstring>
@@ -226,6 +227,7 @@ char *dup_utf8(NSString *value) {
   if (last != nil) exchange.reused = last.reusedConnection ? 1 : 0;
   [exchange.condition unlock];
   // The measurement log (metrics_log.rs), when one is named.
+  if (!ibex2_metrics_enabled()) return;
   NSString *local = last.localAddress == nil ? nil
       : [NSString stringWithFormat:@"%@:%@", last.localAddress, last.localPort];
   NSString *remote = last.remoteAddress == nil ? nil
