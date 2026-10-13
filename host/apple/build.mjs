@@ -1012,9 +1012,10 @@ async function main(args) {
     beside.push(compile);
     return async () => {
       await compile.done();
+      // Place this build's result before publishing it to the shared eviction pool.
+      copyFileSync(making, built);
       renameSync(making, cached);
       evictArms(dir, basename(built));
-      copyFileSync(cached, built);
     };
   };
   const arms = [];
