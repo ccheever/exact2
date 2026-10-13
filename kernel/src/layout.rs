@@ -1113,6 +1113,12 @@ impl LayoutTree {
                         cached.metrics
                     } else if fit::fits(arena, slot) {
                         fitted.push(slot);
+                        // It flattens its own runs, at its scale, into the buffer
+                        // that consecutive offers of one leaf share: whose they are
+                        // is nobody's now, and the leaf measured next after this one
+                        // (a lap row's label, below a stopwatch's readout) flattens
+                        // its own.
+                        runs_slot = None;
                         let natural = &mut context.fit_natural;
                         let Some((metrics, scale)) =
                             fit::measure(arena, slot, measurer, &mut runs, natural, width, height)

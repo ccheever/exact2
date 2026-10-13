@@ -273,6 +273,30 @@ test('Apple asset catalogs select platform modules and invalidate native receipt
   assert.throws(() => appleAssetCatalogInventory(app, 'ios'), /symlinks/);
 }));
 
+test.skipIf(process.platform !== 'darwin')('the iOS launch screen is the app\'s own ground: its colours, else the grouped grey under a first route that scrolls a grouped list, else the system\'s (LLP 1116.011 D2.3)', () => inDir(dir => {
+  const { useXcode } = require('../host/apple/devices.mjs');
+  const { iosAssets } = require('../host/apple/assets.mjs');
+  useXcode();
+  let n = 0;
+  const made = (manifest, options) => {
+    const out = resolve(dir, `app${n++}.app`); mkdirSync(out);
+    const keys = iosAssets({ dir, name: 'Launch', manifest }, out, false, options);
+    const result = spawnSync('xcrun', ['assetutil', '--info', resolve(out, 'Assets.car')], { encoding: 'utf8' });
+    const colours = keys.UILaunchScreen ? JSON.parse(result.stdout).filter(asset => asset.Name === 'ExactLaunch')
+      .map(asset => [asset.Appearance ?? 'light', asset['Color components'].map(c => Math.round(c * 255))]) : [];
+    return { keys, colours };
+  };
+  // Stopwatch, round 13: a first route on the grouped grey, whose launch screen was the system's white.
+  const grouped = made({}, { launch: 'grouped' });
+  assert.equal(grouped.keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  assert.deepEqual(grouped.colours, [['light', [242, 242, 247, 255]], ['UIAppearanceDark', [0, 0, 0, 255]]]);
+  // A page of the platform's own stays the system's launch screen (`systemBackground`, light and dark).
+  for (const options of [{ launch: 'system' }, {}]) assert.deepEqual(made({}, options).keys, {});
+  // The author's colours name it whatever the first route stands on.
+  const named = made({ background_color: '#ffeedd', background_color_dark: '#102030' }, { launch: 'grouped' });
+  assert.deepEqual(named.colours, [['light', [255, 238, 221, 255]], ['UIAppearanceDark', [16, 32, 48, 255]]]);
+}), 60000);
+
 test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named images and colours, share the iOS icon pass, and reuse unchanged compiles', () => inDir(dir => {
   const { useXcode } = require('../host/apple/devices.mjs');
   const { appleAssets, iosAssets, appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
