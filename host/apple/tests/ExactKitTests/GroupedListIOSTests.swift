@@ -328,6 +328,29 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertFalse(accessory.accessibilityTraits.contains(.notEnabled), "an ancestor change refreshes the accessory")
     }
 
+    func testARIAUnavailableReachesStandardCellsAndCarriedRows() throws {
+        let p = presenter { self.model(custom: true) }
+        defer { window.isHidden = true }
+        let row = try XCTUnwrap(p.views[21])
+        _ = try cell(p, 21)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "true"]],
+                           ["op": "props", "id": 3, "set": ["accessibilityDisabled": "true"]]]))
+        let standard = try cell(p, 10)
+        XCTAssertTrue(standard.accessibilityTraits.contains(.notEnabled), "VoiceOver reaches the cell")
+        XCTAssertTrue(standard.isUserInteractionEnabled)
+        XCTAssertTrue(row.ariaUnavailable, "a carried row keeps its authored section")
+        XCTAssertTrue(row.accessibilityTraits.contains(.notEnabled))
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        _ = host(p).activate(try XCTUnwrap(p.views[10]))
+        XCTAssertEqual(presses, [10])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]],
+                           ["op": "props", "id": 3, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(try cell(p, 10).accessibilityTraits.contains(.notEnabled))
+        XCTAssertFalse(row.ariaUnavailable)
+        XCTAssertFalse(row.accessibilityTraits.contains(.notEnabled))
+    }
+
     /// LLP 1080.000 D4: a real finger aimed at what a list draws lands on
     /// UIKit's view, not the hidden authored node: a row's cell, its
     /// toggle's switch, its detail button; never the row for a control

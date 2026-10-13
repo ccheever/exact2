@@ -48,6 +48,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
     /// Its runs' elements, kept until the runs change, and what else made
     /// them (`textAccessibilityChildren`).
+    var inlineKeyViews: [UInt32: InlineKeyView] = [:]
     var inlineAccessibility: (key: String?, elements: [NSAccessibilityElement])?
     var inlinePressed: UInt32?
     /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).

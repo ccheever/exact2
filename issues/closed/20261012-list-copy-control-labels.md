@@ -1,6 +1,7 @@
 # A copy across a virtualized list's rows holds a control's label the host leaves unselected
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Logical copies apply the host's selection and paragraph policy to mounted and unmounted rows; proved by logical_copy_omits_control_labels_in_unmounted_rows and TextSelectionMacTests.testACopyAcrossListRowsLeavesOutUnselectableText.
 **Systems:** runner lists, host/apple macOS, host/web wasm, text selection
 **Severity:** P3
 **Author:** daehyeon-mun (X81 follow-up, PR #493 review)

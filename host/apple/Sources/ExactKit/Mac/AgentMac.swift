@@ -142,6 +142,7 @@ extension Agent {
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
             focus["responder"] = responder.map { String(describing: Swift.type(of: $0)) } ?? NSNull()
         }
+        if let run = responder as? InlineKeyView { focus["logical"] = Int(run.id) }
         let keyboard: [String: Any] = ["visible": false, "overlap": 0, "policy": "resizes-visual", "interactive": false]
         var navigation: [String: Any] = ["route": NSNull(), "stack": [] as [String], "presentation": NSNull(), "closedby": NSNull(),
                                          "transition": ["interactive": false, "phase": "idle"]]
@@ -862,6 +863,8 @@ extension Agent {
                 // Resigning the previous responder can synchronously replace or restrict this node.
                 guard session.natives.inputToken(v) == nativeToken else { return ["error": "native view is unavailable, hidden, inert, disabled or replaced"] }
                 guard session.natives.ownsFocus(v) else { return ["error": "native view no longer owns focus"] }
+            } else if let id = req["id"] as? Int, let inline = v.syncInlineKeyViews().first(where: { Int($0.id) == id }) {
+                if win.firstResponder !== inline { win.makeFirstResponder(inline) }
             } else if v.pageField != nil {
                 // A search input in the window's toolbar (LLP 1115.002 D2): its field there takes the key.
                 let editing = v.field?.currentEditor().map { win.firstResponder === $0 } ?? false

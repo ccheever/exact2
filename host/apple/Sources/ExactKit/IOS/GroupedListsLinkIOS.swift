@@ -44,6 +44,8 @@ package protocol GroupedLists: AnyObject {
     func inspectionOwns(_ view: UIView) -> Bool
     func hides(_ node: NodeView) -> Bool
     func projects(_ view: UIView) -> Bool
+    /// The authored parent of a row carried into a cell.
+    func logicalParent(of view: UIView) -> UIView?
 }
 
 /// Where a finger aimed at a row a list draws lands (LLP 1080.000 D4): a

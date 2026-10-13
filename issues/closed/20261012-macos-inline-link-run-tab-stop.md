@@ -1,6 +1,7 @@
 # macOS: an inline link run is never a Tab stop, even with Keyboard navigation on
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Inline responders follow Keyboard Navigation on the page and in dialogs, keep disabled links focusable, preserve a focused link's Return ahead of the default button, and activate press-only runs on Space; InlineFocusMacTests covers agent key delivery in painted dialogs and AppKit sheets, Enter/Space for href-only, press-only and combined runs, and wrapped focus rings.
 **Systems:** host/apple macOS, focus, text
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)

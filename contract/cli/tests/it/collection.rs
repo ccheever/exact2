@@ -454,7 +454,11 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
     assert_eq!(runner.list_index(view, "n:1"), Some(0));
     assert_eq!(runner.list_index(view, "d1:n:1"), Some(1));
     assert_eq!(
-        runner.list_text(view, None).unwrap().matches('1').count(),
+        runner
+            .list_text(view, None, exact_runner::ListTextPolicy::Web)
+            .unwrap()
+            .matches('1')
+            .count(),
         2
     );
     runner.act("change", vec![Value::Number(2.0)]).unwrap();

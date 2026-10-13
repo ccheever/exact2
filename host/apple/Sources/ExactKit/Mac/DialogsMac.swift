@@ -258,28 +258,32 @@ final class DialogHost {
         value?.length(basis: basis)
     }
     /// The dialog's stops in tree order, and how many of them come before
-    /// `start` when it is one of the dialog's nodes.
-    private func stops(_ dialog: NodeView, start: NodeView? = nil) -> (nodes: [NodeView], before: Int?) {
+    /// `start` when it is a responder in the dialog.
+    private func stops(_ dialog: NodeView, start: NSView? = nil) -> (views: [(view: NSView, order: Int)], before: Int?) {
         guard let presenter else { return ([], nil) }
-        var nodes: [NodeView] = [], before: Int?
+        var views: [(view: NSView, order: Int)] = [], before: Int?
         func walk(_ node: NodeView) {
-            guard !node.inert, !node.disabled, !node.isHidden else { return }
-            if node === start { before = nodes.count }
-            if Presenter.tabbable(node) { nodes.append(node) }
+            guard !node.inert, !node.isHidden else { return }
+            let view = presenter.keyView(of: node)
+            if Presenter.tabbable(node) { views.append((view, node.tabOrder)) }
+            else if node === start || view === start { before = views.count }
+            for run in node.syncInlineKeyViews() {
+                if run.canBecomeKeyView { views.append((run, run.tabOrder)) }
+                else if run === start { before = views.count }
+            }
             for case let child as NodeView in node.container.subviews { walk(child) }
             for popover in presenter.menus.following(node) { walk(popover) }
         }
         walk(dialog)
-        return (nodes, before)
+        return (views, before)
     }
-    private func candidates(_ dialog: NodeView) -> [NSView] { candidates(stops(dialog).nodes) }
-    private func candidates(_ nodes: [NodeView]) -> [NSView] {
-        guard let presenter else { return [] }
-        return nodes.enumerated().sorted { a, b in
-            let ai = a.element.tabOrder, bi = b.element.tabOrder
+    private func candidates(_ dialog: NodeView) -> [NSView] { candidates(stops(dialog).views) }
+    private func candidates(_ views: [(view: NSView, order: Int)]) -> [NSView] {
+        views.enumerated().sorted { a, b in
+            let ai = a.element.order, bi = b.element.order
             let ap = ai > 0 ? ai : Int.max, bp = bi > 0 ? bi : Int.max
             return ap == bp ? a.offset < b.offset : ap < bp
-        }.map { presenter.keyView(of: $0.element) } + (entries.last?.sheet?.chrome?.stops ?? []) // then a route's sheet's own buttons
+        }.map { $0.element.view } + (entries.last?.sheet?.chrome?.stops ?? []) // then a route's sheet's own buttons
     }
     func enterFocus() {
         guard let presenter, let dialog = active, let window = dialog.window else { return }
@@ -315,14 +319,14 @@ final class DialogHost {
             // A node that holds the focus and is no stop (the dialog itself, a `tabindex=-1` box) is where Tab
             // starts, as on the page (KeyViewLoopMac.swift's starts): the stop after it in tree order, Shift-Tab
             // the one before it, and past either end the trap's first or last.
-            let start = dialog.window.flatMap { presenter?.keyTarget($0.firstResponder) }.flatMap { Presenter.tabbable($0) ? nil : $0 }
-            let (nodes, before) = stops(dialog, start: start)
-            let choices = candidates(nodes)
-            guard let window = dialog.window, let presenter, !choices.isEmpty else { enterFocus(); return true }
+            let start = dialog.window.flatMap(focusOwner)
+            let (views, before) = stops(dialog, start: start)
+            let choices = candidates(views)
+            guard let window = dialog.window, !choices.isEmpty else { enterFocus(); return true }
             let backwards = event.modifierFlags.contains(.shift)
             if let before {
-                window.makeFirstResponder(backwards ? (before > 0 ? presenter.keyView(of: nodes[before - 1]) : choices[choices.count - 1])
-                    : (before < nodes.count ? presenter.keyView(of: nodes[before]) : choices[0]))
+                window.makeFirstResponder(backwards ? (before > 0 ? views[before - 1].view : choices[choices.count - 1])
+                    : (before < views.count ? views[before].view : choices[0]))
                 return true
             }
             let current = focusOwner(window).flatMap { owner -> Int? in

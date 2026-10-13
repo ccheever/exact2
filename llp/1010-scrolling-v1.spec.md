@@ -467,8 +467,13 @@ Selection can outlive a row instance. Its logical endpoint is the opaque row
 key, outer text-paragraph ordinal and UTF-16 offset. The runner projects text
 from the same row template, one unloaded row at a time, without committing
 kernel operations; mounted rows retain their current local state. AppKit and
-browser selection use this path for partial and full-document copy. Copy does
-not mount the selected range. This does not claim virtual accessibility
+browser selection use this path for partial and full-document copy. The host
+names its text policy: the web counts button-label paragraphs but leaves their
+default-unselectable text out; AppKit omits native button titles from paragraph
+numbering and resolves `auto` as `TextSelectable.swift` does, including pressable
+and chrome labels. Authored `user-select` still decides. The runner applies the
+same policy to mounted and unmounted rows. Copy does not mount the selected
+range. This does not claim virtual accessibility
 navigation, Linux geometry, or the image budget below is complete.
 
 **Rationed reports on Apple, 2026-09-19** (Claude, for the Markdown reader;

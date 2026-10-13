@@ -36,6 +36,12 @@ final class MenuHost {
     /// and the web's are, out of its parent and back at its index after.
     private var agentOpen: [String: Lifted] = [:]
     var presented: [NodeView] { agentOpen.values.sorted { $0.order < $1.order }.compactMap(\.popover) }
+    func logicalParent(of view: UIView) -> UIView? {
+        #if os(iOS)
+        if let parent = context.logicalParent(of: view) { return parent }
+        #endif
+        return agentOpen.values.first { $0.popover === view }?.parent
+    }
     var nativeConfirmation: NodeView? { pendingConfirmation?.popover ?? (confirmation?.finishing == false ? confirmation?.popover : nil) }
     /// How many popovers the agent has opened: each one's place in the stack.
     private var opened = 0

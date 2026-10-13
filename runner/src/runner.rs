@@ -70,7 +70,7 @@ mod query;
 mod queue;
 pub use queue::QUEUE_BOUND;
 pub mod router;
-pub use lists::ListTextPosition;
+pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod surface_record;
 mod time;
