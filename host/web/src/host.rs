@@ -717,7 +717,6 @@ impl<D: DataSource> Host<D> {
     /// The size, the display preferences and the fold, in one batch.
     /// @ref LLP 1039 D2; LLP 1061 D4; LLP 1078 D6
     pub fn resize(&mut self, viewport: exact_runner::Viewport, now_ms: f64) -> String {
-        let fold = self.runner.viewport().fold;
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
         let mut receipts = a.receipts;
@@ -742,9 +741,6 @@ impl<D: DataSource> Host<D> {
                     });
                 }
             }
-        }
-        if let Some(receipt) = self.svg_environment_changed(fold) {
-            receipts.push(receipt);
         }
         self.batch_for(&receipts, error.as_deref())
     }

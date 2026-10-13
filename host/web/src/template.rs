@@ -53,7 +53,7 @@ pub fn parts_with(
     let node = kernel.node(id)?;
     let tag = tag_for(&node, in_button(kernel, &node));
     let mut props = props_for(&node);
-    svg_props(kernel, &node, kernel.arena().env(), true, &mut props);
+    svg_props(kernel, &node, true, &mut props);
     let (text, skipped) =
         crate::css::css_text_relative(&css_style(kernel, &node), &font_names(plan));
     let css = super::element::contents(

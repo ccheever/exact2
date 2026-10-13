@@ -5,8 +5,10 @@ component App
   state initial = false
   state fallback = false
   state thin = true
-  derive environment = fallback ? "env(viewport-segment-height 1 0, 25%)" : "calc(env(viewport-segment-height 1 0) + 0px)"
+  derive segment = fallback ? "env(viewport-segment-height 1 0, 25%)" : "calc(env(viewport-segment-height 1 0) + 0px)"
+  derive environment = initial ? "10px" : segment
   derive extent = initial ? "auto" : zero ? "0" : small ? "25vh" : "50vh"
+  derive foreignExtent = initial ? "10px" : extent
   derive offset = zero ? 0 : small ? 10 : 20
   action resize
     small = not small
@@ -39,7 +41,7 @@ component App
         foreignObject testId="hairline-static" x=100 y=95 width=100 height="-exact-hairline"
           view width="100%" height="100%" background-color="#0ea5e9"
         rect testId="calculated-rect" width=100 height=100 rx="calc(10vw - 90px)" ry=10 fill="#14b8a6"
-        ellipse testId="calculated-ellipse" cx=150 cy=50 rx="calc(10vw - 90px)" ry=10 fill="#0ea5e9"
+        ellipse testId="calculated-ellipse" cx=150 cy=50 rx="calc(10vw - 30px)" ry=10 fill="#0ea5e9"
       svg width=200 height=400
         defs
           radialGradient id="environment-gradient" testId="environment-gradient" cx=environment
@@ -51,8 +53,8 @@ component App
           rect width="100%" height="100%" fill="url(#environment-gradient)"
       svg width=200 height=400
         defs
-          symbol id="shape" viewBox="0 0 100 100"
-            rect width=100 height=100 fill="#0ea5e9"
+          symbol id="shape"
+            rect width="100%" height="100%" fill="#0ea5e9"
           mask testId="mask" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
             rect width=100 height=100 fill="#ffffff"
           pattern testId="pattern" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
@@ -61,7 +63,7 @@ component App
             stop offset="0%" stop-color="#14b8a6"
           filter testId="filter" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
             feFlood testId="primitive" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
-        foreignObject testId="foreign" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
-        use testId="use" href="#shape" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
+        foreignObject testId="foreign" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : foreignExtent) height=(omitted ? none : foreignExtent)
+        use testId="use" href="#shape" x=(omitted ? none : offset) y=(omitted ? none : offset) width=segment height=segment
         svg testId="nested" x=(omitted ? none : offset) y=(omitted ? none : offset) width=100 height=(omitted ? none : extent)
           rect width="100%" height="100%" fill="#14b8a6"

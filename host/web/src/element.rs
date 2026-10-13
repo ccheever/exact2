@@ -719,14 +719,12 @@ pub fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static
 pub(super) fn svg_props(
     kernel: &Kernel,
     node: &NodeRef<'_>,
-    env: &exact_kernel::Env,
     relative: bool,
     out: &mut SortedMap<String, String>,
 ) {
     svg_props_of(
         &|from, id| kernel.resolve_id(from, id),
         &node.facts(),
-        env,
         relative,
         out,
     )
@@ -738,7 +736,6 @@ pub(super) fn svg_props(
 pub fn svg_props_of(
     resolve: Resolve<'_>,
     node: &NodeFacts<'_>,
-    env: &exact_kernel::Env,
     relative: bool,
     out: &mut SortedMap<String, String>,
 ) {
@@ -773,11 +770,7 @@ pub fn svg_props_of(
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
                 exact_num::Shortest(v as f64).to_string()
             }
-            exact_kernel::RowValue::Dimension(d)
-                if d.resolve(env) == exact_kernel::Dimension::Auto =>
-            {
-                continue
-            }
+            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Auto) => continue,
             exact_kernel::RowValue::Dimension(d) => {
                 let mut text = String::new();
                 crate::css::dimension(&mut text, d);
@@ -785,65 +778,17 @@ pub fn svg_props_of(
             }
             _ => continue,
         };
-        out.insert((*name).into(), text);
+        // The web has no segment rectangles. Omit env() even with a fallback
+        // so live batches, documents and JS templates use the same initial value.
+        if !text.to_ascii_lowercase().contains("env(") {
+            out.insert((*name).into(), text);
+        }
     }
-}
-
-/// The browser reports segment counts, and resolves the authored lengths itself.
-/// These rects record only existence, for the `Auto` check in `svg_props_of`;
-/// none of their coordinates is emitted or installed in the kernel.
-pub(super) fn svg_environment(fold: exact_runner::Fold) -> exact_kernel::Env {
-    let max = u32::from(exact_kernel::SegmentVar::MAX_INDEX) + 1;
-    let cols = fold.cols.min(max) as u8;
-    let rows = fold.rows.min(max) as u8;
-    let count = usize::from(cols) * usize::from(rows);
-    exact_kernel::Env::default().with_segments(
-        cols,
-        rows,
-        if count > 1 {
-            vec![exact_kernel::Rect::default(); count]
-        } else {
-            vec![]
-        },
-    )
 }
 
 impl<D: exact_runner::DataSource> super::Host<D> {
     pub(super) fn svg_props(&self, node: &NodeRef<'_>, out: &mut SortedMap<String, String>) {
-        svg_props(
-            self.runner.kernel(),
-            node,
-            &svg_environment(self.runner.viewport().fold),
-            false,
-            out,
-        );
-    }
-
-    pub(super) fn svg_environment_changed(
-        &self,
-        before: exact_runner::Fold,
-    ) -> Option<exact_runner::Timed> {
-        let after = self.runner.viewport().fold;
-        if (before.cols, before.rows) == (after.cols, after.rows) {
-            return None;
-        }
-        let touched: Vec<_> = self
-            .mirror
-            .keys()
-            .filter_map(|id| {
-                let node = self.runner.kernel().node(*id)?;
-                (!attribute_rows(node.node_type).is_empty() && exact_kernel::uses_env(node.style))
-                    .then_some(node.key)
-            })
-            .collect();
-        (!touched.is_empty()).then_some(exact_runner::Timed {
-            at_ms: self.now_ms,
-            receipt: exact_kernel::CommitReceipt {
-                epoch: self.runner.kernel().epoch(),
-                touched,
-                ..Default::default()
-            },
-        })
+        svg_props(self.runner.kernel(), node, false, out);
     }
 }
 

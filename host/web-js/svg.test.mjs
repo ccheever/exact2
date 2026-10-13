@@ -42,6 +42,10 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     expect(await hairline.getAttribute('height')).toBe('10px');
     await page.getByTestId('hairline-toggle').click();
     expect(await height(hairline)).toBe(1);
+    expect(await page.getByTestId('use').evaluate(e => {
+      const box = e.getBoundingClientRect();
+      return [e.getAttribute('width'), e.getAttribute('height'), box.width, box.height];
+    })).toEqual([null, null, 200, 400]);
     const envGeometry = () => page.evaluate(() => ['environment-static', 'environment-bound'].map(id => {
       const e = document.querySelector(`[data-testid="${id}"]`);
       return { attribute: e.getAttribute('height'), height: e.querySelector('rect').getBBox().height };
@@ -49,8 +53,8 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
     expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBeNull();
     await page.getByTestId('fallback').click();
-    expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: 'env(viewport-segment-height 1 0, 25%)', height: 100 }]);
-    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBe('env(viewport-segment-height 1 0, 25%)');
+    expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBeNull();
     await page.getByTestId('fallback').click();
     expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
     const cdp = await page.context().newCDPSession(page);
@@ -67,7 +71,7 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
       await page.getByTestId('hairline-toggle').click();
       expect(Number(await hairline.getAttribute('height'))).toBeCloseTo(1 / scale, 6);
     }
-    for (const [width, sharp, ellipseWidth] of [[800, true, 0], [900, true, 0], [1000, false, 20], [800, true, 0]]) {
+    for (const [width, sharp, ellipseWidth] of [[200, true, 0], [300, true, 0], [400, true, 20], [800, true, 100], [900, true, 120], [1000, false, 140], [800, true, 100]]) {
       await page.setViewportSize({ width, height: 600 });
       expect(await page.getByTestId('calculated-rect').evaluate(e => e.isPointInFill(new DOMPoint(1, 1)))).toBe(sharp);
       expect(await page.getByTestId('calculated-ellipse').evaluate(e => e.getBBox().width)).toBe(ellipseWidth);
@@ -76,10 +80,10 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
       displayFeature: { orientation: 'vertical', offset: 400, maskLength: 0 } });
     await page.evaluate(() => dispatchEvent(new Event('resize')));
     expect(await envGeometry()).toEqual([
-      { attribute: 'env(viewport-segment-height 1 0)', height: 600 },
-      { attribute: 'calc(env(viewport-segment-height 1 0) + 0px)', height: 600 },
+      { attribute: null, height: 400 },
+      { attribute: null, height: 400 },
     ]);
-    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBe('calc(env(viewport-segment-height 1 0) + 0px)');
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBeNull();
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await page.evaluate(() => exact.fold.prefer({}));
     expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
@@ -88,11 +92,12 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
       attribute: e.getAttribute('height'),
       height: e.querySelector('rect').getBBox().height,
     }));
-    const attributes = async (extent, offset) => {
-      for (const id of ['mask', 'pattern', 'filter', 'primitive', 'foreign', 'use']) {
+    const attributes = async (extent, offset, foreignExtent = extent) => {
+      for (const id of ['mask', 'pattern', 'filter', 'primitive', 'foreign']) {
+        const size = id === 'foreign' ? foreignExtent : extent;
         expect(await page.getByTestId(id).evaluate(e =>
           ['x', 'y', 'width', 'height'].map(name => e.getAttribute(name))
-        )).toEqual([offset, offset, extent, extent]);
+        )).toEqual([offset, offset, size, size]);
       }
       expect(await page.getByTestId('gradient').evaluate(e =>
         ['cx', 'cy', 'r'].map(name => e.getAttribute(name))
@@ -117,9 +122,15 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     expect(await geometry()).toEqual({ attribute: '50vh', height: 300 });
     await page.getByTestId('auto').click();
     expect(await geometry()).toEqual({ attribute: null, height: 400 });
-    await attributes(null, '20');
+    await attributes(null, '20', '10px');
+    expect(await page.getByTestId('environment-bound').getAttribute('height')).toBe('10px');
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBe('10px');
+    expect(await page.getByTestId('use').getAttribute('height')).toBeNull();
     await page.getByTestId('auto').click();
     expect(await geometry()).toEqual({ attribute: '50vh', height: 300 });
+    expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBeNull();
+    expect(await page.getByTestId('use').getAttribute('height')).toBeNull();
     await browser.close();
     browser = await webkit.launch({ headless: true });
     const safari = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 2 });

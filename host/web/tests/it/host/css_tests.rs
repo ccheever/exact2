@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn svg_environment_attributes_follow_the_segment_grid() {
+fn svg_environment_attributes_stay_omitted_across_state_and_segment_changes() {
     for length in [
         "env(viewport-segment-height 1 0)",
         "calc(env(viewport-segment-height 1 0) + 10%)",
@@ -9,18 +9,25 @@ fn svg_environment_attributes_follow_the_segment_grid() {
         "max(5px, env(viewport-segment-height 1 0))",
         "clamp(1px, env(viewport-segment-height 1 0), 100px)",
         "env(viewport-segment-height 1 0, 25%)",
-        "0px",
+        "ENV(viewport-segment-height 1 0, 25%)",
+        "env(safe-area-inset-top)",
     ] {
         let plan = contract::compile(&format!(
             r##"
 component App
+  state finite = false
+  action toggle
+    finite = not finite
   view
-    svg width=200 height=400
-      defs
-        radialGradient id="gradient" testId="gradient" cx="{length}"
-          stop offset="0%" stop-color="#14b8a6"
-      svg testId="nested" height="{length}"
-        rect width="100%" height="100%" fill="url(#gradient)"
+    column
+      button "Toggle" testId="toggle" press=toggle
+      svg width=200 height=400
+        defs
+          radialGradient id="gradient" testId="gradient" cx=(finite ? "0px" : "{length}")
+            stop offset="0%" stop-color="#14b8a6"
+        svg testId="static" height="{length}"
+        svg testId="nested" height=(finite ? "0px" : "{length}")
+          rect width="100%" height="100%" fill="url(#gradient)"
 "##
         ))
         .unwrap();
@@ -29,27 +36,23 @@ component App
         let (mut host, first) =
             Host::boot(&plan.encode(), caltrain_data::Caltrain, flat, "/").unwrap();
         let first: serde_json::Value = serde_json::from_str(&first).unwrap();
-        let defined = length == "0px" || length.contains("25%");
-        let expected = match length {
-            "0px" => "0",
-            "calc(env(viewport-segment-height 1 0) + 10%)" => {
-                "calc(10% + env(viewport-segment-height 1 0))"
-            }
-            _ => length,
-        };
-        for (test_id, attr) in [("nested", "height"), ("gradient", "cx")] {
+        let ids: Vec<_> = [
+            ("static", "height"),
+            ("nested", "height"),
+            ("gradient", "cx"),
+        ]
+        .into_iter()
+        .map(|(test_id, attr)| {
             let op = first["ops"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .find(|op| op["props"]["data-testid"] == test_id)
                 .unwrap();
-            assert_eq!(
-                op["props"][attr].as_str(),
-                defined.then_some(expected),
-                "{length}"
-            );
-        }
+            assert!(op["props"][attr].is_null(), "{length}: {op}");
+            (op["id"].clone(), attr)
+        })
+        .collect();
         let folded = exact_runner::Viewport {
             fold: exact_runner::Fold {
                 cols: 2,
@@ -57,38 +60,43 @@ component App
             },
             ..flat
         };
-        for (viewport, present) in [(folded, true), (flat, defined)] {
-            let batch = host.resize(viewport, 0.0);
-            let batch: serde_json::Value = serde_json::from_str(&batch).unwrap();
-            let ops = batch["ops"].as_array().unwrap();
-            for (test_id, attr) in [("nested", "height"), ("gradient", "cx")] {
-                let created = first["ops"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|op| op["props"]["data-testid"] == test_id)
-                    .unwrap();
-                let op = ops
-                    .iter()
-                    .find(|op| op["op"] == "props" && op["id"] == created["id"]);
-                if defined {
-                    assert!(op.is_none(), "a fallback and zero stay authored: {batch}");
-                } else if present {
-                    assert_eq!(op.unwrap()["set"][attr], expected, "{batch}");
-                } else {
-                    assert_eq!(op.unwrap()["clear"], serde_json::json!([attr]), "{batch}");
+        for viewport in [folded, flat] {
+            let batch: serde_json::Value =
+                serde_json::from_str(&host.resize(viewport, 0.0)).unwrap();
+            assert!(
+                batch["ops"].as_array().unwrap().is_empty(),
+                "{length}: {batch}"
+            );
+            for finite in [true, false] {
+                let button = view_with_test_id(&host, "toggle");
+                let batch: serde_json::Value =
+                    serde_json::from_str(&host.dispatch(button, Event::Press)).unwrap();
+                for (id, attr) in &ids[1..] {
+                    let op = batch["ops"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|op| op["op"] == "props" && &op["id"] == id)
+                        .unwrap();
+                    if finite {
+                        assert_eq!(op["set"][attr], "0", "{length}: {batch}");
+                    } else {
+                        assert_eq!(op["clear"], serde_json::json!([attr]), "{length}: {batch}");
+                    }
                 }
                 let document = exact_web::document::project(host.runner()).unwrap();
-                assert_eq!(
-                    document.root.contains(&format!("{attr}=\"{expected}\"")),
-                    present,
+                assert!(
+                    !document.root.contains("env("),
                     "{length}: {}",
                     document.root
                 );
+                assert_eq!(
+                    document.root.contains("cx=\"0\""),
+                    finite,
+                    "{}",
+                    document.root
+                );
             }
-            let unchanged: serde_json::Value =
-                serde_json::from_str(&host.resize(viewport, 0.0)).unwrap();
-            assert!(unchanged["ops"].as_array().unwrap().is_empty());
         }
     }
 }

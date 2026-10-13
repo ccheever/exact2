@@ -19,7 +19,7 @@ const again = (source, why) => () => commit(() => { for (const r of Resources) i
 // `readers`: resource name → [its fields, in its shape's order, …].
 const byName = (readers, name, v) => readers[name][0].map(n => v[n]);
 
-let svgEnvironment, svgProbe;
+let svgEnvironment;
 let observingFold = false;
 function observeFold() {
   if (observingFold) return;
@@ -44,10 +44,12 @@ export function svgGeometry(e, name, read) {
   P(e, name, () => {
     const v = cssText(name, "", read());
     if (v == null || /^\s*(auto|initial|unset|revert(-layer)?)\s*$/i.test(v)) return null;
-    const hairline = v === "var(--exact-hairline, 1px)";
-    if (!hairline && !/env\(/i.test(v)) return v;
+    // Segment rectangles are unavailable to the wasm projection. Both web
+    // targets omit env() geometry so all engines use the same initial value.
+    if (/env\(/i.test(v)) return null;
+    if (v !== "var(--exact-hairline, 1px)") return v;
     // A server render has no display; the live binding answers at mount.
-    if (globalThis.__exactRender) return hairline ? 1 : null;
+    if (globalThis.__exactRender) return 1;
     if (!svgEnvironment) {
       svgEnvironment = sig(0);
       observeFold();
@@ -55,17 +57,7 @@ export function svgGeometry(e, name, read) {
     svgEnvironment();
     // SVG attributes cannot use CSS variables in WebKit. SVG and kernel
     // lengths have single precision; keep one device pixel as a user-unit number.
-    if (hairline) return Math.fround(1 / (devicePixelRatio || 1));
-    if (!svgProbe) {
-      svgProbe = document.createElement("div");
-      svgProbe.style.cssText = "display:none!important;position:fixed!important";
-      document.body.append(svgProbe);
-    }
-    // `left` accepts signed lengths and percentages, and an undefined env()
-    // computes to `auto`. SVG attributes instead render it as zero.
-    svgProbe.style.setProperty("left", "auto", "important");
-    svgProbe.style.setProperty("left", String(v), "important");
-    return getComputedStyle(svgProbe).left === "auto" ? null : v;
+    return Math.fround(1 / (devicePixelRatio || 1));
   });
 }
 

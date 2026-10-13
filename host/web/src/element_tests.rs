@@ -390,7 +390,6 @@ fn svg_geometry_attributes_preserve_css_lengths() {
         "calc(10% + 2px)",
         "calc(10vh + 10%)",
         "min(10vw, 50%)",
-        "env(safe-area-inset-top)",
     ] {
         let mut style = StyleProps::default();
         style
@@ -405,7 +404,7 @@ fn svg_geometry_attributes_preserve_css_lengths() {
             inline_run: false,
         };
         let mut out = super::SortedMap::new();
-        super::svg_props_of(&|_, _| None, &facts, &Default::default(), false, &mut out);
+        super::svg_props_of(&|_, _| None, &facts, false, &mut out);
         let mut expected = String::new();
         crate::css::dimension(&mut expected, style.height);
         assert_eq!(out.get("height"), Some(&expected), "{length}");
@@ -413,7 +412,7 @@ fn svg_geometry_attributes_preserve_css_lengths() {
 }
 
 #[test]
-fn undefined_svg_geometry_attributes_take_the_initial_value() {
+fn environment_svg_geometry_attributes_take_the_initial_value() {
     use exact_kernel::{StyleId, StyleValue};
     exact_kernel::link_segments();
     for (kind, row, name) in [
@@ -422,6 +421,9 @@ fn undefined_svg_geometry_attributes_take_the_initial_value() {
     ] {
         for length in [
             "env(viewport-segment-height 1 0)",
+            "env(viewport-segment-height 1 0, 25%)",
+            "ENV(viewport-segment-height 1 0, 25%)",
+            "env(safe-area-inset-top)",
             "calc(env(viewport-segment-height 1 0) + 10%)",
             "min(env(viewport-segment-height 1 0), 50%)",
             "max(5px, env(viewport-segment-height 1 0))",
@@ -441,7 +443,7 @@ fn undefined_svg_geometry_attributes_take_the_initial_value() {
                 inline_run: false,
             };
             let mut out = super::SortedMap::new();
-            super::svg_props_of(&|_, _| None, &facts, &Default::default(), false, &mut out);
+            super::svg_props_of(&|_, _| None, &facts, false, &mut out);
             assert!(out.get(name).is_none(), "{kind:?}: {length}");
         }
     }
