@@ -107,7 +107,7 @@ impl Viewport<'_> {
 
     /// A coordinate, or its default fraction, in user or object bounding box units.
     pub(super) fn coord(&self, d: Option<Dimension>, default: f32, basis: f32) -> f32 {
-        match d {
+        match d.map(|d| d.resolve(self.env)) {
             None | Some(Dimension::Auto) => default * basis,
             Some(d) => self.resolve(d, basis),
         }

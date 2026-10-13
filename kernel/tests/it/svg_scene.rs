@@ -1263,6 +1263,7 @@ fn geometry_lengths_use_the_window_and_svg_percentage_basis() {
     }
 }
 
+// Coverage of the existing content-box path, which already uses laid-out padding.
 #[test]
 fn svg_and_canvas_content_boxes_keep_viewport_padding() {
     for node_type in [NodeType::Svg, NodeType::Canvas] {
