@@ -2,13 +2,13 @@
 name: 20261011-scheduled-tasks-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-scheduled-tasks-followups
 pr_url: https://github.com/ccheever/exact2/pull/456
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # Scheduled tasks follow-ups: Runs on, Open project on another environment's clone, tooltips
@@ -16,7 +16,7 @@ verified_commit: null
 ## Outcome
 
 The user decided on 2026-10-11 to build now the three items
-[live-automations-and-clones](closed/20261005-live-automations-and-clones.md) left ("Left / limits"), matching the
+[live-automations-and-clones](20261005-live-automations-and-clones.md) left ("Left / limits"), matching the
 reference T3 Code.
 
 | Id | Clone | Reference (check it first) |
@@ -200,12 +200,23 @@ Before review round 1 (the code at `0310dd8b7`): Bun 4663 pass, 0 fail; tsc, con
 
 ## Not done / not verified
 
-- ST-1, ST-2 and ST-3 under a real pointer: real-input steps 1-3 (the coordinator's batch; the Mac's screen is locked for
-  task agents).
+- ST-1, ST-2 and ST-3 under a real pointer: ran in `realinput-1011c` ("Real-input results" below).
+
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, ST-1 | STF-1 (B11) | Pass | [STF-1-studio.png](https://raw.githubusercontent.com/ccheever/exact2/dbf3b209457122ad13ae8928de9538c888000b5d/realinput-1011c/b11-studio/STF-1-studio.png) |
+| 2, ST-2 | STF-2 (B11) | Partial: the failure toast, Retry, the success toast and its closing pass; Open project pressed while Settings is open leaves Settings in front (the view behind moves to Studio's widgets draft), where the reference's navigation replaces the Settings route | [STF-2-open-project.png](https://raw.githubusercontent.com/ccheever/exact2/dbf3b209457122ad13ae8928de9538c888000b5d/realinput-1011c/b11-studio/STF-2-open-project.png) |
+| 3, ST-3 | STF-3 (B11) | Partial: the pointer tooltips and both presses pass; the Tab half not reachable: Manage, Edit and Run now are no Tab stops with the Mac's Keyboard navigation off | [STF-3-tab.txt](https://raw.githubusercontent.com/ccheever/exact2/dbf3b209457122ad13ae8928de9538c888000b5d/realinput-1011c/b11-studio/STF-3-tab.txt) |
+
+Not passed: STF-2's Open project over Settings; STF-3's Tab half (the Mac's setting, not run with it on).
 
 ## Delivery
 
-Draft pull request [#456](https://github.com/ccheever/exact2/pull/456) into `feat(example)/t3-code`.
+Merged on 2026-10-12 as `3525e9f1a` (#456, squash) into `feat(example)/t3-code`.
 
 ## Review round 1
 
@@ -220,4 +231,4 @@ The feature branch (`fe0e39c91`, main adoption round 9 and progress-native-bars)
 
 ## Next action
 
-The coordinator reviews the draft PR; real-input steps 1-3 in the next batch.
+None. Closed after `realinput-1011c`; STF-2 and STF-3's Tab half are in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

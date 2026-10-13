@@ -2,13 +2,13 @@
 name: 20261011-network-routes-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-network-routes-followups
 pr_url: https://github.com/ccheever/exact2/pull/463
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # A learned LAN route connects with its borrowed credential; the network access dialog stays closed
@@ -19,8 +19,8 @@ The user decided on 2026-10-11 that these two leftovers are built now, matching 
 
 | Id | Clone (as recorded) | Reference (check it first) |
 | --- | --- | --- |
-| NR-1 | A learned plain-HTTP LAN route is listed ("found automatically") but "this client never sends a credential over plain HTTP to a non-loopback host (`T3Endpoint`), so the walk counts it silent" ([environment-routes](closed/20261005-environment-routes.md), "Remaining differences and limits") | The desktop learns the server's reported LAN addresses (`allowInsecure`: the page is not https) and connects over one with the credential of the route it was learned over (`credentialConnectionId`) |
-| NR-2 | After a failed Network access change, the "Enable network access?" dialog came back over the Appearance page later in the same session ([audit-wave-followups-2](closed/20261010-audit-wave-followups-2.md), "Found during this task") | The dialog closes after any outcome and never comes back by itself |
+| NR-1 | A learned plain-HTTP LAN route is listed ("found automatically") but "this client never sends a credential over plain HTTP to a non-loopback host (`T3Endpoint`), so the walk counts it silent" ([environment-routes](20261005-environment-routes.md), "Remaining differences and limits") | The desktop learns the server's reported LAN addresses (`allowInsecure`: the page is not https) and connects over one with the credential of the route it was learned over (`credentialConnectionId`) |
+| NR-2 | After a failed Network access change, the "Enable network access?" dialog came back over the Appearance page later in the same session ([audit-wave-followups-2](20261010-audit-wave-followups-2.md), "Found during this task") | The dialog closes after any outcome and never comes back by itself |
 
 ## Steps
 
@@ -198,6 +198,16 @@ the branch bundle built and driven once; images composed and uploaded; the final
 2026-10-12: review round 1: a failed fleet write stays with its environment, NR-2's test runs the contract's own open rules,
 one private-IPv4 helper in the AppKit tests; `origin/feat(example)/t3-code` merged at `e91bdc8af`; the final checks again.
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+This task has no real-input steps (both rows are agent mode). The g2 rows over its surfaces ran on the bundle: G2-19 passes (a route order saved on the drop and kept across a relaunch, [G2-19-dragged-pair.png](https://raw.githubusercontent.com/ccheever/exact2/1d184b4144eade685d467e2f3949b7942c6e6be1/realinput-1011c/b4-servers-routes/pairs/G2-19-dragged-pair.png)); G2-14 passes steps 1, 2, 4 and 5 (step 3, Reconnect, is reached in neither app while the stub answers 503); G2-18 fails on keys (the route grips do not move by keys, and the remove confirm's Escape gives the focus to the window, X53's class), not this task's rows. Both are in `STATUS.md` "Known differences".
+
+## Delivery
+
+Merged on 2026-10-12 as `e801aab21` (#463, squash) into `feat(example)/t3-code`.
+
 ## Next action
 
-Review and merge.
+None. Closed after `realinput-1011c`; what stays open is listed in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

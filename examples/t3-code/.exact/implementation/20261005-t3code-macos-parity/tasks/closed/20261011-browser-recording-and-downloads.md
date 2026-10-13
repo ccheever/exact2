@@ -2,13 +2,13 @@
 name: 20261011-browser-recording-and-downloads
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-recording-and-downloads
 pr_url: https://github.com/ccheever/exact2/pull/445
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # The agent's recording tools, agent-driven downloads, and the page mute check
@@ -16,8 +16,8 @@ verified_commit: null
 ## Outcome
 
 The user decided on 2026-10-11 that every item below is built now, matching the reference T3 Code. They are the
-follow-ups the Browser surface's part 3 ([capture](closed/20261005-browser-surface-capture.md)) and part 5
-([automation](closed/20261005-browser-surface-automation.md)) left declared in `EXACT2-GAPS.md` ("Browser surface:
+follow-ups the Browser surface's part 3 ([capture](20261005-browser-surface-capture.md)) and part 5
+([automation](20261005-browser-surface-automation.md)) left declared in `EXACT2-GAPS.md` ("Browser surface:
 declared differences (X1 path B)", Part 3 "Downloads", Part 5 "Recording (part 3)" and "Mute").
 
 | Id | Clone (base `6db5cadea`) | Reference (check it first) |
@@ -196,10 +196,23 @@ then moved to `e91bdc8af`, whose round 10 fixes that sweep, and the run above is
 
 ## Not done / not verified
 
-- Real-input steps 1 and 2 (a person's save sheet and a person's Stop during the agent's recording need a real pointer;
-  the coordinator's session).
+- Real-input steps 1 and 2: ran in `realinput-1011c` and passed ("Real-input results" below).
+
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, BR-2 | BRD-1 (B10) | Pass: the person's save sheet named `export.csv`, Cancel, no new artifact; it asks again after an edit | [BRD-1-save-sheet.png](https://raw.githubusercontent.com/ccheever/exact2/4a2b813363885c6c400668468930b952d053a1e1/realinput-1011c/b10-browser-agent/BRD-1-save-sheet.png) |
+| 2, BR-1 | BRD-2 (B10) | Pass, after one redo in a new thread (the first attempt met the fake agent's one run per thread, a fixture fault): "Recording saved" with Reveal in Finder and Copy path | [BRD-2-saved-toast.png](https://raw.githubusercontent.com/ccheever/exact2/4a2b813363885c6c400668468930b952d053a1e1/realinput-1011c/b10-browser-agent/BRD-2-saved-toast.png) |
+
+G4-08 (the Browser tab's menu, page mute declared SPI-only) passed on the same bundle.
+
+## Delivery
+
+Merged on 2026-10-12 as `443380976` (#445, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-The coordinator's real-input steps 1-2 and a review of the 2026-10-12 fixes; the PR stays a draft until the coordinator
-flips it.
+None. Closed after `realinput-1011c`, which passed both steps.

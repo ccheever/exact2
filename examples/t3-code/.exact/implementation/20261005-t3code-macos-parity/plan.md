@@ -281,8 +281,32 @@ session, `realinput-1011a` (the bundle of `ff1eb4ceb`), passed 14 of 21 steps; d
 them: [dialog-initial-focus-and-model-prices](tasks/closed/20261011-dialog-initial-focus-and-model-prices.md) (#438,
 `976fce617`) and [search-key-and-timeline-commit-title](tasks/closed/20261011-search-key-and-timeline-commit-title.md)
 (#439, `a55c9e7c5`) merged, and a short session, `realinput-1011b` (the bundle of `a55c9e7c5`), passed every step; ⌘⇧F
-is taken by this Mac before any app (the reference and Xcode lose it too), so the clone did not change for it. Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
-main.
+is taken by this Mac before any app (the reference and Xcode lose it too), so the clone did not change for it. Then
+(2026-10-11 to 10-12) the verify-1011c wave and main adoption rounds 9 to 11 merged, all closed:
+[adopt-main-fixes-r9](tasks/closed/20261011-adopt-main-fixes-r9.md) (#458, a fast-forward to `213149fe7`; main `ccc9afd52`),
+[progress-native-bars](tasks/closed/20261011-progress-native-bars.md) (#462, `fe0e39c91`),
+[adopt-main-fixes-r10](tasks/closed/20261012-adopt-main-fixes-r10.md) (#472, a fast-forward to `e91bdc8af`; main `8e7d9cbb0`),
+[network-routes-followups](tasks/closed/20261011-network-routes-followups.md) (#463, `e801aab21`),
+[browser-recording-and-downloads](tasks/closed/20261011-browser-recording-and-downloads.md) (#445, `443380976`),
+[scheduled-tasks-followups](tasks/closed/20261011-scheduled-tasks-followups.md) (#456, `3525e9f1a`),
+[terminal-drawer-unthreaded](tasks/closed/20261011-terminal-drawer-unthreaded.md) (#460, `8fa9446cc`),
+[followups-1012](tasks/closed/20261012-followups-1012.md) (#482, `ca4f28e35`),
+[restore-defaults-and-timeline-glyph](tasks/closed/20261011-restore-defaults-and-timeline-glyph.md) (#470, `84d8c3474`),
+[device-player-compact-and-rail-keys](tasks/closed/20261011-device-player-compact-and-rail-keys.md) (#464, `ad6bac9d6`),
+[media-signed-urls-and-attachment-markdown](tasks/closed/20261011-media-signed-urls-and-attachment-markdown.md) (#465, `bce7abdee`),
+[code-highlighting-languages](tasks/closed/20261011-code-highlighting-languages.md) (#466, `63d1c410c`),
+[pr-list-scroll-and-sidebar-sweep](tasks/closed/20261011-pr-list-scroll-and-sidebar-sweep.md) (#468, `cf16fe13d`),
+[legacy-sidebar-full](tasks/closed/20261011-legacy-sidebar-full.md) (#469, `5863748f1`),
+[diff-cite-popover](tasks/closed/20261011-diff-cite-popover.md) (#479, `6776a0999`),
+[reply-links-reference-behavior](tasks/closed/20261011-reply-links-reference-behavior.md) (#474, `20ce9dfdb`) and
+[adopt-main-fixes-r11](tasks/closed/20261012-adopt-main-fixes-r11.md) (#497, a fast-forward to `1f813789b`; main `b0e4a6c22` with #327). Framework gaps
+X84, X85 and X86 were filed on main (main PRs #483, #485, #488) with a table cell link's Tab stop (#484); main fixed X77,
+X79, X81, X82, X84, X85, X86, X58 and X13's pan (#491, #490, #493, #494, #486, #487, #496, #477, #478), all adopted in
+round 11, and decided X80 by the platform rule. `realinput-1011c` (the bundle of `1f813789b`, 2026-10-12 to 10-13) ran
+the verify-1011c groups and those tasks' rows: 141 rows, 70 passed, 29 failed, 29 passed in part, 6 not run, 2 not
+reachable, 1 not filmable, 4 other. Its failures and part passes are in `STATUS.md` "Known differences" (the user's
+rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`; releaseHold crash, main issue
+pending), whose fix is in progress on main. Open: nothing that can move; the held tasks below wait on main.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with

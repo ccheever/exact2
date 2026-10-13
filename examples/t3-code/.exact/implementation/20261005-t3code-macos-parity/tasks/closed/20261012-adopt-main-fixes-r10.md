@@ -2,13 +2,13 @@
 name: 20261012-adopt-main-fixes-r10
 plan: 20261005-t3code-macos-parity
 implementation: done
-verification: pending
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r10'
 pr_url: https://github.com/ccheever/exact2/pull/472
-verified_commit:
+verified_commit: 1f813789b
 ---
 
 # Main adoption, round 10, and the workarounds its fixes end
@@ -79,7 +79,7 @@ itself is ambiguous).
   currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })`, `formatUsd = CURRENCY.format`).
 - RT-4: `apps/web/src/components/pullRequest/PullRequestListFilters.tsx` (Base UI Menu submenus; the focus left on
   BODY when the pointer left the submenu's trigger), closed record
-  [realinput-1010c-fixes](closed/20261010-realinput-1010c-fixes.md) RC-3.
+  [realinput-1010c-fixes](20261010-realinput-1010c-fixes.md) RC-3.
 - SW-1: `apps/web/src/components/Sidebar.tsx` `startActionSweep` (a new `targetKey`/`sweptKeys` closure per press; `onStart: sweepTo(originKey)`, `onMove: sweepTo(sidebarThreadKeyAtY(list, y))`), `SIDEBAR_DRAG_DISTANCE = 6`; `Sidebar.logic.ts` `resolveSidebarSweepKeys`.
 - RT-6: `apps/web/src/components/settings/ProviderSetupSection.tsx` (`<p role="status">` installation status, the
   `sr-only` `role="status"` pending label), `ProviderAuthenticationSection.tsx` (`<span role="status">` account
@@ -346,8 +346,7 @@ messages' grip drag (`composer-controls.contract:916`–`922`), listed in `STATU
 
 ## Not done / not verified
 
-- Real input (steps 1–3, and the optional 4 and 5): reserved for the coordinator's `realinput-1011c`; this task used no
-  real input.
+- Real input (steps 1–3, and the optional 4 and 5): ran in `realinput-1011c` ("Real-input results" below).
 - The live drive ran on `0af2a208d`'s sources over main `aec9a93a5`; the final head adds main `f084cc1c9` (Android, iOS
   navigation, LLP docs; nothing on the Mac path), review round 2's RT-4 restoration (the code of `fe0e39c91`, whose
   before drive is its evidence) and SW-1 (a drag; its proof is `sidebar-sweep.test.ts`, its real drag step 5). Not
@@ -384,7 +383,24 @@ old check and the X73 row's workaround text, and drops those sentences.
 - The sidebar's project scope popup writes `role="dialog"` where the reference's is a Combobox popup; not changed (not
   checked which role Base UI's Combobox popup takes).
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, RT-4 (X73, RC-3's steps) | R10-1 (B12) | Fail (clone): the first Escape passes; after the second Escape the focus goes to the window and no ring shows on Filters (reference: the focus and its ring on Filters) | [R10-1-focus-pair.png](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/pairs/R10-1-focus-pair.png) |
+| 2, RT-5 X76 | R10-2 (B13) | Pass | [R10-2-menu-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/R10-2-menu-pair.png) |
+| 3, RT-5 X78 | R10-3 (B13) | Pass: `AXLink` with its `AXURL` from another process; the optional Copy Link step not run | [R10-3-axurl-clone.txt](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/R10-3-axurl-clone.txt) |
+| 4, RT-1 (optional) | R10-4 (B13, clone only) | Pass | [R10-4-composer-clone.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/R10-4-composer-clone.png) |
+| 5, SW-1 (optional) | SW-1 (B5) | Pass in the clone; not verified against the reference, whose real-input sweep armed the rows and settled nothing on release | [SW-1-mid-drag-pair.png](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/pairs/SW-1-mid-drag-pair.png) |
+
+Not passed: R10-1 (the rest box kept by decision (b) gave the focus back to Filters in the agent drive; under real keys it went to the window).
+
+## Delivery
+
+Merged on 2026-10-12 by fast-forward (#472; the branch tip `e91bdc8af`), never a squash.
+
 ## Next action
 
-The coordinator reviews the draft PR (review round 2), runs steps 1–3 (and the optional 4 and 5) in `realinput-1011c`,
-and lands the PR as a merge or a fast-forward (never a squash).
+None. Closed after `realinput-1011c`; R10-1 (the focus after Filters' second Escape) is in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

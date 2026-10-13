@@ -2,13 +2,13 @@
 name: 20261011-media-signed-urls-and-attachment-markdown
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-media-signed-urls-and-attachment-markdown
 pr_url: https://github.com/ccheever/exact2/pull/465
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # Media in Files' rendered Markdown, and an attachment's Markdown media
@@ -20,8 +20,8 @@ Code (`1e2ecbd975`):
 
 | Id | From | Clone (feature tip `6db5cadea`) | Reference (check it first) |
 | --- | --- | --- | --- |
-| MD-1 | [media-actions](closed/20261005-media-actions.md) "Not built / limits": "Files' rendered Markdown preview media (the Files Markdown blocks get no signed URLs; chat Markdown does)" | Images and media in Files › "Show rendered markdown" | Load through the signed URLs the reference uses: FileMarkdownPreview is ChatMarkdown with `cwd` (the workspace) and `imageBaseDir` (the file's folder); a host path becomes a `media-file` asset of the thread (`ChatMarkdownAssetImage`), a web URL loads as written |
-| MD-2 | [markdown-links-and-files-preview](closed/20261009-markdown-links-and-files-preview.md) "Found, not changed": "A sent attachment's Markdown preview still uses `r4-surfaces-render.ts`" | A sent attachment's rendered Markdown | The same renderer as the rest of the app: AttachmentFilePreview is `<ChatMarkdown text cwd={undefined} />`, with no thread |
+| MD-1 | [media-actions](20261005-media-actions.md) "Not built / limits": "Files' rendered Markdown preview media (the Files Markdown blocks get no signed URLs; chat Markdown does)" | Images and media in Files › "Show rendered markdown" | Load through the signed URLs the reference uses: FileMarkdownPreview is ChatMarkdown with `cwd` (the workspace) and `imageBaseDir` (the file's folder); a host path becomes a `media-file` asset of the thread (`ChatMarkdownAssetImage`), a web URL loads as written |
+| MD-2 | [markdown-links-and-files-preview](20261009-markdown-links-and-files-preview.md) "Found, not changed": "A sent attachment's Markdown preview still uses `r4-surfaces-render.ts`" | A sent attachment's rendered Markdown | The same renderer as the rest of the app: AttachmentFilePreview is `<ChatMarkdown text cwd={undefined} />`, with no thread |
 
 What the drives of the tip showed against the reference (lane `media-signed-urls-and-attachment-markdown`, base port
 16480: a `docs/media.md` with two images inside a sentence, then images beside the file, in its parent, absolute, missing,
@@ -245,8 +245,7 @@ size costs for parity before (U15, RL-5).
 
 ## Not done / not verified
 
-- MD-1 under a real pointer (the native media menu over an inline image, Copy relative path into the pasteboard):
-  real-input step 1, for the coordinator's session (real input is reserved for it).
+- MD-1 under a real pointer: ran in `realinput-1011c` ("Real-input results" below); the image's tooltip was not seen.
 
 ## Seen while building, not a finding row
 
@@ -269,6 +268,20 @@ size costs for parity before (U15, RL-5).
 - The reference draws a list item's bullet at the foot of a standalone image's 16:9 frame (the marker sits on the
   last line box's baseline); the clone's sits at the top of the item. Pixel-level.
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, MD-1 | MSU-1 (B13) | Partial: the media menu at the pointer, Copy relative path (`docs/shot.png`) and Open in file viewer pass ((3), (4)); (2) not observed: hovering the image shows no readable tooltip (an empty AX help tag, nothing drawn), so its full path could not be read | [MSU-1-tip.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/MSU-1-tip.png) |
+
+The g4 rows over the media ran on the same bundle: G4-07's save sheet passes in the clone; G4-05 (a click on a chat Markdown image opens no expanded-image dialog) and G4-06 (the media take no focus, and offer no `AXShowMenu`) pass in part. All are in `STATUS.md` "Known differences".
+
+## Delivery
+
+Merged on 2026-10-12 as `bce7abdee` (#465, squash) into `feat(example)/t3-code`.
+
 ## Next action
 
-The coordinator reviews the draft PR (its plan size is accepted, above); real-input step 1 in the next session.
+None. Closed after `realinput-1011c`; MSU-1's tooltip is in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

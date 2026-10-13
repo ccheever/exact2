@@ -1,5 +1,5 @@
 // adopt-main-fixes-r11: the workarounds main's fixes ended stay retired. Each read the clone's sources; the behaviour is
-// proven by the AppKit tests named below and the record's agent drives (tasks/20261012-adopt-main-fixes-r11.md).
+// proven by the AppKit tests named below and the record's agent drives (tasks/closed/20261012-adopt-main-fixes-r11.md).
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 

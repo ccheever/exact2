@@ -19,7 +19,7 @@ test('the accent picker starts from the saved color and its HSV formula round-tr
 // their names: the React harness becomes the picker's rules as settings-b-accent.contract keeps them (the stops' keys
 // `sbAxisKey`, the hue's `hueKey`, both color-picker.tsx's, mirrored by theme-color-picker.ts planeKey and hueKey; each
 // key commits `sbHex`, mirrored by hsvToHex here). The Contract component's keys, focus and range values are checked by
-// the drive in tasks/20261011-progress-native-bars.md.
+// the drive in tasks/closed/20261011-progress-native-bars.md.
 describe('shared color controls in settings (the provider accent)', () => {
   type Picker = { hsv: { h: number; s: number; v: number }; commits: string[] };
   const startAt = (hex: string): Picker => ({ hsv: hexToHsv(hex), commits: [] });

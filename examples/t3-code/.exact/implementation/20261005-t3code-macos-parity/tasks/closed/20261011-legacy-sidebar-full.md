@@ -2,13 +2,13 @@
 name: 20261011-legacy-sidebar-full
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-legacy-sidebar-full
 pr_url: https://github.com/ccheever/exact2/pull/469
-verified_commit: null
+verified_commit: 1f813789b
 ---
 
 # The "Sidebar (legacy)" in full: PR links, ports, file drops, keyboard Archive, branch threads, background environments
@@ -16,7 +16,7 @@ verified_commit: null
 ## Outcome
 
 Decision U22 (the user, 2026-10-11): the legacy sidebar is built in full, as the reference. The first build
-([legacy-sidebar](closed/20261005-legacy-sidebar.md), PR #143) left six differences in its "Remaining differences"
+([legacy-sidebar](20261005-legacy-sidebar.md), PR #143) left six differences in its "Remaining differences"
 list. This task builds each of them so the legacy sidebar does what `LegacySidebar.tsx` does.
 
 | Id | Clone (feature tip `6db5cadea`) | Reference (check it first) |
@@ -292,9 +292,7 @@ Round 0 (on `aef1a2d16`, `fe0e39c91` merged): all the same checks exit 0 but `ca
 
 ## Not done / not verified
 
-- Real-input steps 1-7 (above): a Finder file drag (LS-3), real Tab and Enter (LS-4), native menu picks (LS-5, LS-6),
-  a real pointer and ⌘-click (LS-1, LS-2), the list motion under a real archive (LS-8). The agent cannot enter a
-  native menu's tracking or start an AppKit drag session; the in-app paths are covered as listed.
+- Real-input steps 1-7: ran in `realinput-1011c` ("Real-input results" below).
 - A legacy tooltip whose row goes with no press of its own (another device archives it, a key shortcut) while it
   shows, the pointer then resting on no legacy row, header or trigger (the empty space under the list): it stays until
   the pointer reaches one or the surface changes. A component has no unmount event in Contract to close it, and the
@@ -321,12 +319,28 @@ Round 0 (on `aef1a2d16`, `fe0e39c91` merged): all the same checks exit 0 but `ca
   it ended a confirmation; the legacy row now wraps the glyph (`TerminalGlyph`, split out of the indicator) in its own
   `LegacyRowTip`.
 
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, LS-3 (file drops) | LSF-3 (B12) | Partial: drops 1, 2, 3 and 5 pass; drop 4 fails: a file dropped on a background environment's thread row shows the ring and does nothing (reference: that environment's thread opens with the chip) | [LSF-3-drops.txt](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/LSF-3-drops.txt) |
+| 2, LS-4 (keys, reviews) | LSF-4b (B12) | Partial: steps 1, 2, 3, 6, 7 and 8 pass; the inline archive Confirm never takes the focus, so ⇧Tab and Tab cannot reach it (reference: Confirm focused); step 4 not reachable; step 5's dot observable in neither app | [LSF-4b-focus.txt](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/LSF-4b-focus.txt) |
+| 2, LS-4 (Tab to Archive) | LS-11, LS-5 (B5) | Not reachable: Tab reaches no sidebar control with the Mac's Keyboard navigation off (the clone's Tab stops only at text fields), where the reference tabs to every control, Archive included; LS-5's pointer path passes | [LS-11-focus-clone.txt](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/LS-11-focus-clone.txt) |
+| 3, LS-5 (New thread on a branch) | LS-7 (B5), LSF-5w (B12) | Pass (LS-7's Mark unread not verified: no completed run in the fixture) | [LSF-5w-draft-pair.png](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/pairs/LSF-5w-draft-pair.png) |
+| 4, LS-6 (background menus) | LSF-6 (B12) | Fail (crash): steps 1–2 pass; the clone crashed on the thread Delete confirm's mouse-up (`NodeView.releaseHold`, releaseHold crash, main issue pending; the delete was never sent); steps 4–5 not run | [LSF-6-crash-summary.txt](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/LSF-6-crash-summary.txt) |
+| 4, LS-6 (local menus) | LS-6 (B5) | Fail: Project settings opens nothing (reference: Settings › Projects); the remove confirms do not hold Tab; no "Environment:" line; "Group into..." against "Group into…" | [LS-6-project-settings-pair.png](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/pairs/LS-6-project-settings-pair.png) |
+| 5, LS-1 | LSF-1 (B12) | Pass; recorded: the clone keeps the Pull Requests list's query when a glyph selects a pull request | [LSF-1-beside-pair.png](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/pairs/LSF-1-beside-pair.png) |
+| 6, LS-2 | LSF-2 (B12) | Pass; finding: a legacy row click on the Pull Requests page does not open the thread (clone; the reference not tried) | [LSF-2-browser-pair.png](https://raw.githubusercontent.com/ccheever/exact2/3a72de6a243dde7070d3aef5f3a1220fcd701e2a/realinput-1011c/b12-github-lane/pairs/LSF-2-browser-pair.png) |
+| 7, LS-8 (archive motion) | LS-5 (B5), LS-12 | Pass: an archive fades and the rows below slide up in about 185–190 ms (reference about 170–185 ms), filmed by real capture; LS-12's agent film is blank (not filmable) | [LS-5-archive-confirm-film-pair.png](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/pairs/LS-5-archive-confirm-film-pair.png) |
+
+Not passed: LSF-3's drop 4, LSF-4b, LSF-6 (the crash) and LS-6. The other g3 rows over the legacy sidebar on the same bundle: LS-1 (prep), LS-2, LS-9 and LS-10 pass; LS-3 passes in part; LS-4 (a real double-click's rename field without the focus) and LS-8 (⌘-click, ⌘-click, ⇧-click selects 2, reference 3) fail. All are in `STATUS.md` "Known differences".
+
 ## Delivery
 
-Draft PR [#469](https://github.com/ccheever/exact2/pull/469) into `feat(example)/t3-code`.
+Merged on 2026-10-12 as `5863748f1` (#469, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-Review round 2 is fixed (2026-10-12). Re-review the draft PR; the coordinator creates the proposed
-`settings-projects-fleet` task and the STATUS.md "Known differences" row for Project settings; real-input steps 1-7 in
-the coordinator's batch (step 2 now includes the reviews' focus, Confirm, tooltip and double-click checks).
+None. Closed after `realinput-1011c`; LSF-3's drop 4, LSF-4b, LS-6 and the releaseHold crash (LSF-6; a framework bug, main issue pending) are in `STATUS.md` "Known differences", with the Project settings row (the user's decision of 2026-10-11: no new tasks from real-input failures or build observations, so the proposed `settings-projects-fleet` task was not created).

@@ -2,13 +2,13 @@
 name: 20261011-diff-cite-popover
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-cite-popover
 pr_url: https://github.com/ccheever/exact2/pull/479
-verified_commit: 1789fa055
+verified_commit: 1f813789b
 ---
 
 # Cite: the citation chip's comment popover, and the rest of Cite
@@ -16,7 +16,7 @@ verified_commit: 1789fa055
 ## Outcome
 
 The user decided on 2026-10-11 that both items are built now, matching the reference T3 Code. Source record:
-[diff-review-engine](closed/20261005-diff-review-engine.md) (G3 Cite: "the chip's comment popover is not built (native
+[diff-review-engine](20261005-diff-review-engine.md) (G3 Cite: "the chip's comment popover is not built (native
 composer chip; needs a popover anchored to a chip, X22 #127)"; "blocks with inline code (word-by-word texts) and code
 blocks are not citable; the selection is not cleared after citing (#132)").
 
@@ -241,8 +241,7 @@ On the final head of the review round (after merging `origin/feat(example)/t3-co
 
 ## Not done / not verified
 
-- Real-input steps A to G above (the coordinator's session). X86's workaround is now seen live in the agent drive (run 3b), not
-  yet under real input (step F).
+- Real-input steps A to G: passed in `realinput-1011c` ("Real-input results" below), step F with round 11's X86 fix.
 - ⌘↵ save-and-send's live key route (⌘↵ reaching the comment's textarea while Send declares no chord, then `pressSend`):
   Bun and AppKit cover each half, but no drive presses it. Blocker: the lane's clone finds the Mac's provider CLIs, so its
   Send would start a provider turn, which the task's rules forbid; it needs a lane whose Send cannot reach a provider.
@@ -250,8 +249,26 @@ On the final head of the review round (after merging `origin/feat(example)/t3-co
   driven (real-input step F covers it).
 - Clearing a code block's selection after Cite: blocked on #274 (`removeAllRanges`).
 - The selection rectangle (#274) and following a timeline scroll (#127): declared differences.
-- X86: a framework gap, recorded in `EXACT2-GAPS.md` and filed on main by [#488](https://github.com/ccheever/exact2/pull/488) (`issues/20261012-column-height-ignores-leaf-max-height.md`, open); the clone keeps its workaround (the 4rem to 10rem box) until that lands.
+- X86: a framework gap, recorded in `EXACT2-GAPS.md`, filed on main by [#488](https://github.com/ccheever/exact2/pull/488) and fixed there by #496; round 11 (#497) retired the 4rem to 10rem box.
+
+## Real-input results
+
+`realinput-1011c` (2026-10-12 21:43 to 10-13 20:17 KST, five sittings; the attended session for the verify-1011c groups g1–g5 and the rows the 2026-10-11/12 merges brought) ran on the bundle of `1f813789b`, the T3 tip after #497, which holds this task: one lane copy per batch beside the reference T3 Code `1e2ecbd975`, real keys and pointer, light and dark from each lane app's own Appearance setting, never System Settings. Each row got one pass; failures were recorded, not retried. Session notes: [00-session-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/a94ddd5cdbf485f1f57dc92c965c46c4bb17c8be/realinput-1011c/00-session-notes.txt).
+
+| Step | Session row | Result | Evidence |
+| --- | --- | --- | --- |
+| 1, A | DCP-A (B13) | Pass | [DCP-A-saved-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/DCP-A-saved-record-pair.png) |
+| 2, B | G4-03 step 5 (B2) | Pass (G4-03's step 2 fails: Tab after a double-click clears the selection and Cite instead of focusing Cite, with the Mac's Keyboard navigation off; not this task's step) | [G4-03-cite-tab-pair.png](https://raw.githubusercontent.com/ccheever/exact2/7f34eae2b1671e15926020b44cadef91b08146d6/realinput-1011c/b2-panels-browser/pairs/G4-03-cite-tab-pair.png) |
+| 3, C | DCP-C (B13) | Pass | [DCP-C-escape-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/DCP-C-escape-record-pair.png) |
+| 4, D | DCP-D (B13) | Pass (#274 declared) | [DCP-D-code-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/DCP-D-code-record-pair.png) |
+| 5, E | DCP-E (B13) | Pass; recorded: the pencil's popover sits left of its chip | [DCP-E-dark-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/DCP-E-dark-record-pair.png) |
+| 6, F | DCP-F (B13) | Pass: the 230 pt cap holds, with round 11's X86 fix in place of the box | [DCP-F-limit-record-pair.png](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/pairs/DCP-F-limit-record-pair.png) |
+| 7, G | DCP-G (B13), DCP-Gv (B6x, VoiceOver) | Pass; recorded: VoiceOver reads the prompt's citations as raw Markdown link text | [DCP-G-ax.txt](https://raw.githubusercontent.com/ccheever/exact2/e82734c90b35e3677e8f3119050ddec5516f241e/realinput-1011c/b13-fixture-lane/DCP-G-ax.txt) |
+
+## Delivery
+
+Merged on 2026-10-12 as `6776a0999` (#479, squash) into `feat(example)/t3-code`.
 
 ## Next action
 
-Review the draft PR (the review round's four problems are fixed or listed); the real-input steps in the coordinator's session.
+None. Closed after `realinput-1011c`, which passed steps A to G.
