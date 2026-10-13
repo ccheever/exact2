@@ -286,13 +286,7 @@ impl<D: DataSource> Bridge<D> {
             preferences: self.preferences,
             fold: self.fold,
         };
-        // A checkpoint keeps its renderer's clock, against which the page's
-        // date would be wrong: its date is told after the boot, as before.
-        let checkpoint = self.checkpoint.take();
-        let launch_facts = exact_runner::time::Launch {
-            time: self.launch_facts.time.filter(|_| checkpoint.is_none()),
-            place: self.launch_facts.place.clone(),
-        };
+        let (checkpoint, launch_facts) = (self.checkpoint.take(), self.launch_facts.clone());
         let booted = exact_runner::time::launching_with(launch_facts, || match checkpoint {
             Some((digest, page)) => Host::boot_checkpoint_linked(
                 self.links,

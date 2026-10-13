@@ -90,6 +90,19 @@ pub fn launching_with<T>(launch: Launch, boot: impl FnOnce() -> T) -> T {
     boot()
 }
 
+/// `boot` under the launch being booted under, without its date: a boot
+/// whose clock is not the host's (a rendered page's checkpoint keeps its
+/// renderer's), told its date after.
+pub fn without_launch_time<T>(boot: impl FnOnce() -> T) -> T {
+    launching_with(
+        Launch {
+            time: None,
+            place: launch_place(),
+        },
+        boot,
+    )
+}
+
 /// The date a boot under [`launching`] reads first.
 pub(crate) fn launch_time() -> WallTime {
     LAUNCH.with(|l| l.borrow().time).unwrap_or_default()
