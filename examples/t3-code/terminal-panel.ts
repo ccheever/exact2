@@ -32,8 +32,10 @@ export function panelTerminalLabel(client: T3Client, terminalId: string): string
   const summary = ref ? knownSessions(client, ref).find(session => session.target.terminalId === terminalId)?.state.summary : null;
   return resolveTerminalSessionLabel(terminalId, summary);
 }
+/** ChatView.closeRightPanelSurface: the surface's active terminal first, then the others in order. */
 export function terminalSurfaceCloseCopy(client: T3Client, surface: Surface): { closeTitle: string; closeBody: string } {
-  const [first, ...rest] = surface.terminal?.terminalIds.map(id => panelTerminalLabel(client, id)) ?? [];
+  const terminal = surface.terminal, ids = terminal ? [terminal.activeTerminalId, ...terminal.terminalIds.filter(id => id !== terminal.activeTerminalId)].filter(Boolean) : [];
+  const [first, ...rest] = ids.map(id => panelTerminalLabel(client, id));
   if (!first) return { closeTitle: '', closeBody: '' };
   const [closeTitle, closeBody] = terminalCloseConfirmMessage([first, ...rest]);
   return { closeTitle, closeBody };
