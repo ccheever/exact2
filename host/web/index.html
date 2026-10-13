@@ -380,8 +380,10 @@
      sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6). */
   [navigationPresentation="modal"] { isolation: isolate; position: relative; }
   [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
-  /* `all: unset` would inherit the field's color onto the placeholder. */
-  input:not([data-native])::placeholder, textarea:not([data-native])::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
+  /* `all: unset` would inherit the field's color onto the placeholder. An authored `::placeholder` colour (LLP 1104 D3) is the private
+     `--exact-placeholder-color` (css.rs), its own alpha the only opacity; without one a bare field mutes its ink and a native field keeps the UA's. */
+  input:not([data-native])::placeholder, textarea:not([data-native])::placeholder { color: var(--exact-placeholder-color, light-dark(#3c3c434c, #ebebf54c)); opacity: 1; }
+  :is(input, textarea)[data-native]::placeholder { color: var(--exact-placeholder-color, revert-layer); }
   /* A platform material (host policy, LLP 1053.000 D3, D4): the schema's approximation of the named material, from the variables the host sets
      (element.rs `material_css`). It wins over an authored backdrop-filter on the same node, as the native hosts do. */
   [backgroundMaterial] { backdrop-filter: blur(var(--exact-material-blur)) saturate(var(--exact-material-saturate)) !important; background-color: light-dark(var(--exact-material-light), var(--exact-material-dark)); }

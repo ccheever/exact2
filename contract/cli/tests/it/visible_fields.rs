@@ -458,3 +458,113 @@ fn textfield_is_the_platforms_field_without_a_number_fields_stepper() {
         assert_eq!(e.id, "lower-appearance", "{body}: {}", e.message);
     }
 }
+
+/// LLP 1104 D3 (amended 2026-10-12): CSS's `::placeholder { color }`, a part
+/// block in a `style` or on the field itself, where its value may be
+/// computed. The field's own wins over its class's, an unset arm gives the
+/// platform's colour back, and a field without it has no row. Only `color`,
+/// only on a text field; the names an author might guess point at the block.
+#[test]
+fn a_placeholder_part_colours_a_text_field_and_nothing_else() {
+    use exact_kernel::{Color, ColorValue};
+    let mut r = boot(
+        "style Themed\n  padding=4\n  ::placeholder\n    color=\"#6b7280\"\n",
+        "input placeholder=\"Search\" class=Themed testId=\"class\"\ninput placeholder=\"Name\" class=Themed testId=\"own\"\n  ::placeholder\n    color=\"red\"\ntextarea placeholder=\"Notes\" testId=\"arm\"\n  ::placeholder\n    color=(on ? \"#00800080\" : none)\ninput placeholder=\"Plain\" testId=\"plain\"\nbutton press=flip testId=\"flip\"\n  text \"Flip\"",
+    );
+    let colour = |r: &Runner<NoData>, name: &str| {
+        let node = r.kernel().node(id(r, name)).unwrap();
+        assert!(
+            !node.style.mask.has(StyleId::TextColor),
+            "{name}: the field's own colour is untouched"
+        );
+        node.style
+            .mask
+            .has(StyleId::PlaceholderColor)
+            .then_some(node.style.placeholder_color)
+    };
+    let fixed = |r, g, b, a| Some(ColorValue::Fixed(Color::rgba(r, g, b, a)));
+    assert_eq!(colour(&r, "class"), fixed(0x6b, 0x72, 0x80, 0xff));
+    assert_eq!(
+        colour(&r, "own"),
+        fixed(0xff, 0, 0, 0xff),
+        "the field's own part wins"
+    );
+    assert_eq!(
+        colour(&r, "arm"),
+        fixed(0, 0x80, 0, 0x80),
+        "its own alpha, kept"
+    );
+    assert_eq!(colour(&r, "plain"), None, "no part: the platform's colour");
+    r.dispatch(id(&r, "flip"), Event::Press).unwrap();
+    assert_eq!(
+        colour(&r, "arm"),
+        None,
+        "an unset arm gives the platform's colour back"
+    );
+    for (styles, body, refusal, says) in [
+        (
+            "",
+            "input placeholder-color=\"red\"",
+            "lower-unknown-attr",
+            "::placeholder",
+        ),
+        (
+            "",
+            "input -exact-placeholder-color=\"red\"",
+            "lower-unknown-attr",
+            "::placeholder",
+        ),
+        (
+            "",
+            "input\n  ::placeholder\n    font-style=\"italic\"",
+            "lower-unknown-attr",
+            "only `color`",
+        ),
+        (
+            "style S\n  ::placeholder\n    opacity=0.5\n",
+            "input class=S",
+            "lower-unknown-attr",
+            "only `color`",
+        ),
+        (
+            "",
+            "text \"Hi\"\n  ::placeholder\n    color=\"red\"",
+            "lower-attr-tag",
+            "text field",
+        ),
+        (
+            "",
+            "input type=\"checkbox\"\n  ::placeholder\n    color=\"red\"",
+            "lower-attr-tag",
+            "text field",
+        ),
+        (
+            "",
+            "input\n  ::before\n    color=\"red\"",
+            "syntax-part",
+            "no generated box",
+        ),
+        (
+            "",
+            "input\n  ::selection\n    color=\"red\"",
+            "syntax-part",
+            "::placeholder",
+        ),
+        (
+            "style S\n  ::after\n    color=\"red\"\n",
+            "input class=S",
+            "syntax-part",
+            "no generated box",
+        ),
+        (
+            "",
+            "input\n  ::placeholder\n    color=\"red\"\n  ::placeholder\n    color=\"blue\"",
+            "syntax-duplicate-attr",
+            "::placeholder",
+        ),
+    ] {
+        let e = contract::compile(&app(styles, body)).unwrap_err();
+        assert_eq!(e.id, refusal, "{body}: {}", e.message);
+        assert!(e.message.contains(says), "{body}: {}", e.message);
+    }
+}

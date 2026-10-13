@@ -1,6 +1,7 @@
 # Text rows: `text-wrap: balance`, an authored placeholder colour, `-webkit-font-smoothing` (rest of #128)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** text-wrap: balance (bounded, six lines, Chrome's breaks) on web, AppKit/UIKit and Linux, and CSS ::placeholder { color } as a part block lowered to placeholder_color on web, AppKit, UIKit and Linux; proven by TextBalanceTests, balance_tests.rs, visible_fields.rs a_placeholder_part_colours_a_text_field_and_nothing_else and the Native Fields Mac/iOS placeholder tests; review regressions also cover greedy web overrides, neutral placeholder colours and header-search font/reset; second-review regressions cover CSS's `auto` keyword, a recoloured balanced paragraph's width and a disabled field's authored placeholder ink; font smoothing stays deferred
 **Systems:** kernel text, Contract, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
@@ -10,6 +11,120 @@
 ## Current scope
 
 Add selected balance and authored ::placeholder color, pinning bounded line breaking and Contract representation and amending LLP 1104. Defaults remain platform-native when absent; font smoothing stays deferred.
+
+## Implementation (2026-10-12)
+
+`text-wrap-style: balance` (and its `text-wrap` shorthand) is an inherited
+text row that every host balances: the browser on the web; AppKit and UIKit
+(`LineBreakPlan.balance`, the region worker too) and Linux (`shaping.rs`)
+over their own breakers with `exact_textflow::balanced_width`, bounded to six
+lines before the first forced break, as Chromium. Chrome's line widths for the
+reported sentence (16 px Arial at 180 px: `[151.2, 150.33, 148.56]`; 16 px
+DejaVu Sans at 240 px: `[174.33, 170.72, 168.75]`, justified
+`[240, 240, 168.75]`) are pinned in `TextBalanceTests.swift` and
+`host/linux/src/text/balance_tests.rs`.
+
+CSS's `::placeholder { color }` is a part block, in a `style` or under an
+`input`/`textarea` (computed there), lowered to the non-inherited
+`placeholder_color` row; absent, each platform keeps its own colour. The web
+writes `--exact-placeholder-color` for `index.html`'s `::placeholder` rules, AppKit
+and UIKit set the field's attributed placeholder and their textareas draw it,
+Linux paints it. `placeholder-color`, `-exact-placeholder-color`, other
+properties in the part, `::before`/`::after`, and the part on other elements
+are refused with what to write (`visible_fields.rs`). Font smoothing stays
+deferred.
+
+## Review corrections (2026-10-12)
+
+The first review added a `normal` → `auto` web translation for a greedy child
+overriding inherited balance; the second review's corrections (below)
+replaced it with CSS's own `auto` keyword. The neutral look honours the authored placeholder colour before its default.
+The CSS and JS mapping tests failed before these fixes; `textrows.test.mjs`
+builds and clicks a Contract fixture in Chrome and checks greedy line breaks
+and clearing a computed placeholder colour. `neutral-look.test.mjs` checks
+input and textarea colours, alpha and restoration in both looks, in Chrome,
+Firefox and WebKit.
+
+Header searches use the ordinary UIKit field's `applyPlaceholder` helper,
+preserving the search field's font and restoring its default attributes when
+the colour is unset. `NavigationBarIOSTests.testSearchPlaceholderColourKeepsTheFontAndResets`
+first failed for the missing font and stale colour; it also checks clearing
+and restoring the placeholder text. Clearing the text already passed before
+the fix: UIKit's changed `bar.placeholder` setter clears the attributed string.
+
+The reported Firefox opacity defect did not reproduce in the repository's
+Playwright Firefox 155: its UA placeholder has `opacity: 1` and puts the 0.54
+alpha in its colour (`color(srgb 0 0 0 / 0.54)`). Authored opaque and half-alpha
+red both retain their own alpha. The browser regression covers this; no opacity
+override was added.
+
+Final review verification passed (2026-10-12): the UIKit class ran 19 tests
+on the iOS 27 iPhone 18 Pro Max `793D239B-0A6E-48CB-9C12-E87C729207EB`,
+which this lane booted and shut down. The browser look suite ran nine tests
+across three engines, and the compiled Chrome fixture passed. Initial browser
+attempts timed out under heavy shared-host load. An initial UIKit link failed
+with unresolved anonymous symbols from `exact-plan`; cleaning that crate's
+generated iOS artifacts and rebuilding resolved it before the red/green run.
+
+Commands (all final runs passed):
+
+```sh
+cargo test -p exact-web -p exact-web-js --lib --bins --tests --no-fail-fast
+cargo test -p exact-web --test it style_rows_lower_to_css_by_their_names --no-fail-fast
+cargo test -p exact-apple --lib --tests --no-fail-fast
+cargo clippy -p exact-web -p exact-web-js -p exact-apple --all-targets -- -D warnings
+cargo fmt --all -- --check
+bun test host/web/tests/neutral-look.test.mjs
+bun test host/web/tests/textrows.test.mjs
+zsh /private/tmp/claude-501/-Users-ccheever-projects-exact2/5f1c298e-7e97-40bc-8a1a-486f1889060d/scratchpad/ios-verify.sh /Users/ccheever/projects/exact2-iss-textrows NavigationBarIOSTests 793D239B-0A6E-48CB-9C12-E87C729207EB
+```
+
+## Second review corrections (2026-10-12)
+
+- **CSS's keyword.** The row's values are `auto | balance`, CSS's
+  `text-wrap-style` spelling (the schema said `normal`, which CSS does not
+  have), so both web targets write the value as is, literal or bound.
+  `pretty` and `stable` are refused with what is implemented: Chrome breaks
+  `pretty` text differently and no native breaker has it, and `stable` is
+  refused with it rather than half-accepted; `normal` gets the enum's
+  `expected one of "auto", "balance"`. `typography.rs`
+  `unsupported_text_wrap_styles_name_the_css_values_we_support` and the
+  `auto` cases of `textrows.test.mjs` cover it. `SCHEMA_DIGEST` moved, and
+  `NativeFieldsIOSTests`' fieldless plan was compiled again.
+- **Apple, reused breaks.** A paragraph laid out again with breaks it reused
+  (the same text recoloured) did not prepare the break plan, so it skipped
+  balancing and measured as its narrower balanced lines (155.64 instead of
+  181.45 for the 180 px sentence). Balancing now runs whenever the paragraph
+  balances, reused breaks or not.
+  `TextBalanceTests.testRecolouringBalancedTextKeepsItsMeasuredWidth` failed
+  before the fix.
+- **Linux, a disabled field's authored placeholder.** Linux mixed a disabled
+  native field's placeholder ink halfway to the field's fill even when the
+  author wrote `::placeholder { color }` (red painted about
+  rgb(255,127,127)). Chrome paints the authored colour unchanged on a
+  disabled input (rgb(255, 0, 0), opacity 1; its unauthored disabled
+  placeholder stays rgb(117, 117, 117)), so the authored colour now wins,
+  as an authored `color` already did for the value. `pinned/paint.rs`
+  `disabled_fields_keep_authored_placeholder_ink` failed before the fix.
+  AppKit and UIKit already kept it (`NativeFieldsMacTests`,
+  `NativeFieldsIOSTests` now check a disabled field), as does the web
+  (`neutral-look.test.mjs`).
+
+Commands (all passed):
+
+```sh
+cargo test -p exact-kernel --lib
+cargo test -p contract --test it
+cargo test -p exact-linux --lib --tests --no-fail-fast
+cargo test -p exact-web --test it css; cargo test -p exact-web --lib css
+cargo test -p exact-web-js --bins style
+cargo test -p exact-apple --lib measure
+cargo clippy -p exact-kernel -p contract -p contract-lower -p exact-web -p exact-web-js -p exact-linux -p exact-apple --all-targets -- -D warnings
+cargo fmt --all -- --check
+bun test host/web/tests/textrows.test.mjs host/web/tests/neutral-look.test.mjs
+bun host/apple/build.mjs --test   # TextBalanceTests, NativeFieldsMacTests and the other text classes
+ios-verify.sh <worktree> NativeFieldsIOSTests 793D239B-0A6E-48CB-9C12-E87C729207EB
+```
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 

@@ -118,9 +118,12 @@ pub fn tags() -> Vec<(&'static str, Tag)> {
 /// Every attribute, by name: the scanned arms of `attr`, and the style
 /// names, which are a table (`style_names::STYLE_NAMES`, LLP 1081 D8).
 pub fn attrs() -> Vec<(&'static str, AttrTarget)> {
+    // A part's declaration (`::placeholder color`) is no attribute to write:
+    // `contract vocab ::placeholder` describes the block.
     let styles: Vec<&'static str> = crate::style_names::STYLE_NAMES
         .iter()
         .map(|(n, ..)| *n)
+        .filter(|n| !n.starts_with("::"))
         .collect();
     sorted(&[ATTR_CANDIDATES, &styles].concat())
         .into_iter()

@@ -31,9 +31,8 @@ pub struct Skipped {
     pub reason: &'static str,
 }
 
-/// A hairline as a page that keeps no kernel writes it (LLP 1115.000 D10.3):
-/// the custom property the shell's sheet (`index.html`) holds at one device
-/// pixel, by the display's resolution.
+/// A hairline for a page without a kernel: the shell's custom property at
+/// one device pixel (LLP 1115.000 D10.3).
 pub const HAIRLINE: &str = "var(--exact-hairline, 1px)";
 
 /// The `cssText` for a node's set rows, plus what was skipped.
@@ -599,6 +598,8 @@ fn spell_property(out: &mut String, id: StyleId) {
     let name = match id {
         StyleId::TextColor => return out.push_str("color"),
         StyleId::TintColor => return out.push_str("--exact-tint"),
+        // @ref LLP 1104 D3 — `::placeholder`'s colour, read by index.html.
+        StyleId::PlaceholderColor => return out.push_str("--exact-placeholder-color"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
@@ -1070,6 +1071,16 @@ mod declaration_tests {
         }
         let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
         css_text(&style, &fonts).0
+    }
+
+    /// LLP 1001 §6's balance; LLP 1104 D3's `::placeholder` colour.
+    #[test]
+    fn balance_and_the_placeholder_colour_are_written_for_the_browser() {
+        let text = |id, v: &str| css(&[(id, StyleValue::Text(v.into()))], &[]);
+        let wrap = text(StyleId::TextWrapStyle, "balance");
+        assert_eq!(wrap, "text-wrap-style:balance;");
+        let ink = text(StyleId::PlaceholderColor, "#00800080");
+        assert_eq!(ink, "--exact-placeholder-color:rgba(0,128,0,0.5019608);");
     }
 
     #[test]

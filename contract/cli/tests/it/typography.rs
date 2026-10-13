@@ -416,3 +416,22 @@ fn a_trimmed_paragraph_split_by_columns_is_cut_at_its_outer_ends() {
         "{f:?}"
     );
 }
+
+/// CSS `text-wrap-style` (LLP 1001 §6): `auto | balance`; Chrome's other
+/// breakers and the old `normal` are refused with what is implemented.
+#[test]
+fn unsupported_text_wrap_styles_name_the_css_values_we_support() {
+    for (attr, value) in [
+        ("text-wrap-style", "normal"),
+        ("text-wrap-style", "pretty"),
+        ("text-wrap", "stable"),
+    ] {
+        let source = format!("component App\n  view\n    text \"Hello\" {attr}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert!(
+            error.message.contains("\"auto\", \"balance\"")
+                || error.message.contains("implements `auto` and `balance`"),
+            "{error}"
+        );
+    }
+}

@@ -156,6 +156,8 @@ package final class TextArea: NSTextView {
     package override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
 
     var placeholder = "" { didSet { needsDisplay = true } }
+    /// The authored `::placeholder` colour (LLP 1104 D3); nil, the platform's.
+    var placeholderColor: NSColor? { didSet { if placeholderColor != oldValue { needsDisplay = true } } }
     package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty, !placeholder.isEmpty {
@@ -163,7 +165,7 @@ package final class TextArea: NSTextView {
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
+                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
             ])
         }
     }
@@ -285,6 +287,7 @@ extension NodeView {
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
         f.insertionPointColor = caretColor
+        (f as? TextArea)?.placeholderColor = placeholderColor
         let native = isNativeTextControl
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none

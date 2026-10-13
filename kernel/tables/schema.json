@@ -1932,6 +1932,14 @@
       ],
       "default": "normal"
     },
+    "TextWrapStyle": {
+      "_comment": "@ref LLP 1001 §6: CSS text-wrap-style, auto or balance; balance is bounded to six lines by the native breakers.",
+      "values": [
+        "auto",
+        "balance"
+      ],
+      "default": "auto"
+    },
     "FontVariantNumeric": {
       "_comment": "@ref LLP 1053 §0 G4: the keywords of the font_variant_numeric row, not a wire enum. normal is 0; tabular-nums is bit 0 (1), the OpenType tnum feature of the chosen face. Other CSS values are refused by name.",
       "values": [
@@ -3863,6 +3871,22 @@
       "terminal": "admit",
       "codec": "enum:OutlineStyle",
       "_comment": "@ref LLP 1104 D6: CSS `outline-style` on a text field (`input`, `textarea`). An unset mask is the platform's focus ring, as the UA sheet's `:focus-visible` outline is the browser's: the ring the OS draws for a native field, the one Exact draws for a bare one. `none` takes it off on every host, and Tab order and accessibility stay. A terminal draws no ring. Not inherited, as in CSS."
+    },
+    {
+      "bit": 204,
+      "field": "text_wrap_style",
+      "codec": "enum:TextWrapStyle",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1001 §6: CSS text-wrap-style: balance, also the admitted text-wrap shorthand. Every host balances the lines before the first forced break, up to six, as Chromium does: the web's browser, Apple's and Linux's breakers over their own opportunities (exact_textflow::balanced_width)."
+    },
+    {
+      "bit": 205,
+      "field": "placeholder_color",
+      "codec": "color",
+      "default": 0,
+      "_comment": "@ref LLP 1104 D3: CSS `::placeholder { color }`, written as Contract's `::placeholder` part block on a text field (`input` of a text type, `textarea`). An unset mask (the default, 0, is never read) is the platform's own placeholder colour: UIKit's placeholderText, AppKit's placeholderTextColor, the browser's UA `::placeholder`. Its own alpha is the only opacity. Not inherited (it is the field's own part)."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

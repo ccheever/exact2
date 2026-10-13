@@ -387,7 +387,9 @@ impl<D: DataSource> Presenter<D> {
         {
             ink = crate::paint::control::disabled_field_ink(ink, dark);
         }
-        let hint = role("-exact-placeholder").unwrap_or([0x75, 0x75, 0x75, 0xff]);
+        let hint = crate::paint::control::authored_placeholder(node.style, dark)
+            .or_else(|| role("-exact-placeholder"))
+            .unwrap_or([0x75, 0x75, 0x75, 0xff]);
         let authored = crate::paint::control::accent(&node, dark);
         let accent = crate::paint::control::accents(authored, dark).0;
         let caret = style.caret_color.map_or(accent, |c| rgba(c.resolve(dark)));

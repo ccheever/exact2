@@ -202,6 +202,10 @@ pub struct Paragraph {
     pub overflow_wrap: OverflowWrap,
     /// CSS whitespace preservation/collapsing.
     pub white_space: crate::WhiteSpace,
+    /// CSS `text-wrap-style`: `balance` breaks the lines before the first
+    /// forced break at the narrowest width that keeps their count
+    /// ([`exact_textflow::balanced_width`]), up to six lines.
+    pub text_wrap_style: crate::TextWrapStyle,
     /// CSS `text-indent` in points: the first line starts this far in from
     /// the start edge (right under `rtl`) and has that much less room.
     pub text_indent: f32,
@@ -259,6 +263,7 @@ impl Paragraph {
             text_overflow: p.text_overflow,
             overflow_wrap: p.overflow_wrap,
             white_space: p.white_space,
+            text_wrap_style: p.text_wrap_style,
             text_indent: p.text_indent,
             hyphens: p.hyphens,
             text_box_trim: p.text_box_trim,
@@ -277,6 +282,7 @@ impl Paragraph {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
             text_indent: s.text_indent,
             hyphens: s.hyphens,
             text_box_trim: s.text_box_trim,
@@ -1002,13 +1008,14 @@ impl RunRows {
 }
 
 /// The paragraph rows [`Paragraph::from_style`] reads besides its strut.
-const PARAGRAPH_ROWS: [StyleId; 10] = [
+const PARAGRAPH_ROWS: [StyleId; 11] = [
     StyleId::Direction,
     StyleId::TextAlign,
     StyleId::LineClamp,
     StyleId::TextOverflow,
     StyleId::OverflowWrap,
     StyleId::WhiteSpace,
+    StyleId::TextWrapStyle,
     StyleId::TextIndent,
     StyleId::Hyphens,
     StyleId::TextBoxTrim,
@@ -1022,6 +1029,7 @@ struct ParagraphRows {
     text_overflow: crate::TextOverflow,
     overflow_wrap: crate::OverflowWrap,
     white_space: crate::WhiteSpace,
+    text_wrap_style: crate::TextWrapStyle,
     text_indent: f32,
     hyphens: crate::Hyphens,
     text_box_trim: crate::TextBoxTrim,
@@ -1037,6 +1045,7 @@ impl ParagraphRows {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
             text_indent: s.text_indent,
             hyphens: s.hyphens,
             text_box_trim: s.text_box_trim,
@@ -1061,6 +1070,9 @@ impl ParagraphRows {
         }
         if mask.has(StyleId::WhiteSpace) {
             self.white_space = s.white_space;
+        }
+        if mask.has(StyleId::TextWrapStyle) {
+            self.text_wrap_style = s.text_wrap_style;
         }
         if mask.has(StyleId::TextIndent) {
             self.text_indent = s.text_indent;
@@ -1127,6 +1139,7 @@ mod tests {
             text_overflow: TextOverflow::Clip,
             overflow_wrap: OverflowWrap::Normal,
             white_space: crate::WhiteSpace::Normal,
+            text_wrap_style: crate::TextWrapStyle::Auto,
             text_indent: 0.0,
             hyphens: crate::Hyphens::Manual,
             text_box_trim: crate::TextBoxTrim::None,

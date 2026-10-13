@@ -763,3 +763,31 @@ component App
       button "Check for Updates…" -exact-menu="app" press=checkUpdates testId="updates"
       text message
 ```
+## ::placeholder: a text field's placeholder colour
+names: placeholder, placeholder-color, -exact-placeholder-color, placeholderTextColor, ::before, ::after
+
+CSS's `::placeholder { color }` is a block: `::placeholder` on its own line under an `input` or a
+`textarea` (before its children; there a value may compute) or in a `style`, then `color=…`
+indented beneath it. It admits `color` alone, with its own alpha; the field's own block wins over its
+class's; without one each platform keeps its own placeholder colour (UIKit's, AppKit's, the
+browser's).
+
+```contract
+style Field
+  ::placeholder
+    color="#6b7280"
+
+component App
+  state dark = false
+  view
+    column
+      input placeholder="Search" class=Field
+      textarea placeholder="Notes"
+        ::placeholder
+          color=(dark ? "#9ca3af" : "#6b7280")
+```
+
+- Another property in the block (`font-style`, `opacity`) is refused; so is the block on any other
+  element, which has no placeholder.
+- `::before` and `::after` are refused: Contract has no generated box. Write what they would show as
+  a child (a `text`, an `image`).

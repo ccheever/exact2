@@ -145,6 +145,9 @@ pub struct Spec {
     pub overflow_wrap: exact_kernel::OverflowWrap,
     /// CSS whitespace processing mode.
     pub white_space: exact_kernel::WhiteSpace,
+    /// CSS `text-wrap-style`; `balance` balances the lines before the first
+    /// forced break (`shaping::ShapedSource::balanced`).
+    pub text_wrap_style: exact_kernel::TextWrapStyle,
     /// CSS paragraph base direction.
     pub direction: exact_kernel::Direction,
     /// CSS `text-indent`, points: the first line's inset from its start edge.
@@ -209,6 +212,7 @@ impl Spec {
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
             white_space: request.paragraph.white_space,
+            text_wrap_style: request.paragraph.text_wrap_style,
             direction: request.paragraph.direction,
             text_indent: request.paragraph.text_indent,
             text_box_trim: request.paragraph.text_box_trim,
@@ -1223,3 +1227,7 @@ mod eviction_tests;
 #[cfg(test)]
 #[path = "text/text_box_tests.rs"]
 mod text_box_tests;
+
+#[cfg(test)]
+#[path = "text/balance_tests.rs"]
+mod balance_tests;

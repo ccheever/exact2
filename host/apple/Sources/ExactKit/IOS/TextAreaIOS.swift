@@ -178,12 +178,14 @@ package final class TextArea: UITextView {
         typingAttributes.merge(attributes) { _, authored in authored }
     }
     var placeholder = "" { didSet { setNeedsDisplay() } }
+    /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
+    var placeholderColor: UIColor?
     package override func draw(_ rect: CGRect) {
         super.draw(rect)
         if text.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
-                .foregroundColor: UIColor.placeholderText,
+                .foregroundColor: placeholderColor ?? UIColor.placeholderText,
             ])
         }
     }
@@ -298,6 +300,7 @@ extension NodeView {
             f.typingAttributes[.kern] = number("letter_spacing")
             f.textStorage.addAttribute(.kern, value: number("letter_spacing"), range: NSRange(location: 0, length: f.textStorage.length))
         }
+        (f as? TextArea)?.placeholderColor = placeholderColor
         (f as? TextArea)?.configureNativeChrome(isNativeTextControl, cell: isCellField)
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()

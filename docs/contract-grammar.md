@@ -101,8 +101,9 @@ field         = FIELD ":" type NL ;
 function      = "fn" IDENT "(" [ typed-params ] ")" ":" type "=" expr NL ;
 typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
-style         = "style" IDENT block(style-line) ;
+style         = "style" IDENT block(style-line | part) ;
 style-line    = { FIELD "=" style-literal } NL ;
+part          = "::" "placeholder" NL block(style-line) ;
 style-literal = STRING | NUMBER | "-" NUMBER | "true" | "false" ;
 keyframes     = "keyframes" IDENT block(keyframe-line) ;
 keyframe-line = selector { "," selector } { FIELD "=" frame-value } NL ;
@@ -123,6 +124,17 @@ A font face's weight is a whole number in 1–1000. Keyframe percentages are in
 are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
+
+A part is CSS's pseudo-element as a block: `::placeholder`, then its
+declarations indented beneath it, in a `style` (literal) or under an `input` or
+`textarea` before its children (where a value may compute, as the element's own
+attributes do). It admits `color` alone (CSS `::placeholder { color }`, LLP 1104
+D3), its alpha its own; the field's own block wins over its class's, and without
+one the placeholder keeps the platform's colour. Another property in it is
+`lower-unknown-attr`; on another element `lower-attr-tag`; `::before` and
+`::after` are `syntax-part` (Contract has no generated box: write a child), as
+is any other part. `placeholder-color` and `-exact-placeholder-color` are
+refused with the block to write.
 
 A length attribute's string is CSS's own text, read by the kernel: a px or
 other absolute length, a percentage, a viewport length, `auto`,
@@ -275,8 +287,9 @@ Component `contract` sections are also refused.
 node          = element | component-use | when | each | view-match | children ;
 element       = TAG { attribute | expr | special-word } NL [ element-body ] ;
 attribute     = FIELD "=" expr | "autofocus" ;
-element-body  = INDENT { continuation } { node } DEDENT ;
+element-body  = INDENT { continuation | element-part } { node } DEDENT ;
 continuation  = FIELD "=" expr { attribute } NL ;
+element-part  = "::" "placeholder" NL block(continuation) ;
 component-use = CAPITALIZED_IDENT "(" [ named-args ] ")" NL [ node-children ] ;
 named-args    = FIELD "=" expr { "," FIELD "=" expr } [ "," ] ;
 node-children = INDENT node { node } DEDENT ;
@@ -724,6 +737,10 @@ border widths in layout. AppKit, UIKit and Linux paint their dots and dashes;
 `column-rule-style` still accepts only `none`, `hidden` and `solid` on native hosts.
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
+`text-wrap-style="balance"` and its `text-wrap="balance"` shorthand are
+inherited; `auto` restores ordinary greedy wrapping. `pretty` and `stable` are refused with the supported values, `auto | balance`. Every host balances the
+lines before a paragraph's first forced break, up to six, at the narrowest
+width that keeps their count, as Chrome does (LLP 1001 §6).
 
 `-exact-hairline` is a length every length row takes but a font's size and line
 height ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md) D10.3): one

@@ -684,6 +684,10 @@ pub(crate) fn check_style_value(
                     span,
                 );
             }
+            // @ref LLP 1001 §6: CSS's `text-wrap-style` keywords the hosts lack.
+            if rows.contains(&StyleId::TextWrapStyle) && matches!(v.trim(), "pretty" | "stable") {
+                return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `balance`; Chrome's `pretty` and `stable` line breakers are not implemented on the native hosts. Use `auto` for ordinary wrapping", a.name), span);
+            }
             // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
             // page's schemes, not the parent's, and `light dark` and `only`
             // ask a browser to choose: none is implemented; leaving the

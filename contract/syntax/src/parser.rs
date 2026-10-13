@@ -14,6 +14,7 @@ mod expr;
 mod keyframes;
 mod media_session;
 mod names;
+mod parts;
 #[path = "routes.rs"]
 mod routes;
 mod sounds;
@@ -523,20 +524,23 @@ impl Parser {
         let span = self.expect_word("style")?;
         let name = self.named_ident(span)?;
         self.newline()?;
-        let attrs = self.literal_attrs(&format!("style {name}"))?;
+        // A part's block (`::placeholder`) beside the rows (parts.rs).
+        let owner = format!("style {name}");
+        let mut attrs = Vec::new();
+        self.block(|p| {
+            if p.at_part() {
+                p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else {
+                attrs.extend(p.literal_line(&owner)?);
+                Ok(())
+            }
+        })?;
+        unique_attrs(&attrs, &owner)?;
         Ok(StyleDecl { name, attrs, span })
     }
 
-    /// An indented block of `attr=literal` lines, several to a line, each
-    /// name once: the body of a `style` or of a keyframe.
-    fn literal_attrs(&mut self, owner: &str) -> R<Vec<Attr>> {
-        let lines = self.block(|p| p.literal_line(owner))?;
-        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
-        unique_attrs(&attrs, owner)?;
-        Ok(attrs)
-    }
-
-    /// One line of `attr=literal` pairs, through its newline.
+    /// One line of `attr=literal` pairs, through its newline: a `style`'s
+    /// (several to a line, each name once) or a keyframe's.
     fn literal_line(&mut self, owner: &str) -> R<Vec<Attr>> {
         let mut attrs = Vec::new();
         while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {

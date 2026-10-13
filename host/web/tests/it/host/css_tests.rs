@@ -43,6 +43,8 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::Hyphens, &StyleValue::Text("auto".into()))
         .unwrap();
+    s.set_dynamic(StyleId::TextWrapStyle, &StyleValue::Text("auto".into()))
+        .unwrap();
     // LLP 1093: multi-column layout reaches CSS by its own names.
     for (row, value) in [
         (StyleId::ColumnCount, StyleValue::Number(3.0)),
@@ -117,6 +119,7 @@ fn style_rows_lower_to_css_by_their_names() {
         "letter-spacing:1.2px;",
         "text-indent:-24px;",
         "hyphens:auto;",
+        "text-wrap-style:auto;",
         "column-count:3;",
         "column-width:120px;",
         "column-fill:auto;",

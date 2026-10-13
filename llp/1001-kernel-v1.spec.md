@@ -1156,6 +1156,28 @@ production path): `LayoutTree` records it, `compute_layout` reports
 
 ## 6. Text (WS-E, WS-I)
 
+**Balanced wrapping (Charlie, 2026-10-12).** CSS `text-wrap-style: balance`,
+also written `text-wrap: balance`, is an inherited paragraph row; `auto`
+restores greedy wrapping. A host first finds the greedy line count at the
+available width, then chooses the smallest width that keeps that count using
+the same break opportunities. It balances at most six lines, leaving longer
+paragraphs greedy, as Chromium does, and a `line-clamp` keeps greedy lines.
+Only the lines before the first forced break balance; the rest break
+greedily at the box's width, as Chrome's do. Balancing moves the breaks,
+never the box: the paragraph measures as its greedy lines do, and
+`text-align` (justification too) places each line in the box's width. The
+web emits the CSS property directly, including bound values, and lets the browser
+break its lines. `pretty` and `stable` are refused with the supported values
+(`auto | balance`), rather than promising algorithms the native breakers lack. AppKit and
+UIKit (`TextBreaks.swift`, `LineBreakPlan.balance`, over the paragraph's own
+breaker, in the region worker too) and Linux (`shaping.rs`, over Parley's)
+search the width to 1/64 px with `exact_textflow::balanced_width` (Apple's
+`TextEngine.balancedLimit` is its Swift twin). Checked against Chrome's line
+widths for the issue's sentence: 16 px Arial at 180 px on the Mac
+(`TextBalanceTests`), 16 px DejaVu Sans at 240 px on Linux
+(`balance_tests.rs`); the web JS target's conformance fixture carries it
+(`styles.contract`). A terminal entry refuses the row.
+
 **Book typography** (the reader diary, 2026-10-04). `text-align: justify`
 fills every line but a paragraph's last and one before a forced break, on
 every host; a line with no justification opportunity stays at the start, as

@@ -2511,6 +2511,13 @@ and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
 language on the web and Apple (Linux has no dictionary and breaks only at soft
 hyphens).
 
+`text-wrap="balance"` (CSS's `text-wrap-style`, inherited) evens a short
+paragraph's lines, for a tooltip, a toast or an empty state's message: the
+lines before its first forced break take the narrowest width that keeps their
+count, as Chrome's do, on every host. It balances up to six lines (more, or a
+`line-clamp`, wrap as usual), moves only the breaks (the box measures as
+before, and `text-align` places the lines in it), and `auto` turns it off. `pretty` and `stable` are refused; supported values are `auto | balance`.
+
 `text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),
 to centre a label in a pill or line a heading's cap height up with an icon
 without padding by eye: `text-box="trim-both cap alphabetic"` trims the first
@@ -2554,7 +2561,26 @@ A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
 `url`, `number` or no type, and `textarea` outside the Markdown editor) is the
 platform's own field by default (LLP 1104). On the web it inherits the page's
 font and colour, as a CSS reset does; other platforms use their control's own
-text style. Disabled and placeholder appearances are the platform's.
+text style. Disabled and placeholder appearances are the platform's. To colour
+the placeholder, write CSS's `::placeholder` as a block under the field (its
+value may compute) or in a `style`; it admits `color` alone, with its own
+alpha, and without it the placeholder keeps the platform's colour (LLP 1104
+D3; `contract vocab ::placeholder`):
+
+```contract
+style Field
+  ::placeholder
+    color="#6b7280"
+
+component App
+  state dark = false
+  view
+    column
+      input placeholder="Search" class=Field
+      textarea placeholder="Notes"
+        ::placeholder
+          color=(dark ? "#9ca3af" : "#6b7280")
+```
 
 A background, border or radius makes it your own box, as in a browser;
 `appearance="none"` says so explicitly. This is decided once after classes

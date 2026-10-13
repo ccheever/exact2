@@ -51,5 +51,9 @@ component Styles
         view testId="ordered-c" width=40 height=12 background-color="gold" order=1
       view testId="current" width=60 height=20 color="#2a9d8f" background-color=(on ? "currentcolor" : "#e76f51")
       text "inherits" testId="inherits" color=(on ? "unset" : "#e76f51")
+      text "Settle every thread in this section and keep the newest one open" testId="balanced" width=180 text-wrap=(on ? "auto" : "balance")
       input testId="free"
       textarea testId="free-body"
+      input testId="hinted" placeholder="Search"
+        ::placeholder
+          color=(on ? "#2a9d8f80" : "#e76f51")

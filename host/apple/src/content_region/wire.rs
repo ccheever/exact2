@@ -77,8 +77,9 @@ pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String
         // CSS `text-box`, as an ordinary paragraph's request carries it
         let _ = write!(
             out,
-            ",\"align\":{align},\"lineClamp\":{},\"overflowWrap\":{wrap},\"textBoxTrim\":{},\"textBoxOver\":{},\"textBoxUnder\":{},\"strut\":{{",
+            ",\"align\":{align},\"lineClamp\":{},\"overflowWrap\":{wrap},\"textWrapStyle\":{},\"textBoxTrim\":{},\"textBoxOver\":{},\"textBoxUnder\":{},\"strut\":{{",
             r.paragraph.line_clamp,
+            r.paragraph.text_wrap_style as u8,
             r.paragraph.text_box_trim as u8,
             r.paragraph.text_box_edge.over() as u8,
             r.paragraph.text_box_edge.under() as u8

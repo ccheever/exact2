@@ -143,6 +143,7 @@ extension NodeView {
         let edge = style["text_box_edge"]?.string ?? "auto"
         spec.textBoxOver = edge.hasPrefix("cap") ? 1 : edge.hasPrefix("ex") ? 2 : 0
         spec.textBoxUnder = edge.hasSuffix("alphabetic") ? 1 : 0
+        spec.balance = style["text_wrap_style"]?.string == "balance"
         // The kernel's measurer hyphenates by the same document language.
         if spec.hyphens == 2 { spec.language = presenter?.documentLanguage ?? "" }
         spec.hyphenateAuto()

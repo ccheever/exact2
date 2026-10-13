@@ -175,12 +175,14 @@ fn entry(name: &str) -> Option<Entry> {
         .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))
         .map(|(n, _)| n)
         .collect();
-    let open =
-        vocab::open_set(name).filter(|_| tag.is_none() && attr.is_none() && value_of.is_empty());
+    let concept = concepts::concept(name);
+    // A concept's own name (`placeholder-color`) is answered by the concept,
+    // not by the open set's note that it might be a native module.
+    let open = vocab::open_set(name)
+        .filter(|_| tag.is_none() && attr.is_none() && value_of.is_empty() && concept.is_none());
     let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
     let function = functions::function(name);
     let part = part(name);
-    let concept = concepts::concept(name);
     let known = tag.is_some()
         || attr.is_some()
         || !value_of.is_empty()

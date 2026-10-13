@@ -57,6 +57,18 @@ fn field_fill(dark: bool) -> [u8; 4] {
     }
 }
 
+/// An authored `::placeholder` colour (LLP 1104 D3), its alpha its own;
+/// `None` leaves the platform's.
+pub(crate) fn authored_placeholder(
+    style: &exact_kernel::StyleProps,
+    dark: bool,
+) -> Option<[u8; 4]> {
+    style
+        .mask
+        .has(exact_kernel::StyleId::PlaceholderColor)
+        .then(|| super::rgba(style.placeholder_color.resolve(dark)))
+}
+
 // Keep the fill opaque; disabled border and unauthored ink approach that fill.
 pub(crate) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
     let fill = field_fill(dark);
@@ -519,4 +531,24 @@ mod field_tests {
             }
         }
     }
+}
+
+/// LLP 1104 D3: the authored `::placeholder` colour, its alpha kept; none
+/// is the platform's (the field's paint and the hosted field's hint).
+#[cfg(test)]
+#[test]
+fn an_authored_placeholder_colour_keeps_its_alpha_and_none_is_the_platforms() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    assert_eq!(authored_placeholder(&style, false), None);
+    let pair = StyleValue::Text("light-dark(#00800080, #eeeeee)".into());
+    style.set_dynamic(StyleId::PlaceholderColor, &pair).unwrap();
+    assert_eq!(
+        authored_placeholder(&style, false),
+        Some([0, 0x80, 0, 0x80])
+    );
+    assert_eq!(
+        authored_placeholder(&style, true),
+        Some([0xee, 0xee, 0xee, 0xff])
+    );
 }

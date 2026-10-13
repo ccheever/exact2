@@ -91,7 +91,7 @@
   #exact-root input[data-native], #exact-root textarea[data-native], #exact-root select:not([multiple]), #exact-root input[data-exact-field] { border-color: var(--exact-line); background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); }
   #exact-root input[data-native], #exact-root textarea[data-native] { padding: .4375em .75em; line-height: 1.25; }
   #exact-root input[data-exact-field] { height: 2.25em; }
-  #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder); opacity: 1; }
+  #exact-root :is(input, textarea)::placeholder { color: var(--exact-placeholder-color, var(--exact-placeholder)); opacity: 1; }
   @media (pointer: coarse) { #exact-root input[data-native] { padding-block: .6875em; } #exact-root input[data-exact-field] { height: 44px; } #exact-root select:not([multiple]) { line-height: 2.625; } }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled, #exact-root select:not([multiple]):disabled, #exact-root input[data-exact-field]:disabled { color: var(--exact-gray-text); background-color: var(--exact-secondary-background); border-color: var(--exact-separator); }
   /* The select's caret, in the secondary label's ink, at the inline end. */

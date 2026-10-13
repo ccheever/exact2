@@ -261,6 +261,39 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(state(session, "query") as? String, "abc")
     }
 
+    /// A search colour changes only the ink; clearing it restores UIKit's placeholder.
+    func testSearchPlaceholderColourKeepsTheFontAndResets() throws {
+        let session = try fixture("search-placeholder", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let search = try XCTUnwrap(nav.topViewController?.navigationItem.searchController)
+        let field = search.searchBar.searchTextField
+        let source = try node(session, "header-search")
+        let original = field.attributedPlaceholder
+        let font = try XCTUnwrap(field.font)
+        func project() {
+            session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        }
+        func ink() -> UIColor? { field.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor }
+        let red: [String: BatchValue] = ["placeholder_color": .array([.number(255), .number(0), .number(0), .number(255)])]
+        source.applyStyle(red)
+        let authored = try XCTUnwrap(source.placeholderColor)
+        project()
+        XCTAssertEqual(ink(), authored)
+        XCTAssertEqual(field.attributedPlaceholder?.attribute(.font, at: 0, effectiveRange: nil) as? UIFont, font)
+        source.applyStyle([:])
+        project()
+        XCTAssertEqual(field.attributedPlaceholder, original, "the same text with no colour restores UIKit's attributes")
+        source.applyStyle(red)
+        project()
+        source.applyProps(set: ["placeholder": ""], clear: [])
+        project()
+        XCTAssertTrue(field.attributedPlaceholder == nil || field.attributedPlaceholder?.length == 0)
+        source.applyProps(set: ["placeholder": "Search again"], clear: [])
+        project()
+        XCTAssertEqual(field.attributedPlaceholder?.string, "Search again")
+        XCTAssertEqual(ink(), authored)
+    }
+
     /// LLP 1075.003 §9.8: a header's text tablist is the item's title view,
     /// a segmented control; a segment's tap presses its tab.
     func testAHeaderTablistIsTheItemsSegmentedTitleView() throws {

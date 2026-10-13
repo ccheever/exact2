@@ -631,6 +631,8 @@ extension NavigationHost {
         let bar = search.controller.searchBar
         let placeholder = field.props["placeholder"] ?? ""
         if bar.placeholder != placeholder { bar.placeholder = placeholder }
+        // The same font, colour and clearing rules as an ordinary field (LLP 1104 D3).
+        field.applyPlaceholder(bar.searchTextField)
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }

@@ -304,6 +304,21 @@ fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refus
 }
 
 #[test]
+fn text_wrap_balance_shorthand_and_longhand_reach_the_kernel() {
+    let source = "component App\n  view\n    column text-wrap=\"balance\"\n      text \"Settle every thread in this section and keep the newest one open\" testId=\"balanced\"\n      text \"Plain\" text-wrap-style=\"auto\" testId=\"auto\"\n";
+    let r = boot(source);
+    let row = exact_kernel::StyleId::TextWrapStyle;
+    for (id, expected) in [("balanced", "balance"), ("auto", "auto")] {
+        let node = r
+            .kernel()
+            .node_by_key(r.kernel().find_by_test_id(id)[0])
+            .unwrap();
+        let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+        assert_eq!(style.get(row), exact_kernel::RowValue::Enum(expected));
+    }
+}
+
+#[test]
 fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
     let source = "component App\n  state chosen = true\n  view\n    view testId=\"target\" align-self=(chosen ? \"auto\" : \"center\") width=\"auto\"\n";
     let plan = contract::compile(source).unwrap();

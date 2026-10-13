@@ -415,6 +415,12 @@ change can break.
 
 ## Features carried over as "no"
 
+**Admitted (Charlie, 2026-10-12, textrows ruling):** bounded
+`text-wrap: balance` and a `::placeholder` part containing only `color` for
+the tooltips, toasts, empty states and themed fields of
+`issues/closed/20261009-balanced-text-placeholder-color.md`. This
+amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
+
 **Runtime**
 
 - GPU / WebGPU substrate. The old repo carries ~139,000 lines of Rust adapter code

@@ -149,6 +149,8 @@ struct Spec: Hashable {
     var textBoxTrim = 0
     var textBoxOver = 0
     var textBoxUnder = 0
+    /// CSS `text-wrap-style: balance` (TextBreaks.swift, `balance`).
+    var balance = false
 }
 
 /// Where collapsed white space went, from `exact_text_collapse`: offsets
@@ -1012,7 +1014,8 @@ package final class TextEngine {
         var plan = LineBreakPlan()
         let text = shape.attributed.string as NSString
         // `nowrap` takes no soft break (below), so it needs none of them.
-        if spec.wraps && width.isFinite && breaks == nil && ranges == nil {
+        // Reused breaks still balance: the box measures as the greedy lines.
+        if spec.wraps && width.isFinite && ((breaks == nil && ranges == nil) || (spec.balance && spec.lineClamp == 0)) {
             if let cached = shape.lineBreakBoundaries { plan.boundaries = cached }
             else {
                 plan.boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
@@ -1021,6 +1024,13 @@ package final class TextEngine {
             }
             plan.prepare(text, length: length)
         }
+        func next(_ plan: inout LineBreakPlan, _ start: Int, _ room: Double) -> Int {
+            plan.next(typesetter, source: shape.attributed, text: text, start: start, room: room, offerWidth: width,
+                      breakWord: spec.overflowWrap != 0, length: length)
+        }
+        // CSS `text-wrap-style: balance` (TextBreaks.swift): a narrower room until the first forced break.
+        let balanced = spec.balance && spec.lineClamp == 0 && !plan.boundaries.isEmpty && width > 0
+            ? plan.balance(limit, length: length, inset: { Double(insets.at($0).width) }, next: next, typesetter: typesetter, source: shape.attributed) : nil
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
             var count: Int
@@ -1038,15 +1048,8 @@ package final class TextEngine {
             } else {
                 // CSS `text-indent` takes its room from the first line only,
                 // a list item's indent from each of its lines.
-                let room = limit - Double(insets.at(start).width)
-                plan.advance(to: start)
-                func suggest(_ room: Double) -> Int {
-                    plan.suggest(typesetter, start: start, room: room, offerWidth: width, breakWord: spec.overflowWrap != 0, length: length, text: text)
-                }
-                count = suggest(room)
-                // A soft hyphen's break shows one, which must fit (TextBreaks).
-                count = Self.fitSoftHyphen(start: start, count: count, room: room, boundaries: plan.boundaries, source: shape.attributed,
-                                           typesetter: typesetter, length: length, retry: suggest)
+                let room = (balanced.map { start < $0.until ? $0.room : limit } ?? limit) - Double(insets.at(start).width)
+                count = next(&plan, start, room)
             }
             if count <= 0 { count = length - start }
             let range = CFRangeMake(start, count)
@@ -1140,6 +1143,8 @@ package final class TextEngine {
         // up once, on iOS (CSSLineBox). A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
+        // Balancing moves breaks, never the box: it measures as its greedy lines do.
+        maxWidth = max(maxWidth, balanced?.widest ?? 0)
         var height = explicit ? y : ceil(y)
         // CSS `text-box-trim`: the first line cut at its fonts' text, cap or
         // ex top, the last at their baseline or descent, as the measurer and
@@ -1366,6 +1371,7 @@ package final class TextEngine {
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
         made.textBoxTrim = Int(request.text_box_trim); made.textBoxOver = Int(request.text_box_over); made.textBoxUnder = Int(request.text_box_under)
+        made.balance = request.text_wrap_style == 1
         if made.hyphens == 2, let lang = request.lang {
             made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
         }

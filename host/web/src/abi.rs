@@ -524,10 +524,12 @@ impl<D: DataSource> Bridge<D> {
             // wheel, drop and resize, and a text field's input, change and
             // select with its selection, replacement input (48), and a key's down (6), up (43) and capture (44)
             // with its code and repeat (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=45 | 48 => match Event::of_host_kind(kind, &payload) {
-                Ok(event) => event,
-                Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
-            },
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=45 | 48 => {
+                match Event::of_host_kind(kind, &payload) {
+                    Ok(event) => event,
+                    Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
+                }
+            }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
             15 => {

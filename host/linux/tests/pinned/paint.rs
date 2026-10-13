@@ -1106,3 +1106,27 @@ fn percentage_radius_paints_an_ellipse_in_a_nonsquare_box() {
         assert_eq!(px(&frame, 80.0, 5.0), (36, 104, 172));
     }
 }
+
+#[test]
+fn disabled_fields_keep_authored_placeholder_ink() {
+    for appearance in ["auto", "none"] {
+        let source = format!(
+            r##"component App
+  view
+    column background-color="#ffffff" color-scheme="light"
+      input placeholder="MMMM" disabled=true appearance="{appearance}" font-size=32 width=200 height=60
+        ::placeholder
+          color="#ff0000"
+"##
+        );
+        let mut p = compiled(&source, 1.0, PainterChoice::Cpu);
+        let pixels = p.frame();
+        assert!(
+            pixels
+                .pixels()
+                .iter()
+                .any(|c| c.red() > 240 && c.green() < 20 && c.blue() < 20),
+            "{appearance}: disabled placeholder must contain authored red ink"
+        );
+    }
+}

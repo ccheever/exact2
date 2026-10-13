@@ -756,9 +756,31 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
     let path = dir.join("app.contract");
     let mut failures = Vec::new();
     for name in [
-        "scroll", "loading", "plural", "choice", "screen", "modal", "confirm", "date", "persist",
-        "swipe", "task", "mutation", "resource", "match", "each", "when", "let", "fn", "shape",
-        "props", "derive", "action", "stepper", "menubar",
+        "scroll",
+        "loading",
+        "plural",
+        "choice",
+        "screen",
+        "modal",
+        "confirm",
+        "date",
+        "persist",
+        "swipe",
+        "task",
+        "mutation",
+        "resource",
+        "match",
+        "each",
+        "when",
+        "let",
+        "fn",
+        "shape",
+        "props",
+        "derive",
+        "action",
+        "stepper",
+        "menubar",
+        "::placeholder",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();
@@ -792,4 +814,24 @@ fn menu_bar_attributes_explain_the_fixed_removal_ids() {
             assert!(out.contains(part), "{name}: {out}");
         }
     }
+}
+
+/// LLP 1104 D3: `::placeholder` answers with its block, and so does the
+/// name an author guesses for it; the part's declaration is no attribute.
+#[test]
+fn placeholder_answers_with_its_block() {
+    for name in ["::placeholder", "placeholder-color"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(out.contains("::placeholder (a concept)"), "{name}: {out}");
+        assert!(out.contains("admits `color` alone"), "{name}: {out}");
+        assert!(!out.contains("native module"), "{name}: {out}");
+    }
+    let all: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
+    let attrs = all["attributes"].as_array().unwrap();
+    assert!(
+        !attrs
+            .iter()
+            .any(|a| a["name"].as_str().unwrap().starts_with("::")),
+        "a part's declaration is listed as an attribute"
+    );
 }

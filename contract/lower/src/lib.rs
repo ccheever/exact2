@@ -294,8 +294,8 @@ fn lower_with_sites(
                     span: a.span,
                 }),
                 None => {
-                    let hint = tags::renamed(&a.name)
-                        .map(|n| format!("; `{}` is spelled `{n}` here", a.name))
+                    let hint = fields::placeholder_hint(&a.name)
+                        .or_else(|| tags::renamed(&a.name).map(|n| format!("; `{}` is spelled `{n}` here", a.name)))
                         .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
                     l.errors.push(LowerError {
@@ -846,6 +846,7 @@ impl<'a> Lowerer<'a> {
         }
         if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module)
             .or_else(|| fields::outline_refusal(&a.name, tag, control))
+            .or_else(|| fields::placeholder_refusal(&a.name, tag, control))
         {
             return err("lower-attr-tag", why, a.span);
         }

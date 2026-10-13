@@ -1004,7 +1004,8 @@ A text field is the platform's own by default (LLP 1104): `input` with no type
 or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
 outside the Markdown editor. On the web it inherits the page's font and
 colour, as a CSS reset does. Disabled and placeholder appearances are the
-platform's. A background, border or radius makes it your own box, as in a
+platform's; CSS's `::placeholder` block, under the field or in a `style`,
+colours its placeholder (`color` alone, its alpha its own). A background, border or radius makes it your own box, as in a
 browser; `appearance="none"` says so explicitly. A row on any conditional
 class or value arm counts. `appearance="auto"` asks for the native field and
 refuses those rows; `background-clip` and `background-attachment` are allowed.

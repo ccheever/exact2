@@ -1017,6 +1017,7 @@ fn fingerprint(spec: &Spec) -> u64 {
     std::mem::discriminant(&spec.align).hash(&mut h);
     std::mem::discriminant(&spec.overflow_wrap).hash(&mut h);
     std::mem::discriminant(&spec.white_space).hash(&mut h);
+    std::mem::discriminant(&spec.text_wrap_style).hash(&mut h);
     std::mem::discriminant(&spec.direction).hash(&mut h);
     spec.line_clamp.hash(&mut h);
     spec.text_indent.to_bits().hash(&mut h);
@@ -1045,6 +1046,7 @@ fn equal(a: &Spec, b: &Spec) -> bool {
     a.align == b.align
         && a.overflow_wrap == b.overflow_wrap
         && a.white_space == b.white_space
+        && a.text_wrap_style == b.text_wrap_style
         && a.direction == b.direction
         && a.line_clamp == b.line_clamp
         && a.text_box_trim == b.text_box_trim

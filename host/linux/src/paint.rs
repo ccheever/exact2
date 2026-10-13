@@ -1241,6 +1241,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         line_clamp: s.line_clamp,
         overflow_wrap: s.overflow_wrap,
         white_space: s.white_space,
+        text_wrap_style: s.text_wrap_style,
         direction: s.direction,
         text_indent: s.text_indent,
         text_box_trim: s.text_box_trim,

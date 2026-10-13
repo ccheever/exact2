@@ -86,14 +86,19 @@ impl Painter {
                 (content.3 - paragraph.height) / 2.0
             };
         let mut ink = if placeholder {
-            [0x75, 0x75, 0x75, 0xff]
+            // An authored `::placeholder` colour, its alpha its own (LLP 1104 D3).
+            control::authored_placeholder(node.style, self.dark).unwrap_or([0x75, 0x75, 0x75, 0xff])
         } else {
             presented_color(walk, node)
                 .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
         };
         if native
             && disabled
-            && (placeholder || !node.style.mask.has(exact_kernel::StyleId::TextColor))
+            && !node.style.mask.has(if placeholder {
+                exact_kernel::StyleId::PlaceholderColor
+            } else {
+                exact_kernel::StyleId::TextColor
+            })
         {
             ink = control::disabled_field_ink(ink, self.dark);
         }

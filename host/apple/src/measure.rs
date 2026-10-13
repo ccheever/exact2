@@ -108,6 +108,8 @@ pub struct CRequest {
     pub text_box_over: u8,
     /// `text-box-edge`'s under edge: 0 text, 1 alphabetic.
     pub text_box_under: u8,
+    /// CSS `text-wrap-style`: 0 auto, 1 balance (LLP 1001 §6).
+    pub text_wrap_style: u8,
 }
 
 /// What the callback returns.
@@ -411,6 +413,7 @@ impl CallbackMeasurer {
             text_box_trim: request.paragraph.text_box_trim as u8,
             text_box_over: request.paragraph.text_box_edge.over() as u8,
             text_box_under: request.paragraph.text_box_edge.under() as u8,
+            text_wrap_style: request.paragraph.text_wrap_style as u8,
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.

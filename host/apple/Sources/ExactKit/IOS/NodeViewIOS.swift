@@ -881,6 +881,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
     package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
+    /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
+    var placeholderColor: UIColor? { cgColor("placeholder_color").map { UIColor(cgColor: $0) } }
     func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
     package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
@@ -912,7 +914,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // (LLP 1115 §2, "inherited is unsaid": a grouped list's row gives
         // its field the label colour). A bare field that writes its own
         // colour mutes that ink.
-        let ink = isNativeTextControl || ownColor("text_color") == nil ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // An authored `::placeholder` colour wins, its alpha its own (LLP 1104 D3).
+        let ink = placeholderColor ?? (isNativeTextControl || ownColor("text_color") == nil ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,

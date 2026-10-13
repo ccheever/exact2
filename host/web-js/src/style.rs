@@ -679,6 +679,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "color-scheme",
             "v=>v===\"light\"||v===\"dark\"?v:null",
         )],
+        StyleId::TextWrapStyle => one("text-wrap-style", ""),
         // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
         StyleId::TextBoxEdge => vec![with(
             "text-box-edge",
@@ -791,6 +792,8 @@ fn css_property(id: StyleId) -> String {
     let name = match id {
         StyleId::TextColor => return "color".into(),
         StyleId::TintColor => return "--exact-tint".into(),
+        // @ref LLP 1104 D3 — css.rs's `spell_property`.
+        StyleId::PlaceholderColor => return "--exact-placeholder-color".into(),
         StyleId::PositionType => return "position".into(),
         StyleId::BackdropFilter => return "backdrop-filter".into(),
         StyleId::SvgMask => return "mask".into(),
@@ -839,6 +842,24 @@ pub fn style_marker(id: StyleId) -> (String, String) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn balanced_wrap_writes_the_same_property_for_bound_values() {
+        let writes = style_writes(StyleId::TextWrapStyle as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "text-wrap-style");
+        assert_eq!(writes[0].unit, "");
+        assert_eq!(writes[0].map, None);
+    }
+
+    /// LLP 1104 D3: a bound `::placeholder` colour writes css.rs's
+    /// private property, which index.html's `::placeholder` rule reads.
+    #[test]
+    fn a_bound_placeholder_colour_writes_the_private_property() {
+        let writes = style_writes(StyleId::PlaceholderColor as u16, false).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].name, "--exact-placeholder-color");
+    }
 
     /// The role's CSS, as the literal path writes it.
     pub(crate) fn role(name: &str) -> String {
