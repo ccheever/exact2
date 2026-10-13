@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 14
+#define EXACT_ABI_VERSION 15
 
 #ifdef __cplusplus
 extern "C" {
@@ -309,6 +309,13 @@ void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
  * NULL (the default) keeps every paragraph whole in a multi-column flow. */
 typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
 void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
+/* A system symbol's natural size, measured before layout: an Apple symbol name (UTF-8, not
+ * NUL-terminated), its point size and CSS weight. Writes width and height to out and returns 1,
+ * or 0 when it cannot say; called with exact_set_measure's context, and only beside a text
+ * measurer it registered: with the reference measurer, as with NULL (the default), a symbol is
+ * the size its view reports. */
+typedef uint8_t (*ExactSymbolFn)(void *ctx, const uint8_t *name, size_t len, float font_size, uint16_t font_weight, float *out);
+void exact_set_symbol_measure(ExactRuntime rt, ExactSymbolFn measure);
 void exact_set_wake(ExactRuntime rt, ExactWakeFn wake, void *ctx);
 void exact_set_fonts(ExactRuntime rt, ExactFontsFn fonts, void *ctx);
 

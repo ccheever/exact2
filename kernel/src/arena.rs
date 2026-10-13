@@ -58,6 +58,13 @@ pub struct NodeArena {
     pub(crate) frag: crate::fragment::FragState,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
     pub(crate) relative_slots: SlotSet,
+    /// System symbols whose role or font changed: their natural size is
+    /// measured again before the next layout (`Kernel::measure_symbols`).
+    pub(crate) symbols_owed: SlotSet,
+    /// Symbols whose natural size the kernel measured itself, for their
+    /// current role and font, under the measurer's revision the kernel last
+    /// measured at (`Kernel::measures_symbol`).
+    pub(crate) measured_symbols: SlotSet,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
     /// The timeline-bearing nodes and what each follower's name resolves
@@ -133,6 +140,8 @@ impl Clone for NodeArena {
             exclusion_slots: self.exclusion_slots.clone(),
             frag: self.frag.clone(),
             relative_slots: self.relative_slots.clone(),
+            symbols_owed: self.symbols_owed.clone(),
+            measured_symbols: self.measured_symbols.clone(),
             sticky_slots: self.sticky_slots.clone(),
             timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
@@ -208,6 +217,8 @@ impl NodeArena {
         self.exclusion_slots.clear();
         self.frag = Default::default();
         self.relative_slots.clear();
+        self.symbols_owed.clear();
+        self.measured_symbols.clear();
         self.sticky_slots.clear();
         self.timelines = Default::default();
         for slot in 0..self.live.len() {
@@ -891,6 +902,8 @@ impl NodeArena {
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
+        self.symbols_owed.remove(slot);
+        self.measured_symbols.remove(slot);
         self.button_bases.remove(&slot);
         self.fit_scales.remove(&slot);
         self.sticky_slots.remove(slot);

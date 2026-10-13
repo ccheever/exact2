@@ -1951,6 +1951,12 @@ or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
 accent section above). Catalog changes require a
 new native build; they are not web assets or live update payloads.
 
+An iOS native module that uses `canOpenURL` to check for another app lists
+its schemes in `app.json`: `"host": { "ios": { "queriesSchemes":
+["comgooglemaps", "waze"] } }`. The build writes `LSApplicationQueriesSchemes`.
+List at most 50 schemes, without `:` or `://`; changing the list requires a
+native rebuild.
+
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
 trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |

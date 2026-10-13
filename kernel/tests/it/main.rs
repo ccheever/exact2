@@ -43,6 +43,7 @@ mod presence;
 mod presented_height;
 mod reader;
 mod rem;
+mod symbol;
 mod support {
     pub mod reader;
 }

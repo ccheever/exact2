@@ -107,22 +107,40 @@ impl<D: DataSource> Host<D> {
 impl<D: exact_runner::DataSource> crate::Host<D> {
     /// Change only the control text part of the existing environment and relayout.
     pub fn set_control_text_styles(&mut self, styles: exact_kernel::ControlTextStyles) -> String {
-        self.set_control_fonts(styles, self.runner.kernel().env().button_fonts)
+        let fonts = self.runner.kernel().env().button_fonts;
+        self.measuring_traits_changed(Some((styles, fonts)))
     }
-    /// Control-size fonts change together with the field font, preserving other facts.
-    pub(crate) fn set_control_fonts(
+    /// The traits text and symbols are measured under changed (a scale, a
+    /// content size, legibility, an appearance), with the control fonts they
+    /// give when the host has them: everything is laid out again whether or
+    /// not a control reads those fonts, and the auto heights running
+    /// transitions target are measured again.
+    pub(crate) fn measuring_traits_changed(
         &mut self,
-        styles: exact_kernel::ControlTextStyles,
-        fonts: Option<exact_kernel::ButtonFonts>,
+        fonts: Option<(
+            exact_kernel::ControlTextStyles,
+            Option<exact_kernel::ButtonFonts>,
+        )>,
     ) -> String {
         let mut env = self.runner.kernel().env().clone();
-        if env.button_fonts == fonts && env.control_text_styles.as_ref() == Some(&styles) {
-            let mut batch = Batch::new();
-            let error = self.layout(&mut batch).err();
-            return self.finish(batch, error);
+        if let Some((styles, button_fonts)) = fonts {
+            env.control_text_styles = Some(styles);
+            env.button_fonts = button_fonts;
         }
-        env.control_text_styles = Some(styles);
-        env.button_fonts = fonts;
-        self.set_environment(env)
+        self.height_targets_dirty = true;
+        let mut batch = Batch::new();
+        let error = match self.runner.kernel_mut().set_env(env) {
+            Ok(changed) => {
+                if changed {
+                    for id in self.preorder() {
+                        self.update(id, &mut batch);
+                    }
+                    self.emit_paragraphs(&mut batch);
+                }
+                self.layout(&mut batch).err()
+            }
+            Err(e) => Some(format!("control fonts: {e:?}")),
+        };
+        self.finish(batch, error)
     }
 }

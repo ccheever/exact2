@@ -1479,10 +1479,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         {
             out.insert(
                 "symbolName".into(),
-                role.strip_prefix("sf/")
-                    .or_else(|| exact_kernel::generated::symbol(role).map(|s| s.0))
-                    .unwrap_or("")
-                    .into(),
+                exact_kernel::apple_symbol_name(role).into(),
             );
         }
     }

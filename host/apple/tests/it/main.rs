@@ -22,5 +22,6 @@ mod layout_refusal;
 mod paint;
 mod presence;
 mod segments;
+mod symbol;
 mod textflow;
 mod viewport;
