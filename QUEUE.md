@@ -24,7 +24,7 @@
 - **An app's `theme` is built on a branch and waits on one decision and one bake-off round** (2026-10-12, LLP 1095 D4 and its staging item 6, which holds what the port found; branch `worktree-agent-a3b55b60c37ad5d16`, not landed). Named colours work: Expose and the two readers ported with every compared screen identical. A role override reaches only what Exact paints from a string, so on iOS a themed app's grouped list, bar title, sheet and fields stay UIKit's (`~/audits/exact2-no-tells-2026-10-11/theme-proof/reach-shots/final-ios-light-1-grouped.png`). The decision: build LLP 1095 D1's reference table and the per-surface platform calls so an override reaches what the platform lets it, or land named colours alone and reword D4. For the round: four branded specs are drafted at `~/audits/exact2-no-tells-2026-10-11/theme-proof/branded-specs.md` (a brand as values in both schemes, a typeface, a corner shape; graded on whether it holds on every screen, sheet and bar). Seen by that lane and not fixed: on the Linux host a box painted `AccentColor` does not take an authored `accent-color`; on the Mac a `filled` button was not accent-coloured in the driver's pictures, with or without a theme (the driver's window is never key, which may be all it is). The research behind this is `~/audits/exact2-no-tells-2026-10-11/facet-research/facet-and-exact2.md`, which also says the looks Exact draws itself want their metrics as schema rows with a column per look: that is how LLP 1115.002's stage 4 and LLP 1115.000's D17 are to be built.
 - **Round 14 measured the web's neutral default and iOS's plain button; the web reads as plain** (2026-10-13, LLP 1116.012 "Not in this RFC"). Graders called the neutral web default plain against React's own palettes and type; the lever is the app `theme` above (LLP 1095 D4), Charlie's decision. iOS buttons drew no grader complaint.
 - **Fewer, later steps may cost GPT builders tokens** (2026-10-13, LLP 1116.012 as built). In the A/B of D1 (`~/bakeoff/ab_report.py ab1`), paired by spec, GPT's builds took 0.80× the commands and 1.20× the tokens (1.07–1.35 at ±1 SE, six web specs); Muse's 0.79× tokens on two. If round 15 or the next A/B shows the same for GPT, restore `verify` after each feature for it (start-here's workflow line), and measure again.
-- **`bun test` failures on main** (2026-10-13, at 57c1cc96d; all but the neutral look's also at 35a20e784): `host/web` 5 (`bundle-size.test.mjs`: RealWorld's app.js and the `exactBodyFrom` file-body module; `tests/neutral-look.test.mjs` on Firefox and WebKit); `scripts/windows.test.mjs` 1 (primary mouse after a touch history); `./game/` 8 (`new.test.mjs` lists a `.vscode` the generator now writes (#258), `game/app/shells.lock` is stale, a test scope lacks `scripts/app.mjs`; the bake's shader inventory, notification mapping on main, the Rust name grammar).
+- **`bun test` failures on main** (2026-10-13, at 2d2e39aa4): `host/web` 7 (`bundle-size.test.mjs`: RealWorld's app.js and the `exactBodyFrom` file-body module; `tests/neutral-look.test.mjs` on Firefox and WebKit; the JS build keeping the manifest's `lang`; `app-frame.test.mjs`'s opaque sandbox); `scripts/windows.test.mjs` 1 (primary mouse after a touch history); `./game/` 9 (`new.test.mjs` lists a `.vscode` the generator now writes (#258), `game/app/shells.lock` is stale, a test scope lacks `scripts/app.mjs`; `proof.test.mjs` explicit focus before autofocus; the bake's shader inventory, notification mapping on main, the Rust name grammar).
 - **`SidebarMacTests.testTheAuthorsHideAndPlacementAndANarrowWindow` failed under load** (2026-10-12, found verifying #393): at load 300+ it failed at #393's merge base and on the branch alike (View ▸ Hide Sidebar left `collapsed` true but the page at 556 points, not 700, for the test's whole 10 s; the window is ordered in off screen); at load ~130 on the rebased branch it passed. Probably AppKit's collapse animation outlasting the wait; if it fails again, wait on the animation's end rather than a clock.
 - **A root tablist switched to `appearance="none"` under a sheet has no edge cover until the sheet goes** (2026-10-12, #393 review B, finding 5). `NavigationHost.reportCovers` (NavigationBarIOS.swift, the authored-tablist branch) measures nothing while `modals.coordinateView` is set and keeps only an existing `.edges` cover; a `.whole` cover from the tab bar's projection is dropped, so a sheet opened over projected tabs, then the tablist set to none, hides the tab bar and leaves the authored tablist without its home-indicator cover until dismissal. Not measured under a sheet on purpose (the root viewport is the sheet's then). Wanted: either measure the root tablist against the session view's own bounds and safe area regardless of the sheet, or owe the measure and take it at dismissal, with a test that opens the sheet first (`testAuthoredTabsDoNotInsetASheetViewport` covers only none-then-sheet). Whether dismissal already re-measures is unverified.
 - **Native Fixture's tvOS bake receipt prevents packaging** (2026-10-12, found verifying #393): `bun host/apple/build.mjs --tvos --no-install native-fixture` finished its Rust build, then refused `actual bake receipt names another target, platform or app`. Investigate the target/platform/app in the bake receipt; no receipt check was bypassed.
@@ -891,22 +891,36 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
     observer on the list's last row, as the virtualized one has.
   - **A dynamic exit animation fails the web build only** (`exit-animation=(reduced ? "none" :
     "…")`: "a dynamic `exit_animation` is not one declaration", `host/web-js/src/style.rs`). iOS
-    builds it and `contract build` says nothing. First, cheap: `contract build` should report what
-    the JS target will refuse, so the author hears it at compile time; then the dynamic declaration.
+    builds it and `contract build` says nothing. Reporting it at compile time is not cheap
+    (x2-perf3, 2026-10-13): the JS target's refusals are spread through `host/web-js` (emit.rs,
+    rows.rs, style.rs), and `exact-web-js` depends on the `contract` package, so `contract build`
+    cannot run its emitter. Either the `contract` binary moves to a package of its own that depends
+    on both (callers run `cargo run -q -p contract --`), or the refusals become one
+    registry in `contract` that the emitter reads. Then the dynamic declaration.
   - **Contract tests:** `back` reports "back refused" on a sheet over a sheet while the route does
     pop; a test can't fake a data source, or open a URL.
   - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
     between nested drags; no single-tap versus double-tap; no "native only" condition; a `text`
     can't hold an inline badge (already in Charlie's asks).
-- **More gaps from the clone's workers** (bsky5, b32–b33, 2026-10-12), as reported; the
-  first three look like small bugs:
-  - **`autofocus=false` still focuses the field on the web.**
-  - **The dev server answers 404 for a deep link whose last path segment has a dot** (it is taken
-    for a file).
-  - **A disabled button on the web is dimmed on top of the app's own disabled colours.**
+- **More gaps from the clone's workers** (bsky5, b32–b33, 2026-10-12), as reported:
+  - **A disabled button on the web is dimmed on top of the app's own disabled colours.** Not a
+    bug but LLP 1115.000 D6 on every host: a disabled custom pressable dims to half (the web's
+    `index.html` rule; the Mac's `syncDisabledLook`), and an authored `opacity` already wins on the
+    web. An app that draws its own disabled state gets both. Needs a ruling (x2-perf3, 2026-10-13):
+    an opt-out such as `-exact-disabled-look: none`, or no dim on a node whose fill or ink reads its
+    own `disabled` condition, which the compiler can tell.
   - Toasts have no warning style; a child component can't hold a resource; `agent` can't hold a
     fetch, so loading states can't be staged; no leftward swipe (`swiperight` only); no `exp`
     function; no hit slop.
+- **A dotted deep link whose last label is a file extension** (2026-10-13): the web servers
+  answer a navigation to `/profile/jay.bsky.team` with the app's document, but `/profile/photos.zip`
+  (`.zip` is a TLD) is taken for a missing file (`FILE_EXTENSIONS`, `scripts/origin.mjs`). Telling
+  them apart needs the app's routes on the server: answer the document when the path matches a
+  declared route template. External static hosts need their own rewrite either way.
+- **macOS `scrollend` and trackpad momentum, unverified** (2026-10-13): `ScrollEndMac.swift` ends a
+  live scroll at `NSScrollView.didEndLiveScrollNotification`, taken to come after the momentum
+  (AppKit's 10.9 notes say it waits for an animation such as rubber banding, and do not name
+  momentum); the tests post the notification themselves. Check with a real trackpad fling: one `scrollend`, after the coast.
 - **iOS long-press on an inline text run** (bsky5): a menu on a run inside a paragraph (a hashtag:
   See #tag posts, Mute #tag) acts as a tap. `NodeViewIOS.updateContextGestures` gives a long-press
   recognizer to node views only; runs get a menu on macOS (X77) and on the web.
