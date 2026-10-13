@@ -206,7 +206,8 @@ public final class ExactSidebarController: NSSplitViewController {
     func split(_ on: Bool, width: CGFloat?, empty: Bool) {
         loadViewIfNeeded()
         detail.show(empty: on && empty)
-        if on != splits {
+        // AppKit may restore the native divider after the initial collapse.
+        if on != splits || detailItem.isCollapsed == on {
             splits = on
             // Exact's own move of the divider, not the person's.
             placing = true
