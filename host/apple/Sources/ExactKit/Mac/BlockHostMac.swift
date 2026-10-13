@@ -95,6 +95,13 @@ final class BlockHost {
     /// its authored parent leaves it there.
     func owns(_ node: NodeView) -> Bool { entries[node.id]?.node === node }
 
+    /// Event paths keep the authored parent across a native container.
+    /// A home that has disappeared ends the path.
+    func parent(of node: NodeView) -> NSView? {
+        guard let entry = entries[node.id], entry.node === node else { return node.superview }
+        return entry.home
+    }
+
     /// The node children `home` holds, with the subtrees that left it for a
     /// container of their own back in their places: its authored children,
     /// for a reader of the tree's shape (a stack's routes). Each goes after
