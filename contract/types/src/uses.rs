@@ -211,7 +211,7 @@ fn walk_use(
                         continue;
                     }
                     let t = infer(&arg.value, scope, &types.shapes)?;
-                    if !checks::can_unify(&t, &target_t.props[i]) {
+                    if !checks::accepts_expr(&target_t.props[i], &arg.value, &t) {
                         return err(
                             "type-prop",
                             format!("`{}` expects `{}`, given `{t}`", p.name, target_t.props[i]),

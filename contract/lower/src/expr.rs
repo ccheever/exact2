@@ -391,6 +391,7 @@ pub(crate) fn compile(
                 (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
                 // A list's own type, or text's (LLP 1088 §9.1).
                 (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(Ty::Enum(_)), _) => Ty::String,
                 (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
                 (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
@@ -439,7 +440,7 @@ pub(crate) fn compile(
                     let ta = compile(l, asm, a, scope, locals)?;
                     let tb = compile(l, asm, b, scope, locals)?;
                     asm.simple(match op {
-                        BinOp::Add if ta == Ty::String => Opcode::Concat,
+                        BinOp::Add if ta.is_string() => Opcode::Concat,
                         BinOp::Add => Opcode::Add,
                         BinOp::Sub => Opcode::Sub,
                         BinOp::Mul => Opcode::Mul,
@@ -454,7 +455,7 @@ pub(crate) fn compile(
                         BinOp::And | BinOp::Or => unreachable!(),
                     });
                     match op {
-                        BinOp::Add if ta == Ty::String && tb == Ty::String => Ty::String,
+                        BinOp::Add if ta.is_string() && tb.is_string() => Ty::String,
                         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
                             if ta == Ty::Number && tb == Ty::Number =>
                         {
@@ -528,7 +529,7 @@ pub(crate) fn compile(
         }
         Expr::Typed(value, ty, span) => {
             let t = compile(l, asm, value, scope, locals)?;
-            contract_types::ascribe(&t, ty, &l.types.shapes, *span).map_err(|e| LowerError {
+            contract_types::ascribe(&t, value, ty, &l.types.shapes, *span).map_err(|e| LowerError {
                 id: e.id,
                 message: e.message,
                 span: e.span,

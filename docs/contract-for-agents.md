@@ -736,8 +736,8 @@ Choose the mechanism from its lifetime:
 | Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
 | Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
-| Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
-| Why it failed, to branch on or show | `failure(resourceName)`: `none`, or `some({ code, message, reason })`, `code` one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error`; `reason` a Snapback refusal's code (`SLOT_FULL`), else `""` |
+| Resource request failed without an answer | `failed(resourceOrMutationName)` |
+| Why it failed, to branch on or show | `failure(resourceOrMutationName)`: `none`, or `some({ code, message, reason })`, `code` a domain refusal code when supplied, otherwise one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error`; `reason` a Snapback refusal's code (`SLOT_FULL`), else `""` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
@@ -753,8 +753,7 @@ stderr, and a failing `expect` names it. Project a backend row onto the shape
 field by field (`({ id: row.id, title: row.title })`).
 
 `failure(x)` says why, for the view to branch on: `none` while `x` has not
-failed, else `some` of a `Failure`, whose `code` is one word from a closed
-list, the same on every host (`docs/contract-grammar.md`), whose `message`
+failed, else `some` of a `Failure`, whose `code` is the nonempty domain `reason`, or the infrastructure class the same on every host (`docs/contract-grammar.md`), whose `message`
 is the text `state.failed` shows (for a developer; it differs by host), and
 whose `reason` is the string the source's error carried as `reason` (a
 Snapback refusal's code), else `""`:
@@ -782,7 +781,7 @@ them, is `error`. Its own error keeps its `message`, and `failure(x).message`
 is that text. An error with a string `reason` property keeps that too, as
 `failure(x).reason`: the snapback4 driver's `refused` throws a server's
 refusal with its code there, so a query's `require … else NOT_MANAGER` is
-`f.reason == "NOT_MANAGER"` in the view; `code` stays one of the six. `bun scripts/agent.mjs web "fail fetch https://api…"` fails
+`f.code == "NOT_MANAGER"` in the view. Mutations expose their latest admitted request failure too; a new send, assignment or success clears it. `bun scripts/agent.mjs web "fail fetch https://api…"` fails
 those fetches as a lost connection, so the banner says "You're offline".
 
 `with` takes one or more expressions, before `as shape`, and appends them to the

@@ -69,6 +69,7 @@ component App
 struct Desk {
     later: bool,
     fail_parse: bool,
+    malformed: bool,
     fail_check: bool,
     asks: Vec<String>,
     checks: usize,
@@ -133,6 +134,9 @@ impl DataSource for Desk {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if self.malformed {
+            return Ok(Answer::Now(Value::Number(42.0)));
+        }
         if self.fail_parse {
             return Err(DataError::Failed(
                 exact_runner::failure::FailureCode::Error,
@@ -784,7 +788,7 @@ fn the_commit_after_a_refused_queued_ask_reports_its_refusal() {
 
 #[test]
 fn mutation_failures_are_readable_clear_on_send_and_do_not_run_then() {
-    let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive broken = failed(wrote)\n  derive last =");
+    let app = APP.replacen("  action pair", "  action clearFailure\n    wrote = none\n  action pair", 1).replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive broken = failed(wrote)\n  derive last =");
     let mut r = boot_with(
         &app,
         Desk {
@@ -799,7 +803,19 @@ fn mutation_failures_are_readable_clear_on_send_and_do_not_run_then() {
     assert_eq!(r.derive("broken"), Some(&Value::Bool(true)));
     assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
     assert_eq!(slot(&r, "log"), "");
+    r.act("clearFailure", vec![]).unwrap();
+    assert_eq!(
+        r.derive("why"),
+        Some(&Value::str("ok")),
+        "assignment clears a queued mutation failure"
+    );
     r.data().fail_parse = false;
+    r.data().malformed = true;
+    r.act("one", vec![Value::str("bad")]).unwrap();
+    let t = tickets(&mut r);
+    r.fulfill(t[0], reply("ok")).unwrap();
+    assert_eq!(r.derive("why"), Some(&Value::str("shape")));
+    r.data().malformed = false;
     r.act("one", vec![Value::str("b")]).unwrap();
     assert_eq!(r.derive("why"), Some(&Value::str("ok")));
     assert_eq!(r.derive("broken"), Some(&Value::Bool(false)));

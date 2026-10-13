@@ -200,6 +200,9 @@ export function webPort(flag, env = process.env) {
   return port;
 }
 
+/** Temporary tests own a fresh page origin; a persistent named drive keeps its port. */
+export const drivePagePort = (fixed, kept, temporary = false) => fixed ?? (!temporary ? kept?.port : null) ?? 0;
+
 /** Listen on `port` (0: any free one). A named port still held is asked again for `ms`: the run's last page, or the
  * last run's, can still be letting go of it (app farm wave 1: "port in use" between runs). `named` (`--port`/EXACT_PORT)
  * says so in the refusal, and when the port is in Linux's ephemeral range, which any outgoing connection can borrow. */

@@ -46,6 +46,7 @@ query recent():
   return notes last 50 by byTime
 
 mutation post(body: text 1..200):
+  require body != 'refused' else FULL
   row = insert notes { author: viewer, body, at: now }
   return { id: row.id }
 `);
@@ -57,19 +58,23 @@ mutation post(body: text 1..200):
   latest: string
 shape Post
   id: string
+  status: enum<"sent", "failed">
 component App
   state draft = ""
   resource board = notes() as shape Board else empty()
   mutation posted as shape Post refreshes board
   action edit(value: string)
     draft = value
-  action post
-    send posted = post(draft)
+  action post(mode: enum<"send", "preview">)
+    if mode == "send"
+      send posted = post(draft)
   view
     column
       input value=draft input=edit testId="draft"
-      button "Post" press=post testId="post"
+      button "Post" press=post("send") testId="post"
       text board.latest testId="latest"
+      text (match failure(posted) { case some(f) => f.code, case none => "ok" }) testId="failure"
+      text (match posted { case some(p) => p.status, case none => "" }) testId="fate"
 `);
       writeFileSync(join(app, 'app.ts'), `import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { Snapback, refused } from './snapback4/snapback.ts';
@@ -88,7 +93,7 @@ const sources: Sources = {
   post: async ([body]): Promise<Result<'post'>> => {
     const sent = await db.send(api.post, {body});
     if (sent.state === 'failed') throw refused(sent.why);
-    return sent.result;
+    return { ...sent.result, status: body === 'malformed' ? 'bogus' as 'sent' : 'sent' };
   },
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
@@ -101,6 +106,22 @@ test "one online write"
   tap "post"
   clock data
   expect text "latest" == "from the tunnel"
+  expect text "fate" == "sent"
+  type "draft" "refused"
+  tap "post"
+  clock data
+  expect text "failure" == "FULL"
+  expect text "fate" == "sent"
+  type "draft" "malformed"
+  tap "post"
+  clock data
+  expect text "failure" == "shape"
+  expect text "fate" == "sent"
+  type "draft" "again"
+  tap "post"
+  clock data
+  expect text "failure" == "ok"
+  expect text "latest" == "again"
 `);
     }
     assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /import \{ api \} from '.\/backend\/api.ts'/);

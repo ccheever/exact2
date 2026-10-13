@@ -381,3 +381,19 @@ fn static_authored_clears_keep_inline_css_over_platform_rules() {
         placeholder.css
     );
 }
+
+#[test]
+fn finite_strings_keep_member_bytes_when_a_hidden_capture_allows_nonfinite_numbers() {
+    let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+    let number = b.primitive(exact_plan::TypeKind::Number);
+    let words = b.string_enum(&["pending".into(), "done".into(), "n🥳".into()]);
+    let shape = b.record("Capture", &[("n", number), ("state", words)]);
+    let plan = b.finish().unwrap();
+    let normal = crate::emit::type_code_numeric(&plan, shape, false);
+    let hidden = crate::emit::type_code_numeric(&plan, shape, true);
+    assert!(normal.starts_with("{n"), "{normal}");
+    assert!(hidden.starts_with("{N"), "{hidden}");
+    assert_eq!(&normal[2..], &hidden[2..]);
+    assert!(hidden.contains("pending"));
+    assert!(hidden.contains("n🥳"));
+}

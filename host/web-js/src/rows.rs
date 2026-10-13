@@ -943,56 +943,33 @@ document.getElementById("out").textContent=JSON.stringify({{after2,after0,journa
 </script>"#
         );
         std::fs::write(&page, html).unwrap();
-        let chrome = std::env::var("CHROME").unwrap_or_else(|_| {
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into()
-        });
-        // `--dump-dom` prints the page and then does not exit (a keychain
-        // lookup keeps the process up), so read until the result and stop it.
-        let mut child = std::process::Command::new(&chrome)
-            .args([
-                "--headless=new",
-                "--disable-gpu",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--virtual-time-budget=2000",
-                &format!("--user-data-dir={}", dir.join("profile").display()),
-                "--dump-dom",
-                &format!("file://{}", page.display()),
-            ])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap_or_else(|e| panic!("chrome ({chrome}): {e}"));
-        let mut stdout = child.stdout.take().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let mut tmp = [0u8; 8192];
-            loop {
-                match std::io::Read::read(&mut stdout, &mut tmp) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        buf.extend_from_slice(&tmp[..n]);
-                        if buf.windows(6).any(|w| w == b"</pre>") {
-                            break;
-                        }
-                    }
-                }
-            }
-            let _ = tx.send(buf);
-        });
-        let dumped = rx.recv_timeout(std::time::Duration::from_secs(20));
-        let _ = child.kill();
-        let _ = child.wait();
-        let dumped = dumped.unwrap_or_else(|_| panic!("chrome ({chrome}) dumped no DOM"));
-        let dom = String::from_utf8_lossy(&dumped);
-        let raw = dom
-            .split_once("<pre id=\"out\">")
-            .and_then(|(_, rest)| rest.split_once("</pre>"))
-            .map(|(body, _)| body)
-            .unwrap_or_else(|| panic!("no computed style in\n{dom}"));
+        // Use the same provisioned browser carrier as the app proofs. Chrome's
+        // --dump-dom can stay alive indefinitely on Linux even after the script ran.
+        let browser_script = format!(
+            r#"
+import {{ chromium }} from 'playwright-core';
+const browser = await chromium.launch({{executablePath: process.env.CHROME, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage']}});
+try {{
+  const page = await browser.newPage();
+  await page.goto({});
+  process.stdout.write(await page.locator('#out').textContent());
+}} finally {{ await browser.close(); }}
+"#,
+            serde_json::to_string(&format!("file://{}", page.display())).unwrap()
+        );
+        let result =
+            std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+                .args(["--eval", &browser_script])
+                .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+                .output()
+                .expect("Bun runs the provisioned browser");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
         let computed: serde_json::Value =
-            serde_json::from_str(&raw.replace("&quot;", "\"")).expect(raw);
+            serde_json::from_slice(&result.stdout).expect("computed styles");
         assert_eq!(computed["after2"], "2", "{computed}");
         assert_eq!(computed["after0"], "auto", "{computed}");
         assert_eq!(computed["journal2"], serde_json::json!([]), "{computed}");

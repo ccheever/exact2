@@ -110,6 +110,11 @@ impl std::fmt::Display for Ty {
 }
 
 impl Ty {
+    /// An ordinary string, including a finite string vocabulary.
+    pub fn is_string(&self) -> bool {
+        matches!(self, Ty::String | Ty::Enum(_))
+    }
+
     /// Whether any `?` remains.
     pub fn is_complete(&self) -> bool {
         match self {
@@ -123,8 +128,16 @@ impl Ty {
     /// The most specific type both agree on, or `None` when they conflict.
     pub fn unify(&self, other: &Ty) -> Option<Ty> {
         match (self, other) {
-            (Ty::String, Ty::Enum(_)) => Some(Ty::String),
-            (Ty::Enum(values), Ty::String) => Some(Ty::Enum(values.clone())),
+            (Ty::String, Ty::Enum(_)) | (Ty::Enum(_), Ty::String) => Some(Ty::String),
+            (Ty::Enum(a), Ty::Enum(b)) => {
+                let mut values = a.clone();
+                for value in b {
+                    if !values.contains(value) {
+                        values.push(value.clone());
+                    }
+                }
+                Some(Ty::Enum(values))
+            }
             (Ty::Unknown, t) | (t, Ty::Unknown) => Some(t.clone()),
             (Ty::Option(a), Ty::Option(b)) => a.unify(b).map(|t| Ty::Option(Box::new(t))),
             (Ty::List(a), Ty::List(b)) => a.unify(b).map(|t| Ty::List(Box::new(t))),
@@ -669,11 +682,21 @@ pub(crate) fn source_argument(
 
 /// `t`, a use's argument, as the declared type of the prop it fills
 /// ([`Expr::Typed`]): `none`'s `option<?>` becomes the declared option.
-pub fn ascribe(t: &Ty, declared: &TypeExpr, shapes: &Shapes, span: Span) -> Result<Ty, TypeError> {
+pub fn ascribe(
+    t: &Ty,
+    expr: &Expr,
+    declared: &TypeExpr,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<Ty, TypeError> {
     let declared = shapes.resolve(declared)?;
-    match declared.unify(t) {
-        Some(u) => Ok(u),
-        None => err(
+    match checks::accepts_expr(&declared, expr, t) {
+        true => Ok(if matches!(declared, Ty::Enum(_)) {
+            declared
+        } else {
+            declared.unify(t).expect("accepted types unify")
+        }),
+        false => err(
             "type-prop",
             format!("this argument is `{t}`, where the prop is declared `{declared}`"),
             span,
@@ -968,7 +991,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             match op {
                 BinOp::Add => match (&ta, &tb) {
                     (Ty::Number, Ty::Number) => Ty::Number,
-                    (Ty::String, Ty::String) => Ty::String,
+                    (a, b) if a.is_string() && b.is_string() => Ty::String,
                     _ => {
                         return err(
                             "type-operand",
@@ -992,7 +1015,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 // Two strings compare as JavaScript's `IsLessThan` does: in
                 // UTF-16 code-unit order (LLP 1088 D1).
                 BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                    if !matches!((&ta, &tb), (Ty::Number, Ty::Number) | (Ty::String, Ty::String)) {
+                    if !(ta == Ty::Number && tb == Ty::Number || ta.is_string() && tb.is_string()) {
                         return err(
                             "type-operand",
                             format!(
@@ -1004,7 +1027,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     Ty::Bool
                 }
                 BinOp::Eq | BinOp::Ne => {
-                    if !checks::can_unify(&ta, &tb) {
+                    if ta.unify(&tb).is_none() {
                         return err(
                             "type-operand",
                             format!("cannot compare `{ta}` with `{tb}`"),
@@ -1039,7 +1062,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         }
         Expr::Typed(value, ty, span) => {
             let t = infer(value, scope, shapes)?;
-            ascribe(&t, ty, shapes, *span)?
+            ascribe(&t, value, ty, shapes, *span)?
         }
         Expr::Arrow { span, .. } => {
             return err(

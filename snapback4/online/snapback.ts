@@ -23,15 +23,18 @@ export class Snapback {
     catch { throw refused({ code: 'E_OFFLINE', message: 'The server was not reached; a write may already have committed. Read its state before retrying.' }); }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw refused({ code: 'E_SERVER', message: `Invalid reply (HTTP ${response.status}); read state before retrying a write.` });
-    if (!response.ok && !body.denied) throw refused({ code: 'E_SERVER', message: `HTTP ${response.status}; read state before retrying a write.` });
+    if (!response.ok && !body.denied && !(body.state === 'failed' && body.why)) throw refused({ code: 'E_SERVER', message: `HTTP ${response.status}; read state before retrying a write.` });
     return body;
   }
   async read<O extends string | Op>(op: O, args: NoInfer<ArgsOf<O>>): Promise<Read<ResultOf<O>>> {
-    return { ...await this.exchange('/q/' + encodeURIComponent(nameOf(op)), args), server: true } as Read<ResultOf<O>>;
+    const body = await this.exchange('/q/' + encodeURIComponent(nameOf(op)), args);
+    if (!Object.hasOwn(body, 'data') && !body.denied) throw refused({code: 'E_SERVER', message: 'Invalid query envelope'});
+    return { ...body, server: true } as Read<ResultOf<O>>;
   }
   async send<O extends string | Op>(op: O, args: NoInfer<ArgsOf<O>>): Promise<Sent<ResultOf<O>>> {
     const body = await this.exchange('/m/' + encodeURIComponent(nameOf(op)), args);
-    if (body.denied) return { state: 'failed', why: body.denied as unknown as Refusal };
+    const why = body.state === 'failed' ? body.why : body.denied;
+    if (why && typeof why === 'object' && typeof (why as Refusal).code === 'string' && typeof (why as Refusal).message === 'string') return { state: 'failed', why: why as Refusal };
     if (body.state !== 'sent' || !Object.hasOwn(body, 'result')) throw refused({ code: 'E_SERVER', message: 'Invalid mutation envelope; read state before retrying.' });
     return { state: 'sent', result: body.result as ResultOf<O> };
   }

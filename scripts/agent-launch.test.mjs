@@ -191,7 +191,7 @@ test('a store named .locks cannot remove another profile ownership lock', async 
     let launched = false;
     const attempt = exclusiveWebStore(options, async () => { launched = true; return {close: async () => {}}; });
     attempt.then(carrier => { competitor = carrier; }, () => {});
-    await expect(attempt).rejects.toThrow('stream is locked by another publisher');
+    await expect(attempt).rejects.toThrow('profile lock failed');
     expect(launched).toBe(false);
   } finally {
     await competitor?.close(); await named?.close(); await owner?.close(); rmSync(cache, {recursive: true, force: true});
@@ -302,4 +302,22 @@ test('a named port still held is asked again, then refused', async () => {
     if (process.platform === 'linux') expect(said).toContain("in this machine's ephemeral range");
     next.close();
   } finally { holder.close(); }
+});
+
+
+test('temporary test pages ignore a stale storage port while explicit ports remain authoritative', async () => {
+  const { drivePagePort, listenOn } = await import('./agent-launch.mjs');
+  const { createServer } = await import('node:net');
+  const stale = createServer(), page = createServer();
+  try {
+    await listenOn(stale, 0);
+    const kept = {port: stale.address().port};
+    expect(drivePagePort(null, kept, true)).toBe(0);
+    await listenOn(page, drivePagePort(null, kept, true));
+    expect(page.address().port).not.toBe(kept.port);
+    expect(drivePagePort(50821, kept, true)).toBe(50821);
+    expect(drivePagePort(null, kept, false)).toBe(kept.port);
+  } finally {
+    await Promise.all([stale, page].map(server => new Promise(done => server.close(done))));
+  }
 });

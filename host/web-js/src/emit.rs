@@ -465,12 +465,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .iter()
             .map(|p| {
                 let param = plan.param(p);
-                let code = type_code(plan, param.ty);
-                let code = if plan.str(param.name).starts_with('@') {
-                    code.replace('n', "N")
-                } else {
-                    code
-                };
+                let code = type_code_numeric(plan, param.ty, plan.str(param.name).starts_with('@'));
                 serde_json::to_string(&code).unwrap()
             })
             .collect();
@@ -825,7 +820,13 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
     match t.kind {
         exact_plan::TypeKind::Number => "0".into(),
         exact_plan::TypeKind::Bool => "!1".into(),
-        exact_plan::TypeKind::String => "\"\"".into(),
+        exact_plan::TypeKind::String => serde_json::to_string(
+            t.fields
+                .iter()
+                .next()
+                .map_or("", |f| plan.str(plan.field(f).name)),
+        )
+        .unwrap(),
         exact_plan::TypeKind::Unit | exact_plan::TypeKind::Option => "null".into(),
         exact_plan::TypeKind::List => "[]".into(),
         exact_plan::TypeKind::Record => format!(
@@ -877,9 +878,13 @@ pub(crate) fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
 /// A type as the data module client reads it: `n` number, `b` bool, `s`
 /// string, `u` unit, `?T` option, `[T` list, `{T…}` record.
 fn type_code(plan: &Plan, ty: exact_plan::TypesId) -> String {
+    type_code_numeric(plan, ty, false)
+}
+
+pub(crate) fn type_code_numeric(plan: &Plan, ty: exact_plan::TypesId, nonfinite: bool) -> String {
     let t = &plan.types[ty.0 as usize];
     match t.kind {
-        exact_plan::TypeKind::Number => "n".into(),
+        exact_plan::TypeKind::Number => if nonfinite { "N" } else { "n" }.into(),
         exact_plan::TypeKind::Bool => "b".into(),
         exact_plan::TypeKind::String if !t.fields.is_empty() => {
             let values = serde_json::to_string(
@@ -894,16 +899,22 @@ fn type_code(plan: &Plan, ty: exact_plan::TypesId) -> String {
         exact_plan::TypeKind::String => "s".into(),
         exact_plan::TypeKind::Unit => "u".into(),
         exact_plan::TypeKind::Option => {
-            format!("?{}", type_code(plan, t.elem.expect("option element")))
+            format!(
+                "?{}",
+                type_code_numeric(plan, t.elem.expect("option element"), nonfinite)
+            )
         }
         exact_plan::TypeKind::List => {
-            format!("[{}", type_code(plan, t.elem.expect("list element")))
+            format!(
+                "[{}",
+                type_code_numeric(plan, t.elem.expect("list element"), nonfinite)
+            )
         }
         exact_plan::TypeKind::Record => {
             let fields: String = t
                 .fields
                 .iter()
-                .map(|f| type_code(plan, plan.fields[f.0 as usize].ty))
+                .map(|f| type_code_numeric(plan, plan.fields[f.0 as usize].ty, nonfinite))
                 .collect();
             format!("{{{fields}}}")
         }

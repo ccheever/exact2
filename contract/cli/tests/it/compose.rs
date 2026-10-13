@@ -441,6 +441,17 @@ component App
     ] {
         assert!(contract::compile(&src.replace(good, bad)).is_err(), "{bad}");
     }
+    contract::compile(&src.replace("button \"Choose\" press=go", "column\n      text choice.value\n      text (choice.value == \"draft\" ? slice(choice.value, 0, 2) : choice.value + \"!\")\n      button \"Choose\" press=go")).unwrap();
+    let props = "component App\n  state value = \"draft\"\n  view\n    Child(value=VALUE)\ncomponent Child\n  props\n    value: enum<\"draft\", \"published\">\n  view\n    text value\n";
+    contract::compile(&props.replace("VALUE", "\"draft\"")).unwrap();
+    for value in ["\"missing\"", "value"] {
+        assert!(contract::compile(&props.replace("VALUE", value)).is_err());
+    }
+    assert!(contract::compile(&src.replace(
+        "= value\ncomponent",
+        "= false ? value : \"missing\"\ncomponent"
+    ))
+    .is_err());
     let enum_ty = plan
         .types
         .iter()

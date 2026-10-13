@@ -655,6 +655,9 @@ fn refine_params_from_view(
                                             arg.span(),
                                         );
                                     }
+                                    if matches!(ct.actions[ai][i], Ty::Enum(_)) {
+                                        continue;
+                                    }
                                     if let Some(u) = ct.actions[ai][i].unify(&t) {
                                         ct.actions[ai][i] = u;
                                     }
@@ -768,7 +771,7 @@ fn refine_params_from_view(
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty) else {
+                                    let Some(unified) = declared.unify(&ty).filter(|_| !matches!(declared, Ty::Enum(_)) || checks::can_unify(&declared, &ty)) else {
                                         if !counted {
                                             continue;
                                         }

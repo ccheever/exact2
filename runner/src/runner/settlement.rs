@@ -946,7 +946,12 @@ pub(super) fn zero(plan: &exact_plan::Plan, ty: exact_plan::TypesId) -> Option<V
     let row = plan.types.get(ty.0 as usize)?;
     Some(match row.kind {
         TypeKind::Number => Value::Number(0.0),
-        TypeKind::String => Value::str(""),
+        TypeKind::String => Value::str(
+            row.fields
+                .iter()
+                .next()
+                .map_or("", |f| plan.str(plan.field(f).name)),
+        ),
         TypeKind::Bool => Value::Bool(false),
         TypeKind::Unit => Value::Unit,
         TypeKind::Option => Value::NONE,

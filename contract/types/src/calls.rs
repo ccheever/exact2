@@ -371,6 +371,9 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
                     break;
                 }
                 if let Ok(t) = infer(arg, &scope, shapes) {
+                    if matches!(ct.actions[ci][at], Ty::Enum(_)) {
+                        continue;
+                    }
                     if let Some(u) = ct.actions[ci][at].unify(&t) {
                         ct.actions[ci][at] = u;
                     }

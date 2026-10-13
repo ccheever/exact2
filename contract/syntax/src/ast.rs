@@ -633,6 +633,15 @@ pub enum TypeExpr {
 }
 
 impl TypeExpr {
+    /// Whether this type carries a finite string vocabulary.
+    pub fn contains_enum(&self) -> bool {
+        match self {
+            Self::Enum(..) => true,
+            Self::Option(t, _) | Self::List(t, _) => t.contains_enum(),
+            Self::Named(..) => false,
+        }
+    }
+
     /// Where it was written.
     pub fn span(&self) -> Span {
         match self {

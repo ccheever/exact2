@@ -20,7 +20,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
+import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -117,7 +117,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   const kept = storage === undefined ? null : driveStore(selected, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   // `--port`/EXACT_PORT, else a named store's own port, else any free one; said once a run, on stderr (stdout is the reply).
-  await listenOn(server, fixed ?? (kept && !pageURL && env?.EXACT_AGENT_EPHEMERAL_PORT !== '1' ? kept.port : 0), '127.0.0.1', undefined, !!fixed).catch((e) => {
+  await listenOn(server, drivePagePort(fixed, pageURL ? null : kept, env?.EXACT_AGENT_EPHEMERAL_PORT === '1'), '127.0.0.1', undefined, !!fixed).catch((e) => {
     throw e.code !== 'EADDRINUSE' || fixed ? e : new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name, or --port <n>`);
   });
     const port = server.address().port; if (!openWeb.said) console.error(`${openWeb.said = `web: ${selected.name} served at http://127.0.0.1:${port}/`}${fixed ? '' : ' (--port <n> or EXACT_PORT picks the port)'}`);

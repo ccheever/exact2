@@ -1062,7 +1062,15 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
         f.0.join("plain-types"),
     )
     .unwrap();
+    // skipLibCheck ignores package-internal missing references. Direct app
+    // imports still name a missing declaration and must fail.
+    put(
+        "logic.ts",
+        &(logic("2")
+            + "\nimport type { Plain } from 'plain';\nexport const required: Plain = true;\n"),
+    );
     refused(&mut every, "'plain'");
+    put("logic.ts", &logic("2"));
     std::fs::rename(
         f.0.join("plain-types"),
         f.0.join("node_modules/@types/plain"),

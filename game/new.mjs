@@ -205,7 +205,7 @@ component ${title.replaceAll(' ', '')}
   resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board else empty(message="Connecting…")
   mutation posted as shape Ack queue refreshes board then afterPost
   derive banner = match failure(board) {
-    case some(f) => f.code == "offline" ? "You're offline" : f.reason != "" ? \`Couldn't load notes (\${f.reason})\` : \`Couldn't load notes (\${f.message})\`,
+    case some(f) => (f.code == "offline" || f.code == "E_OFFLINE") ? "You're offline" : f.reason != "" ? \`Couldn't load notes (\${f.reason})\` : \`Couldn't load notes (\${f.message})\`,
     case none => ""
   }
   task live mount

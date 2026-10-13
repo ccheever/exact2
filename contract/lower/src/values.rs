@@ -842,8 +842,24 @@ fn style_value(
                     }
                 }
             }
+            // A number row with no text form refuses every string where it
+            // binds, as it refuses the literal; a browser would apply one
+            // (`opacity: 0.5`), so a host would disagree.
             None if std::ptr::eq(value, &a.value)
-                && !matches!(ty, Ty::Number | Ty::String | Ty::Unknown) =>
+                && matches!(ty, Ty::String | Ty::Enum(_))
+                && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) =>
+            {
+                return err(
+                    "lower-attr-type",
+                    format!(
+                        "`{}` takes a number where it is computed; this expression is `string`, which no native host reads on this row while a browser would apply it: bind the number itself (`{}=n` for a number `n`, not `` `${{n}}` ``)",
+                        a.name, a.name
+                    ),
+                    span,
+                );
+            }
+            None if std::ptr::eq(value, &a.value)
+                && !matches!(ty, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Unknown) =>
             {
                 return err(
                     "lower-attr-type",
@@ -1223,7 +1239,7 @@ pub(crate) fn check_prop_value(
     let ok = matches!(
         (want, ty),
         (_, Ty::Unknown)
-            | (tags::PropTy::Str, Ty::String)
+            | (tags::PropTy::Str, Ty::String | Ty::Enum(_))
             | (tags::PropTy::Bool, Ty::Bool)
             | (tags::PropTy::Int | tags::PropTy::Float, Ty::Number)
     );

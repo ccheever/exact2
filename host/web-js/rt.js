@@ -562,7 +562,7 @@ export function mut(name, slot, refreshes, type, queue) {
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
   const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req, write: t.write }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
-    if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`, "shape");
     m.checked = p.v; W(fail, null);
     if (!o.more) m.ticket = null; W(pend, !!m.wait?.length);
     Ov.land(m, p.v, t.write);

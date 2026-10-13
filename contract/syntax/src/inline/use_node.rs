@@ -57,7 +57,7 @@ pub(super) fn inline_use(
         // A `none` or `[]` in it is typed by the prop's declaration,
         // not left `?` for the child's reads to trip on.
         let value = match &p.ty {
-            Some(ty) if untyped_leaf(&value) || (ctx.typed_props && !is_action(ty)) => {
+            Some(ty) if untyped_leaf(&value) || ty.contains_enum() || (ctx.typed_props && !is_action(ty)) => {
                 let span = value.span();
                 Expr::Typed(Box::new(value), ty.clone(), span)
             }

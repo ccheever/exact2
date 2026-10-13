@@ -477,6 +477,11 @@ impl<D: DataSource> Runner<D> {
                 written.contains(&self.plan.mutations[*m].slot.0) && !self.plan.mutations[*m].queue
             })
             .collect();
+        for m in 0..self.plan.mutations.len() {
+            if written.contains(&self.plan.mutations[m].slot.0) {
+                self.failed_mut[m] = None;
+            }
+        }
         for m in asked.iter().chain(assigned.iter()) {
             self.failed_mut[*m] = None;
         }
@@ -550,6 +555,11 @@ impl<D: DataSource> Runner<D> {
         }
         for (rows, slot, _) in &row_undo {
             self.row_writes.record(frames, rows, *slot);
+        }
+        for m in 0..self.plan.mutations.len() {
+            if written.contains(&self.plan.mutations[m].slot.0) {
+                self.failed_mut[m] = None;
+            }
         }
         for m in asked.iter().chain(assigned.iter()) {
             self.failed_mut[*m] = None;

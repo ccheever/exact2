@@ -96,7 +96,7 @@ impl FailureCode {
 /// Why a resource's latest request failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
-    /// What `failure(x).code` reads.
+    /// Infrastructure class; `exposed_code` supplies Contract's domain code when present.
     pub code: FailureCode,
     /// What `failure(x).message` and `state.failed` read.
     pub message: String,

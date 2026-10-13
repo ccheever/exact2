@@ -6,7 +6,7 @@ test('online operations use the generated args and result envelopes without a de
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     requests.push({path, body: await request.json(), persona: request.headers.get('x-snapback-persona'), device: request.headers.get('x-snapback-device')});
-    if (path === '/m/refuse') return Response.json({denied: {code: 'FULL', message: 'No room'}}, {status: 403});
+    if (path === '/m/refuse') return Response.json({state: 'failed', why: {code: 'FULL', message: 'No room'}});
     if (path === '/m/broken') return Response.json({data: null});
     return Response.json(path.startsWith('/q/') ? {data: [{body: 'hello'}]} : {state: 'sent', result: {id: 'note-1'}});
   }});
