@@ -295,7 +295,8 @@ final class ContextMenuMacTests: XCTestCase {
     /// first ancestor whose one answers, as the ContextMenu key's request
     /// and Chrome's (`contextmenu` at the element bubbles), at the element's
     /// drawn middle: a button in a row, a link run in a paragraph, and a link
-    /// run in a span run (which the key at that run now reaches too). It is
+    /// run in a span run (which the key at that run now reaches too; the key
+    /// at the paragraph's link run now runs at the run's middle). It is
     /// offered there and not where nothing above answers or the one that
     /// answers is disabled. (issues/20261013-macos-show-menu-ancestor-contextmenu.md)
     func testShowMenuReachesTheNearestAncestorThatAnswers() throws {
@@ -360,6 +361,16 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(heard, [102], "the span run's, as on the web")
         XCTAssertEqual(Double(samples.first?[6] ?? "") ?? 0, Double(middle(docs).x), accuracy: 1)
+        // The key at a link run whose paragraph answers runs the paragraph's
+        // at the run's middle, as Chrome's at the focused element's box (it
+        // was the paragraph's middle, x 220 here).
+        heard = []; samples = []
+        let mail = try XCTUnwrap(p.views[8]?.syncInlineKeyViews().first { $0.id == 82 })
+        XCTAssertTrue(window.makeFirstResponder(mail))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, [8], "the paragraph's")
+        XCTAssertEqual(Double(samples.first?[6] ?? "") ?? 0, Double(middle(list).x), accuracy: 1, "the run's middle")
+        XCTAssertEqual(Double(samples.first?[7] ?? "") ?? 0, Double(middle(list).y), accuracy: 1)
         // An ancestor that answers but is disabled: nothing, as for the key.
         heard = []
         p.apply(wireBatch([["op": "props", "id": 20, "set": ["disabled": "true"]]]))
