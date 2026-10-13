@@ -7,7 +7,8 @@ The only required reading; the rest is lookup.
 1. **Write the web, ship the platform.** Layout and names are CSS's and HTML's (flex, gap,
    `role`, `aria-*`). Say what a thing *is* (a `header` with a heading and
    buttons, a `tablist`, a `dialog role="alertdialog"`); each host draws its own control.
-2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's. A
+2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's, and so
+   are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
    <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write is the
    accent, on the root: a system colour (`accent-color="-exact-system-teal"`) or a

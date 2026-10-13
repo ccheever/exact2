@@ -1,7 +1,6 @@
 # Recipe: list rows: search, swipe, filter and long-press
 
-A list under a large title with the bar's search field (an `input type="search"` in the
-`header`) and rows that swipe to delete.
+A list under a large title with the bar's search field and rows that swipe to delete.
 
 ```contract
 routes nav
@@ -50,14 +49,16 @@ test "search, then swipe to delete"
   expect tree has "note-1"
 ```
 
-- The swipe is a horizontal snap scroll naming its content and its trailing action; on iOS the
-  action is UIKit's own swipe action, and a full swipe performs the first one. In a grouped
-  list it is a section's row: leave the scroll's `width` unsaid, give it `padding-right=0` (its
-  padding is inside its port, where the action would show at rest) and the content
-  `padding-right=16`, as above.
-- A filter is a `row role="radiogroup"` of `button role="radio"` between the header and the list
-  ([persisted-setting](persisted-setting.md)), the segmented control.
-- A long-press menu shared by every row: `contextmenu=aim(n.id) contextPopover="note-menu"` on
-  the row's content (`aim` records `aimed`), and one `column id="note-menu" popover="auto"
-  role="menu"` of buttons that act on `aimed`, each with `popovertarget="note-menu"
-  popovertargetaction="hide"`; on iOS a `UIMenu`. Test it with `tap "note-1" contextmenu`.
+- A `list` with no `appearance` is the plain list: its children are rows, with the platform's
+  separators and press. Draw neither. A child that is no row says `border-bottom="none"`;
+  rows of your own say `appearance="none"`.
+- The swipe is a horizontal snap scroll naming its content and its trailing action (on iOS
+  UIKit's own; a full swipe performs the first). In a grouped list: no `width` on the
+  scroll, `padding-right=0` on it (its padding is in its port, where the action would show),
+  `padding-right=16` on the content.
+- A filter: a `row role="radiogroup"` of `button role="radio"` above the list
+  ([persisted-setting](persisted-setting.md)).
+- One long-press menu for all rows: `contextmenu=aim(n.id) contextPopover="note-menu"` on the
+  row's content, and a `column id="note-menu" popover="auto" role="menu"` of buttons acting
+  on `aimed`, each `popovertarget="note-menu" popovertargetaction="hide"` (iOS: a `UIMenu`).
+  Test: `tap "note-1" contextmenu`.

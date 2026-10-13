@@ -34,7 +34,7 @@ component Chat
         column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
           header
             text "Ada" role="heading" aria-level=2
-          list id="transcript" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
+          list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
             each m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
                 row position="relative" overflow="hidden" border-radius=18 max-width="75%"
@@ -75,8 +75,7 @@ test "a sent message lands, and the composer clears"
   expect text "message-1" == "Yes, at noon"
 ```
 
-- `scroll-start="end"` opens at the newest row, `scrollFollowEnd=true` follows new ones,
-  `interactive-widget="resizes-content"` keeps the composer above the keyboard. A refusal
-  keeps the draft ([after-a-write](after-a-write.md)).
-- The sent bubble is the accent at 0.35 under the label's ink; solid `AccentColor` under
-  `AccentColorText` is 3.5 to 4.2:1, which `check` fails.
+- `appearance="none"`: bubbles are not cells. `scroll-start="end"` opens at the newest row,
+  `scrollFollowEnd=true` follows new ones, `interactive-widget="resizes-content"` keeps the
+  composer above the keyboard. A refusal keeps the draft ([after-a-write](after-a-write.md)).
+- The sent bubble is the accent at 0.35 under the label's ink; solid, `check` fails it.

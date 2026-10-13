@@ -431,6 +431,16 @@ list virtualized=true height=500 estimated-item-height=64
       text item.title
 ```
 
+The children of a `list` whose rows go down the page are its rows, and each
+platform draws a row as its own list does: UIKit's separators and the cell's
+highlight on iOS, a table on the Mac, one line between rows on the web and the
+Linux desktop, none on Android. Draw no separator and no press of your own.
+What you do write on a row wins: a border on its top or bottom edge replaces the
+separator there (`border-bottom="none"` for a child that is no row, a count or an
+empty state), and `appearance="none"` on the list keeps rows that are yours, a
+transcript or a feed of cards. A list laid out sideways is a carousel and gets
+none of it.
+
 A virtualized list has exactly one direct `each`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and

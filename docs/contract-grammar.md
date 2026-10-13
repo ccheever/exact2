@@ -923,7 +923,7 @@ it clamps to:
 ```text
 action moved(x: number, y: number, e: ScrollEvent)
   away = e.scrollHeight - e.scrollTop - e.clientHeight > 1
-list virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
+list appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
 ```
 
 As on the web, the event comes when the offset changes (a follow of the end
