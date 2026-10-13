@@ -1163,7 +1163,11 @@ extension Agent {
         visit(root)
         guard let top = found else { return nil }
         if let alert = top as? UIAlertController { return alert.preferredStyle == .alert ? "alert" : "action sheet" }
-        return top.modalPresentationStyle == .popover ? "popover" : "sheet"
+        // tvOS has no popovers.
+        #if !os(tvOS)
+        if top.modalPresentationStyle == .popover { return "popover" }
+        #endif
+        return "sheet"
     }
 
     /// The system appearance (LLP 1061 D5): the window scene's trait, which
