@@ -613,7 +613,7 @@ export function jsTargetBuild(dist) {
 /** A file of a JS-target build for a request path: the file, a directory's
  * index.html (a page rendered at build), else the shell for an app
  * location. The previous build answers during a rebuild's rename. */
-export function buildTreeFile(dist, pathname) {
+export function buildTreeFile(dist, pathname, accept = '') {
   let path;
   try { path = installRoute(decodeURIComponent(pathname)); } catch { return null; }
   // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
@@ -622,7 +622,7 @@ export function buildTreeFile(dist, pathname) {
   let root;
   try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
   const prefix = root.endsWith(sep) ? root : root + sep;
-  for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname) ? ['/index.html'] : [])]) {
+  for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, /\btext\/html\b/.test(accept)) ? ['/index.html'] : [])]) {
     const file = resolve(root, '.' + route);
     try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
   }
@@ -632,7 +632,7 @@ export function serveBuildTree(dist, req, res) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
-  const found = target && buildTreeFile(dist, target.pathname);
+  const found = target && buildTreeFile(dist, target.pathname, req.headers.accept);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   sendStaticBody(req, res, readFileSync(found.path), { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
 }
@@ -771,7 +771,7 @@ export async function readWebRequest(dist, pathname, accept = '') {
   if (!webRequestURL(pathname)) return { found: null, index: false };
   let route = pathname;
   let found = await readStaticFileAsync(dist, route);
-  if (!found && appDocumentPath(route)) {
+  if (!found && appDocumentPath(route, /\btext\/html\b/.test(accept))) {
     route = '/index.html';
     found = await readStaticFileAsync(dist, route);
   }

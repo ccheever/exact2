@@ -57,14 +57,17 @@ export function webRequestURL(target) {
   } catch { return null; }
 }
 
-export function appDocumentPath(pathname) {
+/** Whether a path that names no file is the app's document. A navigation
+ * (`Accept: text/html`) to one whose last segment has a dot is too: a deep
+ * link like `/profile/jay.bsky.team` is a location, not a missing file. */
+export function appDocumentPath(pathname, navigation = false) {
   if (!webRequestURL(pathname)) return false;
   let path;
   try { path = decodeURIComponent(pathname); } catch { return false; }
   return path.startsWith('/') && !path.includes('\\') && !path.includes('\0')
     && !path.split('/').some(part => part.startsWith('.'))
     && path !== '/__dev' && !path.startsWith('/__dev/')
-    && extname(path.replace(/\/+$/, '')) === '';
+    && (navigation || extname(path.replace(/\/+$/, '')) === '');
 }
 export function parseWebRoot(bytes) {
   const root = JSON.parse(bytes.toString('utf8'));
