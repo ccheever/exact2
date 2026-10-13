@@ -41,7 +41,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { evictArms } from './arms.mjs';
 import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
@@ -1015,18 +1016,17 @@ async function main(args) {
   } else {
     webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos${targets.macos}`);
   }
-  // Each arm is one Swift file: compile it once per source, arguments and
-  // compiler, kept in the scratch path. Rebuilt into a fresh directory, the
-  // two cost 93 s of every build at load 120. The host's own arms are kept
-  // in the shared scratch, one compile for every app; an app's module
-  // artifact (`own`) in its own directory, so two apps never evict each
-  // other's. Each is written under this process's name and renamed, since
-  // another app's build may be compiling the same arm. A compile starts here,
-  // beside the Swift link, and what is returned waits for it and places it.
+  // Each arm is one Swift file, compiled once per source, arguments and
+  // compiler and kept in the scratch path (rebuilt every time, the two cost
+  // 93 s of every build at load 120). The host's own arms are shared by every
+  // app's build; an app's module artifact (`own`) stays in its own directory.
+  // Each is written under this process's name and renamed, since another
+  // app's build may compile the same arm at once. A cached arm is copied out
+  // at once and marked used, so another build's `evictArms` keeps it.
   const arm = (args, source, built, extra = '', own = false) => {
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
-    if (existsSync(cached)) return async () => copyFileSync(cached, built);
+    try { const now = new Date(); utimesSync(cached, now, now); copyFileSync(cached, built); return async () => {}; } catch {} // none, or evicted meanwhile
     mkdirSync(dir, { recursive: true });
     const making = `${cached}.${process.pid}.tmp`;
     const compile = startApple('xcrun', args.map(a => a === built ? making : a), resolve(webBuildDir, `arm-${beside.length}.log`));
@@ -1034,7 +1034,7 @@ async function main(args) {
     return async () => {
       await compile.done();
       renameSync(making, cached);
-      for (const old of readdirSync(dir)) if (old.endsWith(`-${basename(built)}`) && resolve(dir, old) !== cached) rmSync(resolve(dir, old), { force: true });
+      evictArms(dir, basename(built));
       copyFileSync(cached, built);
     };
   };
