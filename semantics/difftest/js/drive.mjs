@@ -31,8 +31,9 @@ const hex = n => { bits.setFloat64(0, n); return bits.getBigUint64(0).toString(1
 const fromHex = h => { bits.setBigUint64(0, BigInt('0x' + h)); return bits.getFloat64(0); };
 /** A batch value (numbers as their bits) as a runtime value. */
 const decode = v => v === null || typeof v !== 'object' ? v : Array.isArray(v) ? v.map(decode) : fromHex(v.$);
-/** A runtime value's key, numbers by their bits (the oracle's `canonical`). */
-const key = v => typeof v === 'number' ? 'n' + hex(v) : Array.isArray(v) ? '[' + v.map(key).join(',') + ']' : JSON.stringify(v ?? null);
+/** A runtime value's key, numbers by their bits, NaN canonical (the oracle's `canonical`):
+ * the runner's NaN and the module's may differ in sign. */
+const key = v => typeof v === 'number' ? number(v) : Array.isArray(v) ? '[' + v.map(key).join(',') + ']' : JSON.stringify(v ?? null);
 const quote = s => '"' + [...s].map(c => c === '"' ? '\\"' : c === '\\' ? '\\\\' : c === '\n' ? '\\n' : c === '\r' ? '\\r' : c === '\t' ? '\\t'
   : c.codePointAt(0) < 0x20 ? '\\u00' + c.codePointAt(0).toString(16).padStart(2, '0') : c).join('') + '"';
 const number = n => 'n' + (n !== n ? '7ff8000000000000' : hex(n));
