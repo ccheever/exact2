@@ -59,38 +59,38 @@ shape Card
   color: string
 
 shape Two
-  a: list<Card>
-  b: list<Card>
+  a: Card[]
+  b: Card[]
 
 shape Pair
   a: string
   b: string
 
 shape Strs
-  a: list<string>
-  b: list<string>
+  a: string[]
+  b: string[]
 
 shape Three
-  a: list<string>
-  b: list<string>
-  c: list<string>
+  a: string[]
+  b: string[]
+  c: string[]
 
 shape Seven
-  a: list<string>
-  b: list<string>
-  c: list<string>
-  d: list<string>
-  e: list<string>
-  f: list<string>
-  g: list<string>
+  a: string[]
+  b: string[]
+  c: string[]
+  d: string[]
+  e: string[]
+  f: string[]
+  g: string[]
 
 fn d1(x: string): string = x + x
 fn d4(x: string): string = d1(d1(d1(d1(x))))
 fn d24(x: string): string = d4(d4(d4(d4(d4(d4(x))))))
 fn d25(x: string): string = d1(d24(x))
-fn twice(xs: list<string>): number = length(Strs(a=xs, b=xs).a)
-fn thrice(xs: list<string>): number = length(Three(a=xs, b=xs, c=xs).a)
-fn seven(xs: list<string>): number = length(Seven(a=xs, b=xs, c=xs, d=xs, e=xs, f=xs, g=xs).a)
+fn twice(xs: string[]): number = Strs(a=xs, b=xs).a.length
+fn thrice(xs: string[]): number = Three(a=xs, b=xs, c=xs).a.length
+fn seven(xs: string[]): number = Seven(a=xs, b=xs, c=xs, d=xs, e=xs, f=xs, g=xs).a.length
 
 component Budget
   state c = 0
@@ -101,32 +101,32 @@ component Budget
   state poison = false
   derive size = c == 1 or c == 38 ? 65536 : c == 2 or c == 37 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 or c == 30 or c == 41 or c == 42 ? 10000 : c == 25 or c == 29 or c == 36 ? 30000 : c == 4 or c == 5 or c == 6 or c == 12 or c == 16 or c == 35 or c == 39 or c == 40 or c == 45 or c == 46 ? 40000 : 0
   derive slen = c == 12 or c == 25 or c == 15 ? 2048 : c == 18 or c == 30 ? 1000 : c == 41 ? 4096 : c == 42 ? 3000 : c == 43 ? 65537 : c == 44 ? 65535 : 0
-  resource k = cards(size, 0) as shape list<Card>
-  resource j = cards(c == 6 ? 30000 : 0, 0) as shape list<Card>
-  resource three = cards(c == 5 ? 3 : 0, 0) as shape list<Card>
-  resource big = cards(armed ? 65537 : 0, 0) as shape list<Card>
-  resource keyed = cards(armed ? 3 : 0, 0) as shape list<Card>
+  resource k = cards(size, 0) as shape Card[]
+  resource j = cards(c == 6 ? 30000 : 0, 0) as shape Card[]
+  resource three = cards(c == 5 ? 3 : 0, 0) as shape Card[]
+  resource big = cards(armed ? 65537 : 0, 0) as shape Card[]
+  resource keyed = cards(armed ? 3 : 0, 0) as shape Card[]
   resource str = long(slen, "a") as shape string
-  resource two = cards(c == 4 ? length(map(k, x => x)) : 0, c == 4 ? length(map(k, x => x)) : 0) as shape list<Card>
-  derive a6 = c == 6 ? length(map(k, x => x)) + b6 + length(map(j, x => x)) : 0
-  derive b6 = c == 6 ? length(map(k, x => x)) : 0
-  derive d1 = c == 1 or c == 2 ? length(map(k, x => x)) : 0
-  derive d3 = c == 3 ? length(map(k, a => map(k, b => b.n))) : 0
-  derive d8 = c == 8 or c == 24 or c == 16 or c == 29 ? length(join(map(k, x => x.label), ",")) : 0
-  derive d9 = c == 9 ? length(d25("é")) : c == 32 ? length(d1(d25("é"))) : 0
-  derive d11 = c == 11 ? length(map(k, x => Two(a=k, b=k))) : 0
-  derive d12 = c == 12 or c == 25 ? length(map(k, x => str)) : 0
-  derive d13 = c == 33 ? length(Pair(a=d25("a"), b=d25("a")).a) : c == 13 ? length(Pair(a=d25("a"), b=d25("a") + "a").a) : 0
-  derive d14 = c == 34 ? length(encodeURIComponent(d24(" ") + d24("a"))) : c == 14 ? length(encodeURIComponent(d24(" ") + d24("a") + "a")) : c == 26 ? length(encodeRouteSegment(d24(" ") + d24("a") + "a")) : c == 27 ? length(encodeRouteSegment(empty)) : 0
-  derive d15 = c == 15 ? twice(map(k, x => str)) : 0
-  derive d18 = c == 18 ? thrice(map(k, x => str)) : c == 30 ? seven(map(k, x => str)) : 0
-  derive d35 = c == 35 or c == 36 ? length(concat(k, k)) : 0
-  derive d37 = c == 37 or c == 38 ? length(slice(k, 0)) : 0
-  derive d39 = c == 39 ? includes(map(k, x => x.label), "none") : c == 40 ? includes(map(k, x => x.label), "Card 0") : false
-  derive d41 = c == 41 or c == 42 ? length(concat(map(k, x => str), map(k, x => str))) : 0
-  derive d43 = c == 43 ? length(split(str, "")) : c == 44 ? length(split(str, "a")) : 0
-  derive d45 = c == 45 ? indexOf(map(k, x => x.label), "none") : c == 46 ? indexOf(map(k, x => x.label), "Card 0") : -2
-  derive same = filter(three, x => true)
+  resource two = cards(c == 4 ? k.map(x => x).length : 0, c == 4 ? k.map(x => x).length : 0) as shape Card[]
+  derive a6 = c == 6 ? k.map(x => x).length + b6 + j.map(x => x).length : 0
+  derive b6 = c == 6 ? k.map(x => x).length : 0
+  derive d1 = c == 1 or c == 2 ? k.map(x => x).length : 0
+  derive d3 = c == 3 ? k.map(a => k.map(b => b.n)).length : 0
+  derive d8 = c == 8 or c == 24 or c == 16 or c == 29 ? k.map(x => x.label).join(",").length : 0
+  derive d9 = c == 9 ? d25("é").length : c == 32 ? d1(d25("é")).length : 0
+  derive d11 = c == 11 ? k.map(x => Two(a=k, b=k)).length : 0
+  derive d12 = c == 12 or c == 25 ? k.map(x => str).length : 0
+  derive d13 = c == 33 ? Pair(a=d25("a"), b=d25("a")).a.length : c == 13 ? Pair(a=d25("a"), b=d25("a") + "a").a.length : 0
+  derive d14 = c == 34 ? encodeURIComponent(d24(" ") + d24("a")).length : c == 14 ? encodeURIComponent(d24(" ") + d24("a") + "a").length : c == 26 ? encodeRouteSegment(d24(" ") + d24("a") + "a").length : c == 27 ? encodeRouteSegment(empty).length : 0
+  derive d15 = c == 15 ? twice(k.map(x => str)) : 0
+  derive d18 = c == 18 ? thrice(k.map(x => str)) : c == 30 ? seven(k.map(x => str)) : 0
+  derive d35 = c == 35 or c == 36 ? k.concat(k).length : 0
+  derive d37 = c == 37 or c == 38 ? k.slice(0).length : 0
+  derive d39 = c == 39 ? k.map(x => x.label).includes("none") : c == 40 ? k.map(x => x.label).includes("Card 0") : false
+  derive d41 = c == 41 or c == 42 ? k.map(x => str).concat(k.map(x => str)).length : 0
+  derive d43 = c == 43 ? str.split("").length : c == 44 ? str.split("a").length : 0
+  derive d45 = c == 45 ? k.map(x => x.label).indexOf("none") : c == 46 ? k.map(x => x.label).indexOf("Card 0") : -2
+  derive same = three.filter(x => true)
   action go(n: number)
     c = n
   action arm
@@ -217,34 +217,34 @@ component Budget
       row gap=4 flex-wrap="wrap"
         button press=arm testId="arm"
           text "arm"
-        button press=setN(length(map(big, x => x))) testId="argtrap"
+        button press=setN(big.map(x => x).length) testId="argtrap"
           text "argtrap"
         button press=showEdge testId="edge"
           text "edge"
         button press=poisonIt testId="poison"
           text "poison"
-      text `c ${c} size ${size} k ${length(k)} two ${length(two)} str ${length(str)} t ${t}` testId="facts"
-      text `${d1} ${d3} ${a6} ${b6} ${d8} ${d9} ${d11} ${d12} ${d13} ${d14} ${d15} ${d18} ${length(same)}` testId="results"
+      text `c ${c} size ${size} k ${k.length} two ${two.length} str ${str.length} t ${t}` testId="facts"
+      text `${d1} ${d3} ${a6} ${b6} ${d8} ${d9} ${d11} ${d12} ${d13} ${d14} ${d15} ${d18} ${same.length}` testId="results"
       text `${d35} ${d37} ${d39} ${d41} ${d43} ${d45}` testId="lists"
       if c == 5
         column testId="rows"
-          for x in three key=length(map(k, y => y)) * 10 + x.n
+          for x in three key=k.map(y => y).length * 10 + x.n
             Row(x=x, big=k)
           for x in same key=x.id
             text x.label testId=`same-${x.n}`
-      for x in keyed key=(poison ? length(map(big, y => y)) : x.n)
+      for x in keyed key=(poison ? big.map(y => y).length : x.n)
         text x.label testId=`key-${x.n}`
       if edge
-        list virtualized=true reachend=setN(length(map(big, x => x))) estimated-item-height=20 height=200 testId="edges" width="100%" overflow-x="hidden"
+        list virtualized=true reachend=setN(big.map(x => x).length) estimated-item-height=20 height=200 testId="edges" width="100%" overflow-x="hidden"
           for x in keyed key=x.id
             text x.label height=20 testId=`edge-${x.n}`
 
 component Row
   props
     x: Card
-    big: list<Card>
-  state a = length(map(big, y => y))
-  state b = length(map(big, y => y))
+    big: Card[]
+  state a = big.map(y => y).length
+  state b = big.map(y => y).length
   state got = ""
   action take(v: string)
     got = v
@@ -253,6 +253,6 @@ component Row
   view
     row gap=4 testId=`row-${x.n}`
       text `${x.label} ${a} ${b} ${got}`
-      button press=both(length(map(big, y => y)), length(map(big, y => y))) testId=`both-${x.n}`
+      button press=both(big.map(y => y).length, big.map(y => y).length) testId=`both-${x.n}`
         text "both"
       input value=got input=take testId=`in-${x.n}` width=120 height=20

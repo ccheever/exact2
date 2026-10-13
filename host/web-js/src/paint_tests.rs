@@ -233,9 +233,9 @@ fn server_client_and_adopted_paint_agree_on_the_chrome_corpus() {
         r#"shape Item
   id: number
 component Paint
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   state changed = false
-  derive keys = map(items, x => changed ? 5 - x.id : x.id)
+  derive keys = items.map(x => changed ? 5 - x.id : x.id)
   action toggle
     changed = not changed
   view
@@ -259,10 +259,10 @@ component Paint
       box testId="filter" filter=(changed ? "blur(0px)" : "none")
       box testId="backdrop" backdrop-filter=(changed ? "saturate(1)" : "none")
       box testId="backdrop-pair" backdrop-filter=(changed ? "blur(4px) saturate(1.8)" : "saturate(0) blur(4px)")
-      box testId="backdrop-refused" backdrop-filter="saturate(" + toString(changed ? -1 : 0) + ")"
+      box testId="backdrop-refused" backdrop-filter="saturate(" + (changed ? -1 : 0).toString() + ")"
       box testId="identity" scale=(changed ? 1 : 2)
       box testId="copies"
-        for n in filter(keys, n => n != (changed ? 2 : 4)) key=n
+        for n in keys.filter(n => n != (changed ? 2 : 4)) key=n
           box testId=`row-${n}`
             if n == 1
               box position="relative"
@@ -280,7 +280,7 @@ component Paint
         r#"shape Item
   id: number
 component Paint
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     box
       box testId="waiting-list"
@@ -306,7 +306,7 @@ fn waiting_rows_recompute_parent_and_sibling_facts_against_kernel() {
             r#"shape Item
   id: number
 component Paint
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   state display = "{display}"
   action flex
     display = "flex"
@@ -338,7 +338,7 @@ component Paint
             r#"shape Item
   id: number
 component Paint
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   state exclusion = {exclusion}
   action toggle
     exclusion = not exclusion

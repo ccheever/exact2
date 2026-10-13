@@ -77,7 +77,7 @@ impl DataSource for Echo {
 #[test]
 fn a_jump_lands_every_reply_and_fires_every_timer_due() {
     let plan = contract::compile(
-        "component App\n  state count = 0\n  mutation result as shape number\n  action ping\n    send result = save()\n  action tock\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text toString(count)\n",
+        "component App\n  state count = 0\n  mutation result as shape number\n  action ping\n    send result = save()\n  action tock\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text count.toString()\n",
     )
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
@@ -562,7 +562,7 @@ fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
 #[test]
 fn a_picker_is_held_and_answered_by_ticket() {
     let plan = contract::compile(
-        "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>)\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${length(files)} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
+        "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: Picked[])\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${files.length} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
     )
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
@@ -644,7 +644,7 @@ fn a_picker_is_held_and_answered_by_ticket() {
 #[test]
 fn an_unrestricted_picker_copies_an_unknown_file_under_the_agent() {
     let plan = contract::compile(
-        "component App\n  state picked = \"none\"\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>)\n    picked = match first(files) { case some(f) => `${f.path} ${f.size}`, case none => \"empty\" }\n  view\n    column width=300 height=300\n      input type=\"file\" id=\"attach\" display=\"none\" change=attach\n      button press=choose testId=\"choose\"\n        text \"Choose\"\n      text picked testId=\"picked\"\n",
+        "component App\n  state picked = \"none\"\n  action choose\n    showPicker(\"attach\")\n  action attach(files: Picked[])\n    picked = match first(files) { case some(f) => `${f.path} ${f.size}`, case none => \"empty\" }\n  view\n    column width=300 height=300\n      input type=\"file\" id=\"attach\" display=\"none\" change=attach\n      button press=choose testId=\"choose\"\n        text \"Choose\"\n      text picked testId=\"picked\"\n",
     )
     .unwrap();
     let (mut p, _) = Presenter::boot_with(
@@ -842,7 +842,7 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
 /// `hover` out of the row that slid away, into the one that slid under it.
 #[test]
 fn a_resting_pointer_hovers_what_the_layout_moves_under_it() {
-    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = slice(rows, 1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      for r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
+    let plan = contract::compile("component App\n  state rows = [\"a\", \"b\", \"c\"]\n  state hovered = \"\"\n  state armed = false\n  task drop when armed\n    after(3000, removeFirst)\n  action hov(id: string, on: bool)\n    hovered = on ? id : (hovered == id ? \"\" : hovered)\n  action arm\n    armed = true\n  action removeFirst\n    rows = rows.slice(1)\n    armed = false\n  view\n    column width=300 height=300\n      text `${hovered}` testId=\"log\" height=20\n      for r in rows key=r\n        box hover=hov(r) press=arm testId=`row-${r}` width=200 height=60\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
         NoData,
@@ -1105,7 +1105,7 @@ impl DataSource for Saving {
 #[test]
 fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
     let plan = contract::compile(
-        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text item.toString() testId=\"item\" height=20\n",
     )
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
@@ -1135,7 +1135,7 @@ fn clock_settle_waits_for_background_storage_and_a_jump_names_it() {
 #[test]
 fn an_orderly_exit_finishes_background_storage() {
     let plan = contract::compile(
-        "component App\n  resource item = save() as shape number else save()\n  view\n    text toString(item) testId=\"item\" height=20\n",
+        "component App\n  resource item = save() as shape number else save()\n  view\n    text item.toString() testId=\"item\" height=20\n",
     )
     .unwrap();
     let (mut p, _) = Presenter::boot_with(

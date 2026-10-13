@@ -8,8 +8,8 @@
 //! a section line, `refresh` before a name in a body) and a name everywhere
 //! else. A shape field, a named argument, a member after `.` and an
 //! attribute name can never head an expression, so they admit every word.
-//! A state's or derive's name takes no type annotation: its type is inferred
-//! (`type_annotation`).
+//! A state's name may declare its type (`state x: T = …`); a derive's takes
+//! none: its type is its expression's (`type_annotation`).
 
 use super::*;
 
@@ -135,16 +135,14 @@ impl Parser {
     /// written (LLP 1116.014 D1).
     pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
         let state = w == "state";
+        // A state's `: T` is its declared type (LLP 1116.015 D2); a derive's is its expression's.
         if form == ":" && self.at_punct(":") {
-            let from = if state {
-                "a state's type is inferred (an empty start is `none` or `[]`, and the writes \
-                 give it its type)"
-            } else {
-                "a derive's type is its expression's"
-            };
             return self.err(
                 "syntax-expected",
-                format!("drop `: {}`; {from}", self.written_type()),
+                format!(
+                    "drop `: {}`; a derive's type is its expression's",
+                    self.written_type()
+                ),
             );
         }
         if form.starts_with("as") && self.at_ident("as") {

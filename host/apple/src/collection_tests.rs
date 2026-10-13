@@ -6,7 +6,7 @@ use std::cell::Cell as Counter;
 const SOURCE: &str = r#"
 component App
   state showing = true
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action toggle
     showing = !showing
   view
@@ -146,7 +146,7 @@ fn collection_feedback_submits_edge_request_without_another_bridge_call() {
     }
     let source = r#"component App
   state cursor = 0
-  resource rows = rows(cursor) as shape list<number>
+  resource rows = rows(cursor) as shape number[]
   action next
     cursor = 1
   view
@@ -486,8 +486,8 @@ fn rows_the_data_moves_still_play_their_layout_transition() {
   state tall = false
   state nudged = false
   state padded = false
-  resource rows = rows(step) as shape list<number>
-  resource others = rows(0) as shape list<number>
+  resource rows = rows(step) as shape number[]
+  resource others = rows(0) as shape number[]
   action next
     step = step + 1
   action grow

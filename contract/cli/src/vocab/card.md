@@ -18,30 +18,30 @@ are checked against scripts/help.mjs.
 Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 ## functions
-at: at(list<T>, i) -> option<T>  (none past end; -1 is last)
+at: xs.at(i) -> option<T>  (none past end; -1 is last)
 calendarDiff: (whole years/months between YYYY-MM-DD dates)
-concat: concat(list<T>, list<T>) -> list<T>
-filter: filter(list<T>, x => bool) -> list<T>
-first: first(list<T>) -> option<T>
+concat: xs.concat(ys) -> T[]
+filter: xs.filter(x => bool) -> T[]
+first: first(xs) -> option<T>
 formatDate: formatDate(ms, offsetMinutes, "medium"|"month-year"|"iso") -> string
 formatDecimal: (cents to "12.34"; digits a literal)
 formatNumber: formatNumber(n, "compact"|"decimal"|"percent"|"currency", "USD") -> string  (1,234.5; 26%)
 formatTime: ("2:13 PM"; minutes east of UTC)
 frame: (in an action)
-includes: includes(text|list, x) -> bool
-indexOf: indexOf(text|list, x) -> number  (-1 for none)
-isEmpty: isEmpty(text|list) -> bool
-join: join(list<string|number|bool>, sep) -> string
-length: length(text|list) -> number
-map: map(list<T>, x => U) -> list<U>
+includes: s.includes(x) -> bool  (text or list)
+indexOf: s.indexOf(x) -> number  (-1 for none)
+isEmpty: s.isEmpty() -> bool
+join: xs.join(sep) -> string
+length: s.length -> number  (text or list)
+map: xs.map(x => U) -> U[]
 measure: (in an action)
 parseNumber: (none for "", "12px", "1.2.3")
 performanceNow: (ms since launch)
 round: (half up)
-slice: slice(text|list, start, end?) -> text|list
+slice: s.slice(start, end?) -> text|list
 t: t("key", name=value) -> string  (the locale's table)
 toFixed: (digits a literal, 0 to 100)
-toString: toString(x) -> string
+toString: x.toString() -> string
 
 ## tags
 view box row column main nav article aside section header footer hr | id testId role title tabindex | press hover key keyup focus blur contextmenu dblclick
@@ -154,11 +154,11 @@ main accent-color="-exact-system-indigo"
 ```contract
 shape Reply
   ok: bool
-resource items = loadItems() as shape list<string> else empty()
+resource items = loadItems() as shape string[] else empty()
 mutation added as shape Reply refreshes items
 action add
   send added = addItem("Milk")
-text join(items, ", ")
+text items.join(", ")
 ```
 ### a dated record
 The write reads the clock itself, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 at each launch). `"iso"` is the day, compared as text. Tests pin `epoch` and `time-zone`.
@@ -170,7 +170,7 @@ state days = []
 resource time = exactTime() as shape Time
 action log
   let at = time.epochAtZero + performanceNow()
-  days = concat(days, [formatDate(at, time.utcOffset, "iso")])
+  days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
 By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert; `reload` relaunches on the same storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` once at the end for an iPhone app; `--shots <dir>` copies the screenshots to look at. A screen no test ends on is unchecked.

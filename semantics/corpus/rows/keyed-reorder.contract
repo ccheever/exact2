@@ -6,7 +6,7 @@ shape Item
 
 component App
   state page = 0
-  resource items = items(page) as shape list<Item>
+  resource items = items(page) as shape Item[]
   action next
     page = page + 1
   action prev

@@ -39,7 +39,7 @@ component Split
       section
         row
           text "Each Pays"
-          text (bill > 0 ? toFixed(bill / people, 2) : "—") font-variant-numeric="tabular-nums" testId="share"
+          text (bill > 0 ? (bill / people).toFixed(2) : "—") font-variant-numeric="tabular-nums" testId="share"
 ```
 
 ```contract-test

@@ -35,7 +35,7 @@ fn rows(attrs: &str, row: &str, after: &str) -> String {
             .collect()
     };
     format!(
-        "component App\n  state items = [\"Milk\", \"Eggs\"]\n  action remove(item: string)\n    items = filter(items, i => i != item)\n  view\n    column\n      for i in items key=i\n        scroll {attrs} overflow-x=\"scroll\" overflow-y=\"hidden\" scroll-snap-type=\"x mandatory\"\n{}{}",
+        "component App\n  state items = [\"Milk\", \"Eggs\"]\n  action remove(item: string)\n    items = items.filter(i => i != item)\n  view\n    column\n      for i in items key=i\n        scroll {attrs} overflow-x=\"scroll\" overflow-y=\"hidden\" scroll-snap-type=\"x mandatory\"\n{}{}",
         indent(row, 10),
         indent(after, 8)
     )

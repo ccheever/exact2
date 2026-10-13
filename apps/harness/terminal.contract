@@ -36,15 +36,15 @@ fn fg(c: string): string = c == "" ? "inherit" : c
 fn bg(c: string): string = c == "" ? "transparent" : c
 fn weight(bold: bool, dim: bool): number = bold ? 700 : (dim ? 300 : 400)
 fn deco(under: bool, strike: bool): string = under ? (strike ? "underline line-through" : "underline") : (strike ? "line-through" : "none")
-fn frameOf(frames: list<string>, n: number): string = match at(frames, n % length(frames)) { case some(f) => f, case none => "" }
+fn frameOf(frames: string[], n: number): string = match frames.at(n % frames.length) { case some(f) => f, case none => "" }
 fn spinner(n: number): string = frameOf(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"], n)
 fn star(n: number): string = frameOf(["✻", "✽", "✶", "✳", "✢", "·", "✢", "✳", "✶", "✽"], n)
 fn seconds(ticks: number): string = `${floor(ticks / 10)}s`
 fn statusColor(s: string): string = s == "ok" ? "#5fd75f" : (s == "error" ? "#ff5f5f" : (s == "denied" ? "#ffaf00" : (s == "waiting" ? "#ffaf00" : "#87afff")))
 fn phaseWord(p: string): string = p == "thinking" ? "Thinking" : (p == "streaming" ? "Writing" : (p == "tool" ? "Running" : (p == "waiting" ? "Waiting for you" : "Working")))
 fn kilo(n: number): string = n >= 1000 ? `${floor(n / 100) / 10}k` : `${n}`
-fn isCommand(s: string): bool = indexOf(s, "/") == 0
-fn matching(cmds: list<Cmd>, draft: string): list<Cmd> = filter(cmds, c => indexOf(c.name, trim(draft)) == 0)
+fn isCommand(s: string): bool = s.indexOf("/") == 0
+fn matching(cmds: Cmd[], draft: string): Cmd[] = cmds.filter(c => c.name.indexOf(draft.trim()) == 0)
 
 component Harness
   resource terminal = exactSurface("terminal") as shape Terminal
@@ -93,7 +93,7 @@ component Harness
     Cmd(name="/wave", help="animation: the waving logo"),
     Cmd(name="/quit", help="leave"),
   ]
-  derive matches = isCommand(draft) and not includes(draft, " ") ? matching(commands, draft) : []
+  derive matches = isCommand(draft) and not draft.includes(" ") ? matching(commands, draft) : []
   derive animating = anim != ""
   derive animations = ["/plasma", "/fire", "/matrix", "/spinners", "/bars", "/donut", "/knot", "/tesseract", "/warp", "/tunnel", "/wave"]
   derive inline = terminal.mode != "fullscreen"
@@ -138,16 +138,16 @@ component Harness
           if text == "/model"
             showModal("models")
           else
-            if includes(animations, text)
-              anim = slice(text, 1)
+            if animations.includes(text)
+              anim = text.slice(1)
             else
               send sent = submit(text)
-        history = concat([text], history)
+        history = [text].concat(history)
         draft = ""
         back = -1
         sel = 0
   action complete
-    match at(matches, sel)
+    match matches.at(sel)
       case some(c)
         draft = `${c.name} `
       case none
@@ -160,28 +160,28 @@ component Harness
   // preventDefault().
   action onKey(key: string, e: KeyboardEvent)
     if key == "Enter" and not e.shiftKey and not e.altKey
-      sendText(match at(matches, sel) { case some(c) => c.name, case none => trim(draft) })
+      sendText(match matches.at(sel) { case some(c) => c.name, case none => draft.trim() })
       preventDefault()
     else
-      if key == "Tab" and length(matches) > 0
+      if key == "Tab" and matches.length > 0
         complete()
         preventDefault()
       else
-        if key == "ArrowDown" and length(matches) > 0
-          sel = (sel + 1) % length(matches)
+        if key == "ArrowDown" and matches.length > 0
+          sel = (sel + 1) % matches.length
           preventDefault()
         else
-          if key == "ArrowUp" and length(matches) > 0
-            sel = (sel + length(matches) - 1) % length(matches)
+          if key == "ArrowUp" and matches.length > 0
+            sel = (sel + matches.length - 1) % matches.length
             preventDefault()
           else
-            if key == "ArrowUp" and back + 1 < length(history) and not includes(draft, "\n")
-              draft = match at(history, back + 1) { case some(h) => h, case none => draft }
+            if key == "ArrowUp" and back + 1 < history.length and not draft.includes("\n")
+              draft = match history.at(back + 1) { case some(h) => h, case none => draft }
               back = back + 1
               preventDefault()
             else
-              if key == "ArrowDown" and back >= 0 and not includes(draft, "\n")
-                draft = match at(history, back - 1) { case some(h) => h, case none => "" }
+              if key == "ArrowDown" and back >= 0 and not draft.includes("\n")
+                draft = match history.at(back - 1) { case some(h) => h, case none => "" }
                 back = back - 1
                 preventDefault()
               else
@@ -216,7 +216,7 @@ component Harness
   action dropKey
     keyDraft = ""
   action saveKey
-    send keyed = setKey(keyFor, trim(keyDraft))
+    send keyed = setKey(keyFor, keyDraft.trim())
     keyDraft = ""
     close("keys")
   action answer(choice: string)
@@ -268,13 +268,13 @@ component Harness
                 text "esc to stop" color="#6c6c6c"
             for l, i in frame.lines key=i
               FrameRuns(runs=l.runs)
-        if length(matches) > 0
+        if matches.length > 0
           column margin-top="1lh" testId="completions"
             for c, i in matches key=c.name
               button press=sendText(c.name) display="flex" text-align="start" background-color=(i == sel ? "#303050" : "transparent") padding="0 1ch" testId=`complete-${c.name}`
                 text c.name width="12ch" flex-shrink=0 color=(i == sel ? "#afafff" : "#87afff") font-weight=(i == sel ? 700 : 400)
                 text c.help color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
-        if length(session.queued) > 0
+        if session.queued.length > 0
           column margin-top="1lh" color="#8a8a8a" padding="0 1ch" testId="queued"
             for q, i in session.queued key=i
               row
@@ -282,7 +282,7 @@ component Harness
                 text q white-space="nowrap" text-overflow="ellipsis" min-width=0
         row margin-top="1lh" border="thin solid #585858" border-radius="1ch" padding="0 1ch"
           text "› " white-space="pre" color="#87afff" font-weight=700 flex-shrink=0
-          textarea value=draft appearance="none" input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, length(split(draft, "\n"))) testId="prompt"
+          textarea value=draft appearance="none" input=write key=onKey disabled=(session.approval.id != "") autofocus=true placeholder=(session.busy ? "Type ahead — it runs when this turn ends" : "Ask anything, or / for commands") flex-grow=1 rows=min(8, draft.split("\n").length) testId="prompt"
         row padding="0 1ch" color="#6c6c6c" gap="2ch"
           button appearance="none" commandfor="models" command="show-modal" aria-keyshortcuts="Control+o" testId="model-button" white-space="nowrap" flex-shrink=0
             text `${session.model} (${session.provider})` color="#87afff"
@@ -323,7 +323,7 @@ component Harness
 // the host reports back when it has printed it).
 component Transcript
   props
-    entries: list<Entry>
+    entries: Entry[]
     tick: number
   view
     column role="log" testId="transcript"
@@ -333,7 +333,7 @@ component Transcript
 // One paragraph of styled runs; it wraps unless `pre`.
 component Runs
   props
-    runs: list<Run>
+    runs: Run[]
     pre: bool
   view
     text white-space=(pre ? "pre" : "pre-wrap")
@@ -343,7 +343,7 @@ component Runs
 // Animation runs carry only their effective terminal style.
 component FrameRuns
   props
-    runs: list<FrameRun>
+    runs: FrameRun[]
   view
     text white-space="pre"
       for r, i in runs key=i

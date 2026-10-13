@@ -11,7 +11,7 @@ routes nav
 shape Items
   ok: bool
   error: string
-  titles: list<string>
+  titles: string[]
 
 shape Reply
   ok: bool
@@ -33,8 +33,8 @@ component Shared
   action edit(v: string)
     draft = v
   action add
-    if trim(draft) != "" and not pending(added)
-      send added = addItem(persona, trim(draft))
+    if draft.trim() != "" and not pending(added)
+      send added = addItem(persona, draft.trim())
   action afterAdd
     if addError == ""
       draft = ""

@@ -4,7 +4,7 @@ shape Item
   id: string
 
 component App
-  mutation got as shape list<Item>
+  mutation got as shape Item[]
   derive items = match got { case some(xs) => xs, case none => [] }
   view
     column

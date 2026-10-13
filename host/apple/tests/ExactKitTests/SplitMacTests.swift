@@ -487,7 +487,7 @@ final class SplitMacTests: XCTestCase {
                         if mode == "commands"
                           button press=refill
                             text "Local command"
-                        if length(ids) == 0
+                        if ids.length == 0
                           text "No Results"
                   if e.name == "book"
                     text "Detail"

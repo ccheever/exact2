@@ -12,7 +12,7 @@ impl DataSource for Rows {
     }
 }
 fn source(attrs: &str) -> String {
-    format!("component App\n  state bound = \"auto\"\n  state grow = 0\n  resource rows = rows() as shape list<number>\n  view\n    row\n      list {attrs} testId=\"collection\"\n        for x in rows key=x\n          text `${{x}}` height=20\n")
+    format!("component App\n  state bound = \"auto\"\n  state grow = 0\n  resource rows = rows() as shape number[]\n  view\n    row\n      list {attrs} testId=\"collection\"\n        for x in rows key=x\n          text `${{x}}` height=20\n")
 }
 #[test]
 fn literal_auto_and_zero_flex_are_not_vertical_bounds() {
@@ -111,7 +111,7 @@ fn nested_virtual_templates_compile_through_branches_and_eager_rows() {
 }
 #[test]
 fn expanded_components_can_hold_a_nested_virtual_collection() {
-    let s = format!("{}\ncomponent Inner\n  props\n    items: list<number>\n  view\n    column\n      list virtualized=true height=80\n        for y in items key=y\n          text `${{y}}`\n", nested_source("          Inner(items=rows)"));
+    let s = format!("{}\ncomponent Inner\n  props\n    items: number[]\n  view\n    column\n      list virtualized=true height=80\n        for y in items key=y\n          text `${{y}}`\n", nested_source("          Inner(items=rows)"));
     nests(&s);
 }
 #[test]

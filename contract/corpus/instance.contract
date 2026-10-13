@@ -9,7 +9,7 @@ shape Station
 
 component App
   state order = "asc"
-  resource stations = stations(order) as shape list<Station>
+  resource stations = stations(order) as shape Station[]
   action flip
     order = order == "asc" ? "desc" : "asc"
   view

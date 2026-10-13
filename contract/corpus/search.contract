@@ -9,18 +9,18 @@ shape Session
   file: string
 
 component Search
-  resource sessions = sessions() as shape list<Session>
+  resource sessions = sessions() as shape Session[]
   state typed = ""
   action edit(value: string)
     typed = value
-  derive named = filter(sessions, s => includes(s.name, typed))
+  derive named = sessions.filter(s => s.name.includes(typed))
   view
     column testId="root"
       input value=typed change=edit testId="typed"
-      text `${length(named)} named` testId="named"
+      text `${named.length} named` testId="named"
       for s in sessions key=s.code
-        row testId=`row-${s.code}` background-color=((typed != "" and startsWith(s.code, typed)) ? "#ffe08a" : "#ffffff")
+        row testId=`row-${s.code}` background-color=((typed != "" and s.code.startsWith(typed)) ? "#ffe08a" : "#ffffff")
           text s.code
-          text (startsWith(s.code, typed) ? "*" : "") testId=`hit-${s.code}`
+          text (s.code.startsWith(typed) ? "*" : "") testId=`hit-${s.code}`
           text s.name
-          text (endsWith(s.file, ".md") ? "markdown" : "plain") testId=`kind-${s.code}`
+          text (s.file.endsWith(".md") ? "markdown" : "plain") testId=`kind-${s.code}`

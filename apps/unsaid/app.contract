@@ -71,11 +71,11 @@ component Unsaid
   state sent = ""
   state chose = "Nothing chosen yet"
   state asked = ""
-  derive ten = split("0 1 2 3 4 5 6 7 8 9", " ")
-  derive forty = concat(concat(ten, ten), concat(ten, ten))
-  derive cards = map(concat(ten, ten), (x, i) => i)
-  derive lines = map(forty, (x, i) => i)
-  derive rows = map(concat(concat(forty, forty), concat(concat(forty, forty), concat(forty, forty))), (x, i) => i)
+  derive ten = "0 1 2 3 4 5 6 7 8 9".split(" ")
+  derive forty = ten.concat(ten).concat(ten.concat(ten))
+  derive cards = ten.concat(ten).map((x, i) => i)
+  derive lines = forty.map((x, i) => i)
+  derive rows = forty.concat(forty).concat(forty.concat(forty).concat(forty.concat(forty))).map((x, i) => i)
   action open
     nav = push(nav, "/next")
   action openRows
@@ -131,7 +131,7 @@ component Unsaid
     short = value
   // The app writes another value than the one typed: the field takes it.
   action hush(value)
-    quiet = toLowerCase(value)
+    quiet = value.toLowerCase()
   action setFirst(value)
     first = value
   action setSecond(value)

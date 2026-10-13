@@ -16,14 +16,14 @@ shape Reply
 
 component Chat
   state draft = ""
-  resource thread = loadThread() as shape list<Message> else empty()
+  resource thread = loadThread() as shape Message[] else empty()
   mutation sent as shape Reply refreshes thread then afterSend
   derive sendError = match sent { case some(r) => r.error, case none => "" }
   action edit(v: string)
     draft = v
   action post
-    if trim(draft) != "" and not pending(sent)
-      send sent = sendMessage(trim(draft))
+    if draft.trim() != "" and not pending(sent)
+      send sent = sendMessage(draft.trim())
   action afterSend
     if sendError == ""
       draft = ""
@@ -44,7 +44,7 @@ component Chat
           row gap=8 padding="8px 12px" align-items="center"
             input value=draft input=edit submit=post placeholder="Message"
               enterkeyhint="send" testId="composer" flex=1 min-width=0
-            button press=post disabled=(trim(draft) == "" or pending(sent)) buttonStyle="filled" aria-label="Send" testId="send"
+            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled" aria-label="Send" testId="send"
               image "symbol:send"
 ```
 

@@ -13,7 +13,7 @@ component Profile
   state reminders = true
   state birthday = ""
   state submitted = false
-  derive nameError = trim(name) == "" ? "Enter your name." : ""
+  derive nameError = name.trim() == "" ? "Enter your name." : ""
   action editName(v: string)
     name = v
   action editQty(v: string)

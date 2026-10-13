@@ -574,7 +574,7 @@ fn backdrop_saturation_is_admitted_alone_and_beside_blur() {
 fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
     // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
     // grammar at run time as a literal at compile time.
-    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px) saturate(\" + toString(saturation) + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
+    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + blur.toString() + \"px) saturate(\" + saturation.toString() + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
@@ -1069,7 +1069,7 @@ fn repeated_context_branches_contain_descendants_in_every_instance() {
     for virtualized in ["", "virtualized=true"] {
         let source = format!(
             r#"component App
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   view
     column
       box id="bubble" height=10

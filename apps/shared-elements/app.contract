@@ -65,10 +65,10 @@ component App
   state openRow = 0
   state card = ""
   state done = 0
-  resource photos = photos() as shape list<Photo>
-  resource rows = rows() as shape list<Photo>
-  resource cards = cards() as shape list<Card>
-  resource tasks = tasks() as shape list<Task>
+  resource photos = photos() as shape Photo[]
+  resource rows = rows() as shape Photo[]
+  resource cards = cards() as shape Card[]
+  resource tasks = tasks() as shape Task[]
   derive current = top(nav)
 
   action choose(name: string)
@@ -79,13 +79,13 @@ component App
   action openPhoto(n: number)
     open = n
   action step(by: number)
-    open = max(1, min(length(photos), open + by))
+    open = max(1, min(photos.length, open + by))
   action closePhoto
     open = 0
   action openListRow(n: number)
     openRow = n
   action stepRow(by: number)
-    openRow = max(1, min(length(rows), openRow + by))
+    openRow = max(1, min(rows.length, openRow + by))
   action closeRow
     scrollIntoView("long", `p${openRow}`, block="nearest")
     openRow = 0
@@ -103,9 +103,9 @@ component App
   view
     main testId="app" navigationKey=`${current.id}` navigationBack="back" width="100%" height="100%" font-family="system-ui" color="#15181c"
       for e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` navigationPresentation=(e.name == "photo" ? "fullscreen" : "") navigationSource=(e.name == "photo" ? `zoom-${join(params(nav, "photo"), "")}` : "") position="absolute" top=0 bottom=0 left=0 right=0 display="flex" flex-direction="column" background-color=(e.name == "photo" ? "#0b0c0e" : "#f6f4ef")
+        column navigationKey=`${e.id}` navigationPresentation=(e.name == "photo" ? "fullscreen" : "") navigationSource=(e.name == "photo" ? `zoom-${params(nav, "photo").join("")}` : "") position="absolute" top=0 bottom=0 left=0 right=0 display="flex" flex-direction="column" background-color=(e.name == "photo" ? "#0b0c0e" : "#f6f4ef")
           if e.name == "photo"
-            ZoomViewer(id=join(params(nav, "photo"), ""), photos=photos, back=back)
+            ZoomViewer(id=params(nav, "photo").join(""), photos=photos, back=back)
           else
             column flex=1 min-height=0 position="relative" padding-top="env(safe-area-inset-top)"
               row gap=6 padding=12 overflow-x="scroll" scrollbar-width="none" flex-shrink=0 role="tablist"
@@ -115,7 +115,7 @@ component App
                 TabButton(name="tasks", label="Tasks", tab=tab, choose=choose)
                 TabButton(name="zoom", label="Zoom", tab=tab, choose=choose)
               if tab == "grid"
-                match first(filter(photos, p => p.n == open))
+                match first(photos.filter(p => p.n == open))
                   case some(p)
                     Viewer(photo=p, name=`grid-${p.id}`, step=step, close=closePhoto, jump=3)
                   case none
@@ -128,7 +128,7 @@ component App
                               image p.asset sharedElement=`grid-${p.id}` class=Fly testId=`thumb-${p.id}` width="100%" height=140 min-height=0 object-fit="cover" border-radius=12 background-color=p.tone
                               text p.title font-size=13 color="#3b3f45"
               if tab == "list"
-                match first(filter(rows, p => p.n == openRow))
+                match first(rows.filter(p => p.n == openRow))
                   case some(p)
                     Viewer(photo=p, name=`row-${p.id}`, step=stepRow, close=closeRow, jump=25)
                   case none
@@ -138,7 +138,7 @@ component App
                           image p.asset sharedElement=`row-${p.id}` class=Fly testId=`rowthumb-${p.id}` width=64 height=64 object-fit="cover" border-radius=8 background-color=p.tone flex-shrink=0
                           text p.title font-size=15
               if tab == "cards"
-                match first(filter(cards, c => c.id == card))
+                match first(cards.filter(c => c.id == card))
                   case some(c)
                     column sharedElement=`card-${c.id}` class=Fly testId="card-detail" position="absolute" top=0 left=0 right=0 bottom=0 padding=24 gap=14 background-color=c.color
                       row justify-content="space-between" align-items="center"
@@ -157,18 +157,18 @@ component App
                 row padding=12 gap=12 align-items="flex-start"
                   column flex=1 gap=8 min-width=0
                     text "To do" font-size=13 font-weight=600 color="#6b6f76"
-                    for t in filter(tasks, t => floor(done / t.bit) % 2 == 0) key=t.id
+                    for t in tasks.filter(t => floor(done / t.bit) % 2 == 0) key=t.id
                       TaskChip(task=t, toggle=toggleTask, finished=false)
                   column flex=1 gap=8 min-width=0
                     text "Done" font-size=13 font-weight=600 color="#6b6f76"
-                    for t in filter(tasks, t => floor(done / t.bit) % 2 == 1) key=t.id
+                    for t in tasks.filter(t => floor(done / t.bit) % 2 == 1) key=t.id
                       TaskChip(task=t, toggle=toggleTask, finished=true)
               if tab == "zoom"
                 scroll flex=1 min-height=0 overflow-x="hidden"
                   column padding=12 gap=10
                     text "A route presented fullscreen zooms out of its photo on iOS 18 (UIKit's zoom transition). Elsewhere it opens with the platform's ordinary transition." font-size=13 color="#6b6f76"
                     row flex-wrap="wrap" gap=10
-                      for p in filter(photos, p => p.n <= 6) key=p.id
+                      for p in photos.filter(p => p.n <= 6) key=p.id
                         button press=zoom(p.id) testId=`zoom-open-${p.id}` aria-label=`Zoom into ${p.title}` padding=0 border-width=0 background-color="#00000000" flex-basis="30%" flex-grow=1 min-width=0
                           image p.asset id=`zoom-${p.id}` width="100%" height=110 object-fit="cover" border-radius=10 background-color=p.tone
 
@@ -219,14 +219,14 @@ component TaskChip
 component ZoomViewer
   props
     id: string
-    photos: list<Photo>
+    photos: Photo[]
     back: action
   view
     column flex=1 min-height=0 color="#ffffff"
       row padding=12 margin-top="env(safe-area-inset-top)" justify-content="flex-end" flex-shrink=0
         button press=back testId="zoom-close" aria-label="Close" class=Bar color="#ffffff"
           text "Close"
-      match first(filter(photos, p => p.id == id))
+      match first(photos.filter(p => p.id == id))
         case some(p)
           image p.asset testId="zoom-large" flex=1 min-height=0 width="100%" object-fit="contain"
         case none

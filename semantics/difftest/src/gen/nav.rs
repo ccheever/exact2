@@ -49,14 +49,10 @@ impl Gen<'_> {
             ("navId", "top(nav).params.id", Ty::Str),
             ("navIds", "params(nav, \"id\")", Ty::list(Ty::Str)),
             ("navQ", "searchParam(top(nav), \"q\")", Ty::Str),
-            (
-                "navUrls",
-                "map(stack(nav), (e) => e.url)",
-                Ty::list(Ty::Str),
-            ),
+            ("navUrls", "stack(nav).map((e) => e.url)", Ty::list(Ty::Str)),
             (
                 "navTabs",
-                "map(nav.tabs, (t) => `${t.name}:${length(t.stack)}`)",
+                "nav.tabs.map((t) => `${t.name}:${t.stack.length}`)",
                 Ty::list(Ty::Str),
             ),
         ];
@@ -99,7 +95,7 @@ impl Gen<'_> {
             return format!("path(\"note\", {arg})");
         }
         if self.rng.chance(1, 8) {
-            return format!("trim({})", quote(self.rng.pick(UNMATCHED)));
+            return format!("({}).trim()", quote(self.rng.pick(UNMATCHED)));
         }
         quote(self.rng.pick(LOCATIONS))
     }
@@ -121,18 +117,18 @@ impl Gen<'_> {
                     .rng
                     .pick(&["a", "x y", "ü/€", "7", "..", "", "q?r", "."])
                 {
-                    s @ (".." | "" | ".") => format!("trim({})", quote(s)),
+                    s @ (".." | "" | ".") => format!("({}).trim()", quote(s)),
                     s => quote(s),
                 },
             }
         } else {
             match self.expr(env, &t, 1, false) {
-                e if ["\"\"", "\".\"", "\"..\""].contains(&e.as_str()) => format!("trim({e})"),
+                e if ["\"\"", "\".\"", "\"..\""].contains(&e.as_str()) => format!("({e}).trim()"),
                 // A computed string is held short: a location built from
                 // the last one (`top(nav).url`) would otherwise grow with
                 // every step, past the runner's string bound, which the
                 // semantics leaves out (semantics/README.md).
-                e if t == Ty::Str => format!("((length({e}) > 40) ? \"long\" : {e})"),
+                e if t == Ty::Str => format!("((({e}).length > 40) ? \"long\" : {e})"),
                 e => e,
             }
         }

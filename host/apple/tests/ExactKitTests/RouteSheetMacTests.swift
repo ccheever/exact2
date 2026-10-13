@@ -42,7 +42,7 @@ final class RouteSheetMacTests: XCTestCase {
       action search(v: string)
         query = v
       action more
-        rows = concat(rows, [length(rows)])
+        rows = rows.concat([rows.length])
       view
         column testId="root" navigationKey=screen navigationBack="back" width="100%" height="100%" position="relative"
           column navigationKey="home" testId="home" position="absolute" inset=0 padding=20 gap=12

@@ -29,7 +29,7 @@ shape Index
   project: string
   total: number
   shown: number
-  entries: list<Entry>
+  entries: Entry[]
 
 shape Heading
   id: string
@@ -49,8 +49,8 @@ shape Doc
   failed: bool
   section: number
   count: number
-  blocks: list<Block>
-  outline: list<Heading>
+  blocks: Block[]
+  outline: Heading[]
 
 // The system's colour scheme, beneath whatever `setScheme` chose (LLP
 // 1069.000 D1): CSS's `prefers-color-scheme`, on every host.
@@ -117,7 +117,7 @@ component Llp
   derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
   derive searching = query != ""
   derive sectioned = doc.section >= 0
-  derive hasOutline = not isEmpty(doc.outline)
+  derive hasOutline = not doc.outline.isEmpty()
   // The window says which project is open, not just which app this is
   // (LLP 1033 D7): the folder the corpus lives in, from `head` (LLP
   // 1069.010 D6).
@@ -175,7 +175,7 @@ component Llp
                 Chip(label="newest", on=newest, press=toggleNewest, testId="order-toggle")
               scroll flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain" testId="index"
                 column width="100%" box-sizing="border-box" padding=8 padding-top=0 gap=1
-                  if isEmpty(index.entries)
+                  if index.entries.isEmpty()
                     view padding=10
                       text "No documents here" font-size=12 color=theme.softInk testId="index-empty"
                   for e in index.entries key=e.id

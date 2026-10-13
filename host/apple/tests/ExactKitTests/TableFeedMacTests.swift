@@ -42,8 +42,8 @@ final class TableFixture {
           state on = false
           state draft = ""
         \(derived)
-          derive base = slice(map(\(doublings == 0 ? "seed" : "d\(doublings)"), (x, i) => i), 0, \(count))
-          derive rows = concat(slice(extra, 1), base)
+          derive base = (\(doublings == 0 ? "seed" : "d\(doublings)")).map((x, i) => i).slice(0, \(count))
+          derive rows = extra.slice(1).concat(base)
           action open(r: number)
             opened = r
             presses = presses + 1
@@ -56,7 +56,7 @@ final class TableFixture {
           action typed(v: string)
             draft = v
           action prepend
-            extra = concat(extra, [0 - length(extra) - 1])
+            extra = extra.concat([0 - extra.length - 1])
           view
             column width="100%" height="100%"
               row testId="bar" gap=8 padding=4

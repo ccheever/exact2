@@ -15,9 +15,9 @@ component Now
   state query = ""
   state nowMs = 0
   derive selected = match stationId { case some(id) => id, case none => "mv" }
-  resource stations = stations() as shape list<Station>
-  resource board = departures(selected) as shape list<Departure>
-  derive count = length(board)
+  resource stations = stations() as shape Station[]
+  resource board = departures(selected) as shape Departure[]
+  derive count = board.length
 
   action selectStation(id)
     stationId = some(id)
@@ -37,7 +37,7 @@ component Now
       if query == ""
         for d in board key=d.id
           button press=selectStation(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
-            text toString(max(0, -floor(-((d.at - nowMs) / 60000))))
+            text max(0, -floor(-((d.at - nowMs) / 60000))).toString()
       else
         text "searching" testId="searching"
       input value=query input=setQuery testId="search"

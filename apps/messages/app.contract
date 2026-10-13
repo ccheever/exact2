@@ -69,7 +69,7 @@ component Messages
   resource viewport = exactViewport() as shape Viewport
   resource wallTime = exactTime() as shape Time
   resource data = snapshot(query, thread, revision, wallTime.epochAtZero + time, wallTime.utcOffset) as shape Snapshot
-  resource models = catalog(modelQuery, choosing ? 1 : 0) as shape list<Model>
+  resource models = catalog(modelQuery, choosing ? 1 : 0) as shape Model[]
   derive maximum = min(viewport.width - 121.333, (viewport.width - 32) * 0.85)
 
   action openThread(id: string, saved: string)
@@ -293,7 +293,7 @@ component Messages
                             image "symbol:notifications"
                           button appearance="auto" buttonStyle="filled" accent-color="#ff3b30" destructive=true press=inboxOperation("delete-thread", t.id) id=`delete-thread-${t.id}` testId=`delete-thread-${t.id}` aria-label=`Delete ${t.name}` width=50 height=50 flex-shrink=0
                             image "symbol:delete"
-                if length(data.threads) == 0
+                if data.threads.length == 0
                   text "No Results" font-size=20 font-weight=600 text-align="center" margin-top=70
               text (data.connected ? "OpenRouter connected" : "AI connects through your Mac") font-size=11 class=Secondary text-align="center" padding=12
               box height="env(safe-area-inset-bottom)" flex-shrink=0
@@ -449,5 +449,5 @@ component Messages
                           text m.maker font-size=13 class=Secondary text-align="left"
                         if m.id == data.model and not newConversation
                           text "✓" font-size=20 color="#0088ff"
-                    if length(models) == 0
+                    if models.length == 0
                       text "No models found" font-size=17 class=Secondary text-align="center" margin-top=24

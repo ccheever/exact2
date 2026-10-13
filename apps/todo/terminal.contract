@@ -16,19 +16,19 @@ component Todos
   state draft = ""
   state next = 4
   state filter = "all"
-  derive shown = filter == "all" ? todos : filter(todos, t => filter == "done" ? t.done : not t.done)
-  derive left = length(filter(todos, t => not t.done))
+  derive shown = filter == "all" ? todos : todos.filter(t => filter == "done" ? t.done : not t.done)
+  derive left = todos.filter(t => not t.done).length
 
   action write(value)
     draft = value
   action add
-    todos = draft == "" ? todos : concat(todos, [Todo(id=toString(next), title=draft, done=false)])
+    todos = draft == "" ? todos : todos.concat([Todo(id=next.toString(), title=draft, done=false)])
     next = next + 1
     draft = ""
   action toggle(id: string)
-    todos = map(todos, t => t.id == id ? Todo(t, done=not t.done) : t)
+    todos = todos.map(t => t.id == id ? Todo(t, done=not t.done) : t)
   action clearDone
-    todos = filter(todos, t => not t.done)
+    todos = todos.filter(t => not t.done)
   action showAll
     filter = "all"
   action showActive

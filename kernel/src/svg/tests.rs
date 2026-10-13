@@ -120,6 +120,7 @@ fn geometry_reads_the_node() {
     props.set(PropId::Points, PropValue::Str("0,32 48,0 96,16".into()));
     let style = StyleProps::default();
     let vp = Viewport {
+        env: &crate::Env::default(),
         width: 100.0,
         height: 50.0,
     };
@@ -397,4 +398,42 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     assert!(
         crate::svg::scene::box_filter(&FilterList::parse("none").unwrap(), black, false).is_none()
     );
+}
+
+#[test]
+fn region_coordinates_keep_initial_values_for_undefined_environment_lengths() {
+    crate::link_segments();
+    use crate::{Dimension, Env};
+    let env = Env::default();
+    let vp = Viewport {
+        env: &env,
+        width: 200.0,
+        height: 100.0,
+    };
+    for text in [
+        "env(viewport-segment-width 1 0)",
+        "calc(env(viewport-segment-width 1 0) + 10%)",
+        "min(env(viewport-segment-width 1 0), 50%)",
+        "max(5px, env(viewport-segment-width 1 0))",
+        "clamp(1px, env(viewport-segment-width 1 0), 100px)",
+    ] {
+        let d = Some(Dimension::parse_env(text).unwrap());
+        assert_eq!(vp.coord(d, -0.1, vp.width), -20.0, "mask x: {text}");
+        assert_eq!(vp.coord(d, 0.5, vp.width), 100.0, "gradient cx: {text}");
+        assert_eq!(
+            vp.coord(d, 1.2, 1.0),
+            1.2,
+            "object bounding box width: {text}"
+        );
+    }
+    let mut style = crate::StyleProps::default();
+    style
+        .set_dynamic(
+            crate::StyleId::Cx,
+            &crate::StyleValue::Text("env(viewport-segment-width 1 0, 25%)".into()),
+        )
+        .unwrap();
+    let fallback = style.cx;
+    assert_eq!(vp.coord(Some(fallback), 0.5, vp.width), 50.0);
+    assert_eq!(vp.coord(Some(Dimension::Points(0.0)), 0.5, vp.width), 0.0);
 }

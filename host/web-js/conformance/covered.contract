@@ -14,12 +14,12 @@ shape Card
   color: string
 
 component Covered
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   derive current = top(nav)
   state shown = false
   state hi = 0
   state asks = 0
-  derive rows = filter(cards, c => c.n < hi or c.n == 1999)
+  derive rows = cards.filter(c => c.n < hi or c.n == 1999)
   action open
     shown = true
     nav = push(nav, "/post/1")

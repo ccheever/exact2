@@ -20,7 +20,7 @@ shape Hit
 component Kit
   state n = 0
   state ahead = 0
-  resource hits = hits(n) as shape list<Hit>
+  resource hits = hits(n) as shape Hit[]
   action three
     playSound("assets/kick.wav")
     playSound("assets/kick.wav")

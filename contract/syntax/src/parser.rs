@@ -82,6 +82,7 @@ pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxErr
         depth: 0,
         view_depth: 0,
         last: 0,
+        free: Vec::new(),
     };
     let parsed = p.file_all();
     if lexed.is_empty() {
@@ -111,6 +112,7 @@ pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), Syn
         depth: 0,
         view_depth: 0,
         last: 0,
+        free: Vec::new(),
     };
     let file = p.file()?;
     Ok((file, p.tokens))
@@ -125,6 +127,10 @@ struct Parser {
     view_depth: usize,
     /// The tree depth of the expression last parsed.
     last: usize,
+    /// Free calls of a method's name (`trim(s)`), each with its refusal: refused
+    /// at the end of the file unless the file declares a `fn`, shape or action
+    /// of that name (LLP 1116.015 D2).
+    free: Vec<(String, SyntaxError)>,
 }
 
 type R<T> = Result<T, SyntaxError>;
@@ -302,11 +308,29 @@ impl Parser {
             let start = self.pos;
             match self.declaration(&mut file) {
                 Ok(true) => {}
-                Ok(false) if errors.is_empty() => {
-                    file.names = std::mem::take(&mut self.names);
-                    return Ok(file);
+                Ok(false) => {
+                    let declared = |name: &str| {
+                        file.fns.iter().any(|f| f.name == name)
+                            || file.shapes.iter().any(|s| s.name == name)
+                            || file
+                                .components
+                                .iter()
+                                .any(|c| c.actions.iter().any(|a| a.name == name))
+                    };
+                    let free = std::mem::take(&mut self.free);
+                    errors.extend(
+                        free.into_iter()
+                            .filter(|(n, _)| !declared(n))
+                            .map(|(_, e)| e),
+                    );
+                    if errors.is_empty() {
+                        file.names = std::mem::take(&mut self.names);
+                        return Ok(file);
+                    }
+                    errors.sort_by_key(|e| (e.span.line, e.span.col));
+                    errors.truncate(MAX_REFUSALS);
+                    return Err(errors);
                 }
-                Ok(false) => return Err(errors),
                 Err(e) => {
                     errors.push(e);
                     if !recover || errors.len() >= MAX_REFUSALS {
@@ -608,6 +632,13 @@ impl Parser {
         self.newline()?;
         let fields = self.block(|p| {
             let (name, span) = p.field_name()?;
+            // @ref LLP 1116.015 D2 — `x.length` is the length of a list or text.
+            if name == "length" {
+                return p.err(
+                    "syntax-length-field",
+                    "a field cannot be named `length`: `.length` is a list's or text's length; choose another name (`count`, `size`)",
+                );
+            }
             p.expect_punct(":")?;
             let ty = p.type_expr()?;
             p.newline()?;
@@ -632,19 +663,31 @@ impl Parser {
             return Ok(TypeExpr::Named("action".into(), span));
         }
         let (name, span) = self.ident()?;
-        match name.as_str() {
-            "option" | "list" => {
+        let mut ty = match name.as_str() {
+            "option" => {
                 self.expect_punct("<")?;
                 let inner = self.type_expr()?;
                 self.expect_punct(">")?;
-                Ok(if name == "option" {
-                    TypeExpr::Option(Box::new(inner), span)
-                } else {
-                    TypeExpr::List(Box::new(inner), span)
-                })
+                TypeExpr::Option(Box::new(inner), span)
             }
-            _ => Ok(TypeExpr::Named(name, span)),
+            // @ref LLP 1116.015 D2 — a list type is `T[]`.
+            "list" if self.at_punct("<") => {
+                self.next();
+                let inner = self.type_expr()?;
+                return Err(SyntaxError {
+                    id: "syntax-list-type",
+                    message: format!("write `{inner}[]`: a list type is `T[]`, as in TypeScript"),
+                    span,
+                });
+            }
+            _ => TypeExpr::Named(name, span),
+        };
+        while self.at_punct("[") && matches!(self.peek2(), TokenKind::Punct("]")) {
+            self.next();
+            self.next();
+            ty = TypeExpr::List(Box::new(ty), span);
         }
+        Ok(ty)
     }
 
     fn component(&mut self) -> R<Component> {
@@ -742,7 +785,13 @@ impl Parser {
                         "state" | "derive" => {
                             let t = self.next();
                             let name = self.named_ident(t.span)?;
-                            self.type_annotation(&w, &name, ":")?;
+                            // @ref LLP 1116.015 D2 — `state x: T = …` declares the type.
+                            let declared = if w == "state" && self.eat_punct(":") {
+                                Some(self.type_expr()?)
+                            } else {
+                                self.type_annotation(&w, &name, ":")?;
+                                None
+                            };
                             self.expect_punct("=")?;
                             self.on_its_line(&w)?;
                             let expr = self.expr()?;
@@ -755,6 +804,10 @@ impl Parser {
                                 });
                             }
                             self.newline()?;
+                            let expr = match declared {
+                                Some(ty) => Expr::Typed(Box::new(expr), ty, t.span),
+                                None => expr,
+                            };
                             let b = Binding {
                                 name,
                                 expr,
@@ -803,7 +856,7 @@ impl Parser {
                         unreachable!()
                     };
                     let example = if w == "else" {
-                        " (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
+                        " (like `resource tasks = loadTasks() as shape Task[] else empty()`)"
                     } else {
                         ""
                     };
@@ -1131,6 +1184,18 @@ impl Parser {
                 "syntax-map-view",
                 format!("`{word}` makes a value, not view nodes: repeat children with `for x in xs key=x.id` (LLP 1017.003)"),
             ),
+            // `xs.map(x => …)` as a view line: the JSX habit, as a method call.
+            _ if matches!(self.peek2(), TokenKind::Punct("."))
+                && matches!(
+                    self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                    Some(TokenKind::Ident(m)) if matches!(m.as_str(), "map" | "filter" | "forEach")
+                ) =>
+            {
+                self.err(
+                    "syntax-map-view",
+                    format!("`{word}.map(…)` makes a value, not view nodes: repeat children with `for x in {word} key=x.id` (LLP 1017.003)"),
+                )
+            }
             _ if word.chars().next().is_some_and(char::is_uppercase) => self.node_use(word, span),
             _ => self.node_element(word, span),
         }

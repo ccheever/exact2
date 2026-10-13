@@ -54,7 +54,7 @@ shape GalleryState
   canInsert: bool
   canPagePrevious: bool
   canPageNext: bool
-  viewer: list<ViewerState>
+  viewer: ViewerState[]
 
 shape Viewport
   height: number
@@ -67,7 +67,7 @@ shape Message
   outgoing: bool
   meta: string
 shape History
-  rows: list<Message>
+  rows: Message[]
   materialized: number
   revision: number
   changed: number
@@ -85,7 +85,7 @@ shape Run
   href: string
 shape Cell
   id: string
-  runs: list<Run>
+  runs: Run[]
 shape Block
   id: string
   kind: string
@@ -94,12 +94,12 @@ shape Block
   text: string
   href: string
   header: bool
-  runs: list<Run>
-  cells: list<Cell>
+  runs: Run[]
+  cells: Cell[]
 shape Runbook
   title: string
   sourceBytes: number
-  blocks: list<Block>
+  blocks: Block[]
 shape Wave
   id: number
   count: number
@@ -135,7 +135,7 @@ component ExactLive
   resource initial = gallery() as shape GalleryState
   mutation changed as shape GalleryState
   derive gallery = match changed { case some(value) => value, case none => initial }
-  resource rows = galleryRows(gallery.revision, 0, true) as shape list<Photo>
+  resource rows = galleryRows(gallery.revision, 0, true) as shape Photo[]
   state bookBytes = 0
   resource book = runbook(bookBytes) as shape Runbook
   state pane = "rundown"
@@ -369,13 +369,13 @@ component ExactLive
       running = revision < 119
       revision = min(120, revision + 1)
   action editDraft(value)
-    if length(value) <= 512
+    if value.length <= 512
       draft = value
       draftTooLong = false
     else
       draftTooLong = true
   action sendDraft
-    if not isEmpty(draft)
+    if not draft.isEmpty()
       echo = draft
       draft = ""
       replying = ""
@@ -565,7 +565,7 @@ component RundownPanel
     k: number
   props
     gallery: GalleryState
-    rows: list<Photo>
+    rows: Photo[]
     command: action
     reorder: action
   view
@@ -863,7 +863,7 @@ component Runs
   inject
     theme: Theme
   props
-    runs: list<Run>
+    runs: Run[]
     size: number
     weight: number
   view

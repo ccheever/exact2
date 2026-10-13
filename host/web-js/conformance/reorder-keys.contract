@@ -14,9 +14,9 @@ shape Station
 
 component ReorderKeys
   resource loc = defaultLocation() as shape Location
-  resource line = stations(loc) as shape list<Station>
-  resource all = nearest(loc, length(line)) as shape list<Station>
-  resource close = nearest(loc, 3) as shape list<Station>
+  resource line = stations(loc) as shape Station[]
+  resource all = nearest(loc, line.length) as shape Station[]
+  resource close = nearest(loc, 3) as shape Station[]
   state order = "line"
   derive shown = (order == "line" ? line : (order == "near" ? all : close))
   action byLine

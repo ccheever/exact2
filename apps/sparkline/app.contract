@@ -43,7 +43,7 @@ keyframes breatheStill
 component Sparkline
   state frozen = false
   state version = 0
-  resource coins = coins(version) as shape list<Coin>
+  resource coins = coins(version) as shape Coin[]
   action toggleFreeze
     frozen = not frozen
   action tick

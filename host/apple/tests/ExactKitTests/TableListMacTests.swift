@@ -15,7 +15,7 @@ final class TableListMacTests: XCTestCase {
     private static let kinds = """
     component Lists
       state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-      derive rows = concat(seed, seed)
+      derive rows = seed.concat(seed)
       state opened = 0 - 1
       action open(r: number)
         opened = r
@@ -91,11 +91,11 @@ final class TableListMacTests: XCTestCase {
     private static let plain = """
     component Plain
       state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-      derive d1 = concat(seed, seed)
-      derive d2 = concat(d1, d1)
-      derive d3 = concat(d2, d2)
+      derive d1 = seed.concat(seed)
+      derive d2 = d1.concat(d1)
+      derive d3 = d2.concat(d2)
       state from = 0
-      derive rows = slice(map(d3, (x, i) => i), from, 60)
+      derive rows = d3.map((x, i) => i).slice(from, 60)
       state opened = 0 - 1
       state presses = 0
       action open(r: number)

@@ -10,7 +10,7 @@ use exact_runner::{
 };
 
 fn feed(inner: &str) -> String {
-    format!("shape Post\n  id: number\n  cards: list<number>\ncomponent App\n  resource posts = posts() as shape list<Post>\n  view\n    list virtualized=true height=600 width=400 overflow-x=\"hidden\" estimated-item-height=200 testId=\"feed\"\n      for p in posts key=p.id\n        column width=\"100%\" height=200 testId=`post-${{p.id}}`\n          {inner}\n            for t in p.cards key=t\n              text `${{t}}` width=100 height=100 testId=`card-${{p.id}}-${{t}}`\n")
+    format!("shape Post\n  id: number\n  cards: number[]\ncomponent App\n  resource posts = posts() as shape Post[]\n  view\n    list virtualized=true height=600 width=400 overflow-x=\"hidden\" estimated-item-height=200 testId=\"feed\"\n      for p in posts key=p.id\n        column width=\"100%\" height=200 testId=`post-${{p.id}}`\n          {inner}\n            for t in p.cards key=t\n              text `${{t}}` width=100 height=100 testId=`card-${{p.id}}-${{t}}`\n")
 }
 const STRIP: &str = "list virtualized=true display=\"flex\" height=120 overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100 testId=`strip-${p.id}`";
 
@@ -38,10 +38,10 @@ fn one_level_of_constant_nesting_compiles_and_the_rest_is_refused_by_name() {
         assert!(error.contains(id), "{inner}: {error}: expected {id}");
     }
     // Two levels down.
-    let deep = "shape Post\n  id: number\ncomponent App\n  resource posts = posts() as shape list<Post>\n  view\n    list virtualized=true height=600\n      for p in posts key=p.id\n        list virtualized=true height=300\n          for q in posts key=q.id\n            list virtualized=true height=100\n              for r in posts key=r.id\n                text \"x\"\n";
+    let deep = "shape Post\n  id: number\ncomponent App\n  resource posts = posts() as shape Post[]\n  view\n    list virtualized=true height=600\n      for p in posts key=p.id\n        list virtualized=true height=300\n          for q in posts key=q.id\n            list virtualized=true height=100\n              for r in posts key=r.id\n                text \"x\"\n";
     let error = contract::compile(deep).unwrap_err().to_string();
     assert!(error.contains("lower-collection-depth"), "{error}");
-    let reorder = "shape Post\n  id: number\ncomponent App\n  state n = \"\"\n  resource posts = posts() as shape list<Post>\n  action drop(item: string, before: option<string>)\n    n = item\n  view\n    list virtualized=true height=600\n      for p in posts key=p.id\n        list id=\"inner\" reorderdrop=drop virtualized=true height=300\n          for q in posts key=q.id\n            text \"x\"\n";
+    let reorder = "shape Post\n  id: number\ncomponent App\n  state n = \"\"\n  resource posts = posts() as shape Post[]\n  action drop(item: string, before: option<string>)\n    n = item\n  view\n    list virtualized=true height=600\n      for p in posts key=p.id\n        list id=\"inner\" reorderdrop=drop virtualized=true height=300\n          for q in posts key=q.id\n            text \"x\"\n";
     let error = contract::compile(reorder).unwrap_err().to_string();
     assert!(error.contains("lower-collection-reorder"), "{error}");
 }

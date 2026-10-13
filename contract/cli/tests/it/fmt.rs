@@ -269,7 +269,7 @@ fn a_bare_flag_a_prefix_minus_and_a_conditional_keep_their_meaning() {
     column padding=16 gap=8 letter-spacing=-0.4
       input value=name input=set aria-label="Name of the thing" placeholder="Something long enough to wrap" padding=8 border-radius=10 font-size=16 autofocus
       button press=step testId="step"
-        text toString(n - 1)
+        text (n - 1).toString()
 "#;
     std::fs::write(&file, src).unwrap();
     let formatted = format(src).unwrap();
@@ -284,7 +284,7 @@ fn a_bare_flag_a_prefix_minus_and_a_conditional_keep_their_meaning() {
     assert!(formatted.contains("n = n > 9 ? 0 : n"), "{formatted}");
     assert!(formatted.contains("name = !(n > 2) ? "), "{formatted}");
     assert!(formatted.contains("letter-spacing=-0.4\n"), "{formatted}");
-    assert!(formatted.contains("toString(n - 1)"), "{formatted}");
+    assert!(formatted.contains("(n - 1).toString()"), "{formatted}");
     assert_eq!(shape(src), shape(&formatted));
     let plan = contract::compile_path(&file).unwrap();
     let after = contract::compile_path_source(&file, &formatted).unwrap();

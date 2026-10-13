@@ -1,6 +1,6 @@
 //! Opt-in is literal and the first implementation refuses ambiguous row flow.
 fn source(list: &str, rows: &str) -> String {
-    format!("component App\n  state yes = true\n  resource rows = rows() as shape list<number>\n  view\n    {list}\n{rows}\n")
+    format!("component App\n  state yes = true\n  resource rows = rows() as shape number[]\n  view\n    {list}\n{rows}\n")
 }
 const ROW: &str = "      for x in rows key=x\n        text `${x}`";
 
@@ -20,7 +20,7 @@ fn index_keys(list: &str) {
             ))
         }
     }
-    let src = format!("component App\n  state step = 0\n  resource rows = rows(step) as shape list<string>\n  action next\n    step = step + 1\n  view\n    {list} testId=\"list\"\n      for item, i in rows key=i\n        text `${{i}}:${{item}}` testId=`row-${{i}}`\n");
+    let src = format!("component App\n  state step = 0\n  resource rows = rows(step) as shape string[]\n  action next\n    step = step + 1\n  view\n    {list} testId=\"list\"\n      for item, i in rows key=i\n        text `${{i}}:${{item}}` testId=`row-${{i}}`\n");
     let mut r = Runner::boot(
         contract::compile(&src).unwrap(),
         SharedRows(["a", "b", "c", "x", "d"].map(Value::str).to_vec()),
@@ -211,7 +211,7 @@ const INTERACTIVE: &str = r#"
 component App
   state draft = ""
   state suffix = 0
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action edit(value)
     draft = value
   action revise
@@ -333,7 +333,7 @@ fn false_keeps_eager_semantics_and_no_collection_metadata() {
 fn inherited_typography_changes_measurement_epochs_without_rekeying() {
     let source = r#"component App
   state size = 16
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action revise
     size = size + 1
   view
@@ -432,7 +432,7 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
             Ok(Value::list(values.into_iter().map(Value::Number).collect()))
         }
     }
-    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape list<number>\n  action change(next: number)\n    version = next\n  view\n    list virtualized=true estimated-item-height=20 height=100 overflow-x=\"hidden\" testId=\"list\"\n      for x in rows key=x\n        text `${x}`\n";
+    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape number[]\n  action change(next: number)\n    version = next\n  view\n    list virtualized=true estimated-item-height=20 height=100 overflow-x=\"hidden\" testId=\"list\"\n      for x in rows key=x\n        text `${x}`\n";
     let boot = |source: &str| {
         Runner::boot(
             contract::compile(source).unwrap(),
@@ -470,7 +470,7 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
 fn a_row_lifted_by_translate_and_z_index_keeps_its_place_in_the_index() {
     let src = r#"component App
   state lifted = 1
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   action drop
     lifted = -1
   view

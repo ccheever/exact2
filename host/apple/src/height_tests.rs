@@ -479,7 +479,7 @@ fn failed_projected_layout_keeps_published_frames_and_recovery_remeasures() {
 fn nested_collection_feedback_relayouts_current_height_at_new_epoch() {
     use exact_runner::instance::collection::{CollectionFeedback, RowMeasurement};
     let source = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state h = 120
   action grow
     h = 300

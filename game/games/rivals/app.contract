@@ -37,8 +37,8 @@ shape Hud
   you_won: bool
   sliding: bool
   accuracy: number
-  feed: list<Feed>
-  marks: list<Mark>
+  feed: Feed[]
+  marks: Mark[]
 
 component Rivals
   state playing = false

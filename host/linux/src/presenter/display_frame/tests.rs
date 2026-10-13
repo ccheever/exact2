@@ -935,7 +935,7 @@ impl DataSource for TimerRows {
 }
 #[test]
 fn timer_demand_collection_feedback_still_refines_after_empty_advance() {
-    let source = "component App\n  resource rows = timerRows() as shape list<number>\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      for x in rows key=x\n        text `${x}` height=24\n";
+    let source = "component App\n  resource rows = timerRows() as shape number[]\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      for x in rows key=x\n        text `${x}` height=24\n";
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
         TimerRows,

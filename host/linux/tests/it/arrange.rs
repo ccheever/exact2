@@ -67,8 +67,8 @@ component App
   state count = 0
   state draft = ""
   state disabled = false
-  resource initial = rows() as shape list<Row>
-  mutation changed as shape list<Row>
+  resource initial = rows() as shape Row[]
+  mutation changed as shape Row[]
   derive rows = match changed { case some(value) => value, case none => initial }
   action drop(item: string, before: option<string>)
     send changed = move(item, before)
@@ -508,9 +508,9 @@ const CARDS: &str = r#"shape Card
   col: string
 component App
   state log = ""
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(value) => value, case none => initial }
   action dropCard(col: string, item: string, before: option<string>)
     log = `${item}>${col}@${match before { case some(k) => k, case none => "" }}`
@@ -519,7 +519,7 @@ component App
     row gap=20
       for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=150 height=200
-          for card in filter(cards, k => k.col == col) key=card.id
+          for card in cards.filter(k => k.col == col) key=card.id
             box testId=`grip-${card.id}` height=40 reorderFor=`col-${col}` touch-action="none"
               text card.id
 "#;

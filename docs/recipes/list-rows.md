@@ -13,11 +13,11 @@ shape Note
 component Notes
   state query = ""
   state notes = [Note(id="1", title="Groceries"), Note(id="2", title="Ideas")]
-  derive shown = filter(notes, n => includes(toLowerCase(n.title), toLowerCase(trim(query))))
+  derive shown = notes.filter(n => n.title.toLowerCase().includes(query.trim().toLowerCase()))
   action search(v: string)
     query = v
   action remove(id: string)
-    notes = filter(notes, n => n.id != id)
+    notes = notes.filter(n => n.id != id)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
       for e in stack(nav) key=e.id

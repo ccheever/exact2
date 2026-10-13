@@ -33,10 +33,10 @@ const ROWS: &str = r#"shape Tag
   id: string
 shape Item
   id: string
-  tags: list<Tag>
+  tags: Tag[]
 
 component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     column
       for it in items key=it.id

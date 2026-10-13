@@ -23,14 +23,14 @@ shape Post
   id: string
   n: number
   kind: string
-  cards: list<Card>
+  cards: Card[]
 
 component Carousel
   state eager = false
   state jump = 0
-  resource cards = cards(25000) as shape list<Card>
-  resource few = cards(2000) as shape list<Card>
-  resource posts = posts(200) as shape list<Post>
+  resource cards = cards(25000) as shape Card[]
+  resource few = cards(2000) as shape Card[]
+  resource posts = posts(200) as shape Post[]
   state page = "strip"
   state feedTop = 0
   action feedFar

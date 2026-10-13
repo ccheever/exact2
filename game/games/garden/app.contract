@@ -37,8 +37,8 @@ shape Hud
   garden_time: string
   events: number
   queued: number
-  shop: list<ShopRow>
-  bag: list<BagRow>
+  shop: ShopRow[]
+  bag: BagRow[]
   bag_count: number
   bag_value: string
   bag_page: number

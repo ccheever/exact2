@@ -188,7 +188,7 @@ impl DataSource for Rows {
 #[test]
 fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset() {
     let source = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state shown = true
   state big = false
   action hide

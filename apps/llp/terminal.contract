@@ -31,7 +31,7 @@ shape Index
   project: string
   total: number
   shown: number
-  entries: list<Entry>
+  entries: Entry[]
 
 // A run of a block, split where the find matches: `hit` is the match's
 // ordinal from 1, or 0. `id` is the page's only span of that name (`b4s0`).
@@ -47,7 +47,7 @@ shape Span
 // A table cell; `grow` is its column's weight (its widest cell).
 shape Part
   id: string
-  spans: list<Span>
+  spans: Span[]
   grow: number
 
 // One block; `id` (`b0`, `b1`, …) is the element `scrollIntoView` names.
@@ -58,8 +58,8 @@ shape Piece
   marker: string
   lang: string
   header: bool
-  spans: list<Span>
-  cells: list<Part>
+  spans: Span[]
+  cells: Part[]
 
 shape Heading
   id: string
@@ -85,11 +85,11 @@ shape Page
   status: string
   message: string
   failed: bool
-  blocks: list<Piece>
-  outline: list<Heading>
+  blocks: Piece[]
+  outline: Heading[]
   hits: number
-  marks: list<string>
-  links: list<Link>
+  marks: string[]
+  links: Link[]
   prev: string
   next: string
 
@@ -120,18 +120,18 @@ component Reader
   resource index = index(asked, filter, "", false) as shape Index
 
   derive hits = page.hits
-  derive here = indexOf(map(index.entries, e => e.current), true)
+  derive here = index.entries.map(e => e.current).indexOf(true)
 
   action open(path: string)
     if path != "" and path != page.path
-      history = concat([page.path], history)
+      history = [page.path].concat(history)
       chosen = path
       cur = 0
       scrollIntoView("top", block="start")
   action back
     match first(history)
       case some(path)
-        history = slice(history, 1)
+        history = history.slice(1)
         chosen = path
         cur = 0
         scrollIntoView("top", block="start")
@@ -140,7 +140,7 @@ component Reader
   // A link in the text: a document of this corpus opens here; anything
   // else goes to the system (a browser, mail).
   action follow(href: string)
-    match first(filter(page.links, k => k.href == href))
+    match first(page.links.filter(k => k.href == href))
       case some(k)
         if k.local
           open(k.href)
@@ -189,7 +189,7 @@ component Reader
   action show(k: number)
     if hits > 0
       cur = k
-      match at(page.marks, k - 1)
+      match page.marks.at(k - 1)
         case some(block)
           scrollIntoView(block, block="center")
         case none
@@ -219,7 +219,7 @@ component Reader
   action openTree
     treeLoaded = true
     if filter == ""
-      match at(index.entries, here)
+      match index.entries.at(here)
         case some(e)
           scrollIntoView("tree-list", e.id, block="nearest")
         case none
@@ -266,7 +266,7 @@ component Reader
           text (hits == 0 ? `no “${find}”` : `${cur}/${hits} “${find}”`) color="#ffd700" white-space="nowrap" flex-shrink=0
         Key(k="l", keys="l", what="links", press=openLinks)
         Pair(a="[", akeys="[", b="]", bkeys="]", what="doc", first=open(page.prev), second=open(page.next))
-        if not isEmpty(history)
+        if not history.isEmpty()
           Key(k="b", keys="b", what="back", press=back)
         Pair(a="j", akeys="j", b="k", bkeys="k", what="line", first=lineDown, second=lineUp)
         Pair(a="g", akeys="g", b="G", bkeys="Shift+G", what="ends", first=toTop, second=toEnd)
@@ -300,7 +300,7 @@ component Reader
       dialog id="outline" closedby="any" top="1lh" bottom="2lh" right="2ch" width="60ch" border="thin solid #ffaf5f" border-radius="1ch" padding="0 1ch" background-color="#121212" display="flex" flex-direction="column" testId="outline"
         text "Outline" font-weight=700 color="#ffaf5f" flex-shrink=0
         scroll flex=1 min-height=0 margin-top="1lh"
-          if isEmpty(page.outline)
+          if page.outline.isEmpty()
             text "No headings" color="#6c6c6c"
           for h in page.outline key=h.id
             button press=toHeading(h.id) commandfor="outline" command="close" text-align="start" padding-left=`${(h.level - 1) * 2}ch` testId=`outline-${h.id}`
@@ -309,9 +309,9 @@ component Reader
       // Every link in the page: a document of this corpus opens here;
       // anything else is shown, to open from the terminal (⌘-click).
       dialog id="links" closedby="any" top="1lh" bottom="2lh" left="4ch" right="4ch" border="thin solid #5fafff" border-radius="1ch" padding="0 1ch" background-color="#121212" display="flex" flex-direction="column" testId="links"
-        text `Links (${length(page.links)})` font-weight=700 color="#5fafff" flex-shrink=0
+        text `Links (${page.links.length})` font-weight=700 color="#5fafff" flex-shrink=0
         scroll flex=1 min-height=0 margin-top="1lh"
-          if isEmpty(page.links)
+          if page.links.isEmpty()
             text "No links in this document" color="#6c6c6c"
           for k in page.links key=k.id
             if k.local
@@ -417,7 +417,7 @@ component Block
 // on a fill, the current one bright.
 component Spans
   props
-    spans: list<Span>
+    spans: Span[]
     cur: number
     follow: action
   view

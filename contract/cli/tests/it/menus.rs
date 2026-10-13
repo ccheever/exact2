@@ -16,7 +16,7 @@ impl DataSource for NoData {
 }
 
 fn boot(src: &str) -> Runner<NoData> {
-    let src = src.replace("  resource items = items() as shape list<string>\n", "");
+    let src = src.replace("  resource items = items() as shape string[]\n", "");
     let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{e}"));
     Runner::boot(
         plan,
@@ -41,7 +41,7 @@ fn app(body: &str) -> String {
         .map(|l| format!("      {l}\n"))
         .collect::<String>();
     format!(
-        "component App\n  resource items = items() as shape list<string>\n  state busy = false\n  state n = 0\n  action go\n    n = n + 1\n  action pick(s: string)\n    n = n + 1\n  view\n    column\n{body}"
+        "component App\n  resource items = items() as shape string[]\n  state busy = false\n  state n = 0\n  action go\n    n = n + 1\n  action pick(s: string)\n    n = n + 1\n  view\n    column\n{body}"
     )
 }
 

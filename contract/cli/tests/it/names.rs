@@ -10,7 +10,7 @@ shape Step
   key: string
   state: string
 shape Steps
-  items: list<Step>
+  items: Step[]
 component App
   resource steps = steps() as shape Steps
   view
@@ -69,7 +69,7 @@ fn every_contextual_word_is_a_name_at_every_binder() {
 shape Item
   name: string
 component App
-  resource items = loadItems() as shape list<Item>
+  resource items = loadItems() as shape Item[]
   state {w} = "a"
   derive d{w} = {w}
   action a{w}({w}: string)
@@ -81,7 +81,7 @@ component App
     column
       Row({w}="x")
       button "go" press=a{w}("x")
-      for {w}x, i in map(items, ({w}) => {w}.name) key={w}x
+      for {w}x, i in items.map(({w}) => {w}.name) key={w}x
         text {w}x
       match some({w})
         case some(m{w})
@@ -100,7 +100,7 @@ component Row
     }
     // `action refresh`, `press=refresh` and `refresh feed` each have one parse.
     let plan = contract::compile(
-        "component App\n  resource feed = loadFeed() as shape list<string>\n  action refresh\n    refresh feed\n  view\n    button \"r\" press=refresh\n",
+        "component App\n  resource feed = loadFeed() as shape string[]\n  action refresh\n    refresh feed\n  view\n    button \"r\" press=refresh\n",
     );
     assert!(plan.is_ok(), "{plan:?}");
     // A state named `refresh` is assigned, not refreshed.
@@ -143,7 +143,7 @@ fn reserved_words_are_refused_at_binders_and_admitted_as_fields() {
             );
         }
         let src = format!(
-            "shape Flags\n  {w}: number\ncomponent App\n  state f = Flags({w}=1)\n  view\n    text toString(f.{w})\n"
+            "shape Flags\n  {w}: number\ncomponent App\n  state f = Flags({w}=1)\n  view\n    text (f.{w}).toString()\n"
         );
         let plan = contract::compile(&src);
         assert!(plan.is_ok(), "{w}: {plan:?}");

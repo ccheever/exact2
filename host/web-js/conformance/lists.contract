@@ -15,13 +15,13 @@ shape Card
   color: string
 
 component Lists
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   state lo = 600
   state hi = 700
   state said = 4
   state top = 0
-  derive shown = filter(cards, c => c.n >= lo and c.n < hi)
-  derive lines = filter(cards, c => c.n < said)
+  derive shown = cards.filter(c => c.n >= lo and c.n < hi)
+  derive lines = cards.filter(c => c.n < said)
   action earlier
     lo = max(0, lo - 60)
   action later
@@ -37,7 +37,7 @@ component Lists
           text "say"
         button press=jump testId="jump"
           text "jump"
-        text `${lo}–${hi}, ${length(shown)} rows, ${length(lines)} lines` testId="summary"
+        text `${lo}–${hi}, ${shown.length} rows, ${lines.length} lines` testId="summary"
       list virtualized=true reachstart=earlier reachend=later estimated-item-height=48 scrollTop=top testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
         for c in shown key=c.id
           row testId=`row-${c.n}` height=48 box-sizing="border-box" padding-left=12 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"

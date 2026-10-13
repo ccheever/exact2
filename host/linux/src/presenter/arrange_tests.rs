@@ -14,8 +14,8 @@ const APP: &str = r#"component App
   state grips = true
   state width = 300
   state count = 0
-  resource initial = rows() as shape list<string>
-  mutation changed as shape list<string>
+  resource initial = rows() as shape string[]
+  mutation changed as shape string[]
   derive rows = match changed { case some(v) => v, case none => initial }
   action drop(item: string, before: option<string>)
     grips = false
@@ -368,9 +368,9 @@ component App
   state queued = ""
   state queuedCol = ""
   state queuedAt = ""
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(v) => v, case none => initial }
   action dropCard(col: string, item: string, before: option<string>, e: ReorderEvent)
     let at = match before { case some(k) => k, case none => "" }
@@ -396,7 +396,7 @@ component App
         row
           for col in columns key=col
             list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=120 height=180 flex-shrink=0
-              for card in filter(cards, k => k.col == col) key=card.id
+              for card in cards.filter(k => k.col == col) key=card.id
                 box height=40 width=120 reorderFor=`col-${col}` testId=`grip-${card.id}`
                   text card.id testId=`label-${card.id}`
                   text "!" visibility="hidden" testId=`badge-${card.id}`

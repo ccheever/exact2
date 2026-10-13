@@ -5,7 +5,7 @@ shape Note
   excerpt: string
   pinned: bool
 shape Library
-  notes: list<Note>
+  notes: Note[]
   total: number
   message: string
   ready: bool
@@ -144,10 +144,10 @@ component Fieldnotes
     exportNote = `Exported ${name}.`
   action exportCancelled
     exportNote = "The backup was not exported."
-  action importPicked(files: list<Picked>)
+  action importPicked(files: Picked[])
     importPath = match first(files) { case some(f) => f.path, case none => "" }
     importName = match first(files) { case some(f) => f.name, case none => "" }
-    confirmRestore = length(files) > 0
+    confirmRestore = files.length > 0
   action cancelRestore
     confirmRestore = false
     importPath = ""
@@ -244,7 +244,7 @@ component Fieldnotes
                 image "symbol:close" font-size=18 font-weight=400 -exact-tint-color="#31554a"
             scroll testId="note-list" flex=1 min-height=160
               column gap=10 padding=(tv ? 10 : 0)
-                if length(library.notes) == 0
+                if library.notes.length == 0
                   column padding=20 gap=8
                     text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
                     text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="#63766a"

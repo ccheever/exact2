@@ -25,12 +25,12 @@ shape Card
   color: string
 
 component PagingTail
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   state hi = 30
   state loading = false
   state pages = 0
   state top = 0
-  derive shown = filter(cards, c => c.n < hi or c.n == 1999)
+  derive shown = cards.filter(c => c.n < hi or c.n == 1999)
   action more
     if not loading
       loading = true

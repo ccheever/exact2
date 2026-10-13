@@ -67,17 +67,17 @@ fn leftText(n: number): string = `${n} ${n == 1 ? "item" : "items"} left`
 
 component Groceries
   state draft = ""
-  resource groceries = loadItems() as shape list<Item> else empty()
+  resource groceries = loadItems() as shape Item[] else empty()
   mutation added as shape Reply refreshes groceries then afterAdd
   mutation saved as shape Reply queue refreshes groceries
-  derive left = length(filter(groceries, i => not i.done))
+  derive left = groceries.filter(i => not i.done).length
   derive addError = match added { case some(r) => r.error, case none => "" }
 
   action edit(v: string)
     draft = v
   action add
-    if trim(draft) != ""
-      send added = addItem(trim(draft))
+    if draft.trim() != ""
+      send added = addItem(draft.trim())
   action afterAdd
     if addError == ""
       draft = ""
@@ -93,7 +93,7 @@ component Groceries
               aria-label="New item" testId="draft"
             if addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
-          button press=add disabled=(trim(draft) == "") buttonStyle="filled" testId="add"
+          button press=add disabled=(draft.trim() == "") buttonStyle="filled" testId="add"
             text "Add"
       section
         for i in groceries key=i.id
@@ -101,14 +101,17 @@ component Groceries
             input type="checkbox" checked=i.done change=toggle(i.id) aria-label=i.title testId=`done-${i.id}`
             text i.title flex=1
         footer
-          text (length(groceries) == 0 ? "Nothing on the list." : leftText(left)) testId="left"
+          text (groceries.length == 0 ? "Nothing on the list." : leftText(left)) testId="left"
 ```
 
 - **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
   Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
   an action does, and repeats with `for x in xs key=…`; no `form` (a field's Enter is its `submit`).
-- **Expressions.** No truthiness. A record copy is `Shape(old, field=value)`. An event
-  passes its captured arguments, then the payload (`toggle(i.id)` gets the bool).
+- **Expressions.** No truthiness. A function the web has as a string or array method is
+  called as one (`s.trim()`, `xs.filter(x => …)`, `xs.length`); the rest are functions
+  (`first(xs)`, `round(n)`). A list type is `Item[]`. A record copy is
+  `Shape(old, field=value)`. An event passes its captured arguments, then the payload
+  (`toggle(i.id)` gets the bool).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
   write (`queue` keeps them in order, `refreshes` re-reads, `then` runs an action: clear
   the field only on an ok reply, as `afterAdd` does). Only the root declares them;

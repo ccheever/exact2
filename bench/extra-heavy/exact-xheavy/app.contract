@@ -42,10 +42,10 @@ shape Pic
   src: string
 shape PicRow
   id: string
-  cells: list<Pic>
+  cells: Pic[]
 shape ThumbsK
   title: string
-  rows: list<PicRow>
+  rows: PicRow[]
 shape ShaderK
   caption: string
   photo: string
@@ -56,7 +56,7 @@ shape ShaderK
 shape Stroke
   color: string
   width: number
-  p: list<number>
+  p: number[]
 shape Dot
   x: number
   y: number
@@ -68,13 +68,13 @@ shape CanvasK
   bg: string
   band0: string
   band1: string
-  strokes: list<Stroke>
-  dots: list<Dot>
+  strokes: Stroke[]
+  dots: Dot[]
 shape IconRef
   id: string
   name: string
 shape SvgK
-  icons: list<IconRef>
+  icons: IconRef[]
   chart: string
   art: string
 shape VideoK
@@ -91,31 +91,31 @@ shape MdRun
   s: string
 shape MdItem
   id: string
-  runs: list<MdRun>
+  runs: MdRun[]
 shape MdBlock
   id: string
   kind: string
-  runs: list<MdRun>
-  items: list<MdItem>
+  runs: MdRun[]
+  items: MdItem[]
 shape MarkdownK
-  blocks: list<MdBlock>
+  blocks: MdBlock[]
 shape Tok
   id: string
   t: string
   k: string
 shape Line
   n: string
-  toks: list<Tok>
+  toks: Tok[]
 shape CodeK
   file: string
   lang: string
-  lines: list<Line>
+  lines: Line[]
 shape Script
   id: string
   text: string
   rtl: bool
 shape IntlK
-  blocks: list<Script>
+  blocks: Script[]
 shape TypefaceK
   quote: string
   by: string
@@ -130,7 +130,7 @@ shape Card
   meta: string
 shape CarouselK
   title: string
-  cards: list<Card>
+  cards: Card[]
 shape MotionK
   caption: string
   gif: string
@@ -158,8 +158,8 @@ shape LiveK
   title: string
   endsInSec: number
   updatedSec: number
-  rings: list<RingV>
-  wave: list<Bar>
+  rings: RingV[]
+  wave: Bar[]
 shape ThreadK
   text: string
   expanded: bool
@@ -218,10 +218,10 @@ shape Msg
   avatar: string
   text: string
 shape Feed
-  rows: list<Row>
-  strip: list<Idx>
-  mail: list<Idx>
-  pool: list<Msg>
+  rows: Row[]
+  strip: Idx[]
+  mail: Idx[]
+  pool: Msg[]
 shape Config
   live: bool
   freeze: bool
@@ -532,7 +532,7 @@ component MarkdownBody
 // One paragraph of inline runs: bold 700, italic, code in Space Mono 14 on #F2F2F7, links blue.
 component Runs
   props
-    runs: list<MdRun>
+    runs: MdRun[]
     size: number
     weight: number
     italic: bool
@@ -711,7 +711,7 @@ component Filmstrip
   props
     id: string
     k: FilmK
-    items: list<Idx>
+    items: Idx[]
   view
     column gap=10
       text k.title font-size=15 font-weight=600 color="#000000"
@@ -727,8 +727,8 @@ component Inbox
   props
     id: string
     k: InboxK
-    items: list<Idx>
-    pool: list<Msg>
+    items: Idx[]
+    pool: Msg[]
   view
     column gap=10
       text k.title font-size=15 font-weight=600 color="#000000"
@@ -736,7 +736,7 @@ component Inbox
         list virtualized=true width="100%" height=399 overflow-x="hidden" estimated-item-height=63 testId=`inbox-${id}`
           for t in items key=t.id
             column width="100%"
-              match at(pool, mod(k.m0 + t.j * k.mStep, 997))
+              match pool.at(mod(k.m0 + t.j * k.mStep, 997))
                 case some(m)
                   Message(m=m, time=mod(k.clock0 - 7 * t.j, 1440))
                 case none

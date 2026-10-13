@@ -13,9 +13,9 @@ shape Card
   color: string
 
 component StartEnd
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   state said = 0
-  derive lines = filter(cards, c => c.n < said)
+  derive lines = cards.filter(c => c.n < said)
   state atEnd = false
   action say
     said = said + 400
@@ -26,7 +26,7 @@ component StartEnd
       row gap=8 padding=8 flex-shrink=0
         button press=say testId="say"
           text "say"
-        text `${length(lines)} lines` testId="summary"
+        text `${lines.length} lines` testId="summary"
         text (atEnd ? "at the end" : "away") testId="at-end"
       list virtualized=true scroll-start="end" scroll=moved estimated-item-height=48 testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
         for c in cards key=c.id

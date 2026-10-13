@@ -275,7 +275,7 @@ fn list_memory(count: usize, hold: bool, virtualized: bool) {
     let source = r#"shape Row
   id: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   view
     scroll height=844 width=390
       column
@@ -454,8 +454,8 @@ component App
   state count = 0
   state reverse = false
   state shown = true
-  resource rows = rows(reverse) as shape list<Row>
-  derive total = length(rows)
+  resource rows = rows(reverse) as shape Row[]
+  derive total = rows.length
   action bump
     count = count + 1
   action reorder
@@ -886,7 +886,7 @@ component App
   state reverse = false
   state revision = 0
   state shown = true
-  resource rows = rows(reverse, revision) as shape list<Row>
+  resource rows = rows(reverse, revision) as shape Row[]
   action edit(value)
     draft = value
   action bump

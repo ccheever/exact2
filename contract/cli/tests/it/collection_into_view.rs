@@ -8,10 +8,10 @@ use exact_runner::{
 
 const APP: &str = r#"shape Post
   id: number
-  cards: list<number>
+  cards: number[]
 component App
   state shown = 0
-  resource posts = posts() as shape list<Post>
+  resource posts = posts() as shape Post[]
   action go(n: number)
     shown = n
     scrollIntoView("feed", n, block="center")
@@ -344,9 +344,9 @@ fn a_card_in_a_strip_in_a_row_far_away_brings_both_into_view() {
 fn a_scroll_event_restores_the_first_visible_key_and_offset_after_remount() {
     let source = r#"shape Post
   id: number
-  cards: list<number>
+  cards: number[]
 component App
-  resource posts = posts() as shape list<Post>
+  resource posts = posts() as shape Post[]
   state shown = true
   state saved = none
   state within = 0

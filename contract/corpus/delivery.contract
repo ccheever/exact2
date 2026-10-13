@@ -10,7 +10,7 @@ shape DeliveryState
   embeddedSeq: number
   staged: bool
   sunset: string
-  interpreted: list<string>
+  interpreted: string[]
   compatibilityId: string
 
 component App

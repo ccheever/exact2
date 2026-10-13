@@ -632,7 +632,7 @@ fn a_gate_refusal_rolls_back_row_slots_and_requests() {
   n: number
 component App
   state bad = false
-  resource items = items() as shape list<string>
+  resource items = items() as shape string[]
   mutation m as shape Ack
   action go
     send m = later()
@@ -744,9 +744,9 @@ fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
 #[test]
 fn now_is_refused_with_both_repairs_at_its_span() {
     let cases = [
-        ("  derive d = 1 + now()\n  view\n    text toString(d)\n", 4, 18),
+        ("  derive d = 1 + now()\n  view\n    text d.toString()\n", 4, 18),
         ("  view\n    text `${now()}`\n", 5, 13),
-        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text toString(at)\n", 6, 10),
+        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text at.toString()\n", 6, 10),
         ("  state at = 0\n  action set(t: number)\n    at = t\n  view\n    button \"s\" press=set(now())\n", 8, 26),
     ];
     for (body, line, col) in cases {
@@ -773,17 +773,17 @@ fn now_is_refused_with_both_repairs_at_its_span() {
         );
     }
     let e = contract::compile(
-        "fn f(): number = now()\ncomponent App\n  view\n    text toString(f())\n",
+        "fn f(): number = now()\ncomponent App\n  view\n    text f().toString()\n",
     )
     .unwrap_err();
     assert_eq!(e.id, "type-now-renamed", "{e}");
     // An app's own `fn now` shadows the refusal as it would a roster name.
-    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text toString(now())\n")
+    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text now().toString()\n")
         .unwrap();
     // The web's spellings meet the same repairs.
     for web in ["Date.now()", "performance.now()"] {
         let e = contract::compile(&format!(
-            "component App\n  view\n    text toString({web})\n"
+            "component App\n  view\n    text ({web}).toString()\n"
         ))
         .unwrap_err();
         assert!(

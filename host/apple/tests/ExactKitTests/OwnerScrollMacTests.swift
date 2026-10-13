@@ -28,7 +28,7 @@ final class OwnerScrollMacTests: XCTestCase {
           distance: number
         component App
           resource location = defaultLocation() as shape Location
-          resource allStations = stations(location) as shape list<Station>
+          resource allStations = stations(location) as shape Station[]
           view
             column width="100%" height="100%"
               list virtualized=true estimated-item-height=60 flex=1 min-height=0 width="100%" testId="feed"

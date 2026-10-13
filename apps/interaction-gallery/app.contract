@@ -96,7 +96,7 @@ shape GalleryState
   canInsert: bool
   canPagePrevious: bool
   canPageNext: bool
-  viewer: list<ViewerState>
+  viewer: ViewerState[]
 
 component InteractionGallery
   resource initial = gallery() as shape GalleryState
@@ -114,7 +114,7 @@ component InteractionGallery
   // The stop the sheet is at, by its authored name (180, 360, 640).
   derive sheetNominal = sheetPx == sheetFull ? 640 : (sheetPx == sheetRead ? 360 : sheetPx)
   derive fullCollection = gallery.mode != "photos" and rendering != "manual"
-  resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape list<Photo>
+  resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape Photo[]
 
   action chooseRendering(value: string)
     if value == "windowed" or value == "manual" or value == "eager"
@@ -159,7 +159,7 @@ component InteractionGallery
     send changed = galleryReorder(item, before, gallery.revision)
 
   action edit(value)
-    if length(value) <= 512
+    if value.length <= 512
       draft = value
 
   provide
@@ -191,7 +191,7 @@ component InteractionGallery
           RenderButton(name="windowed", label="Windowed", selected=rendering, choose=chooseRendering)
           RenderButton(name="manual", label="Manual 12", selected=rendering, choose=chooseRendering)
           RenderButton(name="eager", label="Eager all", selected=rendering, choose=chooseRendering)
-          text `${length(rows)} supplied · ${gallery.total} logical · ${rendering == "windowed" ? "viewport rows mounted" : rendering == "eager" ? "all supplied rows mounted" : "manual page"}` testId="supplied-count" font-size=(11 * k) color=theme.muted
+          text `${rows.length} supplied · ${gallery.total} logical · ${rendering == "windowed" ? "viewport rows mounted" : rendering == "eager" ? "all supplied rows mounted" : "manual page"}` testId="supplied-count" font-size=(11 * k) color=theme.muted
       if gallery.mode == "photos"
         if gallery.viewerOpen
           for viewer in gallery.viewer key=viewer.viewerToken

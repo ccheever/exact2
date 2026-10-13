@@ -27,8 +27,8 @@ shape Expense
 shape Summary
   spent: number
   budget: number
-  categories: list<Category>
-  recent: list<Expense>
+  categories: Category[]
+  recent: Expense[]
 
 shape Reply
   ok: bool
@@ -46,13 +46,13 @@ component App
   state category = "groceries"
   state submitted = false
   derive today = formatDate(time.epochAtZero + now, time.utcOffset, "iso")
-  resource summary = loadSummary(slice(today, 0, 7)) as shape Summary else empty()
+  resource summary = loadSummary(today.slice(0, 7)) as shape Summary else empty()
   mutation added as shape Reply queue refreshes summary
   derive left = summary.budget - summary.spent
   derive detail = left < 0 ? `${money(-left)} over budget` : `${money(left)} left of ${money(summary.budget)}`
   derive cost = cents(amountText)
   // Said after the first Save, in red under the field.
-  derive titleError = submitted and trim(title) == "" ? "Enter a title." : ""
+  derive titleError = submitted and title.trim() == "" ? "Enter a title." : ""
   derive amountError = submitted and cost <= 0 ? "Enter an amount, like 12.50." : ""
   task tick mount
     every(60000, step)
@@ -82,8 +82,8 @@ component App
     submitted = true
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
-    if trim(title) != "" and cost > 0
-      send added = addExpense(trim(title), category, cost, formatDate(at, time.utcOffset, "iso"))
+    if title.trim() != "" and cost > 0
+      send added = addExpense(title.trim(), category, cost, formatDate(at, time.utcOffset, "iso"))
       nav = back(nav)
   view
     main testId="root" navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
@@ -110,7 +110,7 @@ component App
                       for c in summary.categories key=c.id
                         StatBar(label=c.name, value=`${money(c.spent)} of ${money(c.budget)}`, fraction=c.spent / c.budget, tint=(c.spent > c.budget ? some("-exact-system-red") : none))
                 column flex="1 1 320px" min-width=0
-                  if length(summary.recent) == 0
+                  if summary.recent.length == 0
                     EmptyState(symbol="symbol:chart", title="Nothing spent this month", message="Spending shows here by category as it comes in.")
                       button press=openAdd testId="empty-add"
                         text "Add Expense"

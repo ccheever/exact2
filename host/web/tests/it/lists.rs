@@ -10,7 +10,7 @@ component App
   state reverse = false
   state skip = 0
   state jump = 0
-  resource rows = rows(reverse, skip) as shape list<Item>
+  resource rows = rows(reverse, skip) as shape Item[]
   action reorder
     reverse = !reverse
   action trim(n: number)

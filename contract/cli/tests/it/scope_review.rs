@@ -67,7 +67,7 @@ fn bindings_primitives_and_the_roster_are_never_another_files_names() {
     );
     let root = dir.write(
         "app.contract",
-        "use Card from \"./ui.contract\"\ncomponent App\n  state n = 0\n  derive k = length(\"hi\")\n  action pick(x: number)\n    n = x\n  view\n    column\n      Card()\n      button press=pick(1) testId=\"b\"\n        text `${n} ${k}`\n",
+        "use Card from \"./ui.contract\"\ncomponent App\n  state n = 0\n  derive k = \"hi\".length\n  action pick(x: number)\n    n = x\n  view\n    column\n      Card()\n      button press=pick(1) testId=\"b\"\n        text `${n} ${k}`\n",
     );
     contract::compile_path(&root).unwrap();
 }
@@ -201,7 +201,7 @@ fn a_fn_in_scope_is_called_before_a_binding_of_its_name() {
     );
     let root = dir.write(
         "app.contract",
-        "use length, Card from \"./ui.contract\"\ncomponent App\n  state length = 0\n  view\n    column\n      Card()\n      text `${length(\"hi\")}` testId=\"n\"\n",
+        "use length, Card from \"./ui.contract\"\ncomponent App\n  state length = 0\n  view\n    column\n      Card()\n      text `${\"hi\".length}` testId=\"n\"\n",
     );
     let text = plan(&root);
     assert!(
@@ -337,7 +337,7 @@ fn a_whole_attribute_call_resolves_as_the_type_checker_reads_it() {
     );
     let root = dir.write(
         "app.contract",
-        "use length, Card from \"./ui.contract\"\ncomponent App\n  state length = 0\n  view\n    column\n      Card()\n      view width=length(\"hi\") height=10\n",
+        "use length, Card from \"./ui.contract\"\ncomponent App\n  state length = 0\n  view\n    column\n      Card()\n      view width=\"hi\".length height=10\n",
     );
     // The same program with the library's `fn` spelled apart: one plan.
     let flat = dir.write(
@@ -371,11 +371,11 @@ fn a_root_shape_named_like_a_roster_function_does_not_capture_a_librarys_call() 
     let dir = Dir::new("root-roster-shape");
     dir.write(
         "ui.contract",
-        "component Card\n  view\n    text `${length(\"hi\")}`\n",
+        "component Card\n  view\n    text `${floor(2.5)}`\n",
     );
     let root = dir.write(
         "app.contract",
-        "use Card from \"./ui.contract\"\nshape length\n  n: number\ncomponent App\n  derive l = length(n=1)\n  view\n    column\n      Card()\n      text `${l.n}`\n",
+        "use Card from \"./ui.contract\"\nshape floor\n  n: number\ncomponent App\n  derive l = floor(n=1)\n  view\n    column\n      Card()\n      text `${l.n}`\n",
     );
     contract::compile_path(&root).unwrap();
 }
@@ -446,11 +446,11 @@ fn a_used_style_of_a_roster_name_does_not_shield_a_root_shape() {
     dir.write("styles.contract", "style Pad\n  padding-top=1\n");
     dir.write(
         "ui.contract",
-        "use Pad as length from \"./styles.contract\"\ncomponent Card\n  view\n    text `${length(\"hi\")}` class=length\n",
+        "use Pad as floor from \"./styles.contract\"\ncomponent Card\n  view\n    text `${floor(2.5)}` class=floor\n",
     );
     let root = dir.write(
         "app.contract",
-        "use Card from \"./ui.contract\"\nshape length\n  n: number\ncomponent App\n  derive l = length(n=1)\n  view\n    column\n      Card()\n      text `${l.n}`\n",
+        "use Card from \"./ui.contract\"\nshape floor\n  n: number\ncomponent App\n  derive l = floor(n=1)\n  view\n    column\n      Card()\n      text `${l.n}`\n",
     );
     contract::compile_path(&root).unwrap();
 }

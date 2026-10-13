@@ -646,7 +646,7 @@ shape Effect
 
 component App
   state trigger = 0
-  resource items = items(trigger) as shape list<Item>
+  resource items = items(trigger) as shape Item[]
   mutation effect as shape Effect
 
   action go

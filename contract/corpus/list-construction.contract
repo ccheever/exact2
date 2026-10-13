@@ -9,7 +9,7 @@ shape Row
   title: string
 
 component ListConstruction
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state picked = []
   state collapsed = []
   state tabs = [
@@ -17,26 +17,26 @@ component ListConstruction
     "sent",
   ]
   state scores = [none, some(2)]
-  derive lengths = [length(tabs), length(picked), length(rows)]
-  derive shown = slice(rows, 0, -1)
+  derive lengths = [tabs.length, picked.length, rows.length]
+  derive shown = rows.slice(0, -1)
   state to = "ann@x.org, bo@y.org"
-  derive chips = split(to, ", ")
-  derive at = `${indexOf(picked, "a")} ${indexOf(to, "bo")}`
+  derive chips = to.split(", ")
+  derive at = `${picked.indexOf("a")} ${to.indexOf("bo")}`
   action pick(id: string)
-    picked = concat(picked, [id])
+    picked = picked.concat([id])
   action toggle(id: string)
-    collapsed = includes(collapsed, id) ? filter(collapsed, c => c != id) : concat(collapsed, [id])
+    collapsed = collapsed.includes(id) ? collapsed.filter(c => c != id) : collapsed.concat([id])
   action clear
     picked = []
   view
     column testId="root"
-      text join(tabs, ",") testId="tabs"
-      text join(picked, ",") testId="picked"
-      text join(collapsed, ",") testId="collapsed"
-      text join(lengths, ",") testId="lengths"
-      text join(map(shown, r => r.id), ",") testId="shown"
-      text toString(length(scores)) testId="scores"
-      text join(chips, "|") testId="chips"
+      text tabs.join(",") testId="tabs"
+      text picked.join(",") testId="picked"
+      text collapsed.join(",") testId="collapsed"
+      text lengths.join(",") testId="lengths"
+      text shown.map(r => r.id).join(",") testId="shown"
+      text scores.length.toString() testId="scores"
+      text chips.join("|") testId="chips"
       text at testId="at"
       for r in rows key=r.id
         button r.title press=pick(r.id) testId=r.id

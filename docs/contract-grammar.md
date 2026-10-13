@@ -199,7 +199,7 @@ section       = "props" block(field)
               | "inject" block(field)
               | "provide" block(provider)
               | "slot" NL
-              | "state" IDENT "=" expr [ "persist" ] NL
+              | "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
               | "derive" IDENT "=" expr NL
               | resource | mutation | action | task
               | "view" block(node) ;
@@ -323,13 +323,14 @@ refused: wrap them in an element. `children` requires a declared slot.
 ## Expressions and types
 
 ```ebnf
-type          = "number" | "string" | "bool" | "unit" | IDENT | "action"
-              | "option" "<" type ">" | "list" "<" type ">" ;
+type          = type-atom { "[" "]" } ;               (* string[] is a list of strings *)
+type-atom     = "number" | "string" | "bool" | "unit" | IDENT | "action"
+              | "option" "<" type ">" ;
 expr          = ternary ;
 ternary       = binary [ "?" expr ":" expr ] ;
 binary        = unary { binary-op unary } ;
 unary         = ( "-" | "not" | "!" ) unary | postfix ;
-postfix       = primary { "." FIELD } ;
+postfix       = primary { "." FIELD [ "(" [ arguments ] ")" ] } ;
 primary       = NUMBER | STRING | TEMPLATE | "true" | "false" | "none"
               | "some" "(" expr ")" | list | IDENT
               | IDENT "(" [ arguments ] ")"
@@ -372,8 +373,22 @@ An app-declared shape's call constructs a record: either all named fields, or on
 positional base followed by zero or more replacements. A `list` literal is
 a list of its items, left to right; their types meet as a ternary's arms do (`type-list-item` when they do
 not), and a trailing comma is kept. There is no spread (`[...xs, x]` is
-refused), object literal, method call, bracket indexing, assignment
-expression, `??`, `?.`, or `===`. `any` in an internal roster signature describes
+refused), object literal, bracket indexing, assignment
+expression, `??`, `?.`, or `===`.
+
+A call on a value, `e.f(args)`, is the roster function `f` with `e` as its first
+argument, for the functions the table below writes that way: the web's string
+and array methods of that name and meaning (`s.trim()`, `xs.filter(x => …)`,
+`n.toFixed(2)`). `e.length` is the count of a list or text, so a shape field
+cannot be named `length` (`syntax-length-field`). The free spelling (`trim(s)`,
+`length(xs)`) is refused with the edit (`syntax-method-form`), and so is any
+other method (`xs.reduce(…)`: `syntax-method-call`); the rest of the roster is
+called as a function (`first(xs)`, `round(n)`).
+
+A list type is `T[]`, as in TypeScript (`Item[]`, `option<number>[]`); `list<T>`
+is refused with the edit (`syntax-list-type`). A `state` may declare its type
+(`state picked: option<Item> = none`), which is otherwise inferred; a `derive`'s
+type is its expression's and takes no annotation. `any` in an internal roster signature describes
 special typing; it is not a source-language type annotation.
 
 ## Authored tests
@@ -561,7 +576,9 @@ never breaks an app that declared it first.
 `contract vocab <name>` prints one function's entry from these tables (its rows and
 examples) beside the roster's signature, so what a row says here is what `vocab`
 says. Every roster function has a row and an example, and each example written
-`` `call` is `value` `` holds: a contract test evaluates them.
+`` `call` is `value` `` holds: a contract test evaluates them. A row written
+`x.f(…)` is called on its first argument, as the web's method is
+([expressions](#expressions-and-types)); the others are called as functions.
 
 | Call | Result / restriction | Example |
 | --- | --- | --- |
@@ -570,11 +587,11 @@ says. Every roster function has a row and an example, and each example written
 | `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 | `formatDate(1790000000000, 0, "medium")` is `"Sep 21, 2026"` |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format (`1.2K`) | `formatNumber(1249, "compact")` is `"1.2K"` |
 | `formatNumber(n, "decimal")`, `formatNumber(n, "percent")`, `formatNumber(n, "currency", "USD")` | String; `Intl.NumberFormat("en-US")`'s deterministic forms (LLP 1116 D8): `"decimal"` is grouped with at most three fraction digits (`1,234.567`), `"percent"` multiplies by 100 with none (`0.256` is `26%`), `"currency"` takes an ISO 4217 code literal and prints its symbol and fraction digits (`$1,481.47`, `-$5.00`, `¥1,235`, `CHF 5.00`; the codes are USD, EUR, GBP, JPY, CNY, INR, CAD, AUD, NZD, HKD, SGD, CHF, SEK, NOK, DKK, PLN, MXN, BRL, KRW, ZAR, TWD, ILS, PHP and VND). Each rounds the value's shortest decimal digits half away from zero, as `Intl` does (`1.005` is `$1.01`, where `toFixed` says `1.00`), and signs a negative zero (`-0`); `NaN` and the infinities print `""`. The code is written with `"currency"` only (`type-format-style`) | `formatNumber(1481.47, "currency", "USD")` is `"$1,481.47"` |
-| `toFixed(n, digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`toFixed(1.005, 2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) | `toFixed(3.14159, 2)` is `"3.14"` |
+| `n.toFixed(digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`(1.005).toFixed(2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) | `(3.14159).toFixed(2)` is `"3.14"` |
 | `formatDecimal(units, digits)` | String; an integer count of a smallest unit as a decimal, exactly: `formatDecimal(1234, 2)` is `"12.34"`, `formatDecimal(-5, 2)` is `"-0.05"`, `-0` is `"0.00"`; a count that is not an integer, or not finite, is `""`, so money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal 0–20 (LLP 1102 §3.2) | `formatDecimal(1234, 2)` is `"12.34"` |
-| `length(value)` | Number; list item count or string UTF-16 code-unit count | `length([4, 5, 6])` is `3` |
-| `isEmpty(value)` | Boolean; empty string or list | `isEmpty("")` is `true` |
-| `toString(value)` | String; number, boolean, or string conversion | `toString(42)` is `"42"` |
+| `value.length` | Number; list item count or string UTF-16 code-unit count | `[4, 5, 6].length` is `3` |
+| `value.isEmpty()` | Boolean; empty string or list | `"".isEmpty()` is `true` |
+| `value.toString()` | String; number, boolean, or string conversion | `(42).toString()` is `"42"` |
 | `floor(n)` | Number | `floor(2.7)` is `2` |
 | `ceil(n)` | Number; `Math.ceil` | `ceil(2.1)` is `3` |
 | `round(n)` | Number; JavaScript's `Math.round`: a half rounds up (`round(2.5)` is 3, `round(-2.5)` is -2), not away from zero. Two decimals is `round(v * 100) / 100` | `round(2.5)` is `3` |
@@ -582,24 +599,24 @@ says. Every roster function has a row and an example, and each example written
 | `calendarDiff(from, to, "years" or "months")` | `option<number>`; whole years or months from one `YYYY-MM-DD` date to another, counted as an age is: a period completes when `to`'s month and day reach `from`'s (months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start a month on Mar 1, as Temporal's `PlainDate.until` counts with `largestUnit` `"years"` or `"months"`. When `to` is earlier, the count back, negated; `none` when either is not a real date (LLP 1102 §3.4) | `calendarDiff("1990-05-10", "2026-05-09", "years")` is `some(35)` |
 | `max(a, b)` | Number | `max(3, 7)` is `7` |
 | `min(a, b)` | Number | `min(3, 7)` is `3` |
-| `includes(text, substring)` | Boolean, case-sensitive literal substring | `includes("grocery", "roc")` is `true` |
-| `includes(list<T>, item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `includes(["a", "b"], "b")` is `true` |
-| `startsWith(text, prefix)` | Boolean, case-sensitive | `startsWith("/settings", "/")` is `true` |
-| `endsWith(text, suffix)` | Boolean, case-sensitive | `endsWith("photo.png", ".png")` is `true` |
-| `trim(text)` | String, JavaScript whitespace/line-terminator trimming | `trim("  milk ")` is `"milk"` |
-| `slice(text, start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD | `slice("Tuesday", 0, 3)` is `"Tue"` |
-| `slice(list<T>, start, end?)` | `list<T>`; the items, the indices clamped as text's are | `slice([1, 2, 3, 4], 1)` is `[2, 3, 4]` |
-| `concat(list<T>, list<T>)` | `list<T>`; both lists' items in order (`[...xs, x]` is `concat(xs, [x])`) | `concat([1, 2], [3])` is `[1, 2, 3]` |
-| `indexOf(text, substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` | `indexOf("a,b", ",")` is `1` |
-| `indexOf(list<T>, item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none | `indexOf(["a", "b"], "c")` is `-1` |
-| `split(text, separator)` | `list<string>`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `split("", "")` is `[]` | `split("a,b,c", ",")` is `["a", "b", "c"]` |
-| `replaceAll(text, find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions | `replaceAll("a-b-c", "-", " ")` is `"a b c"` |
-| `toLowerCase(text)` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) | `toLowerCase("Milk")` is `"milk"` |
-| `first(list<T>)` | `option<T>` | `first([4, 5])` is `some(4)` |
-| `at(list<T>, index)` | `option<T>`; truncates index toward zero, negative from end | `at([4, 5, 6], -1)` is `some(6)` |
-| `map(list<T>, callback)` | `list<U>`; callback returns one value | `map([1, 2], x => x * 10)` is `[10, 20]` |
-| `filter(list<T>, callback)` | `list<T>`; callback returns boolean | `filter([1, 2, 3], x => x > 1)` is `[2, 3]` |
-| `join(list<string/number/bool>, separator)` | String; primitive item printing | `join(["a", "b"], ", ")` is `"a, b"` |
+| `text.includes(substring)` | Boolean, case-sensitive literal substring | `"grocery".includes("roc")` is `true` |
+| `xs.includes(item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `["a", "b"].includes("b")` is `true` |
+| `text.startsWith(prefix)` | Boolean, case-sensitive | `"/settings".startsWith("/")` is `true` |
+| `text.endsWith(suffix)` | Boolean, case-sensitive | `"photo.png".endsWith(".png")` is `true` |
+| `text.trim()` | String, JavaScript whitespace/line-terminator trimming | `"  milk ".trim()` is `"milk"` |
+| `text.slice(start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD | `"Tuesday".slice(0, 3)` is `"Tue"` |
+| `xs.slice(start, end?)` | `T[]`; the items, the indices clamped as text's are | `[1, 2, 3, 4].slice(1)` is `[2, 3, 4]` |
+| `xs.concat(T[])` | `T[]`; both lists' items in order (`[...xs, x]` is `xs.concat([x])`) | `[1, 2].concat([3])` is `[1, 2, 3]` |
+| `text.indexOf(substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` | `"a,b".indexOf(",")` is `1` |
+| `xs.indexOf(item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none | `["a", "b"].indexOf("c")` is `-1` |
+| `text.split(separator)` | `string[]`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `"".split("")` is `[]` | `"a,b,c".split(",")` is `["a", "b", "c"]` |
+| `text.replaceAll(find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions | `"a-b-c".replaceAll("-", " ")` is `"a b c"` |
+| `text.toLowerCase()` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) | `"Milk".toLowerCase()` is `"milk"` |
+| `first(T[])` | `option<T>` | `first([4, 5])` is `some(4)` |
+| `xs.at(index)` | `option<T>`; truncates index toward zero, negative from end | `[4, 5, 6].at(-1)` is `some(6)` |
+| `xs.map(callback)` | `U[]`; callback returns one value | `[1, 2].map(x => x * 10)` is `[10, 20]` |
+| `xs.filter(callback)` | `T[]`; callback returns boolean | `[1, 2, 3].filter(x => x > 1)` is `[2, 3]` |
+| `xs.join(separator)` | String; `xs` a list of strings, numbers or bools, each printed | `["a", "b"].join(", ")` is `"a, b"` |
 | `encodeURIComponent(text)` | String | `encodeURIComponent("a b&c")` is `"a%20b%26c"` |
 | `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
 | `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
@@ -608,17 +625,17 @@ says. Every roster function has a row and an example, and each example written
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
 | `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
-| `stack(router)` | `list<Entry>` | `length(stack(push(nav, "/item/7")))` is `2` |
+| `stack(router)` | `Entry[]` | `stack(push(nav, "/item/7")).length` is `2` |
 | `top(router)` | `Entry` | `top(nav).name` is `"home"` |
 | `depth(router)` | Number | `depth(nav)` is `1` |
-| `params(router, parameterName)` | `list<string>`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
+| `params(router, parameterName)` | `string[]`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
-| `elementsFromPoint(x, y)` | `list<string>`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
-| `querySelectorAll(selector)` | `list<string>`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
+| `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
+| `querySelectorAll(selector)` | `string[]`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
 On Apple, `frame` of an inline `text` run returns the viewport-space union of
 its line fragments, using the run's own font metrics and excluding hanging
@@ -839,7 +856,7 @@ or the source changes: `formats`, space-separated (the inline command names,
 `mixed`, true when the selection spans different formats or links; `link`, the
 common link target or `""`; and `unavailable`, the commands that cannot apply
 there, space-separated (most of them, inside a code block). No offsets cross.
-A toolbar reads one format as `includes(` ${s.formats} `, " bold ")`;
+A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
 
@@ -862,7 +879,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | One boolean, then optionally an `InputEvent` | `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange` |
 | One number, then optionally an `InputEvent` | `change`, `input` on `type="range"` |
-| One `list<Picked>`, then optionally an `InputEvent` | `change`, `input` on `type="file"` |
+| One `Picked[]`, then optionally an `InputEvent` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` on the Markdown editor (`textarea markup="markdown"`) |
 | One `InputEvent` | `select` on a text field or any other `textarea` ([form controls](#form-controls-radio-inputevent-setselectionrange)) |
 | Two numbers | `pan`, `panrelease`, `heightrelease` |
@@ -1075,7 +1092,7 @@ scroll wheel=wheeled …
 
 `drop` is DOM's `drop` of files dragged in from outside the app (Finder, the
 desktop) onto the innermost node that declares it: its `DragEvent` is
-`offsetX`, `offsetY`, `files` (a `list<string>` of `doc:` handles minted as a
+`offsetX`, `offsetY`, `files` (a `string[]` of `doc:` handles minted as a
 picker's are, [LLP 1069.010](../llp/1069.010-the-mac-as-a-document-platform.rfc.md)
 D1, readable under `fs.read doc:/`) and the modifiers. Only files of the types
 the manifest's `file_handlers` declares are taken; another is refused into the
@@ -1129,7 +1146,7 @@ column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 when the part of the reader's text selection inside that paragraph changes —
 a drag, a double or triple click, select-all, a click that clears it — an
 action that takes one more parameter gets a `Selection`: its `text` (the
-selected source text), its `rects: list<Geometry>`
+selected source text), its `rects: Geometry[]`
 (the selected fragments in viewport coordinates), and its `start` and `end`,
 UTF-16 offsets into the node's own text as written (white space before CSS
 collapses it, a `text`'s inline children joined in order, and Markdown line
@@ -1648,12 +1665,13 @@ integration. A recognized command name alone does not prove those prerequisites.
 Syntax is only the first layer. In particular:
 
 - Types are closed; unknown/unresolved types, cycles, and invalid property values
-  are refused. `none` and `[]` need enough context to infer their contained type.
+  are refused. `none` and `[]` need enough context to infer their contained type,
+  or a state's declared one (`state ids: string[] = []`).
 - Record construction requires all fields once; copying requires a matching base.
   Shapes are finite and nonrecursive. Equality compares values structurally.
 - Function bodies are effect-free, nonrecursive expressions (they may read
-  `performanceNow()`); app functions cannot shadow
-  roster names or take a declared shape's constructor name.
+  `performanceNow()`); an app's function may shadow a roster name (and is then
+  called `name(x)`, as it is declared) but not take a declared shape's constructor name.
 - Action reads see the starting snapshot. Writes land together. Locals are
   immutable and cannot shadow visible names or escape their block.
 - Resources/mutations/tasks are root-owned. A child may own ordinary state,

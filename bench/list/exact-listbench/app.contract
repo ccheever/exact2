@@ -31,7 +31,7 @@ shape Message
   archiveStart: bool
   tail: bool
 shape Feed
-  rows: list<Message>
+  rows: Message[]
   total: string
   inboxTitle: string
   archiveTitle: string
@@ -115,7 +115,7 @@ component ListBench
                 text feed.inboxTitle testId="inbox-title" font-size=17 font-weight=600 line-height="22px" color="#85858b" padding-left=16 padding-top=15 padding-bottom=9
             if m.archiveStart
               text feed.archiveTitle testId="archive-title" font-size=17 font-weight=600 line-height="22px" color="#85858b" padding-left=16 padding-top=20 padding-bottom=9
-            SwipeRow(m=m, saved=includes(savedIds, `|${m.id}|`), selected=includes(selectedIds, `|${m.id}|`), editing=editing, toggle=toggleSaved, select=select, remove=remove)
+            SwipeRow(m=m, saved=savedIds.includes(`|${m.id}|`), selected=selectedIds.includes(`|${m.id}|`), editing=editing, toggle=toggleSaved, select=select, remove=remove)
             if m.inboxEnd
               column width="100%"
                 text "Swipe to delete. Use Edit to select messages or drag to reorder." font-size=13 line-height="16px" color="#85858b" padding-left=16 padding-right=16 padding-top=8

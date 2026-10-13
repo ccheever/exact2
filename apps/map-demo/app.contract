@@ -45,4 +45,4 @@ component MapDemo
             text "Zoom out −"
           button press=zoomIn disabled=(span <= 0.002) testId="zoom-in" aria-label="Zoom in" padding=10 border-radius=8 background-color="#eef1f6"
             text "Zoom in +"
-      text ("Pins selected on the map: " + toString(picks)) testId="picks" font-size=13 color="#4a505c" padding-left=12 padding-bottom=12
+      text ("Pins selected on the map: " + picks.toString()) testId="picks" font-size=13 color="#4a505c" padding-left=12 padding-bottom=12

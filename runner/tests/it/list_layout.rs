@@ -18,7 +18,7 @@ const SOURCE: &str = r##"shape Message
 component App
   state saved = ""
   state revision = 0
-  resource rows = rows(revision) as shape list<Message>
+  resource rows = rows(revision) as shape Message[]
   action save(id: string)
     saved = id
   action bump

@@ -16,9 +16,9 @@ component App
   state from = ""
   state to = ""
   state drops = 0
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(v) => v, case none => initial }
   action dropCard(col: string, item: string, before: option<string>, e: ReorderEvent)
     let at = match before { case some(k) => k, case none => "" }
@@ -31,7 +31,7 @@ component App
     row
       for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) height=100 width=100
-          for card in filter(cards, k => k.col == col) key=card.id
+          for card in cards.filter(k => k.col == col) key=card.id
             column reorderFor=`col-${col}` testId=`grip-${card.id}` height=20
               text card.id
 "#;
@@ -289,7 +289,7 @@ fn a_grouped_list_is_accepted_and_each_refusal_is_whole() {
         ),
         ("lower-reorder-group".into(), group.into())
     );
-    let (id, message) = refused("key=card.id", "key=length(card.id)");
+    let (id, message) = refused("key=card.id", "key=card.id.length");
     assert_eq!(id, "lower-reorder-group");
     assert_eq!(message, "a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a number: key it by the item's string id");
     // A row list keeps its own reorder refusal (LLP 1094 §7).

@@ -36,8 +36,8 @@ shape Forecast
   message: string
   updated: string
   current: Hour
-  hours: list<Hour>
-  days: list<Day>
+  hours: Hour[]
+  days: Day[]
 shape Place
   id: string
   name: string
@@ -45,7 +45,7 @@ shape Place
   lat: number
   lon: number
 shape Places
-  items: list<Place>
+  items: Place[]
   message: string
 shape HourCard
   id: string
@@ -82,8 +82,8 @@ shape Outlook
   day: number
   hour: number
   speed: number
-  hours: list<HourCard>
-  days: list<DayCard>
+  hours: HourCard[]
+  days: DayCard[]
 
 // @ref LLP 1039 — the media queries: a wide landscape viewport puts the
 // look-ahead and the elements in a column beside the sky; no pointer (a TV's

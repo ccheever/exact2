@@ -21,7 +21,7 @@ shape Drink
 
 shape Log
   total: number
-  entries: list<Drink>
+  entries: Drink[]
 
 shape Reply
   ok: bool
@@ -73,7 +73,7 @@ component App
                 // A card of your own on this plain page: `-exact-secondary-background`, a role for its text.
                 column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="history"
                   text "History" role="heading" aria-level=3
-                  if length(log.entries) == 0
+                  if log.entries.length == 0
                     text "Nothing yet. Tap an amount to log a drink." color="-exact-secondary-label" padding-top=6 padding-bottom=10 testId="history-empty"
                   for x in log.entries key=x.id
                     RowText(title=`${x.ml} ml`, detail=(x.day == today ? "Today" : x.day), value=none)

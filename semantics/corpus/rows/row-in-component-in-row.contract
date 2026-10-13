@@ -2,12 +2,12 @@
 // own state: inner row state belongs to the inner row.
 shape Group
   name: string
-  members: list<string>
+  members: string[]
 
 component App
-  resource g1 = groups(1) as shape list<Group>
-  resource g2 = groups(2) as shape list<Group>
-  derive groups = length(g1) >= length(g2) ? g1 : g2
+  resource g1 = groups(1) as shape Group[]
+  resource g2 = groups(2) as shape Group[]
+  derive groups = g1.length >= g2.length ? g1 : g2
   view
     column
       for g, gi in groups key=gi

@@ -22,18 +22,18 @@ component Habit
   action markDone
     let at = time.epochAtZero + performanceNow()
     now = performanceNow()
-    doneDays = concat(doneDays, [formatDate(at, time.utcOffset, "iso")])
+    doneDays = doneDays.concat([formatDate(at, time.utcOffset, "iso")])
   view
     column padding=16 gap=8
       text formatDate(shown, time.utcOffset, "medium") role="heading" aria-level=2 testId="today"
       text `Updated ${formatTime(shown, time.utcOffset, "short")}` color="-exact-secondary-label" testId="updated"
-      if includes(doneDays, today)
+      if doneDays.includes(today)
         text "Done today" testId="status"
-      else if includes(doneDays, yesterday)
+      else if doneDays.includes(yesterday)
         text "Done yesterday" testId="status"
       else
         text "Not done yet" testId="status"
-      button press=markDone disabled=includes(doneDays, today) buttonStyle="filled" testId="done"
+      button press=markDone disabled=doneDays.includes(today) buttonStyle="filled" testId="done"
         text "Mark Done"
 ```
 

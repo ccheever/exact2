@@ -28,7 +28,7 @@ final class SheetFixture {
       state tag = ""
       state discarded = 0
       action more
-        notes = concat(notes, [length(notes)])
+        notes = notes.concat([notes.length])
       action save
         saved = saved + 1
         close("book")

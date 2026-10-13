@@ -35,7 +35,7 @@ shape Run
 
 shape Cell
   id: string
-  runs: list<Run>
+  runs: Run[]
 
 shape Block
   id: string
@@ -45,8 +45,8 @@ shape Block
   text: string
   href: string
   header: bool
-  runs: list<Run>
-  cells: list<Cell>
+  runs: Run[]
+  cells: Cell[]
 
 // The styled spans of one paragraph, as the inline `text` children the
 // kernel measures as one paragraph and CoreText paints as one typeset run.
@@ -61,7 +61,7 @@ component Runs
   inject
     theme: Theme
   props
-    runs: list<Run>
+    runs: Run[]
     size: number
     weight: number
   view

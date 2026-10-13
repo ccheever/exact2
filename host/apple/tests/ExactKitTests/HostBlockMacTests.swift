@@ -41,7 +41,7 @@ final class HostBlockMacTests: XCTestCase {
     component Proof
       state rows = [0, 1]
       action more
-        rows = concat(rows, [length(rows)])
+        rows = rows.concat([rows.length])
       view
         column testId="page" width="100%" height="100%"
           text "Behind the panes" testId="title"

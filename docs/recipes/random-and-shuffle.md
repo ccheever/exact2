@@ -13,7 +13,7 @@ shape Choice
 
 shape Question
   text: string
-  choices: list<Choice>
+  choices: Choice[]
 
 shape Time
   seed: number
@@ -23,7 +23,7 @@ component Quiz
   state picked = ""
   resource time = exactTime() as shape Time
   resource q = deal(round, time.seed) as shape Question else empty()
-  derive order = join(map(q.choices, c => c.text), " ")
+  derive order = q.choices.map(c => c.text).join(" ")
   action pick(id: string)
     picked = id
   action next
@@ -88,4 +88,4 @@ test "each round deals its order; the right answer moves with its text"
 
 - A source is asked again, so `round + 1` deals again.
 - `crypto.getRandomValues(new Uint32Array(n))` in the source: a new order each ask (assert what
-  holds for any); one pick per launch: `at(xs, time.seed % length(xs))`.
+  holds for any); one pick per launch: `xs.at(time.seed % xs.length)`.

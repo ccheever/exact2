@@ -533,8 +533,8 @@ routes nav
   tab home "/" render=request
 
 component Feed
-  resource cards = cards() as shape list<string>
-  resource saved = saved() as shape list<string>
+  resource cards = cards() as shape string[]
+  resource saved = saved() as shape string[]
   view
     column
       for c in cards key = c

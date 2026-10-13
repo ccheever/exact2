@@ -29,8 +29,8 @@ impl DataSource for Rows {
 const SOURCE: &str = r#"component App
   state count = 0
   state disabled = false
-  resource initial = rows() as shape list<string>
-  mutation changed as shape list<string>
+  resource initial = rows() as shape string[]
+  mutation changed as shape string[]
   derive rows = match changed { case some(value) => value, case none => initial }
   action receive(item: string, before: option<string>)
     send changed = move(item, before)

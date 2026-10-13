@@ -119,22 +119,22 @@ shape P
   n: number
 component App
   state picked = some(P(n=40))
-  resource items = items() as shape list<P>
-  derive total = length(items) * 10
+  resource items = items() as shape P[]
+  derive total = items.length * 10
   view
     column
-      Counter(start=length(items), id="top-resource")
+      Counter(start=items.length, id="top-resource")
       Counter(start=total, id="top-derive")
       if total > 0
         Counter(start=total + 1, id="when-derive")
-        Counter(start=length(items) + 1, id="when-resource")
+        Counter(start=items.length + 1, id="when-resource")
       match picked
         case some(p)
           Counter(start=p.n, id="match-binding")
           Counter(start=p.n + total, id="match-both")
         case none
           text "none"
-      for p in items key=toString(p.n)
+      for p in items key=p.n.toString()
         Counter(start=p.n + total, id="each")
 {COUNTER}"#
     );
@@ -286,11 +286,11 @@ fn an_initializer_reads_a_resource_that_has_not_answered_as_its_placeholder() {
 shape P
   n: number
 component App
-  resource later = wait() as shape list<P>
+  resource later = wait() as shape P[]
   view
     column
-      text `${{length(later)}}` testId="len"
-      Counter(start=length(later), id="c")
+      text `${{later.length}}` testId="len"
+      Counter(start=later.length, id="c")
 {COUNTER}"#
     );
     let mut r = boot(&src);
@@ -333,11 +333,11 @@ component Twice
 
 component Rows
   props
-    items: list<P>
+    items: P[]
   slot
   view
     column
-      for p in items key=toString(p.n)
+      for p in items key=p.n.toString()
         children
 "#;
 
@@ -373,7 +373,7 @@ fn each_children_is_its_own_instance_twice_or_once_per_row() {
 shape P
   n: number
 component App
-  resource items = items() as shape list<P>
+  resource items = items() as shape P[]
   view
     column
       Twice()

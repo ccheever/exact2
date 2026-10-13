@@ -8,6 +8,9 @@ use exact_kernel::{
     Kernel, NodeType, Offer, Op, PropId, PropValue, StyleId, StyleProps, StyleValue,
 };
 
+#[path = "svg_scene/lengths.rs"]
+mod lengths;
+
 fn style(id: u32, rows: &[(StyleId, &str)]) -> Op {
     let mut patch = StyleProps::default();
     for (row, value) in rows {
@@ -1159,4 +1162,248 @@ fn a_content_box_is_inside_the_padding_layout_resolved() {
         scene::content_box(&k, &k.node(svg).unwrap()),
         (15.0, 3.0, 155.0, 97.0)
     );
+}
+
+#[test]
+fn geometry_lengths_use_the_window_and_svg_percentage_basis() {
+    use NodeType::*;
+    // Chrome: an 800 × 600 window, a 200 × 100 SVG viewBox, and 20px text.
+    let cases = [
+        ("10vw", 80.0),
+        ("10vh", 60.0),
+        ("10vmin", 60.0),
+        ("10vmax", 80.0),
+        ("10svw", 80.0),
+        ("10svh", 60.0),
+        ("10lvw", 80.0),
+        ("10lvh", 60.0),
+        ("10dvw", 80.0),
+        ("10dvh", 60.0),
+        ("2em", 40.0),
+        ("2rem", 32.0),
+        ("1in", 96.0),
+        ("10%", 10.0),
+        ("calc(10vh + 10%)", 70.0),
+        ("min(10vw, 50%)", 50.0),
+        ("max(10vh, 50%)", 60.0),
+        ("clamp(20px, 10vh, 70px)", 60.0),
+    ];
+    for (length, expected) in cases {
+        let mut d = Doc::new();
+        let svg = d.node(
+            Svg,
+            &[
+                (StyleId::Width, "400"),
+                (StyleId::Height, "200"),
+                (StyleId::FontSize, "20"),
+            ],
+            &[(PropId::ViewBox, "0 0 200 100")],
+        );
+        let nested = d.node(
+            SvgViewport,
+            &[(StyleId::Width, "100%"), (StyleId::Height, length)],
+            &[],
+        );
+        let rect = d.node(
+            SvgRect,
+            &[(StyleId::Width, "100%"), (StyleId::Height, "100%")],
+            &[],
+        );
+        d.children(nested, &[rect]);
+        let circle = d.node(
+            SvgCircle,
+            &[
+                (StyleId::Cx, length),
+                (StyleId::Cy, length),
+                (StyleId::R, length),
+            ],
+            &[],
+        );
+        d.children(svg, &[nested, circle]);
+        let mut k = d.kernel(&[svg], 800.0);
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        let check = |k: &Kernel| {
+            let s = resolve(k, svg);
+            let Kind::Viewport {
+                rect: bounds,
+                children,
+                ..
+            } = &find(&s.items, nested).unwrap().kind
+            else {
+                panic!("expected a viewport");
+            };
+            assert!((bounds.3 - expected).abs() < 1e-3, "{length}: {bounds:?}");
+            let Kind::Shape(shape) = &find(children, rect).unwrap().kind else {
+                panic!("expected the nested rectangle");
+            };
+            assert_eq!(shape.path.bounds(), Some((0.0, 0.0, 200.0, expected)));
+            let Kind::Shape(shape) = &find(&s.items, circle).unwrap().kind else {
+                panic!("expected a circle");
+            };
+            let (x, radius) = match length {
+                "10%" => (20.0, (25_000.0_f32).sqrt() / 10.0),
+                "calc(10vh + 10%)" => (80.0, 60.0 + (25_000.0_f32).sqrt() / 10.0),
+                "min(10vw, 50%)" => (80.0, (25_000.0_f32).sqrt() / 2.0),
+                "max(10vh, 50%)" => (100.0, (25_000.0_f32).sqrt() / 2.0),
+                _ => (expected, expected),
+            };
+            let (cx, cy, r) = shape.circle.unwrap();
+            assert!(
+                (cx - x).abs() < 1e-3 && (cy - expected).abs() < 1e-3 && (r - radius).abs() < 1e-3,
+                "{length}: {:?}",
+                shape.circle
+            );
+        };
+        check(&k);
+        // A sheet's layout viewport must not replace the window's unit basis.
+        k.set_env(exact_kernel::Env {
+            screen: Some((800.0, 600.0)),
+            ..k.env()
+        })
+        .unwrap();
+        k.compute_layout(1, Offer::definite(300.0, 250.0)).unwrap();
+        check(&k);
+    }
+}
+
+// Coverage of the existing content-box path, which already uses laid-out padding.
+#[test]
+fn svg_and_canvas_content_boxes_keep_viewport_padding() {
+    for node_type in [NodeType::Svg, NodeType::Canvas] {
+        let mut d = Doc::new();
+        let node = d.node(
+            node_type,
+            &[
+                (StyleId::Width, "200"),
+                (StyleId::Height, "200"),
+                (StyleId::BoxSizing, "border-box"),
+                (StyleId::PaddingTop, "10vh"),
+                (StyleId::PaddingLeft, "10vw"),
+            ],
+            &[],
+        );
+        let mut k = d.kernel(&[node], 400.0);
+        assert_eq!(
+            scene::content_box(&k, &k.node(node).unwrap()),
+            (40.0, 80.0, 160.0, 120.0)
+        );
+        k.compute_layout(1, Offer::definite(600.0, 400.0)).unwrap();
+        assert_eq!(
+            scene::content_box(&k, &k.node(node).unwrap()),
+            (60.0, 40.0, 140.0, 160.0)
+        );
+    }
+}
+
+#[test]
+fn referenced_svg_regions_resolve_css_lengths() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "200"), (StyleId::Height, "100")],
+        &[],
+    );
+    let region = [
+        (StyleId::X, "1vw"),
+        (StyleId::Y, "1vh"),
+        (StyleId::Width, "10vw"),
+        (StyleId::Height, "calc(10vh + 10%)"),
+    ];
+    let mask = d.node(
+        SvgMask,
+        &region,
+        &[(PropId::Id, "m"), (PropId::MaskUnits, "userSpaceOnUse")],
+    );
+    let pattern = d.node(
+        SvgPattern,
+        &region,
+        &[(PropId::Id, "p"), (PropId::PatternUnits, "userSpaceOnUse")],
+    );
+    let filter = d.node(
+        SvgFilter,
+        &region,
+        &[(PropId::Id, "f"), (PropId::FilterUnits, "userSpaceOnUse")],
+    );
+    let flood = d.node(SvgFe, &region, &[(PropId::Fe, "feFlood")]);
+    d.children(filter, &[flood]);
+    for parent in [mask, pattern] {
+        let content = d.node(
+            SvgRect,
+            &[(StyleId::Width, "100%"), (StyleId::Height, "100%")],
+            &[],
+        );
+        d.children(parent, &[content]);
+    }
+    let rect = d.node(
+        SvgRect,
+        &[
+            (StyleId::Width, "100"),
+            (StyleId::Height, "100"),
+            (StyleId::SvgMask, "url(#m)"),
+            (StyleId::Fill, "url(#p)"),
+            (StyleId::Filter, "url(#f)"),
+        ],
+        &[],
+    );
+    let gradient = d.node(
+        SvgRadialGradient,
+        &[
+            (StyleId::Cx, "10vw"),
+            (StyleId::Cy, "10vh"),
+            (StyleId::R, "5vmin"),
+        ],
+        &[(PropId::Id, "g"), (PropId::GradientUnits, "userSpaceOnUse")],
+    );
+    let first = d.node(
+        SvgStop,
+        &[(StyleId::StopColor, "#000000")],
+        &[(PropId::Offset, "0")],
+    );
+    let last = d.node(
+        SvgStop,
+        &[(StyleId::StopColor, "#ffffff")],
+        &[(PropId::Offset, "1")],
+    );
+    d.children(gradient, &[first, last]);
+    let shaded = d.node(
+        SvgRect,
+        &[
+            (StyleId::Width, "100"),
+            (StyleId::Height, "100"),
+            (StyleId::Fill, "url(#g)"),
+        ],
+        &[],
+    );
+    d.children(svg, &[mask, pattern, filter, rect, gradient, shaded]);
+    let k = d.kernel(&[svg], 400.0);
+    let s = resolve(&k, svg);
+    let item = find(&s.items, rect).unwrap();
+    let region = (4.0, 8.0, 40.0, 90.0);
+    assert_eq!(item.mask.as_ref().unwrap().region, region);
+    assert_eq!(item.filter.as_ref().unwrap().region, region);
+    assert_eq!(
+        item.filter.as_ref().unwrap().primitives[0].subregion,
+        region
+    );
+    let Kind::Shape(shape) = &item.kind else {
+        panic!("expected a rectangle");
+    };
+    assert_eq!(
+        shape.fill.as_ref().unwrap().pattern.as_ref().unwrap().tile,
+        region
+    );
+
+    let Kind::Shape(shape) = &find(&s.items, shaded).unwrap().kind else {
+        panic!("expected a shaded rectangle");
+    };
+    assert!(matches!(
+        shape.fill.as_ref().unwrap().server.as_ref().unwrap().kind,
+        exact_kernel::svg::server::ServerKind::Radial {
+            cx: 40.0,
+            cy: 80.0,
+            r: 20.0,
+            ..
+        }
+    ));
 }

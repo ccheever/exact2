@@ -22,8 +22,8 @@ pub(crate) fn is_list_op(f: Stdlib) -> bool {
     )
 }
 
-/// `concat(list<T>, list<T>)`, `slice(string | list<T>, number, number?)`
-/// and `includes(string, string)` or `includes(list<T>, T)` with `T` a
+/// `concat(T[], T[])`, `slice(string | T[], number, number?)`
+/// and `includes(string, string)` or `includes(T[], T)` with `T` a
 /// string, number or bool, `indexOf` likewise: the web compares an object
 /// by identity, so they take what `==` and `join` take of a list's items.
 fn infer_built(
@@ -52,8 +52,8 @@ fn infer_built(
         err(
             "type-argument",
             format!(
-                "argument {} of `{name}` expects `{want}`, given `{given}`",
-                i + 1
+                "{} expects `{want}`, given `{given}`",
+                contract_syntax::idioms::argument(name, i)
             ),
             args[i].span(),
         )
@@ -106,7 +106,7 @@ fn infer_built(
                     Some(other) => err(
                         "type-argument",
                         format!(
-                            "`{name}` finds a string, number or bool in a list, given `{other}`: test a field, `length(filter(xs, x => x.id == id)) > 0`"
+                            "`{name}` finds a string, number or bool in a list, given `{other}`: test a field, `xs.filter(x => x.id == id).length > 0`"
                         ),
                         args[1].span(),
                     ),
@@ -135,15 +135,15 @@ pub(crate) fn infer_call(
     let name = f.name();
     let [list, second] = args else {
         let signature = if f == Stdlib::Join {
-            "(list, separator)"
+            "(separator)"
         } else {
-            "(list, (item, index) => …)"
+            "((item, index) => …)"
         };
         return err(
             "type-arity",
             format!(
-                "`{name}` takes 2 arguments, `{name}{signature}`, given {}",
-                args.len()
+                "`.{name}(…)` takes 1 argument, `xs.{name}{signature}`, given {}",
+                args.len().saturating_sub(1)
             ),
             span,
         );
@@ -155,7 +155,10 @@ pub(crate) fn infer_call(
         other => {
             return err(
                 "type-argument",
-                format!("argument 1 of `{name}` expects a list, given `{other}`"),
+                format!(
+                    "{} expects a list, given `{other}`",
+                    contract_syntax::idioms::argument(name, 0)
+                ),
                 list.span(),
             )
         }
@@ -235,7 +238,7 @@ pub(crate) fn infer_call(
             Ty::String => "compare it: `x.name != \"\"`",
             Ty::Number => "compare it: `x.count != 0`",
             Ty::Option(_) => "compare it: `x.note != none`",
-            Ty::List(_) => "test it: `length(x.tags) > 0`",
+            Ty::List(_) => "test it: `x.tags.length > 0`",
             _ => "return a comparison",
         };
         return err(

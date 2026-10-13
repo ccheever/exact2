@@ -119,11 +119,16 @@ every resource and `send` must meet. A disagreement is kept under
 
 A divergence is kept under `target/difftest/failures/` (the program, the
 events, both observations); random failures have their scripts shrunk first.
-The async lane (`scripts/async.mjs`, step `semantics`) builds the Lean
-project, checks the proofs (the app proofs among them), checks the app
-embeddings are current, runs the corpus and a random sweep seeded by the
-commit, and checks component expansion over the corpus and 200 generated
-programs (`difftest expansion`, below).
+The async lane (`scripts/async.mjs`) runs this as four checks: `lean`
+builds the Lean project and checks the proofs (the app proofs among them);
+`vm-extract` checks the extracted VM (`vm-extract/README.md`); `difftest`
+checks the app embeddings are current and runs the corpus, the explored
+programs, a random sweep with fixed seeds, the lowering, number, type and
+expansion checks; `difftest-js` runs the web JS target (below). Each is
+skipped when its inputs are those of a run that passed: the binaries it
+runs, the Lean sources, every program and what compiling it reads, the
+tools and the environment (`scripts/async-inputs.mjs`). `difftest` runs
+with `DIFFTEST_CACHE=1`.
 
 ## Using it day to day
 
@@ -132,9 +137,10 @@ commands, and they say how to install it when it is missing (below,
 "Lean"). The first run builds the library (minutes, once per worktree);
 after that, Lean's observation of a case is kept under
 `target/difftest/cache/`, keyed by the case's embedding, oracle and
-events and by the semantics' sources, so a rerun only takes Lean time for
-what changed. Only `verify` and `quick` use the cache unless
-`DIFFTEST_CACHE=1`, and the async lane always runs Lean.
+events and by the semantics' sources and the harness that runs them
+(`leanrun.rs`), so a rerun only takes Lean time for what changed. Only
+`verify` and `quick` use the cache unless `DIFFTEST_CACHE=1`, which the
+async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
 app's `test` blocks (its own and those in `app.test.contract` beside it)
@@ -172,7 +178,7 @@ and the lowering check on 8, seeded by the base, so a branch's reruns are
 warm. Warm, it takes about 10 s. Cold, with the semantics changed so Lean
 reruns everything, it takes one to three minutes depending on load. It
 prints a command that reproduces each divergence. The async lane's
-`semantics` step is still the full run.
+`difftest` check is still the full run.
 
 ## The web JS target
 
@@ -208,8 +214,8 @@ A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
 agreed with the runner, and is kept under `target/difftest/failures/`
 (`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
-The async lane runs the corpus and the explored
-programs with `--js`, and a random sweep of 500 with `--js-only`.
+The async lane's `difftest-js` check runs the corpus and the explored
+programs, and a random sweep of 500, with `--js-only`.
 
 ## Verifying an app
 

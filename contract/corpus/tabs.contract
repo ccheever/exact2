@@ -63,7 +63,7 @@ component Tabs
                   button press=say testId="say"
                     text "Toast"
                 if e.name == "item"
-                  for p in filter(stack(nav), x => x.name == "item") key=p.id
+                  for p in stack(nav).filter(x => x.name == "item") key=p.id
                     text `Item ${p.params.id}` testId=`item-title-${p.id}`
                 if e.name == "add"
                   text "Add something" testId="add-title"

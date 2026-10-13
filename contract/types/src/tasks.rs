@@ -52,7 +52,7 @@ fn gate_message(gate: &Expr, ty: &Ty) -> String {
             match ty {
                 Ty::String => format!("; write `{name} != \"\"`"),
                 Ty::Number => format!("; write `{name} != 0`"),
-                Ty::List(_) => format!("; write `length({name}) > 0`"),
+                Ty::List(_) => format!("; write `{name}.length > 0`"),
                 _ => String::new(),
             },
         ),

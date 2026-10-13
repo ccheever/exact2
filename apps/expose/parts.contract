@@ -23,7 +23,7 @@ shape Thread
   time: string
   unread: bool
 shape Inbox
-  threads: list<Thread>
+  threads: Thread[]
   unread: number
 shape Message
   id: string
@@ -37,7 +37,7 @@ shape Conversation
   name: string
   initials: string
   kind: string
-  messages: list<Message>
+  messages: Message[]
   streaming: bool
   error: string
 shape Turn
@@ -53,9 +53,9 @@ shape Article
   title: string
   deck: string
   pull: string
-  body: list<string>
+  body: string[]
 shape Library
-  articles: list<Article>
+  articles: Article[]
   lead: string
 shape Hour
   id: string
@@ -69,7 +69,7 @@ shape Weather
   high: string
   low: string
   place: string
-  hours: list<Hour>
+  hours: Hour[]
 shape ModelChoice
   id: string
   name: string
@@ -81,7 +81,7 @@ shape Intelligence
   keyHint: string
   model: string
   modelName: string
-  models: list<ModelChoice>
+  models: ModelChoice[]
 
 // The system's surfaces: near-black and near-white, the scheme's choice.
 style Page
@@ -164,7 +164,7 @@ component AppTile
         text glyph font-family="Exciting" font-weight=900 font-size=(small ? 24 : 34) line-height="40px" color=ink
         if badge > 0
           column position="absolute" top=-6 right=-6 min-width=22 height=22 border-radius=11 background-color="#ff6a2b" align-items="center" justify-content="center" padding-left=6 padding-right=6 box-sizing="border-box"
-            text toString(badge) font-size=12 font-weight=700 color="#ffffff"
+            text badge.toString() font-size=12 font-weight=700 color="#ffffff"
       text label font-size=12 font-weight=500 color="#ffffffd9" line-clamp=1
 
 // The same tile in the dock, without a label.

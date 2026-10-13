@@ -17,12 +17,12 @@ shape Card
   color: string
 
 component Paging
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   state hi = 30
   state loading = false
   state pages = 0
   state top = 0
-  derive shown = filter(cards, c => c.n < hi)
+  derive shown = cards.filter(c => c.n < hi)
   action more
     if not loading
       loading = true

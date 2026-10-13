@@ -27,7 +27,7 @@ shape Ball
   color: string
 shape Balls
   text: string
-  balls: list<Ball>
+  balls: Ball[]
 shape Dragon
   text: string
   x: number
@@ -50,12 +50,12 @@ shape Card
   height: number
 shape Column
   id: string
-  cards: list<Card>
+  cards: Card[]
 shape Masonry
   cols: number
   colWidth: number
   tallest: number
-  columns: list<Column>
+  columns: Column[]
 shape Placed
   id: string
   index: number
@@ -71,7 +71,7 @@ shape Wall
   total: number
   count: number
   visible: number
-  cards: list<Placed>
+  cards: Placed[]
 shape Chunk
   id: string
   text: string
@@ -80,7 +80,7 @@ shape Magazine
   cols: number
   colWidth: number
   colHeight: number
-  columns: list<Chunk>
+  columns: Chunk[]
   leftover: number
 shape SpreadColumn
   id: string
@@ -90,7 +90,7 @@ shape Spread
   cols: number
   colWidth: number
   height: number
-  columns: list<SpreadColumn>
+  columns: SpreadColumn[]
   capW: number
   capH: number
   capShape: string
@@ -117,7 +117,7 @@ shape Row
 shape Ascii
   width: number
   height: number
-  rows: list<Row>
+  rows: Row[]
 
 style Eyebrow
   font-size=11
