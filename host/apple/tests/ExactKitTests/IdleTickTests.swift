@@ -81,6 +81,7 @@ final class IdleTickTests: XCTestCase {
         let held = session.appliedBatches
         session.applyUnlessEmpty(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil, timerDueMs: due), scrolled: true)
         XCTAssertEqual(session.appliedBatches, held + 2, "the slice, then the colours' report; the scroll batch skipped")
+        XCTAssertNotEqual(session.timerDue, due, "the report applied after the skip, its clock the latest (an unbooted runtime's has none)")
     }
 
     func testTheControlsFlagDecodes() throws {

@@ -867,8 +867,8 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   `HDRImageTests` (`testAGainMapRecoversLightAboveSDRWhite`, `testTheSDRRenditionStaysWithinSDR`),
   `PickerColorTests` (`testAnHDRPhotoKeepsItsGainMapAndProfile`, `testOrientationIsAppliedNotCopied`)
   and `RasterColorTests.testEveryFixtureDecodesToItsClassStorageAndColors`: all HDR or colour
-  storage, cause unconfirmed (the result bundle also records a missing temporary JPEG in
-  `PickerColorTests`); xcodebuild's log names no assertion.
+  storage (the result bundle: RGBA8 against RGBAh, rec2100-hlg against display-p3, HDR stored
+  as SDR, an HDR photo still HDR as JPEG), cause unconfirmed; xcodebuild's log names no assertion.
 - **The date at launch on the other hosts** (2026-10-12; Apple boots under it now,
   `exact_runner::time::launching`): Linux and the Rust/Wasm web host tell `set_time` after the
   boot, and the render host, the content-region host and direct `Host::boot_stored` never enter
