@@ -308,7 +308,7 @@ the verify-1011c groups and those tasks' rows: 141 rows, 70 passed, 29 failed, 2
 reachable, 1 not filmable, 4 other. Its failures and part passes are in `STATUS.md` "Known differences" (the user's
 rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`), which main PR #519 (opened
 2026-10-13, merged as `b49c56029`) files as `issues/closed/20261013-macos-a-click-after-a-node.md` and fixes.
-[adopt-main-fixes-r12](tasks/20261013-adopt-main-fixes-r12.md) (draft PR [#520](https://github.com/ccheever/exact2/pull/520)) adopts main `46f300937`, then `96ea7d177`, `ffe36f63a` and `aa9705c33`, with #519: agent mode
+[adopt-main-fixes-r12](tasks/20261013-adopt-main-fixes-r12.md) (draft PR [#520](https://github.com/ccheever/exact2/pull/520)) adopts main `46f300937`, then `96ea7d177`, `ffe36f63a`, `aa9705c33` and `169ea1efb`, with #519: agent mode
 reproduces the crash's mechanism on the T3 tip's bundle and not on round 12's, and finds another framework crash of the
 same pattern (X87, main `3998e650e`: a press held on a scroller's empty area); the four rows wait for real input. It
 opts the clone's lists and popovers out of the Mac's table and `NSPopover` (LLP 1115.002 D5, D7.3) to keep the
