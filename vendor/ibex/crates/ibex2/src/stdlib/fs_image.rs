@@ -35,11 +35,15 @@ pub struct ImageRequest {
     pub max_dimension: u32,
     pub max_bytes: u64,
 }
-/// The provider MUST enforce decoded-pixel, scratch and output limits BEFORE allocation.
-/// `max_scratch_bytes` includes ALL provider-owned decoded pixel buffers and
-/// intermediate workspace. Only the borrowed source and returned encoded output
-/// are excluded; Ibex charges those separately. A codec must not retain inputs
-/// or workspace after return.
+/// Provider declarations used for preallocation checks and Ibex admission.
+/// The provider must check decoded pixels before decoding, bound retained encoded
+/// output, and account for all explicitly sized decoded/intermediate buffers in
+/// `max_scratch_bytes`. Only the borrowed source and returned encoded output are
+/// excluded; Ibex charges those separately. For an opaque native codec, scratch
+/// is a conservative admission estimate: the provider must document its measured
+/// envelope and limitations. Ibex does not enforce a native allocator/RSS cap;
+/// an embedder requiring one needs an allocation-controlled or isolated provider.
+/// A codec must not retain inputs or its owned workspace after return.
 #[derive(Debug, Clone, Copy)]
 pub struct CodecLimits {
     pub max_pixels: u64,

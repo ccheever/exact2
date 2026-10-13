@@ -3,7 +3,7 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `b20dded821cf284f35930ff8f68933fe4ac6e2b8` (2026-10-13).
+  `bf74e54c14ab80bdb4935411ed3a2bf77c2d86dc` (2026-10-13).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
@@ -19,6 +19,12 @@ upstream tree, Exact `3ad9ef9cb396fc1cc786abcec03cc1b6bc21cec5`'s vendor tree,
 and the new upstream tree before replacing any source. The old local delta
 included 40 changed/added files. Reusable changes now come from upstream;
 Exact's explicit stub configuration and standalone locks are replayed below.
+
+The follow-up refresh from `b20dded` to the source pin above changes only
+`fs_image.rs` rustdoc within the vendored inputs: opaque native codec workspace
+is a measured admission estimate, not an allocator ceiling. Both stub seams,
+the three standalone workspace boundaries, both locks, and Exact's app-facing
+storage declaration are unchanged. The Hermes bundle stays on v4.
 
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
@@ -80,8 +86,11 @@ The standalone manifests, dependency graph and locks are unchanged by this refre
 
 ### Native Windows consumer requalification — 2026-10-13
 
-Exact `dfa6a26344cf238f4b642805492806795e01ddfd`, with Ibex source pin
-`de11540`, ran on x86_64 Windows with the authenticated
+The Windows lane started from Exact `dfa6a26344cf238f4b642805492806795e01ddfd`
+and qualified its corrected codec-refusal assertions and native host at
+`b76971320c5c43c505b29b0e3195bf66020c27be`, with Ibex source pin
+`de11540`. That lane is integrated in Exact `4fd19fb4e2`. It ran on x86_64
+Windows with the authenticated
 `hermes-vanilla-d412d3bd8512-v4` bundle. Its receipt uses schema
 `ibex/hermes-upstream-pinned-receipt/2` and has SHA-256
 `38714ce6a52d8511b4a0f03128ec1a3f4b6338d9e0d6572afbb2fd4d29819bb0`.
@@ -167,23 +176,58 @@ workspace and 25% native-workspace headroom within its 512 MiB scratch estimate.
 Large RGBA16 cases that previously exceeded the job reservation are now refused
 before pixel decode. LLP 1069.002's **Native image memory qualification,
 2026-10-13** records the retained adversarial corpus, baseline/final RSS and
-four-job cancellation/teardown evidence. The decision keeps in-process ImageIO
+four-job cancellation/teardown evidence at Exact
+`2dd657fd7d93176b6d8e924849ed85170beda67c`, from baseline `dfa6a26344cf`.
+That lane is integrated as `1b797a773e80b579e55a33e19dade886bcc31c0a` and is
+included in the `4fd19fb4e2` checks below. The decision keeps in-process ImageIO
 for this app-local API. The estimate is not a proven cap on ImageIO's allocator,
 peak process RSS or native-call duration; hard process containment would require
 a separate codec service. The configured worker limit belongs to each work owner.
 
-The final-pin focused run passes 108 real lean JS integration tests, 22 native
-storage tests, 15 Fieldnotes mixed TypeScript/Rust persistence tests, and the
-render suite. Real native HTTP drain/redirect/deadline cases pass in both modes;
-async production selection remains opt-in. The separate Snapback workspace
-passes 15 real-server client tests, six durable-device tests and one client unit
-test against its pinned server. The browser grant corpus passes 111 assertions.
+### Previous landing evidence
+
+The adoption delivered as Exact `6dd91519c4292a10c7b6450abe9e082c7fcffdff`
+and Ibex `595224eb9e6e2419a82b0622a7c710a9eceb09f6` used vendored source
+`de11540` and the v4 bundle. Its focused qualification passed 108 real lean JS
+integration tests, 22 native storage tests, 15 Fieldnotes mixed TypeScript/Rust
+persistence tests, and the render suite. Real native HTTP
+drain/redirect/deadline cases passed in both modes. The separate Snapback
+workspace passed 15 real-server client tests, six durable-device tests and one
+client unit test against its pinned server. The browser grant corpus passed
+111 assertions. These receipts belong to that landing, not the newer source pin.
 
 The macOS Fieldnotes app was built and driven with the named scratch store
 `ibex-adoption-20261013`: save a note, write/read its Rust backup, restart,
 delete the note, restore that file through TypeScript, then restart again.
 The observed count changed 1 → 0 → 1, and the final title/body matched the
 saved note with no pending work. This uses isolated test storage, not an
-existing notebook. All six required Exact checks are run on the final commit;
-full command receipts and the production lean phase diagnostic are in the
-local consumer-adoption run ledger.
+existing notebook. All six required Exact checks passed on `6dd91519c`;
+the focused checks, app drive, final checks and production lean phase diagnostic
+retain their individual revisions in the local consumer-adoption run ledger.
+
+### Follow-up evidence and remaining gates
+
+Exact `4fd19fb4e2d5bdad1311a18a694feff9b6f1efc3`, with vendored source
+`b20dded` and the v4 bundle, passed all six required checks: build, tests,
+clippy plus fmt, caps, boot, and the full workspace check. Its additional
+`exact-data-host` run passed 22/22 tests. The signed macOS Conduit fixture,
+using isolated identity `com.ccheever.ibexasyncqualification` and scratch
+storage, was built with `EXACT_HTTP_ASYNC=1` and driven through
+home → article → home → login. Four articles loaded, the article body was
+present, and every pending queue was empty. The app remained signed out and
+issued no public writes. Four recorded HTTP transactions used h2 with one
+observed endpoint pair. This is functional reuse evidence, not a timing result.
+The consumer-release run retains `exact-4fd-six-gates.json`,
+`exact-4fd-conduit-macos-receipt.json` and their command logs.
+
+The physical iPhone fixture built and installed from Exact `32b88bbed4` with
+async enabled, but launch was refused because the device was locked. No
+physical-device interaction or final-revision qualification is claimed.
+Charlie assigned the historical bsky4 rollout campaign to the agent on Tuft;
+LLP 1120 §5 records the original baseline and remaining measured gate. Async
+remains off by default. The controlled TLS setup-stall diagnostic and this Mac
+smoke do not substitute for that campaign.
+
+The current source refresh is rustdoc-only relative to `b20dded`; formatting,
+caps and the vendor comparison qualify this delta. A published v5 bundle and
+its consumer pin require fresh compiled qualification before row 8 can retire.
