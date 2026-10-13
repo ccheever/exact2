@@ -61,17 +61,38 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
             "{text}"
         );
         assert!(lines[4].contains("compressImage: unfit: "), "{text}");
+        assert!(
+            lines[5].contains("compressImage: requires bounded app:/ paths"),
+            "{text}"
+        );
     } else {
         assert!(
             lines[0].starts_with("Error unsupported compressImage: unsupported: "),
             "{text}"
         );
-        assert_eq!(refusals[..2], ["Error denied", "Error ENOENT"], "{text}");
+        // Admission still denies an unauthorized destination first. With no
+        // installed codec, every admitted call refuses before reading its
+        // source or asking the provider to interpret a path.
+        assert_eq!(
+            refusals,
+            [
+                "Error denied",
+                "Error unsupported",
+                "Error unsupported",
+                "Error unsupported",
+                "Error unsupported",
+                "TypeError undefined",
+                "TypeError undefined"
+            ],
+            "{text}"
+        );
+        assert!(
+            lines[2..=5]
+                .iter()
+                .all(|line| line.contains("no image codec")),
+            "{text}"
+        );
     }
-    assert!(
-        lines[5].contains("compressImage: requires bounded app:/ paths"),
-        "{text}"
-    );
     assert!(
         lines[6].contains("maxDimension must be an integer from 1 to 8192"),
         "{text}"
