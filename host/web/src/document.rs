@@ -186,6 +186,7 @@ pub fn project_tree<D: DataSource>(
         font_names_for_runner(runner),
         None,
         writing,
+        super::element::svg_environment(runner.viewport().fold),
     )?;
     let document = Document {
         lang: runner.resolved_locale().into(),
@@ -242,6 +243,7 @@ fn walk<D: DataSource>(
         font_names_for_runner(runner),
         computed,
         Writing::default(),
+        super::element::svg_environment(runner.viewport().fold),
     )?;
     let document = Document {
         lang: runner.resolved_locale().into(),
@@ -267,9 +269,11 @@ fn write<S: Source>(
     fonts: Vec<String>,
     computed: Option<Computed>,
     writing: Writing<'_>,
+    env: exact_kernel::Env,
 ) -> Result<(String, String, bool, Option<Computed>, String), DocumentError> {
     let mut walk = Walk {
         src,
+        env,
         isolation: isolation(src, roots),
         computed,
         fonts,
@@ -480,6 +484,7 @@ pub fn tab_routes(
 
 struct Walk<'r, 'w, S: Source> {
     src: &'r S,
+    env: exact_kernel::Env,
     isolation: SortedMap<ViewId, Child>,
     computed: Option<Computed>,
     fonts: Vec<String>,
@@ -540,7 +545,7 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
-        svg_props_of(&resolve, &node, &mut props);
+        svg_props_of(&resolve, &node, &self.env, &mut props);
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");

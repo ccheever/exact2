@@ -31,6 +31,35 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     await page.goto(server.url.href);
     const nested = page.getByTestId('nested');
     await nested.waitFor({ state: 'attached' });
+    const envGeometry = () => page.evaluate(() => ['environment-static', 'environment-bound'].map(id => {
+      const e = document.querySelector(`[data-testid="${id}"]`);
+      return { attribute: e.getAttribute('height'), height: e.querySelector('rect').getBBox().height };
+    }));
+    expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBeNull();
+    await page.getByTestId('fallback').click();
+    expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: 'env(viewport-segment-height 1 0, 25%)', height: 100 }]);
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBe('env(viewport-segment-height 1 0, 25%)');
+    await page.getByTestId('fallback').click();
+    expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
+    const cdp = await page.context().newCDPSession(page);
+    for (const [width, sharp, ellipseWidth] of [[800, true, 0], [900, true, 0], [1000, false, 20], [800, true, 0]]) {
+      await page.setViewportSize({ width, height: 600 });
+      expect(await page.getByTestId('calculated-rect').evaluate(e => e.isPointInFill(new DOMPoint(1, 1)))).toBe(sharp);
+      expect(await page.getByTestId('calculated-ellipse').evaluate(e => e.getBBox().width)).toBe(ellipseWidth);
+    }
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false,
+      displayFeature: { orientation: 'vertical', offset: 400, maskLength: 0 } });
+    await page.evaluate(() => dispatchEvent(new Event('resize')));
+    expect(await envGeometry()).toEqual([
+      { attribute: 'env(viewport-segment-height 1 0)', height: 600 },
+      { attribute: 'calc(env(viewport-segment-height 1 0) + 0px)', height: 600 },
+    ]);
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBe('calc(env(viewport-segment-height 1 0) + 0px)');
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await page.evaluate(() => exact.fold.prefer({}));
+    expect(await envGeometry()).toEqual([{ attribute: null, height: 400 }, { attribute: null, height: 400 }]);
+    expect(await page.getByTestId('environment-gradient').getAttribute('cx')).toBeNull();
     const geometry = () => nested.evaluate(e => ({
       attribute: e.getAttribute('height'),
       height: e.querySelector('rect').getBBox().height,

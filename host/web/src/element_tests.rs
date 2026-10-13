@@ -405,9 +405,44 @@ fn svg_geometry_attributes_preserve_css_lengths() {
             inline_run: false,
         };
         let mut out = super::SortedMap::new();
-        super::svg_props_of(&|_, _| None, &facts, &mut out);
+        super::svg_props_of(&|_, _| None, &facts, &Default::default(), &mut out);
         let mut expected = String::new();
         crate::css::dimension(&mut expected, style.height);
         assert_eq!(out.get("height"), Some(&expected), "{length}");
+    }
+}
+
+#[test]
+fn undefined_svg_geometry_attributes_take_the_initial_value() {
+    use exact_kernel::{StyleId, StyleValue};
+    exact_kernel::link_segments();
+    for (kind, row, name) in [
+        (NodeType::SvgViewport, StyleId::Height, "height"),
+        (NodeType::SvgRadialGradient, StyleId::Cx, "cx"),
+    ] {
+        for length in [
+            "env(viewport-segment-height 1 0)",
+            "calc(env(viewport-segment-height 1 0) + 10%)",
+            "min(env(viewport-segment-height 1 0), 50%)",
+            "max(5px, env(viewport-segment-height 1 0))",
+            "clamp(1px, env(viewport-segment-height 1 0), 100px)",
+        ] {
+            let mut style = StyleProps::default();
+            style
+                .set_dynamic(row, &StyleValue::Text(length.into()))
+                .unwrap();
+            let props = PropList::new();
+            let facts = NodeFacts {
+                id: 1,
+                node_type: kind,
+                style: &style,
+                props: &props,
+                is_root: false,
+                inline_run: false,
+            };
+            let mut out = super::SortedMap::new();
+            super::svg_props_of(&|_, _| None, &facts, &Default::default(), &mut out);
+            assert!(out.get(name).is_none(), "{kind:?}: {length}");
+        }
     }
 }

@@ -1,6 +1,99 @@
 use super::*;
 
 #[test]
+fn svg_environment_attributes_follow_the_segment_grid() {
+    for length in [
+        "env(viewport-segment-height 1 0)",
+        "calc(env(viewport-segment-height 1 0) + 10%)",
+        "min(env(viewport-segment-height 1 0), 50%)",
+        "max(5px, env(viewport-segment-height 1 0))",
+        "clamp(1px, env(viewport-segment-height 1 0), 100px)",
+        "env(viewport-segment-height 1 0, 25%)",
+        "0px",
+    ] {
+        let plan = contract::compile(&format!(
+            r##"
+component App
+  view
+    svg width=200 height=400
+      defs
+        radialGradient id="gradient" testId="gradient" cx="{length}"
+          stop offset="0%" stop-color="#14b8a6"
+      svg testId="nested" height="{length}"
+        rect width="100%" height="100%" fill="url(#gradient)"
+"##
+        ))
+        .unwrap();
+        exact_web::link(exact_web_capabilities::ALL);
+        let flat = exact_runner::Viewport::sized(800.0, 600.0);
+        let (mut host, first) =
+            Host::boot(&plan.encode(), caltrain_data::Caltrain, flat, "/").unwrap();
+        let first: serde_json::Value = serde_json::from_str(&first).unwrap();
+        let defined = length == "0px" || length.contains("25%");
+        let expected = match length {
+            "0px" => "0",
+            "calc(env(viewport-segment-height 1 0) + 10%)" => {
+                "calc(10% + env(viewport-segment-height 1 0))"
+            }
+            _ => length,
+        };
+        for (test_id, attr) in [("nested", "height"), ("gradient", "cx")] {
+            let op = first["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|op| op["props"]["data-testid"] == test_id)
+                .unwrap();
+            assert_eq!(
+                op["props"][attr].as_str(),
+                defined.then_some(expected),
+                "{length}"
+            );
+        }
+        let folded = exact_runner::Viewport {
+            fold: exact_runner::Fold {
+                cols: 2,
+                ..Default::default()
+            },
+            ..flat
+        };
+        for (viewport, present) in [(folded, true), (flat, defined)] {
+            let batch = host.resize(viewport, 0.0);
+            let batch: serde_json::Value = serde_json::from_str(&batch).unwrap();
+            let ops = batch["ops"].as_array().unwrap();
+            for (test_id, attr) in [("nested", "height"), ("gradient", "cx")] {
+                let created = first["ops"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|op| op["props"]["data-testid"] == test_id)
+                    .unwrap();
+                let op = ops
+                    .iter()
+                    .find(|op| op["op"] == "props" && op["id"] == created["id"]);
+                if defined {
+                    assert!(op.is_none(), "a fallback and zero stay authored: {batch}");
+                } else if present {
+                    assert_eq!(op.unwrap()["set"][attr], expected, "{batch}");
+                } else {
+                    assert_eq!(op.unwrap()["clear"], serde_json::json!([attr]), "{batch}");
+                }
+                let document = exact_web::document::project(host.runner()).unwrap();
+                assert_eq!(
+                    document.root.contains(&format!("{attr}=\"{expected}\"")),
+                    present,
+                    "{length}: {}",
+                    document.root
+                );
+            }
+            let unchanged: serde_json::Value =
+                serde_json::from_str(&host.resize(viewport, 0.0)).unwrap();
+            assert!(unchanged["ops"].as_array().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
 fn style_rows_lower_to_css_by_their_names() {
     use exact_kernel::{StyleId, StyleProps, StyleValue};
     let mut s = StyleProps::default();

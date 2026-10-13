@@ -124,11 +124,8 @@ impl Em<'_> {
             .iter()
             .find(|(attribute, _)| *attribute == id)
         {
-            let p = self.uses.rt("P");
-            let _ = write!(
-                self.out,
-                "{p}({e},\"{name}\",()=>{{const v=({f})();return v==null||/^\\s*(auto|initial|unset|revert(-layer)?)\\s*$/i.test(v)?null:v}});"
-            );
+            let p = self.uses.rt("svgGeometry");
+            let _ = write!(self.out, "{p}({e},\"{name}\",{f});");
             return Ok(());
         }
         if matches!(

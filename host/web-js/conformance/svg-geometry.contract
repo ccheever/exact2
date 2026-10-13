@@ -3,6 +3,8 @@ component App
   state omitted = false
   state zero = false
   state initial = false
+  state fallback = false
+  derive environment = fallback ? "env(viewport-segment-height 1 0, 25%)" : "calc(env(viewport-segment-height 1 0) + 0px)"
   derive extent = initial ? "auto" : zero ? "0" : small ? "25vh" : "50vh"
   derive offset = zero ? 0 : small ? 10 : 20
   action resize
@@ -13,6 +15,8 @@ component App
     zero = not zero
   action reset
     initial = not initial
+  action substitute
+    fallback = not fallback
   view
     column background-color="#ffffff"
       row
@@ -20,6 +24,19 @@ component App
         button "Omit" press=omit testId="omit"
         button "Zero" press=collapse testId="zero"
         button "Auto" press=reset testId="auto"
+        button "Fallback" press=substitute testId="fallback"
+      svg width=200 height=100
+        rect testId="calculated-rect" width=100 height=100 rx="calc(10vw - 90px)" ry=10 fill="#14b8a6"
+        ellipse testId="calculated-ellipse" cx=150 cy=50 rx="calc(10vw - 90px)" ry=10 fill="#0ea5e9"
+      svg width=200 height=400
+        defs
+          radialGradient id="environment-gradient" testId="environment-gradient" cx=environment
+            stop offset="0%" stop-color="#14b8a6"
+            stop offset="100%" stop-color="#0ea5e9"
+        svg testId="environment-static" width=100 height="env(viewport-segment-height 1 0)"
+          rect width="100%" height="100%" fill="url(#environment-gradient)"
+        svg testId="environment-bound" x=100 width=100 height=environment
+          rect width="100%" height="100%" fill="url(#environment-gradient)"
       svg width=200 height=400
         defs
           symbol id="shape" viewBox="0 0 100 100"

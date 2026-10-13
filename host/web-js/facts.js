@@ -12,12 +12,53 @@
 //   baked; a JS build links no update store, so nothing is ever staged.
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
-import { data, Resources, commit, R, Refusal } from "./rt.js";
+import { data, Resources, commit, R, Refusal, P, sig, W } from "./rt.js";
 import { displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
 // `readers`: resource name → [its fields, in its shape's order, …].
 const byName = (readers, name, v) => readers[name][0].map(n => v[n]);
+
+let svgEnvironment, svgProbe;
+let observingFold = false;
+function observeFold() {
+  if (observingFold) return;
+  observingFold = true;
+  const changed = () => commit(() => {
+    if (svgEnvironment) W(svgEnvironment, svgEnvironment() + 1);
+    for (const r of Resources) if (r.source === "exactViewport") R(r);
+  }, "viewport");
+  onFold(changed);
+  // The agent's substitute and the browser's report refresh the same readers.
+  (globalThis.exact ??= {}).fold = { prefer: f => {
+    const env = preferFold(f && Object.keys(f).length ? f : null);
+    changed(); return env;
+  }, env: foldEnv };
+}
+export function svgGeometry(e, name, read) {
+  P(e, name, () => {
+    const v = read();
+    if (v == null || /^\s*(auto|initial|unset|revert(-layer)?)\s*$/i.test(v)) return null;
+    if (!/env\(/i.test(v)) return v;
+    // A server render has no environment; the live binding answers at mount.
+    if (globalThis.__exactRender) return null;
+    if (!svgEnvironment) {
+      svgEnvironment = sig(0);
+      observeFold();
+    }
+    svgEnvironment();
+    if (!svgProbe) {
+      svgProbe = document.createElement("div");
+      svgProbe.style.cssText = "display:none!important;position:fixed!important";
+      document.body.append(svgProbe);
+    }
+    // `left` accepts signed lengths and percentages, and an undefined env()
+    // computes to `auto`. SVG attributes instead render it as zero.
+    svgProbe.style.setProperty("left", "auto", "important");
+    svgProbe.style.setProperty("left", String(v), "important");
+    return getComputedStyle(svgProbe).left === "auto" ? null : v;
+  });
+}
 
 const CONTRAST = ["no-preference", "more", "less", "custom"];
 const GAMUT = ["srgb", "p3", "rec2020", "rec2020"];
@@ -33,11 +74,8 @@ export function viewport(readers) {
   };
   if (typeof addEventListener !== "function") return;
   const changed = again("exactViewport", "viewport");
-  addEventListener("resize", changed);
   onPreferences(changed);
-  onFold(changed);
-  // The agent's `prefer` fold group (LLP 1078 D7): an empty one re-reads the browser, a filled one is the substitute.
-  (globalThis.exact ??= {}).fold = { prefer: (f) => { const env = preferFold(f && Object.keys(f).length ? f : null); changed(); return env; }, env: foldEnv };
+  observeFold();
 }
 
 // A release admits no agent mode (LLP 1069.007 D2): its build writes this false.

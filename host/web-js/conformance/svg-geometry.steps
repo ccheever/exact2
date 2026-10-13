@@ -5,3 +5,7 @@ tap zero
 tap zero
 tap auto
 tap auto
+tap fallback
+tap fallback
+prefer segments 2x1 gap 40
+prefer segments 1x1
