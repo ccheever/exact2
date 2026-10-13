@@ -127,7 +127,7 @@ function flowBatch(batch) {
 }
 let resolveModuleReady, headGlue = null, page = document.querySelector('script[type="application/vnd.exact.checkpoint"]') ? { holding: true, early: globalThis.exact?.taps?.() ?? [] } : null; // a built document (LLP 1048.000 D6), held until the runtime settles; the presses its capture script took before now come first
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
-const focus = focusController({ready:() => inputReady, elements:() => views.values(), inert:inertAncestor});
+const focus = focusController({ready:() => inputReady, elements:() => views.values(), inert:inertAncestor, removed:el => retiredViews.has(el)});
 const focusAutofocus = focus.autofocus;
 function setInputReady(ready) {
   inputReady = ready;
@@ -517,7 +517,7 @@ function attach(el, id, handlers) {
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle, capture = false) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load" || event === "error" && el instanceof HTMLIFrameElement) && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
+    if (((views.get(id) === el && !retiredViews.has(el)) || (event === "focusout" && focus.detached(el, e))) && (inputReady || event === "load" || event === "error" && el instanceof HTMLIFrameElement) && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
   }, capture);
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
     on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
@@ -575,9 +575,9 @@ function attach(el, id, handlers) {
       on("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
       on("pointerleave", () => send(wasm.exact_dispatch(id, 3, 0, now())));
     } else if (kind === "focusin" || kind === "focusout") {
-      on(kind, e => { if (e.exactStopped) return; const target = e.target?.id ?? "", related = e.relatedTarget?.id, outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, kind === "focusin" ? 46 : 47, writeIn(`${encoder.encode(target).length}:${target}${related === undefined ? "0" : `1${related}`}`), now())); } finally { keyEvent = outer; } });
+      on(kind, e => { if (e.exactStopped) return; const target = e.target?.exactExitId ?? e.target?.id ?? "", related = e.relatedTarget?.exactExitId ?? e.relatedTarget?.id, outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, kind === "focusin" ? 46 : 47, writeIn(`${encoder.encode(target).length}:${target}${related === undefined ? "0" : `1${related}`}`), now())); } finally { keyEvent = outer; } });
     } else if (kind === "close" || kind === "scrollend") { on(kind, () => send(wasm.exact_dispatch(id, kind === "close" ? 49 : 51, 0, now()))); } else if (kind === "focus" || kind === "blur") {
-      on(kind, () => send(wasm.exact_dispatch(id, kind === "focus" ? 4 : 5, 0, now())));
+      on(kind, () => { const dispatch = () => send(wasm.exact_dispatch(id, kind === "focus" ? 4 : 5, 0, now())); kind === "blur" ? focus.blur(el, dispatch) : dispatch(); });
     } else if (kind === "key" || kind === "keycapture" || kind === "keyup") {
       // `keycapture` (kind 44) hears keydown outermost first; `key` (6) and `keyup` (43) bubble with the web's key name (`e.key`).
       on(kind === "keyup" ? "keyup" : "keydown", (e) => { if (e.exactStopped) return; const outer = keyEvent; keyEvent = e; try { const n = writeIn(keyChord(e)); send(wasm.exact_dispatch(id, kind === "keycapture" ? 44 : kind === "key" ? 6 : 43, n, now())); } finally { keyEvent = outer; } }, kind === "keycapture");
@@ -595,7 +595,7 @@ function viewFor(op, id) {
   return el;
 }
 function apply(batch) {
-  // Retire dispatch before children ops can synchronously blur removed views; a leaving view's box is read before any op moves it (LLP 1063).
+  // Retire before teardown blur. Keep removed descendants attached to their removed parent for the outgoing focusout; presence reads leaving boxes before any op (LLP 1063).
   for (const op of batch.ops ?? []) {
     if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); } }
   }
@@ -823,7 +823,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {

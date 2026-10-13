@@ -1094,7 +1094,25 @@ impl<D: DataSource> Runner<D> {
         );
         let was_poisoned = self.poisoned;
         let outer = self.input_source.replace(view);
+        let blur = matches!(event, Event::Blur);
+        let path = blur.then(|| self.capture_blur_focus(view));
+        let outgoing = matches!(event, Event::Focusout { .. })
+            .then(|| self.detached_focus_target(view))
+            .flatten();
+        let commands = self.commands.len();
         let result = self.dispatch_inner(view, event, &mut what);
+        if let Some(path) = path {
+            self.finish_blur_focus(view, path);
+        }
+        if let Some(target) = outgoing {
+            if result.is_err()
+                || self.commands[commands..]
+                    .iter()
+                    .any(|c| c.name == "stopPropagation")
+            {
+                self.detached_focus.retain(|(id, _)| *id != target);
+            }
+        }
         self.input_source = outer;
         self.log_outcome(&what, &result, was_poisoned);
         result
@@ -1109,7 +1127,14 @@ impl<D: DataSource> Runner<D> {
         if let Some(event) = event.invalid_payload() {
             return Err(RunnerError::InvalidEvent { event });
         }
-        let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
+        let (node, frames) = self
+            .find(view)
+            .or_else(|| {
+                matches!(event, Event::Focusout { .. })
+                    .then(|| self.take_detached_focus(view))
+                    .flatten()
+            })
+            .ok_or(RunnerError::UnknownView(view))?;
         // Events without a listener do nothing: a picker's `cancel` (LLP
         // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end.
         if matches!(event, Event::Cancel | Event::Close | Event::Scrollend) {

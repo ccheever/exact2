@@ -125,6 +125,34 @@ final class ClickFocusMacTests: XCTestCase {
         }
     }
 
+    func testBlurRemovesWrapperBeforeFocusout() throws {
+        for moving in [true, false] {
+            let p = fixture()
+            defer { window.close() }
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            p.apply(wireBatch([
+                ["op": "create", "id": 20, "kind": "view", "handlers": ["focusout"]],
+                ["op": "children", "id": 20, "ids": [2]],
+                ["op": "children", "id": 1, "ids": [20, 3, 4, 5, 6, 7, 8, 10, 12]]
+            ]))
+            XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[2]?.field)))
+            let outgoing = expectation(description: "detached focusout")
+            var heard: [String] = []
+            p.onBlur = { _ in
+                heard.append("blur")
+                p.apply(wireBatch([["op": "destroy", "id": 20], ["op": "destroy", "id": 2]]))
+            }
+            p.onFocusEvent = { at, kind, target, related in
+                heard.append("\(at):\(kind):\(target):\(related ?? "-")")
+                if at == 20 { outgoing.fulfill() }
+            }
+            XCTAssertTrue(window.makeFirstResponder(moving ? try XCTUnwrap(p.views[4]) : nil))
+            wait(for: [outgoing], timeout: 5)
+            XCTAssertEqual(heard, moving ? ["blur", "20:focusout:field:custom", "1:focusin:custom:field"] : ["blur", "20:focusout:field:-"])
+            XCTAssertNil(p.views[20])
+        }
+    }
+
     func testFocusTransitionUsesTheRenamedId() throws {
         let p = fixture()
         _ = try edit(p)

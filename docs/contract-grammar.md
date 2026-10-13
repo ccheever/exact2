@@ -1310,9 +1310,12 @@ focus left the subtree. `stopPropagation()` stops the current event from
 reaching further ancestor handlers. Autofocus also delivers focus transitions;
 IDs reflect their value when focus moves.
 Web, AppKit, UIKit and Linux dispatch these transitions. An edited field sends
-`change`, `blur`, `focusout`, then the next field's `focus`, `focusin`. Native
-limitation: a wrapper destroyed by `blur` does not receive the later `focusout`;
-Chrome can still deliver it inside the detached subtree (issue #283).
+`change`, `blur`, `focusout`, then the next field's `focus`, `focusin`. If `blur`
+removes a wrapper, its `focusout` still runs inside the detached subtree;
+former connected ancestors do not hear that event, even while an exit animation
+keeps the removed wrapper visible. A blur caused by a tree update runs before
+the update's focus commands or autofocus. A nested focus transition
+from commit processing does not cancel the outgoing event.
 
 `key` is the DOM's `keydown` and `keyup` its `keyup`, on every host (web,
 macOS, iOS and iPadOS with a hardware keyboard, Linux):
