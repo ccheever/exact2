@@ -1,0 +1,77 @@
+# macOS: a click after a node leaves the tree under a held press crashes in NodeView.releaseHold
+
+**Status:** Open
+**Systems:** host/apple macOS
+**Severity:** P1
+**Author:** Daehyeon Mun (via the T3 Code clone)
+**Date:** 2026-10-13
+**Related:** c14017277 ("macOS: a held pointer outlives the child it was pressed on"); LLP 1005 ("`pointerdown` and `pointerup`", macOS)
+
+## Summary
+
+The macOS host crashes (EXC_BAD_ACCESS, SIGSEGV) on a mouse-up. The crash happens when, while the pointer is held,
+the view the button went down on leaves the window with its parent, and that parent is then freed. Four crashes of
+the T3 Code clone have the same faulting thread:
+
+```text
+libobjc.A.dylib  objc_msgSend
+AppKit           -[NSView _setSuperview:] + 168
+AppKit           -[NSView removeFromSuperview] + 204
+ExactKit         NodeView.releaseHold()                      MouseChainMac.swift:383 (main: :384)
+ExactKit         $defer #2 in NodeView.pointerReleased(_:)   MouseChainMac.swift:134
+ExactKit         NodeView.mouseUp(with:)                     NodeViewMac.swift:1406
+AppKit           _routeMouseUpEvent / -[NSWindow sendEvent:] / -[NSApplication run]
+```
+
+## Where
+
+`-[NSView _setSuperview:]` + 168 is the return from `[self->_superview isHiddenOrHasHiddenAncestor]`. The ivar is
+the same one it then passes to `_removeSubview:`. So the view that `releaseHold` removes points to a superview that
+has been freed.
+
+`NodeView.removeFromSuperview()` (`host/apple/Sources/ExactKit/Mac/MouseChainMac.swift:347`) keeps the hold's source
+view, transparent, in its parent while the pointer is held (c14017277). It refuses every removal it is asked for. That
+includes the one AppKit makes when the parent itself is freed: `-[NSView _finalize]` calls
+`removeFromSuperviewWithoutNeedingDisplay` on each subview, and that call reaches the override. The parent is freed,
+but the kept view's `_superview` still points to it. At the mouse-up, `releaseHold` calls `super.removeFromSuperview()`
+on that view, and AppKit sends a message to the freed parent.
+
+This oracle shows AppKit's side with no Exact code. A child whose `removeFromSuperview` returns early stays a subview
+of a parent that is being freed:
+
+```swift
+class C: NSView { override func removeFromSuperview() { print(Thread.callStackSymbols[2]) } }   // refuses
+// parent.addSubview(c); window.contentView!.addSubview(parent); parent.removeFromSuperview(); parent = nil
+//   prints: -[NSView removeFromSuperviewWithoutNeedingDisplay] + 44   (called from -[NSView _finalize] + 684)
+// c.superview  → the freed parent: reading it crashes (exit 139)
+```
+
+A hold outlives its button when a native menu takes the up: `MenuHost.track` runs `NSMenu.popUp` for a right-click's
+context menu, and the menu eats the `rightMouseUp`. `pointerHeld` and `pointerSource` then stay set until the next
+mouse-up anywhere. A held node that stays in the tree (an ancestor that hears pointer events) keeps the hold alive
+while a batch removes and frees the row the right-click landed on. The next click's mouse-up then runs `releaseHold`
+on that view.
+
+## Triggers seen in the T3 Code clone (realinput-1011c)
+
+1. Right-click a sidebar row, then pick "Archive thread" from its native context menu (the row leaves the tree). Then
+   click another button: Settings in the sidebar footer. A click on the same Settings button before the archive did
+   not crash (G4-14, `T3 Code (Exact)-2026-10-12-225830.ips`).
+2. Right-click a thread, choose Delete, then click Confirm in the dialog. The clone crashed on Confirm's mouse-up, and
+   the delete was never sent (LSF-6, `-2026-10-13-035103.ips`).
+3. While a work draft has the file viewer open in the right panel, click Settings in the sidebar. This crashed twice:
+   B13 R11-X79 (`-2026-10-13-051210.ips`) and, after a relaunch into the same state, B14 R11-X51
+   (`-2026-10-13-051845.ips`).
+
+All four crashes are on the T3 clone build `1f813789b`, whose `MouseChainMac.swift` is main's apart from a two-line
+hunk above this code. The test plan in the T3 Code clone carries the input logs and the crash summaries
+(`target/t3-ui-parity/realinput-1011c/`).
+
+## Current scope
+
+Fix the crash. A hold must never keep a view in a parent that is going away, and the hold must be dropped safely,
+as a hand-built AppKit app never crashes. Press and hold behaviour does not change for nodes that stay: the source is
+still kept in the window, transparent, while the button is held (fix/syntax6's board drag). Also, when the button
+comes up after a release has cleared the held node, the hold's source is let go, and hover is no longer frozen until
+the next press. A native menu that ends a hold early (when the swallowed up should be delivered) is outside this
+scope: that changes the hold for a node that stays.
