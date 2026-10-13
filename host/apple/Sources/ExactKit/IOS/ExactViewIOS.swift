@@ -223,6 +223,20 @@ public final class ExactView: UIView {
     /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let presenter = session.presenter
+        // A native callback served for the owner cannot resize the runtime
+        // yet. Keep the latest geometry pending until that callback returns.
+        if Owner.shared.isServingMain {
+            if !fitPending {
+                fitPending = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
+                    self.fit()
+                }
+            }
+            return
+        }
         // Containment may synchronously lay us out during a partial batch.
         // Finish that batch, then resize synchronously before returning to UIKit.
         if presenter.applying {
@@ -231,6 +245,7 @@ public final class ExactView: UIView {
                 presenter.afterBatch { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
                     self.fit()
                 }
             }
