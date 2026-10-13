@@ -957,6 +957,7 @@ package final class Presenter {
                     flats.promote(id)
                 }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
+                anchorChanges.notePresentation(op, on: v)
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
