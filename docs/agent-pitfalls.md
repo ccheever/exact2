@@ -235,6 +235,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
   control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
   control always swipes down (LLP 1115 D5). (`ModalIOS.swift`, `refusesDismissal`.)
+- **A dismissed sheet stays selected in the app.** Native gesture permission
+  and the logical route update are separate. T3's initial chooser stopped
+  dismissing after its authored Back was removed. Source reading points to
+  native dismissal's root URL fallback meeting the app's warm-root filter;
+  that callback sequence was not captured. Keeping the authored logical Back
+  and hiding only its projected initial item restores the observed grabber
+  dismissal to Home, confirmed by the final PNG and a later full accessibility
+  read. (T3 chooser R2, 2026-10-12; LLP 1109.005, "initial chooser Back and
+  native dismissal".)
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
   grouped list), and values copied from a screenshot: Apple's system colours as hex
