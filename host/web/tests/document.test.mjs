@@ -9,10 +9,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
+import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
-import { jsTargetBuild, serveStatic } from '../serve.mjs';
+import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
 import { DEFAULT_LOOK, withLook } from '../look.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 
@@ -931,7 +931,7 @@ browserCheck('Chrome orders edited focus transitions including wrapper removal d
       for (const el of [a,b]) for (const kind of ['change','blur','focusout','focus','focusin'])
         el.addEventListener(kind, () => heard.push(el.id + ':' + kind));
       wrapper.addEventListener('focusout', () => heard.push('wrapper:focusout'));
-      if (!${remove}) document.body.addEventListener('focusout', () => heard.push('body:focusout'));
+      document.body.addEventListener('focusout', () => heard.push('body:focusout'));
       if (${remove}) a.addEventListener('blur', () => wrapper.remove());
       a.focus(); heard.length = 0;
     })()`);
@@ -946,3 +946,125 @@ browserCheck('Chrome orders edited focus transitions including wrapper removal d
     expect(await live('heard')).toEqual(['a:change','a:blur','a:focusout','wrapper:focusout','b:focus','b:focusin']);
   }, {html:'<!doctype html><div id="wrapper"><input id="a"></div><input id="b">'});
 }, 180000);
+
+browserCheck('Chrome runs disabling blur before the next focus', async () => {
+  await withFocusDocument(async tab => {
+    const live = await tab(true);
+    expect(await live(`(() => {
+      const a = document.getElementById('a'), b = document.getElementById('b'), heard = [];
+      let focused = true;
+      a.addEventListener('blur', () => { heard.push('blur'); focused = false; });
+      b.addEventListener('focus', () => { heard.push('focus'); focused = true; });
+      a.focus(); a.disabled = true; b.hidden = false; b.focus();
+      return [heard, focused, document.activeElement.id];
+    })()`)).toEqual([['blur', 'focus'], true, 'b']);
+  }, {html: '<!doctype html><input id="a"><input id="b" hidden>'});
+}, 180000);
+
+async function withFocusContract(target, webDist, contract, drive) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-compiled-focus-'));
+  try {
+    const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
+    writeFileSync(source, contract);
+    const built = spawnSync(resolve(ROOT, 'target/debug/contract'), ['build', source, '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    if (built.status !== 0) throw new Error(built.stderr);
+    let server;
+    let options = { plan, webDist: target === 'wasm' ? resolve(webDist) : undefined };
+    if (target === 'JS') {
+      const out = resolve(dir, 'dist');
+      const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', out, '--render', 'none'], { cwd: ROOT, encoding: 'utf8' });
+      if (build.status !== 0) throw new Error(build.stderr);
+      server = createServer((req, res) => serveBuildTree(out, req, res));
+      await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+      options = { url: `http://127.0.0.1:${server.address().port}/` };
+    }
+    let s;
+    try {
+      s = await open({ host: 'web', ...options });
+      await drive(s);
+    } finally { await s?.close(); server?.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+// Exercise compiled Contract through both runtimes; raw DOM alone misses retired listeners.
+// The wasm fixtures need an EXACT_WEB_LINK=all build for animation support.
+for (const [target, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DIST, JS: true })) {
+  const check = webDist && !browserUnavailable ? test : test.skip;
+  for (const animated of [false, true]) check(`${target} compiled focusout survives ${animated ? 'exit-animated' : 'immediate'} wrapper removal during blur`, async () => {
+    await withFocusContract(target, webDist, `keyframes leave
+  to opacity=0
+
+component App
+  state shown = true
+  state log = ""
+  action reset
+    shown = true
+    log = ""
+  action changed(value: string)
+    log = \`\${log}change;\`
+  action remove
+    log = \`\${log}blur;\`
+    shown = false
+  action heard(label: string, e: FocusEvent)
+    log = \`\${log}\${label}:\${e.target}:\${match e.relatedTarget { case some(id) => id, case none => "-" }};\`
+  view
+    column focusout=heard("outer")
+      when shown
+        each label in ["wrapper"] key=label
+          column focusout=heard(label) ${animated ? '-exact-exit-animation="leave 10s linear both"' : ""}
+            input id="a" change=changed blur=remove focusout=heard("field")
+      input id="b" focusin=heard("in")
+      button "Reset" id="reset" press=reset
+      button "Remove" id="remove" press=remove
+      text log testId="log"
+`, async s => {
+      const evaluate = s.carrier.evaluate;
+      if (animated && target === 'JS') await evaluate("(async () => { while (!globalThis.exact?.presenceLive) await new Promise(requestAnimationFrame); })()", 15000);
+      for (const mode of ['focus', 'Tab', 'teardown']) {
+        await evaluate("document.activeElement.blur(); document.getElementById('reset').click(); document.getElementById('a').focus()");
+        if (mode === 'teardown') {
+          await evaluate("document.getElementById('remove').click()");
+          expect(await evaluate("document.querySelector('[data-testid=log]').textContent.match(/blur;/g)")).toEqual(['blur;']);
+          expect(await evaluate("document.getElementById('a') === null")).toBe(true);
+          continue;
+        }
+        await s.carrier.call('Input.insertText', { text: 'edited' });
+        if (mode === 'focus') await evaluate("document.getElementById('b').focus()");
+        else {
+          await s.carrier.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+          await s.carrier.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+        }
+        if (animated) expect(await evaluate("!!document.querySelector('[data-exiting]')")).toBe(true);
+        expect(await evaluate("document.querySelector('[data-testid=log]').textContent")).toBe('change;blur;field:a:b;wrapper:a:b;in:b:a;');
+      }
+    });
+  }, 240000);
+  for (const command of [false, true]) check(`${target} compiled flush blur precedes ${command ? 'focus command' : 'autofocus'}`, async () => {
+    await withFocusContract(target, webDist, `component App
+  state disabled = false
+  state focused = true
+  state log = ""
+  action move
+    disabled = true
+    ${command ? 'focus("b")' : ''}
+  action left
+    focused = false
+    log = \`\${log}blur;\`
+  action entered
+    focused = true
+    log = \`\${log}focus;\`
+  view
+    column
+      input id="a" disabled=disabled blur=left
+      when disabled
+        input id="b" ${command ? '' : 'autofocus'} focus=entered
+      button "Move" id="move" press=move
+      text log testId="log"
+      text \`\${focused}\` testId="focused"
+`, async s => {
+      const evaluate = s.carrier.evaluate;
+      await evaluate("document.getElementById('a').focus(); document.getElementById('move').click()");
+      expect(await evaluate("[document.querySelector('[data-testid=log]').textContent, document.querySelector('[data-testid=focused]').textContent, document.activeElement.id]")).toEqual(['blur;focus;', 'true', 'b']);
+    });
+  }, 240000);
+}
