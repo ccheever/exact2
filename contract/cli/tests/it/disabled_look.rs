@@ -87,6 +87,8 @@ fn a_node_that_styles_its_own_disabled_state_is_marked_and_no_other() {
         "literal-paint",
         "never-disabled",
         "no-paint",
+        // A callback's parameter spelled like the state reads nothing of it.
+        "shadowed",
     ] {
         assert!(!marked(id), "{id}: not marked");
     }
