@@ -56,19 +56,22 @@ impl Drop for Dropped {
 }
 
 /// A recorder that also counts its own drops.
-struct Counted(Recorder, Dropped);
+struct Counted {
+    recorder: Recorder,
+    _dropped: Dropped,
+}
 impl Sink for Counted {
     fn head(&mut self, head: Head) -> Flow {
-        self.0.head(head)
+        self.recorder.head(head)
     }
     fn data(&mut self, bytes: &[u8]) -> Flow {
-        self.0.data(bytes)
+        self.recorder.data(bytes)
     }
     fn end(&mut self, result: Result<(), HostError>) {
-        self.0.end(result)
+        self.recorder.end(result)
     }
     fn metrics(&mut self, metrics: HopMetrics) {
-        self.0.metrics(metrics)
+        self.recorder.metrics(metrics)
     }
 }
 
@@ -104,7 +107,9 @@ fn get(url: &str) -> HopRequest {
 
 fn start(lane: &DarwinLane, request: HopRequest, flow: Flow) -> (Exchange, mpsc::Receiver<Event>) {
     let (events, received) = mpsc::channel();
-    let exchange = lane.start(request, Box::new(Recorder { events, flow }));
+    let exchange = lane
+        .start(request, Box::new(Recorder { events, flow }))
+        .unwrap();
     exchange.activate();
     (exchange, received)
 }
@@ -249,9 +254,8 @@ fn an_upload_is_lent_and_released_after_the_exchange() {
         seen.iter().any(|e| matches!(e, Event::End(Ok(())))),
         "{seen:?}"
     );
-    // The task's request holds the body until the task goes.
-    assert_eq!(released.load(Ordering::SeqCst), 0);
-    drop(exchange);
+    // The completed task releases its buffer while both session and control
+    // handle remain alive.
     for _ in 0..200 {
         if released.load(Ordering::SeqCst) == 1 {
             break;
@@ -263,6 +267,7 @@ fn an_upload_is_lent_and_released_after_the_exchange() {
         1,
         "the platform let the buffer go"
     );
+    drop(exchange);
     server.join().unwrap();
 }
 
@@ -363,13 +368,15 @@ fn nothing_is_delivered_before_activation_and_a_refusal_comes_after_it() {
     let (events, received) = mpsc::channel();
     let mut request = get("http://127.0.0.1:1/");
     request.url = "not a url \u{0}".into();
-    let exchange = lane.start(
-        request,
-        Box::new(Recorder {
-            events,
-            flow: Flow::Continue,
-        }),
-    );
+    let exchange = lane
+        .start(
+            request,
+            Box::new(Recorder {
+                events,
+                flow: Flow::Continue,
+            }),
+        )
+        .unwrap();
     assert!(received.recv_timeout(Duration::from_millis(300)).is_err());
     exchange.activate();
     let seen = until_end(&received);
@@ -434,14 +441,14 @@ fn the_sink_is_freed_once_after_its_end_and_metrics() {
     let lane = DarwinLane::new(0);
     let drops = Arc::new(AtomicUsize::new(0));
     let (events, received) = mpsc::channel();
-    let sink = Counted(
-        Recorder {
+    let sink = Counted {
+        recorder: Recorder {
             events,
             flow: Flow::Continue,
         },
-        Dropped(drops.clone()),
-    );
-    let exchange = lane.start(get(&url), Box::new(sink));
+        _dropped: Dropped(drops.clone()),
+    };
+    let exchange = lane.start(get(&url), Box::new(sink)).unwrap();
     exchange.activate();
     until_end(&received);
     // Past the second metrics get, whether or not they came.
@@ -458,20 +465,16 @@ fn a_cancel_before_activation_sends_nothing_and_still_ends() {
     let lane = DarwinLane::new(0);
     let drops = Arc::new(AtomicUsize::new(0));
     let (events, received) = mpsc::channel();
-    let sink = Counted(
-        Recorder {
+    let sink = Counted {
+        recorder: Recorder {
             events,
             flow: Flow::Continue,
         },
-        Dropped(drops.clone()),
-    );
-    let exchange = lane.start(get(&url), Box::new(sink));
+        _dropped: Dropped(drops.clone()),
+    };
+    let exchange = lane.start(get(&url), Box::new(sink)).unwrap();
     exchange.cancel();
-    assert!(
-        received.recv_timeout(Duration::from_millis(300)).is_err(),
-        "nothing before activation"
-    );
-    exchange.activate();
+    // Cancellation/retirement itself must deliver end, without activation.
     let seen = until_end(&received);
     assert!(
         seen.iter().any(|e| matches!(e, Event::End(Err(_)))),
@@ -484,27 +487,23 @@ fn a_cancel_before_activation_sends_nothing_and_still_ends() {
 }
 
 #[test]
-fn a_lane_dropped_before_activation_tells_its_sink_once_activated() {
+fn a_lane_dropped_before_activation_retires_without_activation() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let url = format!("http://{}/", listener.local_addr().unwrap());
     let lane = DarwinLane::new(0);
     let drops = Arc::new(AtomicUsize::new(0));
     let (events, received) = mpsc::channel();
-    let sink = Counted(
-        Recorder {
+    let sink = Counted {
+        recorder: Recorder {
             events,
             flow: Flow::Continue,
         },
-        Dropped(drops.clone()),
-    );
-    let exchange = lane.start(get(&url), Box::new(sink));
+        _dropped: Dropped(drops.clone()),
+    };
+    let _exchange = lane.start(get(&url), Box::new(sink)).unwrap();
     drop(lane);
-    assert!(
-        received.recv_timeout(Duration::from_millis(300)).is_err(),
-        "nothing before activation"
-    );
-    exchange.activate();
+    // Cancellation/retirement itself must deliver end, without activation.
     let seen = until_end(&received);
     let ends = seen.iter().filter(|e| matches!(e, Event::End(_))).count();
     assert_eq!(ends, 1, "{seen:?}");
@@ -525,13 +524,15 @@ fn queued_time_counts_from_activation_not_from_the_tasks_creation() {
     });
     let lane = DarwinLane::new(0);
     let (events, received) = mpsc::channel();
-    let exchange = lane.start(
-        get(&url),
-        Box::new(Recorder {
-            events,
-            flow: Flow::Continue,
-        }),
-    );
+    let exchange = lane
+        .start(
+            get(&url),
+            Box::new(Recorder {
+                events,
+                flow: Flow::Continue,
+            }),
+        )
+        .unwrap();
     thread::sleep(Duration::from_millis(400));
     exchange.activate();
     let seen = until_end(&received);
@@ -549,13 +550,13 @@ fn a_malformed_url_ends_once_after_activation_and_lets_its_body_go() {
     let (drops, released) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
     let flag = released.clone();
     let (events, received) = mpsc::channel();
-    let sink = Counted(
-        Recorder {
+    let sink = Counted {
+        recorder: Recorder {
             events,
             flow: Flow::Continue,
         },
-        Dropped(drops.clone()),
-    );
+        _dropped: Dropped(drops.clone()),
+    };
     let mut request = get("http://[::1");
     request.method = "POST".into();
     request.body = Some(Upload::new(
@@ -564,7 +565,7 @@ fn a_malformed_url_ends_once_after_activation_and_lets_its_body_go() {
             flag.fetch_add(1, Ordering::SeqCst);
         })),
     ));
-    let exchange = lane.start(request, Box::new(sink));
+    let exchange = lane.start(request, Box::new(sink)).unwrap();
     assert!(received.recv_timeout(Duration::from_millis(300)).is_err());
     exchange.activate();
     let seen = until_end(&received);
@@ -589,4 +590,237 @@ fn a_malformed_url_ends_once_after_activation_and_lets_its_body_go() {
         ),
         (1, 1)
     );
+}
+
+#[test]
+fn one_session_reuses_a_keep_alive_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        for _ in 0..2 {
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nok",
+                )
+                .unwrap();
+        }
+    });
+    let lane = DarwinLane::new(1);
+    for reused in [false, true] {
+        let (_, rx) = start(&lane, get(&url), Flow::Continue);
+        let events = until_end(&rx);
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, Event::End(Ok(())))));
+        let metrics = events
+            .iter()
+            .find_map(|event| match event {
+                Event::Metrics(metrics) => Some(metrics),
+                _ => None,
+            })
+            .expect("connection metrics");
+        assert_eq!(metrics.reused, Some(reused));
+    }
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_native_sink_panic_is_contained_and_still_retires() {
+    struct Panics(mpsc::Sender<Result<(), HostError>>, Arc<AtomicUsize>);
+    impl Sink for Panics {
+        fn head(&mut self, _: Head) -> Flow {
+            panic!("head callback panic")
+        }
+        fn data(&mut self, _: &[u8]) -> Flow {
+            panic!("data after panic")
+        }
+        fn end(&mut self, result: Result<(), HostError>) {
+            self.0.send(result).unwrap();
+        }
+    }
+    impl Drop for Panics {
+        fn drop(&mut self) {
+            self.1.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let (url, worker) = server(0, |mut stream, _| {
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx")
+            .unwrap();
+    });
+    let lane = DarwinLane::new(1);
+    let (tx, rx) = mpsc::channel();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let exchange = lane
+        .start(get(&url), Box::new(Panics(tx, drops.clone())))
+        .unwrap();
+    exchange.activate();
+    let error = rx
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap_err();
+    assert!(error.to_string().contains("panicked"));
+    for _ in 0..100 {
+        if drops.load(Ordering::SeqCst) == 1 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    worker.join().unwrap();
+}
+
+#[test]
+fn the_native_attempt_timeout_retires_stalled_headers_and_body() {
+    for body in [false, true] {
+        let (url, worker) = server(0, move |mut stream, _| {
+            if body {
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nx")
+                    .unwrap();
+            }
+            assert_eq!(stream.read(&mut [0]).unwrap(), 0);
+        });
+        let lane = DarwinLane::new(1);
+        let mut request = get(&url);
+        request.timeout = Some(Duration::from_millis(100));
+        let (_, rx) = start(&lane, request, Flow::Continue);
+        let events = until_end(&rx);
+        assert!(events.iter().any(|e| matches!(e, Event::End(Err(_)))));
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn a_large_upload_replays_after_a_307_and_releases_with_handles_alive() {
+    use crate::grant::{Grant, GrantSet};
+    use crate::stdlib::abort::AbortSignal;
+    use crate::stdlib::fetch::{origin_of, Request};
+    use crate::stdlib::fetch_async::{Collected, FetchEvents, FetchTask, HeaderCaps};
+    const LENGTH: usize = (256 << 10) + 7;
+    let check = |request: Vec<u8>| {
+        assert!(request.starts_with(b"POST "));
+        assert_eq!(&request[request.len() - LENGTH..], vec![b'z'; LENGTH]);
+    };
+    let (target, second) = server(LENGTH, move |mut stream, request| {
+        check(request);
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            .unwrap();
+    });
+    let redirect = target.clone();
+    let (url, first) = server(LENGTH, move |mut stream, request| {
+        check(request);
+        stream.write_all(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {redirect}\r\nContent-Length: 0\r\n\r\n").as_bytes()).unwrap();
+    });
+    struct Done(mpsc::Sender<Result<Collected, HostError>>, AtomicUsize);
+    impl FetchEvents for Done {
+        fn outcome(&self, result: Result<Collected, HostError>) {
+            self.0.send(result).unwrap();
+        }
+        fn hop_ended(&self) {
+            self.1.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let (tx, rx) = mpsc::channel();
+    let events = Arc::new(Done(tx, AtomicUsize::new(0)));
+    let released = Arc::new(AtomicUsize::new(0));
+    let notice = released.clone();
+    let upload = Upload::new(
+        vec![b'z'; LENGTH],
+        Some(Box::new(move || {
+            notice.fetch_add(1, Ordering::SeqCst);
+        })),
+    );
+    let grants = GrantSet::none()
+        .with(Grant::Fetch(origin_of(&url).unwrap()))
+        .with(Grant::Fetch(origin_of(&target).unwrap()));
+    let lane = Arc::new(DarwinLane::new(1));
+    let mut request = Request::get(&url);
+    request.method = "POST".into();
+    let task = FetchTask::start(
+        lane.clone(),
+        Arc::new(grants),
+        request,
+        Some(upload),
+        AbortSignal::default(),
+        HeaderCaps {
+            bytes: 65536,
+            entries: 128,
+        },
+        events.clone(),
+    );
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap()
+            .body,
+        b"ok"
+    );
+    assert_eq!(events.1.load(Ordering::SeqCst), 2);
+    assert_eq!(released.load(Ordering::SeqCst), 1);
+    // Neither retained task control nor the reusable session owns upload bytes.
+    drop((task, lane));
+    first.join().unwrap();
+    second.join().unwrap();
+}
+
+#[test]
+fn cancelling_a_blocked_upload_releases_its_buffer_at_physical_end() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let (tx, rx) = mpsc::channel();
+    let (resume, wait) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut header = Vec::new();
+        let mut byte = [0];
+        while !header.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            header.push(byte[0]);
+        }
+        tx.send(()).unwrap();
+        wait.recv_timeout(Duration::from_secs(10)).unwrap();
+        let mut chunk = [0; 65536];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    });
+    let released = Arc::new(AtomicUsize::new(0));
+    let notice = released.clone();
+    let lane = DarwinLane::new(1);
+    let mut request = get(&url);
+    request.method = "POST".into();
+    request.body = Some(Upload::new(
+        vec![0; 8 << 20],
+        Some(Box::new(move || {
+            notice.fetch_add(1, Ordering::SeqCst);
+        })),
+    ));
+    let (exchange, events) = start(&lane, request, Flow::Continue);
+    rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    exchange.cancel();
+    let observed = until_end(&events);
+    assert!(observed
+        .iter()
+        .any(|event| matches!(event, Event::End(Err(_)))));
+    assert_eq!(released.load(Ordering::SeqCst), 1);
+    resume.send(()).unwrap();
+    worker.join().unwrap();
 }

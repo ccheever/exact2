@@ -36,6 +36,33 @@ pub struct Completion {
     pub result: Result<HostValue, HostError>,
 }
 
+/// Where a runtime's time comes from (LLP 0071 D3).
+enum ClockSource {
+    /// Milliseconds since the runtime started.
+    Instant,
+    /// The caller's clock, in milliseconds.
+    Caller(Arc<dyn Fn() -> f64 + Send + Sync>),
+}
+
+/// The largest clock reading accepted, in milliseconds: 2^53, the largest
+/// integer an `f64` holds exactly. Its microseconds fit a `u64`.
+const MAX_CLOCK_MS: f64 = 9_007_199_254_740_992.0;
+
+/// `set_clock` was refused: something had already read this runtime's time,
+/// or a clock was already set (LLP 0071 D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClockSealed;
+
+impl std::fmt::Display for ClockSealed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "the runtime's clock is set at its first read; set it before anything reads time",
+        )
+    }
+}
+
+impl std::error::Error for ClockSealed {}
+
 /// One admitted host task.
 ///
 /// LLP 0058.000.000 §8: Rust owns **one** sequence-numbered FIFO of admitted
@@ -367,14 +394,6 @@ pub struct RuntimeState {
     pub(crate) intl_datetime: crate::stdlib::intl_datetime::Registry,
     pub(crate) sqlite: crate::sqlite_abi::Registry,
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
-    /// The embedder's table of documents the person chose (Exact patch 5).
-    documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
-    /// The embedder's image codec for `fs.compressImage` (Exact patch 9).
-    image_codec: std::sync::OnceLock<Arc<crate::stdlib::fs::ImageCodec>>,
-    /// Each `fs.compressImage` in flight, by its task, with its right to
-    /// write: kept until its completion is taken, so a waiter that gives up
-    /// after the write sees it written.
-    image_work: Mutex<HashMap<u64, Arc<crate::stdlib::fs::CommitGate>>>,
     responses: Mutex<std::collections::HashMap<u64, Arc<StoredResponse>>>,
     controls: Mutex<std::collections::HashMap<u64, crate::stdlib::abort::AbortController>>,
     subscriptions: Mutex<HashMap<u64, Arc<EventSubscriptionState>>>,
@@ -397,6 +416,13 @@ pub struct RuntimeState {
     /// The runtime's monotonic origin, so `now()` is milliseconds since boot —
     /// the same base `performance.now` will read (§2).
     started: std::time::Instant,
+    /// Where time comes from (LLP 0071 D3): `Instant` since `started`, or the
+    /// caller's clock. The first read fixes it, so `set_clock` is refused once
+    /// anything has read time and no deadline is computed in two domains.
+    clock: std::sync::OnceLock<ClockSource>,
+    /// The largest accepted sample, in integer microseconds: time never runs
+    /// backward, and a rejected reading repeats it.
+    clock_micros: std::sync::atomic::AtomicU64,
     /// True while a drive cycle is running, so a nested request records a
     /// wakeup instead of starting a second host task.
     driving: std::sync::atomic::AtomicBool,
@@ -415,6 +441,11 @@ pub struct RuntimeState {
     /// An owning engine keeps its own queue and adopts the host-selected
     /// mechanisms exactly once. OnceLock makes the borrowed reference returned
     /// by transport() stable for the runtime's lifetime.
+    documents: std::sync::OnceLock<Arc<crate::stdlib::fs::Documents>>,
+    image_service: std::sync::OnceLock<crate::stdlib::fs_image::ImageService>,
+    image_work: std::sync::OnceLock<crate::stdlib::fs_image::ImageWork>,
+    image_tasks: Mutex<HashMap<u64, crate::stdlib::fs_image::WorkHandle>>,
+    storage_limits: std::sync::OnceLock<crate::stdlib::fs::ResultLimits>,
     adopted_endowment: std::sync::OnceLock<host::Bindings>,
 }
 
@@ -536,9 +567,6 @@ impl RuntimeState {
             intl_datetime: crate::stdlib::intl_datetime::Registry::new(),
             sqlite: crate::sqlite_abi::Registry::default(),
             app_directories,
-            documents: std::sync::OnceLock::new(),
-            image_codec: std::sync::OnceLock::new(),
-            image_work: Mutex::new(HashMap::new()),
             responses: Mutex::new(std::collections::HashMap::new()),
             controls: Mutex::new(std::collections::HashMap::new()),
             subscriptions: Mutex::new(HashMap::new()),
@@ -551,12 +579,25 @@ impl RuntimeState {
             crypto_keys: Mutex::new(std::collections::HashMap::new()),
             timers: Mutex::new(crate::stdlib::timers::Timers::new()),
             started: std::time::Instant::now(),
+            clock: std::sync::OnceLock::new(),
+            clock_micros: std::sync::atomic::AtomicU64::new(0),
             driving: std::sync::atomic::AtomicBool::new(false),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             next_handle: std::sync::atomic::AtomicU64::new(1),
             endowment: bindings.clone(),
+            documents: std::sync::OnceLock::new(),
+            image_service: std::sync::OnceLock::new(),
+            image_work: std::sync::OnceLock::new(),
+            image_tasks: Mutex::new(HashMap::new()),
+            storage_limits: std::sync::OnceLock::new(),
             adopted_endowment: std::sync::OnceLock::new(),
         };
+        if let Some(documents) = bindings.documents() {
+            let _ = state.documents.set(documents);
+        }
+        if let Some(service) = bindings.image_service() {
+            let _ = state.image_service.set(service);
+        }
         if let Some(provider) = bindings.sqlite_provider() {
             state
                 .sqlite
@@ -577,68 +618,115 @@ impl RuntimeState {
     pub fn app_directories(&self) -> Option<&crate::stdlib::app_fs::AppDirectories> {
         self.app_directories.get()
     }
-    /// Install the table `doc:` paths resolve through (Exact patch 5).
+    pub fn set_storage_limits(
+        &self,
+        limits: crate::stdlib::fs::ResultLimits,
+    ) -> Result<(), HostError> {
+        if !(16..=crate::stdlib::fs::RESULT_BYTES).contains(&limits.bytes) {
+            return Err(HostError::InvalidArgument(
+                "invalid storage result limits".into(),
+            ));
+        }
+        self.storage_limits
+            .set(limits)
+            .map_err(|_| HostError::InvalidArgument("storage limits already configured".into()))
+    }
+    pub fn storage_limits(&self) -> crate::stdlib::fs::ResultLimits {
+        *self.storage_limits.get_or_init(|| {
+            self.adopted_endowment
+                .get()
+                .unwrap_or(&self.endowment)
+                .storage_limits()
+        })
+    }
     pub fn set_documents(
         &self,
         documents: Arc<crate::stdlib::fs::Documents>,
     ) -> Result<(), HostError> {
         self.documents
             .set(documents)
-            .map_err(|_| HostError::InvalidArgument("Documents are already configured".into()))
+            .map_err(|_| HostError::InvalidArgument("Documents already configured".into()))
     }
     pub fn documents(&self) -> Option<&crate::stdlib::fs::Documents> {
         self.documents.get().map(|d| &**d)
     }
-    /// Install the codec `fs.compressImage` runs (Exact patch 9).
     pub fn set_image_codec(
         &self,
-        codec: Arc<crate::stdlib::fs::ImageCodec>,
+        codec: Arc<dyn crate::stdlib::fs_image::ImageCodec>,
+        limits: crate::stdlib::fs_image::WorkLimits,
     ) -> Result<(), HostError> {
-        self.image_codec
-            .set(codec)
-            .map_err(|_| HostError::InvalidArgument("An image codec is already configured".into()))
+        if self.image_work.get().is_some() {
+            return Err(HostError::InvalidArgument(
+                "Image work already began".into(),
+            ));
+        }
+        let service = crate::stdlib::fs_image::ImageService::new(codec, limits)?;
+        self.image_service
+            .set(service)
+            .map_err(|_| HostError::InvalidArgument("Image codec already configured".into()))
     }
-    pub fn image_codec(&self) -> Option<&crate::stdlib::fs::ImageCodec> {
-        self.image_codec.get().map(|c| &**c)
+    pub fn image_work(&self) -> &crate::stdlib::fs_image::ImageWork {
+        self.image_work.get_or_init(|| {
+            crate::stdlib::fs_image::ImageWork::new(
+                self.image_service
+                    .get()
+                    .map_or_else(Default::default, |s| s.limits),
+            )
+        })
     }
-    pub(crate) fn begin_image_work(&self, task_id: u64) -> Arc<crate::stdlib::fs::CommitGate> {
-        let gate = Arc::new(crate::stdlib::fs::CommitGate::default());
-        self.image_work
-            .lock()
-            .expect("image work poisoned")
-            .insert(task_id, gate.clone());
-        gate
+    pub(crate) fn prepare_image(
+        &self,
+        task_id: u64,
+        grants: Arc<crate::grant::GrantSet>,
+        from: &str,
+        to: &str,
+        request: crate::stdlib::fs_image::ImageRequest,
+    ) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
+        let job = crate::stdlib::fs_image::ImageJob::prepare(
+            self.image_work(),
+            self.image_service.get(),
+            self.app_directories.get().cloned().map(Arc::new),
+            grants,
+            from,
+            to,
+            request,
+        )?;
+        let mut tasks = self.image_tasks.lock().expect("image tasks poisoned");
+        if self.is_shutdown() {
+            drop(tasks);
+            job.handle().cancel();
+            job.handle().discard();
+            return Err(HostError::Failed("runtime is shut down".into()));
+        }
+        let old = tasks.insert(task_id, job.handle());
+        drop(tasks);
+        if let Some(old) = old {
+            old.cancel();
+            old.discard();
+        }
+        Ok(job)
     }
-    /// Its completion was taken, or will never be queued.
     pub(crate) fn end_image_work(&self, task_id: u64) {
-        self.image_work
+        let handle = self
+            .image_tasks
             .lock()
-            .expect("image work poisoned")
+            .expect("image tasks poisoned")
             .remove(&task_id);
+        if let Some(handle) = handle {
+            handle.discard();
+        }
     }
-    /// The embedder gave up waiting: every `fs.compressImage` in flight that
-    /// has not begun its write loses the right to write; one writing is
-    /// waited for. What the embedder should do next (Exact patch 9).
-    pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
-        self.abandon_image_work_if(&|| true)
+    pub fn image_work_handle(&self, task_id: u64) -> Option<crate::stdlib::fs_image::WorkHandle> {
+        self.image_tasks
+            .lock()
+            .expect("image tasks poisoned")
+            .get(&task_id)
+            .cloned()
     }
-    /// The same, for a waiter that may have been retired: `live` is asked
-    /// under the registry's lock, so a call registered after the waiter was
-    /// retired (its flag set first) is never among the calls it abandons.
-    pub fn abandon_image_work_if(&self, live: &dyn Fn() -> bool) -> crate::stdlib::fs::Abandoned {
-        let gates: Vec<_> = {
-            let work = self.image_work.lock().expect("image work poisoned");
-            if !live() {
-                return crate::stdlib::fs::Abandoned::Nothing;
-            }
-            work.values().cloned().collect()
-        };
-        gates
-            .iter()
-            .map(|gate| gate.abandon())
-            .max()
-            .unwrap_or(crate::stdlib::fs::Abandoned::Nothing)
+    pub fn in_flight(&self) -> usize {
+        self.in_flight.load(std::sync::atomic::Ordering::SeqCst)
     }
+
     pub fn set_sqlite_provider(
         &self,
         provider: Arc<dyn crate::stdlib::sqlite::Provider>,
@@ -752,6 +840,9 @@ impl RuntimeState {
         bindings.with_runtime_configuration(
             self.app_directories.get().cloned().map(Arc::new),
             self.sqlite.provider(),
+            self.documents.get().cloned(),
+            self.image_service.get().cloned(),
+            self.storage_limits(),
         )
     }
 
@@ -775,6 +866,16 @@ impl RuntimeState {
         if !self.sqlite.has_provider() {
             if let Some(provider) = bindings.sqlite_provider() {
                 self.sqlite.set_provider(provider)?;
+            }
+        }
+        if self.documents.get().is_none() {
+            if let Some(documents) = bindings.documents() {
+                let _ = self.documents.set(documents);
+            }
+        }
+        if self.image_service.get().is_none() {
+            if let Some(service) = bindings.image_service() {
+                let _ = self.image_service.set(service);
             }
         }
         self.adopted_endowment
@@ -874,9 +975,11 @@ impl RuntimeState {
     }
 
     pub fn shutdown(&self) {
-        // Exact patch 9: an `fs.compressImage` still running writes nothing
-        // once its runtime is gone; one mid-write is let finish.
-        let _ = self.abandon_image_work();
+        self.image_work().close();
+        let image_tasks =
+            std::mem::take(&mut *self.image_tasks.lock().expect("image tasks poisoned"));
+        drop(image_tasks);
+
         let mut subscriptions = self
             .subscriptions
             .lock()
@@ -1053,11 +1156,6 @@ impl RuntimeState {
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Host operations started and not yet returned (Exact patch 11).
-    pub fn in_flight(&self) -> usize {
-        self.in_flight.load(std::sync::atomic::Ordering::SeqCst)
-    }
-
     /// Is the driver already running a cycle?
     ///
     /// A drive request made while not `Idle` records a wakeup rather than
@@ -1079,17 +1177,56 @@ impl RuntimeState {
             && self.millis_until_next_timer().is_none()
     }
 
-    /// Milliseconds since this runtime started.
+    /// Make `clock` this runtime's time source (LLP 0071 D3): milliseconds,
+    /// read by the timer wheel and `performance.now`. Refused once anything
+    /// has read time.
+    pub fn set_clock(&self, clock: Arc<dyn Fn() -> f64 + Send + Sync>) -> Result<(), ClockSealed> {
+        self.clock
+            .set(ClockSource::Caller(clock))
+            .map_err(|_| ClockSealed)
+    }
+
+    /// One sample of this runtime's time, in integer microseconds, never less
+    /// than an earlier one. The caller's clock is called with no lock held; a
+    /// reading that is not finite, is negative or exceeds 2^53 ms, or a panic,
+    /// repeats the last sample.
+    pub fn now_micros(&self) -> u64 {
+        use std::sync::atomic::Ordering::SeqCst;
+        let sample = match self.clock.get_or_init(|| ClockSource::Instant) {
+            ClockSource::Instant => Some(self.started.elapsed().as_micros() as u64),
+            ClockSource::Caller(clock) => {
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| clock())) {
+                    Ok(ms) if (0.0..=MAX_CLOCK_MS).contains(&ms) => {
+                        Some(crate::stdlib::timers::micros(ms))
+                    }
+                    _ => None,
+                }
+            }
+        };
+        match sample {
+            Some(sample) => self.clock_micros.fetch_max(sample, SeqCst).max(sample),
+            None => self.clock_micros.load(SeqCst),
+        }
+    }
+
+    /// Milliseconds on this runtime's clock (LLP 0071 D3): since it started,
+    /// unless the caller supplied the clock.
     pub fn now(&self) -> f64 {
-        self.started.elapsed().as_secs_f64() * 1000.0
+        self.now_micros() as f64 / 1000.0
     }
 
     pub fn set_timer(&self, delay_ms: f64, repeating: bool) -> u64 {
-        let delay = std::time::Duration::from_secs_f64((delay_ms.max(0.0)) / 1000.0);
+        // A delay too large for a Duration (`setTimeout(f, 1e300)`) is never
+        // due, rather than a panic across the host-call ABI.
+        let delay = std::time::Duration::try_from_secs_f64(delay_ms.max(0.0) / 1000.0)
+            .unwrap_or(std::time::Duration::MAX);
+        // Sampled before the wheel is locked: the caller's clock runs with no
+        // Ibex lock held.
+        let now = self.now_micros();
         self.timers
             .lock()
             .expect("timers poisoned")
-            .set(self.now(), delay, repeating)
+            .set_micros(now, delay, repeating)
     }
 
     pub fn clear_timer(&self, handle: u64) {
@@ -1099,14 +1236,18 @@ impl RuntimeState {
     /// Move every timer due now into the host-task FIFO, and report how many.
     ///
     /// Admission, not delivery: the driver still takes at most one task per
-    /// cycle (LLP 0058.000.000 §8). Intervals reschedule inside `take_due` —
-    /// before their callback runs — so clearing an interval from within its own
-    /// callback removes the next occurrence rather than the one in flight.
+    /// cycle (LLP 0058.000.000 §8). An interval reschedules when its task is
+    /// taken (`take_task`, LLP 0071 D6) — before its callback runs — so clearing
+    /// it from within its own callback removes the next occurrence.
     pub fn admit_due_timers(&self) -> usize {
-        let now = self.now();
+        let now = self.now_micros();
         let mut admitted = 0;
         loop {
-            let due = self.timers.lock().expect("timers poisoned").take_due(now);
+            let due = self
+                .timers
+                .lock()
+                .expect("timers poisoned")
+                .take_due_micros(now);
             match due {
                 Some(handle) => {
                     self.queue.admit(HostTask::Timer { handle });
@@ -1119,13 +1260,25 @@ impl RuntimeState {
 
     /// Milliseconds until the next timer, for an embedder that wants to sleep
     /// exactly long enough rather than poll.
+    /// Measured on this runtime's clock, from the same integer sample
+    /// admission compares: `0` exactly when a timer is due (LLP 0071 D3).
     pub fn millis_until_next_timer(&self) -> Option<f64> {
-        let now = self.now();
+        let now = self.now_micros();
         self.timers
             .lock()
             .expect("timers poisoned")
-            .next_deadline()
-            .map(|deadline| (deadline - now).max(0.0))
+            .next_deadline_micros()
+            .map(|deadline| deadline.saturating_sub(now) as f64 / 1000.0)
+    }
+
+    /// A timer task is being taken for delivery: an interval is rescheduled
+    /// now (LLP 0071 D6).
+    fn timer_taken(&self, handle: u64) {
+        let now = self.now_micros();
+        self.timers
+            .lock()
+            .expect("timers poisoned")
+            .delivered(handle, now);
     }
 
     pub fn live_responses(&self) -> usize {
@@ -1243,10 +1396,13 @@ impl RuntimeState {
                 return None;
             }
             let task = self.queue.take()?;
+            if let HostTask::Timer { handle } = task {
+                drop(subscriptions);
+                self.timer_taken(handle);
+                return Some(task);
+            }
             let HostTask::Event { subscription, .. } = &task else {
                 if let HostTask::Settlement(completion) = &task {
-                    // Exact patch 9: an `fs.compressImage`'s right ends once
-                    // its completion is in the guest's hands.
                     self.end_image_work(completion.task_id);
                 }
                 return Some(task);
@@ -1896,44 +2052,6 @@ mod tests {
         assert_eq!(state.crypto_key_count(), 1);
         state.shutdown();
         assert_eq!(state.crypto_key_count(), 0);
-    }
-
-    /// Exact patch 9: a written `fs.compressImage` keeps its right until its
-    /// completion is taken, so a waiter that gives up in between sees it
-    /// written; one not yet written loses it; shutdown takes it away.
-    #[test]
-    fn an_image_right_lasts_until_its_completion_is_taken() {
-        use crate::stdlib::fs::Abandoned;
-        let state = RuntimeState::new(crate::transport::default_transport());
-        assert_eq!(state.abandon_image_work(), Abandoned::Nothing);
-        let gate = state.begin_image_work(7);
-        *gate.0.lock().unwrap() = Abandoned::Written; // its write finished
-        state.queue.complete(7, Ok(HostValue::Undefined));
-        assert_eq!(state.abandon_image_work(), Abandoned::Written);
-        assert!(matches!(state.take_task(), Some(HostTask::Settlement(_))));
-        assert_eq!(state.abandon_image_work(), Abandoned::Nothing);
-        let unwritten = state.begin_image_work(8);
-        state.shutdown();
-        assert_eq!(*unwritten.0.lock().unwrap(), Abandoned::Abandoned);
-    }
-
-    /// Exact patch 9: a retired waiter abandons nothing, and `live` is read
-    /// under the registry's lock, so a call registered after retirement is
-    /// never one it abandons.
-    #[test]
-    fn a_retired_waiter_abandons_no_image_right() {
-        use crate::stdlib::fs::Abandoned;
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let state = RuntimeState::new(crate::transport::default_transport());
-        let earlier = state.begin_image_work(1);
-        let retired = AtomicBool::new(false);
-        retired.store(true, Ordering::Release);
-        let later = state.begin_image_work(2);
-        let live = || !retired.load(Ordering::Acquire);
-        assert_eq!(state.abandon_image_work_if(&live), Abandoned::Nothing);
-        assert_eq!(*earlier.0.lock().unwrap(), Abandoned::Nothing);
-        assert_eq!(*later.0.lock().unwrap(), Abandoned::Nothing);
-        assert_eq!(state.abandon_image_work_if(&|| true), Abandoned::Abandoned);
     }
 
     #[test]

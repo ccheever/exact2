@@ -719,11 +719,20 @@ including when keyed targets move; a changed root re-registers at the end.
 The browser adapter starts after first paint. A failed observer construction
 retires that target's registration without interrupting other targets.
 
+The sampler applies `Kernel::sticky_constraint` at each ancestor's reported
+scroll offset, outside its own transform, so a sticky target and its descendants
+remain intersecting while pinned and leave at their containing block's end.
+For a root scrolled by the page, the sampler subtracts the root's frame origin
+from the page offset to use the constraint's local coordinates.
+The Chrome and runner tests also agree on partially clipped rotated roots,
+a counter-rotated target, and a rotated/scaled root.
+
 Native qualification remains incomplete: inline text runs, presentation-time
-motion/sticky/fixed geometry, rotated roots and SVG clip references are not
-qualified by this slice. Native transforms use the committed two-dimensional
-rows, as `frame()` does, not animation samples. Percentage margins follow the
-local Chrome oracle's per-axis basis. This differs from the W3C draft's width
+motion, nested/transformed sticky constraints and SVG clip references are not
+qualified by this slice. `position: fixed` is not an admitted schema value.
+Native transforms use the committed two-dimensional rows, as `frame()` does,
+not animation samples. Percentage margins follow the local Chrome oracle's
+per-axis basis. This differs from the W3C draft's width
 rule and is recorded as a spec deviation in LLP 1001. Windows and Android inherit the Linux
 sampler but their carriers are unqualified; terminal does not call the sampler. These deviations are also in LLP 1001; the issue
 stays open until native presenter tests and drives and the remaining geometry

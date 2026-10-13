@@ -260,7 +260,6 @@ pub(super) fn read_at_most(
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Vec<u8>, Option<Outcome>> {
     let (grants, directories) = open_for(roots, grants, scope, path).map_err(Some)?;
-    #[cfg(unix)]
     let bytes = {
         use std::io::Read;
         let mut file = directories
@@ -301,19 +300,6 @@ pub(super) fn read_at_most(
                 break bytes;
             }
         }
-    };
-    // Elsewhere (Windows) there is no read capped on the opened handle yet,
-    // and an uncapped read could pass the bound for a file that grew since
-    // `stat`: refused, naming why, rather than read whole.
-    #[cfg(not(unix))]
-    let bytes: Vec<u8> = {
-        let _ = (&directories, &grants, cancel);
-        return Err(Some(Outcome::Failed {
-            kind: FailureKind::Unsupported,
-            message: format!(
-                "exactBodyFrom {path}: not on this host yet: it has no capped file read"
-            ),
-        }));
     };
     if bytes.len() as u64 > cap {
         return Err(None);

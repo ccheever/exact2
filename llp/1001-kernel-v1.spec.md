@@ -22,9 +22,11 @@ are on it and the code exists. It is not a promise about anything not yet built.
 
 Intersection visibility host deviation (2026-10-12, LLP 1005 "Intersection
 visibility"): both web targets use the browser; AppKit, UIKit and Linux now
-share the runner's post-layout/post-scroll sampler. Native inline runs,
-presentation-time motion/sticky/fixed positions, rotated roots and SVG clip
-references remain unqualified. Percentage root margins follow measured Chrome
+share the runner's post-layout/post-scroll sampler. Sticky targets and their
+descendants use the kernel's sticky constraint at the reported scroll offset;
+rotated-root ratios have Chrome/runner coverage. Native inline runs,
+presentation-time motion, nested/transformed sticky constraints and SVG clip
+references remain unqualified. `position: fixed` is not a schema value. Percentage root margins follow measured Chrome
 behavior: height for top/bottom, width for left/right, diverging from the
 [W3C draft's width rule](https://w3c.github.io/IntersectionObserver/#dom-intersectionobserver-rootmargin).
 Windows and Android inherit the Linux path without carrier qualification;

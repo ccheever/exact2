@@ -69,7 +69,7 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
         assert_eq!(refusals[..2], ["Error denied", "Error ENOENT"], "{text}");
     }
     assert!(
-        lines[5].contains("compressImage: needs app:/ paths"),
+        lines[5].contains("compressImage: requires bounded app:/ paths"),
         "{text}"
     );
     assert!(

@@ -1,7 +1,7 @@
 # LLP 1120: Network concurrency without a thread per request
 
 **Type:** RFC
-**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Stage 1 is built behind a switch, off (§4); §5's Apple gate, measured 2026-10-12, failed, so the switch stays off.
+**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Stage 1 is built behind a switch, off (§4); §5's Apple gate, measured 2026-10-12, failed, so the switch stays off. The October 13 adoption below uses upstream Ibex services without enabling the production switch.
 **Systems:** the native executor (`host/apple/src/executor_core.rs`, `executor_stream.rs`, `executor_body.rs`), compiled into Apple, Linux and the render host; ibex2's fetch layer (`vendor/ibex/crates/ibex2/src/stdlib/fetch.rs`) and transports (`transport/darwin.rs`, `darwin_http.mm`, `darwin_websocket.*`, `websocket.rs`, `rustls_http.rs`).
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-10, r6 and r7 2026-10-12
@@ -423,7 +423,7 @@ Each line is a test today. The semantic assertions are kept and run against the 
 
 **As built, stage 1 (2026-10-12).** Stage 1a is ibex2's asynchronous fetch: `fetch_async.rs` (`Sink`, `Flow`, `Upload`, `Exchange` with an explicit activation, `FetchTask`, and a `BlockingAdapter` over any blocking `Transport`) and Apple's `DarwinLane` (`darwin_async.rs`, `darwin_task.mm`). Stage 1b is the core, `host/apple/src/executor_async.rs`, under the existing admission, queues, settlement and fence of `executor_core.rs`. Where it differs from the text above, until the stages that finish it:
 - **A switch.** `EXACT_HTTP_ASYNC=1`, at build or in the process's environment, runs the machine; without it the workers run, unchanged. It stays off until §5's gate passes. Only `Executor::start` (Apple's) takes it; the render host's `start_on` keeps the workers.
-- **Threads.** The base set (six) is reserved at `start` from today's `LIVE_WORKERS` bound and created at the first request, as the workers are; `MAX_THREADS` and the adapter's bounded pool with its stragglers (D4) come with Linux, stage 2. Off Apple, and in tests, the lanes are `BlockingAdapter`s with a thread per exchange.
+- **Threads.** The six machine threads are reserved at `start` from `LIVE_WORKERS` and created at the first request. The October 13 adoption also reserves the bounded portable adapter's one ordered and six independent workers (the latter follows `EXACT_HTTP_WORKERS`), created on their first transport reservation and charged until accepted work returns. Linux/render activation and the broader `MAX_THREADS` rollout remain stage 2.
 - **Streams** keep their own threads and transports (stage 3), so the file-backed stream rule of D5 waits for them.
 - **Scoped grants** use the lane's transport with the scope's grants.
 - **A redirect's next hop** waits only for the in-flight cap; it counts toward its origin's HTTP/1.1 count when it starts.
@@ -569,3 +569,48 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
 
 - Opaque Rust closure captures remain count-bounded only (§8.4).
 - A handed-off outcome can retain more than the lane's budget when it completes, as LLP 1041 already records (`llp/1041-graceful-overload.rfc.md:689`).
+
+## Ibex consumer adoption, 2026-10-13
+
+The transport interface now comes from upstream Ibex's asynchronous fetch
+implementation. A transport reserves capacity before accepting an exchange;
+a refusal releases Exact's origin, upload and lane accounting without waiting
+for a callback from work never accepted. The first accepted activation arms
+Exact's one real-time deadline. Upload sizing and parking still precede it,
+and redirects reuse it. Logical outcome, physical hop retirement and final
+upload-buffer release retain their separate accounting.
+
+The portable fallback uses Ibex's bounded worker service instead of spawning
+one thread per exchange. Exact still owns lane policy and its numerical
+budgets. The render host explicitly selects `portable-http`; Apple's native
+transport stays the default. This adoption does not select asynchronous mode
+by default or replace this RFC's production comparison.
+
+The vendor refresh also imports Ibex's borrowed clock/cycle primitives.
+Exact's modules still expose neither ambient timers nor sockets: the runner
+owns application clocks and stream handles (LLP 1027.000 and 1016.000).
+
+The portable worker materializes one additional upload buffer. Its lane therefore
+reserves twice a file upload's length (and the extra inline body length) before
+starting it, with checked size arithmetic. Native Apple uploads retain the shared
+buffer once. Both charges stay until physical retirement and the last buffer
+release; the portable worker queue also has an explicit capacity.
+
+The old vendored process-wide metric-file hook is now Exact's optional
+`executor_metrics.rs` observer of asynchronous hop callbacks. It preserves the
+`IBEX2_HTTP_METRICS` file selection for that lane. Blocking/native comparisons
+use Ibex's explicit diagnostic; a file from only the async observer is not a
+qualified two-arm comparison. The production async switch stays opt-in.
+
+Portable fallback pools start lazily at their first reservation: one ordered
+worker and the configured independent-worker count (six by default). Their
+slots count alongside the six machine threads under Exact's process limit, and
+each actual worker owns its slot until its thread exits, including idle retirement
+and partial pool construction. Failed pool construction is terminal for that lane;
+it cannot retry using slots still held by a previous attempt.
+
+If any base thread cannot start, the failed core releases every unstarted
+portable reservation immediately. Already-started base threads keep their own
+slots until exit. The lifecycle witness injects failure at each of the six
+base positions while retaining the failed cores, then checks lazy startup,
+physical pool retirement and refusal to retry failed pool construction.

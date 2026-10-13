@@ -1,4 +1,4 @@
-//! Exact document adapter: directory type is evidence; access denial is not.
+//! Chosen document adapter: directory type is evidence; access denial is not.
 use super::*;
 use std::os::windows::ffi::OsStrExt;
 use std::process::Command;
@@ -72,7 +72,7 @@ struct Root(PathBuf);
 impl Root {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!(
-            "exact document ACL café {}-{}",
+            "ibex document ACL café {}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -108,11 +108,8 @@ fn read(path: &Path) -> Result<FsResult, HostError> {
         )
     };
     let directory = std::sync::Arc::new(directory);
-    let documents = move |_: &str| {
-        Ok(Document::Real {
-            directory: directory.clone(),
-            path: path.clone(),
-        })
+    let documents = move |_: &str, _: DocumentAccess| {
+        DocumentLease::directory(directory.clone(), path.clone(), std::sync::Arc::new(()))
     };
     let grants = GrantSet::parse("fs.read doc:/\n").unwrap();
     run_document(
@@ -131,12 +128,9 @@ fn document_read_uses_handle_type_and_keeps_physical_paths_private() {
     std::fs::write(&file, b"contents").unwrap();
     assert_eq!(read(&file).unwrap(), FsResult::Bytes(b"contents".to_vec()));
     let error = read(&root.0).unwrap_err().to_string();
-    assert_eq!(
-        error,
-        "fs.readFile doc:/1/chosen: cannot read a directory (filesystem code EISDIR)"
-    );
+    assert_eq!(error, "document EISDIR: doc:/1/chosen");
     assert!(!error.contains(root.0.to_str().unwrap()));
-    let never = |_: &str| -> Result<Document, String> {
+    let never = |_: &str, _: DocumentAccess| -> Result<DocumentLease, DocumentError> {
         panic!("a refused grant must not resolve the document")
     };
     assert!(run_document(
@@ -190,8 +184,8 @@ fn document_read_keeps_real_acl_access_denial_and_restores_original_dacl() {
             String::from_utf8_lossy(&denial.stderr)
         );
         let error = read(&file).unwrap_err().to_string();
-        assert!(error.ends_with("(os error 5)"), "{error}");
-        assert!(!error.contains("filesystem code EISDIR"), "{error}");
+        assert!(error.starts_with("document EACCES:"), "{error}");
+        assert!(!error.contains("EISDIR"), "{error}");
         assert!(
             !error.contains(root.0.to_str().unwrap()),
             "physical path leaked"
