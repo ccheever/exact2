@@ -1,6 +1,8 @@
 // The shared output buffer vectors (macos/tests/terminal/vectors.json) against the TypeScript port of the
 // reference buffer (terminal-output.ts, T3 Code 1e2ecbd975 packages/client-runtime/src/state/terminalOutput.ts).
-// The terminal AppKit tests replay the same file against T3TerminalOutput.swift, so both agree.
+// The terminal AppKit tests replay the same file against T3TerminalOutput.swift, so both agree. The
+// expectations are committed test data (tools/generate/gen-vectors.mjs), the reference's results, never
+// computed from either port.
 import { describe, expect, it } from "bun:test";
 
 import vectors from "./macos/tests/terminal/vectors.json";
