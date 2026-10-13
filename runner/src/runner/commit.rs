@@ -693,6 +693,7 @@ impl<D: DataSource> Runner<D> {
         let mut answered: Vec<(u32, Value)> = Vec::new();
         let mut asked: Vec<usize> = Vec::new();
         let mut landed_now: Vec<usize> = Vec::new();
+        let mut failed_now = Vec::new();
         // Non-queue mutations whose send replaces one in flight without a
         // request of its own: an answer at once, or one waiting for the source.
         let mut replaced: Vec<usize> = Vec::new();
@@ -745,6 +746,13 @@ impl<D: DataSource> Runner<D> {
                 }
                 Ok(super::queue::Asked::Later(request)) => {
                     later.push((m, source.clone(), sargs.clone(), request))
+                }
+                Ok(super::queue::Asked::Failed) => {
+                    let (older, rest) = later.into_iter().partition(|l| l.0 == m);
+                    later = rest;
+                    self.discard_later(&older);
+                    self.pending_mut[m] = false;
+                    failed_now.push(m);
                 }
                 Err(e) => {
                     self.discard_later(&later);
@@ -885,7 +893,7 @@ impl<D: DataSource> Runner<D> {
         }
         // A send answered at once, or waiting for the source, replaces one
         // still in flight (newest wins): the older reply is not wanted.
-        for m in landed_now.into_iter().chain(replaced) {
+        for m in landed_now.into_iter().chain(replaced).chain(failed_now) {
             if !self.plan.mutations[m].queue {
                 self.forget_ticket(Target::Mutation(m));
             }

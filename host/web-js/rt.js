@@ -583,7 +583,7 @@ export function mut(name, slot, refreshes, type, queue) {
         a = ask(source, args, name);
         if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
         if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
-      } catch (e) { if (own) Sched.own = e; throw e; }
+      } catch (e) { if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; } m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length); say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return; }
       if ("v" in a) {
         m.checked = a.v;
         Ov.land(m, a.v);
