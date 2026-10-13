@@ -91,6 +91,19 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.lines = lines; });
         }
 
+        /// A system symbol's natural size, measured before layout
+        /// (`TextMeasurer::symbol_size`), with the context `exact_set_measure`
+        /// was given, beside the text measurer it registered: with the
+        /// reference measurer, as with `None`, a symbol is the size its view
+        /// reports.
+        #[no_mangle]
+        pub extern "C" fn exact_set_symbol_measure(
+            rt: u32,
+            measure: ::std::option::Option<$crate::measure::SymbolFn>,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.symbol = measure; });
+        }
+
         /// The Canvas 2D text measurer (LLP 1056 D8): called on the runtime's
         /// thread with the context `exact_set_measure` was given.
         #[no_mangle]

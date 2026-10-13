@@ -474,6 +474,18 @@ impl Paragraph {
     }
 }
 
+/// A system symbol to measure: an image whose source is `symbol:<role>`,
+/// drawn at its computed font size and weight.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SymbolRequest<'a> {
+    /// The role after `symbol:`: `sf/<name>`, or a portable role.
+    pub role: &'a str,
+    /// The image's computed font size, in points.
+    pub font_size: f32,
+    /// Its computed font weight, 1–1000.
+    pub font_weight: u16,
+}
+
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
     /// Revision of host measuring traits (scale, content size, legibility,
@@ -508,6 +520,14 @@ pub trait TextMeasurer {
         &mut self,
         _request: &crate::ButtonMeasureRequest,
     ) -> Option<crate::ButtonMeasure> {
+        None
+    }
+
+    /// A system symbol's natural size, as the host draws it, measured before
+    /// the layout that places it, so the first frame has its box. `None` when
+    /// this host cannot say; the image's size is then the one its host
+    /// reports once its view is made.
+    fn symbol_size(&mut self, _request: &SymbolRequest<'_>) -> Option<(f32, f32)> {
         None
     }
 
