@@ -46,11 +46,12 @@ class C: NSView { override func removeFromSuperview() { print(Thread.callStackSy
 // c.superview  → the freed parent: reading it crashes (exit 139)
 ```
 
-A hold outlives its button when a native menu takes the up: `MenuHost.track` runs `NSMenu.popUp` for a right-click's
-context menu, and the menu eats the `rightMouseUp`. `pointerHeld` and `pointerSource` then stay set until the next
-mouse-up anywhere. A held node that stays in the tree (an ancestor that hears pointer events) keeps the hold alive
-while a batch removes and frees the row the right-click landed on. The next click's mouse-up then runs `releaseHold`
-on that view.
+A hold can outlive its button in two ways. A native menu can take the up: `MenuHost.track` runs `NSMenu.popUp` for a
+right-click's context menu, and the menu eats the `rightMouseUp`. Or AppKit can send the up to no view, because the
+view the button went down on has left the window. In both cases `pointerHeld` and `pointerSource` stay set until the
+next mouse-up anywhere. If the held node stays in the tree (an ancestor that hears pointer events), the hold stays
+alive while a batch removes and frees the row or panel the press landed on. The next click's mouse-up then runs
+`releaseHold` on that view.
 
 ## Triggers seen in the T3 Code clone (realinput-1011c)
 
@@ -73,5 +74,5 @@ Fix the crash. A hold must never keep a view in a parent that is going away, and
 as a hand-built AppKit app never crashes. Press and hold behaviour does not change for nodes that stay: the source is
 still kept in the window, transparent, while the button is held (fix/syntax6's board drag). Also, when the button
 comes up after a release has cleared the held node, the hold's source is let go, and hover is no longer frozen until
-the next press. A native menu that ends a hold early (when the swallowed up should be delivered) is outside this
-scope: that changes the hold for a node that stays.
+the next press. Out of this scope: delivering an up that a menu took, or that came to no view, when it happens rather
+than at the next click's up. That changes the hold for a node that stays (QUEUE.md).
