@@ -20,6 +20,7 @@
 #![deny(missing_docs)]
 
 mod buttons;
+mod cells;
 mod class;
 mod collection;
 mod color_profile;
