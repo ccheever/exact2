@@ -33,6 +33,7 @@ public final class ExactView: NSView {
     @objc public func stopSpeaking(_ sender: Any?) { Self.speech.stopSpeaking(at: .immediate) }
     private static let speech = AVSpeechSynthesizer()
     private var lastSize = CGSize.zero
+    private var fitPending = false
     private var lastDisplayScale: CGFloat = 0
     private var shortcutMonitor: Any?
     /// Screen changes and HDR suppression: HDR pictures re-plan (LLP 1100 D9).
@@ -181,6 +182,18 @@ public final class ExactView: NSView {
     /// Boot at the first real size (an embedder's view), else resize; the
     /// insets follow.
     private func fit() {
+        if Owner.shared.isServingMain {
+            if !fitPending {
+                fitPending = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
+                    self.fit()
+                }
+            }
+            return
+        }
         if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         session.presenter.dialogs.layout()
         session.presenter.menus.layout()
