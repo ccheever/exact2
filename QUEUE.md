@@ -819,6 +819,35 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Cheap, any time
 
+- **Gaps the Bluesky clone's workers hit** (bsky5, b28–b31, 2026-10-12), as reported:
+  - **The web JS target refuses `reachend` on a plain `list`** ("the `reachend` event is not in the
+    JS target", `host/web-js/src/emit.rs`), and a virtualized list wants exactly one direct `each`,
+    so a masonry of columns can't page. A JS-target gap, not a one-line bug: the end needs an
+    observer on the list's last row, as the virtualized one has.
+  - **A dynamic exit animation fails the web build only** (`exit-animation=(reduced ? "none" :
+    "…")`: "a dynamic `exit_animation` is not one declaration", `host/web-js/src/style.rs`). iOS
+    builds it and `contract build` says nothing. First, cheap: `contract build` should report what
+    the JS target will refuse, so the author hears it at compile time; then the dynamic declaration.
+  - **Contract tests:** `back` reports "back refused" on a sheet over a sheet while the route does
+    pop; a test can't fake a data source, or open a URL.
+  - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
+    between nested drags; no single-tap versus double-tap; no "native only" condition; a `text`
+    can't hold an inline badge (already in Charlie's asks).
+- **iOS long-press on an inline text run** (bsky5): a menu on a run inside a paragraph (a hashtag:
+  See #tag posts, Mute #tag) acts as a tap. `NodeViewIOS.updateContextGestures` gives a long-press
+  recognizer to node views only; runs get a menu on macOS (X77) and on the web.
+- **The kept-answer cap** (LLP 1027 D4; bsky5's b30 journal): `explore`, `feedSources`,
+  `composerPrefs`, `following` and `homeFeeds` are each "too big to keep" at 4 KiB of arguments
+  and answer, so the clone keeps its own device cache. The cap is small because every kept entry
+  is read in one listing before the first frame. Recommendation (x2-perf3): measure that read on a
+  phone for 32 entries at 4, 16 and 64 KiB; then let a resource declare its own budget (`keep 64kb`)
+  up to 256 KiB, under a launch total of about 1 MiB that refuses the least recent, with 4 KiB the
+  default. That is an LLP 1027 D4 amendment for Charlie.
+- **A flaky WebSocket test:** ibex2's `the_darwin_transport_holds_the_whole_conversation`
+  (`vendor/ibex/crates/ibex2/src/transport/websocket_tests.rs:318`) races a close against a send
+  on purpose and asserts the peer saw the close first; under heavy CPU load it failed 2 runs in
+  about 10 (it is not in the six checks). Make it deterministic: assert the send is accounted and
+  the close arrives, not which the peer saw first.
 - **iOS hit-testing under a positioned sibling** (bsky5, Bluesky clone b28 on 57ab536e3, 2026-10-12):
   the profile avatar (`position="absolute"`, `profile.contract` before clone 1be739e) paints over
   the in-flow info column that follows it, as LLP 1083.000 orders them, but a tap in the avatar went
