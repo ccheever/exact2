@@ -26,6 +26,7 @@ mod color_profile;
 mod contain;
 pub mod controls;
 pub mod dataset;
+mod edits;
 mod error;
 pub mod expr;
 mod fields;
