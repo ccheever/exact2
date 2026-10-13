@@ -6,7 +6,7 @@ import {test, expect} from 'bun:test';
 import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
-import {appDocumentPath} from '../../scripts/origin.mjs';
+import {acceptsHTML, appDocumentPath} from '../../scripts/origin.mjs';
 import {buildTreeFile, readWebRequest} from './serve.mjs';
 
 test('a navigation to a dotted deep link is the document; a fetch of one is not', async () => {
@@ -25,5 +25,18 @@ test('a navigation to a dotted deep link is the document; a fetch of one is not'
     expect(buildTreeFile(dist, '/profile/jay.bsky.team', html)?.route).toBe('/index.html');
     expect(buildTreeFile(dist, '/profile/jay.bsky.team')).toBe(null);
     expect(buildTreeFile(dist, '/profile/alice')?.route).toBe('/index.html');
+    // A missing file a page or an iframe navigates to is still missing.
+    expect((await readWebRequest(dist, '/deck/missing.html', html)).found).toBe(null);
+    expect((await readWebRequest(dist, '/assets/missing.pdf', html)).found).toBe(null);
+    expect(buildTreeFile(dist, '/deck/missing.html', html)).toBe(null);
   } finally { rmSync(dist, {recursive: true, force: true}); }
+});
+
+test('acceptsHTML reads the media type, any case, at a quality above zero', () => {
+  expect(acceptsHTML('TEXT/HTML')).toBe(true);
+  expect(acceptsHTML('text/html;q=0.5, */*')).toBe(true);
+  expect(acceptsHTML('text/html;q=0')).toBe(false);
+  expect(acceptsHTML('application/json;profile="text/html"')).toBe(false);
+  expect(acceptsHTML(undefined)).toBe(false);
+  expect(acceptsHTML('*/*')).toBe(false);
 });

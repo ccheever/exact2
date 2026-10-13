@@ -13,7 +13,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
-import { appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
+import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
 
@@ -622,7 +622,7 @@ export function buildTreeFile(dist, pathname, accept = '') {
   let root;
   try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
   const prefix = root.endsWith(sep) ? root : root + sep;
-  for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, /\btext\/html\b/.test(accept)) ? ['/index.html'] : [])]) {
+  for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname, acceptsHTML(accept)) ? ['/index.html'] : [])]) {
     const file = resolve(root, '.' + route);
     try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
   }
@@ -771,7 +771,7 @@ export async function readWebRequest(dist, pathname, accept = '') {
   if (!webRequestURL(pathname)) return { found: null, index: false };
   let route = pathname;
   let found = await readStaticFileAsync(dist, route);
-  if (!found && appDocumentPath(route, /\btext\/html\b/.test(accept))) {
+  if (!found && appDocumentPath(route, acceptsHTML(accept))) {
     route = '/index.html';
     found = await readStaticFileAsync(dist, route);
   }

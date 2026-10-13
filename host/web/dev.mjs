@@ -43,7 +43,7 @@ import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../s
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks } from '../apple/build.mjs';
 import { DEFAULT_LOOK, LOOK } from './look.mjs';
-import { webRequestURL } from '../../scripts/origin.mjs';
+import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -1159,7 +1159,7 @@ const server = createServer(async (req, res) => {
   // app URL itself whose Accept names the envelope type: the dev-server
   // shortcut past the link rung (D1); a browser never sends it.
   // @ref LLP 1038 D7 — resolve files and extensionless locations before negotiation.
-  const { found, index } = await readWebRequest(dist, url.pathname, /\btext\/html\b/.test(req.headers.accept ?? '') ? 'text/html' : '');
+  const { found, index } = await readWebRequest(dist, url.pathname, acceptsHTML(req.headers.accept) ? 'text/html' : '');
   const wantsEnvelope = url.pathname === '/exact.json'
     || (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
   if (wantsEnvelope) {

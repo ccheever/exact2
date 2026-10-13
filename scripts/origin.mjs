@@ -57,9 +57,24 @@ export function webRequestURL(target) {
   } catch { return null; }
 }
 
+/** Extensions a web build's files have: a missing one stays a 404, a page
+ * or an iframe's document (`/deck/missing.html`) included. */
+const FILE_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.wasm', '.plan', '.map', '.txt', '.xml', '.pdf', '.zip',
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico', '.mp4', '.webm', '.vtt', '.wav', '.mp3', '.m4a', '.aac', '.ogg', '.oga',
+  '.ttf', '.otf', '.woff', '.woff2', '.wgsl']);
+/** Whether a request's `Accept` takes HTML (RFC 9110: the media type, any
+ * case, at a quality above zero), as a browser's navigation does. */
+export function acceptsHTML(accept = '') {
+  return String(accept).split(',').some((range) => {
+    const [type, ...params] = range.split(';').map((s) => s.trim().toLowerCase());
+    const q = params.find((p) => p.startsWith('q='));
+    return type === 'text/html' && (q === undefined || Number(q.slice(2)) > 0);
+  });
+}
 /** Whether a path that names no file is the app's document. A navigation
- * (`Accept: text/html`) to one whose last segment has a dot is too: a deep
- * link like `/profile/jay.bsky.team` is a location, not a missing file. */
+ * (`acceptsHTML`) to one whose last segment has a dot is too, unless that
+ * is a file's extension: a deep link like `/profile/jay.bsky.team` is a
+ * location, not a missing file. */
 export function appDocumentPath(pathname, navigation = false) {
   if (!webRequestURL(pathname)) return false;
   let path;
@@ -67,7 +82,7 @@ export function appDocumentPath(pathname, navigation = false) {
   return path.startsWith('/') && !path.includes('\\') && !path.includes('\0')
     && !path.split('/').some(part => part.startsWith('.'))
     && path !== '/__dev' && !path.startsWith('/__dev/')
-    && (navigation || extname(path.replace(/\/+$/, '')) === '');
+    && (extname(path.replace(/\/+$/, '')) === '' || (navigation && !FILE_EXTENSIONS.has(extname(path.replace(/\/+$/, '')).toLowerCase())));
 }
 export function parseWebRoot(bytes) {
   const root = JSON.parse(bytes.toString('utf8'));
