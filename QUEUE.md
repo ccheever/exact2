@@ -1,5 +1,8 @@
 # Queue
 
+- **`MarkupEditorTests` and `NativeFieldsMacTests` fail on origin/main** (2026-10-13, `bun host/apple/build.mjs --test` on the Mac Studio at 296a770d3): a plain text area's undo/redo history is empty (`testPlainTextAreaRoutesUndoRedoActionsAndChordsToItsOwnHistory`, `testUnfocusedPlainTextAreaDoesNotConsumeAnotherEditorsUndoOrRedo`) and a search field's clear sends no `input` (`testSearchInputIsANativeSearchField`). They came with `0a36b5c40` (text fields' `selectionchange` and `beforeinput`, which changed AppKit undo/redo and the search field), not bisected.
+- **`host/web-js`'s Bun tests run in no lane** (2026-10-13): `scripts/async.mjs` selects `host/web/**/*.test.mjs`, and Cargo runs none of `host/web-js/*.test.mjs` (`build.test.mjs`, `conform.test.mjs`, `document-render.test.mjs`, `document-agent.test.mjs`, `svg.test.mjs`, …), so a regression they hold is caught only by hand. Add the directory to the async lane's glue step.
+- **The macOS SVG smoke's `page-8 fx-pattern-hatch` is over its limit** (2026-10-13, Mac Studio): mean 4.43/255 against 4, the same with and without the SVG viewport-unit change.
 - **Linux pinned state comparison races with raster workers** (2026-10-13): `host::ordinary_node_state_is_not_routed_to_a_surface` (`host/linux/tests/pinned/host.rs:975`) failed in the full host test run: its two state reads differed only in `raster.processRunning` (1 then 0). The isolated test and all 83 tests in `pinned` passed on retry. Compare the intended node-state behavior without requiring unrelated raster telemetry to stay constant between reads.
 
 - **AppKit native popover dismissal tests fail on macOS 27** (2026-10-13, overlay #281 verification). `PopoverNativeMacTests` reports 12 assertions: `NSPopover.isShown` stays true after close, the content stays lifted, and the later Tab-loop assertions fail. The same assertions fail with `NodeViewMac.swift` restored to `81bde641b`; the overlay fix does not cause them. Check native close completion before changing expectations.
@@ -784,6 +787,7 @@ sits on that list carries the trade it would take.
   arrives (a wheel and the Android reader's moves carry no time), and the loops wake on the host's
   runner timer. Needs the deadline in `Host::timer_due_ms` and the dispatch at the `advance` and
   `clock` paths; `host/linux/src/host.rs` is at its line cap.
+  A Linux build is parked on the Mac Studio (branch `q1013/linux-scrollend`, `~/lanes/q1013/wt/linux-scrollend`, 2026-10-13): `host.rs`'s clock moved to `host_clock.rs` (1,428 lines), and a completion fires once 100 ms after a wheel. Two review rounds found what it does not settle, all one rule: a completion is due 100 ms after the scroller's last offset change whatever moved it (a key's `scrollBy`, the Android reader, a layout clamp), is delivered at that deadline on the runner's timeline after the scroll events already caused and before a runner timer later than it, and is owed while the scroller has a layout box (an inert one under a modal still owes it). `Host` advances time while `Presenter` owns offsets, queued events and commands, so delivering at each deadline needs one loop that owns both. Its 14 failing cases are in `target/scrollend-order-regressions.rs` there. Chrome 155 ends an instant scroll sooner and does not end again after a layout clamp.
 - **One presenter pass for the batches a frame lands together (iOS)** (2026-10-13, from the
   Bluesky clone's quotes fling): most fling frames apply four batches: the app's `scroll=` batch
   (the clone writes state every frame), one or two list fill slices that `landFill` lands inside
@@ -803,6 +807,7 @@ sits on that list carries the trade it would take.
   and `RasterColorTests.testEveryFixtureDecodesToItsClassStorageAndColors`: all HDR or colour
   storage (the result bundle: RGBA8 against RGBAh, rec2100-hlg against display-p3, HDR stored
   as SDR, an HDR photo still HDR as JPEG), cause unconfirmed; xcodebuild's log names no assertion.
+  Diagnosed 2026-10-13 (parked on the Mac Studio, branch `q1013/ios-hdr`): the iOS 27 simulator keeps `RGBA8Uint` for a requested `RGBA16Float` `contentsFormat` (a hint, per CALayer's documentation), reports headroom 1 for gain-map HDR decodes, keeps PQ/HLG under `kCGImageSourceDecodeToSDR`, and writes no ISO gain map; the same requests work on macOS. The branch settles a rejected format hint (Exact reported a change on every repeat) and clears drawing headroom on the way back to SDR, but a PQ or HLG HEIC picked for an `image/jpeg` input still cancels: ImageIO's SDR encode stays PQ/HLG at headroom 4.93, so the fallback must draw into a Display P3 bitmap (or tone-map with Core Image) and require headroom 1. Its last review also found the decode request keys set outside their `#available` (iOS 17 and macOS 14 are still targets) and probes built from the options they test.
 - **The date and place at launch on the remaining hosts** (2026-10-13; Apple, the Rust/Wasm web
   host and the Linux family's app boot boot under them, `exact_runner::time::launching_with`, and
   the JS target answers `exactTime` from the page): the render host, the content-region host,
@@ -821,6 +826,7 @@ sits on that list carries the trade it would take.
     JS target", `host/web-js/src/emit.rs`), and a virtualized list wants exactly one direct `each`,
     so a masonry of columns can't page. A JS-target gap, not a one-line bug: the end needs an
     observer on the list's last row, as the virtualized one has.
+    Not a JS-target gap alone (2026-10-13): LLP 1010 (about line 811) gives edge events to non-empty virtualized collections only, the runner makes no collection for a plain list, and Apple listens for none there. Charlie's: edges on a plain list on every host, or a compile-time refusal everywhere instead of the web build's.
   - **A dynamic exit animation fails the web build only** (`exit-animation=(reduced ? "none" :
     "…")`: "a dynamic `exit_animation` is not one declaration", `host/web-js/src/style.rs`). iOS
     builds it and `contract build` says nothing. Reporting it at compile time is not cheap
