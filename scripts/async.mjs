@@ -174,14 +174,15 @@ export function appleTouched(sha, since, diff = git) {
   return paths.some(path => path && !documentation(path));
 }
 
-// The semantics step is minutes of Lean and difftest, and checks nothing a
-// range outside the language can change: the Lean project itself, the
-// compiler and its corpus, the programs it explores (apps' `.contract`
-// files), and what difftest holds to the semantics — the runner and its VM,
-// the plan's format, the router, the numbers, and the web JS target.
-const CONTRACT_DIRS = ['semantics/', 'contract/', 'runner/', 'plan/', 'route/', 'num/', 'host/web-js/'];
+// Difftest observes the kernel's tree and uses the runner's dependencies too.
+// Skip host presentation and documentation edits, but include every local
+// dependency and the toolchain inputs that can change the checked program.
+const CONTRACT_DIRS = ['semantics/', 'contract/', 'runner/', 'plan/', 'route/', 'num/',
+  'kernel/', 'canvas/', 'color/', 'grants/', 'motion/', 'svg-filter/', 'textflow/',
+  'vendor/', 'host/web-js/', 'host/web/', 'scripts/', '.cargo/'];
+const CONTRACT_INPUTS = new Set(['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'package.json', 'bun.lock']);
 export function contractTouched(sha, since, diff = git) {
-  return changedPaths(sha, since, diff).some(path =>
+  return changedPaths(sha, since, diff).some(path => CONTRACT_INPUTS.has(path) ||
     (path.startsWith('apps/') && path.endsWith('.contract')) || CONTRACT_DIRS.some(dir => path.startsWith(dir)));
 }
 

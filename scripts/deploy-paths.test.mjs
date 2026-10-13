@@ -104,7 +104,7 @@ test('async game step checks the separate workspace with its lockfile', () => {
   expect(steps.find(([name]) => name === 'game')).toEqual(['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']]);
 });
 
-test('async runs the Lean semantics only for a range that changes the Contract language', () => {
+test('async runs semantics when the checked program or its dependencies change', () => {
   const language = [
     'semantics/Contract/Eval.lean',
     'contract/types/src/lib.rs',
@@ -115,11 +115,16 @@ test('async runs the Lean semantics only for a range that changes the Contract l
     'route/src/lib.rs',
     'num/src/lib.rs',
     'host/web-js/runtime.js',
+    'kernel/tables/schema.json', 'kernel/src/transaction/apply.rs',
+    'canvas/src/lib.rs', 'color/src/lib.rs', 'grants/src/lib.rs', 'motion/src/lib.rs',
+    'svg-filter/src/lib.rs', 'textflow/src/lib.rs', 'vendor/taffy/src/lib.rs',
+    'host/web/faults.js', 'scripts/async.mjs', '.cargo/config.toml',
+    'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'package.json', 'bun.lock',
   ];
   for (const path of language) {
     expect(asyncLane.contractTouched('new', 'old', () => `docs/reference.md\n${path}`)).toBe(true);
   }
-  const other = ['kernel/src/lib.rs', 'host/apple/Sources/ExactKit/View.swift', 'host/web/src/lib.rs', 'apps/caltrain/data/src/lib.rs', 'scripts/app.mjs', 'docs/reference.md'].join('\n');
+  const other = ['host/apple/Sources/ExactKit/View.swift', 'host/linux/src/paint.rs', 'apps/caltrain/data/src/lib.rs', 'docs/reference.md'].join('\n');
   expect(asyncLane.contractTouched('new', 'old', () => other)).toBe(false);
   expect(asyncLane.contractTouched('new', 'old', () => '')).toBe(false);
   const calls = [];
