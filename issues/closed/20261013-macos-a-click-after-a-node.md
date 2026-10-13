@@ -69,6 +69,35 @@ All four crashes are on the T3 clone build `1f813789b`, whose `MouseChainMac.swi
 hunk above this code. The test plan in the T3 Code clone carries the input logs and the crash summaries
 (`target/t3-ui-parity/realinput-1011c/`).
 
+## Reproduction
+
+Main `48755525c`, macOS 26.6.2 (25G83), Apple Silicon. A scratch app made with `bun scripts/exact.mjs new <dir>`
+(`app.ts` exports an empty `sources`). The layout hears the pointer, as the clone's does with its right panel open,
+and its `pointerdown` swaps the panel the Settings view is in:
+
+```text
+component Holdcrash
+  state flipped = false
+  …
+  action held
+    downs = downs + 1
+    flipped = not flipped
+  view
+    column testId="layout" pointerdown=held pointerup=lifted …
+      when flipped
+        column testId="panel-b" …
+          column press=open testId="settings-b" role="button" …
+      else
+        column testId="panel-a" …
+          column press=open testId="settings" role="button" …
+```
+
+`bun exact.mjs agent macos --size 420x260 "tap settings down" "tap up" "tap settings-b down" "tap up"`. AppKit sends
+the first up to no view, because the view pressed has left the window, so the hold stays. The second click's up then
+ends with "the app exited (killed by SIGSEGV)", with the faulting thread above (`Holdcrash-2026-10-13-210322.ips`).
+`GesturePrecedenceMacTests.testARowFreedUnderAHoldTakesThePressedViewWithIt` and
+`testAPanelReplacedUnderAClickTakesThePressedViewWithIt` crash in the same frames (xctest exit 139).
+
 ## Current scope
 
 Fix the crash. A hold must never keep a view in a parent that is going away, and the hold must be dropped safely,
