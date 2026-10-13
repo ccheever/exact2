@@ -88,6 +88,9 @@ final class RowCellsIOSTests: XCTestCase {
         // Not under a leading image: a row whose text starts past one has its separator from the text.
         p.apply(wireBatch([["op": "frame", "id": 20, "x": 56.0, "y": 12.0, "w": 200.0, "h": 20.0]]))
         XCTAssertEqual(separators(p).filter { $0.maxY == 44 || $0.maxY == 1 }.map(\.minX), [56, 56])
+        // And from where the text's glyphs start: inside a padding of the text's own.
+        p.apply(wireBatch([["op": "style", "id": 20, "style": ["font_size": 17, "padding_left": 4]]]))
+        XCTAssertEqual(separators(p).filter { $0.maxY == 44 || $0.maxY == 1 }.map(\.minX), [60, 60])
     }
 
     func testWhatTheAuthorWritesOnARowWins() throws {
