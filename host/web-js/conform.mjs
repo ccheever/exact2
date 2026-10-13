@@ -828,3 +828,4 @@ if (argv.includes('--strict') && report.failures.length) {
   }
   process.exit(1);
 }
+process.exit(0);
