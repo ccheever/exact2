@@ -383,7 +383,8 @@ final class AccessibilityTests: XCTestCase {
     /// the first accessibility error recorded while it is open, and the
     /// update a press makes records one: run inside it, a press that landed
     /// answered kAXErrorAttributeUnsupported. A run with neither a `press`
-    /// nor an `href` has nothing to do.
+    /// nor an `href` has nothing to do, nor has an `href` run with no
+    /// session to follow it (`canActivateInline`, as `activateInline`).
     func testAnInlineRunsPressRunsOnceTheRequestReturns() throws {
         let (p, w, _, _) = fixture()
         let paragraph = NodeView(id: 80, kind: "text", presenter: p)
@@ -393,12 +394,15 @@ final class AccessibilityTests: XCTestCase {
             ["id": id, "parent": 80, "paint": true, "props": props, "style": ["font_size": 16.0], "handlers": handlers]
         }
         p.apply(wireBatch([["op": "paragraph", "id": 80, "runs": [run(81, ["text": "Press "]), run(82, ["text": "here"], ["press"]),
-                                                                  run(83, ["text": " or "]), run(84, ["text": "this", "accessibilityLabel": "This"])]]]))
+                                                                  run(83, ["text": " or "]), run(84, ["text": "this", "accessibilityLabel": "This"]),
+                                                                  run(85, ["text": " "]), run(86, ["text": "that", "href": "https://example.com/unfollowed"])]]]))
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let runs = paragraph.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement } ?? []
-        XCTAssertEqual(runs.map { $0.accessibilityLabel() }, ["here", "This"])
+        XCTAssertEqual(runs.map { $0.accessibilityLabel() }, ["here", "This", "that"])
         XCTAssertFalse(runs[1].accessibilityPerformPress(), "nothing to do")
+        XCTAssertNil(p.session)
+        XCTAssertFalse(runs[2].accessibilityPerformPress(), "no session to follow the href")
         XCTAssertTrue(runs[0].accessibilityPerformPress())
         XCTAssertEqual(pressed, [], "nothing runs inside the request")
         var drained = false

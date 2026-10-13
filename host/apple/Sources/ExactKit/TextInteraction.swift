@@ -228,8 +228,7 @@ private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
     /// paragraph's `accessibilitySubrole()`): run inside it, a press that
     /// landed answered kAXErrorAttributeUnsupported.
     override func accessibilityPerformPress() -> Bool {
-        guard let presenter = owner?.presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id),
-              run.handlers.contains("press") || !(run.props["href"] ?? "").isEmpty else { return false }
+        guard owner?.canActivateInline(id) == true else { return false }
         DispatchQueue.main.async { [weak owner, id] in _ = owner?.activateInline(id) }
         return true
     }
