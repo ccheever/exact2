@@ -657,7 +657,7 @@ function documentTypeProblems(manifest) {
 function protocolHandlerProblems({ protocol_handlers = [] }) {
   return protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]);
 }
-export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {})}; }
+export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {}),...(['ios','android'].includes(platform) && manifest.orientation ? {orientation:manifest.orientation} : {})}; }
 let cachedSchema = null;
 function schema() {
   return cachedSchema ??= JSON.parse(readFileSync(resolve(ROOT, 'scripts/app.schema.json'), 'utf8'));
