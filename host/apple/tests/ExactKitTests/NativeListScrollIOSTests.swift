@@ -126,6 +126,35 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertEqual(l.collection.contentOffset.y, end, accuracy: 0.5, "writes clamp to the actual native end")
     }
 
+    /// DOM's `scrollend` (`ScrollEndIOS.swift`): a move no gesture holds
+    /// ends once still, after its last `scroll`; the end of a deceleration
+    /// ends at once; each scroll ends once.
+    func testAScrollEndsOnceAfterItsLastScroll() throws {
+        let p = presenter(height: 180, handlers: ["scroll", "scrollend"]) { self.model() }
+        let owner = try XCTUnwrap(p.views[1]), l = try list(p)
+        l.collection.layoutIfNeeded()
+        var seen: [String] = []
+        p.onScroll = { _, _ in seen.append("scroll") }
+        p.onScrollend = { _ in seen.append("end") }
+        p.apply(wireBatch([
+            ["op": "content", "id": 1, "w": 402.0, "h": 9000.0],
+            ["op": "props", "id": 1, "set": ["scrollTop": "100"]],
+        ]))
+        XCTAssertFalse(seen.contains("end"), "not before it has been still")
+        RunLoop.main.run(until: Date().addingTimeInterval(ScrollEnd.quiet + 0.15))
+        XCTAssertEqual(seen.last, "end")
+        XCTAssertEqual(seen.filter { $0 == "end" }.count, 1)
+        XCTAssertLessThan(try XCTUnwrap(seen.firstIndex(of: "scroll")), try XCTUnwrap(seen.firstIndex(of: "end")), "its scroll first")
+        seen.removeAll()
+        l.collection.setContentOffset(CGPoint(x: 0, y: l.collection.contentOffset.y + 40), animated: false)
+        owner.scrollViewDidEndDecelerating(l.collection)
+        XCTAssertEqual(seen.last, "end", "a deceleration's end ends it at once")
+        RunLoop.main.run(until: Date().addingTimeInterval(ScrollEnd.quiet + 0.15))
+        XCTAssertEqual(seen.filter { $0 == "end" }.count, 1, "once")
+        owner.scrollViewDidEndDecelerating(l.collection)
+        XCTAssertEqual(seen.filter { $0 == "end" }.count, 1, "nothing moved since: nothing owed")
+    }
+
     func testMeasuringALeadingCustomRowKeepsTheNativeListAtItsStart() throws {
         for initial in [0.0, 52.0] {
             let p = presenter(height: 180) {

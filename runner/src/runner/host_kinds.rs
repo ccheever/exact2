@@ -14,8 +14,8 @@ impl Event {
     /// (beforeunload), 37 (wheel), 38 (drop), 39 (resize, its
     /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
     /// input, change, select and replacement input), 45 (intersect,
-    /// `0|1,ratio`), 46 and 47 (focusin, focusout), or 50 (toggle, oldState,newState)
-    /// from its UTF-8 payload.
+    /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
+    /// or 51 (scrollend, none) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code
@@ -45,6 +45,8 @@ impl Event {
             10 => Event::contextmenu_payload(payload).ok_or("invalid contextmenu event"),
             // Studio diary R17, R3, R19: DOM's beforeunload, wheel and drop.
             36 => Ok(Event::Beforeunload),
+            // DOM's `scrollend`: no payload (LLP 1005, 2026-10-13).
+            51 => Ok(Event::Scrollend),
             37 => super::WheelEvent::parse(payload)
                 .map(Event::Wheel)
                 .ok_or("invalid wheel event"),
