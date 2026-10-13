@@ -11,8 +11,8 @@ with default features off and `std` on (no `system`, no fontconfig, no
 - Upstream VCS revision: eea3503dd6cf17130cbb07348e0ff2c918300e94
 - Root `[patch.crates-io]` (and `game/`, `snapback4/`) selects this copy.
 
-Every patch below is upstream status **to send** (LLP 1085.000 §8 Q3). The
-first seven were made and measured in the parity spike against Chrome 154
+The numbered patches below are upstream status **to send** (LLP 1085.000 §8 Q3).
+The first seven were made and measured in the parity spike against Chrome 154
 (Mac Studio, `~/bench/dioxus/q5-spike`, `results-spike.md`; one commit and one
 diff per patch there); the rest were made on `text/parley`. Remove a patch
 when a pinned upstream release supplies the same behaviour and the tests
@@ -116,8 +116,9 @@ named here pass.
     run, cluster and glyph walk: 21 ms of a 1 MiB paragraph's 992,721
     glyphs, 7.5 ms inlined (expo-build-1000). No behaviour changes.
 
-All other archive files are byte-for-byte upstream. The upstream test suite
-(not in the archive) passed with patches 1–4 applied; with 4–7, five tests
+`Cargo.toml` also carries the empty `[workspace]` boundary described below;
+retain it when updating. All remaining archive files are byte-for-byte upstream.
+The upstream test suite (not in the archive) passed with patches 1–4 applied; with 4–7, five tests
 change as each patch intends (the spike's results list them).
 
 ## Cargo workspace boundary
