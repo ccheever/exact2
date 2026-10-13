@@ -37,9 +37,9 @@ export async function mobileScheduledTasks(scopeJSON: string, now: number, nativ
     const all = await settingsSources(native), sources = all.filter(source => visible(scope, source)), live = liveEnvironments(mobileClient, native);
     const sections = await Promise.all(sources.map(async source => {
       const environment = live.find(entry => entry.environmentId === source.environmentId), endpoint = settingsEndpoint(source, native);
-      let canOperate = false, error = environment?.tasks.error ?? '';
+      let canOperate = false; const error = environment?.tasks.error ?? '';
       try { canOperate = scheduledGrant(await settingsCall(endpoint, { op: 'http', path: '/api/auth/session' })); }
-      catch (cause) { if (letGo(cause)) throw cause; error = cause instanceof Error ? cause.message : 'Could not verify permissions.'; }
+      catch (cause) { if (letGo(cause)) throw cause; }
       const tasks = environment?.tasks.value?.filter(task => inScope(scope, source.environmentId, str(task.projectId))) ?? null;
       return { id: source.environmentId, title: source.label, error, loading: !error && tasks === null,
         emptyMessage: tasks?.length === 0 ? scope.members === null ? 'No scheduled tasks yet.' : 'No tasks in this project.' : '',
