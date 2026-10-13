@@ -162,7 +162,7 @@ short report: the build if it built, the compiler's warnings (as contract build 
 built or not), the tests, check's findings (each once, naming the screens it was on), the
 relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. One
 screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
-each test's named by the test, the relaunch's): look at them at milestones.
+each test's named by the test, the relaunch's): look at them when the features work.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's) and the compiler's warnings are counted, never
          fail it. A screen no test ends on is not checked: end a test there.
@@ -171,7 +171,7 @@ Server   an app with its own (server.ts, the rest pattern's): verify runs it whe
          it; one already answering there (a dev server) is refused, named, never written to; so is
          a server entry that does not read DB (process.env.DB), with the fix.
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
-    example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
+    example: 'bun exact.mjs verify            # bun exact.mjs verify ios once at the end, for an iPhone app',
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',

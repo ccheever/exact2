@@ -1,6 +1,6 @@
 # Recipe: driving iOS
 
-Edit and check on the web (`verify`: seconds); run `verify ios` at milestones: the tests with
+Edit and check on the web (`verify`: seconds); run `verify ios` once, at the end: the tests with
 UIKit's bars, `check` light and dark on the first screen and where each test ends, and a
 relaunch ([tests](tests.md#before-you-call-it-done)). A clean `verify ios` is done. `verify ios`,
 `test ios` and `agent ios` build first when the build is missing or older than its sources (log

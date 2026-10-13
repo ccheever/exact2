@@ -21,10 +21,11 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
     assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
-    // The diary is one line that sends the agent to `feedback status`, which prints its
-    // instructions (LLP 1116 D3); the notes stay small, and .exact/ stays local.
+    // The diary is one clause that names `feedback status`, which prints its instructions (LLP 1116 D3), and
+    // orders nothing first: builders load this file as instructions, so each order is a step (LLP 1116.012 D1).
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    assert.match(agents(), /<!-- exact:begin[^]*Run `bun exact\.mjs feedback status` first; it prints what to keep\.[^]*<!-- exact:end -->/);
+    assert.match(agents(), /<!-- exact:begin[^]*`bun exact\.mjs feedback status` says whether this project keeps one\.[^]*<!-- exact:end -->/);
+    assert.doesNotMatch(agents(), /first;|before writing code|Read the card|Run `bun exact\.mjs feedback/, 'no ordered preface');
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
     // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), and the three paths of a long temp dir
     assert.ok(Buffer.byteLength(agents()) <= 1536 + 3 * resolve(import.meta.dir, '..').length, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
@@ -307,9 +308,13 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     assert.ok(notes.includes(resolve(root, 'docs/start-here.md')));
     assert.ok(existsSync(resolve(root, 'docs/start-here.md')));
     assert.match(notes, /the only\s+required reading/);
-    // `help` is the pointer to the rest, and a verb's `--help` is for a flag in question: no tour of the verbs' help.
-    assert.match(notes, /`bun exact\.mjs help` gives each verb's common flags/);
-    assert.match(notes, /`--help` only for the rest/);
+    // Where to start, not an order of steps (LLP 1116.012 D1): the nearest pattern, the guide, a name in question
+    // answered by the card, `verify` when the features work and `verify ios` once at the end; `help` lists the verbs.
+    assert.match(notes, /already in your instructions\. Start from the nearest pattern: `bun exact\.mjs\s+pattern` lists them and `pattern <name>` writes one/);
+    assert.match(notes, /When a name is in question, `bun exact\.mjs contract\s+vocab <name>` answers it/);
+    assert.match(notes, /`bun exact\.mjs verify`\s+when the features work, and `verify ios` once at the end for an iPhone\s+app/);
+    assert.match(notes, /`bun exact\.mjs help`\s+lists the verbs/);
+    assert.doesNotMatch(notes, /after each edit|milestone/);
     assert.doesNotMatch(notes, /Read\s+these|contract types|no-tells|\.exact\//);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
