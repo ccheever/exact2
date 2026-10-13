@@ -329,7 +329,8 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   not presented; the authored header, tablist and popover paint instead, by default.
   To see the bars, the tab bar and sheets as a person does, drive with `--chrome
   platform` and take `screenshot out.png window`; menus stay the agent's popovers
-  there. On the Mac the same switch shows a `dialog` as its sheet and a popover
+  there. On the Mac the same switch shows a `dialog` and a modal route as
+  sheets and a popover
   that is no menu as AppKit's popover; each is a window of its own, so a plain
   `screenshot` (the viewport's own drawing) leaves it out and says so
   (`notShown`). (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)

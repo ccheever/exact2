@@ -61,8 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
-    /// A sheet is a route in the window here, with no native presentation
-    /// to wait for (the iOS host's `awaitModalTransitions`).
+    /// A modal route's sheet has arrived or left by the time the input
+    /// that asked for it returns (AppKit's `beginSheet` and `endSheet` do
+    /// not return before), so there is nothing to wait for (the iOS host's
+    /// `awaitModalTransitions`).
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
 
     /// AppKit animates nothing here that a seek does not move, but for a

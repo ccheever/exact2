@@ -59,10 +59,11 @@ final class NavigationHost {
         grounds.removeAll()
     }
 
-    /// A modal route covers the route beneath it, which stays shown under
-    /// it as a page stays under a sheet: where the route paints no
-    /// background of its own, the page's ground is its surface. What the
-    /// author wrote on the route (a colour, a gradient) is the surface.
+    /// A modal route painted in the window covers the route beneath it,
+    /// which stays shown under it as a page stays under a sheet: where the
+    /// route paints no background of its own, the page's ground is its
+    /// surface. What the author wrote on the route (a colour, a gradient)
+    /// is the surface. One in its sheet stands on the sheet's.
     private func ground(_ routes: [NodeView], grounded: inout Set<UInt32>) {
         for route in routes where route.props["navigationPresentation"] == "modal" {
             let painted = (route.cgColor("background_color")?.alpha ?? 0) > 0 || route.style["background_image"] != nil
@@ -219,8 +220,12 @@ final class NavigationHost {
 /// @ref LLP 1115.002 D7.1 — the opaque surface of a modal route that paints
 /// none: the page's ground, under everything the route holds (a child's
 /// negative `z-index` included), at the route's size. It is no hit: a click
-/// on it is a click on the route. This is the fix until a modal route is a
-/// sheet with a window of its own (D7.4).
+/// on it is a click on the route. A modal route is a sheet with a window of
+/// its own (D7.4, RouteSheetMac.swift); this is the ground of one painted
+/// in the window all the same (the driver's own chrome, a header its sheet
+/// cannot take the title out of, no window) when the compiler gave it none
+/// either (LLP 1116.009 D3 gives a route whose presentation it can read
+/// the page's).
 final class ModalGround: NSView {
     private weak var presenter: Presenter?
     init(presenter: Presenter) {

@@ -1122,6 +1122,19 @@ the agent both paint in the page as before; `--chrome platform` on `macos`
 shows them, `tap`, `type` and `tree` reach what is in them, and `screenshot
 "file" window` draws them over the window.
 
+A route with `navigationPresentation="modal"` is the same sheet on the Mac
+(LLP 1115.002 D7.4), as large as its content (an authored `width` or `height`
+is used; its `inset` is not), under the window's content area. Its `header`
+is the sheet's own: the heading a title row at the top, and at the bottom
+right the `id="back"` control (Cancel) and then the one prominent button
+(`buttonStyle="filled"` or `"bordered-prominent"`), which answers Return.
+Anything else in the header (a search field, a menu's button) stays in it, at
+the top of the sheet. Escape and ⌘. go back as the `id="back"` control does;
+`closedby` is a dialog's. A heading inside a pressable keeps the route painted
+in the window, and `logs` says so. `--chrome platform` shows the sheet: `tap
+"add-save"` presses its button (`native: "NSButton"`), `back` dismisses it,
+and `state navigation.sheet` names its title, its buttons and its size.
+
 With no `buttonStyle` a button is the platform's default: plain tinted text on
 iOS, a push button on macOS, bordered on the web. Say what the action is:
 `buttonStyle="filled"` on the screen's main action, `"bordered"` on one that
