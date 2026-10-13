@@ -70,7 +70,8 @@ extension NodeView {
         guard hasBoxPaint || clipsToBounds || clipBox != nil else { return p }
         // CGColors straight from the rows: an NSColor's `cgColor` is made
         // anew on each call, and this runs for every repaint.
-        p.fill = cgColor("background_color").flatMap { $0.alpha > 0 ? $0 : nil }
+        // In a sheet, the window's background is the sheet's own ground, which AppKit draws (SheetsMac.swift).
+        p.fill = standsOnSheetGround ? nil : cgColor("background_color").flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]
         p.widths = sides.map { number("border_width_" + $0, uniform) }

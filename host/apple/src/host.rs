@@ -406,7 +406,7 @@ impl<D: DataSource> Host<D> {
         // The grammars this archive links (LLP 1047.001 D3; every one for a
         // public boot, LLP 1053.000 §2).
         links.grammars.link();
-        let kernel = Kernel::new(measurer);
+        let kernel = scale::kernel(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
             if let Some(json) = compat {

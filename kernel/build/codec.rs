@@ -589,6 +589,77 @@ pub fn write_lengths(w: &mut String, lengths: &[String]) {
         "/// Every named length, without `-exact-` (LLP 1115.000 D10.3).\npub const NAMED_LENGTHS: &[&str] = &{lengths:?};\n"
     ));
 }
+/// A `metrics` cell: a number (px on a length row), or the CSS text of the
+/// row it is written on.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum MetricCell {
+    Number(f64),
+    Text(String),
+}
+/// A `metrics` row: the name, then iOS's, the Mac's and the web's value.
+type MetricRow = (String, MetricCell, MetricCell, MetricCell);
+/// `metrics` (LLP 1115.002 D6, D8.4): the looks Exact draws itself, a
+/// column a platform. What reads one is `style/metrics.rs`. `taken` is every
+/// other name written `-exact-<name>`, which a metric's must not be.
+fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
+    let cell = |name: &str, cell: &MetricCell| match cell {
+        MetricCell::Number(n) => {
+            assert!(n.is_finite(), "schema: metric {name} is a finite number");
+            format!("MetricValue::Number({n:?})")
+        }
+        MetricCell::Text(text) => {
+            assert!(
+                !text.is_empty() && text.trim() == text && text.parse::<f64>().is_err(),
+                "schema: metric {name}: a number is written as one; text is CSS, `unset` for no row"
+            );
+            format!("MetricValue::Text({text:?})")
+        }
+    };
+    w.push_str(concat!(
+        "/// What a metric is in one column (LLP 1115.002 D6): a number (px on a\n",
+        "/// length row), or the CSS text of the row it is written on (`unset`: no row).\n",
+        "#[derive(Debug, Clone, Copy, PartialEq)]\n",
+        "pub enum MetricValue {\n    /// Pixels, or a row's bare number.\n    Number(f64),\n    /// CSS text.\n    Text(&'static str),\n}\n",
+        "/// One metric of a look Exact draws itself (LLP 1115.002 D6, D8.4): what a\n",
+        "/// sheet the compiler writes names as `-exact-<name>`, and its value a platform.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq)]\n",
+        "pub struct Metric {\n",
+        "    /// The metric's name, without `-exact-`.\n    pub name: &'static str,\n",
+        "    /// On iOS.\n    pub ios: MetricValue,\n",
+        "    /// On the Mac.\n    pub macos: MetricValue,\n",
+        "    /// On the web, and on a host that paints its own controls.\n    pub web: MetricValue,\n",
+        "}\n",
+        "/// Every metric, in the schema's order.\npub const METRICS: &[Metric] = &[\n",
+    ));
+    let mut names = BTreeSet::new();
+    for (name, ios, macos, web) in metrics {
+        assert!(
+            name.starts_with(|c: char| c.is_ascii_lowercase())
+                && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-'),
+            "schema: a metric's name is kebab-case: {name}"
+        );
+        assert!(
+            names.insert(name.as_str()) && !taken.contains(&name.as_str()),
+            "schema: metric {name} is already an `-exact-` name"
+        );
+        w.push_str(&format!(
+            "Metric {{ name: {name:?}, ios: {}, macos: {}, web: {} }},\n",
+            cell(name, ios),
+            cell(name, macos),
+            cell(name, web)
+        ));
+    }
+    w.push_str("];\n");
+}
+/// Every name the schema has that is written `-exact-<name>` and is no
+/// metric: a named length, a text style, a colour role.
+fn exact_names(schema: &Schema) -> Vec<&str> {
+    let lengths = schema.lengths.iter().map(String::as_str);
+    let styles = schema.text_styles.iter().map(|s| s.0.as_str());
+    let roles = schema.colors.iter().map(|c| c[0].as_str());
+    lengths.chain(styles).chain(roles).collect()
+}
 /// `#rrggbb` or `#rrggbbaa` as RGBA.
 fn hex_rgba(hex: &str) -> [u8; 4] {
     let h = hex

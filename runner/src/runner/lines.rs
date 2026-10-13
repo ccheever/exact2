@@ -70,16 +70,36 @@ pub(super) fn revalidated(resource: &str, same: bool) -> String {
 /// A kept answer the first frame shows, with its identifying arguments
 /// (the first 200 characters, and `…` when there were more).
 pub(super) fn kept_shown(resource: &str, args: &str) -> String {
-    let mut shown: String = args.chars().take(200).collect();
-    if shown.len() < args.len() {
-        shown.push('…');
-    }
-    let args = shown;
+    let args = shortened(args);
     text!(
         "{} shows its kept answer from the last session, kept for {}",
         resource,
         args
     )
+}
+
+/// Arguments as a journal line shows them: the first 200 characters, and
+/// `…` when there were more.
+pub(super) fn shortened(args: &str) -> String {
+    let mut shown: String = args.chars().take(200).collect();
+    if shown.len() < args.len() {
+        shown.push('…');
+    }
+    shown
+}
+
+/// A kept answer the first frame does not show, and why (LLP 1027 D4,
+/// LLP 1027.005 D3): `kept` is what it was kept for, when it decoded.
+pub(super) fn kept_refused(resource: &str, kept: Option<&str>, why: &str) -> String {
+    match kept {
+        Some(kept) => text!(
+            "{} refused its kept answer: kept for {}, {}",
+            resource,
+            shortened(kept),
+            why
+        ),
+        None => text!("{} refused its kept answer: {}", resource, why),
+    }
 }
 
 /// A kept answer the fresh one contradicts (LLP 1027 D4, LLP 1102 §3.17).

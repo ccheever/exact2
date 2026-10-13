@@ -61,8 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
-    /// A sheet is a route in the window here, with no native presentation
-    /// to wait for (the iOS host's `awaitModalTransitions`).
+    /// A modal route's sheet has arrived or left by the time the input
+    /// that asked for it returns (AppKit's `beginSheet` and `endSheet` do
+    /// not return before), so there is nothing to wait for (the iOS host's
+    /// `awaitModalTransitions`).
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
 
     /// AppKit animates nothing here that a seek does not move, but for a
@@ -91,7 +93,8 @@ extension Agent {
     func back() -> [String: Any] {
         guard contact == nil else { return ["error": "release the held contact before going back"] }
         if presenter.alerts.observation != nil { return backReply(("dialog", presenter.alerts.key("Escape") ? "" : "the alert has no cancel for Escape")) }
-        if let dialog = presenter.dialogs.active {
+        // A modal route in its sheet goes back as its stack does (`agentBack`).
+        if let dialog = presenter.dialogs.active, !presenter.dialogs.routeActive {
             guard dialog.props["closedby"] != "none" else { return backReply(("dialog", "its closedby is \"none\"")) }
             presenter.dialogs.close(dialog)
             return backReply(("dialog", ""))
@@ -144,7 +147,7 @@ extension Agent {
                                          "transition": ["interactive": false, "phase": "idle"]]
         if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
             let key = container.props["navigationKey"] ?? ""
-            let routes = container.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["navigationKey"] != nil }
+            let routes = presenter.blocks.authored(NavigationTabs.routes(in: container), in: container.container) // one in its sheet too
             let keys = routes.map { $0.props["navigationKey"] ?? "" }
             navigation["route"] = key
             if let range = NavigationRules.stack(routeKeys: keys, selected: key) {
@@ -156,6 +159,8 @@ extension Agent {
         }
         // The platform's Back (LLP 1115.000 D5.1): how it goes now, or null.
         navigation["back"] = presenter.navigation.backObservation
+        // A modal route's presentation: AppKit's sheet, or painted in the window (LLP 1115.002 D7.4).
+        navigation["sheet"] = presenter.dialogs.routeObservation ?? NSNull()
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         navigation["popover"] = presenter.menus.observation ?? NSNull()
@@ -322,13 +327,14 @@ extension Agent {
         let apart = host.window.flatMap { $0 !== presenter.viewport.window ? $0 : nil }
         var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": apart?.isSheet == true]
         if let apart, !apart.isSheet { native["popover"] = true }
+        if let row = presenter.dialogs.rowShows(host) { native["sheetRow"] = row }
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let stepper = host.stepperObservation { native["stepper"] = stepper }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let sidebar = presenter.sidebar.observation(host) { native["sidebar"] = sidebar }
-        if let control = presenter.controls.observation(host) { native["control"] = control }
+        if let control = presenter.controls.observation(host) ?? host.rowBezelObservation { native["control"] = control }
         if let toolbar = presenter.toolbar.observation(host) {
             native["windowToolbar"] = toolbar
             // The kernel frame is authored fallback geometry, not the native
@@ -554,6 +560,13 @@ extension Agent {
         }
         if let node = view(req), presenter.toolbar.suppresses(node) {
             return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
+        }
+        // A modal route's Cancel or confirming action in its sheet's own row (LLP 1115.002 D7.4): the row's click.
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
+           let activated = presenter.dialogs.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSButton"]
+                : ["error": "sheet button #\(id) is unavailable (it is disabled, or something stands over its sheet)"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,

@@ -212,6 +212,21 @@ pub fn set_binding_style(
     value: &Value,
     plan: &exact_plan::Plan,
 ) -> Result<StyleId, BridgeError> {
+    // @ref LLP 1115.002 D6 — a metric's name is the compiler's, in a sheet
+    // it writes: a row its author wrote never reads one, whatever built
+    // the value (the compiler refuses the literal).
+    if binding.written
+        && value
+            .as_str()
+            .is_some_and(|text| exact_kernel::style::metrics::named(text).is_some())
+    {
+        let style =
+            StyleId::from_bit(binding.id as u32).ok_or(BridgeError::UnknownStyle(binding.id))?;
+        return Err(BridgeError::StyleKind {
+            style,
+            value: value.clone(),
+        });
+    }
     let style = set_plan_style(patch, binding.id, value, plan)?;
     set_written(patch, binding, style);
     Ok(style)
@@ -465,6 +480,31 @@ mod tests {
             );
         }
         assert!(set_plan_style(&mut style, color, &Value::str("#fff"), &plan).is_ok());
+    }
+
+    /// LLP 1115.002 D6: a metric's name is the compiler's. A row its author
+    /// wrote never reads one, whatever built the value; a row of a sheet
+    /// the compiler wrote holds the metric's value in this process's column
+    /// (the web's, until a host says its platform).
+    #[test]
+    fn a_metric_is_read_only_on_a_row_the_compiler_wrote() {
+        let plan = exact_plan::Plan::default();
+        let row = |written| exact_plan::BindingsRow {
+            kind: exact_plan::BindingKind::Style,
+            id: StyleId::MinHeight as u16,
+            expr: Default::default(),
+            written,
+        };
+        let name = Value::str("-exact-grouped-row-min-height");
+        let mut style = StyleProps::default();
+        assert!(matches!(
+            set_binding_style(&mut style, &row(true), &name, &plan),
+            Err(BridgeError::StyleKind { .. })
+        ));
+        assert!(!style.mask.has(StyleId::MinHeight));
+        set_binding_style(&mut style, &row(false), &name, &plan).unwrap();
+        assert_eq!(style.min_height, exact_kernel::Dimension::Points(52.0));
+        assert!(!style.written.has(StyleId::MinHeight), "the platform's");
     }
 
     /// LLP 1115.000 D2: where two bindings set one row the node has the

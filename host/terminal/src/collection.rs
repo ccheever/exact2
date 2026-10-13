@@ -130,7 +130,7 @@ impl<D: DataSource> Host<D> {
                     continue;
                 }
                 let origin = pt as f64;
-                let reach = (snapshot.total_extent + (pt + pb) as f64 - port_main)
+                let reach = (snapshot.total_extent + origin + pb as f64 - port_main)
                     .max(node.content.1 as f64 - port_main)
                     .max(0.0);
                 let requested = node
@@ -186,6 +186,7 @@ impl<D: DataSource> Host<D> {
                     port_main,
                     port_cross,
                     cross,
+                    padding: [origin, pb as f64],
                     measurements,
                     focus_view,
                     interaction_view: None,

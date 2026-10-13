@@ -86,6 +86,7 @@ fn logical_text_copy_spans_unmounted_rows_without_changing_the_window() {
         port_cross: 390.0,
         port_main: 240.0,
         cross: 390.0,
+        padding: [0.0; 2],
         measurements: snapshot
             .rows
             .iter()

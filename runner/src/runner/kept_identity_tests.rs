@@ -274,3 +274,55 @@ fn a_long_identity_is_journaled_shortened_with_a_mark() {
     let line = super::lines::kept_shown("feeds", "[0]");
     assert!(line.ends_with("kept for [0]"), "{line}");
 }
+
+#[test]
+fn a_refused_kept_answer_is_journaled_with_why() {
+    // The account kept for other arguments; feeds kept for a key read from
+    // the account's fallback.
+    let mut r = launch(
+        false,
+        vec![
+            (
+                kept::kept_name("account"),
+                kept::encode(&[Value::Number(1.)], &Value::str("alice")),
+            ),
+            feeds_kept(
+                &[Value::Number(0.), Value::str("nobody")],
+                "feeds of nobody",
+            ),
+        ],
+    );
+    let lines: Vec<_> = r
+        .journal()
+        .filter(|l| l.contains("refused its kept answer"))
+        .collect();
+    assert!(
+        lines.iter().any(|l| l
+            .ends_with("account refused its kept answer: kept for [1], this launch asks for [0]")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.ends_with(
+            "feeds refused its kept answer: kept for [0,\"nobody\"], this launch's arguments read a store reader still on its fallback"
+        )),
+        "{lines:?}"
+    );
+    assert_eq!(lines.len(), 2, "once each: {lines:?}");
+    // Readiness asks them again; that consumes no seed it should name.
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    settle_requests(&mut r);
+    let after = r
+        .journal()
+        .filter(|l| l.contains("refused its kept answer"))
+        .count();
+    assert_eq!(after, 2);
+}
+
+#[test]
+fn a_kept_entry_that_no_longer_decodes_is_journaled() {
+    let r = launch(false, vec![(kept::kept_name("account"), vec![1, 2, 3])]);
+    assert!(r
+        .journal()
+        .any(|l| l.ends_with("account refused its kept answer: it no longer decodes or fits")));
+}

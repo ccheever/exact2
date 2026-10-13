@@ -367,6 +367,8 @@ pub enum LayoutError {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KernelError {
+    /// Invalid document continuation state; no receipt was published.
+    DocumentCommit(&'static str),
     /// Frame or payload decoding.
     Decode(DecodeError),
     /// Batch validation.
@@ -429,6 +431,7 @@ impl fmt::Display for LayoutError {
 impl fmt::Display for KernelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            KernelError::DocumentCommit(what) => write!(f, "document commit: {what}"),
             KernelError::Decode(e) => e.fmt(f),
             KernelError::Apply(e) => e.fmt(f),
             KernelError::Layout(e) => e.fmt(f),

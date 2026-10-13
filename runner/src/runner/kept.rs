@@ -25,6 +25,40 @@ pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
 pub(super) struct Keeping {
     pub(super) on: bool,
     pub(super) too_big: Vec<usize>,
+    /// Kept answers this boot refused, by resource, with why: journaled
+    /// with the ones it shows, so a refusal is never silent.
+    pub(super) refused: Vec<(usize, String)>,
+}
+
+/// Note that resource `i`'s kept answer, kept for `kept`, was refused
+/// for this launch's identifying `now` (or, with `now` unknown, because
+/// they read a store reader still on its fallback). Once per resource.
+pub(super) fn refuse(
+    keeping: &mut Keeping,
+    plan: &exact_plan::Plan,
+    i: usize,
+    kept: &[Value],
+    now: Option<&[Value]>,
+) {
+    if keeping.refused.iter().any(|(r, _)| *r == i) {
+        return;
+    }
+    let json = |args: &[Value]| {
+        let mut out = String::new();
+        crate::agent::untyped_json(&Value::list(args.to_vec()), &mut out);
+        out
+    };
+    let why = match now {
+        Some(now) => format!(
+            "this launch asks for {}",
+            super::lines::shortened(&json(now))
+        ),
+        None => "this launch's arguments read a store reader still on its fallback".into(),
+    };
+    let name = plan.str(plan.resources[i].name);
+    keeping
+        .refused
+        .push((i, super::lines::kept_refused(name, Some(&json(kept)), &why)));
 }
 
 /// The store name a resource's kept answer lives under.
@@ -194,6 +228,7 @@ impl<D: DataSource> Runner<D> {
     /// was kept for (development tools read the journal; its request lines
     /// already carry URLs), so a stale answer is traceable to its key.
     pub(super) fn journal_kept_seeds(&mut self) {
+        self.journal_refused();
         for i in 0..self.plan.resources.len() {
             if let Some(state) = self.resources[i].as_ref().filter(|s| s.kept_seed) {
                 let mut args = String::new();
@@ -203,6 +238,32 @@ impl<D: DataSource> Runner<D> {
                 self.log(line);
             }
         }
+    }
+
+    /// Journal the kept answers refused by a settlement that stood: at
+    /// boot, and at a later commit before readiness (an identity changed).
+    pub(super) fn journal_refused(&mut self) {
+        for (_, line) in std::mem::take(&mut self.keeping.refused) {
+            self.log(line);
+        }
+    }
+
+    /// The kept answer that may seed resource `i`'s first frame: its
+    /// identifying arguments and value, when they still decode, count as
+    /// many arguments as the call identifies and fit its shape; otherwise
+    /// the refusal is noted for the journal.
+    pub(super) fn kept_seed(&mut self, i: usize) -> Option<(Vec<Value>, Value)> {
+        let row = &self.plan.resources[i];
+        let name = self.plan.str(row.name);
+        let entry = self.store.kept(&kept_name(name))?;
+        let identity = row.args.len as usize - usize::from(row.context);
+        let seed = decode(entry)
+            .filter(|(args, value)| args.len() == identity && self.check_shape(i, value).is_ok());
+        if seed.is_none() {
+            let line = super::lines::kept_refused(name, None, "it no longer decodes or fits");
+            self.keeping.refused.push((i, line));
+        }
+        seed
     }
 
     /// Keep a store-reading resource's fresh answer for the next boot's

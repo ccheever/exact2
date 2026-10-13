@@ -953,16 +953,7 @@ impl<D: DataSource> Runner<D> {
                 if runner.resources[i].is_some() {
                     continue;
                 }
-                let name = runner.plan.str(runner.plan.resources[i].name);
-                let seed = runner
-                    .store
-                    .kept(&kept::kept_name(name))
-                    .and_then(kept::decode)
-                    .filter(|(args, value)| {
-                        let row = &runner.plan.resources[i];
-                        args.len() == row.args.len as usize - usize::from(row.context)
-                            && runner.check_shape(i, value).is_ok()
-                    });
+                let seed = runner.kept_seed(i);
                 if let Some((args, value)) = seed {
                     runner.resources[i] = Some(ResourceState {
                         args,

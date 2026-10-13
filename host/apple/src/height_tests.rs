@@ -442,6 +442,7 @@ fn nested_collection_feedback_relayouts_current_height_at_new_epoch() {
         port_cross: 400.,
         port_main: height(&h, "port") as f64,
         cross: 400.,
+        padding: [0.0; 2],
         measurements: snapshot
             .rows
             .iter()

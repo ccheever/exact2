@@ -38,6 +38,7 @@ mod viewport;
 pub use viewport::ViewportUnit;
 pub mod cells;
 mod color_parse;
+pub mod metrics;
 pub mod profiled;
 pub mod relative;
 pub mod roles;
@@ -369,7 +370,8 @@ impl StyleValue<'_> {
     /// [`Self::unsets`] for borrowed text, before a producer allocates a
     /// style value. Dynamic bindings use this on every changed row.
     pub fn text_unsets(t: &str, style: StyleId) -> bool {
-        let t = t.trim();
+        // A metric with no row on this platform (LLP 1115.002 D6).
+        let t = metrics::text(t).unwrap_or(t).trim();
         t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
             || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)

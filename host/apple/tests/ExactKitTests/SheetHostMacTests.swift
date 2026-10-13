@@ -91,12 +91,13 @@ final class SheetFixture {
 
     """
 
-    init(size: CGSize = CGSize(width: 900, height: 640)) throws {
+    /// `page`: another page for the same fixture (`RouteSheetMacTests`).
+    init(page: String = SheetFixture.page, size: CGSize = CGSize(width: 900, height: 640)) throws {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        try Self.page.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        try page.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
         let compiler = Process()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
         compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]

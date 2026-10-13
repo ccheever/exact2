@@ -86,7 +86,8 @@ extension NavigationHost {
 
     private func take(_ how: NavigationRules.Back, from root: NodeView, _ route: NodeView) {
         switch how {
-        case .press(let id): presenter.press(id)
+        // A Back control its sheet's row stands for is pressed as that row presses it (RouteSheetMac.swift).
+        case .press(let id): presenter.press(id, fromNativeMenu: presenter.views[id].flatMap(presenter.dialogs.rowShows) != nil)
         case .navigate(let location): presenter.session?.navigate(location, at: root)
         case .pop:
             if let key = route.props["navigationKey"] { presenter.session?.hostBack(key) }
@@ -111,11 +112,20 @@ extension NavigationHost {
             if presenter.dialogs.active != nil || presenter.viewport.window?.attachedSheet != nil { return ("route", "a dialog or a sheet is open over the page") }
             return ("route", goBack() ? "" : "its navigationBack control is disabled or has no press handler")
         }
-        guard let (root, route) = sheetRoute else { return nil }
-        if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return ("sheet", "its closedby is \"none\"") }
-        guard let how = way(from: root, route) else { return ("sheet", "its navigationBack control is disabled or has no press handler") }
+        guard let (_, route) = sheetRoute else { return nil }
+        return ("sheet", dismiss(route) ?? "")
+    }
+
+    /// The platform's dismissal of a modal route: Escape or Command-period
+    /// in its sheet and a click behind a `closedby="any"` one (LLP 1115.002
+    /// D7.4), and the agent's `back`. It goes as the stack goes back, which
+    /// the app decides; nil when it went, else why it was refused.
+    @discardableResult func dismiss(_ route: NodeView) -> String? {
+        guard let selection, let root = presenter.views[selection.root] else { return "its stack has no navigation root" }
+        if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return "its closedby is \"none\"" }
+        guard let how = way(from: root, route) else { return "its navigationBack control is disabled or has no press handler" }
         take(how, from: root, route)
-        return ("sheet", "")
+        return nil
     }
 
     /// `state.navigation.back` (the agent): how Back goes now, or that it does not.

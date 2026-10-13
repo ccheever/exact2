@@ -860,6 +860,49 @@ fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
     );
 }
 
+// @ref LLP 1115.002 D6 — the sheet names the platform's metrics and holds
+// none of its numbers: a row reads its platform's column where it runs (the
+// web's here, which is the sheet as it was). The names are the compiler's:
+// an author's value that is one is refused, on a row that takes text too.
+#[test]
+fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section testId=\"section\"\n    button press=go destructive=true testId=\"row\"\n      text \"Remove\"";
+    let plan = contract::compile(&app(body)).unwrap();
+    for name in [
+        "-exact-grouped-ground",
+        "-exact-grouped-card-fill",
+        "-exact-grouped-card-radius",
+        "-exact-grouped-button-min-height",
+        "-exact-grouped-destructive-color",
+        "-exact-grouped-button-appearance",
+    ] {
+        assert!(plan.strings.iter().any(|s| s == name), "{name}");
+    }
+    let r = boot(body);
+    let row = r.kernel().node(id(&r, "row")).unwrap();
+    assert_eq!(row.style.min_height, exact_kernel::Dimension::Points(52.0));
+    assert_eq!(row.style.appearance, exact_kernel::Appearance::None);
+    assert!(
+        !row.style.mask.has(exact_kernel::StyleId::PaddingTop)
+            && !row.style.mask.has(exact_kernel::StyleId::PaddingLeft),
+        "the Mac's rows are no row here"
+    );
+    let red = ColorValue::Role(exact_kernel::style::roles::role("-exact-system-red").unwrap());
+    assert_eq!(row.style.text_color, red);
+    assert!(
+        !row.style.written.has(exact_kernel::StyleId::TextColor),
+        "the sheet's rows are the platform's, not the author's (LLP 1115.000 D2)"
+    );
+    for authored in [
+        "column min-height=\"-exact-grouped-row-min-height\"",
+        "text \"x\" color=\"-exact-grouped-destructive-color\"",
+        "text \"x\" color=(dark ? \"-exact-grouped-destructive-color\" : \"#fff\")",
+    ] {
+        let e = contract::compile(&app(authored)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-value", "{authored}: {}", e.message);
+    }
+}
+
 // @ref LLP 1116.007 D3.1 — the chevron by another spelling is still the disclosure.
 #[test]
 fn a_chevron_by_another_spelling_is_the_disclosure_accessory() {

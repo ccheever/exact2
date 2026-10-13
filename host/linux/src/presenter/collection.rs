@@ -51,9 +51,8 @@ struct Cursor {
     sequence: u64,
     corrected: Option<u64>,
     dimensions: Option<(f64, f64, f64, f64)>,
-    /// The last report, and the list's main-axis padding it went with: a
-    /// change of padding alone is news to the runner (LLP 1010 §6.9).
-    sent: Option<(CollectionFeedback, [f64; 2])>,
+    /// The last report.
+    sent: Option<CollectionFeedback>,
     queued: bool,
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
@@ -234,12 +233,15 @@ fn main_of(axis: ListAxis, offset: (f32, f32)) -> f32 {
         ListAxis::Horizontal => offset.0,
     }
 }
+/// A padding against a containing block `basis` wide, clamped at 0, padding's
+/// range: a `calc()` that resolves below it computes to 0 (CSS Values 4 §10.12)
 fn length(kernel: &Kernel, value: Dimension, basis: f64) -> f64 {
-    match value.resolve(&kernel.env()) {
+    let n = match value.resolve(kernel.arena().env()) {
         Dimension::Points(n) => n as f64,
         Dimension::Percent(n) => basis * n as f64 / 100.,
         _ => 0.,
-    }
+    };
+    n.max(0.)
 }
 
 fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
@@ -989,6 +991,7 @@ impl<D: DataSource> Presenter<D> {
                 port_main: g.main(),
                 port_cross: g.port_cross(),
                 cross: g.cross,
+                padding: g.padding,
                 measurements: snapshot
                     .rows
                     .iter()
@@ -1021,13 +1024,12 @@ impl<D: DataSource> Presenter<D> {
                         == Some(view)
                 }),
             };
-            // Unchanged facts and padding are news only to a list a slice left
-            // pending.
-            let sent = (feedback.clone(), g.padding);
-            if cursor.sent.as_ref() == Some(&sent) && !snapshot.pending {
+            // Unchanged facts, the padding among them (LLP 1010 §6.9), are
+            // news only to a list a slice left pending.
+            if cursor.sent.as_ref() == Some(&feedback) && !snapshot.pending {
                 continue;
             }
-            cursor.sent = Some(sent);
+            cursor.sent = Some(feedback.clone());
             let velocity = (self.collection.velocity)
                 .filter(|(v, _)| *v == view)
                 .map_or(0.0, |(_, v)| v);
@@ -1185,5 +1187,61 @@ mod tests {
         assert_eq!(facts.width, 100.);
         assert_eq!(facts.cross, 60.);
         assert_eq!(facts.origin, 0.);
+    }
+
+    /// A padding whose `calc()` resolves below zero is zero, CSS's range for
+    /// padding (LLP 1010 §6.9): the origin, the range and the reported
+    /// padding all take 0, on either axis, and the runner accepts the report.
+    #[test]
+    fn a_negative_resolved_padding_is_zero_on_either_axis() {
+        struct Rows;
+        impl DataSource for Rows {
+            fn query(
+                &mut self,
+                _: &str,
+                _: &[exact_runner::Value],
+            ) -> Result<exact_runner::Value, exact_runner::DataError> {
+                Ok(exact_runner::Value::list(
+                    (0..50)
+                        .map(|i| exact_runner::Value::Number(i as f64))
+                        .collect(),
+                ))
+            }
+        }
+        let below = "\"calc(env(safe-area-inset-bottom) - 12px)\"";
+        for list in [
+            format!("list virtualized=true width=200 height=100 overflow-x=\"hidden\" padding-top={below} padding-bottom={below}"),
+            format!("list virtualized=true display=\"flex\" width=200 height=100 overflow-x=\"scroll\" overflow-y=\"hidden\" padding-left={below} padding-right={below}"),
+        ] {
+            let source = format!("component App\n  resource rows = rows() as shape list<number>\n  view\n    column width=200\n      {list}\n        each x in rows key=x\n          text `${{x}}` width=40 height=20\n");
+            let plan = contract::compile(&source).unwrap();
+            let (mut host, error) = Host::boot(
+                &plan.encode(),
+                Rows,
+                Box::new(exact_kernel::MonospaceMeasurer::default()),
+                400.,
+                500.,
+            )
+            .unwrap();
+            assert!(error.is_none());
+            let snapshot = host.collections()[0].clone();
+            let facts = geometry(host.kernel(), &snapshot, 400.).unwrap();
+            assert_eq!((facts.origin, facts.padding), (0., [0.; 2]), "{list}");
+            let feedback = CollectionFeedback {
+                view: snapshot.view,
+                revision: snapshot.revision,
+                scroll_sequence: 1,
+                offset: 0.,
+                port_main: facts.main(),
+                port_cross: facts.port_cross(),
+                cross: facts.cross,
+                padding: facts.padding,
+                measurements: vec![],
+                focus_view: None,
+                interaction_view: None,
+            };
+            host.collection_feedback_filled(feedback, CollectionFill::default())
+                .unwrap_or_else(|e| panic!("{list}: {e:?}"));
+        }
     }
 }

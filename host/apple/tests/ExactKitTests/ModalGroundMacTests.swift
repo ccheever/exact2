@@ -1,6 +1,10 @@
-// @ref LLP 1115.002 D7.1 — a modal route's surface on the Mac: the page's
-// ground where the route paints none, so the route it covers does not show
-// through it (Shelf's library under the New Book form's header).
+// @ref LLP 1115.002 D7.1 — the surface of a modal route painted in the
+// window on the Mac: the page's ground where the route paints none, so the
+// route it covers does not show through it (Shelf's library under the New
+// Book form's header). A modal route is a sheet with a window of its own
+// (D7.4, `RouteSheetMacTests`); it is painted, on this ground, under the
+// driver's own chrome and where its sheet cannot take its title out of its
+// header.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -18,6 +22,8 @@ final class ModalGroundMacTests: XCTestCase {
     private func fixture(selected: String) -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
+        // The painted presentation, as the driver's own chrome has it.
+        p.dialogs.painted = true
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = p.viewport

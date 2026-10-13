@@ -277,8 +277,8 @@ impl Lowerer<'_> {
     /// Main-axis padding on a virtualized list (@ref LLP 1010 §6.9): CSS's
     /// room before the first row and after the last, inside the scroll
     /// content. It takes what padding takes elsewhere (a number,
-    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: the
-    /// runner reads the list's resolved padding from layout at every report.
+    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: each
+    /// host reports the padding it laid out with the list's offset.
     /// A percentage is refused: Apple's hosts place rows from the authored
     /// padding, which has no containing block to resolve one against.
     /// `scroll-padding` along the axis takes the same forms: the inset a

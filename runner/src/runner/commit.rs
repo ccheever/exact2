@@ -34,6 +34,8 @@ pub(super) struct Checkpoint {
     published: Option<Box<Published>>,
     commands: usize,
     root_font: (super::root_font::RootFont, f32),
+    /// Kept answers refused before this commit (`kept::refuse`).
+    refused: usize,
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
@@ -100,6 +102,7 @@ impl<D: DataSource> Runner<D> {
                 }),
             commands: self.commands.len(),
             root_font: (self.root_font, self.kernel.root_font_size()),
+            refused: self.keeping.refused.len(),
         }
     }
 
@@ -115,6 +118,7 @@ impl<D: DataSource> Runner<D> {
         match result {
             Ok(_) => {
                 self.persist_slots();
+                self.journal_refused();
                 self.log_store_writes(c.store.writes)
             }
             Err(_) if self.poisoned && !was_poisoned => self.store.restore(c.store),
@@ -165,6 +169,8 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
+                // A refusal the restore undid is not said.
+                self.keeping.refused.truncate(c.refused);
                 self.root_font = c.root_font.0;
                 let _ = self.kernel.set_root_font_size(c.root_font.1);
             }

@@ -33,9 +33,9 @@
 // without it.
 //
 // **Which route.** The route the root shows; or, while that route is a
-// modal one (a sheet's content, stage 6c), the route it stands over, as a
-// window keeps its own title and items under a sheet. A modal route's own
-// header stays painted in it until it is a sheet.
+// modal one (a sheet's content), the route it stands over, as a window
+// keeps its own title and items under a sheet. A modal route's own header
+// is its sheet's (D7.4, RouteSheetMac.swift).
 //
 // **Who wins.** A toolbar the author declared for the window
 // (`toolbarPlacement="window"`) is the bar, and then no header is projected.

@@ -64,6 +64,7 @@ fn feedback(h: &mut Host<Rows>, top: f64, pin: Option<ViewId>) {
             port_cross: 320.,
             port_main: 100.,
             cross: 320.,
+            padding: [0.0; 2],
             focus_view: None,
             interaction_view: pin,
             measurements: c
