@@ -118,7 +118,7 @@ component App
         text "from caller" testId="slot"
         Counter(label="slot-counter")
       Counter(label="outside")
-      each entry in entries key=entry
+      for entry in entries key=entry
         Counter(label=entry)
 "#,
     );

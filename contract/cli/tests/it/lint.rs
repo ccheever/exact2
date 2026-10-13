@@ -158,7 +158,7 @@ fn check_refuses_without_data_what_no_answer_could_change() {
     // A label the module answers is empty until it does: not this check's
     // to judge, nor a `scroll` that only its answered rows reach the bound
     // of (unanswered, it is exactly as tall as its header).
-    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape list<string>\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            each r in rows key=r\n              text r\n";
+    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape list<string>\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            for r in rows key=r\n              text r\n";
     contract::check(&contract::compile(answered).unwrap()).unwrap();
 }
 
@@ -474,7 +474,7 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `toString(…)`",
         ),
         (
-            app("", "when draft = \"x\"\n        text \"a\""),
+            app("", "if draft = \"x\"\n        text \"a\""),
             "syntax-expected-newline",
             "expected end of line, found `=`; `==` compares, and only a statement assigns",
         ),
@@ -551,7 +551,7 @@ component App
       input value=drat
       buton press=add
         text "Add" color="bleu"
-      each t in todos key=t.id
+      for t in todos key=t.id
         Row(todo=t, onPik=add)
 component Row
   props

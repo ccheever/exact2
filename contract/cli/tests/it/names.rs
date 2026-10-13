@@ -15,13 +15,13 @@ component App
   resource steps = steps() as shape Steps
   view
     column
-      each s in steps.items key=s.key
+      for s in steps.items key=s.key
         Mark(state=s.state)
 component Mark
   props
     state: string
   view
-    when state == "done"
+    if state == "done"
       text "done"
     else
       text state
@@ -32,7 +32,7 @@ component Mark
 
 /// LLP 1088 D5: the 23 contextual keywords are names at every binder —
 /// a prop, a state, a derive, an action and its parameters, a `fn` and its
-/// parameters, a `let`, an `each` item and index, a `match` binding, an
+/// parameters, a `let`, a `for` item and index, a `match` binding, an
 /// arrow parameter — and read as names in expressions; `refresh` starts a
 /// statement only before a name (kanban F13, shop F6, hn-reader F1,
 /// calendar F16).
@@ -81,7 +81,7 @@ component App
     column
       Row({w}="x")
       button "go" press=a{w}("x")
-      each {w}x, i in map(items, ({w}) => {w}.name) key={w}x
+      for {w}x, i in map(items, ({w}) => {w}.name) key={w}x
         text {w}x
       match some({w})
         case some(m{w})
@@ -116,8 +116,8 @@ component Row
 #[test]
 fn reserved_words_are_refused_at_binders_and_admitted_as_fields() {
     const RESERVED: [&str; 16] = [
-        "when", "if", "else", "each", "in", "match", "case", "as", "fn", "and", "or", "not",
-        "true", "false", "none", "some",
+        "when", "if", "else", "for", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
+        "false", "none", "some",
     ];
     for w in RESERVED {
         let why = if matches!(w, "true" | "false" | "none" | "some") {

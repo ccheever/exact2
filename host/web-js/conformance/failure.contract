@@ -20,7 +20,7 @@ component Failure
     column testId="root" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
       text `probe ${probe} ${probeWhy}` testId="probe"
       text (match failure(stats) { case some(f) => `stats ${f.code}`, case none => "stats none" }) testId="stats"
-      when failed(probe) && failure(probe) != none
+      if failed(probe) && failure(probe) != none
         text "the banner shows" testId="banner"
       row gap=4 flex-wrap="wrap"
         button press=ask(1) testId="ask-1"

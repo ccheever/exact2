@@ -16,7 +16,7 @@ fn edge_handlers_require_a_virtualized_collection() {
             "view virtualized=true",
         ] {
             let source = format!(
-                "component App\n  state enabled = true\n  action more\n    let n = 1\n  view\n    {node} {event}=more height=320\n      each x in [1, 2] key=x\n        text `${{x}}`\n"
+                "component App\n  state enabled = true\n  action more\n    let n = 1\n  view\n    {node} {event}=more height=320\n      for x in [1, 2] key=x\n        text `${{x}}`\n"
             );
             let error = contract::compile(&source).expect_err(&source);
             assert_eq!(error.id, "lower-collection-edge", "{error}");
@@ -108,7 +108,7 @@ const SOURCE: &str = r#"component App
     fail = true
   view
     list virtualized=true height=320 reachstart=onStart reachend=onEnd
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` testId=`row-${x}` height=32
 "#;
 fn boot(source: &str) -> Runner<Rows> {
@@ -578,9 +578,9 @@ fn lists_in_an_each_say_which_one_reached_its_end() {
     ends = ends + 1
   view
     column
-      each g in groups key=g
+      for g in groups key=g
         list virtualized=true height=320 reachend=onEnd(g)
-          each x in rows key=x
+          for x in rows key=x
             text `${x}` height=32
 "#;
     let mut r = boot(source);
@@ -751,7 +751,7 @@ fn rows_arriving_before_a_trailing_row_rearm_the_end() {
             "  state fail = false\n",
             "  state fail = false\n  state limit = 20\n  derive shown = filter(rows, (x) => x < limit or x == 199)\n  action grow\n    limit = limit + 20\n",
         )
-        .replace("each x in rows key=x", "each x in shown key=x");
+        .replace("for x in rows key=x", "for x in shown key=x");
     let mut r = boot(&source);
     // 21 rows of 32: the end is at 352.
     measure(&mut r, 352., 32.);
@@ -778,8 +778,8 @@ fn a_list_on_a_covered_route_waits_for_it_to_show() {
             "routes nav\n  home \"/\"\n  post \"/post/:id\"\ncomponent App\n  derive current = top(nav)\n  action back\n    nav = back(nav)\n",
         )
         .replace(
-            "    list virtualized=true height=320 reachstart=onStart reachend=onEnd\n      each x in rows key=x\n        text `${x}` testId=`row-${x}` height=32\n",
-            "    main navigationKey=`${current.id}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          when e.name == \"home\"\n            list virtualized=true height=320 reachstart=onStart reachend=onEnd\n              each x in rows key=x\n                text `${x}` testId=`row-${x}` height=32\n          when e.name == \"post\"\n            button id=\"back\" press=back\n              text \"Back\"\n",
+            "    list virtualized=true height=320 reachstart=onStart reachend=onEnd\n      for x in rows key=x\n        text `${x}` testId=`row-${x}` height=32\n",
+            "    main navigationKey=`${current.id}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          if e.name == \"home\"\n            list virtualized=true height=320 reachstart=onStart reachend=onEnd\n              for x in rows key=x\n                text `${x}` testId=`row-${x}` height=32\n          if e.name == \"post\"\n            button id=\"back\" press=back\n              text \"Back\"\n",
         );
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),

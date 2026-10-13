@@ -572,7 +572,7 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
         "keyed rows keep their views"
     );
 
-    // Search flips the `when`; the timer ticks under the clock.
+    // Search flips the `if`; the timer ticks under the clock.
     let search = ids(&r, "search")[0].1;
     r.dispatch(search, Event::Input("pal".into())).unwrap();
     assert_eq!(text_of(&r, "searching").as_deref(), Some("searching"));

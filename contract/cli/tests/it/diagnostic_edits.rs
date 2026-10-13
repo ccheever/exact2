@@ -113,12 +113,12 @@ const CASES: &[Case] = &[
         leads: "write `[]` for an empty list; `empty()` is only a resource's `else`",
         fixed: &[(WRITES_LIST, "text \"a\"")],
     },
-    // An `each` with no key.
+    // A `for` with no key.
     Case {
-        wrote: (ITEMS, "each i in items\n  text i.name"),
+        wrote: (ITEMS, "for i in items\n  text i.name"),
         id: "syntax-expected",
         leads: "add `key=i.<its id field>`,",
-        fixed: &[(ITEMS, "each i in items key=i.id\n  text i.name")],
+        fixed: &[(ITEMS, "for i in items key=i.id\n  text i.name")],
     },
     // A section's header and footer, where UIKit draws them.
     Case {
@@ -128,18 +128,18 @@ const CASES: &[Case] = &[
         fixed: &[("", "list appearance=\"auto\"\n  section\n    header\n      text \"late\"\n    row\n      text \"x\"")],
     },
     Case {
-        wrote: ("", "list appearance=\"auto\"\n  section\n    when on\n      header\n        text \"h\"\n    row\n      text \"x\""),
+        wrote: ("", "list appearance=\"auto\"\n  section\n    if on\n      header\n        text \"h\"\n    row\n      text \"x\""),
         id: "lower-grouped-list",
-        leads: "move `header` to the section's first line, outside `when`:",
+        leads: "move `header` to the section's first line, outside `if`:",
         fixed: &[
             ("", "list appearance=\"auto\"\n  section\n    header\n      text (on ? \"h\" : \"g\")\n    row\n      text \"x\""),
-            ("", "list appearance=\"auto\"\n  when on\n    section\n      header\n        text \"h\"\n      row\n        text \"x\"\n  else\n    section\n      row\n        text \"x\""),
+            ("", "list appearance=\"auto\"\n  if on\n    section\n      header\n        text \"h\"\n      row\n        text \"x\"\n  else\n    section\n      row\n        text \"x\""),
         ],
     },
     Case {
-        wrote: ("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    when on\n      footer\n        text \"f\""),
+        wrote: ("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    if on\n      footer\n        text \"f\""),
         id: "lower-grouped-list",
-        leads: "move `footer` to the section's last line, outside `when`:",
+        leads: "move `footer` to the section's last line, outside `if`:",
         fixed: &[("", "list appearance=\"auto\"\n  section\n    row\n      text \"x\"\n    footer\n      text (on ? \"f\" : \"g\")")],
     },
     // `buttonStyle` on a custom face.

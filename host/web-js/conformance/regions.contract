@@ -1,5 +1,5 @@
 // Synthetic conformance plan: keyed rows reordered, inserted and removed;
-// `when`/`else`, `match`, nested regions, and/or, ternaries, row positions.
+// `if`/`else`, `match`, nested regions, and/or, ternaries, row positions.
 shape Location
   lat: number
   lon: number
@@ -55,18 +55,18 @@ component Regions
           text `picked ${p}` testId="picked"
         case none
           text "nothing picked" testId="picked"
-      when open and mode != 2
+      if open and mode != 2
         column gap=4 testId="list"
-          each it, i in items key=it
+          for it, i in items key=it
             button press=pick(it) testId=`row-${it}`
               row gap=8
                 text `${i}` testId=`index-${it}`
                 text it
-                when picked == some(it) or i == 0
+                if picked == some(it) or i == 0
                   text "★" testId=`star-${it}`
         // A list at the arm's top: built into the arm's fragment, its later
         // rows go where the arm landed (`rotate` drops one, `restore` adds).
-        each it in items key=it
+        for it in items key=it
           text it testId=`bare-${it}`
       else
         text (mode == 2 ? "mode two hides the list" : "closed") testId="closed"

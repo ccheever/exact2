@@ -29,9 +29,9 @@ component App
     send changed = move(item, col, at)
   view
     row
-      each col in columns key=col
+      for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) height=100 width=100
-          each card in filter(cards, k => k.col == col) key=card.id
+          for card in filter(cards, k => k.col == col) key=card.id
             column reorderFor=`col-${col}` testId=`grip-${card.id}` height=20
               text card.id
 "#;
@@ -291,7 +291,7 @@ fn a_grouped_list_is_accepted_and_each_refusal_is_whole() {
     );
     let (id, message) = refused("key=card.id", "key=length(card.id)");
     assert_eq!(id, "lower-reorder-group");
-    assert_eq!(message, "a grouped list's rows move between lists by their keys, so its `each` is keyed by a string, not a number: key it by the item's string id");
+    assert_eq!(message, "a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a number: key it by the item's string id");
     // A row list keeps its own reorder refusal (LLP 1094 §7).
     let (id, _) = refused(
         "height=100 width=100",

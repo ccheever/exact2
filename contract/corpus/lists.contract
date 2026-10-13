@@ -27,7 +27,7 @@ component Lists
     column testId="root"
       text `${length(tagged)} tagged` testId="tagged"
       text join(map(coins, (c, i) => `${i + 1}. ${c.id}`), ", ") testId="ids"
-      each c in coins key=c.id
+      for c in coins key=c.id
         row testId=`row-${c.id}`
           text c.id
           text (c.flash ? "*" : "") testId=`flash-${c.id}`

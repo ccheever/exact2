@@ -40,6 +40,6 @@ component ListExit
         button press=far testId="far"
           text "far"
       list virtualized=true estimated-item-height=56 testId="rows" flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each c in filter(coins, c => c.id != a and c.id != b) key=c.id
+        for c in filter(coins, c => c.id != a and c.id != b) key=c.id
           row testId=`row-${c.id}` class=Row
             text c.name font-size=14

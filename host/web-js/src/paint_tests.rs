@@ -252,7 +252,7 @@ component Paint
         box testId="item-holder"
           box position="relative"
       box testId="arm-holder"
-        when changed
+        if changed
           box position="absolute" z-index=3
       box testId="arm-follower"
       box testId="motion" transition=(changed ? "1s opacity" : "1s color")
@@ -262,9 +262,9 @@ component Paint
       box testId="backdrop-refused" backdrop-filter="saturate(" + toString(changed ? -1 : 0) + ")"
       box testId="identity" scale=(changed ? 1 : 2)
       box testId="copies"
-        each n in filter(keys, n => n != (changed ? 2 : 4)) key=n
+        for n in filter(keys, n => n != (changed ? 2 : 4)) key=n
           box testId=`row-${n}`
-            when n == 1
+            if n == 1
               box position="relative"
 "#,
     )
@@ -275,7 +275,7 @@ component Paint
         &dynamic,
         &["toggle", "toggle", "toggle"],
     );
-    labels.push("bound facts, arm swaps and keyed each edits");
+    labels.push("bound facts, arm swaps and keyed `for` edits");
     let long = contract::compile(
         r#"shape Item
   id: number
@@ -284,7 +284,7 @@ component Paint
   view
     box
       box testId="waiting-list"
-        each item in items key=item.id
+        for item in items key=item.id
           box testId=`row-${item.id}`
             box position="absolute" z-index=2
 "#,
@@ -321,7 +321,7 @@ component Paint
       button "Block" testId="block" press=block
       box testId="waiting-list" display=display
         box testId="positioned" position="relative"
-        each item in items key=item.id
+        for item in items key=item.id
           box testId=`row-${{item.id}}` position="static" z-index=(item.id == 198 ? 0 : item.id == 199 ? 2147483647 : item.id == 200 ? -2147483648 : item.id <= 100 ? 2 : -2)
 "#
         );
@@ -347,7 +347,7 @@ component Paint
       button "Toggle" testId="toggle" press=toggle
       box testId="waiting-list" position="relative"
         box testId="exclusion" position=(exclusion ? "absolute" : "static") wrap-flow="both" width=20 height=20
-        each item in items key=item.id
+        for item in items key=item.id
           text "paragraph" testId=`row-${{item.id}}`
 "#
         );

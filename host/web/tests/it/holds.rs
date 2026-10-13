@@ -24,7 +24,7 @@ const SOURCE: &str = r##"component App
       button press=retarget testId="retarget"
         text "retarget"
       text `${count}` testId="count"
-      when shown
+      if shown
         column testId="row" scale=target background-color=color transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)" swiperight=swipe
           text "row"
 "##;
@@ -254,7 +254,7 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
         text "Enable and return"
       column navigationBack="back" navigationKey=(blocked ? "other" : "held")
         column navigationKey="held" testId="held-route"
-          when shown
+          if shown
             column testId="row" disabled=disabled swiperight=swipe touch-action="pan-y" width=300 height=90 background-color=tint transition=returning
               text "Swipe" height=30
               text "Reply" testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"

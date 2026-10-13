@@ -13,7 +13,7 @@ component App
   view
     column
       text `${picked} ${picks}` testId="out"
-      each it, i in items key=i
+      for it, i in items key=i
         Row(index=i, label=it.id, choose=pick(it.id))
 
 component Row

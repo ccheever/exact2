@@ -34,10 +34,10 @@ component Quiz
       section
         header
           text q.text
-        each c in q.choices key=c.id
+        for c in q.choices key=c.id
           button press=pick(c.id) testId=`choice-${c.id}`
             text c.text flex=1
-            when picked != "" and c.correct
+            if picked != "" and c.correct
               image "symbol:checkmark"
       section
         button press=next testId="next"

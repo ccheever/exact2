@@ -741,9 +741,9 @@ fn failed_search_is_readable_and_clears_on_changed_arguments_refresh_and_success
     column
       text `${results}/${pending(results)}/${failed(results)}` testId="state"
       text `${unavailable}/${status}` testId="derived"
-      each n in rows key=n
+      for n in rows key=n
         text `${failed(results)}` testId=`row-${n}`
-      when failed(results)
+      if failed(results)
         text "Couldn't load" testId="failure"
 "#;
     for full in [false, true] {

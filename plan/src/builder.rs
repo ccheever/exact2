@@ -728,7 +728,7 @@ impl PlanBuilder {
         self.plan.slots[id.0 as usize].init = init;
     }
 
-    /// Make a slot owned by an arm's instance — an `each` row, a `when` or
+    /// Make a slot owned by an arm's instance — a `for` row, an `if` or
     /// `match` arm: one value per instance, created with it, read and
     /// written through its frame (LLP 1017 P4c).
     pub fn set_slot_owner(&mut self, id: SlotsId, arm: ArmsId) {

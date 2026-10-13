@@ -90,7 +90,7 @@ component A
             case none // none statement
                 n=2
     view
-        when n > 0
+        if n > 0
             button "Go" press=go // header attribute
                 testId="go" // continued attribute
                 aria-label="A very long aria label that will make this element need attribute wrapping" // last attribute

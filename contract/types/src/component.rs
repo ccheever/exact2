@@ -1047,7 +1047,7 @@ pub(crate) fn initializer_scope(
     let message = if c.resources.iter().any(|r| r.name == name) {
         let path = member_path(&c.states[i].expr, &name).unwrap_or_else(|| shown.to_string());
         format!(
-            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `each … in {path}`"
+            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `for … in {path}`"
         )
     } else if c.derives.iter().any(|d| d.name == name) {
         format!(

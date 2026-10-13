@@ -11,5 +11,5 @@ component App
   view
     column testId="root"
       text picked testId="picked"
-      each s in stations key=s.id
+      for s in stations key=s.id
         StationRow(station=s, press=pick)

@@ -39,7 +39,7 @@ component MapDemo
           text "Coit Tower"
         button press=choose("union") testId="pick-union" padding=10 border-radius=8 background-color="#eef1f6"
           text "Union Square"
-        when tv
+        if tv
           view flex=1
           button press=zoomOut disabled=(span >= 2) testId="zoom-out" aria-label="Zoom out" padding=10 border-radius=8 background-color="#eef1f6"
             text "Zoom out −"

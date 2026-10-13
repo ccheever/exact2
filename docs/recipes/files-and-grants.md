@@ -28,7 +28,7 @@ component Journal
     send added = addEntry(text)
   view
     column
-      each e in entries key=e.id
+      for e in entries key=e.id
         text e.text
 ```
 

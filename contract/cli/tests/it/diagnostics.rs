@@ -1064,7 +1064,7 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
         format!("component App\n  view\n    button \"Save\" press=svae\n    Row()\ncomponent Row\n{action}  view\n    text toString(count)\n"),
         format!("component App\n{action}  view\n    Row()\ncomponent Row\n  view\n    button \"Save\" press=svae\n"),
         format!("component App\n{action}  action sale\n    count = 1\n  view\n    button \"Save\" press=sace\n"),
-        format!("component App\n{action}  resource items = items() as shape list<number>\n  view\n    each save in items key=toString(save)\n      button \"Save\" press=svae\n"),
+        format!("component App\n{action}  resource items = items() as shape list<number>\n  view\n    for save in items key=toString(save)\n      button \"Save\" press=svae\n"),
         format!("component App\n{action}  state chosen = some(1)\n  view\n    match chosen\n      case some(save)\n        button \"Save\" press=svae\n      case none\n        text \"None\"\n"),
         "fn save(): number = 1\ncomponent App\n  view\n    button \"Save\" press=svae()\n".into(),
     ] {
@@ -1420,7 +1420,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     says(
         "shape Col\n  id: string\nshape Board\n  cols: list<Col>\ncomponent App\n  resource board = loadBoard() as shape Board\n  resource boardX = loadBoard() as shape Board\n  state scrolls = map(board.cols, c => c.id)\n  view\n    text \"a\"\n",
         "type-initializer-scope",
-        &format!("`board` is a resource; {reads}. Derive it from `board`, or keep per-row state in a component used inside `each … in board.cols`"),
+        &format!("`board` is a resource; {reads}. Derive it from `board`, or keep per-row state in a component used inside `for … in board.cols`"),
     );
     says(
         "component App\n  derive two = 2\n  state n = two\n  view\n    text \"a\"\n",
@@ -1440,7 +1440,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     );
     // D7.1 (pomodoro F1): the declaration that fits, payload named and typed.
     says(
-        "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      each t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
+        "shape Task\n  id: string\n  done: bool\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n  action flipTask(id: string)\n    refresh tasks\n  view\n    column\n      for t in tasks key=t.id\n        input type=\"checkbox\" checked=t.done change=flipTask(t.id)\n",
         "analyze-handler-arity",
         "`change=flipTask(t.id)` calls `flipTask` with `t.id` and then the checkbox's new `checked` (bool); declare `action flipTask(id: string, checked: bool)`, or `action flipTask(id: string, checked: bool, event: InputEvent)` for its `InputEvent`",
     );

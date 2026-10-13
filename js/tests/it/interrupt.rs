@@ -23,7 +23,7 @@ component App
   resource words = words(params(nav, "name")) as shape list<string>
   view
     column
-      each w in words key = w
+      for w in words key = w
         text w
 "#;
 

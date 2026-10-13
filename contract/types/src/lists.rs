@@ -216,7 +216,7 @@ pub(crate) fn infer_call(
         {
             return err(
                 "type-callback-view",
-                format!("a callback returns one value, not a view: repeat `{callee}` with `each x in xs key=x.id` under its parent"),
+                format!("a callback returns one value, not a view: repeat `{callee}` with `for x in xs key=x.id` under its parent"),
                 *at,
             );
         }

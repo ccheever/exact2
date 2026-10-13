@@ -61,9 +61,9 @@ component App
     nav = push(nav, "/detail")
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0 align-items="flex-start"
-          when e.name == "home"
+          if e.name == "home"
             input value=name input=type testId="field" width=200 height=30
             button press=ask testId="ask" height=30
               text "Ask"
@@ -86,7 +86,7 @@ component App
                 text "Hold me"
               button popovertarget="menu" aria-label="More" id="trigger" testId="more" width=40 height=40
                 image "symbol:more"
-          when e.name == "detail"
+          if e.name == "detail"
             text "Detail" testId="detail"
             button press=ask testId="ask-detail" height=30
               text "Ask"

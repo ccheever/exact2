@@ -15,7 +15,7 @@ use super::*;
 
 /// The words no binder may be.
 pub(super) const RESERVED: [&str; 16] = [
-    "when", "if", "else", "each", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
+    "when", "if", "else", "for", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
     "false", "none", "some",
 ];
 
@@ -60,10 +60,10 @@ pub(super) fn section_hint(word: &str) -> String {
 }
 
 /// A view's `else` or `case` with nothing to belong to, and where it goes (authoring
-/// bench: an `else` indented one level under its `when`).
+/// bench: an `else` indented one level under its `if`).
 pub(super) fn stray(word: &str) -> String {
     let goes = if word == "else" {
-        "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+        "an `else` sits at its `if`'s indentation, on the line after the `if`'s block"
     } else {
         "a `case` arm sits indented under its `match`"
     };
@@ -107,7 +107,7 @@ impl Parser {
         })
     }
 
-    /// A plain `else` ends its line. `else if` and `else when` are parsed by
+    /// A plain `else` ends its line. `else if` is parsed by
     /// the caller first: an `else` around one nested branch (the chess,
     /// kanban2 and spreadsheet diaries). The indented form under `else` is
     /// the same tree.

@@ -124,7 +124,7 @@
         {
           "name": "owner",
           "codec": "opt:arms",
-          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — an `each` row, a `when` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
+          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — a `for` row, an `if` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
         },
         {
           "name": "late",
@@ -359,7 +359,7 @@
         {
           "name": "keyed",
           "codec": "bool",
-          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as an `each` key is) re-arms the timer from the commit's time."
+          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as a `for` key is) re-arms the timer from the commit's time."
         },
         {
           "name": "key",
@@ -1009,7 +1009,7 @@
       "operands": [
         "u16"
       ],
-      "_comment": "LLP 1062 D8: the position (a number from 0) of the `each` row `depth` scopes out, as `each item, i in list` names it."
+      "_comment": "LLP 1062 D8: the position (a number from 0) of the `for` row `depth` scopes out, as `for item, i in list` names it."
     },
     {
       "name": "Map",

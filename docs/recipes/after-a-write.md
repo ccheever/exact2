@@ -31,12 +31,12 @@ component TagList
           column flex=1 min-width=0 gap=4
             input value=draft input=edit submit=add placeholder="New tag"
               aria-label="New tag" testId="draft"
-            when addError != "" and not pending(added)
+            if addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
           button press=add disabled=(trim(draft) == "" or pending(added)) buttonStyle="filled" testId="add"
             text "Add"
       section
-        each t in tags key=t.name
+        for t in tags key=t.name
           row
             text t.name
 ```

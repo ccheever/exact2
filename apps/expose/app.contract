@@ -196,27 +196,27 @@ component Expose
     main testId="expose" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" font-family="Exposure Sans" font-size=17 color="light-dark(#0b0b0c, #f5f5f7)" background-color="light-dark(#f4f4f6, #000000)"
 
       // ---------------------------------------------------------------- lock
-      when screen == "lock"
+      if screen == "lock"
         column testId="lock-screen" flex=1 min-height=0 box-sizing="border-box" color="#ffffff" background-color="#0b0b0c" background-image="linear-gradient(180deg, #1d1d22 0%, #0b0b0c 55%, #000000 100%)" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
           button press=unlock testId="lock-clock" width="100%" display="flex" flex-direction="column" align-items="center" padding-top=26 padding-bottom=6
             text `${clock.weekday}, ${clock.date}` font-size=20 font-weight=500 color="#ffffffcc"
             text clock.time font-family="Exciting" font-weight=900 font-size=124 line-height="132px" letter-spacing=-2 color="#ffffff"
-            when weather.ready
+            if weather.ready
               text `${weather.temp}  ${weather.condition}` font-size=15 font-weight=500 color="#ffffff99" margin-top=2
           scroll flex=1 min-height=0
             column padding-left=16 padding-right=16 padding-top=16 gap=10
-              when replyRevision > 0
-                each t in inbox.threads key=t.id
-                  when t.id == "expose"
+              if replyRevision > 0
+                for t in inbox.threads key=t.id
+                  if t.id == "expose"
                     Notice(id="expose", glyph="E", app="Messages", title="Expose", body=t.preview, time="now", press=openThread("expose"))
-              when dismissed != "all"
-                when not includes(dismissed, "nico")
+              if dismissed != "all"
+                if not includes(dismissed, "nico")
                   Notice(id="nico", glyph="M", app="Messages", title="Nico", body="Can you push the build to Silver tonight? I want to see the lock screen on the 4a Pro.", time="now", press=openThread("nico"))
-                when not includes(dismissed, "reader")
+                if not includes(dismissed, "reader")
                   Notice(id="reader", glyph="R", app="Reader", title="Reader", body="New this morning: The clock is the loudest thing on your phone", time="12m", press=openArticle("loud-clock"))
-                when not includes(dismissed, "crew")
+                if not includes(dismissed, "crew")
                   Notice(id="crew", glyph="M", app="Messages", title="Type Crew", body="James: I still think the g needs a smaller ear", time="1h", press=openThread("crew"))
-                when not includes(dismissed, "update")
+                if not includes(dismissed, "update")
                   Notice(id="update", glyph="E", app="Settings", title="Expose", body="Expose 1.0 is ready. It will install tonight while the phone charges.", time="3h", press=openPage("about"))
                 row justify-content="center" padding-top=4
                   button press=clearNotices testId="clear-notices" -exact-press-scale=0.95 height=32 padding-left=16 padding-right=16 border-radius=16 background-color="#ffffff1c" display="flex" flex-direction="row" align-items="center"
@@ -235,7 +235,7 @@ component Expose
             box width=134 height=5 border-radius=3 background-color="#ffffff"
 
       // ---------------------------------------------------------------- home
-      when screen == "home"
+      if screen == "home"
         column testId="home-screen" flex=1 min-height=0 box-sizing="border-box" color="#ffffff" background-color="#0b0b0c" background-image="linear-gradient(180deg, #141418 0%, #0b0b0c 40%, #000000 100%)" padding-top="env(safe-area-inset-top)"
           StatusBar(time=clock.time, tone="#ffffff", wifi=wifi, airplane=airplane, press=lock)
           scroll flex=1 min-height=0
@@ -255,8 +255,8 @@ component Expose
                   column gap=1
                     text weather.condition font-size=13 font-weight=500 line-clamp=1
                     text (weather.ready ? `H ${weather.high}  L ${weather.low}` : "Palo Alto, from Open-Meteo") font-size=12 color="#ffffff99" line-clamp=1
-              each a in library.articles key=a.id
-                when a.id == library.lead
+              for a in library.articles key=a.id
+                if a.id == library.lead
                   button press=openArticle(a.id) testId="widget-reader" -exact-press-scale=0.98 width="100%" border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
                     column width=52 height=52 border-radius=14 background-color="#f5f5f7" align-items="center" justify-content="center" flex-shrink=0
                       text "R" font-family="Exciting" font-weight=900 font-size=30 line-height="34px" color="#0b0b0c"
@@ -291,8 +291,8 @@ component Expose
           HomeBar(tone="#ffffff", press=lock)
 
       // ------------------------------------------------------------ messages
-      when screen == "messages"
-        when thread == ""
+      if screen == "messages"
+        if thread == ""
           column testId="inbox-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
             StatusBar(time=clock.time, tone="light-dark(#0b0b0c, #ffffff)", wifi=wifi, airplane=airplane, press=lock)
             row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
@@ -309,7 +309,7 @@ component Expose
                     circle cx=10.5 cy=10.5 r=6.5 fill="none" stroke="light-dark(#8e8e93, #98989d)" stroke-width=2.2
                     path d="M15.5 15.5L20 20" stroke="light-dark(#8e8e93, #98989d)" stroke-width=2.2 stroke-linecap="round"
                   text "Search" font-size=17 color="light-dark(#8e8e93, #98989d)"
-                each t in inbox.threads key=t.id
+                for t in inbox.threads key=t.id
                   button press=openThread(t.id) testId=`thread-${t.id}` aria-label=`${t.name}, ${t.preview}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10 text-align="start"
                     box width=8 height=8 border-radius=4 background-color=(t.unread ? "#ff6a2b" : "#00000000") flex-shrink=0
                     column width=50 height=50 border-radius=25 background-color=(t.kind == "assistant" ? "light-dark(#0b0b0c, #f5f5f7)" : "light-dark(#3a3a3c, #48484c)") align-items="center" justify-content="center" flex-shrink=0
@@ -327,38 +327,38 @@ component Expose
               button press=closeThread testId="thread-back" width=76 height=44 display="flex" flex-direction="row" align-items="center" gap=4
                 svg viewBox="0 0 24 24" width=26 height=26
                   path d="M15 5l-7 7 7 7" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.2 stroke-linecap="round" stroke-linejoin="round"
-                when inbox.unread > 0
+                if inbox.unread > 0
                   column min-width=22 height=22 border-radius=11 padding-left=6 padding-right=6 box-sizing="border-box" background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center"
                     text toString(inbox.unread) font-size=12 font-weight=600 color="light-dark(#ffffff, #0b0b0c)"
               column flex=1 align-items="center" gap=3
                 column width=38 height=38 border-radius=19 background-color=(chat.kind == "assistant" ? "light-dark(#0b0b0c, #f5f5f7)" : "light-dark(#3a3a3c, #48484c)") align-items="center" justify-content="center"
                   text chat.initials font-family="Exciting" font-weight=900 font-size=(chat.kind == "assistant" ? 21 : 17) line-height="24px" color=(chat.kind == "assistant" ? "light-dark(#ffffff, #0b0b0c)" : "#ffffff")
                 text chat.name font-size=11 font-weight=500 line-clamp=1
-              when chat.kind == "assistant"
+              if chat.kind == "assistant"
                 button press=clearChat testId="thread-clear" width=76 height=44 display="flex" flex-direction="row" align-items="center" justify-content="flex-end" padding-right=8
                   text "Clear" font-size=15 class=Muted
               else
                 box width=76
             scroll testId="transcript" flex=1 min-height=0 overflow-x="hidden" scrollFollowEnd=true scrollTop=(1000000 + replyRevision) keyboardDismissMode="interactive"
               column padding=16 gap=6
-                when chat.kind == "assistant"
+                if chat.kind == "assistant"
                   column align-items="center" gap=6 padding-bottom=14
                     column width=64 height=64 border-radius=32 background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center"
                       text "E" font-family="Exciting" font-weight=900 font-size=36 line-height="40px" color="light-dark(#ffffff, #0b0b0c)"
                     text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=20
                     text `${intelligence.modelName} · via OpenRouter` font-size=12 class=Muted
-                    when not intelligence.hasKey
+                    if not intelligence.hasKey
                       button press=openPage("intelligence") testId="thread-add-key" -exact-press-scale=0.97 margin-top=4 height=34 padding-left=14 padding-right=14 border-radius=17 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center"
                         text "Add an OpenRouter key" font-size=14 font-weight=600 color="#ffffff"
                 else
                   text (thread == "mom" ? "Saturday 6:02 PM" : thread == "builds" ? "Yesterday 11:20 PM" : "Today 8:20 AM") font-size=12 font-weight=500 class=Muted text-align="center" padding-bottom=10
-                each m in chat.messages key=m.id
-                  when chat.kind != "assistant" and m.role == "them" and chat.id == "crew"
+                for m in chat.messages key=m.id
+                  if chat.kind != "assistant" and m.role == "them" and chat.id == "crew"
                     text m.sender font-size=12 class=Muted padding-left=14 margin-top=6
                   Bubble(id=m.id, body=m.body, role=m.role, streaming=m.streaming, scale=scale)
-                when chat.error != ""
+                if chat.error != ""
                   text chat.error font-size=12 color="#ff6a2b" text-align="center" padding-top=8
-                when chat.kind != "assistant"
+                if chat.kind != "assistant"
                   text "Delivered" font-size=12 font-weight=500 class=Muted text-align="right" padding-right=4
             row align-items="flex-end" gap=10 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 flex-shrink=0 border-top-style="solid" border-top-width=0.5 border-color="light-dark(#d9d9de, #2a2a2e)"
               button press=nope("Attachments") testId="composer-add" aria-label="Add attachment" -exact-press-scale=0.9 width=34 height=34 border-radius=17 background-color="light-dark(#e9e9ee, #1c1c20)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
@@ -366,15 +366,15 @@ component Expose
                   path d="M12 5v14M5 12h14" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.4 stroke-linecap="round"
               row flex=1 min-width=0 min-height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" align-items="center" padding-left=14 padding-right=4 gap=6
                 input appearance="none" id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder=(chat.kind == "assistant" ? "Ask Expose" : "Message") aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#0b0b0c, #f5f5f7)" disabled=(chat.kind != "assistant")
-                when trim(draft) != "" and chat.kind == "assistant"
+                if trim(draft) != "" and chat.kind == "assistant"
                   button press=sendDraft testId="send" aria-label="Send" -exact-press-scale=0.9 width=28 height=28 border-radius=14 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     svg viewBox="0 0 24 24" width=16 height=16
                       path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="#ffffff" stroke-width=2.6 stroke-linecap="round" stroke-linejoin="round"
             HomeBar(tone="light-dark(#0b0b0c, #ffffff)", press=go("home"))
 
       // -------------------------------------------------------------- reader
-      when screen == "reader"
-        when article == ""
+      if screen == "reader"
+        if article == ""
           column testId="reader-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
             StatusBar(time=clock.time, tone="light-dark(#0b0b0c, #ffffff)", wifi=wifi, airplane=airplane, press=lock)
             scroll flex=1 min-height=0
@@ -382,16 +382,16 @@ component Expose
                 row align-items="baseline" justify-content="space-between"
                   text "Reader" font-family="Exciting" font-weight=900 font-size=40 line-height="46px" letter-spacing=-0.5
                   text `${clock.weekday}, ${clock.date}` font-size=13 font-weight=500 class=Muted
-                each a in library.articles key=a.id
-                  when a.id == library.lead
+                for a in library.articles key=a.id
+                  if a.id == library.lead
                     button press=openArticle(a.id) testId=`article-${a.id}` -exact-press-scale=0.985 width="100%" class=Card padding=18 box-sizing="border-box" display="flex" flex-direction="column" gap=8 align-items="flex-start" text-align="start"
                       text a.section font-size=12 font-weight=700 letter-spacing=0.8 text-transform="uppercase" color="#ff6a2b"
                       text a.title font-family="Exciting Lilt" font-weight=700 font-size=28 line-height="32px" letter-spacing=-0.3 text-align="left"
                       text a.deck font-size=(16 * scale) font-style="italic" line-height=1.35 class=Muted text-align="left"
                       text `${a.author} · ${a.posted} · ${toString(a.minutes)} min read` font-size=12 font-weight=500 class=Muted padding-top=2
                 column class=Card
-                  each a in library.articles key=a.id
-                    when a.id != library.lead
+                  for a in library.articles key=a.id
+                    if a.id != library.lead
                       button press=openArticle(a.id) testId=`article-${a.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 padding-left=16 text-align="start"
                         column width=44 height=44 border-radius=12 background-color="light-dark(#2c2c2e, #3a3a3c)" align-items="center" justify-content="center" flex-shrink=0
                           text (a.section == "Type" ? "Aa" : a.section == "Field notes" ? "F" : a.section == "Intelligence" ? "E" : "P") font-family="Exciting" font-weight=900 font-size=20 line-height="24px" color="#ffffff"
@@ -410,8 +410,8 @@ component Expose
                 text "E" font-family="Exciting" font-weight=900 font-size=15 line-height="18px" color="light-dark(#ffffff, #0b0b0c)"
                 text "Ask Expose" font-size=13 font-weight=600 color="light-dark(#ffffff, #0b0b0c)"
             scroll flex=1 min-height=0
-              each a in library.articles key=a.id
-                when a.id == article
+              for a in library.articles key=a.id
+                if a.id == article
                   column padding-left=22 padding-right=22 padding-top=10 padding-bottom=40 gap=14
                     text a.section font-size=12 font-weight=700 letter-spacing=0.8 text-transform="uppercase" color="#ff6a2b"
                     text a.title font-family="Exciting Lilt" font-weight=700 font-size=32 line-height="36px" letter-spacing=-0.4
@@ -420,7 +420,7 @@ component Expose
                       column width=30 height=30 border-radius=15 background-color="light-dark(#2c2c2e, #3a3a3c)" align-items="center" justify-content="center"
                         text (a.author == "Nico" ? "N" : a.author == "Type Crew" ? "TC" : a.author == "Expose Builds" ? "Ex" : "CC") font-family="Exciting" font-weight=900 font-size=13 line-height="16px" color="#ffffff"
                       text `${a.author} · ${a.posted} · ${toString(a.minutes)} min read` font-size=13 font-weight=500 class=Muted
-                    each p in a.body key=p
+                    for p in a.body key=p
                       text p font-size=(17.5 * scale) line-height=1.5
                     column border-left-style="solid" border-left-width=3 border-color="#ff6a2b" padding-left=16 padding-top=4 padding-bottom=4 margin-top=6 margin-bottom=6
                       text a.pull font-family="Exciting Lilt" font-weight=600 font-size=(24 * scale) line-height=1.2
@@ -433,8 +433,8 @@ component Expose
             HomeBar(tone="light-dark(#0b0b0c, #ffffff)", press=go("home"))
 
       // ------------------------------------------------------------ settings
-      when screen == "settings"
-        when page == ""
+      if screen == "settings"
+        if page == ""
           column testId="settings-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
             StatusBar(time=clock.time, tone="light-dark(#0b0b0c, #ffffff)", wifi=wifi, airplane=airplane, press=lock)
             scroll flex=1 min-height=0
@@ -479,7 +479,7 @@ component Expose
               box width=100
             scroll flex=1 min-height=0
               column padding=16 gap=22 padding-bottom=32
-                when page == "intelligence"
+                if page == "intelligence"
                   column class=Card padding=16 gap=12
                     row align-items="center" gap=12
                       column width=44 height=44 border-radius=22 background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center" flex-shrink=0
@@ -494,24 +494,24 @@ component Expose
                       input appearance="none" id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" font-size=16 color="light-dark(#0b0b0c, #f5f5f7)" background-color="light-dark(#ffffff, #0b0b0c)"
                       button press=saveKey testId="save-key" disabled=(trim(keyDraft) == "") -exact-press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius=10 background-color=(trim(keyDraft) == "" ? "light-dark(#e9e9ee, #2a2a2e)" : "#ff6a2b") display="flex" flex-direction="row" align-items="center"
                         text "Save" font-size=15 font-weight=600 color=(trim(keyDraft) == "" ? "light-dark(#8e8e93, #6e6e75)" : "#ffffff")
-                    when keySaved
+                    if keySaved
                       text "Saved. Expose will use this key from now on." font-size=13 color="#ff6a2b"
-                    when intelligence.keySource == "settings"
+                    if intelligence.keySource == "settings"
                       button appearance="none" press=forgetKey testId="forget-key" height=32 display="flex" flex-direction="row" align-items="center"
                         text "Forget the saved key" font-size=14 class=Muted
                   column class=Card padding=16 gap=12
                     text "MODEL" font-size=13 class=Muted
-                    each m in intelligence.models key=m.id
+                    for m in intelligence.models key=m.id
                       button press=chooseModel(m.id) testId=`model-${m.id}` width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=12 min-height=40 text-align="start"
                         column width=22 height=22 border-radius=11 border-style="solid" border-width=2 border-color=(m.selected ? "#ff6a2b" : "light-dark(#c6c6c8, #48484c)") align-items="center" justify-content="center" flex-shrink=0
-                          when m.selected
+                          if m.selected
                             box width=10 height=10 border-radius=5 background-color="#ff6a2b"
                         column flex=1 min-width=0 align-items="flex-start"
                           text m.name font-size=(16 * scale) font-weight=(m.selected ? 600 : 400)
                           text m.maker font-size=(12 * scale) class=Muted
                   button press=openThread("expose") testId="intelligence-chat" -exact-press-scale=0.98 width="100%" height=48 border-radius=14 background-color="light-dark(#0b0b0c, #f5f5f7)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "Talk to Expose" font-family="Exciting Lilt" font-weight=700 font-size=17 color="light-dark(#ffffff, #0b0b0c)"
-                when page == "display"
+                if page == "display"
                   row class=Card padding-left=16 padding-right=16 min-height=46 align-items="center" justify-content="space-between" gap=12
                     text "Appearance" font-size=(17 * scale) flex=1 min-width=0
                     select value=appearance change=setAppearance testId="appearance" aria-label="Appearance" accent-color="light-dark(#0b0b0c, #e5e5ea)" flex-shrink=0
@@ -549,7 +549,7 @@ component Expose
                       text "Semibold 600 — buttons, section titles" font-size=(17 * scale) font-weight=600
                       text "Bold 700 — the rare emphasis inside a paragraph" font-size=(17 * scale) font-weight=700
                     text "0123456789 · 9:41 · 68° · $12.40 · 3,844 pairs" font-size=(17 * scale) class=Muted
-                when page == "about"
+                if page == "about"
                   column class=Card padding=20 gap=8 align-items="center"
                     text "E" font-family="Exciting" font-weight=900 font-size=72 line-height="80px"
                     text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=28
@@ -569,9 +569,9 @@ component Expose
             HomeBar(tone="light-dark(#0b0b0c, #ffffff)", press=go("home"))
 
       // ---------------------------------------------- the banner and the toast
-      when banner
-        each t in inbox.threads key=t.id
-          when t.id == "expose"
+      if banner
+        for t in inbox.threads key=t.id
+          if t.id == "expose"
             button press=openThread("expose") testId="banner" position="absolute" top="calc(env(safe-area-inset-top) + 8px)" left=12 right=12 z-index=10 animation="drop 360ms ease-out" display="flex" flex-direction="row" gap=12 padding=12 box-sizing="border-box" border-radius=22 background-color="light-dark(#ffffff, #1c1c20)" box-shadow="0 10px 30px rgba(0, 0, 0, 0.35)" align-items="flex-start" text-align="start"
               column width=40 height=40 border-radius=10 background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center" flex-shrink=0
                 text "E" font-family="Exciting" font-weight=900 font-size=22 line-height="26px" color="light-dark(#ffffff, #0b0b0c)"
@@ -580,7 +580,7 @@ component Expose
                   text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=16 flex=1 min-width=0 line-clamp=1 color="light-dark(#0b0b0c, #f5f5f7)"
                   text "now" font-size=12 class=Muted flex-shrink=0
                 text t.preview font-size=14 line-clamp=2 line-height=1.3 color="light-dark(#0b0b0c, #f5f5f7)" text-align="left"
-      when toastAt > 0
+      if toastAt > 0
         row position="absolute" bottom="calc(env(safe-area-inset-bottom) + 96px)" left=0 right=0 z-index=10 justify-content="center" pointer-events="none"
           row testId="toast" padding-top=10 padding-bottom=10 padding-left=16 padding-right=16 border-radius=20 background-color="light-dark(#0b0b0cd9, #f5f5f7e6)" animation="settle 240ms ease-out"
             text toast font-size=14 font-weight=500 color="light-dark(#ffffff, #0b0b0c)"

@@ -16,7 +16,7 @@ component App
   view
     column
       button "raise" press=raise testId="raise"
-      each it, i in items key=i
+      for it, i in items key=i
         Row(item=it, index=i, base=base)
 
 component Row

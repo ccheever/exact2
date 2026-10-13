@@ -80,11 +80,11 @@ component App
 - A number field's `min`, `max`, `step` take numbers, negative bare (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - A symbol is `"symbol:<role>"`, never a made-up name; `symbol:sf/<name>` passes an SF Symbols name to Apple.
 - Not in Contract, each with what to write in `contract vocab <name>`: abs pow sqrt sort reduce find some every contains toUpperCase padStart parseInt.
-- `a - b` subtracts with spaces; a unit is quoted (`width="50%"`); `when` and `else` choose in a view.
+- `a - b` subtracts with spaces; a unit is quoted (`width="50%"`); a view repeats with `for x in xs key=…`.
 
 ## how
 ### a second screen, a sheet
-A screen is a route, never a `when` on state; a sheet's root adds `navigationPresentation="modal"`, its Cancel the `id` `navigationBack` names. `pattern list-detail` is the whole.
+A screen is a route, never an `if` on state; a sheet's root adds `navigationPresentation="modal"`, its Cancel the `id` `navigationBack` names. `pattern list-detail` is the whole.
 ```contract
 routes nav
   home "/"
@@ -96,14 +96,14 @@ action back
 action save
   nav = back(nav)
 main navigationKey=`${top(nav).id}` navigationBack="back"
-  each e in stack(nav) key=e.id
-    when e.name == "home"
+  for e in stack(nav) key=e.id
+    if e.name == "home"
       column navigationKey=`${e.id}` position="absolute" inset=0
         header
           text "Notes" role="heading" aria-level=1
           button press=open
             text "New"
-    when e.name == "edit"
+    if e.name == "edit"
       column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
         header
           button id="back" press=back

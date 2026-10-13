@@ -31,7 +31,7 @@ component App
           box flex=1
           text `saved ${saved}` font-size=17
       list testId="messages" virtualized=true estimated-item-height=130 flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each m in rows key=m.id
+        for m in rows key=m.id
           Row(m=m, saved=saved == m.id, save=save)
 component Row
   props
@@ -51,9 +51,9 @@ component Row
                     text m.title font-size=17 line-height="22px"
                   button press=save(m.id) testId=`save-${m.id}` min-width=44 min-height=44
                 text m.body font-size=17 line-height="22px" white-space="pre-wrap"
-                when saved
+                if saved
                   text "Saved for later" font-size=12 line-height="16px"
-                when m.attachment
+                if m.attachment
                   row align-self="flex-start" padding=8
                     text "Weekend itinerary.pdf" font-size=12 line-height="14px"
           button width=90 flex-shrink=0

@@ -17,15 +17,15 @@ component App
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app"
       width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            each e in t.stack key=e.id
+            for e in t.stack key=e.id
               column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
                 header padding="8px 16px"
                   text (e.name == "today" ? "Today" : e.name == "history" ? "History" : e.params.key)
                     role="heading" aria-level=(e.name == "day" ? 2 : 1)
                 scroll id=`content-${e.id}` flex=1 min-height=0
-                  when e.name == "history"
+                  if e.name == "history"
                     link href=path("day", "2026-10-09") testId="day-2026-10-09"
                       text "Yesterday"
                   else
@@ -59,7 +59,7 @@ test "each tab keeps its own stack"
   Selecting the shown tab again pops it to its root.
 - A `link` uses the root's `navigate` handler to push onto the selected stack; browser
   Back, Forward and deep links arrive there too.
-- Hide the bar with `display="none"`, never `when`: removing the tablist loses the panels' routes.
+- Hide the bar with `display="none"`, never `if`: removing the tablist loses the panels' routes.
 - A Mac window, or a web window 900 px up, draws the root column's last-child tablist as a
   sidebar; a tablist you arrange yourself stays yours.
 

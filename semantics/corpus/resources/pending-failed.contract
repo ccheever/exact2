@@ -13,7 +13,7 @@ component App
     q = q + 1
   view
     column
-      when pending(items)
+      if pending(items)
         text "loading" testId="loading"
       else
         text `${length(items)}` testId="count"

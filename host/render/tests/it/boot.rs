@@ -23,9 +23,9 @@ component Cards
   view
     column
       head title="Cards"
-      when length(cards) == 0
+      if length(cards) == 0
         text "Loading cards" testId="loading"
-      each c in cards key = c
+      for c in cards key = c
         text c
 "#;
 

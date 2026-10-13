@@ -14,12 +14,12 @@ component Board
   view
     scroll height="100%" testId="board"
       row flex-wrap="wrap" align-items="flex-start" gap=16 padding=16
-        each col in ["todo", "doing", "done"] key=col
+        for col in ["todo", "doing", "done"] key=col
           column flex="1 1 280px" min-width=0 gap=8 testId=`column-${col}`
             text (col == "todo" ? "To Do" : col == "doing" ? "Doing" : "Done") role="heading" aria-level=3
-            each c in filter(cards, x => x.column == col) key=c.id
+            for c in filter(cards, x => x.column == col) key=c.id
               text c.title padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`card-${c.id}`
-            when length(filter(cards, x => x.column == col)) == 0
+            if length(filter(cards, x => x.column == col)) == 0
               text "No cards" color="-exact-secondary-label" padding=12
 ```
 
@@ -56,12 +56,12 @@ component Feed
   view
     scroll height="100%" testId="feed"
       row align-items="flex-start" gap=16
-        each col in [0, 1, 2] key=col
+        for col in [0, 1, 2] key=col
           column flex=1 min-width=0 gap=8
-            each card in filter(cards, n => n % 3 == col) key=card
+            for card in filter(cards, n => n % 3 == col) key=card
               text `Card ${card + 1}` padding=16 testId=`card-${card}`
-      when length(cards) < 12
-        each boundary in [length(cards)] key=boundary
+      if length(cards) < 12
+        for boundary in [length(cards)] key=boundary
           view intersect=loadMore intersect-margin="0px 0px 800px 0px"
             height=1 testId="load-more"
 ```

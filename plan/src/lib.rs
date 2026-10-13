@@ -99,7 +99,7 @@ pub enum PlanError {
     UnknownValueTag(u8),
     NonFiniteValue,
     ValueTooDeep,
-    /// A region's arm count does not match its kind (`when`/`match` 2, `each` 1).
+    /// A region's arm count does not match its kind (`if`/`match` 2, `for` 1).
     RegionArms {
         region: u32,
         kind: RegionKind,

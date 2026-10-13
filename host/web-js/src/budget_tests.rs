@@ -74,7 +74,7 @@ fn a_metered_body_declares_one_counter_and_join_steps_at_its_call() {
 /// action's commit (`.t`).
 #[test]
 fn each_reset_point_is_its_own_evaluation() {
-    let (_, js) = js(&format!("{CARD}component App\n  resource cards = cards(3, 0) as shape list<Card>\n  resource two = cards(length(map(cards, c => c)), length(map(cards, c => c))) as shape list<Card>\n  state n = 0\n  action set(a: number, b: number)\n    n = a + b\n  view\n    column\n      button press=set(length(map(cards, c => c)), length(map(cards, c => c))) testId=\"go\"\n        text \"go\"\n      each c in cards key=c.id\n        Row(c=c, all=cards)\ncomponent Row\n  props\n    c: Card\n    all: list<Card>\n  state a = length(map(all, x => x))\n  state b = length(map(all, x => x))\n  view\n    text `${{a}} ${{b}}`\n"));
+    let (_, js) = js(&format!("{CARD}component App\n  resource cards = cards(3, 0) as shape list<Card>\n  resource two = cards(length(map(cards, c => c)), length(map(cards, c => c))) as shape list<Card>\n  state n = 0\n  action set(a: number, b: number)\n    n = a + b\n  view\n    column\n      button press=set(length(map(cards, c => c)), length(map(cards, c => c))) testId=\"go\"\n        text \"go\"\n      for c in cards key=c.id\n        Row(c=c, all=cards)\ncomponent Row\n  props\n    c: Card\n    all: list<Card>\n  state a = length(map(all, x => x))\n  state b = length(map(all, x => x))\n  view\n    text `${{a}} ${{b}}`\n"));
     assert_eq!(decl(&js, "r_1").matches("let $s=0").count(), 2, "{js}");
     assert!(js.contains("on(e"), "{js}");
     let press = js.split("\"press\",").nth(1).expect("a press handler");
@@ -98,7 +98,7 @@ fn each_reset_point_is_its_own_evaluation() {
 /// row first, so an argument past MAX_STRING is refused naming it.
 #[test]
 fn act_names_its_string_parameters() {
-    let (_, js) = js("component App\n  state t = \"\"\n  action put(v: string, n: number)\n    t = v\n  resource ids = ids() as shape list<string>\n  view\n    column\n      button press=put(\"a\", 1) testId=\"go\"\n        text \"go\"\n      each i in ids key=i\n        Row()\ncomponent Row\n  state got = \"\"\n  action take(w: string)\n    got = w\n  view\n    input value=got input=take testId=\"in\"\n");
+    let (_, js) = js("component App\n  state t = \"\"\n  action put(v: string, n: number)\n    t = v\n  resource ids = ids() as shape list<string>\n  view\n    column\n      button press=put(\"a\", 1) testId=\"go\"\n        text \"go\"\n      for i in ids key=i\n        Row()\ncomponent Row\n  state got = \"\"\n  action take(w: string)\n    got = w\n  view\n    input value=got input=take testId=\"in\"\n");
     assert!(
         decl(&js, "a_0").ends_with(",[\"s\",\"n\"],0,[\"v\",0]);"),
         "{js}"

@@ -1,6 +1,6 @@
 //! Gated tasks (LLP 1092 D7–D10): a task declared `when cond [key=expr]`
-//! has a timer only while its gate holds, as a `when` arm has its nodes;
-//! a new key restarts it, as a new `each` key makes a new row. Nothing runs
+//! has a timer only while its gate holds, as an `if` arm has its nodes;
+//! a new key restarts it, as a new `for` key makes a new row. Nothing runs
 //! when the gate changes: the change arms or drops a deadline.
 //!
 //! The step runs inside each commit, right after its settlement succeeds

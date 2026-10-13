@@ -88,7 +88,7 @@ const PAINT: &str = r##"component App
       button "Widen" testId="widen" press=widen height=30
       button "Hide" testId="hide" press=hide height=30
       button "Bump" testId="bump" press=bump height=30
-      when shown
+      if shown
         column hatch="paint" data-n=toString(n) testId="box" width=(wide ? 120 : 60) height=40 margin-left=20 margin-top=20 border-radius=20 background-color="#0000ff"
 "##;
 
@@ -889,7 +889,7 @@ const WORDS: &str = r##"component App
     column width=300 height=300
       button "Hide" testId="hide" press=hide height=30
       column hatch="known" testId="known" width=40 height=40
-      when shown
+      if shown
         column hatch="unknown" testId="unknown" width=40 height=40
 "##;
 

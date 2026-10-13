@@ -166,16 +166,16 @@ component Spark
     main testId="spark" viewport-fit="cover" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" position="relative" class=Page font-family="system-ui" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
       Header(likes=likes)
       column testId="stage" flex=1 min-height=0 position="relative"
-        when index >= count
+        if index >= count
           EmptyDeck(restart=restart)
-        each p in deck key=p.id
+        for p in deck key=p.id
           Card(p=p, pos=(p.n - index), x=x, y=y, dragging=dragging, photo=(p.n == index ? photo : (p.n == index - 1 ? flungPhoto : 0)), cardWidth=cardWidth, progress=progress, lastDir=lastDir, offX=offX, offY=offY, flungY=flungY, drag=drag, settle=settle, nextPhoto=nextPhoto, prevPhoto=prevPhoto)
       row testId="actions" flex-shrink=0 justify-content="center" align-items="center" gap=18 padding-top=10 padding-bottom=18
         RoundButton(testId="btn-undo", label="Undo", size=48, glyph=24, color="#f5b83d", path="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z", off=(index == 0), press=undo)
         RoundButton(testId="btn-nope", label="Nope", size=64, glyph=32, color="#ff4458", path="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z", off=(index >= count), press=settle(1, 0, 0))
         RoundButton(testId="btn-super", label="Super like", size=48, glyph=24, color="#2ea8ff", path="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z", off=(index >= count), press=settle(3, 0, 0))
         RoundButton(testId="btn-like", label="Like", size=64, glyph=32, color="#1fd18a", path="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z", off=(index >= count), press=settle(2, 0, 0))
-      each p in filter(profiles, (q) => q.n == matched) key=p.id
+      for p in filter(profiles, (q) => q.n == matched) key=p.id
         MatchOverlay(p=p, keepSwiping=keepSwiping)
       head description="Swipe right to like, left to pass."
 
@@ -231,7 +231,7 @@ component Card
       image shown aria-label=`Photo of ${p.name}` position="absolute" top=0 left=0 width="100%" height="100%" object-fit="cover" background-color="#2b2f36"
       column position="absolute" left=0 right=0 bottom=0 height="60%" background-image="linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.9))"
       row position="absolute" top=8 left=10 right=10 gap=4 testId=(pos == 0 ? "photo-pips" : `pips-${p.id}`)
-        each u in p.photos key=u
+        for u in p.photos key=u
           column flex=1 height=4 border-radius=2 background-color="#ffffff" opacity=(shown == u ? 1 : 0.4)
       Stamp(testId=(pos == 0 ? "stamp-like" : `like-${p.id}`), label="LIKE", color="#1fd18a", tilt=-16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit(x / stampAt)) : (pos == -1 and lastDir == 2 ? 1 : 0)), dragging=dragging, top=48, left=22)
       Stamp(testId=(pos == 0 ? "stamp-nope" : `nope-${p.id}`), label="NOPE", color="#ff4458", tilt=16, shown=(pos == 0 ? (0 - y > magnitude(x) ? 0 : unit((0 - x) / stampAt)) : (pos == -1 and lastDir == 1 ? 1 : 0)), dragging=dragging, top=48, left=(cardWidth - 160))
@@ -250,7 +250,7 @@ component Card
         Detail(path="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z", label=p.distance)
         text p.bio font-size=15 line-height=1.35 color="rgba(255, 255, 255, 0.92)" line-clamp=2 text-overflow="ellipsis" overflow="hidden"
         row flex-wrap="wrap" gap=6 padding-top=4
-          each tag in p.interests key=tag
+          for tag in p.interests key=tag
             text tag font-size=13 font-weight=600 color="#ffffff" padding-left=10 padding-right=10 padding-top=5 padding-bottom=5 border-radius=999 background-color="rgba(255, 255, 255, 0.18)" border-width=1 border-style="solid" border-color="rgba(255, 255, 255, 0.35)"
 
 // A line of the card's details: a small glyph and its text.

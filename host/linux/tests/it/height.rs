@@ -53,7 +53,7 @@ const APP: &str = r#"component App
       button testId="toggle" press=toggle
         text "toggle"
       box height="100%" position="absolute" top=0 display=(hidden ? "none" : "block") testId="ancestor"
-        when showing
+        if showing
           box testId="panel" width=300 height=target position="absolute" bottom=0 max-height="100%" box-sizing="border-box" padding=8 border-width=2 border-style="solid" transition="height -exact-spring(300,30,1), translate -exact-spring(300,30,1)"
             text "panel text"
       box testId="other" height=70 box-sizing="border-box"

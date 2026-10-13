@@ -27,7 +27,7 @@ fn fixture() -> Host<NoData> {
         text "retarget"
       button testId="remove" press=remove
         text "remove"
-      when showing
+      if showing
         box testId="row" opacity=target transition="opacity 180ms ease-out, translate 180ms ease-out"
           text "row"
 "#).unwrap().encode();

@@ -996,7 +996,7 @@ pub struct Task {
     /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
     /// `None` for `mount` and for `key=` alone (`when true`).
     pub gate: Option<Expr>,
-    /// `key=expr`: a new key restarts the timer, as a new `each` key makes
+    /// `key=expr`: a new key restarts the timer, as a new `for` key makes
     /// a new row (LLP 1092 D7).
     pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
@@ -1057,7 +1057,7 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `when cond … else …`. `tag` is the inliner's, as on `Each`: its
+    /// `if cond … else …`. `tag` is the inliner's, as on `Each`: its
     /// arms own the state of the children used in them; 0 as parsed.
     When {
         /// The inliner's tag.
@@ -1071,9 +1071,9 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `each x in list key=expr`, or `each x, i in list key=expr` binding
+    /// `for x in list key=expr`, or `for x, i in list key=expr` binding
     /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
-    /// per region (`each`, `when`, `match`) in the expanded root, so a
+    /// per region (`for`, `if`, `match`) in the expanded root, so a
     /// lifted slot can name the region that owns it before regions exist
     /// (LLP 1017 P4c); 0 as parsed.
     Each {

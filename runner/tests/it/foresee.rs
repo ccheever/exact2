@@ -34,7 +34,7 @@ const SOURCE: &str = "component App
               text t testId=\"body\"
           case none
       row testId=\"bar\"
-        when open
+        if open
           text \"open\" testId=\"flag\"
 ";
 

@@ -262,11 +262,11 @@ fn expansion_keeps_a_record_constructors_head() {
     );
     let r = boot(&src);
     assert_eq!(text(&r, "prop"), "6 10");
-    // Binders spelled `F`: a view's `each`, a callback's parameter and a
+    // Binders spelled `F`: a view's `for`, a callback's parameter and a
     // `match` arm, in a child whose prop's value builds an `F` (so each
     // expression binder is renamed apart from it).
     let src = format!(
-        "{SHAPE}component App\n  resource nums = numbers() as shape list<number>\n  view\n    Child(v=F(x=2), vs=map(nums, n => F(x=n)))\ncomponent Child\n  props\n    v: F\n    vs: list<F>\n  derive d = match some(v) {{ case some(F) => F(F, x=F.x + 1), case none => v }}\n  derive m = map(vs, F => F(F, x=F.x * v.x))\n  view\n    column\n      text `${{d.x}} ${{join(map(m, q => toString(q.x)), \",\")}}` testId=\"binders\"\n      each F in vs key=F.x\n        text toString(F(F, x=F.x + 40).x) testId=`each-${{F.x}}`\n      text toString(match some(v) {{ case some(F) => F(F, x=F.x + 50).x, case none => 0 }}) testId=\"arm\"\n"
+        "{SHAPE}component App\n  resource nums = numbers() as shape list<number>\n  view\n    Child(v=F(x=2), vs=map(nums, n => F(x=n)))\ncomponent Child\n  props\n    v: F\n    vs: list<F>\n  derive d = match some(v) {{ case some(F) => F(F, x=F.x + 1), case none => v }}\n  derive m = map(vs, F => F(F, x=F.x * v.x))\n  view\n    column\n      text `${{d.x}} ${{join(map(m, q => toString(q.x)), \",\")}}` testId=\"binders\"\n      for F in vs key=F.x\n        text toString(F(F, x=F.x + 40).x) testId=`each-${{F.x}}`\n      text toString(match some(v) {{ case some(F) => F(F, x=F.x + 50).x, case none => 0 }}) testId=\"arm\"\n"
     );
     let r = boot(&src);
     assert_eq!(text(&r, "binders"), "3 2,4,6");

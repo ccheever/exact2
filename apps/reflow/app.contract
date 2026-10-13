@@ -228,15 +228,15 @@ component Reflow
           SceneTab(id="ascii", label="05 ASCII art", current=scene, pick=choose)
           SceneTab(id="wall", label="06 Occlusion", current=scene, pick=choose)
           SceneTab(id="spread", label="07 Spread", current=scene, pick=choose)
-        when scene == "balls"
+        if scene == "balls"
           column width=contentWidth gap=10
             text "01 / BALLS" class=Eyebrow
             text "Three spheres cross a paragraph and the words part around them on both sides. The spheres are exclusions (wrap-flow: both); their positions are arithmetic on the clock, committed every 16 ms." class=Lede
             box testId="balls-page" position="relative" width=contentWidth height=ballsHeight
               text ballsScene.text testId="balls-prose" position="absolute" left=0 top=0 width=contentWidth height=ballsHeight font-size=17 line-height="26px" white-space="pre-wrap" color="light-dark(#2b2620, #e9e2d3)"
-              each ball in ballsScene.balls key=ball.id
+              for ball in ballsScene.balls key=ball.id
                 box testId=ball.id position="absolute" left=ball.x top=ball.y width=(ball.r * 2) height=(ball.r * 2) border-radius=ball.r background-color=ball.color border-width=1 border-style="solid" border-color="light-dark(#ffffff55, #ffffff22)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=12
-        when scene == "dragon"
+        if scene == "dragon"
           column width=contentWidth gap=10
             text "02 / THE ILLUSTRATED MANUSCRIPT" class=Eyebrow
             text "Drag the dragon anywhere on the page. Its silhouette is one polygon, both the ink and the exclusion, and the bestiary closes around it wherever it lands." class=Lede
@@ -249,7 +249,7 @@ component Reflow
                 box testId="dragon" pan=dragDragon touch-action="none" position="absolute" left=dragonScene.x top=dragonScene.y width=dragonScene.w height=dragonScene.h clip-path=dragonScene.clip background-color="light-dark(#3f6b4f, #7fae8c)" wrap-flow="both" shape-outside=dragonScene.outline shape-margin=12
                   box position="absolute" left=0 top=0 width=dragonScene.w height=dragonScene.h clip-path=dragonScene.belly background-color="light-dark(#c9b27a, #d9c98f)"
                   box position="absolute" left=(dragonScene.eyeX - dragonScene.eyeR) top=(dragonScene.eyeY - dragonScene.eyeR) width=(dragonScene.eyeR * 2) height=(dragonScene.eyeR * 2) border-radius=20 background-color="light-dark(#f2c14e, #ffd166)"
-        when scene == "masonry"
+        if scene == "masonry"
           column width=contentWidth gap=10
             text "03 / MASONRY" class=Eyebrow
             row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
@@ -257,12 +257,12 @@ component Reflow
               button testId="shuffle" press=shuffle class=Pill background-color="light-dark(#3b2f2a, #e3d3b8)" color="light-dark(#fbf6ec, #2a211c)"
                 text "Shuffle" font-size=12
             row testId="masonry" gap=16 align-items="flex-start" width=contentWidth
-              each col in masonryScene.columns key=col.id
+              for col in masonryScene.columns key=col.id
                 column testId=col.id width=masonryScene.colWidth gap=16
-                  each card in col.cards key=card.id
+                  for card in col.cards key=card.id
                     column testId=card.id width=masonryScene.colWidth padding=16 padding-right=14 box-sizing="border-box" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
                       CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.titleLines + card.bodyLines} lines · ${card.height} px predicted`)
-        when scene == "magazine"
+        if scene == "magazine"
           column width=contentWidth gap=10
             text "04 / DYNAMIC LAYOUT" class=Eyebrow
             text `${magazineScene.cols} columns of ${magazineScene.colWidth} px. Drag the bar at the page's right edge: the columns are re-cut at line boundaries on every sample, from widths that were known before you touched it.` class=Lede
@@ -271,11 +271,11 @@ component Reflow
                 text "The Measured Page" font-weight=700 font-size=(viewport.width < 700 ? 30 : 40) line-height="44px" letter-spacing=-0.5
                 text "An essay in as many columns as fit" font-style="italic" font-size=15 line-height="20px" color="light-dark(#6a5f50, #b8ad99)"
                 row gap=28 align-items="flex-start"
-                  each col in magazineScene.columns key=col.id
+                  for col in magazineScene.columns key=col.id
                     text col.text testId=col.id width=magazineScene.colWidth height=magazineScene.colHeight overflow="hidden" class=Article
                 text (magazineScene.leftover > 0 ? `${magazineScene.leftover} words continue on the next page.` : "The whole essay fits on this page.") font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
               box testId="magazine-handle" pan=resize touch-action="none" position="absolute" left=(magazineWidth - 7) top=0 width=14 height=(magazineScene.colHeight + 176) border-radius=7 background-color="light-dark(#3b2f2a, #e3d3b8)" opacity=0.85
-        when scene == "ascii"
+        if scene == "ascii"
           column width=contentWidth gap=10 align-items="center"
             text "05 / ASCII ART IN A PROPORTIONAL FACE" class=Eyebrow width="100%"
             row gap=6 flex-wrap="wrap"
@@ -285,18 +285,18 @@ component Reflow
                 text "Naive grid" font-size=12
             text (measured ? "Every row advances by the real, kerned width of the glyph it just chose, so a proportional face draws a straight picture. The light circles the sphere on the clock." : "Every row samples on a uniform grid, but the glyphs are not uniform: the rows stretch and shrink wherever the widths disagree, and the picture bends.") class=Lede width="100%"
             column testId="ascii-art" width=(asciiWidth + 32) padding=16 box-sizing="border-box" overflow="hidden" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
-              each row in asciiScene.rows key=row.id
+              for row in asciiScene.rows key=row.id
                 text row.text testId=row.id width=(asciiWidth * 2) height=13 font-size=13 line-height="13px" white-space="pre-wrap" color="light-dark(#2b2620, #e9e2d3)"
-        when scene == "wall"
+        if scene == "wall"
           column width=contentWidth gap=10
             text "06 / OCCLUSION" class=Eyebrow
             text `${wallScene.count} cards in ${wallScene.cols} columns, ${wallScene.total} px tall, and only ${wallScene.visible} of them exist as views. Every position was known before the first card was drawn, so the scroll extent is exact and nothing re-estimates as you move.` class=Lede
             scroll testId="wall-scroll" scroll=wallScrolled width=contentWidth height=wallHeight
               box testId="wall" position="relative" width=contentWidth height=wallScene.total
-                each card in wallScene.cards key=card.id
+                for card in wallScene.cards key=card.id
                   column testId=card.id position="absolute" left=card.x top=card.y width=wallScene.colWidth height=card.h padding=16 padding-right=14 box-sizing="border-box" overflow="hidden" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
                     CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.lines} lines · ${card.h} px`)
-        when scene == "spread"
+        if scene == "spread"
           column width=contentWidth gap=10
             text "07 / EDITORIAL SPREAD" class=Eyebrow
             text `${spreadScene.cols} columns. The drop cap, the quotation and the picture are exclusions in the kernel; each column's text was cut where the same walker, run in the data crate around the same shapes, said its flow would stop. Narrow the window to one column and the obstacles move with it.` class=Lede
@@ -304,7 +304,7 @@ component Reflow
               text "The Measured Page" font-weight=700 font-size=(viewport.width < 700 ? 34 : 52) line-height=1.02 letter-spacing=-1
               text "Why a magazine measures first and draws second" font-style="italic" font-size=17 line-height="24px" color="light-dark(#6a5f50, #b8ad99)"
               box testId="spread-body" position="relative" width=pageInner height=spreadScene.height
-                each col in spreadScene.columns key=col.id
+                for col in spreadScene.columns key=col.id
                   text col.text testId=col.id position="absolute" left=col.x top=0 width=spreadScene.colWidth height=spreadScene.height class=Article
                 box testId="spread-cap" position="absolute" left=0 top=0 width=spreadScene.capW height=spreadScene.capH wrap-flow="both" shape-outside=spreadScene.capShape shape-margin=spreadScene.capMargin
                   text "T" font-weight=700 font-size=80 line-height="64px" color="light-dark(#b4462d, #e39a77)"
@@ -313,7 +313,7 @@ component Reflow
                 box testId="spread-disc" position="absolute" left=spreadScene.discX top=spreadScene.discY width=spreadScene.discW height=spreadScene.discW border-radius=200 background-color="light-dark(#4f7d6a, #93bda6)" wrap-flow="both" shape-outside=spreadScene.discShape shape-margin=spreadScene.discMargin
                   box position="absolute" left="18%" top="18%" width="64%" height="64%" border-radius=200 background-color="light-dark(#c2603f, #e39a77)"
                   box position="absolute" left="36%" top="36%" width="28%" height="28%" border-radius=200 background-color="light-dark(#f2c14e, #ffd166)"
-              when spreadScene.leftover > 0
+              if spreadScene.leftover > 0
                 text `${spreadScene.leftover} words continue overleaf.` font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
         row width=contentWidth justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
           text "After Cheng Lou's Pretext demos. Advances read from the font files at build time; lines broken by the walker every host flows text with." font-style="italic" font-size=12 line-height="18px" color="light-dark(#7a6a55, #b8a98f)" flex=1 min-width=200

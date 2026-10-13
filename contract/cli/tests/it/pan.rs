@@ -202,7 +202,7 @@ fn a_miscounted_handler_is_refused_at_its_binding_typed_or_not() {
     let app = |actions: &str, view: &str| {
         format!("component App\n  state n = 0\n  resource items = rows() as shape list<string>\n{actions}  view\n    {view}\n")
     };
-    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop\n      each x in items key=x\n        column reorderFor=\"arrange\"\n          text x";
+    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop\n      for x in items key=x\n        column reorderFor=\"arrange\"\n          text x";
     let cases = [
         // (untyped, typed, view, the binding's column)
         (
@@ -272,7 +272,7 @@ fn the_drags_and_the_drop_type_their_actions_as_pan_does() {
     let before = Ty::Option(Box::new(Ty::String));
     let height = "column heightDragFor=\"sheet\" heightrelease=release testId=\"go\"\n";
     let transform = "column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release testId=\"go\"\n";
-    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop testId=\"go\"\n      each x in items key=x\n        column reorderFor=\"arrange\"\n          text x\n";
+    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop testId=\"go\"\n      for x in items key=x\n        column reorderFor=\"arrange\"\n          text x\n";
     // The root's untyped parameters take the payload's types.
     let root = |actions: &[&str], view: &str| {
         let actions: std::string::String = (actions.iter())

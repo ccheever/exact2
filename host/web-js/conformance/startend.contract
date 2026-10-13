@@ -29,8 +29,8 @@ component StartEnd
         text `${length(lines)} lines` testId="summary"
         text (atEnd ? "at the end" : "away") testId="at-end"
       list virtualized=true scroll-start="end" scroll=moved estimated-item-height=48 testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each c in cards key=c.id
+        for c in cards key=c.id
           text `${c.label}, ${c.width} wide` testId=`row-${c.n}` padding=(4 + c.width / 20) font-size=13 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
       list virtualized=true scroll-start="end" testId="later" height=160 flex-shrink=0 width="100%" overflow-x="hidden" background-color="#f1f5fa"
-        each c in lines key=c.id
+        for c in lines key=c.id
           text `${c.label}, ${c.width} wide` testId=`line-${c.n}` padding=(4 + c.width / 40) font-size=13

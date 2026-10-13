@@ -241,12 +241,13 @@ pub struct Shape {
     pub markers: Vec<Item>,
 }
 
-/// The content box inside a box's border box: x, y, width, height. The
-/// padding and border are what the last layout resolved, so a percentage is
-/// of the containing block; zero for a node with no engine layout.
+/// CSS's content box inside a box's border box: x, y, width, height. The
+/// padding is what the last layout resolved, a percentage of the containing
+/// block (zero for a node with no engine layout); the border is CSS's, as
+/// the engine's also holds a native field's chrome.
 pub fn content_box(kernel: &Kernel, node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
     let (pl, pt, pr, pb) = kernel.resolved_padding(node.key).unwrap_or_default();
-    let (bl, bt, br, bb) = kernel.resolved_border(node.key).unwrap_or_default();
+    let [bt, br, bb, bl] = node.style.border_widths_in(kernel.arena().env());
     let (left, top) = (pl + bl, pt + bt);
     let w = node.frame.width - left - pr - br;
     let h = node.frame.height - top - pb - bb;

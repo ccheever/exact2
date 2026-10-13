@@ -50,7 +50,7 @@ fn chart_points_are_the_coordinates_the_data_source_formatted() {
     let app = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../app.contract")).unwrap();
     let fns: String = app.lines().filter(|l| l.starts_with("fn ")).map(|l| format!("{l}\n")).collect();
     let src = format!(
-        "{fns}shape S\n  id: string\n  series: list<number>\n  lo: number\n  hi: number\ncomponent T\n  resource xs = xs() as shape list<S>\n  view\n    column\n      each s in xs key=s.id\n        text chartPoints(s.series, s.lo, s.hi) testId=`p-${{s.id}}`\n"
+        "{fns}shape S\n  id: string\n  series: list<number>\n  lo: number\n  hi: number\ncomponent T\n  resource xs = xs() as shape list<S>\n  view\n    column\n      for s in xs key=s.id\n        text chartPoints(s.series, s.lo, s.hi) testId=`p-${{s.id}}`\n"
     );
     let doc: serde_json::Value = serde_json::from_slice(exact_crypto_svg_data::JSON).unwrap();
     let series: Vec<Vec<f64>> = doc["coins"]

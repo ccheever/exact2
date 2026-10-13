@@ -4,7 +4,7 @@ use exact_runner::{DataError, DataSource, Value};
 #[test]
 fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization() {
     for event in ["reachstart", "reachend"] {
-        let source = format!("component App\n  state disabled = false\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 {event}=more\n      each x in [1, 2] key=x\n        text `${{x}}`\n");
+        let source = format!("component App\n  state disabled = false\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 {event}=more\n      for x in [1, 2] key=x\n        text `${{x}}`\n");
         let mut plan = contract::compile(&source).unwrap();
         crate::emit::emit(&plan, false, false).unwrap();
         let disabled = plan.slots[0].init;
@@ -185,7 +185,7 @@ fn outline_none_is_a_fields_own_declaration() {
 fn a_modal_route_is_painted_by_its_class() {
     let app = |page: &str, sheet: &str| {
         let plan = contract::compile(&format!(
-            "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        when e.name == \"home\"\n          column navigationKey=`${{e.id}}` {page}\n            text \"Home\"\n        when e.name == \"add\"\n          column navigationKey=`${{e.id}}` navigationPresentation=\"modal\" {sheet}\n            text \"New\"\n"
+            "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        if e.name == \"home\"\n          column navigationKey=`${{e.id}}` {page}\n            text \"Home\"\n        if e.name == \"add\"\n          column navigationKey=`${{e.id}}` navigationPresentation=\"modal\" {sheet}\n            text \"New\"\n"
         ))
         .unwrap();
         crate::emit::emit(&plan, false, false).unwrap().css

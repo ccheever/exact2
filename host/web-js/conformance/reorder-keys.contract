@@ -34,7 +34,7 @@ component ReorderKeys
           text "nearest"
         button press=closest testId="closest"
           text "closest 3"
-      each s in shown key=s.id
+      for s in shown key=s.id
         row testId=`station-${s.id}` gap=6
           text s.name
           text `zone ${s.zone}` color=(s.zone > 2 ? "#b91c1c" : "#111827")

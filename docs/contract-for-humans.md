@@ -366,7 +366,7 @@ derive adults = filter(people, person => person.age >= 18)
 derive caption = join(names, ", ")
 ```
 
-Callbacks can build records. They cannot return view nodes. Use `each` to build
+Callbacks can build records. They cannot return view nodes. Use `for` to build
 repeated UI, not `map`. General closures, reducers, sorting, and arbitrary list
 mutation belong in the data module when the supplied operations do not suffice.
 
@@ -384,15 +384,15 @@ Card(title="Heading", selected=selected)
 ```
 
 Positional values depend on the tag. Prefer a corpus example when using a new
-tag. The app's root view must be exactly one element: a `when`, `each`, or `match`
+tag. The app's root view must be exactly one element: an `if`, `for`, or `match`
 there is refused, so put a stable element around conditional or repeated content.
 A child component used inside an element may return a region or several nodes.
 
-`when` conditionally creates nodes:
+`if` conditionally creates nodes:
 
 ```text
 column
-  when pending(results)
+  if pending(results)
     text "Loading…"
   else
     text `${length(results)} results`
@@ -408,10 +408,10 @@ match selected
     text "Nothing selected"
 ```
 
-`each` repeats a subtree, with an optional index and a required stable key:
+`for` repeats a subtree, with an optional index and a required stable key:
 
 ```text
-each item, i in items key=item.id
+for item, i in items key=item.id
   row gap=8
     text `${i + 1}`
     ItemRow(item=item, open=open)
@@ -426,7 +426,7 @@ For long lists, use a bounded virtualized collection:
 
 ```text
 list virtualized=true height=500 estimated-item-height=64
-  each item in items key=item.id
+  for item in items key=item.id
     column padding=12
       text item.title
 ```
@@ -441,7 +441,7 @@ empty state), and `appearance="none"` on the list keeps rows that are yours, a
 transcript or a feed of cards. A list laid out sideways is a carousel and gets
 none of it.
 
-A virtualized list has exactly one direct `each`, whose body has one flow root.
+A virtualized list has exactly one direct `for`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
 a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
@@ -567,12 +567,12 @@ component Items
   view
     column gap=8 padding=16
       input value=query input=search testId="query"
-      when pending(items)
+      if pending(items)
         text "Loading…"
-      when failed(items)
+      if failed(items)
         button press=retry testId="retry"
           text "Try again"
-      each item in items key=item.id
+      for item in items key=item.id
         button press=save(item.id) testId=`item-${item.id}`
           text item.title
       text notice testId="notice"
@@ -726,7 +726,7 @@ component ReadingList
         button press=add testId="add"
           text "Add"
       text notice testId="notice"
-      each book in books key=book.id
+      for book in books key=book.id
         text book.title testId=`book-${book.id}`
 ```
 
@@ -1019,7 +1019,7 @@ colours its placeholder (`color` alone, its alpha its own). A background, border
 browser; `appearance="none"` says so explicitly. A row on any conditional
 class or value arm counts. `appearance="auto"` asks for the native field and
 refuses those rows; `background-clip` and `background-attachment` are allowed.
-Appearance is a literal, from the class then your own attribute; use `when`
+Appearance is a literal, from the class then your own attribute; use `if`
 with two fields to switch it.
 
 `input` and `change` carry the control's new value as the final action argument:
@@ -1166,7 +1166,7 @@ title, an optional second `text` (a value) or a `column` of two texts (a
 subtitle), and an optional trailing accessory — a `forward-chevron` or
 `checkmark` image, a checkbox or switch `input`, or a `button` holding only
 `image "symbol:info"`. `destructive` draws a row red. Any other row is custom
-and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `when`.
+and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `if`.
 
 ```text
 list appearance="auto" listStyle="inset-grouped" flex=1
@@ -1213,14 +1213,14 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0 gap=8
           header
-            when e.name == "item"
+            if e.name == "item"
               button id="back" press=back testId=`back-${e.id}`
                 text "Back"
             text e.name role="heading" aria-level=1 testId=`route-${e.id}`
-          when e.name == "item"
+          if e.name == "item"
             text e.params.id
           button press=showItem testId=`open-${e.id}`
             text "Open item"
@@ -1319,8 +1319,8 @@ component Undo
     text toast testId="toast"
 ```
 
-The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a new
-`toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
+The timer exists while `toast != ""` holds, as an `if` arm's nodes do, and a new
+`toastUntil` restarts it, as a new key makes a new `for` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
 toast without testing the time again. Gates and keys read state, never `performanceNow()`
@@ -1435,7 +1435,7 @@ component Responsive
   resource viewport = exactViewport() as shape Viewport
   view
     column
-      when viewport.width >= 900
+      if viewport.width >= 900
         text "Wide layout"
       else
         text "Compact layout"
@@ -1456,7 +1456,7 @@ component Finished
   resource page = exactPage() as shape Page
   view
     main
-      when page.hasFocus
+      if page.hasFocus
         text "Build finished" role="status"
 ```
 

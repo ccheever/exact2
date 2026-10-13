@@ -34,7 +34,7 @@ component Insets
             text "Keep editing" font-size=14 color="#ffffff"
         button press=focusOut focus=focusOut testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
           text "Dismiss the keyboard" font-size=14 color="#ffffff"
-        when focused
+        if focused
           text "editing" testId="editing" font-size=13 color="#b8a1d9"
         else
           text "idle" testId="idle" font-size=13 color="#b8a1d9"

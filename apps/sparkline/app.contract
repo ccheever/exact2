@@ -57,7 +57,7 @@ component Sparkline
         button press=toggleFreeze testId="freeze" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
           text (frozen ? "Run" : "Freeze") font-size=13
       list id="rows" virtualized=true estimated-item-height=64 testId="rows" flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each c in coins key=c.id
+        for c in coins key=c.id
           CoinRow(c=c, frozen=frozen)
 
 component CoinRow

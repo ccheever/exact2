@@ -10,7 +10,7 @@
 //! stable id and a span.
 //!
 //! This crate also owns [`Scope`] and [`Ref`]: how a name resolves to a slot,
-//! derive, resource, prop, parameter, action, `each` item, or `match`
+//! derive, resource, prop, parameter, action, `for` item, or `match`
 //! binding. Later passes resolve names through the same code, so a name means
 //! one thing everywhere.
 
@@ -348,9 +348,9 @@ pub enum Ref {
     Prop(u32),
     /// An action parameter, by index.
     Param(u32),
-    /// An `each` item, `depth` region frames out (0 = innermost).
+    /// A `for` item, `depth` region frames out (0 = innermost).
     Item(u32),
-    /// An `each` item's position, `depth` region frames out (LLP 1062 D8).
+    /// A `for` item's position, `depth` region frames out (LLP 1062 D8).
     Index(u32),
     /// A `match` binding, `depth` region frames out.
     Bound(u32),
@@ -400,7 +400,7 @@ impl Scope {
         }));
     }
 
-    /// Push a region frame binding at most one name (`each` item or `match` binding).
+    /// Push a region frame binding at most one name (`for` item or `match` binding).
     pub fn push_region(&mut self, name: Option<(String, Ref, Ty)>) {
         self.frames.push(Arc::new(Frame {
             names: name.into_iter().collect(),
@@ -408,7 +408,7 @@ impl Scope {
         }));
     }
 
-    /// Push an `each` row's frame: its item, and its position when named.
+    /// Push a `for` row's frame: its item, and its position when named.
     pub fn push_each(&mut self, item: &str, index: Option<&str>, ty: Ty) {
         let mut names = vec![(item.to_string(), Ref::Item(0), ty)];
         names.extend(index.map(|i| (i.to_string(), Ref::Index(0), Ty::Number)));

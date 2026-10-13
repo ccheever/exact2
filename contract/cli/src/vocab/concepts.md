@@ -31,7 +31,7 @@ component App
           text "Tea"
       scroll flex=1 min-height=0
         text "Groceries" id="top" role="heading" aria-level=2 padding=16
-        each r in rows key=r
+        for r in rows key=r
           text r id=`row-${r}` padding=16
 ```
 
@@ -66,16 +66,16 @@ component App
     refresh feed
   view
     column padding=16 gap=8
-      when failed(feed) or feed.error != ""
+      if failed(feed) or feed.error != ""
         text "Couldn’t load the feed." testId="feed-error"
         button press=reload testId="retry"
           text "Try Again"
-      else when not feed.loaded
+      else if not feed.loaded
         progress aria-label="Loading" testId="feed-loading"
-      else when length(feed.titles) == 0
+      else if length(feed.titles) == 0
         text "Nothing here yet." color="-exact-secondary-label" testId="feed-empty"
       else
-        each t in feed.titles key=t
+        for t in feed.titles key=t
           text t
 ```
 
@@ -125,7 +125,7 @@ component App
   view
     column padding=16 gap=8
       row role="radiogroup" aria-label="Tip"
-        each p in [15, 18, 20, 25] key=p
+        for p in [15, 18, 20, 25] key=p
           button role="radio" aria-checked=(tip == p) press=pick(p) testId=`tip-${p}` flex=1
             text `${p}%`
       text `Tip: ${tip}%` testId="tip"
@@ -145,7 +145,7 @@ A second screen is a route. `routes` gives each screen a path, the root draws `s
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
 pops the stack; Forward comes through `navigate`), a reload that keeps the place and a link to
 every screen (`/recipe/Ramen` opens on that recipe, the list under it), and iOS its navigation
-bar, Back button and edge swipe. Screens swapped by `when showingDetail` get none of these
+bar, Back button and edge swipe. Screens swapped by `if showingDetail` get none of these
 (`lower-screen-by-state`).
 
 ```contract
@@ -162,18 +162,18 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        when e.name == "recipes"
+      for e in stack(nav) key=e.id
+        if e.name == "recipes"
           column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
             header padding="8px 16px"
               text "Recipes" role="heading" aria-level=1
             list id="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                each n in ["Pancakes", "Ramen", "Tacos"] key=n
+                for n in ["Pancakes", "Ramen", "Tacos"] key=n
                   button press=open(n) testId=`recipe-${n}`
                     text n
                     image "symbol:forward-chevron"
-        when e.name == "recipe"
+        if e.name == "recipe"
           column navigationKey=`${e.id}` position="absolute" inset=0
             header padding="8px 16px"
               text e.params.name role="heading" aria-level=2
@@ -198,7 +198,7 @@ names: not-found, 404, unknown-route, unknown-url, missing-page
 
 A location no route matches (a mistyped link, a stale bookmark) keeps its URL and shows "Page not
 found" with a Go Home link: with no `notfound` line in `routes`, the compiler writes it and that
-screen into your `each e in stack(nav)`. Write `notfound` (last, no path) to draw your own, a
+screen into your `for e in stack(nav)`. Write `notfound` (last, no path) to draw your own, a
 route like any other. A detail whose id names nothing (`/recipe/999`) matches its route: say "No
 such recipe" there, with a way back (`pattern list-detail`).
 
@@ -210,9 +210,9 @@ routes nav
 component App
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0
-          when e.name == "notfound"
+          if e.name == "notfound"
             text `Nothing at ${e.url}` testId="missing"
 ```
 
@@ -247,13 +247,13 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        when e.name == "home"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
           column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
             text name testId="name"
             button press=open testId="rename"
               text "Rename"
-        when e.name == "rename"
+        if e.name == "rename"
           column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
               button id="back" press=back testId="cancel"
@@ -289,7 +289,7 @@ component App
     items = filter(items, i => i != aimed)
   view
     column padding=16 gap=8
-      each i in items key=i
+      for i in items key=i
         button press=ask(i) destructive=true testId=`delete-${i}`
           text `Delete ${i}`
       dialog id="remove" role="alertdialog" aria-label=`Delete ${aimed}?`
@@ -395,7 +395,7 @@ component App
     items = filter(items, i => i != item)
   view
     column
-      each i in items key=i
+      for i in items key=i
         scroll swipeContent=`row-${i}` swipeTrailing=`delete-${i}` width="100%"
           overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
           row width="100%"
@@ -507,14 +507,14 @@ component App
       text label testId="label"
 ```
 
-- `when x` needs a bool, never an option: take it apart with `match`, or compare it.
+- `if x` needs a bool, never an option: take it apart with `match`, or compare it.
 
-## each: one node per item
-names: for, forEach, v-for, list-render, index
+## for: one node per item
+names: each, forEach, v-for, list-render, index
 
-`each item in items key=item.id` repeats its nodes once per item. The key, a string, number or bool,
+`for item in items key=item.id` repeats its nodes once per item. The key, a string, number or bool,
 unique and stable, is the row's identity: its state, focus and animation follow the item. A second
-name binds the index: `each s, i in items key=s`. An action has no loops: reshape a list with `map`
+name binds the index: `for s, i in items key=s`. An action has no loops: reshape a list with `map`
 and `filter` in a `derive`, or in the data source.
 
 ```contract
@@ -522,18 +522,18 @@ component App
   state items = ["Milk", "Eggs"]
   view
     column gap=4
-      each s, i in items key=s
+      for s, i in items key=s
         text `${i + 1}. ${s}` testId=`row-${i}`
 ```
 
 - A key that is the index (`key=i`) gives a row that moves or is deleted the wrong state: key by an id.
 
-## when: show nodes only under a condition (else, else when)
-names: if, else, conditional, v-if, ternary
+## if: show nodes only under a condition (else, else if)
+names: when, else, conditional, v-if, ternary
 
-`when cond` over indented nodes shows them while `cond` is true; `else when cond` and `else` follow
+`if cond` over indented nodes shows them while `cond` is true; `else if cond` and `else` follow
 at its indent. The condition is a bool, with no truthiness (`length(xs) > 0`, not `xs`).
-A view chooses with `when`, an action with `if`, an expression with `cond ? a : b`.
+A view and an action choose with `if`, an expression with `cond ? a : b`; `when` is a task's gate.
 
 ```contract
 component App
@@ -542,9 +542,9 @@ component App
     n = n + 1
   view
     column gap=8
-      when n == 0
+      if n == 0
         text "Nothing yet"
-      else when n < 3
+      else if n < 3
         text `${n} so far`
       else
         text "Plenty"
@@ -552,7 +552,7 @@ component App
         text "More"
 ```
 
-- A view never uses `if`, and a component's view root is an element: wrap a `when` in a `column`.
+- A component's view root is an element: wrap an `if` in a `column`.
 
 ## let: a name inside an action
 names: local, const, var, variable

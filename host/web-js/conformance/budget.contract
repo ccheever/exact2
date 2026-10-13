@@ -226,17 +226,17 @@ component Budget
       text `c ${c} size ${size} k ${length(k)} two ${length(two)} str ${length(str)} t ${t}` testId="facts"
       text `${d1} ${d3} ${a6} ${b6} ${d8} ${d9} ${d11} ${d12} ${d13} ${d14} ${d15} ${d18} ${length(same)}` testId="results"
       text `${d35} ${d37} ${d39} ${d41} ${d43} ${d45}` testId="lists"
-      when c == 5
+      if c == 5
         column testId="rows"
-          each x in three key=length(map(k, y => y)) * 10 + x.n
+          for x in three key=length(map(k, y => y)) * 10 + x.n
             Row(x=x, big=k)
-          each x in same key=x.id
+          for x in same key=x.id
             text x.label testId=`same-${x.n}`
-      each x in keyed key=(poison ? length(map(big, y => y)) : x.n)
+      for x in keyed key=(poison ? length(map(big, y => y)) : x.n)
         text x.label testId=`key-${x.n}`
-      when edge
+      if edge
         list virtualized=true reachend=setN(length(map(big, x => x))) estimated-item-height=20 height=200 testId="edges" width="100%" overflow-x="hidden"
-          each x in keyed key=x.id
+          for x in keyed key=x.id
             text x.label height=20 testId=`edge-${x.n}`
 
 component Row

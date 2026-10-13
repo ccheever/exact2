@@ -1,4 +1,4 @@
-// `when` and `match` inside rows, reading row state and the item.
+// `if` and `match` inside rows, reading row state and the item.
 shape Item
   id: string
   note: option<string>
@@ -11,7 +11,7 @@ component App
   derive items = length(ab) >= length(c) ? ab : c
   view
     column
-      each it, i in items key=i
+      for it, i in items key=i
         Row(item=it, index=i)
 
 component Row
@@ -24,7 +24,7 @@ component Row
   view
     column
       button "t" press=toggle testId=`t-${index}`
-      when open
+      if open
         text `open ${item.id}` testId=`open-${index}`
       else
         text "closed" testId=`closed-${index}`

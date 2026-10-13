@@ -96,12 +96,14 @@ final class BoxLayerIOSTests: XCTestCase {
         }
         let n = node(style, size: CGSize(width: 160, height: 80))
         let media = MediaPlatformView()
+        n.applyContentBox(padding: [10, 10, 10, 10])
         VideoView.layout(media, in: n)
         XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 140, height: 60))
         let mask = try XCTUnwrap(media.layer.mask as? CAShapeLayer)
         XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 10, y: 5)))
         XCTAssertTrue(try XCTUnwrap(mask.path).contains(CGPoint(x: 70, y: 5)))
         n.frame.size = CGSize(width: 80, height: 160)
+        n.applyContentBox(padding: [10, 10, 10, 10])
         VideoView.layout(media, in: n)
         XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 60, height: 140))
         let resized = try XCTUnwrap(media.layer.mask as? CAShapeLayer)
@@ -179,10 +181,12 @@ final class BoxLayerIOSTests: XCTestCase {
             style["border_radius_" + corner] = ["pct": 50]
         }
         n.applyStyle(style)
+        n.applyContentBox(padding: [10, 10, 10, 10])
         XCTAssertEqual(media.frame, CGRect(x: 10, y: 10, width: 140, height: 60))
         let mask = try XCTUnwrap(media.layer.mask as? CAShapeLayer)
         XCTAssertFalse(try XCTUnwrap(mask.path).contains(CGPoint(x: 10, y: 5)))
         n.applyStyle([:])
+        n.applyFieldContent(["rect": NSNull()])
         XCTAssertEqual(media.frame, n.bounds)
         XCTAssertNil(media.layer.mask)
         n.applyStyle(style)
@@ -194,23 +198,21 @@ final class BoxLayerIOSTests: XCTestCase {
 
     /// LLP 1116: a padding that resolves at layout (`min(10%, 20px)`
     /// arrives as a calculation's handle) reads the content box the kernel published,
-    /// for the box and for each side; without one, the authored points.
+    /// for the box and for each side; without one, the box's bounds.
     func testAPaddingResolvedAtLayoutReadsTheKernelsContentBox() throws {
         let padding = try XCTUnwrap(CalculatedLength([
             "calc": .number(calc("min(10%, 20px)")),
             "env": [0, 0, 0, 0, 300, 600, 1, 1]
         ]))
         let knots: NodeStyle = ["padding_top": .calculation(padding)]
-        XCTAssertNil(FlatPaint(knots), "a layer would not keep the published box")
-        XCTAssertNotNil(FlatPaint(["padding_top": 4]))
         var style = knots
         style["padding_left"] = 6; style["border_width"] = 2
         let n = node(style, size: CGSize(width: 300, height: 120))
-        n.applyFieldContent(["rect": [8.0, 22.0, 290.0, 96.0]])
+        n.applyContentBox(padding: [20, 0, 0, 6], border: [2, 2, 2, 2])
         XCTAssertEqual(n.contentBox(), CGRect(x: 8, y: 22, width: 290, height: 96))
         XCTAssertEqual(["top", "right", "bottom", "left"].map { n.padding($0) }, [20, 0, 0, 6])
         n.applyFieldContent(["rect": NSNull()])
-        XCTAssertEqual(n.contentBox(), CGRect(x: 8, y: 2, width: 290, height: 116))
+        XCTAssertEqual(n.contentBox(), CGRect(x: 0, y: 0, width: 300, height: 120), "a box sent none is its own content box")
     }
 
     /// The kernel's handle for a CSS length text that is a calculation.
@@ -347,6 +349,7 @@ final class BoxLayerIOSTests: XCTestCase {
             "border_radius_bottom_right": 20, "border_radius_bottom_left": 20])
         let padded = image(2, ["object_fit": .string("cover"), "padding_left": 4, "border_radius_top_left": 20,
             "border_radius_top_right": 20, "border_radius_bottom_right": 20, "border_radius_bottom_left": 20])
+        padded.applyContentBox(padding: [0, 0, 0, 4])
         let end = Date(timeIntervalSinceNow: 5)
         while (avatar.raster == nil || padded.raster == nil) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         avatar.layer.displayIfNeeded(); padded.layer.displayIfNeeded()

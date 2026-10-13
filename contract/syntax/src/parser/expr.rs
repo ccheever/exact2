@@ -349,7 +349,7 @@ impl Parser {
         if matches!(body, Expr::Ident(..)) && !self.at_punct(",") && !self.at_punct(")") {
             return Err(SyntaxError {
                 id: "syntax-callback-view",
-                message: "a callback returns one value, not a view node: repeat children with `each x in xs key=x.id` under their parent".into(),
+                message: "a callback returns one value, not a view node: repeat children with `for x in xs key=x.id` under their parent".into(),
                 span: body.span(),
             });
         }

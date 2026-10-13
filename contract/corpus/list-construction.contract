@@ -38,7 +38,7 @@ component ListConstruction
       text toString(length(scores)) testId="scores"
       text join(chips, "|") testId="chips"
       text at testId="at"
-      each r in rows key=r.id
+      for r in rows key=r.id
         button r.title press=pick(r.id) testId=r.id
         button "fold" press=toggle(r.id) testId=`fold-${r.id}`
       button "clear" press=clear testId="clear"
