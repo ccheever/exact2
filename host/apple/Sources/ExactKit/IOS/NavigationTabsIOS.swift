@@ -130,11 +130,16 @@ extension NavigationHost {
         guard !tabContainerAsked, presenter.modals.routes.isEmpty, !presenter.modals.inTransition, presentedNavigations.isEmpty,
               let root = self.container, let tabs = NavigationTabs.of(root, presenter), let parent = container.parent else { return }
         tabContainerAsked = true
+        // Offer the stacks in place: a container the hook returns takes them from Exact's, as UIKit moves any
+        // child. Emptying Exact's first would lose its bar's selection: a tab bar controller emptied and filled
+        // again keeps its selected index but shows no tab selected (iOS 26 and 27).
         let navs = tabPanels.compactMap { tabNavigations[$0] }
-        container.setViewControllers([], animated: false)
         guard let owned = askTabContainer(tabs, navs: navs, selected: routerTab) else {
-            container.setViewControllers(navs, animated: false)
-            container.selectedIndex = max(0, routerTab)
+            if container.viewControllers?.count != navs.count {
+                presenter.session?.log("hatch: tabContainer took the tabs' stacks but returned no container; Exact's has them back")
+                container.setViewControllers(navs, animated: false)
+                container.selectedIndex = max(0, routerTab)
+            }
             return
         }
         natives.tabsHatch(container, event: 1)
