@@ -203,8 +203,12 @@ component Messages
   // Geometry is read once after the new balloon has laid out. Motion is
   // then evaluated by Exact's spring, with the reference's 55 ms throw delay.
   action animate
-    if flightBody != "" and performanceNow() - flightAt < 6000
-      time = performanceNow()
+    let stamp = performanceNow()
+    let startFlight = flightPhase == 1 and changeRevision != flightRevision and changeId != "" and stamp - flightAt > 30 and not frame(`bubble-${changeId}`).unavailable
+    let phase = startFlight ? 2 : flightPhase
+    let startedAt = startFlight ? stamp : flightAt
+    if flightBody != "" and stamp - startedAt < 6000
+      time = stamp
     if changeRevision != seenChange
       seenChange = changeRevision
       if newConversation and changeId != ""
@@ -212,28 +216,27 @@ component Messages
         draft = ""
         draftThread = changeId
         newConversation = false
-    if flightPhase == 1 and changeRevision != flightRevision and changeId != "" and performanceNow() - flightAt > 30
-      if not frame(`bubble-${changeId}`).unavailable
-        flightId = changeId
-        flightX = frame(`bubble-${changeId}`).x
-        flightY = frame(`bubble-${changeId}`).y
-        flightWidth = frame(`bubble-${changeId}`).width
-        flightDelta = fieldY - frame(`bubble-${changeId}`).y
-        flightScale = min(2.5, fieldWidth / max(48, frame(`bubble-${changeId}`).width))
-        flightPhase = 2
-        flightAt = performanceNow()
-    if flightPhase == 2 and performanceNow() - flightAt >= 16
+    if startFlight
+      flightId = changeId
+      flightX = frame(`bubble-${changeId}`).x
+      flightY = frame(`bubble-${changeId}`).y
+      flightWidth = frame(`bubble-${changeId}`).width
+      flightDelta = fieldY - frame(`bubble-${changeId}`).y
+      flightScale = min(2.5, fieldWidth / max(48, frame(`bubble-${changeId}`).width))
+      flightPhase = phase
+      flightAt = startedAt
+    if phase == 2 and stamp - startedAt >= 16
       flightScale = 0.77
       flightPhase = 3
-    if flightPhase == 3 and performanceNow() - flightAt >= 55
+    if phase == 3 and stamp - startedAt >= 55
       flightDelta = 0
       flightPhase = 4
-    if flightPhase == 4 and performanceNow() - flightAt >= 177
+    if phase == 4 and stamp - startedAt >= 177
       flightScale = 1
       flightPhase = 5
-    if flightPhase == 5 and performanceNow() - flightAt >= 800
+    if phase == 5 and stamp - startedAt >= 800
       flightPhase = 0
-    if flightPhase == 1 and performanceNow() - flightAt > 2000
+    if phase == 1 and stamp - startedAt > 2000
       flightPhase = 0
   task motion mount
     every(frame, animate)

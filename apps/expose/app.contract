@@ -92,16 +92,15 @@ component Expose
   derive banner = bannerAt > 0 and not inThread
 
   action tick
+    let stamp = performanceNow()
+    let nextBannerAt = replyDone and replyRevision != bannerSeen and not inThread ? stamp : bannerAt
     if nowMs == 0
       setScheme(appearance)
-    nowMs = performanceNow()
+    nowMs = stamp
     if replyDone and replyRevision != bannerSeen
       bannerSeen = replyRevision
-      if not inThread
-        bannerAt = nowMs
-    if bannerAt > 0 and nowMs - bannerAt > 7000
-      bannerAt = 0
-    if toastAt > 0 and nowMs - toastAt > 2600
+    bannerAt = nextBannerAt > 0 and stamp - nextBannerAt > 7000 ? 0 : nextBannerAt
+    if toastAt > 0 and stamp - toastAt > 2600
       toastAt = 0
   task ticker mount
     every(1000, tick)

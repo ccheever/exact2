@@ -220,16 +220,17 @@ component RealWorld
   // feed, never Your Feed again. A tick looks, since `me` answering runs
   // nothing.
   action settle
+    let nextNav = loginNext and current.name == "home" and not me.signedIn ? push(nav, "/login") : nav
     if loginNext
       loginNext = false
       if current.name == "home" and not me.signedIn
-        nav = push(nav, "/login")
+        nav = nextNav
     if following and not pending(me) and not me.signedIn
-      if depth(nav) > 1
-        nav = replace(nav, "/login")
+      if depth(nextNav) > 1
+        nav = replace(nextNav, "/login")
       else
         loginNext = true
-        nav = replace(nav, "/")
+        nav = replace(nextNav, "/")
   task settling mount
     every(100, settle)
 
