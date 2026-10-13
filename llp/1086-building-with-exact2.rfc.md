@@ -5,6 +5,7 @@
 **Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites, `.vscode/tasks.json` among them), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
+**Revised:** 2026-10-13
 **Related:** LLP 1036.001 (apps outside the repository: what `exact new` writes); LLP 1035.005 (Contract authoring ergonomics: `fmt`, `symbols`, maps); LLP 1081 (moves the style-name table out of `tags.rs`, which would make D3's enumeration direct); `docs/agent-pitfalls.md` (its rule: an entry is deleted by the change that fixes the footgun); the authoring diaries: `signal-exact2/DIARY.md` (2026-10-02 to 10-03), `bluesky-exact2/DIARY.md`, the dice-tray diary (2026-10-04, fixes on `origin/tuft/diary-fixes`)
 
 ## Summary
@@ -452,17 +453,11 @@ cannot identify or a production origin is refused for this port edit.
 **Wave 9 correction (Charlie’s EX4 task, 2026-10-12):** a plain scaffold
 with no origin gets a literal origin and fetch/SQLite grants from `snapback
 --port N`; an existing computed declaration requires an explicit edit.
-The device build validates bindgen and optimizer wasm, uses private output
-directories, and writes `assets/snapback4.wasm.json` with `engineVersion`
-from its resolved Cargo.lock and a SHA-256 binding to the wasm. An embedded
-`snapback4.build` JSON custom section, when supplied upstream, provides the
-engine version and capability list instead. `snapback` refuses installed or
-reachable server version skew; `--rebuild` builds and stamps in one step,
-then checks again. `contract build` checks local provenance and the installed
-CLI; `test web` and local `agent web` also check `/dev/status`, falling back to
-`GET /` (including `serve`), before opening any browser. Missing or altered
-provenance names the rebuild command. With no server stamp the comparison is
-exact version equality, not an invented compatibility floor. Guestbook tests
+The device build validates bindgen and optimizer wasm and uses private output directories.
+
+**HS correction (2026-10-13):** HAND and EX4 were developed against different contracts. The `snapback4-device` crate now owns a `snapback4.engine` custom section containing `{format:1, version, capabilities}`. The section is canonical compact UTF-8 JSON with exactly those fields in that order; both readers reject lexical alternatives, duplicates and invalid UTF-8. Exact's build preserves it, derives the diagnostic `assets/snapback4.wasm.json` from it, and never infers identity from Cargo.lock. Preflight and Snapback `check` read only this embedded identity. Preflight compares the server's `device_compatibility` floor and required capabilities at `GET /` on dev and serve, allowing compatible version skew. Offline preflight still validates the embedded identity. Web/native hosts answer `engine_info` and `engine_headers` before partition open; the Rust client's Fetch constructors use the device crate's header helper and both transport drivers forward `x-snapback-device` after caller credentials. No app needs a stamp script or headers callback for device identity. A fresh guestbook regression imports generated backend operations and runs offline write/reconnect against both server modes, including a positive server-side delivered-write assertion. HS round 4 returned READY from both independent Muse and fresh Codex reviewers; verbatim provenance-tracked records are under `llp/reviews/3000.001.000-hs-r4.{muse,codex}.md`.
+
+Guestbook tests
 now begin with `fresh` so the default dev suite can run repeatedly.
 
 ### D13. `fresh`: a test file empties the backend before each test

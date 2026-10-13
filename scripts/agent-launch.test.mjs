@@ -5,6 +5,13 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
+const engineVersion = () => '1.2.3';
+function stampedWasm(stamp = {format: 1, version: engineVersion(), capabilities: ['sync-generation-v1']}) {
+  const leb = n => { const out = []; do { const b = n & 127; n >>>= 7; out.push(b | (n ? 128 : 0)); } while (n); return Buffer.from(out); };
+  const name = Buffer.from('snapback4.engine');
+  const body = Buffer.concat([leb(name.length), name, Buffer.isBuffer(stamp) ? stamp : Buffer.from(JSON.stringify(stamp))]);
+  return Buffer.concat([Buffer.from([0,97,115,109,1,0,0,0,0]), leb(body.length), body]);
+}
 import { timeReporter } from '../host/web/navigation.js';
 
 // LLP 1107 D1: `--reader` is a flag of the drive, said to the Android carrier as the variable it reads
@@ -98,8 +105,8 @@ test('a web test run asks the backend its app fetches first', async () => {
     expect(loopbackOrigins(dist)).toEqual([up, down]);
     expect(fetchOrigins(dist)).toEqual([up, down, 'https://example.com']);
     const snapback = { dir: dist, manifest: { typescript: { sources: { snapback4: '../../exact2/snapback4/ts' } } } }, said = [];
-    const { deviceHash, engineVersion } = await import('../snapback4/web/device-build.mjs');
-    const wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    const { deviceHash } = await import('../snapback4/web/device-build.mjs');
+    const wasm = stampedWasm();
     mkdirSync(resolve(dist, 'assets'));
     writeFileSync(resolve(dist, 'assets/snapback4.wasm'), wasm);
     writeFileSync(resolve(dist, 'assets/snapback4.wasm.json'), JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
@@ -113,33 +120,55 @@ test('a web test run asks the backend its app fetches first', async () => {
 });
 
 test('device preflight refuses server skew, stale provenance and empty wasm before a drive', async () => {
-  const { devicePreflight, deviceHash, engineVersion, readDeviceStamp, validateDevice } = await import('../snapback4/web/device-build.mjs');
+  const { devicePreflight, deviceHash, readDeviceStamp, validateDevice } = await import('../snapback4/web/device-build.mjs');
   const { createServer } = await import('node:http');
   const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-device-'));
   const app = {dir, manifest: {typescript: {sources: {snapback4: '../../exact2/snapback4/ts'}}}};
-  let version = '0.0.1', stamped = false;
+  let version = '1.2.4', stamped = false;
   const server = createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify(req.url === '/dev/status' ? stamped ? {device: {engineVersion: version, requiredCapabilities: ['future']}} : {storeId: 'dev'} : {snapback4: version}));
+    res.end(JSON.stringify(req.url === '/dev/status' ? {storeId: 'dev'} : {device_compatibility: {server_version: version, minimum_version: version, capabilities: stamped ? ['future'] : ['sync-generation-v1']}}));
   }).listen(0, '127.0.0.1');
   try {
     await new Promise(ok => server.once('listening', ok));
     const origin = `http://127.0.0.1:${server.address().port}`;
-    const path = resolve(dir, 'assets/snapback4.wasm'), wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    const path = resolve(dir, 'assets/snapback4.wasm'), wasm = stampedWasm();
     mkdirSync(resolve(dir, 'assets'));
+    writeFileSync(path, Buffer.from([0,97,115,109,1,0,0,0]));
+    await expect(devicePreflight(app, [origin])).rejects.toThrow('snapback4.engine');
     writeFileSync(path, wasm);
-    await expect(devicePreflight(app, [origin])).rejects.toThrow('no readable build stamp');
     writeFileSync(path + '.json', JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
-    await expect(devicePreflight(app, [origin])).rejects.toThrow(/E_DEVICE_VERSION.*server at.*0.0.1.*snapback --rebuild/);
+    await expect(devicePreflight(app, [origin])).rejects.toThrow(/E_DEVICE_VERSION.*server.*1.2.4.*snapback --rebuild/);
     version = engineVersion();
+    await devicePreflight(app, [origin]);
+    version = 'x';
+    await expect(devicePreflight(app, [origin])).rejects.toThrow('invalid server device_compatibility');
+    version = '1.2.2'; // compatible skew above floor is allowed
     await devicePreflight(app, [origin]);
     stamped = true;
     await expect(devicePreflight(app, [origin])).rejects.toThrow('lacks future');
     writeFileSync(path + '.json', JSON.stringify({engineVersion: version, sha256: 'wrong'}));
-    expect(() => readDeviceStamp(path)).toThrow('does not match');
+    expect(readDeviceStamp(path).version).toBe(engineVersion()); // sidecar is diagnostic only
+    writeFileSync(path, stampedWasm({format: 1, version: '4294967296.0.0', capabilities: ['sync-generation-v1']}));
+    expect(() => readDeviceStamp(path)).toThrow('invalid snapback4.engine identity');
+    writeFileSync(path, stampedWasm(null));
+    expect(() => readDeviceStamp(path)).toThrow('invalid snapback4.engine identity');
+    for (const payload of [
+      Buffer.from('{"format":0,"format":1,"version":"1.2.3","capabilities":[]}'),
+      Buffer.from('{"format":1.0,"version":"1.2.3","capabilities":[]}'),
+      Buffer.concat([Buffer.from([0xef,0xbb,0xbf]), Buffer.from('{"format":1,"version":"1.2.3","capabilities":[]}')]),
+      Buffer.from(JSON.stringify({format: 1, version: '1.2.3', capabilities: [String.fromCharCode(0xd800)]})),
+      Buffer.concat([Buffer.from('{"format":1,"version":"1.2.3","capabilities":["'), Buffer.from([0xff]), Buffer.from('"]}')]),
+    ]) {
+      writeFileSync(path, stampedWasm(payload));
+      expect(() => readDeviceStamp(path)).toThrow('E_DEVICE_VERSION');
+    }
+    const duplicate = Buffer.concat([wasm, wasm.subarray(8)]);
+    writeFileSync(path, duplicate);
+    expect(() => readDeviceStamp(path)).toThrow('exactly one');
     expect(() => validateDevice(Buffer.alloc(0), 'wasm-opt output')).toThrow('empty or invalid wasm');
   } finally { server.close(); rmSync(dir, {recursive: true, force: true}); }
 });
@@ -172,23 +201,23 @@ test('a store named .locks cannot remove another profile ownership lock', async 
 test('Firefox and WebKit refuse missing and skewed devices before launching their carrier', async () => {
   const { open } = await import('./agent.mjs');
   const { createApp, wireSnapback } = await import('../game/new.mjs');
-  const { deviceHash, engineVersion } = await import('../snapback4/web/device-build.mjs');
+  const { deviceHash } = await import('../snapback4/web/device-build.mjs');
   const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-carrier-preflight-'));
   const dir = resolve(parent, 'app'), dist = resolve(parent, 'dist'), before = process.env.EXACT_APP_DIR;
-  const server = Bun.serve({hostname: '127.0.0.1', port: 0, fetch: request => Response.json(new URL(request.url).pathname === '/dev/status' ? {storeId: 'dev'} : {snapback4: engineVersion()})});
+  const server = Bun.serve({hostname: '127.0.0.1', port: 0, fetch: request => Response.json(new URL(request.url).pathname === '/dev/status' ? {storeId: 'dev'} : {device_compatibility: {server_version: '1.2.4', minimum_version: '1.2.4', capabilities: []}})});
   try {
     createApp(dir); wireSnapback(dir, {build: false, port: server.port});
     process.env.EXACT_APP_DIR = dir;
     mkdirSync(resolve(dist, '.gen'), {recursive: true});
     writeFileSync(resolve(dist, '.gen/admission-data.js'), `export const tsGrantSet=createGrantSet(${JSON.stringify({entries: [[0, `net.fetch http://127.0.0.1:${server.port}`, [], null]]})});`);
     for (const browser of ['firefox', 'webkit']) await expect(open({host: 'web', browser, webDist: dist})).rejects.toThrow('device is missing');
-    const path = resolve(dir, 'assets/snapback4.wasm'), wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    const path = resolve(dir, 'assets/snapback4.wasm'), wasm = stampedWasm();
     mkdirSync(resolve(dir, 'assets'), {recursive: true}); writeFileSync(path, wasm);
     writeFileSync(path + '.json', JSON.stringify({engineVersion: '0.0.1', sha256: deviceHash(wasm)}));
-    for (const browser of ['firefox', 'webkit']) await expect(open({host: 'web', browser, webDist: dist})).rejects.toThrow(/E_DEVICE_VERSION.*server at/);
+    for (const browser of ['firefox', 'webkit']) await expect(open({host: 'web', browser, webDist: dist})).rejects.toThrow(/E_DEVICE_VERSION.*server/);
   } finally {
     if (before === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = before;
     server.stop(true); rmSync(parent, {recursive: true, force: true});

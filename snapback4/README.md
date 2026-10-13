@@ -28,13 +28,12 @@ The published release includes `fresh` dev reset and generic `file`/PDF assets.
 > - **The mounts.** `app.json`'s `typescript.sources`: `snapback4` (this
 >   checkout's `snapback4/ts`, relative) and `backend`
 >   (`../snapback/generated`, after the first `snapback4 check`).
-> - **The device version.** After upgrading the server or Exact's device,
->   `bun exact.mjs snapback --rebuild` rebuilds the wasm and its digest-bound
->   `assets/snapback4.wasm.json`. Wiring and web drives refuse mismatched
->   installed/server versions before opening the page. They read an embedded
->   `snapback4.engine` stamp from the compiled device; requests carry its
->   `{format, version, capabilities}` as `x-snapback-device`. The server version comes from `/dev/status` or `GET /`,
->   which also works with `serve`. Invalid or empty wasm fails the build.
+> - **The device version.** `bun exact.mjs snapback --rebuild` repairs an
+>   unstamped or incompatible artifact. The device crate emits `snapback4.engine`
+>   with its real `{format:1, version, capabilities}`. Wiring and web drives read
+>   that section and compare the server's public `GET /` compatibility floor and
+>   capabilities, as `check` does. `.wasm.json` is derived diagnostic output.
+>   Compatible version skew is allowed; empty, malformed or duplicate stamps refuse.
 > - **The origin's port, in four places** (["Ports"](#ports-the-snapback-origin-and-the-pages-own)):
 >   `app.ts`'s `origin`, its `net.fetch` grant (write it as `${origin}`),
 >   `snapback4 dev --port`, and the test file's `fail fetch`/`pass fetch`
@@ -734,3 +733,9 @@ intersecting predictions (here a read the device cannot vouch for asks the
 server only when nothing is queued at all), a server read kept live
 (here a query the server answers is asked again, not invalidated by the
 change poll; LLP 1110), and the 0.2.32 legacy fallback. `round.rs` names its source in Snapback's `local.ts`.
+
+## Device identity (HS, 2026-10-13)
+
+The device crate emits canonical compact UTF-8 `snapback4.engine` JSON into every linked wasm artifact: `{format:1, version, capabilities}`. Build tooling preserves it and derives `assets/snapback4.wasm.json` for diagnostics; preflight reads the embedded section, including when offline. It compares the same server floor and schema capabilities as Snapback `check`, via the public `GET /` compatibility record on dev and serve. Compatible version differences are allowed. Missing or malformed identity names `bun exact.mjs snapback --rebuild`.
+
+Web and native wrappers expose `engine_info` and `engine_headers` before partition open. Every Rust Fetch carries headers from `snapback4_device::engine::headers()`, and both transport drivers forward them automatically, including the first schema request. Applications supply credentials only. Generated backend operations typecheck using Snapback's DOM-free public declarations.

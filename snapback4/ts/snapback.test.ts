@@ -1154,3 +1154,17 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
     await expect(Snapback.open({ app: 'test', name: principal, origin: url, viewer: principal, storage: page })).rejects.toThrow(principal);
   } finally { serve.kill(); await new Promise<void>(done => serve.exitCode === null ? serve.once('exit', () => done()) : done()); }
 }, 60_000);
+
+test('web identity and headers are available before any partition is open and agree with embedded bytes', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { WebSnapback } = await import('./generated/device.ts');
+  const device = new WebSnapback('identity-probe', '[]');
+  try {
+    const identity = JSON.parse(device.call(JSON.stringify({op: 'engine_info'}))).ok;
+    const headers = JSON.parse(device.call(JSON.stringify({op: 'engine_headers'}))).ok;
+    const sections = WebAssembly.Module.customSections(new WebAssembly.Module(readFileSync(wasm)), 'snapback4.engine');
+    expect(sections.length).toBe(1);
+    expect(identity).toEqual(JSON.parse(new TextDecoder().decode(sections[0])));
+    expect(JSON.parse(headers['x-snapback-device'])).toEqual(identity);
+  } finally { device.free(); }
+});

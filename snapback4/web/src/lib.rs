@@ -31,6 +31,8 @@ struct Host {
 impl Core for Host {
     fn call(&mut self, request: Json) -> Result<Json, String> {
         match request["op"].as_str().unwrap_or_default() {
+            "engine_info" => Ok(json!({"ok": snapback4_device::engine::info()})),
+            "engine_headers" => Ok(json!({"ok": snapback4_device::engine::headers()})),
             "open" => self.open(&request),
             "close" => {
                 self.device = None;

@@ -911,6 +911,8 @@ export class Snapback {
   private async exchange(fetchRequest: Request): Promise<Request> {
     const { method, path, body } = fetchRequest as { method: string; path: string; body?: Json };
     const headers = this.headers();
+    for (const key of Object.keys(headers)) if (key.toLowerCase() === 'x-snapback-device') delete headers[key];
+    Object.assign(headers, fetchRequest.headers ?? {});
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (this.held && !path.startsWith('/auth/')) {
       const engine = await this.call({ op: 'engine_info' });

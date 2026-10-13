@@ -1095,3 +1095,16 @@ fn a_session_refreshes_once_and_only_as_its_own_principal() {
     );
     assert!(rae.call(json!({"op": "refresh"}))["fetch"].is_object());
 }
+
+#[test]
+fn identity_is_available_without_storage_or_partition() {
+    let mut module = Module::new("identity-probe", "").unwrap();
+    let identity = module.call(&json!({"op": "engine_info"})).unwrap();
+    assert_eq!(identity["ok"]["format"], 1);
+    let headers = module.call(&json!({"op": "engine_headers"})).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(headers["ok"]["x-snapback-device"].as_str().unwrap())
+            .unwrap(),
+        identity["ok"]
+    );
+}
