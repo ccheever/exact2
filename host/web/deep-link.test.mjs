@@ -29,6 +29,7 @@ test('a navigation to a dotted deep link is the document; a fetch of one is not'
     expect((await readWebRequest(dist, '/deck/missing.html', html)).found).toBe(null);
     expect((await readWebRequest(dist, '/assets/missing.pdf', html)).found).toBe(null);
     expect(buildTreeFile(dist, '/deck/missing.html', html)).toBe(null);
+    expect((await readWebRequest(dist, '/assets/hero.model', html)).found).toBe(null);
   } finally { rmSync(dist, {recursive: true, force: true}); }
 });
 
@@ -39,4 +40,7 @@ test('acceptsHTML reads the media type, any case, at a quality above zero', () =
   expect(acceptsHTML('application/json;profile="text/html"')).toBe(false);
   expect(acceptsHTML(undefined)).toBe(false);
   expect(acceptsHTML('*/*')).toBe(false);
+  expect(acceptsHTML('application/json;profile="a,text/html,b"')).toBe(false);
+  expect(acceptsHTML('application/json;profile="a\\",text/html"')).toBe(false);
+  expect(acceptsHTML('application/vnd.exact.envelope+json, text/html;q=0.9')).toBe(true);
 });

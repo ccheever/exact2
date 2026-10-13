@@ -57,18 +57,31 @@ export function webRequestURL(target) {
   } catch { return null; }
 }
 
-/** Extensions a web build's files have: a missing one stays a 404, a page
- * or an iframe's document (`/deck/missing.html`) included. */
+/** Extensions a web build's files have (serve.mjs `webContentType` and the
+ * game's `.hbc`, `.model`, `.tex`): a missing one stays a 404, a page or an
+ * iframe's document (`/deck/missing.html`) included. A location whose last
+ * label is one of them (`/profile/photos.zip`, `.zip` being a TLD) is taken
+ * for a file too: telling the two apart needs the app's routes (QUEUE). */
 const FILE_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.wasm', '.plan', '.map', '.txt', '.xml', '.pdf', '.zip',
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico', '.mp4', '.webm', '.vtt', '.wav', '.mp3', '.m4a', '.aac', '.ogg', '.oga',
-  '.ttf', '.otf', '.woff', '.woff2', '.wgsl']);
+  '.ttf', '.otf', '.woff', '.woff2', '.wgsl', '.hbc', '.model', '.tex']);
 /** Whether a request's `Accept` takes HTML (RFC 9110: the media type, any
  * case, at a quality above zero), as a browser's navigation does. */
 export function acceptsHTML(accept = '') {
-  return String(accept).split(',').some((range) => {
-    const [type, ...params] = range.split(';').map((s) => s.trim().toLowerCase());
-    const q = params.find((p) => p.startsWith('q='));
-    return type === 'text/html' && (q === undefined || Number(q.slice(2)) > 0);
+  // Split on commas and semicolons outside a quoted parameter value.
+  const ranges = [[[]]];
+  let quoted = false;
+  for (let i = 0, s = String(accept ?? ''); i < s.length; i++) {
+    const c = s[i], range = ranges.at(-1), param = range.at(-1);
+    if (quoted && c === '\\') { param.push(c, s[++i] ?? ''); continue; }
+    if (c === '"') quoted = !quoted;
+    if (!quoted && c === ',') { ranges.push([[]]); continue; }
+    if (!quoted && c === ';') { range.push([]); continue; }
+    param.push(c);
+  }
+  return ranges.some(([type, ...params]) => {
+    const q = params.map((p) => p.join('').trim().toLowerCase()).find((p) => p.startsWith('q='));
+    return type.join('').trim().toLowerCase() === 'text/html' && (q === undefined || Number(q.slice(2)) > 0);
   });
 }
 /** Whether a path that names no file is the app's document. A navigation
