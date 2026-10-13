@@ -340,17 +340,61 @@ fn is(node: &Node, name: &str) -> bool {
     matches!(node, Node::Element { tag, .. } if tag == name)
 }
 
-/// Whether `node` holds a `header` or `footer` below control flow, where
-/// it would be a row's.
-fn stray_label(node: &Node) -> Option<Span> {
+/// A `header` or `footer` where a row would be: in the rows, or below control
+/// flow (`when`, `each`, `match`, whichever it is).
+struct Stray {
+    tag: String,
+    span: Span,
+    flow: Option<&'static str>,
+}
+
+/// Whether `node` is or holds a `header` or `footer` among the rows.
+fn stray_label(node: &Node) -> Option<Stray> {
+    let flow = |flow, found: Option<Stray>| {
+        found.map(|s| Stray {
+            flow: s.flow.or(Some(flow)),
+            ..s
+        })
+    };
     match node {
-        Node::Element { tag, span, .. } if tag == "header" || tag == "footer" => Some(*span),
+        Node::Element { tag, span, .. } if tag == "header" || tag == "footer" => Some(Stray {
+            tag: tag.clone(),
+            span: *span,
+            flow: None,
+        }),
         Node::Element { .. } | Node::Use { .. } | Node::Children { .. } => None,
         Node::When {
             then, otherwise, ..
-        } => then.iter().chain(otherwise).find_map(stray_label),
-        Node::Each { body, .. } => body.iter().find_map(stray_label),
-        Node::Match { some, none, .. } => some.1.iter().chain(none).find_map(stray_label),
+        } => flow("when", then.iter().chain(otherwise).find_map(stray_label)),
+        Node::Each { body, .. } => flow("each", body.iter().find_map(stray_label)),
+        Node::Match { some, none, .. } => {
+            flow("match", some.1.iter().chain(none).find_map(stray_label))
+        }
+    }
+}
+
+/// LLP 1116.014 D1: the edit that puts a `header` or `footer` where UIKit
+/// draws one. Its words may change (`text (on ? "A" : "B")`); what comes and
+/// goes is a section, since a `header` holds one `text` and nothing else.
+fn stray_message(stray: &Stray) -> String {
+    let (tag, place) = (
+        &stray.tag,
+        if stray.tag == "header" {
+            "first"
+        } else {
+            "last"
+        },
+    );
+    match stray.flow {
+        None => format!(
+            "move `{tag}` to the section's {place} line: a section's `header` comes first and its `footer` last"
+        ),
+        Some("each") => format!(
+            "move `{tag}` to the section's {place} line, outside `each`: a section has one `{tag}`"
+        ),
+        Some(flow) => format!(
+            "move `{tag}` to the section's {place} line, outside `{flow}`: a {tag} that changes is `text (cond ? \"A\" : \"B\")` in it, and one that comes and goes means two `section`s under `{flow}`"
+        ),
     }
 }
 
@@ -389,11 +433,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     }
     let rows = &children[head..children.len() - tail];
     if let Some(stray) = rows.iter().find_map(stray_label) {
-        return err(
-            "lower-grouped-list",
-            "a section's `header` comes first and its `footer` last, outside `when` and `each`",
-            stray,
-        );
+        return err("lower-grouped-list", stray_message(&stray), stray.span);
     }
     // UIKit draws a header or footer as one text.
     for label in children[..head]
