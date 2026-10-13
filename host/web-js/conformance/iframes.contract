@@ -18,6 +18,8 @@ component Iframes
     open = true
   action flip
     sandbox = sandbox == "allow-scripts" ? "allow-same-origin" : "allow-scripts"
+  action restrict
+    sandbox = ""
   action heardShown(m)
     shown = shown + 1
   action heardScript(m)
@@ -33,6 +35,8 @@ component Iframes
         text "show"
       button press=flip testId="flip"
         text "flip"
+      button press=restrict testId="restrict"
+        text "restrict"
       when open
         iframe "data:text/html,<script>parent.postMessage('s','*')</script>" sandbox="allow-scripts"
           message=heardShown

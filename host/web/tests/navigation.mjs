@@ -228,12 +228,32 @@ try {
     assert.deepEqual(await srcs(), closed, 'a literal opaque sandbox shows its document; bare and same-origin frames do not');
     // Its document loaded: an opaque origin's, which the page cannot read.
     await until(`document.querySelector('[data-testid="data-frame-${key}"]').contentDocument === null`);
-    await tap('flip-frame'); await until(`document.querySelector('[data-testid="data-bound-${key}"]').getAttribute('src')!=='about:blank'`);
-    assert.deepEqual(await srcs(), {...closed, literal:doc('l'), bound:doc('b')}, 'a bound sandbox that turns opaque admits both sources');
+    await until(`['literal','bound'].every(id=>document.querySelector('[data-testid="data-'+id+'-${key}"]').contentDocument?.readyState==='complete')`);
+    // Each real load proves navigation, including when the new sandbox admits the identical src.
+    const reload = async prefix => {
+      await evaluate(`(()=>{globalThis.sandboxLoaded={literal:false,bound:false};for(const id of ['literal','bound'])document.querySelector('[data-testid="data-'+id+'-${key}"]').addEventListener('load',()=>sandboxLoaded[id]=true,{once:true});})()`);
+      await tap(prefix);
+      await until(`Object.values(sandboxLoaded).every(Boolean)`);
+    };
+    const permitted = {...closed, literal:doc('l'), bound:doc('b')};
+    await reload('flip-frame');
+    assert.deepEqual(await srcs(), permitted, 'a bound sandbox that turns opaque admits both sources');
     await heard('lb');
+    const before = (await state()).slots.frameHeard;
+    await reload('restrict-frame');
+    assert.deepEqual(await srcs(), permitted, 'an empty sandbox still admits both data sources');
+    assert.equal((await state()).slots.frameHeard, before, 'the navigated documents cannot run scripts in an empty sandbox');
+    await reload('flip-frame');
+    await until(`(async()=>{const s=await exact.agent({op:'state'});return s.slots.frameHeard.length===${before.length + 2};})()`);
+    const after = (await state()).slots.frameHeard;
+    assert.equal([...after].filter(l => l === 'l').length, [...before].filter(l => l === 'l').length + 1);
+    assert.equal([...after].filter(l => l === 'b').length, [...before].filter(l => l === 'b').length + 1);
+    assert.deepEqual(await srcs(), permitted, 'allow-scripts reloads and delivers both messages again');
     await tap('flip-frame'); await until(`document.querySelector('[data-testid="data-bound-${key}"]').getAttribute('src')==='about:blank'`);
     assert.deepEqual(await srcs(), closed, 'a bound sandbox that grants allow-same-origin refuses them again');
-    const row = {name:'data: frames', heard:[...new Set((await state()).slots.frameHeard)].sort().join('')}; rows.push(row); console.log(JSON.stringify(row));
+    await tap('clear-frame-link');
+    assert.equal(await evaluate(`document.querySelector('[data-testid="empty-frame-link-${key}"]').getAttribute('href')`), null, 'an empty bound href remains refused');
+    const row = {name:'data: frames', heard:[...new Set(after)].sort().join(''), sandboxNavigations:4, messagesBefore:before.length, messagesAfter:after.length, emptyHref:null}; rows.push(row); console.log(JSON.stringify(row));
   });
   await run('focused route teardown ignores retired blur but preserves live blur', async () => {
     await call('Emulation.setDeviceMetricsOverride', {width:800,height:1200,deviceScaleFactor:1,mobile:false});
