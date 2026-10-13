@@ -74,7 +74,7 @@ export function install(exact) {
     if (el.exactNative) n.module = el.exactNative.status();
     if (el instanceof HTMLIFrameElement) {
       n.url = el.getAttribute('src') ?? '';
-      n.loading = loaded.get(el) !== el.getAttribute('src');
+      n.loading = el.exactAppFrame?.failed ? false : el.exactAppFrame && !el.exactAppFrame.url ? true : loaded.get(el) !== el.getAttribute('src');
       const guest = guestOutline(el);
       if (guest !== null) n.guest = guest;
     }

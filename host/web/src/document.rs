@@ -679,6 +679,9 @@ impl<S: Source> Walk<'_, '_, S> {
                 // `navigates` + `navigableURL`: a refused link loses its
                 // href; a refused frame shows about:blank.
                 "href" if !navigable(value) => {}
+                "src" if element == "iframe" && value.starts_with("app:/") => {
+                    attrs.push(("data-app-src".into(), Some(value.clone())));
+                }
                 "src" if element == "iframe" && !navigable(value) => {
                     attrs.push((name.clone(), Some("about:blank".into())));
                 }

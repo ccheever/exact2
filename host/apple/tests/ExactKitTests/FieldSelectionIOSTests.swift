@@ -66,6 +66,32 @@ final class FieldSelectionIOSTests: XCTestCase {
         XCTAssertEqual(p.fieldSelections.reported(3, field.text ?? ""), FieldSelection(start: 2, end: 2))
         XCTAssertEqual(selects.count, 1)
     }
+
+    func testPlainTextAreaKeepsUIKitUndoAndPublishesUndoRedo() throws {
+        let p = presenter()
+        let node = try XCTUnwrap(p.views[2])
+        let editor = try XCTUnwrap(node.textArea)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        editor.selectedRange = NSRange(location: 5, length: 0)
+        let manager = try XCTUnwrap(editor.undoManager)
+        manager.removeAllActions()
+        var inputs: [String] = []
+        p.onInput = { _, value in inputs.append(value) }
+        manager.beginUndoGrouping()
+        editor.insertText(" world")
+        manager.endUndoGrouping()
+        XCTAssertTrue(manager.canUndo)
+        manager.undo()
+        XCTAssertEqual(editor.text, "hello")
+        XCTAssertEqual(inputs.last, "hello")
+        XCTAssertTrue(manager.canRedo)
+        manager.redo()
+        XCTAssertEqual(editor.text, "hello world")
+        XCTAssertEqual(inputs.last, "hello world")
+        node.replaceFieldValue("authoritative")
+        XCTAssertFalse(manager.canUndo)
+        XCTAssertFalse(manager.canRedo)
+    }
     func testRangeTextPreservesSelectionWithoutFocusOrUndo() throws {
         let p = presenter()
         let node = try XCTUnwrap(p.views[2])

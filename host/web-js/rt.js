@@ -612,11 +612,12 @@ const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shader
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null) input();
-  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); return e; }
+  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
+  if (tag === "iframe") frame(e, attrs?.["data-app-src"]);
   p.append(e);
   if (tag === "video" || tag === "audio") Media.media(e, attrs); // an `audio` is the same media host (LLP 1042 §8)
   Paint?.list(e); return e;
@@ -674,12 +675,20 @@ export const PropHooks = {};
 const Composing = new WeakSet(), Held = new WeakMap(), HeldTask = new WeakMap(); function writeValue(e, v) { if (!HeldTask.has(e) && (e.localName === "input" || e.localName === "textarea")) { HeldTask.set(e, 0); e.addEventListener("compositionstart", () => { clearTimeout(HeldTask.get(e)); Composing.add(e); }); e.addEventListener("compositionend", () => HeldTask.set(e, setTimeout(() => { Composing.delete(e); if (Held.has(e)) writeValue(e, Held.get(e)); }, 0))); } if (e.value !== v && Composing.has(e)) return Held.set(e, v); Held.delete(e); if (e.value !== v) e.value = v; } // the app's `value` never ends a composition (LLP 1115.000 §5, ruling 6; the wasm host's `writeValue`, glue.js): another value written while a field's text composes is held, the last one, and written when the composition has ended and its last `input` was heard.
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 const navigable = v => { try { return ["http:", "https:", "mailto:", "tel:"].includes(new URL(v, document.baseURI).protocol); } catch { return false; } };
+function frame(e, v) {
+  if (v?.startsWith("app:/")) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return !!v?.startsWith("app:/");
+  if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); }, true); onEnd(() => e.exactAppFrame?.dispose()); }
+  if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!v?.startsWith("app:/")) return false;
+  const s = e.exactAppFrame = { path: v, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; e.removeAttribute("src"); inflight.n++;
+  globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId)).finally(() => inflight.n--); return true;
+}
 export function P(e, name, f) {
   if (name === "aria-keyshortcuts") input();
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
     v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
+    if (name === "src" && e.localName === "iframe" && frame(e, v)) return;
     // A URL that navigates is written only if the web host's policy takes it (navigation.js `navigableURL`: http, https, mailto, tel): a refused
     // link loses its `href`, an iframe shows about:blank. An `href` that turns out empty is no link either: the kernel's `Props::link` (element.rs `props_of`).
     if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && (!navigable(v) || name === "href" && v === "")) v = name === "src" ? "about:blank" : null;
@@ -893,6 +902,7 @@ export function on(e, kind, f, bind) {
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f);
+  if (e.localName === "iframe" && kind === "error") return l(kind, ev => f(ev.detail ?? "iframe did not load"));
   return bind ? bind(e, kind, f, l) : l(kind, () => f());
 }
 // Each event family's binder, passed to `on` by the generated module only where its plan binds that family

@@ -598,7 +598,10 @@ pub(super) fn attributes(
             // The app's own file (LLP 1069.002 D7): symbols.js shows it
             // through an object URL, media.js plays it (podcast F19); the
             // browser has no `app:` scheme.
-            "src" if matches!(element, "img" | "video" | "audio") && value.starts_with("app:/") => {
+            "src"
+                if matches!(element, "img" | "video" | "audio" | "iframe")
+                    && value.starts_with("app:/") =>
+            {
                 attrs.push(("data-app-src".into(), value.clone()));
             }
             "poster" if element == "video" && value.starts_with("app:/") => {

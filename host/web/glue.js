@@ -8,6 +8,7 @@ let httpModule, pickerModule, documentsModule, notifyModule; // the file picker 
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
 // An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`, and an element with none gets none (an empty media `src` is a failed load). A media element plays it (podcast F19): the glue hears the URL as its source, and a path with no file is handed to it as written, which it refuses (`src-not-supported`) as HTML refuses a source it cannot fetch. `then` runs once it lands (a `load` command's). A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
+function appFrameSource(el, value) { if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/")) return false; const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el)))); return true; }
 const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -423,7 +424,7 @@ function applyProps(el, set, clear) {
   syncMedia(el, set, clear); if (set && "data-scrolldocument" in set) scrollDocs.add(el);
   let sandboxChanged = false;
   for (const name of clear || []) {
-    if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
+    if (el instanceof HTMLIFrameElement && name === "src") { appFrameSource(el, null); iframeLoading.set(el, true); }
     if (el instanceof HTMLIFrameElement && name === "sandbox" && el.hasAttribute("sandbox")) sandboxChanged = true;
     if (name === "scrollFollowEnd") followScroll(el, false);
     else if (name === "scrollTop" || name === "scrollLeft") {
@@ -457,6 +458,7 @@ function applyProps(el, set, clear) {
     } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
     } else if (name === "disabled" || name === "readonly" || name === "multiple" || (el instanceof HTMLMediaElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement && el.matches(":disabled")) el.blur(); } else el.removeAttribute(name); // a focused control that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup); a box keeps it, as `disabled` means nothing on a div
+    } else if (el instanceof HTMLIFrameElement && name === "src" && appFrameSource(el, value)) {
     } else {
       const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
@@ -517,7 +519,7 @@ function attach(el, id, handlers) {
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle, capture = false) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load") && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
+    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load" || event === "error" && el instanceof HTMLIFrameElement) && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
   }, capture);
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
     on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
@@ -527,11 +529,9 @@ function attach(el, id, handlers) {
   });
   if (el instanceof HTMLIFrameElement) {
     if (!iframeLoading.has(el)) iframeLoading.set(el, true);
-    const dispatchLoad = handlers.includes("load");
-    on("load", () => {
-      iframeLoading.set(el, false);
-      if (dispatchLoad && inputReady) send(wasm.exact_dispatch(id, 8, 0, now()));
-    });
+    const arrived = failure => { iframeLoading.set(el, false); const source = el.exactAppFrame, go = () => { if (views.get(id) === el && !retiredViews.has(el) && el.exactAppFrame === source && handlers.includes(failure == null ? "load" : "error")) send(failure == null ? wasm.exact_dispatch(id, 8, 0, now()) : wasm.exact_dispatch(id, 19, writeIn("error\n" + failure), now())); }; if (inputReady) go(); else moduleReady.then(() => inputReady && go()); };
+    on("error", ev => arrived(ev.detail ?? "iframe did not load"));
+    on("load", () => { if (el.exactAppFrame && !el.exactAppFrame.url) return; arrived(null); });
     if (handlers.includes("message")) {
       messageFrames.add(el);
       ensureMessageListener();
@@ -598,7 +598,7 @@ function viewFor(op, id) {
 function apply(batch) {
   // Retire dispatch before children ops can synchronously blur removed views; a leaving view's box is read before any op moves it (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactIntersect?.(); } }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); } }
   }
   presence.live?.before(batch, views);
   listSelection?.before();
@@ -823,7 +823,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -1346,7 +1346,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  for (const el of views.values()) { el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
+  for (const el of views.values()) { el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";

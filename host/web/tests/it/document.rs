@@ -29,6 +29,13 @@ fn document(src: &str) -> String {
 }
 
 #[test]
+fn app_file_frames_prerender_without_a_false_blank_source() {
+    let doc = document("component App\n  view\n    iframe src=\"app:/data/doc.pdf\"\n");
+    assert!(doc.contains("data-app-src=\"app:/data/doc.pdf\""), "{doc}");
+    assert!(!doc.contains("about:blank"), "{doc}");
+}
+
+#[test]
 fn raw_symbols_prerender_as_nonfetching_decorative_images() {
     let doc = document(
         r#"component App
