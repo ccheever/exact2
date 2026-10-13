@@ -125,14 +125,18 @@ extension Presenter {
         return textHost(id)?.ariaUnavailable == true
     }
     func inlineEnabled(_ id: UInt32) -> Bool {
-        guard let host = textHost(id), !host.inert, !host.disabled,
+        guard let host = textHost(id), !host.disabled,
               let value = inlineText(id), value.props["disabled"] != "true" else { return false }
+        return !inlineInert(id)
+    }
+    func inlineInert(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.inert, let value = inlineText(id) else { return true }
         var current: InlineText? = value
         while let run = current {
-            if run.props["inert"] == "true" { return false }
+            if run.props["inert"] == "true" { return true }
             current = inlineText(run.parent)
         }
-        return true
+        return false
     }
     func forgetParagraph(_ node: NodeView) {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
@@ -168,6 +172,8 @@ extension Presenter {
         #if os(macOS)
         // Its `href` runs' pointing hand (`resetCursorRects`).
         if hadLinks || rows.contains(where: \.isLink) { node.window?.invalidateCursorRects(for: node) }
+        keyViewLoopStale = true
+        if !node.inlineKeyViews.isEmpty { _ = node.syncInlineKeyViews() }
         #endif
     }
 }

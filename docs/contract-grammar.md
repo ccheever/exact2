@@ -619,6 +619,12 @@ says. Every roster function has a row and an example, and each example written
 | `elementsFromPoint(x, y)` | `list<string>`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
 | `querySelectorAll(selector)` | `list<string>`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
+On Apple, `frame` of an inline `text` run returns the viewport-space union of
+its line fragments, using the run's own font metrics and excluding hanging
+wrap spaces. An empty run has a zero-width rectangle at its insertion point
+with its font's height. Scrolling moves this rectangle; clipping does not trim
+it. Other native hosts currently report inline runs unavailable.
+
 For `elementsFromPoint`, an id-less hit outside a named ancestor's own box
 includes that ancestor once before lower layers. This keeps its first entry
 equal to `elementFromPoint`'s nearest-id answer; LLP 1001 §1 declares the
@@ -1465,8 +1471,11 @@ On the Mac which elements are stops by kind follows the person's Keyboard naviga
 setting (System Settings ▸ Keyboard), as in every Mac app. Off, the default, Tab moves
 between text fields and what takes keys of its own (a box that is no button with
 `focus`, `blur` or `key` handlers, a canvas that takes input): a `button`, a pressable
-box and a radio group are passed over. On, Tab reaches every control. A `tabindex` you
-write wins either way: `0` or more is always a stop, a negative one never. A button that
+box and a radio group are passed over. On, Tab reaches every control, including
+each inline link or pressable text run inside a paragraph, including in a dialog.
+Return activates a focused inline link before a dialog's default button. Space
+activates a pressable run only when it has no `href`; it never follows a link.
+A `tabindex` you write wins either way: `0` or more is always a stop, a negative one never. A button that
 `focus(id)` or `autofocus` reached while it is no stop still goes on to the next stop
 with Tab, and back to the one before with Shift-Tab. Under the agent the setting is the
 drive's, off unless it says `prefer keyboard-navigation true` (`state.focus.keyboardNavigation`
@@ -1481,7 +1490,8 @@ with nothing focused. The web and iOS focus nothing on load unless `autofocus` s
 to accessibility while keeping its focus and Tab behavior. It accepts a bound
 boolean on a control or an element with a role, including a group. Its `press` still runs,
 as on the web; guard the action in the app when it must do nothing. Descendant
-controls and inline links inherit this state; an explicit
+controls and inline links inherit this state, including toolbar items, grouped-list
+rows and content lifted into a popover; an explicit
 `aria-disabled=false` on a descendant overrides it. Use HTML
 `disabled=true` when the control should leave the Tab order and refuse input.
 

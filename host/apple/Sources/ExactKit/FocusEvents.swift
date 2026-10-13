@@ -37,8 +37,15 @@ final class FocusEvents {
     func reset() { current = nil; pending = nil }
 
     private func snapshot(_ id: UInt32) -> FocusSnapshot? {
-        guard let view = presenter?.views[id] else { return nil }
+        guard let presenter, let view = presenter.textHost(id) else { return nil }
         var path: [UInt32] = [], inbound: [UInt32] = [], outbound: [UInt32] = []
+        var run = presenter.inlineText(id)
+        while let current = run {
+            path.append(current.id)
+            if current.handlers.contains("focusin") { inbound.append(current.id) }
+            if current.handlers.contains("focusout") { outbound.append(current.id) }
+            run = presenter.inlineText(current.parent)
+        }
         var cursor: FocusPlatformView? = view
         while let next = cursor {
             if let node = next as? NodeView {
@@ -48,12 +55,12 @@ final class FocusEvents {
             }
             cursor = next.superview
         }
-        return FocusSnapshot(node: id, name: view.props["id"] ?? "", path: path, inbound: inbound, outbound: outbound)
+        return FocusSnapshot(node: id, name: (presenter.inlineText(id)?.props ?? view.props)["id"] ?? "", path: path, inbound: inbound, outbound: outbound)
     }
 
     private func named(_ state: FocusSnapshot) -> FocusSnapshot {
-        guard let view = presenter?.views[state.node] else { return state }
-        return FocusSnapshot(node: state.node, name: view.props["id"] ?? "", path: state.path,
+        guard let presenter, let view = presenter.textHost(state.node) else { return state }
+        return FocusSnapshot(node: state.node, name: (presenter.inlineText(state.node)?.props ?? view.props)["id"] ?? "", path: state.path,
                              inbound: state.inbound, outbound: state.outbound)
     }
 
@@ -66,7 +73,7 @@ final class FocusEvents {
             let enclosingStopped = presenter.propagationStopped
             defer { presenter.propagationStopped = enclosingStopped }
             presenter.propagationStopped = false
-            for id in path where presenter.views[id] != nil {
+            for id in path where presenter.textHost(id) != nil {
                 presenter.onFocusEvent?(id, kind, state.name, related)
                 if presenter.propagationStopped { break }
             }
@@ -75,8 +82,8 @@ final class FocusEvents {
 
     private func direct(_ id: UInt32, entering: Bool) {
         presenter?.afterBatch { [weak presenter] in
-            guard let presenter, let view = presenter.views[id],
-                  view.handlers.contains(entering ? "focus" : "blur") else { return }
+            guard let presenter,
+                  (presenter.inlineText(id)?.handlers ?? presenter.views[id]?.handlers ?? []).contains(entering ? "focus" : "blur") else { return }
             if entering { presenter.onFocus?(id) } else { presenter.onBlur?(id) }
         }
     }

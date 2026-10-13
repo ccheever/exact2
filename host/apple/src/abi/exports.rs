@@ -352,6 +352,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scrolled(page != 0, view, left, top), |_| ())
         }
 
+        /// The presenter's synchronous viewport union for an inline run.
+        #[no_mangle]
+        pub extern "C" fn exact_set_inline_geometry(rt: u32, read: Option<$crate::geometry::InlineFrameFn>, ctx: *mut ::std::ffi::c_void) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_inline_geometry(read, ctx));
+        }
+
         /// The open top-layer nodes before a native action read. No batch.
         ///
         /// # Safety

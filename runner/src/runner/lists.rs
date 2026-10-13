@@ -1,6 +1,15 @@
 //! Logical text and key lookups over virtualized lists. LLP 1010 §6.
 use super::*;
 
+/// The host's paragraph and `user-select: auto` rules for logical copies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListTextPolicy {
+    /// DOM paragraphs, with the host stylesheet's unselectable button labels.
+    Web,
+    /// AppKit labels/chrome are unselectable; native titles have no paragraph.
+    MacOS,
+}
+
 /// A text position that survives retirement of a list row's native views.
 #[derive(Debug, Clone, Copy)]
 pub struct ListTextPosition<'a> {
@@ -25,6 +34,7 @@ impl<D: DataSource> Runner<D> {
         &self,
         view: ViewId,
         range: Option<(ListTextPosition<'_>, ListTextPosition<'_>)>,
+        policy: ListTextPolicy,
     ) -> Result<String, RunnerError> {
         if self.poisoned {
             return Err(RunnerError::Poisoned);
@@ -36,7 +46,7 @@ impl<D: DataSource> Runner<D> {
             .tree
             .as_ref()
             .expect("booted")
-            .list_text(&mut u, view, range)?)
+            .list_text(&mut u, view, range, policy)?)
     }
     /// Re-evaluate every site and apply one batch. A failure here means the
     /// instance tree and the kernel may disagree; the runner is poisoned and

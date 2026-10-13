@@ -10,6 +10,8 @@ mod ownership;
 mod rekey;
 #[path = "smooth_tests.rs"]
 mod smooth;
+#[path = "text_tests.rs"]
+mod text;
 
 fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     let mut a = Asm::new();
@@ -1448,7 +1450,10 @@ fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
     let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
     let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
-    let all = h.tree.list_text(&mut u, view, None).unwrap();
+    let all = h
+        .tree
+        .list_text(&mut u, view, None, crate::ListTextPolicy::Web)
+        .unwrap();
     assert!(all.starts_with("row 0\n\nrow 1\n\n"), "{}", &all[..40]);
     assert!(all.ends_with("row 127"));
     let position = |key, offset| crate::ListTextPosition {
@@ -1462,6 +1467,7 @@ fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
             &mut u,
             view,
             Some((position("n:126", 2), position("n:1", 3))),
+            crate::ListTextPolicy::Web,
         )
         .unwrap();
     // UTF-16 offsets within the first and last paragraphs, in either order.

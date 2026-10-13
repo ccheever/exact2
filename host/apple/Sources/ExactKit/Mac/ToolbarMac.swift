@@ -588,6 +588,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // After the window's owner has styled the toolbar (`onChange`).
         if attaching { keepContent(content) }
         hatchToolbar()
+        syncAccessibility()
         // Hide only the authored rendering. Its logical nodes/actions survive.
         guard let next = declared?.owner ?? header?.header else { return }
         savedAccessibilityHidden = next.isAccessibilityHidden()
@@ -609,9 +610,29 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         return items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
     }
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        syncAccessibility()
         if item === backItem { return toolbar != nil && window?.toolbar === toolbar && presenter.navigation.canGoBack }
         guard let id = UInt32(exactly: item.tag), let node = presenter.views[id], items[node.id] === item else { return false }
         return available(node)
+    }
+
+    /// Standard items have no `view`. Their exposed elements are the
+    /// toolbar's children, in item order, with spaces/separators omitted.
+    /// Set only accessibility state; AppKit's item stays enabled for input.
+    private func syncAccessibility() {
+        guard let window, let toolbar,
+              let bar = window.accessibilityChildren()?.compactMap({ $0 as? NSAccessibilityProtocol })
+                .first(where: { $0.accessibilityRole() == .toolbar }) else { return }
+        let spaces: Set<NSToolbarItem.Identifier> = [.space, .flexibleSpace, .sidebarTrackingSeparator]
+        let visible = (toolbar.visibleItems ?? toolbar.items).filter { !spaces.contains($0.itemIdentifier) }
+        let children = (bar.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityProtocol }
+        guard children.count == visible.count else { return }
+        for (item, child) in zip(visible, children) {
+            guard let id = UInt32(exactly: item.tag), let node = presenter.views[id], items[id] === item,
+                  child.accessibilityLabel() == item.label else { continue }
+            let enabled = item.isEnabled && !node.ariaUnavailable
+            if child.isAccessibilityEnabled() != enabled { child.setAccessibilityEnabled(enabled) }
+        }
     }
     @objc private func performBack(_ item: NSToolbarItem) {
         guard validateToolbarItem(item) else { return }

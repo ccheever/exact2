@@ -72,6 +72,32 @@ final class HeaderMacTests: XCTestCase {
     private func identifiers() -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
     private let back = WindowToolbarHost.backIdentifier.rawValue
 
+    func testARIAUnavailableToolbarViewerRemainsPressable() throws {
+        let p = fixture(extra: [["op": "props", "id": 13, "set": ["accessibilityDisabled": "true"]]])
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        window.orderFrontRegardless()
+        window.contentView?.superview?.layoutSubtreeIfNeeded()
+        func find(_ element: NSAccessibilityProtocol) -> NSAccessibilityProtocol? {
+            if element.accessibilityLabel() == "Add Book" { return element }
+            for case let child as NSAccessibilityProtocol in element.accessibilityChildren() ?? [] {
+                if let found = find(child) { return found }
+            }
+            return nil
+        }
+        let viewer = try XCTUnwrap(find(window))
+        let item = try XCTUnwrap(p.toolbar.items[13])
+        XCTAssertNil(item.view, "keep AppKit's standard toolbar presentation")
+        XCTAssertTrue(item.isEnabled, "ARIA does not disable input")
+        XCTAssertFalse(viewer.isAccessibilityEnabled(), "the exposed viewer carries ARIA disabled")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        _ = viewer.accessibilityPerformPress()
+        XCTAssertEqual(pressed, [13])
+        p.apply(wireBatch([["op": "props", "id": 13, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(try XCTUnwrap(find(window)).isAccessibilityEnabled())
+        p.toolbar.detach()
+    }
+
     func testARoutesHeaderIsTheWindowsTitleAndItsButtonsAreToolbarItems() throws {
         let p = fixture()
         var pressed: [UInt32] = []
