@@ -252,13 +252,12 @@ component AnswerMarkdown
       citeWithdraw(source)
     else if source != "" and length(next) > 0
       citeOfferSet(citeOfferFor(source, next, citeStream(document.blocks, code), citeAxis(citeLineRight(next, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(citeLineBottom(next, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)))
-  // A press in the answer hides its Cite (the reference's "interaction" dismissal); the window hears it as before.
+  // A press in the answer: the window hears it as before, and hides Cite there as for any press but Cite's own (the
+  // reference's "interaction" dismissal).
   action down(e: PointerEvent)
     outsidePressDown(e)
     held = e.buttons == 1
     moved = false
-    if source != "" and citeOffered == source
-      citeWithdraw(source)
   // The release of a press that changed the selection: Cite at the release point.
   action up(e: PointerEvent)
     let bounds = frame("transcript")
