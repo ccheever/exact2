@@ -404,6 +404,14 @@ pub(super) fn unknown_function(
             span,
         };
     }
+    // @ref LLP 1116.014 D1 — an `empty()` outside a resource's `else` is a list's `[]`.
+    if name == crate::placeholder::EMPTY {
+        return TypeError {
+            id: "type-unknown-function",
+            message: "write `[]` for an empty list; `empty()` is only a resource's `else`".into(),
+            span,
+        };
+    }
     let mut message = format!(
         "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
     );

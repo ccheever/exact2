@@ -33,6 +33,7 @@ mod controls;
 mod corpus;
 mod dataset;
 mod delivery;
+mod diagnostic_edits;
 mod diagnostics;
 mod docs;
 mod document;
