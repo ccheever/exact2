@@ -27,8 +27,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
     var extras: NodeExtras?
     package override class var layerClass: AnyClass { NodeLayer.self }
-    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it
-    /// (`applyBoxLayer`).
+    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
@@ -831,8 +830,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
             // reach its effect view. Its content view is the target; the
-            // touch climbs the responder chain to this node, whose press is
-            // unchanged.
+            // touch climbs the responder chain to this node, whose press is unchanged.
             if event?.type == .touches, materialInteractive, Materials.glass(materialKind),
                let contentView = materialView?.contentView {
                 return contentView
