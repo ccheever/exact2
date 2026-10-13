@@ -120,6 +120,7 @@ fn geometry_reads_the_node() {
     props.set(PropId::Points, PropValue::Str("0,32 48,0 96,16".into()));
     let style = StyleProps::default();
     let vp = Viewport {
+        env: &crate::Env::default(),
         width: 100.0,
         height: 50.0,
     };

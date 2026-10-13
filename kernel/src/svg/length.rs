@@ -4,7 +4,7 @@
 //! @ref LLP 1055.000 D4; SVG 2 §8.9 (units), CSS Values 4 §6.2 (absolute
 //! lengths at 96 px per inch)
 
-use crate::style::Dimension;
+use crate::style::{Dimension, Env};
 
 /// A length as authored: a number of user units, or a percentage.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,14 +74,16 @@ fn number(text: &str) -> Option<f32> {
 /// The nearest SVG viewport's size in user units (SVG 2 §8.9): its view
 /// box's size when it has one, else its own width and height.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Viewport {
+pub struct Viewport<'a> {
+    /// The window environment for CSS lengths, independent of the SVG view box.
+    pub env: &'a Env,
     /// Width in user units.
     pub width: f32,
     /// Height in user units.
     pub height: f32,
 }
 
-impl Viewport {
+impl Viewport<'_> {
     /// The basis of a percentage that is neither horizontal nor vertical
     /// (`r`, `stroke-width`): the normalized diagonal √((w²+h²)/2).
     pub fn diagonal(&self) -> f32 {
@@ -90,27 +92,30 @@ impl Viewport {
 
     /// A dimension row on the horizontal axis (`x`, `cx`, `width`, `rx`).
     pub fn x(&self, d: Dimension) -> f32 {
-        resolve(d, self.width)
+        self.resolve(d, self.width)
     }
 
     /// A dimension row on the vertical axis (`y`, `cy`, `height`, `ry`).
     pub fn y(&self, d: Dimension) -> f32 {
-        resolve(d, self.height)
+        self.resolve(d, self.height)
     }
 
     /// A dimension row on the diagonal (`r`).
     pub fn d(&self, d: Dimension) -> f32 {
-        resolve(d, self.diagonal())
+        self.resolve(d, self.diagonal())
     }
-}
 
-/// A dimension in user units against `basis`; `auto` is zero.
-pub fn resolve(d: Dimension, basis: f32) -> f32 {
-    match d {
-        Dimension::Points(v) => v,
-        Dimension::Percent(p) => basis * p / 100.0,
-        Dimension::Calc(p, v) => basis * p / 100.0 + v,
-        _ => 0.0,
+    /// A coordinate, or its default fraction, in user or object bounding box units.
+    pub(super) fn coord(&self, d: Option<Dimension>, default: f32, basis: f32) -> f32 {
+        match d {
+            None | Some(Dimension::Auto) => default * basis,
+            Some(d) => self.resolve(d, basis),
+        }
+    }
+
+    /// A CSS length in user units, with percentages against the SVG basis.
+    pub fn resolve(&self, d: Dimension, basis: f32) -> f32 {
+        d.at_basis(self.env, basis)
     }
 }
 

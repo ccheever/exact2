@@ -374,3 +374,40 @@ fn a_dataset_is_one_attribute_per_word() {
         ]
     );
 }
+
+#[test]
+fn svg_geometry_attributes_preserve_css_lengths() {
+    use exact_kernel::{StyleId, StyleValue};
+    let props = PropList::new();
+    for length in [
+        "50vh",
+        "10vw",
+        "5vmin",
+        "8vmax",
+        "10svh",
+        "10lvw",
+        "10dvh",
+        "calc(10% + 2px)",
+        "calc(10vh + 10%)",
+        "min(10vw, 50%)",
+        "env(safe-area-inset-top)",
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::Height, &StyleValue::Text(length.into()))
+            .unwrap();
+        let facts = NodeFacts {
+            id: 1,
+            node_type: NodeType::SvgViewport,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        };
+        let mut out = super::SortedMap::new();
+        super::svg_props_of(&|_, _| None, &facts, &mut out);
+        let mut expected = String::new();
+        crate::css::dimension(&mut expected, style.height);
+        assert_eq!(out.get("height"), Some(&expected), "{length}");
+    }
+}

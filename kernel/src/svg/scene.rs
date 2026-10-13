@@ -272,10 +272,12 @@ pub fn resolve(
         Some(v) => Viewport {
             width: v.width,
             height: v.height,
+            env: kernel.arena().env(),
         },
         None => Viewport {
             width: content.2,
             height: content.3,
+            env: kernel.arena().env(),
         },
     };
     let clip =
@@ -801,7 +803,7 @@ impl Resolver<'_, '_> {
         ) {
             let size = |d: Dimension, basis: f32| match d {
                 Dimension::Auto => basis,
-                d => super::length::resolve(d, basis),
+                d => vp.resolve(d, basis),
             };
             let rect = (
                 x,
@@ -822,10 +824,12 @@ impl Resolver<'_, '_> {
                 Some(v) => Viewport {
                     width: v.width,
                     height: v.height,
+                    ..vp
                 },
                 None => Viewport {
                     width: rect.2,
                     height: rect.3,
+                    ..vp
                 },
             };
             let clip =
@@ -894,10 +898,12 @@ impl Resolver<'_, '_> {
             Some(v) => Viewport {
                 width: v.width,
                 height: v.height,
+                ..vp
             },
             None => Viewport {
                 width: rect.2,
                 height: rect.3,
+                ..vp
             },
         };
         let clip = style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible;
@@ -919,7 +925,7 @@ impl Resolver<'_, '_> {
 fn viewport_rect(style: &StyleProps, vp: Viewport) -> (f32, f32, f32, f32) {
     let size = |d: Dimension, basis: f32| match d {
         Dimension::Auto => basis,
-        d => super::length::resolve(d, basis),
+        d => vp.resolve(d, basis),
     };
     (
         vp.x(style.x),

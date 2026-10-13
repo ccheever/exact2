@@ -748,8 +748,11 @@ pub fn svg_props_of(
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
                 exact_num::Shortest(v as f64).to_string()
             }
-            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
-                format!("{}%", exact_num::Shortest(p as f64))
+            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Auto) => continue,
+            exact_kernel::RowValue::Dimension(d) => {
+                let mut text = String::new();
+                crate::css::dimension(&mut text, d);
+                text
             }
             _ => continue,
         };
