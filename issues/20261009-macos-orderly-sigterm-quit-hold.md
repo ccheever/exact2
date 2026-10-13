@@ -114,3 +114,14 @@ Keep open with the bounded scope below.
 Orderly SIGTERM can be fixed independently. The asynchronous module hold is a justified extension of the existing storage hold, but LLP 1069.010 Q4 requires a ruling.
 
 Prefer one shared total five-second deadline, not five seconds per module, with once-only completion and responsive main thread. Test repeated quit and an unresponsive child. Do not claim SIGKILL can be made orderly.
+
+## 2026-10-13 status
+
+The SIGTERM half is on main (#313, a3d61c023, with its tests): a `DispatchSource` signal source routes a
+supervisor's SIGTERM through the same cancellable orderly quit as the menu
+(`host/apple/Sources/ExactMac/main.swift`, "A supervisor's SIGTERM follows
+the same cancellable quit"), so `destroy()` runs there too. What remains is
+option A, the bounded module hold (`ExactModule.willQuit(done:)` joining the
+one storage hold, one shared 5 s deadline, once-only completion, responsive
+main thread, tests for repeated quit and an unresponsive child), which needs
+LLP 1069.010 Q4 relaxed.

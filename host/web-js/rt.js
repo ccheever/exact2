@@ -397,7 +397,6 @@ export const Store = {
 export const Resources = [];
 let Ticket = 0;
 const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
-/** Run a request after the commit publishes; `land(outcome)` on reply. */
 /** Requests in flight, for the agent's `clock settle`. */
 export const inflight = { n: 0 };
 function send(t, land) {
@@ -417,7 +416,7 @@ function send(t, land) {
     // source's `exactStream` (ts-data.js). It is in flight until its first message (D5), then open
     // until its end or until its ticket is let go (`Open`, after each commit).
     if (t.stream || t.req?.stream) {
-      t.ctl = new AbortController(); t.messages = t.coalesced = 0; Open.add(t);
+      t.ctl = new AbortController(); t.ctl.active = () => t.held() && !t.r?.gone; t.messages = t.coalesced = 0; Open.add(t);
       (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
     } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e), code: failureCode(e) }));
@@ -433,8 +432,8 @@ function closeLetGo() {
     say(`close stream ${t.id}: its ticket was let go`);
   }
 }
-function ask(source, args, name) {
-  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name);
+function ask(source, args, name, mutation = false) {
+  const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name, mutation);
   return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
@@ -580,10 +579,11 @@ export function mut(name, slot, refreshes, type, queue) {
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
       let a;
       try {
-        a = ask(source, args, name);
+        a = ask(source, args, name, true);
         if (!a || !("v" in a || a.req || a.promise || a.stream)) throw new Refusal(`${name}: its source is not ready`);
         if ("v" in a && type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
       } catch (e) { if (e instanceof Refusal || e?.refuse || e?.kind === "UnknownSource") { if (own) Sched.own = e; throw e; } m.forget(undo); m.ended(Ov.asked(m)); undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait?.length); say(`send ${name} failed: ${e?.message ?? e}; it ends unsent`); return; }
+      Out.push(...(a.effects ?? []));
       if ("v" in a) {
         m.checked = a.v;
         Ov.land(m, a.v);

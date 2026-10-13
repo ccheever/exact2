@@ -428,6 +428,15 @@ amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
 
 **Runtime**
 
+**Expanded (Charlie, 2026-10-13, issue-program ruling 10):** runner-owned
+WebSocket sending: the stream mapper receives a socket handle and a mutation
+sends ordered, never-coalesced protocol frames (LLP 1016.000 D7). T3 Code's
+subscribe/Ack/Ping protocol and queued Supabase/Convex consumers justify the
+expansion. No take named; the approved feature ruling admits it. Ambient
+WebSocket globals remain refused. The first slice is the web JS target's
+TypeScript adapter; D7 lists the remaining host deviations.
+
+
 **Expanded (Charlie, 2026-10-08, issue #283; focus lane, 2026-10-12):**
 DOM `focusin`/`focusout` with target and related target information bubble to
 an ancestor without adding a Tab stop. The clipped content and row action
@@ -737,6 +746,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Take: other animated layout properties and decorative effects remain behind
   that consumer. The first increment accepts several numeric samples; automatic
   content-height measurement and host adoption remain unfinished.
+  **Numeric-height issue fix (2026-10-13):** authored pixel-height transitions
+  on Apple use that projection for either box sizing, without a keyword opt-in.
+  This unblocks the T3 terminal drawer; other layout properties and height units
+  remain deferred. `auto` retains the accordion's border-box and
+  `interpolate-size: allow-keywords` requirements (LLP 1041 §8.12).
   **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1063):** `-exact-layout-transition`
   (a box's laid-out position and surface size, moved by the engine natively and by
   a measured offset on the web) and `-exact-exit-animation` (a removed node stays, out of
