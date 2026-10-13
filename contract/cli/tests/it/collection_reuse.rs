@@ -83,6 +83,7 @@ fn facts(r: &Runner<Rows>, top: f64) -> CollectionFeedback {
         port_cross: 640.,
         port_main: 320.,
         cross: 640.,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,

@@ -239,6 +239,7 @@ mod split_facts {
             port_cross: port.width as f64,
             port_main: port.height as f64,
             cross: row_width as f64,
+            padding: [0.0; 2],
             measurements,
             focus_view: selected,
             interaction_view: selected,

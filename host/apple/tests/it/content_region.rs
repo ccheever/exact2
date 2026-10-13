@@ -460,6 +460,7 @@ fn native_collection_epochs_stay_with_selected_rows_until_complete() {
         port_cross: 600.,
         port_main: 400.,
         cross: 600.,
+        padding: [0.0; 2],
         measurements: a
             .rows
             .iter()

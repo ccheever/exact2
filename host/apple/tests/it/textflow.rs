@@ -161,6 +161,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
         port_cross: 240.,
         port_main: 160.,
         cross: 240.,
+        padding: [0.0; 2],
         measurements: snapshot
             .rows
             .iter()

@@ -3,18 +3,14 @@
 //! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of
 //! trees; research)
 //!
-//! The plan's nodes and regions are *sites*. An instance is one realization
-//! of a site: a kernel view for a node, an active arm for `when`/`match`, one
-//! row per key for `each`. An update visits only the sites whose reads
-//! ([`deps`]) include an input that changed since the last update, or an
-//! enclosing row or arm whose value changed, and there evaluates only the
-//! stale bindings; it emits exactly the kernel ops that make the kernel
-//! equal to the result: a binding's op only when its value changed,
-//! `SetChildren` only when a child list changed, create/destroy only when a
-//! key appeared or went away. [`Update::full`] evaluates everything, the
-//! reference an incremental update must equal. There is no tree diff: a
-//! keyed row keeps its views across reorders because its key, not its
-//! position, is its identity.
+//! The plan's nodes and regions are *sites*. An instance realizes a site as a
+//! kernel view, an active `when`/`match` arm, or an `each` row per key. Updates
+//! visit sites with changed inputs ([`deps`]) or enclosing rows/arms, evaluating
+//! only stale bindings. They emit binding ops only for changed values,
+//! `SetChildren` only for changed child lists, and create/destroy only for
+//! added/removed keys. [`Update::full`] evaluates everything and is the reference
+//! for incremental updates. No tree diff is needed: a row's key, not its position,
+//! preserves its views across reorders.
 
 /// Variable-height viewport collections and their portable host feedback seam.
 pub mod collection;
@@ -68,6 +64,7 @@ type IntoViewLink = fn(
     &mut Tree,
     &mut Update<'_>,
     &collection::IntoView,
+    &mut Option<collection::IntoView>,
 ) -> Result<collection::IntoViewStatus, InstanceError>;
 
 type RevealIndexLink = fn(&mut Tree, &mut Update<'_>, ViewId, usize) -> Result<bool, InstanceError>;
@@ -441,6 +438,10 @@ pub struct Update<'a> {
     scratch: vm::Scratch,
     /// Empty lexical-frame buffers, reused within this update only.
     frame_buffers: Vec<Vec<Frame>>,
+    /// A list's `scroll-padding`, top, right, bottom, left, as its style
+    /// resolves it now; asked only while a `scrollIntoView` aligns (LLP 1010
+    /// §6.9). `None` without a kernel to ask.
+    pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
 }
 
 impl<'a> Update<'a> {
@@ -469,6 +470,7 @@ impl<'a> Update<'a> {
             reuse: false,
             scratch: vm::Scratch::default(),
             frame_buffers: Vec::new(),
+            scroll_padding: None,
         }
     }
 

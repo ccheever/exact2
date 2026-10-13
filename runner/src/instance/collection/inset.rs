@@ -1,37 +1,10 @@
-//! A list's padding and scroll padding along its axis (@ref LLP 1010
-//! §6.9), read from its style before each report. The padding before the
-//! first row and after the last is taken in by the report, whose anchor is
-//! taken on the range the reader was in; the scroll padding is where a
-//! `scrollIntoView` aligns.
+//! A list's padding along its axis (@ref LLP 1010 §6.9): the padding
+//! before the first row and after the last that its host laid out, taken in
+//! with the report that carries it, whose anchor is taken on the range the
+//! reader was in.
 use super::*;
 
-/// A list's `padding` and `scroll-padding`, each top, right, bottom, left,
-/// in points.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct Insets {
-    pub(crate) padding: [f64; 4],
-    pub(crate) scroll: [f64; 4],
-}
-
-impl Insets {
-    /// The start and end of `sides` along `axis`.
-    fn main(sides: [f64; 4], axis: ListAxis) -> [f64; 2] {
-        let [top, right, bottom, left] =
-            sides.map(|n| if n.is_finite() { n.max(0.0) } else { 0.0 });
-        match axis {
-            ListAxis::Vertical => [top, bottom],
-            ListAxis::Horizontal => [left, right],
-        }
-    }
-}
-
 impl Collection {
-    /// The list's insets as its style resolves them now. The report takes
-    /// the padding in: its anchor is taken on the range it was in.
-    pub(super) fn set_insets(&mut self, insets: Insets) {
-        self.padding_next = Some(Insets::main(insets.padding, self.axis));
-        self.scroll_padding = Insets::main(insets.scroll, self.axis);
-    }
     /// The padding before the first row and after the last, as the index
     /// has it.
     pub(super) fn padding(&self) -> [f64; 2] {

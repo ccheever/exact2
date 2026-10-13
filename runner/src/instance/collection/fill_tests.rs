@@ -323,3 +323,275 @@ fn a_window_that_leans_keeps_half_a_viewport_behind_its_travel() {
     // Without a velocity nothing leans.
     assert_eq!(rows(true, 0.0), rows(false, 0.0));
 }
+
+/// A report's padding takes effect with it, and only if it is accepted (@ref
+/// LLP 1010 §6.9): a stale report's, or a refused build-only one's, leaves
+/// the padding as the last accepted report left it, and a request after them
+/// aligns within the scroll padding the list's style has.
+#[test]
+fn a_rejected_report_s_padding_changes_nothing() {
+    let mut h = Harness::new(1_000, false, false);
+    let padded = |f: CollectionFeedback, n| CollectionFeedback {
+        padding: [n, n],
+        ..f
+    };
+    let stale = padded(h.feedback(0.0), 0.0);
+    let mut current = padded(h.feedback(0.0), 20.0);
+    current.scroll_sequence += 1;
+    assert!(h.send(current));
+    assert_eq!(h.collection().padding(), [20.0, 20.0]);
+    assert!(!h.try_send_filled(stale, CollectionFill::default()).unwrap());
+    assert_eq!(h.collection().padding(), [20.0, 20.0], "a stale report");
+    let mut resized = padded(h.feedback(0.0), 0.0);
+    resized.port_main += 1.0;
+    let build_only = CollectionFill {
+        create_only: true,
+        ..Default::default()
+    };
+    assert!(h.try_send_filled(resized, build_only).is_err());
+    assert_eq!(h.collection().padding(), [20.0, 20.0], "a refused report");
+    // A later accepted report takes only its own padding.
+    h.send(padded(h.feedback(0.0), 20.0));
+    assert_eq!(h.collection().padding(), [20.0, 20.0], "the next report");
+    // A request after them aligns within the list's style's scroll padding,
+    // which no report carries
+    let sites = crate::instance::SiteIndex::new(&h.plan);
+    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut h.ids);
+    let style = |_| [12.0, 0.0, 0.0, 0.0];
+    u.scroll_padding = Some(&style);
+    let Child::Node(root) = &mut h.tree.children[0] else {
+        panic!()
+    };
+    let list = root.collection.as_mut().unwrap();
+    list.begin_into_view(&mut u, &[], "n:50", Align::Start, false)
+        .unwrap();
+    let offset = list.correction.unwrap().offset;
+    assert_eq!(offset, list.index.prefix(50).unwrap() - 12.0);
+}
+
+#[test]
+fn padding_only_feedback_advances_revision_and_fences_same_token_reports() {
+    for horizontal in [false, true] {
+        let mut r = crate::Runner::boot(
+            plan_opening(100, false, false, false, false, horizontal),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        r.collection_feedback(runner_feedback(&r)).unwrap();
+        let before = r.collections()[0].clone();
+        let mut old = runner_feedback(&r);
+        old.scroll_sequence = before.scroll_sequence;
+        let mut padded = old.clone();
+        padded.padding = [0.0, 100.0];
+        let accepted = r.collection_feedback(padded.clone()).unwrap();
+        let after = r.collections()[0].clone();
+        assert_eq!(after.revision, before.revision + 1);
+        assert_eq!(accepted.receipts.len(), 1, "publish the new revision");
+        assert_eq!(after.rows, before.rows);
+        assert_eq!(after.total_extent, before.total_extent);
+        assert_eq!(after.correction, before.correction);
+        assert_eq!(after.scroll_sequence, before.scroll_sequence);
+        assert!(r.collection_feedback(old).unwrap().receipts.is_empty());
+        assert_eq!(r.collections()[0], after);
+        padded.revision = after.revision;
+        assert!(r.collection_feedback(padded).unwrap().receipts.is_empty());
+        r.scroll_into_view(IntoView {
+            list: String::new(),
+            key: Value::Number(99.0),
+            block: Align::Start,
+            inline: Align::Start,
+            row: None,
+            view: Some(after.view),
+            smooth: false,
+        })
+        .unwrap();
+        assert_eq!(r.collections()[0].correction.unwrap().offset, 2980.0);
+    }
+}
+
+#[test]
+fn padded_extent_overflow_is_rejected_before_any_geometry_mutation() {
+    for horizontal in [false, true] {
+        for variant in 0..6 {
+            let mut h = Harness::from_parts(
+                plan_opening(5, false, false, false, false, horizontal),
+                vec![
+                    values(5),
+                    Value::Number(0.0),
+                    Value::Number(0.0),
+                    Value::Number(16.0),
+                ],
+            );
+            h.send(h.feedback(0.0));
+            let mut measured = h.feedback(0.0);
+            measured.measurements = h
+                .snapshot()
+                .rows
+                .iter()
+                .map(|row| RowMeasurement {
+                    view: row.view,
+                    epoch: row.epoch,
+                    size: if row.index == 0 { 1e38 } else { 0.0 },
+                })
+                .collect();
+            h.send(measured);
+            if variant == 5 {
+                let Child::Node(root) = &mut h.tree.children[0] else {
+                    panic!()
+                };
+                root.collection.as_mut().unwrap().estimated_height = 1e38;
+            }
+            let before = h.snapshot();
+            let fingerprint = h.collection().index.fingerprint();
+            let geometry = h.collection().geometry.clone();
+            let ids = h.ids.next;
+            let mut f = h.feedback(before.correction.map_or(0.0, |c| c.offset));
+            f.padding = if variant == 0 {
+                [f32::MAX as f64, 0.0]
+            } else {
+                [0.0, f32::MAX as f64]
+            };
+            if variant == 2 {
+                f.cross += 1.0;
+            }
+            if variant == 3 {
+                let row = before.rows.iter().find(|row| row.index == 0).unwrap();
+                f.measurements.push(RowMeasurement {
+                    view: row.view,
+                    epoch: row.epoch,
+                    size: 2e38,
+                });
+                f.padding = [0.0, 2e38];
+            }
+            if variant == 5 {
+                f.cross += 1.0;
+                f.padding = [0.0; 2];
+            }
+            let fill = CollectionFill {
+                create_only: variant == 4,
+                ..Default::default()
+            };
+            assert!(
+                matches!(
+                    h.try_send_filled(f, fill),
+                    Err(InstanceError::InvalidCollectionFeedback)
+                ),
+                "variant {variant}"
+            );
+            assert_eq!(h.snapshot(), before);
+            assert_eq!(h.collection().index.fingerprint(), fingerprint);
+            assert_eq!(h.collection().geometry, geometry);
+            assert_eq!(h.ids.next, ids);
+            assert_eq!(h.collection().padding(), [0.0; 2]);
+            if variant == 3 {
+                // Validate the final extent: a smaller measurement can make
+                // padding admissible even though the old extent plus it is not.
+                let row = before.rows.iter().find(|row| row.index == 0).unwrap();
+                let mut valid = h.feedback(0.0);
+                valid.padding = [0.0, 3e38];
+                valid.measurements.push(RowMeasurement {
+                    view: row.view,
+                    epoch: row.epoch,
+                    size: 1e37,
+                });
+                assert!(h.send(valid));
+                assert!(h.collection().index.scroll_extent() <= f32::MAX as f64);
+                assert!(h
+                    .snapshot()
+                    .correction
+                    .is_none_or(|c| c.offset.abs() <= f32::MAX as f64));
+            }
+        }
+    }
+}
+
+#[test]
+fn aggregate_preview_matches_binary_sums_and_both_padding_orders() {
+    let initial = [
+        3.855634828180998e37,
+        4.110381270879275e37,
+        1.2150761836965103e37,
+        1.4554140070018447e37,
+    ];
+    let next = [
+        7.162362434933901e36,
+        1.743078113874182e37,
+        1.85932241262857e37,
+        3.2119624082087986e37,
+    ];
+    for horizontal in [false, true] {
+        for variant in 0..3 {
+            let mut r = crate::Runner::boot(
+                plan_opening(
+                    if variant == 0 { 4 } else { 1 },
+                    false,
+                    true,
+                    false,
+                    true,
+                    horizontal,
+                ),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            let report = |r: &crate::Runner<NoData>, sizes: &[f64]| {
+                let mut f = runner_feedback(r);
+                f.port_main = 1e38;
+                f.offset = r.collections()[0].correction.map_or(0.0, |c| c.offset);
+                f.measurements = r.collections()[0]
+                    .rows
+                    .iter()
+                    .filter_map(|row| {
+                        sizes.get(row.index).map(|&size| RowMeasurement {
+                            view: row.view,
+                            epoch: row.epoch,
+                            size,
+                        })
+                    })
+                    .collect();
+                f
+            };
+            r.collection_feedback(report(&r, &[])).unwrap();
+            r.collection_feedback(report(
+                &r,
+                if variant == 0 {
+                    &initial
+                } else {
+                    &[1.3857361873091886e38]
+                },
+            ))
+            .unwrap();
+            let before = r.collections();
+            let live = r.kernel().live_count();
+            let mut f = report(&r, if variant == 0 { &next } else { &[] });
+            f.port_main = 600.0;
+            f.padding = match variant {
+                0 => [0.0, 2.6497635485647948e38],
+                1 => [1.383018962808564e37, 1.878785382795244e38],
+                _ => [1.878785382795244e38, 1.383018962808564e37],
+            };
+            assert!(f.encode().is_ok(), "every individual number fits f32");
+            assert!(
+                matches!(
+                    r.collection_feedback(f),
+                    Err(crate::RunnerError::Instance(
+                        InstanceError::InvalidCollectionFeedback
+                    ))
+                ),
+                "variant {variant}/{horizontal}"
+            );
+            assert!(!r.is_poisoned());
+            assert_eq!(r.collections(), before);
+            assert_eq!(r.kernel().live_count(), live);
+            r.collection_feedback(report(&r, &[])).unwrap();
+            assert!(r.collections()[0]
+                .correction
+                .is_none_or(|c| c.offset.abs() <= f32::MAX as f64));
+        }
+    }
+}

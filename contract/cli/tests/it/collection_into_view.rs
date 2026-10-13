@@ -168,6 +168,7 @@ fn host(
                 port_main: port,
                 port_cross: 400.0,
                 cross: 400.0,
+                padding: [0.0; 2],
                 measurements: c
                     .rows
                     .iter()
@@ -273,6 +274,7 @@ fn a_reader_who_scrolls_cancels_the_request() {
                 port_main: 600.0,
                 port_cross: 400.0,
                 cross: 400.0,
+                padding: [0.0; 2],
                 measurements: vec![],
                 focus_view: None,
                 interaction_view: None,

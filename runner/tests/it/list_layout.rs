@@ -148,6 +148,7 @@ fn settle(r: &mut Runner<Messages>, sequence: &mut u64, top: f64, check: bool) -
             port_cross: port.width as f64,
             port_main: port.height as f64,
             cross: port.width as f64,
+            padding: [0.0; 2],
             measurements,
             focus_view: None,
             interaction_view: None,
