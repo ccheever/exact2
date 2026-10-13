@@ -91,7 +91,7 @@ package final class Presenter {
     lazy var leaves = HeavyLeaves(self)
     lazy var flats = FlatLeaves(self)
     /// The native swipe rows (LLP 1008 §9), a grouped list's included.
-    package lazy var swipeActions = SwipeActionsHost(self)
+    package lazy var swipeActions = SwipeActionsHost(self); lazy var rowCells = RowCells(self)
     lazy var accent = AppAccent(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
@@ -365,7 +365,7 @@ package final class Presenter {
         fieldSelections.reset()
         edited = nil
         menus.reset()
-        swipeActions.reset()
+        swipeActions.reset(); rowCells.reset()
         pool.reset()
         leaves.reset()
         flats.reset()
@@ -980,7 +980,7 @@ package final class Presenter {
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         let changed = touchedAndAbove(touchedIDs)
-        swipeActions.sync(changed: changed)
+        swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed)
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)

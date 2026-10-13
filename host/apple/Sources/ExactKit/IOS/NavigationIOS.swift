@@ -52,6 +52,7 @@ final class RouteController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         host?.presenter.groupedLists?.appearing(node, alongside: animated ? transitionCoordinator : nil)
+        host?.presenter.rowCells.appearing(node, alongside: animated ? transitionCoordinator : nil)
     }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
