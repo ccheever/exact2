@@ -181,3 +181,40 @@ fn navigation_split_on_the_root_route_opts_out_names_the_width_and_opts_in() {
     let found = split(&boot(&app("navigationSplit=300", "", text))).unwrap();
     assert_eq!((found.list, found.width), (None, Some(300.0)));
 }
+
+/// A host that shows a stack's top in a pane of its own shows the list
+/// beside it: the list is then no covered screen (`Runner::inactive`), as
+/// the driver's `tree` and a testId's resolution read it. Under a sheet,
+/// whose block is a maximum, and with no block, it is covered as before.
+#[test]
+fn the_list_beside_a_route_in_a_hosts_pane_is_not_inactive() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let mut r = boot(&app("", "", LINKS));
+    let root = r.kernel().roots()[0];
+    r.dispatch(root, Event::Navigate("/item/b".into())).unwrap();
+    let (row, item) = (view(&r, "row-a"), view(&r, "item-b"));
+    assert!(r.inactive(row), "a pushed route covers its list");
+    let pane = HostBlock {
+        width: BlockAxis::Is(500.0),
+        height: BlockAxis::Is(400.0),
+    };
+    r.kernel_mut().set_host_block(item, Some(pane)).unwrap();
+    assert!(!r.inactive(row), "beside a pane the list is live");
+    assert!(!r.inactive(view(&r, "item-back")));
+    // Another row's detail over the first, in the pane too: the first is covered, the list is not.
+    r.dispatch(root, Event::Navigate("/item/c".into())).unwrap();
+    let top = view(&r, "item-c");
+    assert!(r.inactive(row), "the new top has no pane yet");
+    r.kernel_mut().set_host_block(top, Some(pane)).unwrap();
+    assert!(!r.inactive(row));
+    assert!(r.inactive(item), "a route under the pane's top is covered");
+    // A sheet's block is a maximum: what is under it is covered.
+    let sheet = HostBlock {
+        width: BlockAxis::AtMost(500.0),
+        height: BlockAxis::AtMost(400.0),
+    };
+    r.kernel_mut().set_host_block(top, Some(sheet)).unwrap();
+    assert!(r.inactive(row));
+    r.kernel_mut().set_host_block(top, None).unwrap();
+    assert!(r.inactive(row));
+}

@@ -30,29 +30,6 @@ struct RootTabs: Equatable {
     }
 }
 
-/// A stack that shows its root route as a list beside its detail, as the
-/// runner finds it (`exact_stack_split`; `Runner::stack_split`, LLP 1115.002
-/// D4): the rule every host with a split reads, over the kernel's own tree.
-/// The Mac's split view reads it (SplitMac.swift).
-struct StackSplit: Equatable {
-    /// The list whose row pushes; nil where only `navigationSplit` asked.
-    let list: UInt32?
-    /// The list column's width as `navigationSplit` names it.
-    let width: Double?
-    /// Each route above the root that is a row's detail, by the route's id,
-    /// with that row's press.
-    let rows: [UInt32: UInt32]
-
-    init(list: UInt32?, width: Double?, rows: [UInt32: UInt32]) { (self.list, self.width, self.rows) = (list, width, rows) }
-
-    init?(json: Data) {
-        guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
-        let pairs = (o["rows"] as? [[Int]] ?? []).filter { $0.count == 2 }.map { (UInt32($0[0]), UInt32($0[1])) }
-        self.init(list: (o["list"] as? Int).map { UInt32($0) }, width: (o["width"] as? NSNumber)?.doubleValue,
-                  rows: Dictionary(pairs, uniquingKeysWith: { first, _ in first }))
-    }
-}
-
 struct NavigationTabs {
     let tablist: NodeView
     /// The tabs that name a panel, and those panels, in tab order.

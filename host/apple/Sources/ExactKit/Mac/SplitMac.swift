@@ -30,6 +30,42 @@
 // the stack pushes too, and `--chrome platform` shows the split.
 #if os(macOS)
 import AppKit
+import CExact
+
+/// A stack that shows its root route as a list beside its detail, as the
+/// runner finds it (`exact_stack_split`; `Runner::stack_split`): the rule
+/// every host with a split reads, over the kernel's own tree. Only the Mac
+/// reads it yet, so it is here, as a block's wire is the Mac's
+/// (BlockHostMac.swift); the iPad's half moves it to shared Swift.
+struct StackSplit: Equatable {
+    /// The list whose row pushes; nil where only `navigationSplit` asked.
+    let list: UInt32?
+    /// The list column's width as `navigationSplit` names it.
+    let width: Double?
+    /// Each route above the root that is a row's detail, by the route's id,
+    /// with that row's press.
+    let rows: [UInt32: UInt32]
+
+    init(list: UInt32?, width: Double?, rows: [UInt32: UInt32]) { (self.list, self.width, self.rows) = (list, width, rows) }
+
+    init?(json: Data) {
+        guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
+        let pairs = (o["rows"] as? [[Int]] ?? []).filter { $0.count == 2 }.map { (UInt32($0[0]), UInt32($0[1])) }
+        self.init(list: (o["list"] as? Int).map { UInt32($0) }, width: (o["width"] as? NSNumber)?.doubleValue,
+                  rows: Dictionary(pairs, uniquingKeysWith: { first, _ in first }))
+    }
+}
+
+extension Runtime {
+    /// Whether the stack whose root route is `view` splits, by the runner's
+    /// rule; nil for one that pushes, and while the runner is busy.
+    func stackSplit(_ view: UInt32) -> StackSplit? {
+        return on(busy: nil) {
+            let len = exact_stack_split(rt, view)
+            return StackSplit(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
+}
 
 final class SplitHost {
     private unowned let presenter: Presenter
@@ -132,11 +168,13 @@ final class SplitHost {
         guard !held.isEmpty else { return mounted }
         return presenter.blocks.authored(mounted, in: home).filter { node in mounted.contains { $0 === node } || holds(node) }
     }
-    /// Whether the keyboard is in the detail's pane: `view` is in it.
-    func holdsFocus(_ view: NSView?) -> Bool {
-        guard active, let view, let pane = controller?.detailPane else { return false }
-        return view.isDescendant(of: pane)
+    /// The detail's pane, when `view` is in it.
+    func pane(holding view: NSView?) -> NSView? {
+        guard active, let view, let pane = controller?.detailPane, view.isDescendant(of: pane) else { return nil }
+        return pane
     }
+    /// Whether the keyboard is in the detail's pane: `view` is in it.
+    func holdsFocus(_ view: NSView?) -> Bool { pane(holding: view) != nil }
 
     func reset() {
         held.removeAll(); rowOf.removeAll(); seen.removeAll(); kept.removeAll(); ended.removeAll()

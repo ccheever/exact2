@@ -266,11 +266,17 @@ final class SplitDetail: NSViewController {
         pane.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(pane)
         // AppKit's own words for nothing selected (its bindings' marker,
-        // which it localizes), as a hand-built window's empty pane says
-        // them: one quiet line in the middle, in the secondary label's colour.
+        // which it localizes), in the look of the system's view for
+        // nothing to show, SwiftUI's `ContentUnavailableView` with a label
+        // of words alone (measured on macOS 27.0: the title-3 text style,
+        // 15 points, regular, in the middle; `#929292` on a white window
+        // and `#a9a9a9` on a dark one's `#252525`, which is neither the
+        // secondary nor the tertiary label colour of AppKit).
         nothing.stringValue = Self.noSelection
-        nothing.font = .preferredFont(forTextStyle: .title2)
-        nothing.textColor = .secondaryLabelColor
+        nothing.font = .preferredFont(forTextStyle: .title3)
+        nothing.textColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.605) : NSColor(white: 0, alpha: 0.427)
+        }
         nothing.alignment = .center
         nothing.lineBreakMode = .byTruncatingTail
         nothing.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -284,9 +290,11 @@ final class SplitDetail: NSViewController {
         pin(cover: false)
     }
 
-    /// "No Selection", as AppKit says it.
+    /// "No Selection", as AppKit says it in the person's language: the
+    /// placeholder its bindings show for an empty selection (its
+    /// `Placeholders` table).
     static let noSelection: String = {
-        let said = Bundle(for: NSApplication.self).localizedString(forKey: "No Selection", value: "No Selection", table: nil)
+        let said = Bundle(for: NSApplication.self).localizedString(forKey: "No Selection", value: "No Selection", table: "Placeholders")
         return said.isEmpty ? "No Selection" : said
     }()
 

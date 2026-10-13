@@ -38,7 +38,7 @@ final class SplitMacTests: XCTestCase {
                           header display="flex" align-items="center"
                             text `About ${e.params.id}` role="heading" aria-level=2 flex=1 testId=`title-${e.params.id}`
                             button press=openNotes(e.params.id) aria-label="Notes" testId=`notes-${e.params.id}`
-                              image "symbol:edit"
+                              image "symbol:pencil"
                             button press=count aria-label="Count" aria-keyshortcuts="Meta+N" testId=`count-${e.params.id}`
                               image "symbol:delete"
                           box testId=`half-${e.params.id}` width="50%" height=40 background-color="#f9ab00"

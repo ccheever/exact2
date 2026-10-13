@@ -93,14 +93,51 @@ pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
     let mut parent = kernel.node(id).and_then(|node| node.parent);
     while let Some(at) = parent.and_then(|id| kernel.node(id)) {
         if let Some(n) = node(at.id) {
-            if unselected(&node, &n).iter().any(|off| path.contains(off)) {
-                return true;
+            let off = unselected(&node, &n);
+            if let Some(route) = off.iter().find(|off| path.contains(off)) {
+                if !beside_a_pane(kernel, &n, *route) {
+                    return true;
+                }
             }
         }
         path.push(at.id);
         parent = at.parent;
     }
     false
+}
+
+/// Whether `route`, one the navigation root `root` has not selected, is
+/// shown all the same: it is the first of its stack, and the route the root
+/// selected is in that stack and laid out in a pane a host reported (a
+/// containing block that is the size on both axes, LLP 1115.002 D8.2). A
+/// host that shows a stack's top in a pane of its own shows the stack's
+/// list beside it, live (LLP 1115.002 D4); under a sheet, whose block is a
+/// maximum, the list is covered as before.
+fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
+    use exact_kernel::BlockAxis;
+    let Some(key) = root.1.str(PropId::NavigationKey) else {
+        return false;
+    };
+    let key_of = |id: ViewId| {
+        kernel
+            .node(id)
+            .and_then(|n| n.props.str(PropId::NavigationKey))
+    };
+    let stack: Vec<ViewId> = kernel
+        .node(route)
+        .and_then(|n| n.parent)
+        .and_then(|p| kernel.node(p))
+        .map(|p| p.children())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|id| key_of(*id).is_some())
+        .collect();
+    stack.first() == Some(&route)
+        && stack
+            .iter()
+            .find(|id| key_of(**id) == Some(key))
+            .and_then(|selected| kernel.host_block(*selected))
+            .is_some_and(|b| matches!((b.width, b.height), (BlockAxis::Is(_), BlockAxis::Is(_))))
 }
 
 /// The active head of the tree under `roots`, as `node` reads it: the walk
