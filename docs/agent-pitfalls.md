@@ -143,6 +143,16 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   container with `width="100%"` and horizontal padding or a border, and `check`
   names the box that runs past its parent by its padding (LLP 1116.009 D5).
 
+- **A one-edge border draws a frame, and a drawer closed to `height=0` stays open
+  a few pixels.** `border-top-width=1 border-style="solid"` on a 60 × 20 box drew a
+  1 px top and 3 px sides and bottom (66 × 24); with `box-sizing="border-box"` and
+  `height=0` the box was 4 px tall. Cause: `border-style` sets all four sides (CSS),
+  and a side whose width is unsaid keeps CSS's initial `medium`, 3 px. Fix: say the
+  one side: `border-top="1px solid"` (the side's shorthand), or
+  `border-top-width=1 border-top-style="solid"`. (T3 Code clone's terminal drawer,
+  whose panes lost 6 px to side borders, 2026-10-06; reproduced on the web and
+  macOS, 2026-10-12.)
+
 ## Lists and scrolling
 
 - **A frame's cell count is not its stretched layout width.** Giving the
