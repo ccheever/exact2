@@ -49,8 +49,8 @@ bun examples/t3-code/tools/generate/generate.mjs           # writes what differs
 ```
 
 The app is its own Cargo workspace (`Cargo.toml` here, building into `examples/t3-code/target`),
-outside the root's members: its build script bakes the whole app on one core, about twelve
-minutes, so exact2's six blocking checks leave it out and the async lane (`scripts/async.mjs`'s
+outside the root's members: its build script bakes the whole app on one core for minutes, so
+exact2's six blocking checks leave it out and the async lane (`scripts/async.mjs`'s
 `t3-code` and `t3-code-clippy` steps) builds, tests and lints it.
 
 The embedded server. `stage-runtime.mjs` downloads the release archive named by
@@ -393,7 +393,7 @@ bun examples/t3-code/tools/generate/generate.mjs   # the generated sources, firs
 bun test examples/t3-code
 bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2023,DOM examples/t3-code/app.ts
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
-cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app's roots (~5 min)
+cargo test -p contract --test it button_migration -- --ignored   # the async lane's sweep of this app's roots (minutes)
 cargo test --manifest-path examples/t3-code/Cargo.toml --lib   # the app's workspace: the bake, then its tests (Hermes env of the root setup)
 ```
 

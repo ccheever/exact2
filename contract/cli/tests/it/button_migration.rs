@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// The T3 Code clone: its roots compile in about 300 s in a debug build (some
+/// The T3 Code clone: its roots take minutes to compile in a debug build (some
 /// 120,000 nodes), so they are the async lane's (the test at the end).
 const T3_CODE: &str = "examples/t3-code";
 
@@ -172,7 +172,7 @@ fn every_app_corpus_and_example_compiles_and_the_button_migration_is_complete() 
 }
 
 #[test]
-#[ignore = "async lane: compiles the T3 Code clone's roots, about 300 s in a debug build; bun scripts/async.mjs runs it"]
+#[ignore = "async lane: compiles the T3 Code clone's roots, minutes in a debug build; bun scripts/async.mjs runs it"]
 fn the_t3_code_example_compiles_and_its_button_migration_is_complete() {
     // Its generated sources are built, not committed (rules/RULES.md): make them first.
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

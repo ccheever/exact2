@@ -1,6 +1,6 @@
 # The T3 Code clone's own workspace, absent from the root `members`, as the game
-# add-on's is (game/Cargo.toml): its build script bakes the whole app, about
-# twelve minutes of one core, so exact2's six checks never compile it. The async
+# add-on's is (game/Cargo.toml): its build script bakes the whole app on one
+# core for minutes, so exact2's six checks never compile it. The async
 # lane builds, tests and lints it (`scripts/async.mjs`); `host/apple/build.mjs`
 # finds it through `macos/Cargo.toml`'s `package.workspace` and passes the root's
 # profiles.
