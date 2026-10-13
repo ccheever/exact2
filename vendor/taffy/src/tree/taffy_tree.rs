@@ -1542,6 +1542,11 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.multicol_bounds.get(node.into()).copied().unwrap_or_default()
     }
 
+    /// Forget recorded layouts when a calc handle's environment changes.
+    pub fn forget_memo(&mut self) {
+        self.memo.clear();
+    }
+
     /// Remember marked roots' layouts (the default) or lay them out as any
     /// other box; turning it off forgets those held.
     pub fn enable_memo(&mut self, on: bool) {

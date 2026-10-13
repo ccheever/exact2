@@ -125,7 +125,7 @@ impl<D: DataSource> Runner<D> {
                                 exact_kernel::svg::scene::content_box(&self.kernel, &up).2
                             });
                         let resolved = self.kernel.resolved_padding(key);
-                        content_rect(&node, block, resolved, self.stitched(key))
+                        content_rect(&node, arena.env(), block, resolved, self.stitched(key))
                     });
                 let last = self
                     .resized
@@ -185,9 +185,11 @@ pub type Resized = Vec<(NodeKey, ResizeRect)>;
 /// ResizeObserver's `contentRect` of `node` (b6 review B2): `x` and `y` the
 /// used padding's left and top — the border is outside the padding box the
 /// rect is placed in — and the size the border box less padding and border.
-/// `stitched` is a fragmented box's border box ([`Runner::stitched`]).
+/// `stitched` is a fragmented box's border box ([`Runner::stitched`]); an
+/// unresolved padding resolves under `env` against `block`.
 fn content_rect(
     node: &exact_kernel::NodeRef<'_>,
+    env: &exact_kernel::style::Env,
     block: f32,
     resolved: Option<(f32, f32, f32, f32)>,
     stitched: Option<(f32, f32)>,
@@ -198,14 +200,7 @@ fn content_rect(
         Some((l, t, r, b)) => (Some(l), Some(t), Some(r), Some(b)),
         None => (None, None, None, None),
     };
-    let pad = |used: Option<f32>, d: Dimension| match used {
-        Some(p) => p,
-        None => match d {
-            Dimension::Points(p) => p,
-            Dimension::Percent(p) => block * p / 100.0,
-            _ => 0.0,
-        },
-    };
+    let pad = |used: Option<f32>, d: Dimension| used.unwrap_or_else(|| d.at_basis(env, block));
     let border = |w: f32, style: BorderStyle| match style {
         BorderStyle::None | BorderStyle::Hidden => 0.0,
         _ => w,

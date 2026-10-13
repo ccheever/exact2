@@ -199,16 +199,9 @@ impl ButtonFaceStyle {
         containing_width: Option<f32>,
         frame: crate::Frame,
     ) {
+        // With no basis a percentage resolves against 0
         let length = |d: crate::Dimension, basis: Option<f32>| {
-            crate::Dimension::Points(
-                match d.resolve(env) {
-                    crate::Dimension::Points(n) => n,
-                    crate::Dimension::Percent(p) => basis.map_or(0.0, |b| b * p / 100.0),
-                    crate::Dimension::Calc(p, n) => basis.map_or(0.0, |b| b * p / 100.0 + n),
-                    _ => 0.0,
-                }
-                .max(0.0),
-            )
+            crate::Dimension::Points(d.at_basis(env, basis.unwrap_or(0.0)).max(0.0))
         };
         let s = &mut self.button;
         for side in [

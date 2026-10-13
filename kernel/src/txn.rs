@@ -347,6 +347,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         StyleDomainError::AutoNotAdmitted(style) => {
                             ApplyError::AutoNotAdmitted { op_index, style }
                         }
+                        StyleDomainError::PercentNotAdmitted(style) => {
+                            ApplyError::PercentNotAdmitted { op_index, style }
+                        }
                         StyleDomainError::TooManyTracks { style, count } => {
                             ApplyError::TooManyTracks {
                                 op_index,

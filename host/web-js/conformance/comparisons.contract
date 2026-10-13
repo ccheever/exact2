@@ -8,6 +8,8 @@
 // between two comparisons, which the JS target writes as written and the
 // kernel parses. A size and a padding whose comparison comes out negative
 // are held at zero, as CSS clamps a math function to the row's range.
+// A percentage in a comparison resolves against its basis, beside an inset
+// (LLP 1116 D5).
 // linux: layout
 component Comparisons
   state wide = false
@@ -20,3 +22,6 @@ component Comparisons
       column testId="fab" position="absolute" right=16 width=56 height=56 border-radius="clamp(4px, 10vw, 28px)" bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 15px + 44px)" background-color="#ffd60a"
       box testId="floor" position="absolute" left=0 top=60 width="max(-8px, -2px)" height=10 padding-left="min(-4px, env(safe-area-inset-top))" padding-right=6 background-color="#e63946"
       row testId="bar" position="absolute" left=0 right=0 bottom=0 height=49 padding="0 0 clamp(15px, env(safe-area-inset-bottom), 60px)" background-color="#2a9d8f"
+      box testId="half" position="absolute" left=0 top=80 height=10 width="min(50%, calc(100px + env(safe-area-inset-left)))" background-color="#f4a261"
+      box testId="share" position="absolute" left=0 top=100 height=10 width=40 padding-right="max(20%, env(safe-area-inset-right))" background-color="#264653"
+      box testId="none" position="absolute" left=0 top=120 height=10 width="clamp(none, 30vw, 120px)" background-color="#e9c46a"

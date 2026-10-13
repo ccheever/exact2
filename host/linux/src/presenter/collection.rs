@@ -236,12 +236,7 @@ fn main_of(axis: ListAxis, offset: (f32, f32)) -> f32 {
 /// A padding against a containing block `basis` wide, clamped at 0, padding's
 /// range: a `calc()` that resolves below it computes to 0 (CSS Values 4 §10.12)
 fn length(kernel: &Kernel, value: Dimension, basis: f64) -> f64 {
-    let n = match value.resolve(kernel.arena().env()) {
-        Dimension::Points(n) => n as f64,
-        Dimension::Percent(n) => basis * n as f64 / 100.,
-        _ => 0.,
-    };
-    n.max(0.)
+    f64::from(value.at_basis(kernel.arena().env(), basis as f32)).max(0.)
 }
 
 fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {

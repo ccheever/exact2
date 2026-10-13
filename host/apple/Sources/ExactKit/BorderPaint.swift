@@ -22,10 +22,7 @@ package enum BorderPaint {
         ["top_left", "top_right", "bottom_right", "bottom_left"].map { name in
             let value = style["border_radius_" + name] ?? style["border_radius"]
             func length(_ basis: CGFloat) -> CGFloat {
-                if case .object(let d) = value {
-                    return max(0, basis * CGFloat(d["pct"]?.number ?? 0) / 100 + CGFloat(d["px"]?.number ?? 0) - inset)
-                }
-                return max(0, CGFloat(value?.number ?? 0) - inset)
+                max(0, (value?.length(basis: basis) ?? 0) - inset)
             }
             return CGSize(width: length(rect.width + 2 * inset), height: length(rect.height + 2 * inset))
         }

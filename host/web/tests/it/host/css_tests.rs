@@ -369,11 +369,34 @@ fn comparison_lengths_lower_to_css_comparisons() {
     assert!(skipped.is_empty(), "{skipped:?}");
     for expected in [
         "padding-bottom:clamp(15px, env(safe-area-inset-bottom), 60px);",
-        "bottom:calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px);",
-        "padding-top:max(15px, calc(env(safe-area-inset-top) - 4px));",
+        "bottom:calc(59px + clamp(15px, env(safe-area-inset-bottom), 60px));",
+        "padding-top:max(15px, -4px + env(safe-area-inset-top));",
         "width:min(50vw, 300px);",
         "height:10px;",
     ] {
         assert!(css.contains(expected), "{expected} in {css}");
     }
+}
+
+#[test]
+fn a_negative_calculation_on_a_size_reaches_the_browser_clamped() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    // `width: -10px` is invalid CSS (the kernel refuses it); `calc(10px -
+    // 20px)` is valid and clamps to 0 at computed-value time (CSS Values 4
+    // §9.1), so the browser gets 0, while a margin keeps the negative length.
+    let mut s = StyleProps::default();
+    let text = || StyleValue::Text("calc(10px - 20px)".into());
+    s.set_dynamic(StyleId::Width, &text()).unwrap();
+    s.set_dynamic(StyleId::MarginLeft, &text()).unwrap();
+    let (css, _) = css_text(&s, &[]);
+    assert!(css.contains("width:0px;"), "{css}");
+    assert!(css.contains("margin-left:-10px;"), "{css}");
+    let mut s = StyleProps::default();
+    s.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("calc(10vw - 20vw)".into()),
+    )
+    .unwrap();
+    let (css, _) = css_text(&s, &[]);
+    assert!(css.contains("width:0vw;"), "{css}");
 }

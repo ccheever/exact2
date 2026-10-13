@@ -471,6 +471,9 @@ fn compact_inset_sums_clamp_only_at_the_finite_length_limits() {
     ] {
         let env = Env::new(inset, 0.0, 0.0, 0.0);
         assert!(env.is_finite());
+        // Spell the exact compact f32 value, not a decimal that math retains
+        // at f64 precision until the completed calculation is narrowed.
+        let offset = f64::from(offset as f32);
         let source = format!("calc(env(safe-area-inset-top) + {offset}px)");
         let d = Dimension::parse_env(&source).unwrap();
         assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
@@ -493,6 +496,7 @@ fn compact_segment_sums_clamp_and_undefined_segments_stay_auto() {
             vec![Rect::new(0.0, 0.0, width, 100.0), Rect::default()],
         );
         assert!(env.is_finite());
+        let offset = f64::from(offset as f32);
         let source = format!("calc(env(viewport-segment-width 0 0) + {offset}px)");
         let d = Dimension::parse_env(&source).unwrap();
         assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
@@ -570,4 +574,11 @@ fn compact_segment_edges_preserve_cancellation_before_narrowing() {
             assert_eq!(d.resolve(&Env::default()), Dimension::Auto);
         }
     }
+}
+
+#[test]
+fn an_authored_offset_is_not_rounded_to_the_environment_precision() {
+    let env = Env::new(16_777_216., 0., 0., 0.);
+    let d = Dimension::parse_env("calc(env(safe-area-inset-top) - 16777217px)").unwrap();
+    assert_eq!(d.resolve(&env), Dimension::Points(-1.));
 }

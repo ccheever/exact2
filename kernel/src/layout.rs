@@ -348,9 +348,12 @@ impl LayoutMirror for Unmirrored {
 }
 
 impl LayoutTree {
-    /// A multi-column container's `min-height` and `max-height` as its last
-    /// final layout resolved and applied them, border box: a larger minimum
-    /// raises the maximum (Taffy patch 30).
+    /// Invalidate replayed rows when a calc handle's environment changes.
+    pub(crate) fn forget_memo(&mut self) {
+        self.taffy.forget_memo();
+    }
+
+    /// Final border-box multicol bounds, with maximum raised to minimum (patch 30).
     pub(crate) fn multicol_bounds(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
         self.taffy.multicol_bounds(node)
     }
@@ -850,6 +853,8 @@ impl LayoutTree {
         measurer: &mut dyn TextMeasurer,
         node_for: &dyn Fn(u32) -> Option<NodeId>,
     ) -> Result<(), LayoutError> {
+        // Resolve percentage trees under this layout's environment.
+        let _env = crate::style::LayoutEnv::set(arena.env());
         self.prepare_fields(root, arena, measurer)?;
         let buttons = self.prepare_buttons(root, arena, measurer)?;
         // Percentage padding uses the containing block's final width. Settle

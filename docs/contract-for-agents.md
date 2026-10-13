@@ -2443,18 +2443,21 @@ On native, all viewport variants follow the window; on web, CSS resolves
 small/large/dynamic viewports. Scalar lengths such as font size and gap do
 not yet accept viewport units.
 
-The same rows take `env(safe-area-inset-top|right|bottom|left)`, `calc(env(…) ±
-<n>px)`, and CSS's `min()`, `max()` and `clamp()` over px (and in/cm/mm/pt/pc),
-those insets and viewport lengths, with sums inside them (`max(15px,
-env(safe-area-inset-bottom) - 4px)`) and nested in each other and in `calc()`:
+The same rows take `env(safe-area-inset-top|right|bottom|left)` and CSS's
+`calc()`, `min()`, `max()` and `clamp()` over px (and in/cm/mm/q/pt/pc/ch/lh),
+percentages, those insets, viewport segments and viewport lengths. Functions
+can nest, add or subtract lengths, and multiply or divide by a number:
 `padding-bottom="clamp(15px, env(safe-area-inset-bottom), 60px)"`,
-`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
-CSS's order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min,
-max)`. Native hosts resolve them as the insets change; the web writes CSS's own
-functions. On a size, a padding or a radius a result below zero is 0, as CSS
-clamps it; a margin or an inset keeps it. Refused with the reason: a percentage, `rem`/`em`, a unitless
-number (write `0px`, not `0`), `env(viewport-segment-*)`, two inset or viewport terms in one
-sum, subtracting one, `*` and `/` (LLP 1001 §2, "Comparisons").
+`bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`,
+`width="min(50%, calc(100vw - 2 * env(safe-area-inset-left)))"`.
+`clamp()` takes `none` for either bound (`clamp(none, 20px, 50px)`). CSS's
+order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min, max)`.
+Native hosts resolve percentages during layout and update calculations when
+insets or viewport dimensions change. The web uses CSS functions directly.
+Sizes, padding and radii clamp negative results to zero; margins and insets keep
+them. Unsupported: `rem`/`em`, a unitless number where a length goes
+(write `0px`, not `0`), `var()`, more than 32 values or 32 levels (LLP 1001 §2,
+"Comparisons").
 
 `translate` takes one or two lengths, each in px or a percentage of the box's own
 border box, as CSS's does: `left="50%" top="50%" translate="-50% -50%"` on an

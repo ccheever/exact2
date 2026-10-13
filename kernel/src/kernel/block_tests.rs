@@ -425,3 +425,35 @@ fn an_authored_height_is_measured_inside_a_block_while_another_is_presented() {
         "and nothing published"
     );
 }
+
+#[test]
+fn block_limits_and_padding_resolve_math_in_the_window_environment() {
+    let mut ops = small();
+    ops.push(style(
+        3,
+        &[
+            (StyleId::BoxSizing, t("border-box")),
+            (StyleId::Width, n(300.0)),
+            (StyleId::Height, n(300.0)),
+            (StyleId::MaxWidth, t("min(90%, 50vw)")),
+            (StyleId::MaxHeight, t("min(90%, 50vh)")),
+            (StyleId::PaddingLeft, t("min(50%, 10vw)")),
+            (StyleId::PaddingTop, t("max(5%, env(safe-area-inset-top))")),
+        ],
+    ));
+    let mut k = Kernel::with_monospace();
+    k.apply(0, 1, &ops).unwrap();
+    k.set_host_block(3, at_most(300.0, 200.0)).unwrap();
+    for (window, inset, size, padding) in [
+        ((400.0, 200.0), 10.0, (200.0, 100.0), (40.0, 15.0)),
+        ((200.0, 100.0), 30.0, (100.0, 50.0), (20.0, 30.0)),
+        ((800.0, 400.0), 10.0, (270.0, 180.0), (80.0, 15.0)),
+    ] {
+        k.set_env(Env::new(inset, 0.0, 0.0, 0.0)).unwrap();
+        k.compute_layout(1, Offer::definite(window.0, window.1))
+            .unwrap();
+        assert_eq!(k.host_block_size(3), Some(size));
+        let child = k.node(4).unwrap().frame;
+        assert_eq!((child.x, child.y), padding);
+    }
+}

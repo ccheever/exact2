@@ -123,6 +123,18 @@ size_t exact_gradient(const uint8_t *css, size_t len, float width, float height,
 size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,
     const float *radii, float *out, size_t cap);
 
+/* Intern a CSS calculation tree; return 0 for invalid or compact lengths.
+ * The returned handle has no environment; exact_calc_create supplies it. */
+uint32_t exact_calc_parse(const uint8_t *text, size_t len);
+
+/* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
+ * viewport width/height (the window's when a sheet is open), segment cols/rows, then x,y,w,h
+ * per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
+void *exact_calc_create(uint32_t handle, const double *values, size_t count);
+double exact_calc_resolve(const void *context, double basis);
+void exact_calc_destroy(void *context);
+
 /* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
  * Non-null buffers must be aligned and valid for their stated counts. */
 typedef struct ExactFlowPair { float x, y; } ExactFlowPair;
