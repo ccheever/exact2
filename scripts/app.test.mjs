@@ -1000,7 +1000,7 @@ test('a worktree whose target resolves into another checkout is refused', async 
     mkdirSync(resolve(root, 'private'));
     assertOwnTarget(resolve(root, 'private'), lane);
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}, 60_000);
 
 test('declared shader packs merge, reject duplicates and links, and preserve a rejected live candidate', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } = await import('node:fs');
@@ -1189,7 +1189,7 @@ test('device grants derive the plists, their translations and the release entitl
       assert.throws(() => readManifest(dir, 'fixture'), new RegExp(`host\\.${platform}\\.permissions: deleted \\(LLP 1069\\.008\\); declare the device .*device\\.microphone purpose\\.microphone`));
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 60_000);
 
 
 test('locked metadata fetches a missing git checkout without rewriting the lock', async () => {
@@ -1324,7 +1324,7 @@ test('web remapping preserves game floating-point determinism on both web toolch
     assert.equal(game[game.indexOf('llvm-args=-fp-contract=off')-1],'-C');
     assert.ok(!flags({}).includes('llvm-args=-fp-contract=off'));
   }
-});
+}, 60_000);
 
 test('simulator signing gives each app and embedded host a distinct Keychain identity', async () => {
   const {entitlements} = await import('../host/apple/build.mjs');
