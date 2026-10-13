@@ -80,6 +80,106 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "an authored one wins")
     }
 
+    /// LLP 1115.000 D15: a `button` whose author wrote no `buttonStyle` is
+    /// UIKit's plain button, tinted text with no fill, as `UIButton(type:
+    /// .system)` and SwiftUI's `Button` are. Held against buttons UIKit
+    /// configures itself, in the same window: its insets and its size (so
+    /// its font), its title in the tint in both schemes, lighter while it
+    /// is pressed and UIKit's grey when it is disabled, and its symbol. What
+    /// layout is told is the size UIKit then draws. `buttonStyle="bordered"`
+    /// is what an author writes for the grey capsule the default was.
+    func testAButtonWithNoStyleIsUIKitsPlainButton() throws {
+        var unsaid = ButtonFace(); unsaid.title = "Add"
+        XCTAssertNil(unsaid.style, "no style written")
+        XCTAssertEqual(unsaid.ios, "plain", "and UIKit's plain configuration for it")
+        var symbol = unsaid; symbol.symbol = "plus"
+        var capsule = unsaid; capsule.style = "bordered"; capsule.ios = "bordered"; capsule.iosBefore26 = "bordered"
+        let faces: [UInt32: ButtonFace] = [2: unsaid, 3: unsaid, 4: symbol, 5: capsule, 6: unsaid]
+        let p = Presenter()
+        kept = p
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        func native(_ id: Int, _ props: [String: String] = [:]) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "control", "props": ["type": "button", "accessibilityRole": "button"].merging(props) { $1 },
+              "handlers": ["press"], "style": ["appearance": "auto"]],
+             ["op": "frame", "id": id, "x": 0.0, "y": Double(id) * 50, "w": 120.0, "h": 34.0]]
+        }
+        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view", "props": ["id": "page"]]] + native(2) + native(3, ["disabled": "true"])
+                          + native(4) + native(5) + native(6, ["destructive": "true"])
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]], ["op": "roots", "ids": [1]]]))
+        func drawn(_ id: UInt32) throws -> NativeButtonIOS { try XCTUnwrap(p.controls.controls[id] as? NativeButtonIOS) }
+        // UIKit's own, configured by hand and nothing else.
+        func uikit(enabled: Bool = true, _ configure: (inout UIButton.Configuration) -> Void = { _ in }) -> UIButton {
+            var c = UIButton.Configuration.plain(); c.title = "Add"
+            configure(&c)
+            let b = UIButton(configuration: c)
+            b.isEnabled = enabled
+            window.addSubview(b)
+            b.layoutIfNeeded()
+            return b
+        }
+        let reference = uikit(), off = uikit(enabled: false)
+        let bare = try drawn(2)
+        XCTAssertEqual(bare.drawn, "plain")
+        XCTAssertEqual(bare.configuration?.contentInsets, NSDirectionalEdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12), "as measured on iOS 27")
+        XCTAssertEqual(bare.configuration?.contentInsets, reference.configuration?.contentInsets)
+        XCTAssertEqual(bare.intrinsicContentSize, reference.intrinsicContentSize, "its insets around its title in its font")
+        XCTAssertEqual(bare.titleLabel?.font, reference.titleLabel?.font)
+        XCTAssertEqual(bare.titleLabel?.font.pointSize, UIFont.preferredFont(forTextStyle: .body, compatibleWith: bare.traitCollection).pointSize, "body, which follows Dynamic Type")
+        XCTAssertNil(bare.configuration?.baseForegroundColor, "the tint, by UIKit's own rule")
+        XCTAssertEqual(bare.configuration?.background, reference.configuration?.background, "no fill")
+        // Its symbol: the same button with Exact's gap and symbol font, which every style has (LLP 1069.011.001).
+        let font = try XCTUnwrap(reference.titleLabel?.font)
+        let withSymbol = uikit { c in
+            c.image = UIImage(systemName: "plus")
+            c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: font)
+            c.imagePadding = ButtonConfigurationIOS.systemSpacing(font: font)
+        }
+        XCTAssertEqual(try drawn(4).intrinsicContentSize, withSymbol.intrinsicContentSize)
+        XCTAssertNotNil(try drawn(4).configuration?.image)
+        for scheme in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = scheme
+            window.updateTraitsIfNeeded()
+            func ink(_ b: UIButton, pressed: Bool = false) -> [Int] {
+                b.isHighlighted = pressed
+                b.setNeedsUpdateConfiguration(); b.updateConfiguration(); b.layoutIfNeeded()
+                defer { b.isHighlighted = false }
+                var (r, g, bl, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+                b.titleLabel?.textColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme)).getRed(&r, green: &g, blue: &bl, alpha: &a)
+                return [r, g, bl, a].map { Int(($0 * 255).rounded()) }
+            }
+            let name = scheme == .dark ? "dark" : "light"
+            XCTAssertEqual(ink(bare), ink(reference), name)
+            var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            bare.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme)).getRed(&r, green: &g, blue: &b, alpha: &a)
+            XCTAssertEqual(ink(bare), [r, g, b, a].map { Int(($0 * 255).rounded()) }, "the tint, \(name)")
+            XCTAssertEqual(ink(bare, pressed: true), ink(reference, pressed: true), "pressed, \(name)")
+            XCTAssertNotEqual(ink(bare, pressed: true), ink(bare), "UIKit's own pressed look, \(name)")
+            XCTAssertEqual(ink(try drawn(3)), ink(off), "disabled, \(name)")
+            XCTAssertNotEqual(ink(try drawn(3)), ink(bare), "disabled is not the tint, \(name)")
+            XCTAssertNotEqual(ink(try drawn(5)), ink(bare), "a bordered button's title is the label colour, \(name)")
+        }
+        // Layout is told what UIKit draws (the kernel's measure and the presenter read one face).
+        let traits = window.traitCollection, scale = max(1, traits.displayScale)
+        let cache = ButtonMeasureCache()
+        cache.configure(traits, in: p.viewport)
+        let measured = cache.measure(unsaid, widthKind: 2, width: 0, traits: traits)
+        let fits = reference.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+        XCTAssertEqual(CGFloat(measured.width), ceil(fits.width * scale) / scale, accuracy: 0.01)
+        XCTAssertEqual(CGFloat(measured.height), ceil(fits.height * scale) / scale, accuracy: 0.01)
+        // A destructive one is the same plain button in the system red, as SwiftUI's destructive role draws it
+        // (LLP 1116.008 D7 paints every style; with no style that is red text and no fill).
+        XCTAssertEqual(try drawn(6).drawn, "plain")
+        XCTAssertEqual(try drawn(6).configuration?.baseForegroundColor, .systemRed)
+        XCTAssertEqual(try drawn(6).configuration?.background, bare.configuration?.background, "no fill")
+        // What an author writes for the capsule.
+        XCTAssertEqual(try drawn(5).drawn, "bordered")
+        XCTAssertNotEqual(try drawn(5).configuration?.background, bare.configuration?.background, "a fill")
+    }
+
     /// Three single-line fields in a window, each hearing `change` and
     /// `blur`, named `f1` to `f3`. A node holds its presenter weakly, so the
     /// test keeps it.
@@ -289,8 +389,12 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(text.isHeading)
         XCTAssertNil(HeaderShape(route: route, back: nil), "a level alone: the header holds no heading, so it is not the bar")
         XCTAssertFalse(HeaderTitle.holdsHeading(pressable), "nor is a pressable around one the title's group")
+        // Nor a heading to VoiceOver (D12.5 in full, ruled 2026-10-12): the header trait is the role's.
+        XCTAssertNil(text.headingLevel)
+        XCTAssertFalse(text.accessibilityTraits.contains(.header), "a level alone is text to assistive technology")
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityRole": "heading"], "clear": []],
                            ["op": "props", "id": 5, "set": ["accessibilityRole": "heading"], "clear": []]]))
+        XCTAssertTrue(text.accessibilityTraits.contains(.header), "with its role it is a heading")
         let shape = try XCTUnwrap(HeaderShape(route: route, back: nil), "with its role it is the bar's title")
         XCTAssertEqual(shape.title, "Inbox")
         XCTAssertEqual(shape.level, 1, "level 1: the large title")
@@ -415,6 +519,23 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertGreaterThan(fill[1], 200, "in the accent: \(fill)")
         XCTAssertLessThan(fill[2], 60, "in the accent: \(fill)")
         XCTAssertEqual(on(0.12, 0.12)[0], 0, "still a circle")
+    }
+
+    func testARIAUnavailableCheckboxKeepsItsTraitAfterRefusedChange() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "control", "props": ["type": "checkbox", "checked": "false", "accessibilityDisabled": "true"],
+             "handlers": ["change"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+        ])
+        let box = try XCTUnwrap(p.controls.controls[2] as? ExactCheckbox)
+        XCTAssertTrue(box.accessibilityTraits.contains(.notEnabled))
+        box.isOn = true
+        p.syncAccessibility()
+        box.isOn = false // The action left `checked` false, so the host restores it.
+        XCTAssertTrue(box.isEnabled, "ARIA state leaves input enabled")
+        XCTAssertFalse(box.isOn)
+        XCTAssertTrue(box.accessibilityTraits.contains(.notEnabled))
     }
 }
 #endif

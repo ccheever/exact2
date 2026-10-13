@@ -31,6 +31,14 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     internal var fields: Fields? = null
     /** The app's bars, over this view ([Bars], LLP 1115.001 D11): told with the stream they belong to. */
     internal var bars: Bars? = null
+    /** What exact2 tells of the accessibility tree ([Access], LLP 1115.001 D13), handed on with the stream it came
+     * with; and, where exact2 runs on this thread (owner=0), whether a service is on and it is asked at all. */
+    internal var access: ((IntArray) -> Unit)? = null
+    private var accessible = false
+    private var accessAgain = false
+    internal fun accessible(on: Boolean) {
+        if (on) { accessible = true; accessAgain = true; invalidate() } else if (accessible) { accessible = false; Native.accessOff() }
+    }
     /** The row whose body [ingest] is in (0: none), and the elements the unrowed stream names. */
     private val flatAlpha = (context as Activity).intent.getStringExtra("flatalpha") != "0"
     private var ingestRow = 0
@@ -430,6 +438,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             // The fields first: the stream that came with them draws their nodes.
             p.fields?.let { fields?.told(it) }
             p.bars?.let { bars?.told(it) }
+            p.access?.let { access?.invoke(it) }
             val ops = p.ops
             if (ops != null) {
                 if (p.move) { move = p; applyMoveTracks(ops) } else {
@@ -810,6 +819,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         // The fields first: the stream that came with them draws their nodes; a statement may come with none.
         Native.fields()?.let { fields?.told(it) }
         Native.bars()?.let { bars?.told(it) }
+        if (accessible) Native.access(accessAgain).also { accessAgain = false }?.let { access?.invoke(it) }
         fresh ?: return false
         Native.chrome()?.let(chrome)
         val told = Native.scrollers()

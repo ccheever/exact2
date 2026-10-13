@@ -11,6 +11,13 @@
 
 Design the action-only elementsFromPoint structural read, preserving front-to-back own-id results and geometry restrictions. Coordinate #281 for ordinary overlay click consumption. Pin own-id versus nearest-ancestor-id behavior before the original first-entry comparison; this is not a devtools or pixel-readback feature.
 
+## Implementation progress (2026-10-11)
+
+The action-only `elementsFromPoint` read now compiles and returns the front-to-back hit list on the web JS target, the web wasm geometry path, and native runner hosts. Contract tests cover paint order, ancestors, id-less hits inside a named card and outside its box, and rejection outside actions. The in-box Inspect layer now leaves the covered button ahead of its card. A web agent drive reads `overlay,target,back` and leaves the covered button's press count at zero. A macOS agent drive reads the same list, but clicking the overlay increments the covered button's press count from zero to one. The native hit walk now filters covered routes and closed popovers/dialogs. The remaining work is #281's ordinary positioned overlay click consumption on macOS, followed by the original Inspect flow drive. This issue stays open until those acceptance criteria pass.
+
+Review fix round 3: the native walk now skips inert descendants, and open top-layer nodes use their presented viewport frames and stack order outside authored ancestor clips. Contract regressions cover both. The #281 overlay click and original Inspect flow remain open.
+An AppKit `alertdialog` projected as an `NSAlert` sheet or a UIKit confirmation projected as a native alert remains open for role-list reads, but its authored controls have no painted node frames to return from point reads; those system alert cases are not covered by the lifted-node geometry fix.
+
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
 ## Original report

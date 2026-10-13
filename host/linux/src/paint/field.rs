@@ -28,9 +28,9 @@ impl Painter {
         // A row does not keep a caret, nor a focus ring, which comes and
         // goes with no change of the tree: a hosted field has one too.
         self.row_refuse();
-        let native = node.style.appearance == exact_kernel::Appearance::Auto;
+        let native = node.style.appearance != exact_kernel::Appearance::None;
         let disabled = node.props.bool(PropId::Disabled) == Some(true);
-        let field_shape = native.then(|| self.text_field_chrome(surface, disabled, ts));
+        let field_shape = native.then(|| self.text_field_chrome(node, surface, disabled, ts));
         let content = if let Some(c) = node.field_content_rect() {
             (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
         } else {
@@ -85,17 +85,33 @@ impl Painter {
             } else {
                 (content.3 - paragraph.height) / 2.0
             };
+        // The neutral look's field (LLP 1115.000 D17) names its inks by
+        // role: the placeholder's, and the grey of a disabled one.
+        let neutral = native && look::neutral();
         let mut ink = if placeholder {
-            [0x75, 0x75, 0x75, 0xff]
+            // An authored `::placeholder` colour, its alpha its own (LLP 1104 D3).
+            control::authored_placeholder(node.style, self.dark).unwrap_or(if neutral {
+                look::role("-exact-placeholder", self.dark)
+            } else {
+                [0x75, 0x75, 0x75, 0xff]
+            })
         } else {
             presented_color(walk, node)
                 .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
         };
         if native
             && disabled
-            && (placeholder || !node.style.mask.has(exact_kernel::StyleId::TextColor))
+            && !node.style.mask.has(if placeholder {
+                exact_kernel::StyleId::PlaceholderColor
+            } else {
+                exact_kernel::StyleId::TextColor
+            })
         {
-            ink = control::disabled_field_ink(ink, self.dark);
+            ink = if neutral {
+                look::role("GrayText", self.dark)
+            } else {
+                control::disabled_field_ink(ink, self.dark)
+            };
         }
         // The focused field's selection (x2apps codeedit #2).
         let field = caret::FieldText {

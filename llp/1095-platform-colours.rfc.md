@@ -780,7 +780,41 @@ boot path executes nothing), for what CSS does on its own.
 5. **D10, relative colour and `color-mix()`,** and the `Mix` table. Tests:
    iOS dynamic providers compared with UIKit's `withAlphaComponent` in four
    trait sets; the web's native output.
-6. **D4, `theme`,** when an app needs one.
+6. **D4, `theme`,** when an app needs one. **The gate is being tested (Charlie,
+   2026-10-12, "ok that plan sounds reasonable").** The bake-off never needed one, but five
+   of the repository's apps hand-roll a `Theme` record and Expose writes one colour pair 26
+   times, and exact1's own review found that tokens added late are not adopted. So D4 is
+   built on a branch and Expose and `packages/reading` are ported to it, and three or four
+   branded specs go into one bake-off round. Whether it lands is decided from the port
+   (what it removed, what an override reaches on each host, what an author must read) and
+   from that round, not before.
+   **What the port found (2026-10-12; branch `worktree-agent-a3b55b60c37ad5d16`, seven
+   commits, not landed; evidence in `~/audits/exact2-no-tells-2026-10-11/theme-proof/`).**
+   *Naming an app's colours once works.* Expose went from 274 scattered hex colours to 61,
+   all in its theme block, with 16 of 16 screens identical on the web and on iOS and 14 of
+   16 on the Mac (the two differ between two runs of the unported app as well); the two
+   readers lost a shape, two resources, two `provide` and ten `inject` sections, with 44 of
+   44 screens identical. Every name is checked by the compiler, and the one required read
+   grew by 32 bytes. *"An entry named like a role overrides that role for the whole app"
+   does not hold.* As built, a role entry reaches what Exact paints from a string: the page,
+   unsaid text, a rule, a filled button, the selected tab's tint. It does not reach what
+   the platform draws: on iOS the grouped list, the bar's title and glyphs, a sheet's ground
+   and rows, a field's text; on the Mac the sidebar, the title bar and AppKit's buttons; an
+   alert or a menu anywhere. Reaching those needs the plan-carried reference table of D1,
+   which was designed and never built, so that a role is replaced where it is resolved, and
+   an explicit call per surface where the platform offers one (an alert offers none). Also
+   outside it: typefaces and sizes (Expose writes `font-family` 48 times), radii, gradients,
+   strengths of one colour until D10's relative colour exists, and a palette the person
+   chooses at run time, which a declared-once block carries only as state choosing between
+   names at each use. Before it could land: that reach question decided, the
+   `lower-colour-one-scheme` and no-tells lints taught what a theme's literals are,
+   `apps/markdown-stress` ported and the Rust record deleted.
+   **Ruled (Charlie, 2026-10-12): "for now, build the reach."** The branch goes on: D1's
+   reference table is carried in the plan, and a role an app replaces reaches each surface
+   the platform offers a supported way to colour (a list, a bar, a sheet, a field), never
+   by replacing a platform control with a look-alike; where the platform offers none (an
+   alert, a system menu) the surface stays the platform's and D4 says so. It still lands
+   only on his word, after that reach is measured.
 7. **§10's fidelity fixes,** in their own order (§10.6).
 
 ## 6. Open questions for the maintainer

@@ -265,7 +265,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
                                      response: response, responseData: Data((local ?? "").utf8))
     }
 
-    /// A local file that is not text (a PDF, an image) is the web view's
+    /// A non-HTML local file (plain text, a PDF, an image) is the web view's
     /// own document under its content type, as Chrome shows such
     /// a frame by the type its server sent: WebKit's PDF view for a PDF, not
     /// its bytes as HTML text (#115, @ref LLP 1020 §10).
@@ -379,15 +379,15 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         return text.replacingOccurrences(of: "<", with: "\\u003c")
     }
 
-    /// A local `src` whose file type is not text: its bytes and content type.
-    /// Text (HTML, XHTML, XML, plain text) keeps the box-width document an
-    /// iOS frame needs (`fitsItsBox`); no extension, or an unknown type, too.
+    /// HTML keeps the box-width wrapper an iOS frame needs (`fitsItsBox`).
+    /// Every other known type keeps its MIME; text must never become HTML.
     func localFile(_ source: String) -> (Data, String)? {
         let path = source.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
             .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
         let ext = (String(path) as NSString).pathExtension
-        guard !ext.isEmpty, let file = UTType(filenameExtension: ext), !file.conforms(to: .text),
-              let type = file.preferredMIMEType?.lowercased(), let bytes = localBytes(source) else { return nil }
+        let type = UTType(filenameExtension: ext)?.preferredMIMEType?.lowercased()
+            ?? (source.hasPrefix("app:/") ? "application/octet-stream" : nil)
+        guard let type, type != "text/html", let bytes = localBytes(source) else { return nil }
         return (bytes, type)
     }
 

@@ -52,7 +52,8 @@ pub trait Backend {
     ) -> bool {
         false
     }
-    /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
+    /// Fill one colour's share of a border (LLP 1053 G2): region even-odd,
+    /// clipped by its side (non-zero) and optional ring (even-odd).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
     /// An explicit tint replaces its RGB through the picture's alpha alone.

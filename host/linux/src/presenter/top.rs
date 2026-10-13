@@ -8,7 +8,7 @@
 //! ([`Presenter::serve_windows`]: the Canvas host's reader, as it boots).
 //! With no such shell (desktop Linux, a headless run, the agent) nothing
 //! here runs: a popover's invoker and a dialog's button are refused as they
-//! were, `showModal` is an unknown command, and nothing is presented.
+//! were; action dialog commands journal their refusal, and nothing is presented.
 //!
 //! **How a surface is painted.** Not by the kernel's layout of the authored
 //! rows, which no native host shows either. The shape rule (`top/shape.rs`)
@@ -31,8 +31,10 @@
 //! node loses it) and returns, when it closes, to the node that held it. A
 //! row's tap closes the surface and then runs the row's `press`; an alert's
 //! cancel, Back and Escape close it and run nothing; a tap outside closes
-//! a menu and does nothing to an alert. System Back closes it before any
-//! route is asked ([`Presenter::system_back`]).
+//! a menu, and does nothing to an alert, which has no outside (LLP 1115.000
+//! D13.4), unless its author wrote `closedby="any"`: then it dismisses it,
+//! as it does a Material dialog left to itself. System Back closes it
+//! before any route is asked ([`Presenter::system_back`]).
 use super::*;
 use exact_kernel::NodeKey;
 
@@ -151,12 +153,24 @@ struct Open {
     epoch: u64,
 }
 
+impl Open {
+    /// Whether a tap outside dismisses it: a menu always, an alert when its
+    /// `closedby` is `any`.
+    fn outside(&self) -> bool {
+        match &self.plan {
+            Plan::Alert { outside, .. } => *outside,
+            Plan::Menu(_) => true,
+        }
+    }
+}
+
 /// What the presenter keeps of the top layer.
 #[derive(Default)]
 pub(super) struct State {
     /// The shell's painter: `Some` on a host whose shell makes windows.
     painter: Option<Box<dyn SurfacePainter>>,
     open: Option<Open>,
+    toggles: Vec<(NodeKey, bool, bool)>,
     /// The last serial given.
     last: u32,
     /// The surface the shell shows as it was last told: serial and revision.
@@ -180,6 +194,9 @@ pub struct Shown<'a> {
     pub targets: &'a [Target],
     /// The row a finger holds, if one does.
     pub pressed: Option<usize>,
+    /// Each text it shows, by the node it stands for (an alert's headline
+    /// and supporting text by the surface's own), with its box, points.
+    pub texts: Vec<(ViewId, Rect4)>,
 }
 
 /// What a press on an invoker asks of the top layer.
@@ -214,6 +231,7 @@ impl<D: DataSource> Presenter<D> {
             size: open.layout.size,
             targets: &open.layout.targets,
             pressed: open.pressed,
+            texts: open.layout.texts(),
         })
     }
 
@@ -336,7 +354,10 @@ impl<D: DataSource> Presenter<D> {
         // One surface at a time: one that was open ends as its cancel ends
         // it, and the focus will go back to where it was before that one.
         let restore = match self.top.open.take() {
-            Some(old) => old.restore,
+            Some(old) => {
+                self.queue_toggle(old.key, false);
+                old.restore
+            }
             None => self.focus.or(invoker),
         };
         if let Err(e) = self.pointer_cancel(now_ms) {
@@ -373,6 +394,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(open) = self.top.open.as_mut() {
             open.anchor = anchor;
         }
+        self.queue_toggle(key, true);
         self.surface_changed();
         true
     }
@@ -383,6 +405,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(open) = self.top.open.take() else {
             return;
         };
+        self.queue_toggle(open.key, false);
         let back = open.restore.filter(|id| {
             self.host.kernel().node(*id).is_some()
                 && !self.host.route_visibility(*id).1
@@ -520,6 +543,28 @@ impl<D: DataSource> Presenter<D> {
         true
     }
 
+    /// An authored focus command selects the row in its shell window,
+    /// leaving the page's focus set aside until the surface closes.
+    pub(super) fn surface_focus(&mut self, id: ViewId) -> bool {
+        let Some(open) = self.top.open.as_mut() else {
+            return false;
+        };
+        let Some(index) = open
+            .layout
+            .targets
+            .iter()
+            .position(|row| row.node == id && row.enabled)
+        else {
+            return false;
+        };
+        if open.focused != Some(index) {
+            open.focused = Some(index);
+            open.revision += 1;
+            self.executor.notify();
+        }
+        true
+    }
+
     /// Move the surface's own focus to the next row that can be chosen
     /// (`backward`: the one before), from none to the first (the last).
     fn surface_step(&mut self, backward: bool) {
@@ -546,12 +591,13 @@ impl<D: DataSource> Presenter<D> {
 
     /// A touch reached the page while a surface is open: it is outside the
     /// surface, since the page is inert under it. A menu closes (the
-    /// platform's own popup does this itself and the touch never arrives);
-    /// an alert has no outside. Whether the touch was taken from the page.
+    /// platform's own popup does this itself and the touch never arrives),
+    /// and so does an alert whose `closedby` is `any`; any other alert has
+    /// no outside. Whether the touch was taken from the page.
     pub(super) fn top_takes_pointer(&mut self, now_ms: f64) -> bool {
-        match self.top.open.as_ref().map(|open| open.kind) {
-            Some(SurfaceKind::Menu) => self.close_surface(now_ms),
-            Some(SurfaceKind::Alert) => {}
+        match self.top.open.as_ref().map(|open| open.outside()) {
+            Some(true) => self.close_surface(now_ms),
+            Some(false) => {}
             None => return false,
         }
         true
@@ -570,7 +616,7 @@ impl<D: DataSource> Presenter<D> {
     /// where a tap closes a menu and does nothing through an alert.
     pub(super) fn surface_tap(&mut self, id: ViewId) -> Option<Result<String, String>> {
         let open = self.top.open.as_ref()?;
-        let (serial, pop, kind) = (open.serial, open.node, open.kind);
+        let (serial, pop, kind, outside) = (open.serial, open.node, open.kind, open.outside());
         let row = open.layout.targets.iter().position(|t| t.node == id);
         let enabled = row.is_some_and(|index| open.layout.targets[index].enabled);
         let now = self.host.now();
@@ -582,11 +628,11 @@ impl<D: DataSource> Presenter<D> {
                 self.choose(index, now);
                 Ok(format!("{{\"tapped\":{id},\"surface\":{serial}}}"))
             }
-            (None, SurfaceKind::Menu) => {
+            (None, _) if outside => {
                 self.close_surface(now);
                 Ok(format!("{{\"tapped\":{id},\"dismissed\":{serial}}}"))
             }
-            (None, SurfaceKind::Alert) => Err(format!(
+            (None, _) => Err(format!(
                 "view {id} is under the open alert (view {pop}): the page is inert until it closes"
             )),
         })
@@ -681,6 +727,80 @@ impl<D: DataSource> Presenter<D> {
                 self.invoke(id, now_ms);
             }
             false => self.dispatch_press(id, now_ms, true),
+        }
+    }
+
+    fn queue_toggle(&mut self, key: NodeKey, open: bool) {
+        if let Some((_, _, new)) = self.top.toggles.iter_mut().find(|(k, _, _)| *k == key) {
+            *new = open;
+        } else {
+            self.top.toggles.push((key, !open, open));
+        }
+    }
+
+    pub(super) fn dispatch_toggles(&mut self) {
+        for (key, old_open, new_open) in std::mem::take(&mut self.top.toggles) {
+            let Some(node) = self.host.kernel().node_by_key(key) else {
+                continue;
+            };
+            if node.props.str(PropId::Popover).is_none()
+                || !self
+                    .host
+                    .runner()
+                    .handlers_of(node.id)
+                    .contains(&EventKind::Toggle)
+            {
+                continue;
+            }
+            let id = node.id;
+            if let Some(error) = self
+                .host
+                .dispatch_at(id, Event::Toggle { old_open, new_open }, self.host.now())
+                .or(self.after_commit())
+            {
+                self.host.log(error);
+            }
+        }
+    }
+
+    pub(super) fn popover_command(&mut self, command: &str, args: &[exact_plan::Value]) {
+        if !self.has_windows() {
+            self.host.log(format!(
+                "{command} unsupported: this host has no popover presentation"
+            ));
+            return;
+        }
+        let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
+            return;
+        };
+        let pop = self
+            .host
+            .kernel()
+            .find_by_id(name)
+            .into_iter()
+            .find_map(|key| self.host.kernel().node_by_key(key));
+        if !pop.is_some_and(|node| node.props.str(PropId::Popover).is_some()) {
+            self.host
+                .log(format!("{command} refused: no popover has that id"));
+            return;
+        }
+        let source_name = args.get(1).and_then(exact_plan::Value::as_str);
+        let source = source_name.and_then(|name| {
+            self.host
+                .kernel()
+                .find_by_id(name)
+                .into_iter()
+                .find_map(|key| self.host.kernel().node_by_key(key).map(|n| n.id))
+        });
+        if source_name.is_some() && source.is_none() {
+            self.host
+                .log(format!("{command} refused: no source has that id"));
+            return;
+        }
+        if command == "hidePopover" || command == "togglePopover" && self.surface_named(name) {
+            self.close_modal(args);
+        } else if !self.surface_named(name) {
+            self.present(name, source, None, false, self.host.now());
         }
     }
 
@@ -834,9 +954,7 @@ impl<D: DataSource> Presenter<D> {
         Some(Surface {
             serial: open.serial,
             kind: Some(open.kind),
-            flags: u32::from(cancellable)
-                | u32::from(open.kind == SurfaceKind::Menu) << 1
-                | origin << 2,
+            flags: u32::from(cancellable) | u32::from(open.outside()) << 1 | origin << 2,
             frame: [px(at.0), px(at.1), px(layout.size.0), px(layout.size.1)],
             shape: (layout.radius * scale, layout.elevation * scale),
             stream,

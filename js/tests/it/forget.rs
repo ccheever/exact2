@@ -29,7 +29,7 @@ component App
     send session = login(v, "pw")
   action refusing
     send session = login("zed", "pw")
-    send probe = refused()
+    send probe = unknown()
 
   view
     column
@@ -108,7 +108,7 @@ fn a_refused_commit_puts_back_the_request_it_replaced_and_lets_its_own_call_go()
     let ada = r.take_requests();
     assert_eq!(ada.len(), 1);
     // `refusing` asks `session` again, with other arguments, and then a
-    // source that refuses: the commit is refused, and ada's request is put
+    // unknown source: the commit is refused, and ada's request is put
     // back in flight.
     assert!(r.dispatch(view_of(&r, "refuse"), Event::Press).is_err());
     assert!(r.take_requests().is_empty());

@@ -639,7 +639,7 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
     Ok(())
 }
 
-/// `showNotification(title=, body=, tag=, showTrigger=)`: the Notification
+/// `showNotification(title=, body=, tag=, showTrigger=, navigate=)`: the Notification
 /// API's title and options by name, named only, `title` required; strings,
 /// and `showTrigger` a number (when to show it, in epoch milliseconds: the
 /// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
@@ -652,7 +652,7 @@ fn notification_args(
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…)`";
+    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)`";
     if name == "closeNotification" {
         let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
         if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
@@ -674,12 +674,12 @@ fn notification_args(
             );
         };
         let want = match arg_name.as_str() {
-            "title" | "body" | "tag" => Ty::String,
+            "title" | "body" | "tag" | "navigate" => Ty::String,
             "showTrigger" => Ty::Number,
             other => {
                 return err(
                     "type-notification-argument",
-                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag= and showTrigger="),
+                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag=, showTrigger= and navigate="),
                     *at,
                 )
             }
@@ -755,11 +755,11 @@ fn into_view_args(
         }
         if let Some(Expr::NamedArg(_, _, at)) = args
             .iter()
-            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row" || name == "offset"))
         {
             return err(
                 "type-scroll-into-view",
-                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                "`row=` and `offset=` go with a list's `id` and a row's key",
                 *at,
             );
         }
@@ -798,6 +798,16 @@ fn into_view_options(
         let allowed: &[&str] = match name.as_str() {
             "block" | "inline" => &["start", "center", "end", "nearest"],
             "behavior" => &["auto", "instant", "smooth"],
+            "offset" => {
+                if infer(value, scope, shapes)? != Ty::Number {
+                    return err(
+                        "type-scroll-into-view",
+                        "`offset` is a number of CSS pixels into the row",
+                        *at,
+                    );
+                }
+                continue;
+            }
             "row" => {
                 infer(value, scope, shapes)?;
                 continue;
@@ -848,12 +858,18 @@ pub(super) fn check_command(
         };
         return err("type-unknown-command", message, span);
     }
+    if name == "relaunch" && !args.is_empty() {
+        return err("type-relaunch", "`relaunch()` takes no arguments", span);
+    }
     if name == "preventDefault" && !args.is_empty() {
         return err(
             "type-prevent-default",
             "`preventDefault()` takes no arguments: it prevents the default action of the event that ran this action (a key's, a wheel's scroll, a `beforeunload`'s close)",
             span,
         );
+    }
+    if matches!(name, "showPopover" | "hidePopover" | "togglePopover") {
+        return super::selection::popover_args(name, args, scope, shapes, span);
     }
     if name == "close" && args.len() > 1 {
         return err(
@@ -908,8 +924,18 @@ pub(super) fn check_command(
     if name == "fastSeek" || name == "load" {
         return super::media::command_args(name, args, scope, shapes, span);
     }
+    if name == "removeAllRanges" && !args.is_empty() {
+        return err(
+            "type-remove-all-ranges",
+            "`removeAllRanges()` takes no arguments",
+            span,
+        );
+    }
     if name == "setSelectionRange" {
         return crate::selection::selection_range_args(args, scope, shapes, span);
+    }
+    if name == "setRangeText" {
+        return crate::selection::range_text_args(args, scope, shapes, span);
     }
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);

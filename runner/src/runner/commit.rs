@@ -34,6 +34,8 @@ pub(super) struct Checkpoint {
     published: Option<Box<Published>>,
     commands: usize,
     root_font: (super::root_font::RootFont, f32),
+    /// Kept answers refused before this commit (`kept::refuse`).
+    refused: usize,
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
@@ -50,6 +52,25 @@ pub(super) struct Published {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// The presenter's on-demand geometry for shaped inline runs.
+    pub fn set_inline_geometry(
+        &mut self,
+        read: Option<std::rc::Rc<dyn crate::geometry::InlineGeometry>>,
+    ) {
+        self.scrolled.inline = read;
+    }
+
+    /// The open popovers and dialogs last shown by a native presenter.
+    pub fn top_layer(&mut self, views: &[ViewId]) {
+        self.scrolled.top_layer(&self.kernel, views);
+    }
+
+    /// Open top-layer boxes in the presenter's back-to-front order and their
+    /// actual viewport frames.
+    pub fn top_layer_frames(&mut self, frames: &[(ViewId, [f64; 4])]) {
+        self.scrolled.top_layer_frames(&self.kernel, frames);
+    }
+
     /// Before a commit. `resources`: the commit edits the settled caches
     /// before settling (a reply does).
     pub(super) fn checkpoint(&mut self, resources: bool) -> Checkpoint {
@@ -89,6 +110,7 @@ impl<D: DataSource> Runner<D> {
                 }),
             commands: self.commands.len(),
             root_font: (self.root_font, self.kernel.root_font_size()),
+            refused: self.keeping.refused.len(),
         }
     }
 
@@ -104,6 +126,7 @@ impl<D: DataSource> Runner<D> {
         match result {
             Ok(_) => {
                 self.persist_slots();
+                self.journal_refused();
                 self.log_store_writes(c.store.writes)
             }
             Err(_) if self.poisoned && !was_poisoned => self.store.restore(c.store),
@@ -154,6 +177,8 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
+                // A refusal the restore undid is not said.
+                self.keeping.refused.truncate(c.refused);
                 self.root_font = c.root_font.0;
                 let _ = self.kernel.set_root_font_size(c.root_font.1);
             }
@@ -668,6 +693,7 @@ impl<D: DataSource> Runner<D> {
         let mut answered: Vec<(u32, Value)> = Vec::new();
         let mut asked: Vec<usize> = Vec::new();
         let mut landed_now: Vec<usize> = Vec::new();
+        let mut failed_now = Vec::new();
         // Non-queue mutations whose send replaces one in flight without a
         // request of its own: an answer at once, or one waiting for the source.
         let mut replaced: Vec<usize> = Vec::new();
@@ -720,6 +746,13 @@ impl<D: DataSource> Runner<D> {
                 }
                 Ok(super::queue::Asked::Later(request)) => {
                     later.push((m, source.clone(), sargs.clone(), request))
+                }
+                Ok(super::queue::Asked::Failed) => {
+                    let (older, rest) = later.into_iter().partition(|l| l.0 == m);
+                    later = rest;
+                    self.discard_later(&older);
+                    self.pending_mut[m] = false;
+                    failed_now.push(m);
                 }
                 Err(e) => {
                     self.discard_later(&later);
@@ -860,7 +893,7 @@ impl<D: DataSource> Runner<D> {
         }
         // A send answered at once, or waiting for the source, replaces one
         // still in flight (newest wins): the older reply is not wanted.
-        for m in landed_now.into_iter().chain(replaced) {
+        for m in landed_now.into_iter().chain(replaced).chain(failed_now) {
             if !self.plan.mutations[m].queue {
                 self.forget_ticket(Target::Mutation(m));
             }
@@ -908,10 +941,10 @@ impl<D: DataSource> Runner<D> {
         // `scrollIntoView` of a list's row is the runner's own (LLP
         // 1070.000): it runs in this commit, after the update, and never
         // reaches a host. An element's (its id and three options, not the
-        // row form's six arguments) is the host's, as `focus` is.
+        // row form's seven arguments) is the host's, as `focus` is.
         let stated: Vec<Command> = self.commands.drain(first_command..).collect();
         for command in stated {
-            if command.name != "scrollIntoView" || command.args.len() != 6 {
+            if command.name != "scrollIntoView" || command.args.len() != 7 {
                 self.commands.push(command);
                 continue;
             }

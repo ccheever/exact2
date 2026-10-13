@@ -75,6 +75,7 @@ impl Lowerer<'_> {
             }
             None => attrs.as_slice(),
         };
+        menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
         let composed = self.compose_animation(expanded)?;
@@ -122,8 +123,8 @@ impl Lowerer<'_> {
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
         controls::check_progress(tag, expanded, children)?;
-        self.check_menu_shapes(tag, expanded, children, *span)?;
-        let closedby = menus::implied_closedby(tag, expanded, *span);
+        let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
+        let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
         let numeric = controls::range_attrs(tag, control, expanded);
         let expanded = numeric.as_deref().unwrap_or(expanded);
@@ -145,6 +146,8 @@ impl Lowerer<'_> {
         };
         tags::validate_list(tag, expanded, *span)?;
         self.check_collection(tag, expanded, children, *span, scope)?;
+        // @ref LLP 1115.000 D16 — whether this list's rows are cells.
+        let cells = cells::rows(tag, expanded, children, grouped.is_some());
         // A row list is a flex item of its column like any carousel;
         // CSS's own fix keeps its spacers' extent from widening that
         // column: `min-width: 0`, unless the author set one (LLP 1070
@@ -184,6 +187,8 @@ impl Lowerer<'_> {
         let first = parent_tag.is_none() && arm.is_none() && order == 0;
         let back = self.nav_place.unnamed(first, expanded, *span);
         let expanded = back.as_deref().unwrap_or(expanded);
+        let unsplit = self.unsplit(expanded, children, *span);
+        let expanded = unsplit.as_deref().unwrap_or(expanded);
         values::check_glass_group(&t, expanded)?;
         let has = |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
         let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
@@ -206,6 +211,13 @@ impl Lowerer<'_> {
                     );
         }
         controls::check_zero_size(tag, expanded, children, *span)?;
+        // @ref LLP 1116.007 D5 — a route that scrolls a grouped list is on
+        // the grouped background, unless its author said otherwise.
+        let grouped_page = self.nav_place.grouped_page(tag, expanded, children, *span);
+        let expanded = grouped_page.as_deref().unwrap_or(expanded);
+        // @ref LLP 1116.009 D3 — and a sheet is never transparent.
+        let sheet_page = self.nav_place.sheet_page(expanded, *span);
+        let expanded = sheet_page.as_deref().unwrap_or(expanded);
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
         // @ref LLP 1038 D8 — only the first root selects navigation.
         if has(&["navigate"])
@@ -230,18 +242,38 @@ impl Lowerer<'_> {
         for (prop, value) in t.fixed_props {
             bindings.push(prop_row(*prop, self.fixed(false, value), IMPLIED));
         }
-        self.link_color(tag, parent_tag, expanded, children, &mut bindings);
+        if cells {
+            let rows = self.b.constant(&Value::Bool(true));
+            bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
+        }
+        self.link_color(
+            tag,
+            parent_tag,
+            expanded,
+            children,
+            scope,
+            locals,
+            &mut bindings,
+        );
         self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
         // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
         // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
         // `aria-busy`: a bool, which a fixed prop (text) cannot be.
-        if tag == "progress" && !expanded.iter().any(|a| a.name == "value") {
-            let busy = self.b.constant(&Value::Bool(true));
-            bindings.push(prop_row(
-                exact_kernel::PropId::AccessibilityBusy,
-                busy,
-                IMPLIED,
-            ));
+        // @ref LLP 1115.000 D10.2 — a determinate one is full width, as a
+        // range is; the indicator keeps its 20 by 20.
+        if tag == "progress" {
+            if expanded.iter().any(|a| a.name == "value") {
+                for (style, value) in controls::FULL_WIDTH {
+                    bindings.push(style_row(*style, self.fixed(true, value), IMPLIED));
+                }
+            } else {
+                let busy = self.b.constant(&Value::Bool(true));
+                bindings.push(prop_row(
+                    exact_kernel::PropId::AccessibilityBusy,
+                    busy,
+                    IMPLIED,
+                ));
+            }
         }
         // @ref LLP 1048.003 D4 — the page scrolls where this does.
         let positional = match positional.as_slice() {
@@ -278,6 +310,11 @@ impl Lowerer<'_> {
                     first.span(),
                 );
             };
+            // @ref LLP 1116.007 D3.1 — a symbol by another spelling is its role.
+            let role = (prop == exact_kernel::PropId::ImageSource)
+                .then(|| crate::symbols::roles(first))
+                .flatten();
+            let first = role.as_ref().unwrap_or(first);
             let (code, ty) = self.typed_code(first, scope, locals)?;
             values::check_prop_value(tag, first, first.span(), prop, &ty)?;
             bindings.push(prop_row(prop, code, true));
@@ -369,6 +406,13 @@ impl Lowerer<'_> {
             if let Some(origins) = &mut origins {
                 origins.resize(bindings.len(), Origin::Tag);
             }
+        } else if let Some(a) = crate::fields::textfield_elsewhere(expanded) {
+            // @ref LLP 1116.007 D4
+            return err(
+                "lower-appearance",
+                "`appearance=\"textfield\"` is for a text field (an `input`, a `textarea`): it drops a number input's stepper and changes nothing else. Write `\"auto\"` or `\"none\"` here",
+                a.span,
+            );
         }
         // @ref LLP 1057.003 C6 — a transform drag needs both halves:
         // the page's geometry and the release. A handle with one is

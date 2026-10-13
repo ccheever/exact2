@@ -3,8 +3,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { dirname, relative, resolve, isAbsolute } from 'node:path';
-import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, relative, resolve, isAbsolute } from 'node:path';
+import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, copyFileSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 // The build's stamp, which build.mjs merges into Info.plist beside the icon keys.
 export { buildInfo } from './buildinfo.mjs';
 
@@ -79,7 +79,7 @@ function catalogFiles(root) {
 export function iosAssets(app, dir, device, options = {}) {
   return appleAssets(app, dir, { ...options, device, platform: options.tv ? 'tvos' : 'ios' });
 }
-export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected } = {}) {
+export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected, launch = 'system' } = {}) {
   const sourcePlatform = platform === 'tvos' ? 'ios' : platform;
   const catalogs = appleAssetCatalogInventory(app, sourcePlatform);
   if (expected !== undefined && JSON.stringify(catalogs) !== JSON.stringify(expected))
@@ -87,7 +87,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
   if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
   if (kept) {
     const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
-    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
+    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch,
       app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
       // What the compile itself writes: a cache from before `--accent-color` named no accent
       'accent-color'])).digest('hex').slice(0, 16);
@@ -97,7 +97,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       rmSync(making, { recursive: true, force: true });
       mkdirSync(making, { recursive: true });
       try {
-        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs })));
+        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs, launch })));
         rmSync(made, { recursive: true, force: true });
         renameSync(making, made);
       } finally { rmSync(making, { recursive: true, force: true }); }
@@ -117,7 +117,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       return copied;
     });
     const assets = resolve(work, 'Generated.xcassets');
-    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) } : {};
+    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
     if (catalog && platform === 'ios' && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
@@ -152,10 +152,21 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
  * (the manifest's `background_color` and `background_color_dark`): iOS crossfades
  * from the launch screen to the first frame, and between two screens of one
  * colour that crossfade is invisible, so the app opens on its first frame.
+ * Where the manifest names none, the app's unsaid background is the platform's
+ * (LLP 1115 D2): `systemBackground`, which an empty `UILaunchScreen` already is
+ * in both schemes, or, where the first route scrolls a grouped list (`launch`,
+ * the bake's `launchBackground`, LLP 1116.011 D2.3), `systemGroupedBackground`,
+ * which the system shows as #F2F2F7 and black. That is a colour set of its own
+ * (a reference to the system colour compiles to its light value alone), so the
+ * window under the first frame (`ExactLaunch`, read by the presenter) is the
+ * same grey and nothing lighter shows between the launch screen and the first
+ * frame (stopwatch, round 13: "blank white screen for ~1 s").
  * `UILaunchScreen` names colours only from an asset catalog, so this
  * writes its colour set for the shared compile. Returns the plist keys to merge. */
-function launchScreen(app, catalog) {
-  const light = app.manifest.background_color, dark = app.manifest.background_color_dark;
+function launchScreen(app, catalog, launch = 'system') {
+  const named = app.manifest.background_color;
+  const light = named ?? (launch === 'grouped' ? '#F2F2F7' : undefined);
+  const dark = named ? app.manifest.background_color_dark : launch === 'grouped' ? '#000000' : undefined;
   if (!light) return {};
   const components = (hex, field) => {
     const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
@@ -219,17 +230,34 @@ function bundleExecutable(bundle) {
  *  and every nested bundle after what it holds. A bundle is sealed over its
  *  contents, so code re-signed after its container invalidates the container.
  *  Symlinks are skipped: a framework's `Versions/Current` names what is signed
- *  through its real path. */
-export function signingOrder(bundle) {
+ *  through its real path. Baked code keeps its verified digest and signature;
+ *  static assets cannot contain code a release would have to re-sign. */
+export function signingOrder(bundle, compat = null, identity = null) {
+  const preserved = new Map();
+  const embedded = compat?.embedded;
+  for (const card of embedded?.assets ?? []) {
+    const path = resolve(bundle, 'Contents/Resources', card.name);
+    if (!machO(path)) continue;
+    if (!card.name.startsWith('rust/')) throw new Error(`Mach-O asset ${card.name}: move code to host.macos.resources before releasing`);
+    preserved.set(path, card.sha256);
+  }
+  if (embedded?.gpu) preserved.set(resolve(bundle, 'Contents/MacOS/libexact_gpu.dylib'), embedded.gpu.sha256);
+  for (const [name, card] of Object.entries(embedded?.gpuModules ?? {}))
+    preserved.set(resolve(bundle, 'Contents/MacOS', `libexact_gpu_${name.replaceAll('-', '_')}.dylib`), card.sha256);
+  for (const [path, digest] of preserved) {
+    if (!existsSync(path) || createHash('sha256').update(readFileSync(path)).digest('hex') !== digest)
+      throw new Error(`baked code ${path}: digest differs; rebuild before signing`);
+    run('codesign', ['--verify', '--strict', ...(identity && identity !== '-' ? ['-R', `=certificate leaf = H"${identity}"`] : []), path], { stdio: 'ignore' });
+  }
   const order = [];
   const walk = (dir, main) => {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const path = resolve(dir, name.name);
-      if (name.isDirectory() && NESTED_BUNDLE.test(name.name)) {
+      if (name.isDirectory() && NESTED_BUNDLE.test(name.name) && bundleExecutable(path)) {
         walk(path, bundleExecutable(path));
         order.push(path);
       } else if (name.isDirectory()) walk(path, main);
-      else if (name.isFile() && path !== main && machO(path)) order.push(path);
+      else if (name.isFile() && path !== main && !preserved.has(path) && machO(path)) order.push(path);
     }
   };
   walk(resolve(bundle, 'Contents'), bundleExecutable(bundle));
@@ -314,4 +342,63 @@ export function copyMacResources(app, contents, expected = null) {
   if (JSON.stringify(macResourceInventory(app, contents)) !== JSON.stringify(inventory))
     throw new Error('native resources changed during bundle copy; rebuild');
   return inventory;
+}
+
+/** A plist from a plain object: strings, booleans, numbers, arrays, and objects, the four spellings Apple's DTD has. */
+const plist = (value, indent = '  ') => {
+  if (typeof value === 'string') return `<string>${value.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</string>`;
+  if (typeof value === 'boolean') return value ? '<true/>' : '<false/>';
+  if (typeof value === 'number') return Number.isInteger(value) ? `<integer>${value}</integer>` : `<real>${value}</real>`;
+  if (Array.isArray(value)) return `<array>${value.map((v) => plist(v, indent)).join('')}</array>`;
+  return `<dict>\n${Object.entries(value).map(([k, v]) => `${indent}<key>${k}</key>${plist(v, indent + '  ')}`).join('\n')}\n${indent.slice(2)}</dict>`;
+};
+export const plistFile = (dict) => `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">${plist(dict)}</plist>\n`;
+
+/** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
+ * which is the only form App Store Connect accepts for an embedded library
+ * (ITMS-90171, ITMS-90432). The presenter loads either (`embeddedModule` in ExactKit). */
+export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS') {
+  const from = resolve(frameworks, loose);
+  if (!existsSync(from)) return;
+  const dir = resolve(frameworks, `${name}.framework`);
+  mkdirSync(dir, { recursive: true });
+  renameSync(from, resolve(dir, name));
+  run('install_name_tool', ['-id', `@rpath/${name}.framework/${name}`, resolve(dir, name)], { stdio: 'ignore' });
+  writeFileSync(resolve(dir, 'Info.plist'), plistFile({
+    CFBundleExecutable: name, CFBundleIdentifier: `${app.id}.${name.toLowerCase().replaceAll('_', '-')}`, CFBundleName: name,
+    CFBundlePackageType: 'FMWK', CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1', CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
+    CFBundleSupportedPlatforms: [platform], MinimumOSVersion: app.manifest.host?.ios?.minimumOS ?? '17.0',
+  }));
+}
+
+export function signedGpuProduct(product, { identity = '-', framework = null, app, platform = 'iPhoneOS', hardened = false } = {}) {
+  // Cargo puts its own unsigned file back on every build, and a signature
+  // carries its signing time: signing in place made the app's bake (which
+  // names this product's digest) run on every build. Sign a copy beside it,
+  // again only when Cargo's bytes or the identity change.
+  const directory = resolve(dirname(product), 'signed', ...(framework ? ['frameworks', basename(product)] : []));
+  const container = resolve(directory, framework ? `${framework}.framework` : basename(product));
+  const signed = framework ? resolve(container, framework) : container, record = `${container}.source`;
+  const source = JSON.stringify([createHash('sha256').update(readFileSync(product)).digest('hex'), identity ?? '-',
+    hardened, framework, framework ? [app.id, app.manifest.host?.ios?.minimumOS ?? '17.0', platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0'] : null]);
+  // An ad-hoc signature (`-`: every simulator build) names no certificate
+  // to require; asked for one, the verification failed, and the copy was
+  // signed again by every build, which reran the app's bake and compile.
+  const current = existsSync(signed) && existsSync(record) && readFileSync(record, 'utf8') === source
+    && spawnSync('codesign', ['--verify', '--strict', ...(identity && identity !== '-' ? ['-R', `=certificate leaf = H"${identity}"`] : []), container]).status === 0;
+  if (!current) {
+    mkdirSync(directory, { recursive: true });
+    if (framework) rmSync(container, { recursive: true, force: true });
+    copyFileSync(product, resolve(directory, basename(product)));
+    if (framework) wrapFramework(directory, basename(product), framework, app, platform);
+    run('codesign', ['--force', '--sign', identity ?? '-', ...(hardened ? ['--options', 'runtime'] : []),
+      hardened && identity && identity !== '-' ? '--timestamp' : '--timestamp=none', container], {stdio:'ignore'});
+    writeFileSync(record, source);
+  }
+  return signed;
+}
+
+export function assertArchiveFrameworks(directory) {
+  const loose = readdirSync(directory).filter(name => name.endsWith('.dylib'));
+  if (loose.length) throw new Error(`archive has loose libraries in Frameworks: ${loose.join(', ')}`);
 }

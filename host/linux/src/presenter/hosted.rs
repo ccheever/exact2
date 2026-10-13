@@ -28,8 +28,20 @@
 //! a told value only when it answers its newest edit, and only when it
 //! differs from what the field holds. So a commit that sets the value the
 //! field already has changes nothing in it (its composition and its
-//! selection stand), and one that sets another replaces the text and ends
-//! the composition.
+//! selection stand), and one that sets another replaces the text.
+//!
+//! **The app's value never ends a composition** (LLP 1115.000 §5, ruling 6;
+//! LLP 1115.001 D8 as corrected): Contract gives an action no way to know
+//! text is composing, so one that rewrites what it hears would end a
+//! Japanese or Chinese composition at its first keystroke, and on Android,
+//! where the keyboard composes ordinary words, every word. The reader says
+//! when a field's composition starts and ends
+//! ([`Presenter::reader_field_composing`]). While it composes, a statement
+//! says the field's own text where the app's value differs, so the reader
+//! changes nothing; the app's value is held here, the last one, which is
+//! whatever it shows when the composition ends, committed or cancelled.
+//! The statement after that says it, and the reader's field takes it then.
+//! An edit that ends the composition reaches the app first.
 //!
 //! **Composing text is reported as it composes**, as the web reports it and
 //! as an Android `TextWatcher` hears it: `input` fires for each change of
@@ -105,6 +117,10 @@ struct Known {
 #[derive(Default)]
 pub(super) struct State {
     known: BTreeMap<ViewId, Known>,
+    /// The fields that compose now, each with its own text as the reader
+    /// last told it: what a statement says of it until the composition
+    /// ends, so a value the app writes meanwhile is held.
+    composing: BTreeMap<ViewId, String>,
     /// The last statement [`Presenter::reader_fields`] returned.
     last: Vec<i32>,
 }
@@ -209,6 +225,7 @@ impl<D: DataSource> Presenter<D> {
         if ids.is_empty() {
             if !self.hosted.known.is_empty() {
                 self.hosted.known.clear();
+                self.hosted.composing.clear();
                 self.brush.field_content.clear();
             }
             // The last field went: said once, with nothing in it.
@@ -219,6 +236,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let wanted: BTreeSet<ViewId> = ids.iter().copied().collect();
         self.hosted.known.retain(|id, _| wanted.contains(id));
+        self.hosted.composing.retain(|id, _| wanted.contains(id));
         self.brush.field_content.retain(|id, _| wanted.contains(id));
         // Where the last paint put each: its box, among which rows.
         let mut painted: BTreeMap<ViewId, usize> = BTreeMap::new();
@@ -290,7 +308,12 @@ impl<D: DataSource> Presenter<D> {
         };
         out.extend(rect.iter().chain(&clip).map(|v| bits(v * scale)));
         out.push(known.seq as i32);
-        requests::string(out, &self.field_text(id));
+        // While it composes the field is told its own text: the app's
+        // value, where it differs, is held until the composition ends.
+        match self.hosted.composing.get(&id) {
+            Some(own) => requests::string(out, own),
+            None => requests::string(out, &self.field_text(id)),
+        }
         self.field_look(id, known, followed, scale, out);
     }
 
@@ -359,12 +382,14 @@ impl<D: DataSource> Presenter<D> {
         let role = |name: &str| roles::role(name).map(|r| rgba(ColorValue::Role(r).resolve(dark)));
         let mut ink = rgba(node.text_color().resolve(dark));
         if disabled
-            && node.style.appearance == exact_kernel::Appearance::Auto
+            && node.style.appearance != exact_kernel::Appearance::None
             && !node.style.mask.has(StyleId::TextColor)
         {
             ink = crate::paint::control::disabled_field_ink(ink, dark);
         }
-        let hint = role("-exact-placeholder").unwrap_or([0x75, 0x75, 0x75, 0xff]);
+        let hint = crate::paint::control::authored_placeholder(node.style, dark)
+            .or_else(|| role("-exact-placeholder"))
+            .unwrap_or([0x75, 0x75, 0x75, 0xff]);
         let authored = crate::paint::control::accent(&node, dark);
         let accent = crate::paint::control::accents(authored, dark).0;
         let caret = style.caret_color.map_or(accent, |c| rgba(c.resolve(dark)));
@@ -458,6 +483,9 @@ impl<D: DataSource> Presenter<D> {
         if let Some(known) = self.hosted.known.get_mut(&id) {
             known.seq = seq;
         }
+        if let Some(own) = self.hosted.composing.get_mut(&id) {
+            value.clone_into(own);
+        }
         let len = utf16_len(value);
         let selection =
             FieldSelection::clamped(start.into(), end.into(), SelectionDirection::None, len);
@@ -476,6 +504,30 @@ impl<D: DataSource> Presenter<D> {
         let bound = self.bound_text(id);
         self.forget_replaced_choices();
         self.field_edit(id, value.to_owned(), selection, bound, now_ms);
+    }
+
+    /// The reader's field began to compose, holding `value`, or its
+    /// composition ended (committed or cancelled), before any edit that
+    /// began or ended it is told. While a field composes, a value the app
+    /// writes is held: a statement says the field's own text
+    /// ([`Self::reader_fields`]). When it ends the next statement says the
+    /// app's value as it then stands, the last it wrote, after the app has
+    /// heard the edit that ended it.
+    pub fn reader_field_composing(
+        &mut self,
+        id: ViewId,
+        generation: u32,
+        composing: bool,
+        value: &str,
+    ) {
+        if !self.hosted_live(id, generation) {
+            return;
+        }
+        if composing {
+            self.hosted.composing.insert(id, value.to_owned());
+        } else {
+            self.hosted.composing.remove(&id);
+        }
     }
 
     /// The reader's field moved its selection with no edit: kept for the
@@ -603,6 +655,7 @@ impl<D: DataSource> Presenter<D> {
                 generation: known.generation + 1,
                 ..Default::default()
             };
+            self.hosted.composing.remove(id);
             self.fields.remove(id);
             self.chosen.remove(id);
             if self.edited == Some(*id) {
@@ -611,9 +664,11 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// The reader was made again: it is told every field anew.
+    /// The reader was made again: it is told every field anew, and its new
+    /// views compose nothing.
     pub(super) fn hosted_reset(&mut self) {
         self.hosted.last.clear();
+        self.hosted.composing.clear();
     }
 
     /// A text field's own starting font follows the device's font scale

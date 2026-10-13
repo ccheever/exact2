@@ -27,8 +27,12 @@ fn app(body: &str) -> String {
 }
 
 fn boot(body: &str) -> Runner<NoData> {
+    boot_source(&app(body))
+}
+
+fn boot_source(source: &str) -> Runner<NoData> {
     let plan = contract::bake(
-        contract::compile(&app(body)).unwrap_or_else(|e| panic!("{e}")),
+        contract::compile(source).unwrap_or_else(|e| panic!("{e}")),
         NoData,
     )
     .unwrap();
@@ -741,7 +745,8 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
 
 #[test]
 fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
+    // A percentage is of the list's content width, 400
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1 width=400\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=\"5%\" margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
     assert_eq!(
@@ -858,6 +863,57 @@ fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
         r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows[1].accessory,
         Accessory::Checkmark
     );
+}
+
+// @ref LLP 1115.002 D6 — the sheet names the platform's metrics and holds
+// none of its numbers: a row reads its platform's column where it runs (the
+// web's here, which is the sheet as it was). The names are the compiler's:
+// an author's value that is one is refused, on a row that takes text too.
+#[test]
+fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section testId=\"section\"\n    button press=go destructive=true testId=\"row\"\n      text \"Remove\"";
+    let plan = contract::compile(&app(body)).unwrap();
+    for name in [
+        "-exact-grouped-ground",
+        "-exact-grouped-card-fill",
+        "-exact-grouped-card-radius",
+        "-exact-grouped-button-min-height",
+        "-exact-grouped-destructive-color",
+        "-exact-grouped-button-appearance",
+    ] {
+        assert!(plan.strings.iter().any(|s| s == name), "{name}");
+    }
+    let r = boot(body);
+    let row = r.kernel().node(id(&r, "row")).unwrap();
+    assert_eq!(row.style.min_height, exact_kernel::Dimension::Points(52.0));
+    assert_eq!(row.style.appearance, exact_kernel::Appearance::None);
+    assert!(
+        !row.style.mask.has(exact_kernel::StyleId::PaddingTop)
+            && !row.style.mask.has(exact_kernel::StyleId::PaddingLeft),
+        "the Mac's rows are no row here"
+    );
+    let red = ColorValue::Role(exact_kernel::style::roles::role("-exact-system-red").unwrap());
+    assert_eq!(row.style.text_color, red);
+    assert!(
+        !row.style.written.has(exact_kernel::StyleId::TextColor),
+        "the sheet's rows are the platform's, not the author's (LLP 1115.000 D2)"
+    );
+    for authored in [
+        "column min-height=\"-exact-grouped-row-min-height\"",
+        "text \"x\" color=\"-exact-grouped-destructive-color\"",
+        "text \"x\" color=(dark ? \"-exact-grouped-destructive-color\" : \"#fff\")",
+    ] {
+        let e = contract::compile(&app(authored)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-value", "{authored}: {}", e.message);
+    }
+}
+
+// @ref LLP 1116.007 D3.1 — the chevron by another spelling is still the disclosure.
+#[test]
+fn a_chevron_by_another_spelling_is_the_disclosure_accessory() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"open\"\n      text \"Open\"\n      image \"symbol:chevron-right\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(list.sections[0].rows[0].accessory, Accessory::Disclosure);
 }
 
 #[test]
@@ -1022,21 +1078,146 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     assert_eq!(s2.rows[4].title_look, TextLook::default());
 }
 
-/// A destructive row's title keeps the platform's red where it is the first
-/// line only under a condition: the sheet cannot write its red there and
-/// writes the label colour, which is still the sheet's and not the author's.
-/// The row says so itself (LLP 1115.000 D2): no sheet row is written.
+/// A conditional first line inherits the row's ink, as an unconditional
+/// title does. The subtitle keeps its own colour, and authored rows win.
 #[test]
 fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when dark\n          text \"Sure?\"\n        text \"Delete\"");
-    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
-    let row = &list.sections[0].rows[0];
-    assert!(row.destructive);
-    assert_eq!(row.title.as_deref(), Some("Delete"));
-    assert_eq!(
-        row.title_look.color, None,
-        "the sheet's label colour is unsaid"
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    let (red, label, grey, secondary) = (
+        role("-exact-system-red"),
+        role("-exact-label"),
+        role("-exact-tertiary-label"),
+        role("-exact-secondary-label"),
     );
+    let green = ColorValue::Fixed(Color::parse_hex("#00ff00").unwrap());
+    let mut failures = Vec::new();
+    for (name, row, stack, text, ink, own_subtitle) in [
+        ("destructive", "destructive=true", "", "", red, false),
+        ("ordinary", "", "", "", label, false),
+        ("bound", "destructive=on", "", "", red, false),
+        (
+            "disabled",
+            "destructive=true disabled=true",
+            "",
+            "",
+            grey,
+            false,
+        ),
+        (
+            "row colour",
+            "destructive=true color=\"#00ff00\"",
+            "",
+            "",
+            green,
+            false,
+        ),
+        (
+            "stack colour",
+            "destructive=true",
+            "color=\"#00ff00\"",
+            "",
+            green,
+            true,
+        ),
+        (
+            "text colour",
+            "destructive=true",
+            "",
+            "color=\"#00ff00\"",
+            green,
+            true,
+        ),
+        (
+            "row class",
+            "destructive=true class=Ink",
+            "",
+            "",
+            green,
+            false,
+        ),
+        (
+            "stack class",
+            "destructive=true",
+            "class=Ink",
+            "",
+            green,
+            true,
+        ),
+        (
+            "text class",
+            "destructive=true",
+            "",
+            "class=Ink",
+            green,
+            true,
+        ),
+    ] {
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go {row}\n      image \"symbol:person\" testId=\"symbol\"\n      column {stack}\n        when dark\n          text \"Sure?\"\n        text \"Delete\" {text} testId=\"delete\"");
+        let mut r = boot_source(&format!("style Ink\n  color=\"#00ff00\"\n{}", app(&body)));
+        let mut shown = false;
+        for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
+            r.act("flip", vec![Value::Bool(on)]).unwrap();
+            if shown != dark {
+                r.act("go", vec![]).unwrap();
+                shown = dark;
+            }
+            let k = r.kernel();
+            let list = k.grouped_list(id(&r, "list")).unwrap();
+            let row = &list.sections[0].rows[0];
+            let want = if dark && !own_subtitle {
+                secondary
+            } else if name == "bound" && !on {
+                label
+            } else {
+                ink
+            };
+            let got = k.node(id(&r, "delete")).unwrap().text_color();
+            println!("{name}, on={on}, dark={dark}: {got:?}, expected {want:?}");
+            if got != want {
+                failures.push(format!("{name}, on={on}, dark={dark}: {got:?} != {want:?}"));
+            }
+            let want_title = if dark { "Sure?" } else { "Delete" };
+            if row.title.as_deref() != Some(want_title) {
+                failures.push(format!("{name}: wrong title {:?}", row.title));
+            }
+            if name == "destructive" && row.title_look.color.is_some() {
+                failures.push(format!(
+                    "sheet colour became authored: {:?}",
+                    row.title_look
+                ));
+            }
+            if k.node(id(&r, "symbol"))
+                .unwrap()
+                .computed_style(StyleMask::ALL)
+                .tint_color
+                != Some(if name == "disabled" {
+                    grey
+                } else if name == "ordinary" || (name == "bound" && !on) {
+                    role("AccentColor")
+                } else {
+                    red
+                })
+            {
+                failures.push(format!("{name}: leading symbol changed"));
+            }
+        }
+    }
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when on\n          when dark\n            text \"Sure?\"\n          else\n            text \"Confirm\"\n        text \"Delete\" testId=\"delete\"");
+    let mut shown = false;
+    for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
+        r.act("flip", vec![Value::Bool(on)]).unwrap();
+        if shown != dark {
+            r.act("go", vec![]).unwrap();
+            shown = dark;
+        }
+        let got = r.kernel().node(id(&r, "delete")).unwrap().text_color();
+        let want = if on { secondary } else { red };
+        println!("nested, on={on}, dark={dark}: {got:?}, expected {want:?}");
+        if got != want {
+            failures.push(format!("nested, on={on}, dark={dark}: {got:?} != {want:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// Round 6's event-rsvp (LLP 1116.004 D9): an action that can't be taken is

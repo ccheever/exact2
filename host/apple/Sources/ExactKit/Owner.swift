@@ -63,6 +63,10 @@ package final class Owner: @unchecked Sendable {
         return pthread_equal(pthread_self(), thread) != 0
     }
 
+    /// Native layout during a served callback must wait before asking the
+    /// owner again; otherwise its resize is refused while the view has moved.
+    var isServingMain: Bool { Thread.isMainThread && serving > 0 }
+
     private func run() {
         while true {
             work.wait()

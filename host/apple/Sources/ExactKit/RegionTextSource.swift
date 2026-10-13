@@ -47,6 +47,8 @@ final class RegionTextSource: Sendable {
     let direction: Int
     let lineClamp: Int
     let overflowWrap: Int
+    /// CSS `text-wrap-style: balance` (`Spec.balance`).
+    let balance: Bool
     /// CSS `text-box`: `Spec`'s trim, over and under edges.
     let textBox: (trim: Int, over: Int, under: Int)
     /// A preserved tab's stop interval (CSS `tab-size: 8`), as the engine's
@@ -85,6 +87,7 @@ final class RegionTextSource: Sendable {
         strut = base.map(font); strutExplicit = base?.lineHeight != nil
         align = spec.align; direction = spec.direction; lineClamp = spec.lineClamp; overflowWrap = spec.overflowWrap
         textBox = (spec.textBoxTrim, spec.textBoxOver, spec.textBoxUnder)
+        balance = spec.balance
         text = spec.runs.map(\.text).joined()
         tabInterval = spec.preserves && text.contains("\t") ? base.map { TextEngine.tabInterval(font($0).value, letterSpacing: $0.letterSpacing) } : nil
         utf16Count = offset

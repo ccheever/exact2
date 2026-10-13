@@ -3,18 +3,14 @@
 //! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of
 //! trees; research)
 //!
-//! The plan's nodes and regions are *sites*. An instance is one realization
-//! of a site: a kernel view for a node, an active arm for `when`/`match`, one
-//! row per key for `each`. An update visits only the sites whose reads
-//! ([`deps`]) include an input that changed since the last update, or an
-//! enclosing row or arm whose value changed, and there evaluates only the
-//! stale bindings; it emits exactly the kernel ops that make the kernel
-//! equal to the result: a binding's op only when its value changed,
-//! `SetChildren` only when a child list changed, create/destroy only when a
-//! key appeared or went away. [`Update::full`] evaluates everything, the
-//! reference an incremental update must equal. There is no tree diff: a
-//! keyed row keeps its views across reorders because its key, not its
-//! position, is its identity.
+//! The plan's nodes and regions are *sites*. An instance realizes a site as a
+//! kernel view, an active `when`/`match` arm, or an `each` row per key. Updates
+//! visit sites with changed inputs ([`deps`]) or enclosing rows/arms, evaluating
+//! only stale bindings. They emit binding ops only for changed values,
+//! `SetChildren` only for changed child lists, and create/destroy only for
+//! added/removed keys. [`Update::full`] evaluates everything and is the reference
+//! for incremental updates. No tree diff is needed: a row's key, not its position,
+//! preserves its views across reorders.
 
 /// Variable-height viewport collections and their portable host feedback seam.
 pub mod collection;
@@ -31,19 +27,17 @@ pub use deps::RowWrites;
 use deps::{Bits, Reads, Seen};
 pub(crate) use deps::{Deps, Input, Reads as DepReads};
 pub use document::{DocNode, DocTree, DocTreeError};
-use exact_kernel::{NodeType, Op, StyleProps, ViewId};
+use exact_kernel::{Kernel, NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
 pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-/// The list engine's entries (LLP 1047 D3; LLP 1047.000 §9): the core
-/// reaches virtualized collections only through this table, and only
-/// [`LISTS`] names it. `RunnerLinks::ALL` and the web's collections
-/// capability are what name `LISTS`, so an artifact whose plan virtualizes
-/// no list carries no engine. Admission (D6) refuses a plan that
-/// virtualizes a list where the table is absent.
+/// List engine entries (LLP 1047 D3; LLP 1047.000 §9), reached only through
+/// [`LISTS`]. `RunnerLinks::ALL` and the web collections capability name it;
+/// artifacts without virtualized lists carry no engine. Admission (D6)
+/// refuses virtualized lists when this table is absent.
 pub struct ListLinks {
     create: CreateList,
     update: fn(
@@ -58,6 +52,7 @@ pub struct ListLinks {
     pub(crate) into_view: IntoViewLink,
     /// A logical row needed for a host's keyboard focus traversal.
     pub(crate) reveal_index: RevealIndexLink,
+    pub(crate) scroll_anchor: ScrollAnchorLink,
     /// `state.scrollIntoView`: each list's latest request.
     pub(crate) into_view_json: fn(&Tree) -> String,
     /// `state.kept`: inner lists' kept positions (LLP 1070 §4.2).
@@ -68,8 +63,10 @@ type IntoViewLink = fn(
     &mut Tree,
     &mut Update<'_>,
     &collection::IntoView,
+    &mut Option<collection::IntoView>,
 ) -> Result<collection::IntoViewStatus, InstanceError>;
 
+type ScrollAnchorLink = fn(&Tree, &Kernel, ViewId, f64, f64, f64, f64) -> Option<(Value, f64)>;
 type RevealIndexLink = fn(&mut Tree, &mut Update<'_>, ViewId, usize) -> Result<bool, InstanceError>;
 
 type CreateList = fn(
@@ -89,6 +86,7 @@ pub static LISTS: ListLinks = ListLinks {
     into_view: Tree::scroll_into_view,
     reveal_index: Tree::reveal_collection_index,
     into_view_json: Tree::into_view_json,
+    scroll_anchor: Tree::collection_scroll_anchor,
     kept_json: Tree::kept_positions_json,
 };
 
@@ -384,6 +382,8 @@ pub struct InstanceWork {
 pub struct Update<'a> {
     /// The environment every expression sees.
     pub env: Env<'a>,
+    /// Run-time installed-family stack ids shared across commits in a session.
+    pub fonts: Option<Rc<RefCell<bridge::RuntimeFonts>>>,
     /// Immutable child sites for this environment's plan.
     pub sites: &'a SiteIndex,
     /// The id allocator.
@@ -439,6 +439,10 @@ pub struct Update<'a> {
     scratch: vm::Scratch,
     /// Empty lexical-frame buffers, reused within this update only.
     frame_buffers: Vec<Vec<Frame>>,
+    /// A list's `scroll-padding`, top, right, bottom, left, as its style
+    /// resolves it now; asked only while a `scrollIntoView` aligns (LLP 1010
+    /// §6.9). `None` without a kernel to ask.
+    pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
 }
 
 impl<'a> Update<'a> {
@@ -446,6 +450,7 @@ impl<'a> Update<'a> {
     pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
         Update {
             env,
+            fonts: None,
             sites,
             ids,
             ops: Vec::new(),
@@ -466,6 +471,7 @@ impl<'a> Update<'a> {
             reuse: false,
             scratch: vm::Scratch::default(),
             frame_buffers: Vec::new(),
+            scroll_padding: None,
         }
     }
 
@@ -997,7 +1003,35 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(Box::default);
-                    match bridge::set_binding_style(p, binding, &value, plan) {
+                    let family_value = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
+                        match &value {
+                            Value::Option(Some(inner)) => inner.as_ref(),
+                            _ => &value,
+                        }
+                    } else {
+                        &value
+                    };
+                    let family_id = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
+                        family_value.as_str().and_then(|name| {
+                            u.fonts
+                                .as_ref()?
+                                .borrow_mut()
+                                .intern(name, plan.stacks.len())
+                        })
+                    } else {
+                        None
+                    };
+                    let styled = if let Some(id) = family_id {
+                        bridge::set_runtime_font_style(
+                            p,
+                            binding,
+                            id,
+                            plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
+                        )
+                    } else {
+                        bridge::set_binding_style(p, binding, family_value, plan)
+                    };
+                    match styled {
                         // Unlinked, the plan names no rule: it was refused at
                         // boot (LLP 1047.001 D5).
                         Ok(exact_kernel::StyleId::Animation) => {

@@ -49,6 +49,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force = true;
     }
 
+    /// The reader's field `id` began to compose, holding `value`, or its
+    /// composition ended.
+    pub fn field_composing(&mut self, id: u32, generation: u32, composing: bool, value: &str) {
+        self.p
+            .reader_field_composing(id, generation, composing, value);
+        self.force = true;
+    }
+
     /// The reader's field `id` moved its selection.
     pub fn field_selected(&mut self, id: u32, generation: u32, selection: (u32, u32)) {
         let now = self.now();

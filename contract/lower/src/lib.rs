@@ -20,6 +20,7 @@
 #![deny(missing_docs)]
 
 mod buttons;
+mod cells;
 mod class;
 mod collection;
 mod color_profile;
@@ -33,10 +34,12 @@ mod fonts;
 mod grouped;
 mod handlers;
 mod identity;
+mod intersect;
 mod keyframes;
 mod lint;
 mod media;
 mod menus;
+mod metrics;
 mod native;
 mod nodes;
 mod routes;
@@ -47,6 +50,7 @@ mod stmts;
 mod strings;
 pub mod style_names;
 mod svg;
+mod symbols;
 pub mod tags;
 mod timers;
 mod values;
@@ -291,8 +295,8 @@ fn lower_with_sites(
                     span: a.span,
                 }),
                 None => {
-                    let hint = tags::renamed(&a.name)
-                        .map(|n| format!("; `{}` is spelled `{n}` here", a.name))
+                    let hint = fields::placeholder_hint(&a.name)
+                        .or_else(|| tags::renamed(&a.name).map(|n| format!("; `{}` is spelled `{n}` here", a.name)))
                         .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
                     l.errors.push(LowerError {
@@ -787,6 +791,18 @@ impl<'a> Lowerer<'a> {
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
+        // @ref LLP 1021 §5.3 — stable menu ids, never localized titles.
+        if a.name == "-exact-menu"
+            && (tag != "button"
+                || !matches!(&a.value, Expr::Str(value, _) if matches!(value.as_str(),
+                    "app" | "file" | "edit" | "view" | "go" | "window" | "help")))
+        {
+            return err(
+                "lower-menu-placement",
+                "`-exact-menu` belongs to a button and takes a literal app, file, edit, view, go, window or help",
+                a.span,
+            );
+        }
         // HTML's global `title` on any element but `head`: advisory text, the
         // platform's tooltip (studio diary R24); `head`'s is the document's.
         if a.name == "title" && tag != "head" {
@@ -831,6 +847,7 @@ impl<'a> Lowerer<'a> {
         }
         if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module)
             .or_else(|| fields::outline_refusal(&a.name, tag, control))
+            .or_else(|| fields::placeholder_refusal(&a.name, tag, control))
         {
             return err("lower-attr-tag", why, a.span);
         }
@@ -941,9 +958,14 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Styles(rows) => {
                 if rows == [StyleId::FontFamily] {
-                    // @ref LLP 1053 G7 — each arm's family is a stack id now.
                     let stacks = self.family_stacks(&a.value)?;
-                    let (code, _) = self.typed_code(&stacks, scope, locals)?;
+                    let (code, ty) = self.typed_code(&stacks, scope, locals)?;
+                    if ty != Ty::String
+                        && !(ty == Ty::Number && Self::literal_family_arms(&a.value))
+                        && !matches!(ty, Ty::Option(ref inner) if **inner == Ty::String)
+                    {
+                        return err("lower-attr-type", "`font-family` needs a string", a.span);
+                    }
                     bindings.push(style_row(StyleId::FontFamily, code, a.written));
                     return Ok(());
                 }
@@ -976,14 +998,25 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Prop(prop) => {
                 let glass;
+                let aria_disabled = values::aria_disabled_literal(prop, &a.value);
                 let value = if prop == exact_kernel::PropId::GlassGroup {
                     glass = values::glass_group(&a.value)?;
+                    &glass
+                } else if prop == exact_kernel::PropId::IntersectMargin {
+                    glass = crate::intersect::margin(&a.value, a.span)?;
                     &glass
                 } else if let Some(width) = values::split_width(prop, &a.value) {
                     glass = width;
                     &glass
+                // @ref LLP 1116.007 D3.1 — a symbol by another spelling is its role.
+                } else if let Some(role) = (prop == exact_kernel::PropId::ImageSource)
+                    .then(|| symbols::roles(&a.value))
+                    .flatten()
+                {
+                    glass = role;
+                    &glass
                 } else {
-                    &a.value
+                    aria_disabled.as_ref().unwrap_or(&a.value)
                 };
                 let (mut asm, mut depth) = (Asm::new(), locals);
                 let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;

@@ -68,7 +68,7 @@ package final class TextArea: NSTextView {
         if ok, let owner { owner.presenter?.fieldSelections.focused(owner) }
         if ok { owner?.showFieldFocus(true) }
         if ok { noteFocusRingMaskChanged(); owner?.textAreaScroll?.noteFocusRingMaskChanged() }
-        if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
+        if ok, let owner { owner.presenter?.focus(owner.id) }
         return ok
     }
 
@@ -156,6 +156,8 @@ package final class TextArea: NSTextView {
     package override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
 
     var placeholder = "" { didSet { needsDisplay = true } }
+    /// The authored `::placeholder` colour (LLP 1104 D3); nil, the platform's.
+    var placeholderColor: NSColor? { didSet { if placeholderColor != oldValue { needsDisplay = true } } }
     package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty, !placeholder.isEmpty {
@@ -163,7 +165,7 @@ package final class TextArea: NSTextView {
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
+                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
             ])
         }
     }
@@ -285,6 +287,7 @@ extension NodeView {
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
         f.insertionPointColor = caretColor
+        (f as? TextArea)?.placeholderColor = placeholderColor
         let native = isNativeTextControl
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
@@ -312,7 +315,7 @@ extension NodeView {
         guard let f = textArea, let scroller = textAreaScroll else { return }
         scroller.frame = isNativeTextControl ? bounds : contentBox()
         if let f = f as? TextArea {
-            if isNativeTextControl, let rect = nativeFieldContent {
+            if isNativeTextControl, let rect = kernelContentBox {
                 let clip = scroller.contentView.frame
                 f.nativeOrigin = NSPoint(x: max(0, rect.minX - clip.minX), y: max(0, rect.minY - clip.minY))
                 f.textContainer?.widthTracksTextView = false
@@ -356,7 +359,7 @@ extension NodeView {
         showFieldFocus(false)
         textAreaScroll?.noteFocusRingMaskChanged()
         presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
 }
 
@@ -409,6 +412,21 @@ extension NSTextView {
 /// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
 /// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
+    private var numberOwner: NodeView? {
+        guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
+        return node
+    }
+    override func accessibilityRole() -> NSAccessibility.Role? { numberOwner != nil ? .incrementor : super.accessibilityRole() }
+    override func accessibilityMinValue() -> Any? {
+        guard let owner = numberOwner else { return super.accessibilityMinValue() }
+        return NumberStepping(owner.props).min.map { NSDecimalNumber(decimal: $0) }
+    }
+    override func accessibilityMaxValue() -> Any? {
+        guard let owner = numberOwner else { return super.accessibilityMaxValue() }
+        return NumberStepping(owner.props).max.map { NSDecimalNumber(decimal: $0) }
+    }
+    override func accessibilityPerformIncrement() -> Bool { numberOwner?.step(up: true) ?? super.accessibilityPerformIncrement() }
+    override func accessibilityPerformDecrement() -> Bool { numberOwner?.step(up: false) ?? super.accessibilityPerformDecrement() }
     override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
@@ -429,6 +447,25 @@ final class FieldEditor: NSTextView {
         return editor
     }
     var owner: NodeView? { (delegate as? NSTextField)?.delegate as? NodeView }
+    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard owner?.props["type"]?.lowercased() == "number" else {
+            return super.readSelection(from: pasteboard, type: type)
+        }
+        let rich = pasteboard.readObjects(forClasses: [NSAttributedString.self], options: nil)?.first as? NSAttributedString
+        guard let text = pasteboard.string(forType: .string) ?? rich?.string else { return false }
+        insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        return true
+    }
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard owner?.props["type"]?.lowercased() == "number",
+              let text = (string as? NSAttributedString)?.string ?? string as? String else {
+            super.insertText(string, replacementRange: replacementRange); return
+        }
+        let range = replacementRange.location == NSNotFound ? (hasMarkedText() ? markedRange() : selectedRange()) : replacementRange
+        let filtered = NumberStepping.insertion(text, in: self.string, range: range)
+        if !text.isEmpty, filtered.isEmpty, !hasMarkedText() { return }
+        super.insertText(filtered, replacementRange: replacementRange)
+    }
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         owner?.markedTextChanged(self)
@@ -475,7 +512,7 @@ private func focused(_ delegate: NSTextFieldDelegate?, _ become: () -> Bool) -> 
     if ok { owner?.showFieldFocus(true) }
     // The window's one field editor still has the last field's checking.
     if ok, let owner, let editor = owner.field?.currentEditor() as? NSTextView { owner.styleFieldEditor(editor) }
-    if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
+    if ok, let owner { owner.presenter?.focus(owner.id) }
     return ok
 }
 #endif

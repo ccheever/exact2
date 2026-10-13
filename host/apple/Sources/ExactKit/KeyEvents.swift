@@ -1,7 +1,8 @@
-// A keydown as the web dispatches one (docs/contract-grammar.md#events): at
-// the focused node — the field or textarea being edited counts as its node —
-// then at every ancestor with a `key` handler, innermost first, and then the
-// key's default action unless a handler called `preventDefault()`. Every
+// A keydown as the web dispatches one (docs/contract-grammar.md#events):
+// capture handlers outermost first, then the focused node — the field or
+// textarea being edited counts as its node — and every ancestor with a `key`
+// handler, innermost first. Then the key's default action unless a handler
+// called `preventDefault()`. Every
 // key, printable or not, on every host: calc F3 (macOS's field editor ate
 // printable keys) and minesweeper F7 (no way to claim a key) in the
 // x2apps diaries. A keyup goes the same way to the `keyup` handlers, a
@@ -43,7 +44,7 @@ extension KeyCodes {
 }
 
 /// A key event for the runner (#140): DOM's `keydown` (`key`, ABI kind 6)
-/// or `keyup` (43), its chord (`Shift+Meta+b`, `Event::key`), its
+/// or `keyup` (43), or a capture keydown (44): its chord (`Shift+Meta+b`, `Event::key`), its
 /// `KeyboardEvent.code` ("" when the host cannot tell) and `repeat`. It
 /// prints as its chord, which the hosts' tests read.
 struct KeyPress: ExpressibleByStringLiteral, CustomStringConvertible {
@@ -51,6 +52,7 @@ struct KeyPress: ExpressibleByStringLiteral, CustomStringConvertible {
     var code = ""
     var repeats = false
     var up = false
+    var capture = false
     init(_ chord: String, code: String = "", repeats: Bool = false, up: Bool = false) {
         self.chord = chord
         self.code = code == "Unidentified" || !code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) ? "" : code
@@ -81,7 +83,11 @@ extension Presenter {
     /// `stopPropagation()` is the last. True when one called
     /// `preventDefault()`: the caller skips the default action.
     func keyDown(at target: NodeView?, _ name: String, held: String = "", code: String = "", repeats: Bool = false) -> Bool {
-        keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
+        let prevented = keyEvent("key", at: target, KeyPress(held + name, code: code, repeats: repeats))
+        #if canImport(UIKit)
+        if !prevented, name == "Escape", !repeats, menus.dismissPopover() { return true }
+        #endif
+        return prevented
     }
     /// The `keyup` handlers at `target` and above hear a key's release, in
     /// the same order (#140). True when one called `preventDefault()`.
@@ -89,23 +95,41 @@ extension Presenter {
     func keyUp(at target: NodeView?, _ name: String, held: String = "", code: String = "") -> Bool {
         keyEvent("keyup", at: target, KeyPress(held + name, code: code, up: true))
     }
-    private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress) -> Bool {
-        var path: [UInt32] = []
+    private func keyEvent(_ handler: String, at target: NodeView?, _ press: KeyPress, inline: UInt32? = nil) -> Bool {
+        var path: [(id: UInt32, handlers: Set<String>)] = []
+        var run = inline.flatMap(inlineText)
+        while let current = run {
+            if inlineEnabled(current.id) { path.append((current.id, current.handlers)) }
+            run = inlineText(current.parent)
+        }
         var next: KeyPlatformView? = target
         while let view = next {
-            if let node = view as? NodeView, views[node.id] === node, node.handlers.contains(handler), !node.formDisabled, !node.inert {
-                path.append(node.id)
+            if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !node.inert {
+                path.append((node.id, node.handlers))
             }
             next = view.superview
         }
         var prevented = false
-        for id in path {
+        func deliver(_ node: (id: UInt32, handlers: Set<String>), _ press: KeyPress) -> Bool {
             defaultPrevented = false
             propagationStopped = false
-            key(id, press)
+            key(node.id, press)
             prevented = prevented || defaultPrevented
-            // `stopPropagation()`: no ancestor hears it (files diary F8).
-            if propagationStopped { break }
+            return propagationStopped
+        }
+        if handler == "key" {
+            for node in path.reversed() where node.handlers.contains("keycapture") {
+                var captured = press
+                captured.capture = true
+                if deliver(node, captured) {
+                    defaultPrevented = false
+                    propagationStopped = false
+                    return prevented
+                }
+            }
+        }
+        for node in path where node.handlers.contains(handler) {
+            if deliver(node, press) { break }
         }
         defaultPrevented = false
         propagationStopped = false
@@ -140,8 +164,8 @@ extension Presenter {
         guard event.type == .keyDown || event.type == .flagsChanged && KeyCodes.pressed(event) else { return false }
         let responder = (window ?? event.window)?.firstResponder
         if !passesComposition(event, at: responder) { return false }
-        return keyDown(at: keyTarget(responder), NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags),
-                       code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat)
+        return keyEvent("key", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+                        code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat), inline: (responder as? InlineKeyView)?.id)
     }
     /// A keyup at the window's first responder, a modifier's (a flags change
     /// that released it) included (#140): the `keyup` handlers there and
@@ -152,7 +176,8 @@ extension Presenter {
         guard event.type == .keyUp || event.type == .flagsChanged && KeyCodes.released(event) else { return }
         let responder = (window ?? event.window)?.firstResponder
         if !passesComposition(event, at: responder) { return }
-        keyUp(at: keyTarget(responder), NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags), code: KeyCodes.code(event))
+        _ = keyEvent("keyup", at: keyTarget(responder), KeyPress(KeyCodes.held(event.modifierFlags) + NodeView.keyName(event),
+                     code: KeyCodes.code(event), up: true), inline: (responder as? InlineKeyView)?.id)
     }
     /// Whether a key reaches the handlers while an input method composes
     /// text at `responder` (#140). Without a composition, every key. During
@@ -193,9 +218,19 @@ extension Presenter {
     /// holds (a web view, a native module's) keeps its keys, as an iframe's
     /// never reach the page.
     func keyTarget(_ responder: NSResponder?) -> NodeView? {
+        if let run = responder as? InlineKeyView { return run.owner }
         guard let view = responder as? NSView else { return nil }
         var next: NSView? = view
+        #if os(macOS)
+        // A list's table has the keyboard (LLP 1115.002 D5): its selected row hears the keys, else the list.
+        if let table = view as? RunnerTableView { return table.feed?.keyTarget }
+        #endif
         while let v = next {
+            // A search input's field in the window's toolbar (LLP 1115.002
+            // D2) has no node above it: the input is its delegate.
+            if let field = v as? NSTextField, let node = field.delegate as? NodeView, node.pageField != nil, node.field === field {
+                return views[node.id] === node ? node : nil
+            }
             if let node = v as? NodeView {
                 let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view || (node.isNativeButton && keyView(of: node) === view) || node.nativeValueControl.map { view.isDescendant(of: $0) } == true
                 return owns && views[node.id] === node ? node : nil

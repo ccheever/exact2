@@ -32,6 +32,16 @@ export function canonical(location) {
   });
   return "/" + segs.join("/") + (query ? "?" + enc(query, b => b < 0x21 || b > 0x7e || "\"#<>'".includes(String.fromCharCode(b))) : "");
 }
+/** `location_of` (route/src/location.rs): an incoming URL uses the router's path serializer. */
+export function locationOf(href) {
+  const input = clean(href), scheme = /^([A-Za-z][A-Za-z0-9+.-]*):([\s\S]*)$/.exec(input);
+  if (!scheme) return canonical(input);
+  if (!/^https?$/i.test(scheme[1])) return canonical('/' + scheme[2].replace(/^\/\//, ''));
+  const after = scheme[2].replace(/^[/\\]+/, ''), end = after.search(/[/\\?#]/);
+  // A leading backslash folds to `/` first, as path_query folds before it strips one `/`.
+  const rest = end < 0 ? '' : after.slice(end);
+  return canonical(rest[0] === '\\' ? '/' + rest.slice(1) : rest);
+}
 const empty = () => Names.map(() => "");
 const segments = p => p === "/" ? [] : p.replace(/^\//, "").split("/");
 function matchRoute(url) {
@@ -72,7 +82,14 @@ function refuse(r, why) { say(`router: ${why}`); return r; }
 function mint(r, d) { const id = r[2]; r[2] = id + 1; return entry(id, d); }
 const sel = r => r[1].findIndex(t => t[0] === r[0] && t[1].length);
 const copy = r => [r[0], r[1].map(t => [t[0], t[1].slice()]), r[2]];
-export const launch = location => open_(["", [], 0], location);
+/** A launch: the location's chain, else, when no route matches it and no `notfound` route absorbs it (an app with no
+ * navigation root, which the compiler writes none for: LLP 1116.009 D2), the first screen's (`/`), the refusal journaled;
+ * the runner's `RouterContext::launch` (runner/src/runner/router.rs). The app boots, and its first commit puts `/` in the
+ * address bar. */
+export function launch(location) {
+  if (!chain(location).length) { say(`router launch refused: no route matches ${canonical(location)}`); location = "/"; }
+  return open_(["", [], 0], location);
+}
 /** A reload's router carry: keep only a stack the new table still describes; otherwise launch its old top. */
 export function carryRouter(old, location) { const tabs = roots().map(i => Routes[i].name), stacks = old?.[1], valid = Array.isArray(stacks) && stacks.length === tabs.length && stacks.every((t, i) => t?.[0] === tabs[i] && Array.isArray(t[1]) && t[1].every(e => { const m = matchRoute(e?.[2] ?? ""); return m && Routes[m[0]].name === e[1]; })); if (!valid) return launch(stacks?.find(t => t?.[0] === old?.[0])?.[1]?.at(-1)?.[2] ?? location); const out = copy(old); for (const t of out[1]) for (const e of t[1]) e[4] = matchRoute(e[2])[1]; return out; }
 function open_(r, location) {

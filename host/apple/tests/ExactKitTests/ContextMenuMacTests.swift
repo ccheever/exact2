@@ -481,7 +481,9 @@ final class ContextMenuMacTests: XCTestCase {
         turn()
         XCTAssertEqual(heard, ["contextmenu 30"], "a date field's")
         XCTAssertEqual(p.views[36]?.contextClicked, false, "its release reached the node")
-        // AppKit's segmented control takes a Control-click as a right-click itself.
+        // The segmented control takes the same `contextClicked` route as
+        // the other native controls (AppKit's own right-click route does
+        // not fire for it in a window that is never key).
         XCTAssertEqual(controlClick(segments), ["contextmenu 30"], "a tablist's segmented control")
         XCTAssertEqual(segments.selectedSegment, 0, "no segment chosen")
         XCTAssertEqual(controlClick(try XCTUnwrap(p.controls.controls[37])), ["contextmenu 37"], "a checkbox's own contextmenu")

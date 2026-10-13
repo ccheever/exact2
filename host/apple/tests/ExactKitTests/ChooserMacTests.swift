@@ -65,6 +65,22 @@ final class ChooserMacTests: XCTestCase {
         wait(for: [turned], timeout: 5)
     }
 
+    func testExplicitSourceWithoutInvokerTargetKeepsTheChooserValid() throws {
+        let p = chooser(["One", "Two"], cancels: 0)
+        defer { p.menus.reset() }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["id": "trigger"], "clear": ["popovertarget"]]]))
+        p.menus.action("showPopover", ["c", "trigger"])
+        let owner = try XCTUnwrap(p.menus.presentedConfirmation)
+        XCTAssertTrue(p.menus.valid(owner), "an explicit source need not name the popover")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let menu = p.menus.menu(of: owner)
+        try send(menu.items[2])
+        p.menus.close(try XCTUnwrap(p.views[2]), cancelling: false)
+        turn()
+        XCTAssertEqual(pressed, [4])
+    }
+
     func testAChooserIsAMenuWithAnItemPerChoice() throws {
         let p = chooser(props: [4: ["accessibilityChecked": "true"], 5: ["disabled": "true"], 3: ["destructive": "true"]])
         defer { p.menus.reset() }
@@ -82,6 +98,20 @@ final class ChooserMacTests: XCTestCase {
             XCTAssertEqual(p.menus.observation?["kind"] as? String, "confirmation")
             XCTAssertEqual(p.menus.observation?["actions"] as? Int, 3)
         }
+    }
+
+    func testARIAUnavailableChoiceIsAXDisabledButStillChosen() throws {
+        let p = chooser(props: [3: ["accessibilityDisabled": "true"]])
+        defer { p.menus.reset() }
+        let (_, menu) = try owner(p)
+        let item = menu.items[1]
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertEqual(item.accessibilityAttributeValue(.enabled) as? Bool, false)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        try send(item)
+        turn()
+        XCTAssertEqual(pressed, [3])
     }
 
     func testEachItemPressesItsOwnRowOnce() throws {

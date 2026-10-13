@@ -7,7 +7,7 @@
 // tab the bar selects presses its authored tab, so selection, history and
 // reselect-pops-to-root stay the router's (LLP 1038 D4, D12). Under the
 // agent the authored tablist paints and the bar stays hidden. Which tabs a
-// root has is NavigationTabs.swift's.
+// root has is NavigationTabs.swift's; what a tab shows, TabFace.swift's.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -33,46 +33,6 @@ final class TabDelegateProxy: NSObject, UITabBarControllerDelegate {
     }
 }
 
-/// A tab bar item an authored tab supplies: its symbol, if it has one, and
-/// its label (a text-only tab is a title-only item).
-private struct TabFace: Equatable {
-    let base: String?, title: String, disabled: Bool
-    /// A filled box holding a text among the tab's children: the item's
-    /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
-    let badge: String?
-    init(_ tab: NodeView) {
-        var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
-        if tab.isNativeButton, let face = tab.face {
-            // A native button's children are its face (LLP 1069.011.000 D1).
-            symbol = face.symbol
-            if let title = face.title, !title.isEmpty { label = title }
-        }
-        for case let child as NodeView in tab.container.subviews {
-            if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
-            else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
-            else if let text = Self.badgeText(child) { badges.append(text) }
-        }
-        // One badge box, or none: two are not a badge.
-        self.badge = badges.count == 1 ? badges[0] : nil
-        base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
-        title = label
-        disabled = tab.disabled
-    }
-    /// A shown box with a visible fill whose only child (views and flat
-    /// leaves alike) is one shown, non-empty text: that text. A pill around
-    /// a symbol and a label is not, nor a transparent box or text.
-    private static func badgeText(_ box: NodeView) -> String? {
-        let shown = { (v: NodeView) in !v.isHidden && v.style["display"]?.string != "none" && v.alpha > 0 }
-        guard !box.isParagraph, box.kind != "image", shown(box),
-              let fill = box.channels("background_color"), fill[3] > 0,
-              box.presenter?.flats.holdsLeaves(box.id) != true else { return nil }
-        let children = box.container.subviews.compactMap { $0 as? NodeView }
-        guard children.count == 1, let text = children.first, text.isParagraph, shown(text),
-              !text.accessibleText.isEmpty else { return nil }
-        return text.accessibleText
-    }
-}
-
 extension NavigationHost {
     /// Every stack Exact built: the tabs' in tab order (or the one), then
     /// the sheets'.
@@ -83,7 +43,7 @@ extension NavigationHost {
 
     /// Whether Exact's tab bar shows: not under the agent's own chrome,
     /// which sees the authored tablist (LLP 1021 D4's one presentation).
-    var tabBarShows: Bool { tabController != nil && tabOwner === tabController && !ExactEnv.authoredChrome }
+    var tabBarShows: Bool { tabController != nil && tabOwner === tabController && !ExactEnv.authoredChrome && !tablistAppearanceNone }
 
     /// What a tab other than the selected one holds: its stack up to its
     /// first presentation. A sheet is presented only over the selected tab;
@@ -119,7 +79,8 @@ extension NavigationHost {
             container.delegate = tabProxy
             container.setViewControllers(navs, animated: false)
             container.selectedIndex = p.at
-            if ExactEnv.authoredChrome { hideTabBar(container) }
+            tablistAppearanceNone = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
+            if ExactEnv.authoredChrome || tablistAppearanceNone { hideTabBar(container) }
             tabController = container
             return container
         }()
@@ -169,11 +130,16 @@ extension NavigationHost {
         guard !tabContainerAsked, presenter.modals.routes.isEmpty, !presenter.modals.inTransition, presentedNavigations.isEmpty,
               let root = self.container, let tabs = NavigationTabs.of(root, presenter), let parent = container.parent else { return }
         tabContainerAsked = true
+        // Offer the stacks in place: a container the hook returns takes them from Exact's, as UIKit moves any
+        // child. Emptying Exact's first would lose its bar's selection: a tab bar controller emptied and filled
+        // again keeps its selected index but shows no tab selected (iOS 26 and 27).
         let navs = tabPanels.compactMap { tabNavigations[$0] }
-        container.setViewControllers([], animated: false)
         guard let owned = askTabContainer(tabs, navs: navs, selected: routerTab) else {
-            container.setViewControllers(navs, animated: false)
-            container.selectedIndex = max(0, routerTab)
+            if container.viewControllers?.count != navs.count {
+                presenter.session?.log("hatch: tabContainer took the tabs' stacks but returned no container; Exact's has them back")
+                container.setViewControllers(navs, animated: false)
+                container.selectedIndex = max(0, routerTab)
+            }
             return
         }
         natives.tabsHatch(container, event: 1)
@@ -214,6 +180,19 @@ extension NavigationHost {
     /// Each batch: every other tab's stack, the selected tab, its items.
     func syncTabs(_ p: Projection) {
         guard tabOwner != nil, let tabs = p.tabs else { return }
+        let authored = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
+        if authored != tablistAppearanceNone {
+            tablistAppearanceNone = authored
+            presenter.session?.view?.setNeedsLayout()
+            tablistRoot = nil
+            tablistHidBar = false
+            if let container = tabController, tabOwner === container, !ExactEnv.authoredChrome {
+                let hidden = authored || tabs.tablist.style["display"]?.string == "none"
+                if #available(iOS 18.0, tvOS 18.0, *) { container.setTabBarHidden(hidden, animated: false) }
+                else { container.tabBar.isHidden = hidden }
+                tablistHidBar = hidden && !authored
+            }
+        }
         let navs = tabs.panels.compactMap { tabNavigations[$0.id] }
         guard navs.count == tabs.panels.count else { return }
         for (index, nav) in navs.enumerated() where index != p.at {
@@ -242,7 +221,7 @@ extension NavigationHost {
         // A tab's test id is its item's identifier, which XCUITest and
         // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
         let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base ?? face.title }
-        let signature = zip(faces, ids).map { face, id in "\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.badge ?? "")" }
+        let signature = zip(faces, ids).map { face, id in "\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
             let image = face.base.flatMap { UIImage(systemName: $0) }
@@ -251,6 +230,8 @@ extension NavigationHost {
             item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
             item.accessibilityIdentifier = ids[index]
             item.isEnabled = !face.disabled
+            if face.disabled || face.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
             // An authored badge, or one it just lost; a badge a hatch set on
             // a tab that never authored one is left alone.
             let had = tabItems.indices.contains(index) && !tabItems[index].hasSuffix("|")
@@ -273,9 +254,14 @@ extension NavigationHost {
         let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
         guard wanted != tabTint else { return }
         tabTint = wanted
+        // Never `.tintColor` in its place: that is the bar's own tint, this
+        // colour, and a tablist whose accent went before the next sync (a
+        // style that drops it) resolved it until the stack ran out. The
+        // bar's container has the tint the bar would inherit.
         bar.tintColor = source.map { source in
-            UIColor { [weak source] traits in
-                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .tintColor
+            UIColor { [weak source, weak bar] traits in
+                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) }
+                    ?? bar?.superview?.tintColor ?? .systemBlue
             }
         }
     }
@@ -347,9 +333,32 @@ extension NavigationHost {
         tabItems = []
         tabTint = nil
         adoptedTablist = nil
+        tablistAppearanceNone = false
+        measuredTablist = nil
+    }
+
+    /// After a batch: the projection, unless the batch only moved a list's
+    /// rows and nothing is owed; then the authored tablist's covers.
+    func batchApplied(_ batch: Batch, rowsOnly: Bool) {
+        if !rowsOnly || syncOwed { sync(batch) }
+        followAuthoredTablist()
+    }
+
+    /// The authored tablist moved or changed size since its covers were
+    /// measured: measure again. Its own cover's change (the bar's `whole`
+    /// given back, an edge's padding) moves it in a batch that projects
+    /// nothing, after the sync that measured it, so the covers settle only
+    /// when they are measured where it now is.
+    func followAuthoredTablist() {
+        guard tablistAppearanceNone, !syncing, let view = presenter.session?.view,
+              let list = adoptedTablist.flatMap({ presenter.views[$0] }) else { return }
+        if list.convert(list.bounds, to: view) != measuredTablist { reportCovers() }
     }
 
     /// Whether a tab container takes this tablist's place.
-    func adopts(tablist: NodeView) -> Bool { adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome }
+    func adopts(tablist: NodeView) -> Bool {
+        adoptedTablist == tablist.id && tabOwner != nil && !ExactEnv.authoredChrome &&
+            !(tablist.wrote("appearance") && tablist.style["appearance"]?.string == "none")
+    }
 }
 #endif

@@ -287,6 +287,46 @@ fn a_route_that_says_no_bar_or_hides_its_header_has_none() {
     );
 }
 
+/// A header whose author wrote `appearance: none` keeps its authored bar on
+/// every host (LLP 1075.003 §9.10, #393); one the compiler only implied it
+/// for is still the bar's.
+#[test]
+fn a_header_that_writes_appearance_none_is_no_bar() {
+    let mut kernel = shelf();
+    let id = 11; // route 10's header
+    let mut implied = StyleProps::default();
+    implied
+        .set_dynamic(StyleId::Appearance, &StyleValue::Text("none".into()))
+        .unwrap();
+    let mut written = implied.clone();
+    written.written = written.mask;
+    kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id,
+                patch: Box::new(implied),
+            }],
+        )
+        .unwrap();
+    assert!(
+        kernel.header_shape(10, None, false, &pressed).is_some(),
+        "implied is not written"
+    );
+    kernel
+        .apply(
+            0,
+            3,
+            &[Op::SetStyle {
+                id,
+                patch: Box::new(written),
+            }],
+        )
+        .unwrap();
+    assert_eq!(kernel.header_shape(10, None, false, &pressed), None);
+}
+
 /// The same route as a host's mirror hands it: the route, then its first
 /// child's subtree in preorder, two words a node.
 #[test]
@@ -326,6 +366,10 @@ fn a_hosts_own_mirror_of_the_tree_reads_the_same_rule() {
     hidden[2] |= fact::HIDDEN;
     assert_eq!(bars::header_shape_words(&hidden, bars::PROJECTED), None);
     assert!(bars::header_shape_words(&hidden, 0).is_some());
+    let mut authored = words;
+    authored[2] |= fact::AUTHORED;
+    assert_eq!(bars::header_shape_words(&authored, bars::PROJECTED), None);
+    assert!(bars::header_shape_words(&authored, 0).is_some());
     let mut refused = words;
     refused[0] |= fact::NO_BAR;
     assert_eq!(bars::header_shape_words(&refused, bars::PROJECTED), None);

@@ -49,6 +49,7 @@ fn a_selection_reaches_the_action_as_its_record() {
         text: text.into(),
         start,
         end,
+        rects: vec![],
     };
     r.dispatch(p1, select("best", 11.0, 15.0)).unwrap();
     assert_eq!(r.slot("picked"), Some(&Value::str("p1:11-15:best")));
@@ -57,7 +58,7 @@ fn a_selection_reaches_the_action_as_its_record() {
     r.dispatch(p2, select("worst", 11.0, 16.0)).unwrap();
     assert_eq!(r.slot("changes"), Some(&Value::Number(1.0)));
     // A host's payload: the offsets, then the text verbatim.
-    let Ok(event) = Event::of_host_kind(35, "11,15,best") else {
+    let Ok(event) = Event::of_host_kind(35, "11,15,0,best") else {
         panic!("kind 35")
     };
     r.dispatch(p1, event).unwrap();
@@ -76,4 +77,61 @@ fn selectionchange_belongs_to_text_and_takes_the_record_or_nothing_more() {
     .unwrap_err()
     .to_string();
     assert!(e.contains("for its `Selection`"), "{e}");
+}
+
+#[test]
+fn selection_rectangles_and_commands_reach_actions() {
+    let source = READER
+        .replace(
+            "picked = `${para}:${s.start}-${s.end}:${s.text}`",
+            "picked = `${s.text}:${length(s.rects)}`",
+        )
+        .replace(
+            "changes = changes + 1",
+            "changes = changes + 1\n    setSelectionRange(\"p1\", 0, 5)\n    removeAllRanges()",
+        );
+    let plan = contract::compile(&source).unwrap_or_else(|e| panic!("{e}"));
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let p1 = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("p1")[0])
+        .unwrap()
+        .id;
+    r.dispatch(
+        p1,
+        Event::of_host_kind(35, "0,5,2,10,20,40,18,10,38,12,18,Alpha").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(r.slot("picked"), Some(&Value::str("Alpha:2")));
+    let p2 = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("p2")[0])
+        .unwrap()
+        .id;
+    r.take_commands();
+    r.dispatch(p2, Event::of_host_kind(35, "0,0,0,").unwrap())
+        .unwrap();
+    let commands = r.take_commands();
+    assert_eq!(
+        commands.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["setSelectionRange", "removeAllRanges"]
+    );
+    assert_eq!(
+        commands[0].args,
+        [Value::str("p1"), Value::Number(0.0), Value::Number(5.0)]
+    );
+    assert!(commands[1].args.is_empty());
+    assert_eq!(
+        contract::compile(&source.replace("removeAllRanges()", "removeAllRanges(1)"))
+            .unwrap_err()
+            .id,
+        "type-remove-all-ranges"
+    );
 }

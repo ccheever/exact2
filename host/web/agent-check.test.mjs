@@ -37,6 +37,16 @@ const BROKEN = `component CheckFixture
         column testId="tiny" press=toggle width=16 height=16 background-color="-exact-secondary-background"
         column testId="tiny2" press=toggle width=16 height=16 background-color="-exact-secondary-background"
       row testId="wide" width=600 height=20 background-color="-exact-secondary-background"
+      row testId="options" width=120 gap=4
+        button testId="opt-a" press=toggle flex=1 padding="8px 12px"
+          text "Fifty"
+        button testId="opt-b" press=toggle flex=1 padding="8px 12px"
+          text "Seventy five"
+      row testId="shares" width=120 gap=4
+        column testId="share-a" press=toggle flex=1 padding="8px 12px"
+          text "Fifty"
+        column testId="share-b" press=toggle flex=1 padding="8px 12px"
+          text "Seventy five"
       column testId="swatch" press=toggle width=100 height=100 background-color=(on ? "#ff0000" : "#0000ff") transition="background-color 400ms linear"
 `;
 // The same kinds of views, as the platform would have them: nothing to find in either scheme.
@@ -57,6 +67,41 @@ const CLEAN = `component CleanFixture
           text "One"
         button testId="two" press=bump
           text "Two"
+`;
+// LLP 1116.009 D5 (focus-timer, recipe-finder, round 11): a written percentage width and the padding it does not include,
+// past what the parent gives it, inside the `scroll` that holds the overflow so nothing else sees it. `card` is the finding;
+// each other box is what must not be one: border-box, a width that leaves room, a row's shrinking item, a pager that scrolls on
+// purpose, a nowrap readout, a bar and a sheet the platform draws.
+const PADDED = `routes nav
+  home "/"
+
+component PaddedFixture
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    main testId="app" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
+          header display="flex" align-items="center" justify-content="space-between" padding="12px 16px"
+            text "Padded" role="heading" aria-level=1
+            button press=bump testId="bar-button"
+              text "Add"
+          scroll id="content" flex=1 min-height=0 testId="scroller"
+            column testId="root" padding=16 gap=12
+              column testId="card" width="100%" padding=24 background-color="-exact-secondary-background" border-radius=12
+                text "Wider than its parent by its padding"
+              column testId="boxed" width="100%" padding=24 box-sizing="border-box" background-color="-exact-secondary-background" border-radius=12
+                text "Border-box: fits"
+              column testId="narrow" width="50%" padding=8 background-color="-exact-secondary-background" border-radius=12
+                text "Room to spare"
+              row testId="chips" gap=8
+                column testId="chip" width="100%" padding=12 background-color="-exact-secondary-background" border-radius=12
+                  text "In a row"
+              column testId="pager" overflow-x="auto"
+                column testId="page" width="100%" padding=12
+                  text "Scrolls on purpose"
+              text testId="readout" white-space="nowrap" font-size="-exact-title2" "00:25:00"
 `;
 // A column held to the screen's height, its end past the screen's bottom: a line cut by it, a button out of reach.
 const TALL = `component TallFixture
@@ -118,6 +163,43 @@ const built = (() => {
   };
 })();
 
+// LLP 1116.012 D3 (contacts, round 14): a row is covered only if nothing scrolls it clear. Four stages, each 300 px: (a) a list
+// above an in-flow bar, a row past the list's end whose middle is in the bar's lower half (the fold row, which scrolls up clear);
+// (b) the same list under a bar laid over it, with the range to scroll up clear; (c) the bar over a list that scrolls only 6 px, its
+// last row under the bar for good; (d) a header over the list's first row at the start, which scrolling can only move further under.
+const rows = (id, count, height) => Array.from({ length: count }, (_, i) => `          text testId="${id}-${i}" height=${height} flex-shrink=0 "Row ${i}"`).join('\n');
+const FOLDS = `component FoldFixture
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column testId="root"
+      column testId="stage-a" height=300 flex-shrink=0
+        scroll testId="list-a" flex=1 min-height=0
+          column
+${rows('a', 12, 50)}
+        row testId="bar-a" height=57 flex-shrink=0 background-color="-exact-secondary-background"
+          text testId="tab-a" "Tab"
+      column testId="stage-b" height=300 flex-shrink=0 position="relative"
+        scroll testId="list-b" position="absolute" top=0 left=0 right=0 height=300
+          column
+${rows('b', 12, 50)}
+        row testId="bar-b" position="absolute" bottom=0 left=0 right=0 height=57 background-color="-exact-secondary-background"
+          text testId="tab-b" "Tab"
+      column testId="stage-c" height=300 flex-shrink=0 position="relative"
+        scroll testId="list-c" position="absolute" top=0 left=0 right=0 height=300
+          column
+${rows('c', 6, 51)}
+        row testId="bar-c" position="absolute" bottom=0 left=0 right=0 height=57 background-color="-exact-secondary-background"
+          text testId="tab-c" "Tab"
+      column testId="stage-d" height=300 flex-shrink=0 position="relative"
+        scroll testId="list-d" position="absolute" top=0 left=0 right=0 height=300
+          column
+${rows('d', 12, 50)}
+        row testId="bar-d" position="absolute" top=0 left=0 right=0 height=57 background-color="-exact-secondary-background"
+          text testId="tab-d" "Tab"
+`;
+
 /** testId → the kinds found on it, per scheme: `<control>'s label` findings count as the control's. */
 const kinds = (run) => {
   const out = {};
@@ -142,6 +224,16 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...text, fg: [197, 197, 198, 1], inactive: true }])).toEqual([]); // a disabled control's label (WCAG's inactive component)
   expect(found([{ ...text, fg: [60, 60, 67, 0.6] }])).toEqual([]); // the secondary label's value, unnamed (a section footer's), is its
   expect(found([{ ...text, fg: [255, 56, 60, 1] }])).toEqual([]); // the grouped sheet's red (a destructive row's title), UIKit's at 3:1
+  // LLP 1115.000 D4: a role known only by its drawn value is read in the column its host draws. A page in the neutral look
+  // says so (`look`): there the table's neutral red (#c90f1a, 3.5:1 on this grey) is the platform's, at 3:1, and Apple's
+  // red is some author's colour, at 4.5:1. A host that names no look (iOS, a page built in LLP 1116 D1's) draws Apple's.
+  const onGrey = { ...text, fg: [201, 15, 26, 1], bg: [200, 200, 200], on: 'own' };
+  expect(found([onGrey], { look: 'neutral' })).toEqual([]);
+  expect(found([onGrey])).toEqual(['contrast:1']);
+  expect(found([{ ...text, fg: [255, 56, 60, 1] }], { look: 'neutral' })).toEqual(['contrast:1']);
+  // The neutral column's ink on the accent in dark is black: by value alone it is no role, so an author's black text
+  // on a dark grey (3.5:1) is held to 4.5:1 there too.
+  expect(found([{ ...text, fg: [0, 0, 0, 1], bg: [100, 100, 100], on: 'own' }], { look: 'neutral', scheme: 'dark' })).toEqual(['contrast:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true }])).toEqual(['clipped:1']);
   expect(found([{ ...text, fg: [0, 0, 0, 1], over: [30, 0], clips: true, clamp: true }])).toEqual([]);
   // A card on white whose fill is white shows nothing; on grey it shows; with an edge it shows.
@@ -149,8 +241,16 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const invisible = judge(obs([card]), png);
   expect(invisible.map((f) => f.kind)).toEqual(['card']);
   expect(invisible[0].hint).toContain('-exact-secondary-background');
+  // The hint knows a plain page by the column's own ground: #121212 is the neutral look's in dark, and nobody's in Apple's.
+  const night = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).map((_, i) => i % 4 === 3 ? 255 : 18) };
+  const hint = (look) => judge(obs([{ ...card, fill: [18, 18, 18, 1] }], { scheme: 'dark', ...(look ? { look } : {}) }), night)[0].hint;
+  expect(hint('neutral')).toContain('on a plain page a card is -exact-secondary-background');
+  expect(hint()).not.toContain('on a plain page a card is');
   expect(found([{ ...card, x: 24 }])).toEqual([]);
   expect(found([{ ...card, edge: true }])).toEqual([]);
+  // LLP 1116.010 D2 (trivia, round 12): a card the host says none of is presented (below the viewport, past its scroller's edge) is
+  // not judged on the page's pixels there.
+  expect(found([{ ...card, vis: { x: 4, y: 20, w: 0, h: 0 } }])).toEqual([]);
   // Two 16 px targets: under 24 px and closer than 24 px apart, both; far apart, neither (WCAG 2.5.8's spacing); the platform's own, never.
   const small = (id, x) => ({ id, x, y: 2, w: 16, h: 16, control: 'press', sized: 'author' });
   expect(found([small(3, 0), small(4, 18)])).toEqual(['target:3', 'target:4']);
@@ -171,6 +271,36 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const row = { id: 6, x: 0, y: 0, w: 40, h: 20, control: 'press', sized: 'platform' }, tab = { id: 7, x: 0, y: 10, w: 40, h: 20, control: 'press', sized: 'platform' };
   expect(found([row, tab])).toEqual(['overlap:6']);
   expect(found([{ ...row, vis: { x: 0, y: 0, w: 40, h: 10 } }, tab])).toEqual([]);
+  // LLP 1116.007 D3.8: what a bar is drawn over is covered, not presented (`vis` empty): a text wholly under it is not judged for
+  // contrast, nor a control for size; one partly under it is judged on the fill under the part that shows (here the grey).
+  const under = { ...text, fg: [130, 130, 130, 1] };
+  expect(found([{ ...under, vis: { x: 2, y: 2, w: 16, h: 0 } }])).toEqual([]);
+  expect(found([{ id: 8, x: 0, y: 2, w: 16, h: 16, control: 'press', sized: 'author', vis: { x: 0, y: 2, w: 16, h: 0 } }])).toEqual([]);
+  const part = judge(obs([{ ...under, w: 36, vis: { x: 22, y: 2, w: 16, h: 16 } }]), png);
+  expect(part.map((f) => [f.kind, f.detail.bg])).toEqual([['contrast', '#808080']]);
+  // LLP 1116.007 D3 (unit-converter): the keyboard covers like a bar. A card under it shows the keyboard in the capture, not its
+  // edge, so it is not "invisible"; one partly under it is judged on the edges that show.
+  expect(found([card], { keyboard: 4 })).toEqual([]); // wholly under the keyboard
+  expect(found([card], { keyboard: 10 })).toEqual(['card:2']); // its top half shows, and is white on white
+  expect(found([{ ...text, fg: [130, 130, 130, 1] }], { keyboard: 2 })).toEqual([]); // a text under it is not judged for contrast
+  expect(found([row, tab], { keyboard: 10 })).toEqual([]); // nor are two controls overlapping beneath it
+  // A flex item past its container's side is an overflow of its own (tip-splitter's fifth radio), named for the row it spills.
+  const spill = judge(obs([{ id: 9, x: 24, y: 2, w: 20, h: 16, control: 'radio', sized: 'platform', spill: { by: 8, dx: 6 } }], { viewport: { w: 60, h: 20 } }), png);
+  expect(spill.map((f) => [f.kind, f.id, f.detail.past, f.detail.of])).toEqual([['overflow', 9, 6, 8]]);
+});
+
+// LLP 1116.009 D5: the judge names the cause: the written width, the padding, and the parent it runs past.
+test('a padded percentage width past its parent is an overflow that names its cause and its repair', () => {
+  const png = { width: 40, height: 20, data: new Uint8Array(40 * 20 * 4).fill(255) };
+  const padded = { id: 4, x: 0, y: 2, w: 54, h: 16, padded: { by: 3, dx: 14, pad: 14, width: '100%' } };
+  const f = judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [padded] }, png);
+  expect(f.map((x) => [x.kind, x.id, x.detail.past, x.detail.of, x.detail.pad, x.detail.written])).toEqual([['overflow', 4, 14, 3, 14, '100%']]);
+  expect(f[0].hint).toContain('border-box');
+  // iOS is told no width (the kernel sized the box): the finding names the padding and the parent, and says no width.
+  const ios = judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 44, items: [{ id: 5, x: 0, y: 2, w: 54, h: 16, padded: { by: 3, dx: 14, pad: 14 } }] }, png, { host: 'ios' });
+  expect(ios.map((x) => [x.kind, x.detail.past, x.detail.of, x.detail.pad, x.detail.written, x.detail.unit])).toEqual([['overflow', 14, 3, 14, undefined, 'pt']]);
+  // The viewport's own overflow is still there beside it, not instead: the cause is named first, once.
+  expect(judge({ viewport: { w: 40, h: 20 }, scheme: 'light', target: 24, items: [{ ...padded, outX: 14 }] }, png)).toHaveLength(1);
 });
 
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {
@@ -184,6 +314,14 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(l.hidden).toEqual(['covered']); // its label "Under" is the button's finding, not a second one
     expect(l.a).toEqual(['overlap']);
     expect(l.wide).toEqual(['overflow']);
+    expect(l['share-b']).toEqual(['overflow']); // a flex item wider than its row, within the viewport (LLP 1116.007 D3)
+    expect(l['share-a']).toBeUndefined();
+    // The same row of platform buttons (tip-splitter's radios): in the neutral look a button keeps to its share of the
+    // row, so the longer title is cut at its button's edge (LLP 1116 D1's look let the button spill past the row).
+    expect(l['opt-b']).toEqual(['clipped']);
+    expect(l['opt-a']).toBeUndefined();
+    // The page says the look it draws, which is every build's (LLP 1115.000 D4 part B): its roles are judged in that column.
+    expect((await session.op({ op: 'check' })).look).toBe('neutral');
     expect(l.faint).toEqual(['contrast']);
     expect(l.card).toEqual(['card']);
     expect(l.tiny).toEqual(['target']);
@@ -200,11 +338,32 @@ test('a page with every finding class has each found, by testId, in the scheme i
     // The scheme is put back: the page draws light again.
     expect((await session.op({ op: 'check' })).scheme).toBe('light');
   } finally { await session.close(); }
+  const wide = await open({ host: 'web', url: await built('padded', PADDED), size: [390, 844] });
+  try {
+    const run = (await checkOp(wide, ['light'])).check[0];
+    expect(kinds(run)).toEqual({ card: ['overflow'] });
+    expect(run.findings[0].detail).toMatchObject({ past: 48, pad: 48, written: '100%' });
+    // At every width the parent gives it (the box has no `max-width` to keep it inside a wide window's), and nothing else is found.
+    for (const width of [320, 360, 1280]) {
+      await wide.resize(width, 844); await wide.clock('settle');
+      const at = (await checkOp(wide, ['both'])).check;
+      expect(at.map((r) => kinds(r))).toEqual([{ card: ['overflow'] }, { card: ['overflow'] }]);
+      expect(at[0].findings[0].detail.past).toBe(48);
+    }
+  } finally { await wide.close(); }
   const tall = await open({ host: 'web', url: await built('tall', TALL) });
   try {
     const t = kinds((await checkOp(tall, [])).check[0]);
     expect(t).toEqual({ cut: ['clipped'], unreachable: ['covered'] });
   } finally { await tall.close(); }
+  // A row under a bar is covered only when no scroller moves it clear (LLP 1116.012 D3): the fold row of a list above an in-flow bar, or
+  // under a bar laid over it with the range to scroll by, is not; the last row of a list that scrolls too little, and the first row
+  // under a header at the start of its list, are.
+  const folds = await open({ host: 'web', url: await built('folds', FOLDS), size: [390, 1300] });
+  try {
+    const run = (await checkOp(folds, ['light'])).check[0];
+    expect(kinds(run)).toEqual({ 'c-5': ['covered'], 'd-0': ['covered'] });
+  } finally { await folds.close(); }
   const clean = await open({ host: 'web', url: await built('clean', CLEAN) });
   try {
     const r = await checkOp(clean, ['both']);
@@ -258,5 +417,9 @@ test('a screenshot shows a transition where it ends, the clock unmoved; a film\'
     expect(frame(0)[0]).toBeGreaterThan(240); // still red at the clock it starts on
     expect(frame(1)[0]).toBeLessThan(200); // half way
     expect(frame(2)[2]).toBeGreaterThan(240); // blue where it ends
+    // LLP 1116.007 D3.6: after `resize` a screenshot is the new viewport, in its reply as in its pixels.
+    await session.resize(390, 844);
+    const small = await session.screenshot(join(dir, 'small.png')), png = decodePng(readFileSync(join(dir, 'small.png')));
+    expect([small.w, small.h, png.width, png.height]).toEqual([390, 844, 390, 844]);
   } finally { await session.close(); }
 }, 900000);

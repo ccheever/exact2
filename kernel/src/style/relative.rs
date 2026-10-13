@@ -1,5 +1,6 @@
-//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1), and a
-//! platform text style as a `font-size` (`-exact-title1`, LLP 1115 D3).
+//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1), a
+//! platform text style as a `font-size` (`-exact-title1`, LLP 1115 D3), and
+//! the hairline, one device pixel (`-exact-hairline`, LLP 1115.000 D10.3).
 //!
 //! A row authored as `1.5rem` or `0.8em` keeps what was written here, beside
 //! the row, and the row itself always holds the pixels it resolves to — what
@@ -13,8 +14,13 @@
 //! computed `font-size` — and, for `font-size` itself, against the parent's,
 //! as CSS says. `px` never scales. A text style is the platform's size for it
 //! at the root font size (the platform's body size): the schema's ramp,
-//! [`text_style_size`].
+//! [`text_style_size`]. A hairline is 1 px over the display's scale, which
+//! the host sets as it sets the root font size
+//! ([`crate::Kernel::set_display_scale`]) and which is 1 until it does: a
+//! layout input, so a hairline border is one device pixel in layout and in
+//! paint on every host, where an authored `0.5` is one only at 2x.
 //! @ref LLP 1069.000 D3
+//! @ref LLP 1115.000 D10.3
 
 use crate::error::StyleValueError;
 use crate::generated::{StyleCodec, StyleId, StyleProps};
@@ -33,23 +39,49 @@ pub enum Unit {
     /// A platform text style's size at the root font size, by its id in
     /// [`crate::TEXT_STYLES`]; only a `font-size` is one.
     TextStyle(u8),
+    /// One device pixel (`-exact-hairline`): 1 px over the display's scale.
+    Hairline,
 }
 
 impl Unit {
     /// The pixels one of this unit is, given the root's and the
-    /// reference (the parent's or the element's) font size.
-    pub fn basis(self, root: f32, reference: f32) -> f32 {
+    /// reference (the parent's or the element's) font size, and the pixels
+    /// one device pixel is ([`device_pixel`]).
+    pub fn basis(self, root: f32, reference: f32, device: f32) -> f32 {
         match self {
             Unit::Rem => root,
             Unit::Em => reference,
             Unit::TextStyle(id) => text_style_size(id, root),
+            Unit::Hairline => device,
         }
     }
 }
 
+/// The pixels one device pixel is on a display of `scale` device pixels a
+/// px: what a hairline resolves to.
+pub fn device_pixel(scale: f32) -> f32 {
+    1.0 / scale
+}
+
+/// A named length's unit by its written name, `-exact-<name>` of the
+/// schema's `lengths`, ASCII case-insensitively, as CSS matches keywords.
+/// @ref LLP 1115.000 D10.3
+pub fn named_length(name: &str) -> Option<Unit> {
+    let name = name.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
+    let exact = name
+        .get(..7)
+        .filter(|p| p.eq_ignore_ascii_case("-exact-"))
+        .map(|_| &name[7..])?;
+    crate::NAMED_LENGTHS
+        .iter()
+        .find(|n| exact.eq_ignore_ascii_case(n))
+        .map(|_| Unit::Hairline)
+}
+
 /// A text style's id by its written name: `-exact-<name>` or its WebKit
-/// alias, ASCII case-insensitively, as CSS matches keywords.
-/// @ref LLP 1115 D3
+/// alias, ASCII case-insensitively, as CSS matches keywords. An Exact role's
+/// trailing number may follow a hyphen: `-exact-title-1` is `-exact-title1`.
+/// @ref LLP 1115 D3, LLP 1116.007 D3.2
 pub fn text_style(name: &str) -> Option<u8> {
     let name = name.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
     let exact = name
@@ -59,10 +91,22 @@ pub fn text_style(name: &str) -> Option<u8> {
     crate::TEXT_STYLES
         .iter()
         .position(|s| {
-            exact.is_some_and(|n| n.eq_ignore_ascii_case(s.name))
+            exact.is_some_and(|n| same_role(n, s.name))
                 || (!s.alias.is_empty() && name.eq_ignore_ascii_case(s.alias))
         })
         .map(|i| i as u8)
+}
+
+/// Whether `written` is the role `name`, or `name` with a hyphen before its
+/// last digit (`title-1` for `title1`).
+fn same_role(written: &str, name: &str) -> bool {
+    written.eq_ignore_ascii_case(name)
+        || written.rsplit_once('-').is_some_and(|(stem, number)| {
+            number.len() == 1
+                && name.len() == stem.len() + 1
+                && name.ends_with(number)
+                && name.as_bytes()[..stem.len()].eq_ignore_ascii_case(stem.as_bytes())
+        })
 }
 
 /// The size of text style `id` where the root font size is `root`: the
@@ -149,6 +193,7 @@ impl Relative {
                 Unit::Rem => out.push(0),
                 Unit::Em => out.push(1),
                 Unit::TextStyle(id) => out.extend_from_slice(&[2, *id]),
+                Unit::Hairline => out.push(3),
             }
             out.extend_from_slice(&n.to_bits().to_le_bytes());
         }
@@ -191,6 +236,9 @@ pub fn parse(text: &str) -> Option<(Unit, f32)> {
     if let Some(id) = text_style(text) {
         return Some((Unit::TextStyle(id), 1.0));
     }
+    if let Some(unit) = named_length(text) {
+        return Some((unit, 1.0));
+    }
     let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
     let suffix = t.get(t.len().saturating_sub(3)..)?;
     let (unit, number) = if suffix.eq_ignore_ascii_case("rem") {
@@ -221,6 +269,12 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
         return Err(StyleValueError::WrongKind {
             style: id,
             expected: "a length: a text style is a `font-size`",
+        });
+    }
+    if unit == Unit::Hairline && matches!(id, StyleId::FontSize | StyleId::LineHeight) {
+        return Err(StyleValueError::WrongKind {
+            style: id,
+            expected: "a size of text: `-exact-hairline` is a width",
         });
     }
     if !admits_relative(id) {
@@ -285,7 +339,7 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
         let dashed = text
             .trim_start_matches(['\t', '\n', '\u{c}', '\r', ' '])
             .starts_with('-');
-        if dashed && text_style(text).is_some() {
+        if dashed && (text_style(text).is_some() || named_length(text).is_some()) {
             let relative = of(id, value)?;
             return Ok((relative, relative.map(|r| provisional(id, r))));
         }
@@ -312,7 +366,7 @@ pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength,
 /// What the row holds until the kernel resolves it: the length at CSS's
 /// initial font size, in the form the row's codec reads as pixels.
 pub(crate) fn provisional(id: StyleId, (unit, n): (Unit, f32)) -> StyleValue<'static> {
-    pixels(id, n * unit.basis(MEDIUM, MEDIUM))
+    pixels(id, n * unit.basis(MEDIUM, MEDIUM, 1.0))
 }
 
 fn pixels(id: StyleId, px: f32) -> StyleValue<'static> {
@@ -454,6 +508,30 @@ mod tests {
             "an Exact role is written -exact-"
         );
         assert_eq!(text_style("-exact-title9"), None);
+        // LLP 1116.007 D3.2: round 9's builders hyphenated the number.
+        for (written, name) in [
+            ("-exact-title-1", "-exact-title1"),
+            ("-exact-title-2", "-exact-title2"),
+            ("-exact-title-3", "-exact-title3"),
+            ("-exact-caption-1", "-exact-caption1"),
+            (" -EXACT-Caption-2 ", "-exact-caption2"),
+        ] {
+            assert_eq!(text_style(written), text_style(name), "{written}");
+            assert!(text_style(written).is_some(), "{written}");
+        }
+        for refused in [
+            "-exact-title-4",
+            "-exact-body-1",
+            "-exact-title--1",
+            "-exact--title1",
+            "-exact-large-title-1",
+            "-exact-title-12",
+            "-exact-large-1itle",
+            "-apple-system-title-1",
+        ] {
+            assert_eq!(text_style(refused), None, "{refused}");
+        }
+        assert_eq!(text_style("-exact-large-title"), Some(0));
         assert_eq!(parse("-exact-title1"), Some((Unit::TextStyle(title1), 1.0)));
         // iOS at the default Dynamic Type (17), the Mac (13), the web (16).
         assert_eq!(text_style_size(title1, 17.0), 28.0);

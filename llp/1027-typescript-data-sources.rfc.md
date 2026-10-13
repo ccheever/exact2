@@ -553,6 +553,23 @@ the bake's. Only an `else` row is not asked. The module at launch is not the
 module the bake ran, and the web asks it at launch. Feed's no-argument
 `explore()` stayed empty on macOS while the web filled it (LLP 1048.003 D6).
 
+**A store holding secrets passes the build-time answer over (approved
+2026-10-10 via lead).** A store reader's compiled answer is the bake's,
+from an empty store: signed out by construction, and indistinguishable to
+the app from a real answer. At a boot whose source is not ready and whose
+store opened holding a granted secret, that answer is known not to describe
+this device, so a store reader with no kept answer to show (none, or one refused)
+shows its declared `else` placeholder instead, pending, and `data_ready`
+asks it as any placeholder (the Bluesky clone's signed-in launch flashed
+`myFeeds`' signed-out empty list). Without an `else` the build-time answer
+stands, as before; so does it at a store with no granted secret, a fresh
+install's. The runner's own `exact.kept.*` and `exact.state.*` entries are not
+secrets. The launch's snapshot decides, not a write before readiness: the
+store's answer then is the source's to give at `data_ready`. The
+journal says `<resource> shows its placeholder until its source answers:
+the store holds secrets its build-time answer did not see`. The Rust runner
+does this; the web JS target's `rt.js` does not yet (QUEUE).
+
 The alternative — create the engine before boot, since it is 0.3 ms —
 was considered and not taken, not because the number is large but because the rule
 is a count, not a timer, and the reason it is a count is that the

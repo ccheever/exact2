@@ -207,6 +207,22 @@ Recursive removal drains at most 256 names per directory pass on Unix and
 Windows, so the listing-result cap does not refuse a write-only removal. Unix
 removal keeps raw directory-entry bytes and fails a pass that removes nothing.
 
+### 13. asynchronous fetch
+
+For exact2 LLP 1120 D1/D2 (2026-10-12): `stdlib/fetch_async.rs` adds a
+transport that starts an exchange and reports it through a `Sink` (`head`,
+`data`, `end`, `metrics`; `Flow::{Continue, Stop, Skip}`), an `Upload` body
+shared across hops and lent without a copy, and `FetchTask`, `fetch_stream`'s
+redirect loop as a state machine over it. The grant check and the redirect
+rules are now `admit_hop` and `redirect_step` in `fetch.rs`, which the
+blocking loop calls too, so the two cannot disagree; the blocking path's
+behaviour is unchanged. `transport/darwin_async.rs` and `darwin_task.mm` are
+the Apple transport: one ephemeral `NSURLSession` per lane, created on first
+use, tasks with their own delegates (redirects refused), callbacks on one
+serial queue, metrics with the protocol and the connection's endpoints.
+`fetch_async_tests.rs` drives `FetchTask` by hand; `darwin_async_tests.rs`
+runs the lane against local servers.
+
 ## Split-crate integration adaptations
 
 `hermes-lean-sys/{build.rs,src/lib.rs}` exports the paired `HERMESC_PATH` and

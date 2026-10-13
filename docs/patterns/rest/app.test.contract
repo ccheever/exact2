@@ -1,5 +1,5 @@
-// Run by `verify` or `bun exact.mjs api-test web`: the app's server, empty, for the whole run.
-test "an item is added for everyone, and another person's arrives on the next poll; a refusal and a lost server are said in words, in place; a locked one can't be deleted"
+// Run by `test` or `verify`: the app's server, empty, for the whole run.
+test "an item is added for everyone, and another person's arrives on the next poll; a refusal and a lost server are said in words, in place; a locked one can't be deleted; who is signed in is kept"
   expect text "items-empty" == "Nothing yet. Tap + to add the first item."
   tap "add-item"
   clock settle
@@ -59,3 +59,10 @@ test "an item is added for everyone, and another person's arrives on the next po
   clock data
   expect state lib.items.0 .title == "Bread"
   expect state lib.items.1 .title == "Eggs"
+  back
+  clock settle
+  expect state persona == "Ada"
+  tap "persona-Grace"
+  expect state persona == "Grace"
+  reload
+  expect state persona == "Grace"

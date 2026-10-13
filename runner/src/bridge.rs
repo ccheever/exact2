@@ -9,6 +9,100 @@
 
 use exact_kernel::{PropId, PropValue, StyleId, StyleProps, StyleValue, StyleValueError};
 use exact_plan::Value;
+use std::collections::HashMap;
+
+/// Session-scoped CSS family lists, indexed after the plan's compiled stacks.
+#[derive(Debug, Default, Clone)]
+pub struct RuntimeFonts {
+    names: Vec<String>,
+    ids: HashMap<String, u16>,
+}
+
+impl RuntimeFonts {
+    /// Intern a CSS family list, returning its kernel stack id.
+    pub fn intern(&mut self, name: &str, compiled: usize) -> Option<u16> {
+        if let Some(id) = self.ids.get(name) {
+            return Some(*id);
+        }
+        if runtime_family_members(name).is_empty() {
+            return None;
+        }
+        let id = u16::try_from(compiled.checked_add(self.names.len())?).ok()?;
+        self.names.push(name.to_string());
+        self.ids.insert(name.to_string(), id);
+        Some(id)
+    }
+
+    /// Runtime lists in id order.
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+}
+
+/// One CSS family name; quoting makes a generic keyword an installed name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeFamilyMember {
+    /// The family name without CSS quotes.
+    pub name: String,
+    /// Whether the author quoted this member.
+    pub quoted: bool,
+}
+
+/// Members of a runtime CSS family list. A malformed list has no members
+/// and leaves the binding unset, as an invalid computed CSS value does.
+pub fn runtime_family_members(list: &str) -> Vec<RuntimeFamilyMember> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    for (i, c) in list.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+        } else if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+        } else if c == '\'' || c == '"' {
+            quote = Some(c);
+        } else if c == ',' {
+            out.push(&list[start..i]);
+            start = i + 1;
+        }
+    }
+    out.push(&list[start..]);
+    if quote.is_some() || escaped || out.len() > 64 {
+        return Vec::new();
+    }
+    out.into_iter()
+        .map(|part| {
+            let part = part.trim();
+            let quoted = part.len() >= 2
+                && ((part.starts_with('"') && part.ends_with('"'))
+                    || (part.starts_with('\'') && part.ends_with('\'')));
+            let name = if quoted {
+                &part[1..part.len() - 1]
+            } else if part.contains(['"', '\'']) {
+                return None;
+            } else {
+                part
+            };
+            // Unquoted, a member is CSS identifiers, by the rule a compiled
+            // literal meets: a browser refuses the whole declaration otherwise.
+            if name.is_empty() || (!quoted && !exact_plan::is_css_family_name(name)) {
+                return None;
+            }
+            Some(RuntimeFamilyMember {
+                name: name.to_string(),
+                quoted,
+            })
+        })
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default()
+}
 
 /// Why a binding's value could not become a kernel row.
 #[allow(missing_docs)]
@@ -53,10 +147,18 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
 
 /// Whether `value` is a CSS-wide keyword that leaves row `id` unset
 /// ([`StyleValue::unsets`]): the row is cleared, as a class choice's
-/// `none` is, and nothing is refused.
+/// `none` is, and nothing is refused. On `font-family`, `revert` and
+/// `revert-layer` are `unset` too, as for an author style the user agent
+/// has no rule for; `initial` is the row's initial family ([`set_style`]).
 pub fn unsets(id: u16, value: &Value) -> bool {
     value.as_str().is_some_and(|text| {
-        StyleId::from_bit(id as u32).is_some_and(|style| StyleValue::text_unsets(text, style))
+        StyleId::from_bit(id as u32).is_some_and(|style| {
+            StyleValue::text_unsets(text, style)
+                || (style == StyleId::FontFamily
+                    && ["revert", "revert-layer"]
+                        .iter()
+                        .any(|keyword| text.trim().eq_ignore_ascii_case(keyword)))
+        })
     })
 }
 
@@ -110,7 +212,39 @@ pub fn set_binding_style(
     value: &Value,
     plan: &exact_plan::Plan,
 ) -> Result<StyleId, BridgeError> {
+    // @ref LLP 1115.002 D6 — a metric's name is the compiler's, in a sheet
+    // it writes: a row its author wrote never reads one, whatever built
+    // the value (the compiler refuses the literal).
+    if binding.written
+        && value
+            .as_str()
+            .is_some_and(|text| exact_kernel::style::metrics::named(text).is_some())
+    {
+        let style =
+            StyleId::from_bit(binding.id as u32).ok_or(BridgeError::UnknownStyle(binding.id))?;
+        return Err(BridgeError::StyleKind {
+            style,
+            value: value.clone(),
+        });
+    }
     let style = set_plan_style(patch, binding.id, value, plan)?;
+    set_written(patch, binding, style);
+    Ok(style)
+}
+
+/// A binding whose runtime font stack id has been interned by this session.
+pub fn set_runtime_font_style(
+    patch: &mut StyleProps,
+    binding: &exact_plan::BindingsRow,
+    id: u16,
+    stacks: usize,
+) -> Result<StyleId, BridgeError> {
+    let style = set_style(patch, binding.id, &Value::Number(f64::from(id)), stacks)?;
+    set_written(patch, binding, style);
+    Ok(style)
+}
+
+fn set_written(patch: &mut StyleProps, binding: &exact_plan::BindingsRow, style: StyleId) {
     // Both ways: a later binding for the same row is the winner, and an
     // implied winner takes an earlier written bit off (a compiled plan
     // has one binding a row; a built one may not).
@@ -119,7 +253,6 @@ pub fn set_binding_style(
     } else {
         patch.written.clear(style);
     }
-    Ok(style)
 }
 
 /// Set style row `id` on `patch` from `value`.
@@ -131,6 +264,14 @@ pub fn set_style(
 ) -> Result<StyleId, BridgeError> {
     let style = StyleId::from_bit(id as u32).ok_or(BridgeError::UnknownStyle(id))?;
     if style == StyleId::FontFamily {
+        // CSS's `initial` is the row's initial value, not the parent's.
+        if value
+            .as_str()
+            .is_some_and(|text| text.trim().eq_ignore_ascii_case("initial"))
+        {
+            let initial = StyleProps::default().font_family;
+            return set_style(patch, id, &Value::Number(f64::from(initial)), stacks);
+        }
         let index = match value {
             Value::Number(n) if n.is_finite() && n.fract() == 0.0 && *n >= 0.0 => *n as u32,
             _ => {
@@ -229,6 +370,96 @@ mod tests {
     use super::*;
 
     #[test]
+    fn runtime_css_family_members_keep_quoted_commas_and_order() {
+        assert_eq!(
+            runtime_family_members("Missing, 'A, B', ui-monospace"),
+            [
+                RuntimeFamilyMember {
+                    name: "Missing".into(),
+                    quoted: false
+                },
+                RuntimeFamilyMember {
+                    name: "A, B".into(),
+                    quoted: true
+                },
+                RuntimeFamilyMember {
+                    name: "ui-monospace".into(),
+                    quoted: false
+                },
+            ]
+        );
+        assert!(runtime_family_members("'unfinished, serif").is_empty());
+        assert!(runtime_family_members("serif,,monospace").is_empty());
+    }
+
+    #[test]
+    fn invalid_runtime_lists_do_not_intern() {
+        let mut fonts = RuntimeFonts::default();
+        for value in [
+            "inherit",
+            "initial",
+            "unset",
+            "revert",
+            "revert-layer",
+            "serif,,monospace",
+            "'unfinished",
+            // Not CSS identifiers: the browser refuses the declaration.
+            "Arial;",
+            "1Arial",
+            "Arial 2",
+            "Arial!",
+            "Foo/Bar",
+            "-1x",
+            "Arial, 1x",
+            "Arial, initial",
+            "default",
+            "serif Foo",
+            "Monospace Foo",
+        ] {
+            assert_eq!(fonts.intern(value, 8), None, "{value}");
+        }
+        assert!(fonts.names().is_empty());
+        assert_eq!(fonts.intern("'inherit', Arial", 8), Some(8));
+        for value in [
+            "'Arial;'",
+            "Helvetica Neue",
+            "Helvetica\tNeue",
+            "-x",
+            "--x",
+            "_x",
+            "a-b_c9",
+            "\\31 x",
+            "Foo default",
+            "inherit Foo",
+            "Foo serif",
+            "emoji Foo",
+            "ui-monospace Foo",
+            "Ünï",
+        ] {
+            assert!(fonts.intern(value, 8).is_some(), "{value}");
+        }
+    }
+
+    /// CSS-wide keywords: `initial` is the row's initial value, the
+    /// kernel's family 0, not the parent's; `revert` on an author style,
+    /// with no user-agent rule for the row, is `unset`, as `inherit` is.
+    #[test]
+    fn initial_is_the_kernel_family_and_revert_inherits() {
+        let family = StyleId::FontFamily as u16;
+        for keyword in ["initial", "INITIAL", " initial "] {
+            let mut style = StyleProps::default();
+            set_style(&mut style, family, &Value::Number(4.0), 8).unwrap();
+            set_style(&mut style, family, &Value::str(keyword), 8).unwrap();
+            assert!(style.mask.has(StyleId::FontFamily), "{keyword}");
+            assert_eq!(style.font_family, 0, "{keyword}");
+        }
+        for keyword in ["inherit", "unset", "revert", "Revert-Layer"] {
+            assert!(unsets(family, &Value::str(keyword)), "{keyword}");
+        }
+        assert!(!unsets(family, &Value::str("initial")));
+    }
+
+    #[test]
     fn a_platform_color_is_admitted_only_as_a_plan_literal() {
         let literal = "-exact-platform-color(ios bridgeTestColor, #010203)";
         let mut plan = exact_plan::Plan::default();
@@ -249,6 +480,31 @@ mod tests {
             );
         }
         assert!(set_plan_style(&mut style, color, &Value::str("#fff"), &plan).is_ok());
+    }
+
+    /// LLP 1115.002 D6: a metric's name is the compiler's. A row its author
+    /// wrote never reads one, whatever built the value; a row of a sheet
+    /// the compiler wrote holds the metric's value in this process's column
+    /// (the web's, until a host says its platform).
+    #[test]
+    fn a_metric_is_read_only_on_a_row_the_compiler_wrote() {
+        let plan = exact_plan::Plan::default();
+        let row = |written| exact_plan::BindingsRow {
+            kind: exact_plan::BindingKind::Style,
+            id: StyleId::MinHeight as u16,
+            expr: Default::default(),
+            written,
+        };
+        let name = Value::str("-exact-grouped-row-min-height");
+        let mut style = StyleProps::default();
+        assert!(matches!(
+            set_binding_style(&mut style, &row(true), &name, &plan),
+            Err(BridgeError::StyleKind { .. })
+        ));
+        assert!(!style.mask.has(StyleId::MinHeight));
+        set_binding_style(&mut style, &row(false), &name, &plan).unwrap();
+        assert_eq!(style.min_height, exact_kernel::Dimension::Points(52.0));
+        assert!(!style.written.has(StyleId::MinHeight), "the platform's");
     }
 
     /// LLP 1115.000 D2: where two bindings set one row the node has the

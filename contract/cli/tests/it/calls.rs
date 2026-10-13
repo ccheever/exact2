@@ -26,6 +26,21 @@ impl DataSource for NoData {
 /// The declarations `items()` needs, ahead of a test's root.
 const ITEMS: &str = "shape Item\n  id: string\n\n";
 
+#[test]
+fn relaunch_is_a_host_command_without_arguments() {
+    let src = "component App\n  action restart\n    relaunch()\n  view\n    button press=restart\n      text \"Restart\"\n";
+    let mut r = boot(src);
+    r.act("restart", vec![]).unwrap();
+    let commands = r.take_commands();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].name, "relaunch");
+    assert!(commands[0].args.is_empty());
+    let error = contract::compile(&src.replace("relaunch()", "relaunch(1)"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("takes no arguments"), "{error}");
+}
+
 fn boot(src: &str) -> Runner<NoData> {
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     Runner::boot(
@@ -638,29 +653,56 @@ component Row
 
 #[test]
 fn an_untyped_helper_is_typed_by_its_calls() {
-    let src = r#"component App
+    for body in [
+        r#"    if k == "ArrowDown"
+      move(1, 0)
+    if k == "ArrowRight"
+      move(0, 1)"#,
+        r#"    if k == ""
+      let ignored = k
+    else
+      let dr = k == "ArrowDown" ? 1 : 0
+      let dc = k == "ArrowRight" ? 1 : 0
+      move(dr, dc)"#,
+        r#"    match some(k)
+      case some(key)
+        if key != ""
+          let dr = key == "ArrowDown" ? 1 : 0
+          let dc = key == "ArrowRight" ? 1 : 0
+          move(dr, dc)
+      case none
+        let ignored = k"#,
+        r#"    match (k == "" ? some(k) : none)
+      case some(key)
+        let ignored = key
+      case none
+        let dr = k == "ArrowDown" ? 1 : 0
+        let dc = k == "ArrowRight" ? 1 : 0
+        move(dr, dc)"#,
+    ] {
+        let src = format!(
+            r#"component App
   state r = 0
   state c = 0
   action move(dr, dc)
     r = r + dr
     c = c + dc
   action clipKey(k: string)
-    if k == "ArrowDown"
-      move(1, 0)
-    if k == "ArrowRight"
-      move(0, 1)
+{body}
   view
     column
       button press=clipKey("ArrowDown") testId="down"
         text "down"
       button press=clipKey("ArrowRight") testId="right"
         text "right"
-      text `${r} ${c}` testId="at"
-"#;
-    let mut r = boot(src);
-    press(&mut r, "down");
-    press(&mut r, "right");
-    assert_eq!(text_of(&r, "at"), "1 1");
+      text `${{r}} ${{c}}` testId="at"
+"#
+        );
+        let mut r = boot(&src);
+        press(&mut r, "down");
+        press(&mut r, "right");
+        assert_eq!(text_of(&r, "at"), "1 1", "{body}");
+    }
 }
 
 #[test]

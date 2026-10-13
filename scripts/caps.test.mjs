@@ -108,6 +108,16 @@ const cases = [
     null],
   ['vendored source is not held to the line cap',
     { 'rules/RULES.md': GOOD_RULES, 'vendor/brotli/enc.c': 'x\n'.repeat(9000), 'src/ok.js': 'const a = 1;\n' }, null],
+  ['a recipe over 3,072 bytes fails',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': 'x'.repeat(3073) }, 'cap:recipe'],
+  ['a recipe of exactly 3,072 bytes passes',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': 'x'.repeat(3072) }, null],
+  ['the recipe cap counts bytes, not characters',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': '’'.repeat(1025) }, 'cap:recipe'],
+  ['navigation-stack and rest-backend may run to 5,120 bytes',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/navigation-stack.md': 'x'.repeat(5120), 'docs/recipes/rest-backend.md': 'x'.repeat(5120) }, null],
+  ['navigation-stack over 5,120 bytes fails',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/navigation-stack.md': 'x'.repeat(5121) }, 'cap:recipe'],
   ['a clean repository passes', { 'rules/RULES.md': GOOD_RULES, 'src/ok.js': 'const a = 1;\n' }, null],
 ];
 

@@ -543,6 +543,29 @@ final class PressFocusIOSTests: XCTestCase {
         XCTAssertTrue(button.isFirstResponder)
     }
 
+    func testCaptureOnlyWrapperIsNoStopAndHearsTheChildBeforeItsKey() throws {
+        let p = presenter(node(1, "view", handlers: ["keycapture"], w: 400, h: 400)
+                          + node(2, "button", handlers: ["keycapture", "key"])
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let wrapper = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[2])
+        XCTAssertFalse(wrapper.canBecomeFirstResponder)
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : "bubble")") }
+        XCTAssertFalse(p.keyDown(at: button, "a"))
+        XCTAssertEqual(heard, ["1 capture", "2 capture", "2 bubble"])
+        heard = []
+        p.onKey = { id, press in
+            heard.append("\(id) \(press.capture ? "capture" : "bubble")")
+            if id == 1 { p.propagationStopped = true }
+        }
+        XCTAssertFalse(p.keyDown(at: button, "a"))
+        XCTAssertEqual(heard, ["1 capture"])
+        p.onKey = { id, press in
+            if id == 1 && press.capture { p.defaultPrevented = true }
+        }
+        XCTAssertTrue(p.keyDown(at: button, "a"))
+    }
+
     /// A press ends only text editing, as a click blurs an input: any other
     /// focus stays where it is, as UIKit's buttons leave the first responder.
     /// A button focused by `focus(id)` keeps it through a finger's tap on it,

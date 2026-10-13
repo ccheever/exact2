@@ -61,8 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
-    /// A sheet is a route in the window here, with no native presentation
-    /// to wait for (the iOS host's `awaitModalTransitions`).
+    /// A modal route's sheet has arrived or left by the time the input
+    /// that asked for it returns (AppKit's `beginSheet` and `endSheet` do
+    /// not return before), so there is nothing to wait for (the iOS host's
+    /// `awaitModalTransitions`).
     @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
 
     /// AppKit animates nothing here that a seek does not move, but for a
@@ -91,7 +93,8 @@ extension Agent {
     func back() -> [String: Any] {
         guard contact == nil else { return ["error": "release the held contact before going back"] }
         if presenter.alerts.observation != nil { return backReply(("dialog", presenter.alerts.key("Escape") ? "" : "the alert has no cancel for Escape")) }
-        if let dialog = presenter.dialogs.active {
+        // A modal route in its sheet goes back as its stack does (`agentBack`).
+        if let dialog = presenter.dialogs.active, !presenter.dialogs.routeActive {
             guard dialog.props["closedby"] != "none" else { return backReply(("dialog", "its closedby is \"none\"")) }
             presenter.dialogs.close(dialog)
             return backReply(("dialog", ""))
@@ -131,7 +134,7 @@ extension Agent {
     func stateSections() -> [String: Any] {
         // `keyboardNavigation`: the mode Tab is in (LLP 1115.000 D7.2), the drive's (`prefer keyboard-navigation`), never the machine's.
         var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull(), "keyboardNavigation": KeyboardNavigation.on]
-        let responder = presenter.viewport.window?.firstResponder
+        let responder = presenter.focusResponder // a sheet's window or a popover's, when the focus is there
         if let node = presenter.views.values.filter({ n in
             session.natives.ownsFocus(n) || presenter.keyTarget(responder) === n
         }).min(by: { $0.id < $1.id }) {
@@ -139,12 +142,13 @@ extension Agent {
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
             focus["responder"] = responder.map { String(describing: Swift.type(of: $0)) } ?? NSNull()
         }
+        if let run = responder as? InlineKeyView { focus["logical"] = Int(run.id) }
         let keyboard: [String: Any] = ["visible": false, "overlap": 0, "policy": "resizes-visual", "interactive": false]
         var navigation: [String: Any] = ["route": NSNull(), "stack": [] as [String], "presentation": NSNull(), "closedby": NSNull(),
                                          "transition": ["interactive": false, "phase": "idle"]]
         if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
             let key = container.props["navigationKey"] ?? ""
-            let routes = container.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["navigationKey"] != nil }
+            let routes = presenter.blocks.authored(NavigationTabs.routes(in: container), in: container.container) // one in its sheet too
             let keys = routes.map { $0.props["navigationKey"] ?? "" }
             navigation["route"] = key
             if let range = NavigationRules.stack(routeKeys: keys, selected: key) {
@@ -156,15 +160,18 @@ extension Agent {
         }
         // The platform's Back (LLP 1115.000 D5.1): how it goes now, or null.
         navigation["back"] = presenter.navigation.backObservation
+        // A modal route's presentation: AppKit's sheet, or painted in the window (LLP 1115.002 D7.4).
+        navigation["sheet"] = presenter.dialogs.routeObservation ?? NSNull()
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
-        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
+        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary,
+                                     "sidebar": presenter.sidebar.summary]
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
-        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "tables": presenter.tables.summary,
                 "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
@@ -173,9 +180,12 @@ extension Agent {
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     package func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
-        let bounds = region ?? v.bounds
+        Self.box(region ?? v.bounds, of: v, viewport: presenter.viewport)
+    }
+
+    static func box(_ bounds: CGRect, of v: NSView, viewport: NSScrollView) -> NSRect {
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
-        let clip = presenter.viewport.contentView
+        let clip = viewport.contentView
         // Where it is seen (`drawnRect`): through the placement of a child a
         // canvas's surface placed (LLP 1014 D5), not the kernel's frame, and
         // through every transformed box on the way (LLP 1077 D8), as
@@ -184,7 +194,8 @@ extension Agent {
             let r = n.drawnRect(bounds, in: clip)
             return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
         }
-        let r = v.convert(bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
+        // A node in a sheet's window or a popover's: where a person sees it over the page.
+        let r = clip.convertAcross(bounds.applying(v.layer?.affineTransform() ?? .identity), from: v)
         return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
     }
 
@@ -238,6 +249,8 @@ extension Agent {
             }
             nodes.append(n)
         }
+        nodes.append(contentsOf: inlineLayout())
+        nodes.sort { ($0["id"] as? Int ?? 0) < ($1["id"] as? Int ?? 0) }
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
@@ -273,11 +286,12 @@ extension Agent {
         }
         let clipView = presenter.viewport.contentView
         let rect = { (r: NSRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
-        let b = box(host)
-        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(host.bounds.width), "h": Agent.r2(host.bounds.height)],
+        let local = presenter.inlineText(UInt32(id)).map { host.inlineBounds($0) ?? .zero } ?? host.bounds
+        let b = presenter.inlineFrame(UInt32(id)) ?? box(host, region: local)
+        var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(local.width), "h": Agent.r2(local.height)],
                                     "capture": ["scale": Agent.r2(host.window?.backingScaleFactor ?? 1)]]
         if let w = host.window, let content = w.contentView {
-            let inWindow = host.convert(host.bounds, to: nil)
+            let inWindow = host.convert(local, to: nil)
             space["window"] = rect(NSRect(x: inWindow.origin.x, y: content.frame.height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
             let onScreen = w.convertToScreen(inWindow)
             let top = NSScreen.screens.first?.frame.maxY ?? onScreen.maxY
@@ -316,12 +330,19 @@ extension Agent {
             if let v = s { visible["hiddenBy"] = (v as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: v)) }
         } else if cssHidden { visible["hiddenBy"] = "visibility" }
         node["visible"] = visible
-        var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
+        // In a dialog's sheet, or in AppKit's popover: a window of its own (LLP 1115.002 D7).
+        let apart = host.window.flatMap { $0 !== presenter.viewport.window ? $0 : nil }
+        var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": apart?.isSheet == true]
+        if let apart, !apart.isSheet { native["popover"] = true }
+        if let row = presenter.dialogs.rowShows(host) { native["sheetRow"] = row }
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
+        if let stepper = host.stepperObservation { native["stepper"] = stepper }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
-        if let control = presenter.controls.observation(host) { native["control"] = control }
+        if let sidebar = presenter.sidebar.observation(host) { native["sidebar"] = sidebar }
+        if let table = presenter.tables.observation(host) { native["table"] = table }
+        if let control = presenter.controls.observation(host) ?? host.rowBezelObservation { native["control"] = control }
         if let toolbar = presenter.toolbar.observation(host) {
             native["windowToolbar"] = toolbar
             // The kernel frame is authored fallback geometry, not the native
@@ -509,7 +530,7 @@ extension Agent {
         if let node = view(req), presenter.dialogs.blocks(node) { return ["error": "view \(node.id) is blocked by a modal dialog"] }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node) {
+           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node), !presenter.sidebar.suppresses(node) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
@@ -527,6 +548,18 @@ extension Agent {
         }
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
+        // `--chrome platform`: a root tab the window's sidebar stands for is
+        // pressed as its row presses it (LLP 1115.002 D3), as iOS's tab bar
+        // item is. The tablist's own boxes are nowhere to click.
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
+           let activated = presenter.sidebar.activate(node) {
+            return activated ? ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "sidebar-row"]
+                : ["error": "sidebar row #\(id) is unavailable (its tab is disabled or inert, or the sidebar is hidden)"]
+        }
+        if let node = view(req), presenter.sidebar.suppresses(node) {
+            return ["error": "view \(node.id) is in the authored tablist AppKit's sidebar stands for; only a tab's host activation is supported"]
+        }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.toolbar.activate(node) {
@@ -535,6 +568,13 @@ extension Agent {
         }
         if let node = view(req), presenter.toolbar.suppresses(node) {
             return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
+        }
+        // A modal route's Cancel or confirming action in its sheet's own row (LLP 1115.002 D7.4): the row's click.
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
+           let activated = presenter.dialogs.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSButton"]
+                : ["error": "sheet button #\(id) is unavailable (it is disabled, or something stands over its sheet)"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
@@ -571,7 +611,13 @@ extension Agent {
         let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
         var p = inlineAt.map { clip.convert(NSPoint(x: $0.x + clip.bounds.origin.x, y: $0.y + clip.bounds.origin.y), to: nil) } ?? localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
         var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
-        if req["wheel"] == nil,
+        // A node in a window of its own (a dialog's sheet, AppKit's popover;
+        // LLP 1115.002 D7): the point is that window's, and it may stand
+        // outside the viewport, as a popover does.
+        let page = clip.window, apart = page != nil && win !== page
+        let inWindow = { (q: NSPoint) -> NSPoint in apart ? win.convertPoint(fromScreen: page!.convertPoint(toScreen: q)) : q }
+        if apart, inlineAt != nil || localAt == nil { p = inWindow(p) }
+        if req["wheel"] == nil, !apart,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
         }
@@ -664,8 +710,8 @@ extension Agent {
         var avoided: PressReach?
         if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
            (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
-            let window = { (q: CGPoint) in clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil) }
-            switch Agent.addressedAim(v, middle: center, area: b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
+            let window = { (q: CGPoint) in inWindow(clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil)) }
+            switch Agent.addressedAim(v, middle: center, area: apart ? b : b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
             case .refused(let refusal): return refusal.reply
             case .at(let q, let middle):
                 if let middle { avoided = middle; p = window(q); at = [Agent.r2(q.x), Agent.r2(q.y)] }
@@ -730,6 +776,15 @@ extension Agent {
             }
         }
         return reply
+    }
+
+    /// The caret into a search input's field in the window's toolbar (LLP
+    /// 1115.002 D2). Where the item had become its button AppKit opens the
+    /// field over a moment, so its editor is waited for, bounded.
+    private func focusBarField(_ v: NodeView) {
+        guard presenter.toolbar.focusSearch(v) else { return }
+        let limit = Date().addingTimeInterval(2)
+        while v.field?.currentEditor() == nil, Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
     }
 
     /// Set an input's text as typing does: the field editor, all selected,
@@ -815,6 +870,12 @@ extension Agent {
                 // Resigning the previous responder can synchronously replace or restrict this node.
                 guard session.natives.inputToken(v) == nativeToken else { return ["error": "native view is unavailable, hidden, inert, disabled or replaced"] }
                 guard session.natives.ownsFocus(v) else { return ["error": "native view no longer owns focus"] }
+            } else if let id = req["id"] as? Int, let inline = v.syncInlineKeyViews().first(where: { Int($0.id) == id }) {
+                if win.firstResponder !== inline { win.makeFirstResponder(inline) }
+            } else if v.pageField != nil {
+                // A search input in the window's toolbar (LLP 1115.002 D2): its field there takes the key.
+                let editing = v.field?.currentEditor().map { win.firstResponder === $0 } ?? false
+                if !editing { focusBarField(v) }
             } else if presenter.toolbar.contains(v) {
                 if let view = session.view { win.makeFirstResponder(view) }
             } else if let f = v.textArea {
@@ -912,6 +973,13 @@ extension Agent {
                 releaseHeard()
                 return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
             }
+            // View ▸ Show Sidebar ⌃⌘S likewise (LLP 1115.002 D3): the split
+            // view controller's own action, up the responder chain from the focus.
+            if phase != "up", modifiers == [.command, .control], key == "s",
+               win.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil) == true {
+                releaseHeard()
+                return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
+            }
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 releaseHeard()
                 return ["typed": Int(v.id), "key": chord]
@@ -943,7 +1011,11 @@ extension Agent {
         // A field already being edited keeps its editor: asking again would
         // end the editing (a blur) and begin it (a focus), which a person's
         // typing never does.
-        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true { win.makeFirstResponder(f) }
+        // A search input in the window's toolbar (LLP 1115.002 D2) takes the
+        // caret AppKit's way, which opens the field where the item is its button.
+        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true {
+            if v.pageField != nil { focusBarField(v) } else { win.makeFirstResponder(f) }
+        }
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())
@@ -964,34 +1036,75 @@ extension Agent {
         return image
     }
 
-    /// `image`, the window server's picture of `window`, with the window's
-    /// sheet drawn where it sits: a sheet (an alert's) is a window of its
-    /// own, which the picture of one window leaves out.
-    private static func withSheet(_ image: CGImage, of window: NSWindow) -> CGImage {
-        guard let sheet = window.attachedSheet, let picture = ownWindowImage(sheet.windowNumber), window.frame.width > 0,
+    /// The window server's own composite of `window` and `attached`, all
+    /// this process's, in `window`'s frame: one over another as a person
+    /// sees them, a popover's material against what is under it. Looked up
+    /// at run time as `ownWindowImage`'s call is, and for the same reason.
+    private static func ownWindowsImage(_ window: NSWindow, with attached: [NSWindow]) -> CGImage? {
+        typealias Create = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray"),
+              let top = NSScreen.screens.first?.frame.maxY else { return nil }
+        // An array of window numbers themselves, not objects, the front one first.
+        var numbers: [UnsafeRawPointer?] = (attached.reversed() + [window]).map { UnsafeRawPointer(bitPattern: $0.windowNumber) }
+        guard let array = CFArrayCreate(nil, &numbers, numbers.count, nil) else { return nil }
+        let frame = window.frame, bounds = CGRect(x: frame.minX, y: top - frame.maxY, width: frame.width, height: frame.height)
+        let create = unsafeBitCast(symbol, to: Create.self)
+        guard let image = create(bounds, array, 1 << 3)?.takeRetainedValue(), !emptyPicture(image) else { return nil } // kCGWindowImageBestResolution
+        return image
+    }
+
+    /// `image`, the window server's picture of `window`, with what is
+    /// attached to it where it sits: a sheet (an alert's, a dialog's), a
+    /// sheet on that sheet, a popover (LLP 1115.002 D7). Each is a window
+    /// of its own, which the picture of one window leaves out; what stands
+    /// outside the window's frame (a popover may) is outside the picture.
+    /// The window server composes them; where it gives no such picture each
+    /// window's own is drawn over the last.
+    private static func withSheet(_ image: CGImage, of window: NSWindow, shown: inout [String]) -> CGImage {
+        var attached: [NSWindow] = []
+        func collect(_ parent: NSWindow) {
+            for child in ([parent.attachedSheet].compactMap { $0 } + (parent.childWindows ?? [])) where child.isVisible && !attached.contains(where: { $0 === child }) {
+                attached.append(child)
+                collect(child)
+            }
+        }
+        collect(window)
+        if attached.isEmpty, let sheet = window.attachedSheet { shown.append("\(Swift.type(of: sheet)): not visible") }
+        if !attached.isEmpty, let composed = ownWindowsImage(window, with: attached), composed.width == image.width, composed.height == image.height {
+            shown += attached.map { String(describing: Swift.type(of: $0)) }
+            return composed
+        }
+        guard !attached.isEmpty, window.frame.width > 0,
               let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
         let scale = CGFloat(image.width) / window.frame.width
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        context.draw(picture, in: CGRect(x: (sheet.frame.minX - window.frame.minX) * scale, y: (sheet.frame.minY - window.frame.minY) * scale,
-                                         width: CGFloat(picture.width), height: CGFloat(picture.height)))
+        for child in attached {
+            guard let picture = ownWindowImage(child.windowNumber) else { shown.append("\(Swift.type(of: child)): no picture"); continue }
+            shown.append(String(describing: Swift.type(of: child)))
+            context.draw(picture, in: CGRect(x: (child.frame.minX - window.frame.minX) * scale, y: (child.frame.minY - window.frame.minY) * scale,
+                                             width: CGFloat(picture.width), height: CGFloat(picture.height)))
+        }
         return context.makeImage() ?? image
     }
 
     /// Whether the window server's picture holds nothing. A display that is
     /// asleep, or a locked screen, still answers, with a transparent picture
-    /// a pixel or two short of the window: no picture, not a wrong one. An
-    /// opaque window's has no transparent pixel, so its average says.
+    /// a pixel or two short of the window: no picture, not a wrong one. It
+    /// is read at sixteen places across it, not one: a sheet's corners are
+    /// transparent, and scaled to a single pixel a 460 by 226 sheet read as
+    /// empty and was left out of its window's picture (LLP 1115.002 D7.2).
     static func emptyPicture(_ image: CGImage) -> Bool {
-        var pixel = [UInt8](repeating: 0, count: 4)
-        let drawn = pixel.withUnsafeMutableBytes { bytes -> Bool in
-            guard let one = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+        let side = 4
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let few = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            one.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            few.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
             return true
         }
-        return !drawn || pixel[3] == 0
+        return !drawn || stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 0 }
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
@@ -1017,10 +1130,13 @@ extension Agent {
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
             guard let alone = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
-            let image = Self.withSheet(alone, of: window)
+            var attached: [String] = []
+            let image = Self.withSheet(alone, of: window, shown: &attached)
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
+            // The windows drawn over it where they sit: a sheet, a sheet on it, a popover.
+            if !attached.isEmpty { r["attached"] = attached }
             if loading > 0 { r["imagesPending"] = loading }
             return r
         }
@@ -1036,6 +1152,9 @@ extension Agent {
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
         if loading > 0 { r["imagesPending"] = loading }
+        // This is the viewport's own drawing: a dialog's sheet and AppKit's popover are other windows (LLP 1115.002 D7).
+        let apart = presenter.sheets(on: v.window).map { String(describing: Swift.type(of: $0)) } + presenter.menus.windowed.map { _ in "NSPopover" }
+        if !apart.isEmpty { r["notShown"] = ["windows": apart, "see": "screenshot <png> window"] as [String: Any] }
         return r
     }
 

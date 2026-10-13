@@ -215,6 +215,44 @@ fn empty(parent: u32, ids: &[u32]) -> Vec<(u32, u32, Rows)> {
     ids.iter().map(|id| (*id, parent, vec![])).collect()
 }
 
+/// Chrome 155, 2026-10-11: a 100×40 content box with 5px padding,
+/// mixed 1/2/4/3px sides and a 10px radius is 112×55 because the
+/// `none` left side uses zero width; its child's origin is (5, 6).
+#[test]
+fn patterned_border_widths_follow_chrome_layout() {
+    let box_rows = vec![
+        (Width, n(100.0)),
+        (Height, n(40.0)),
+        (PaddingTop, n(5.0)),
+        (PaddingRight, n(5.0)),
+        (PaddingBottom, n(5.0)),
+        (PaddingLeft, n(5.0)),
+        (BorderWidthTop, n(1.0)),
+        (BorderWidthRight, n(2.0)),
+        (BorderWidthBottom, n(4.0)),
+        (BorderWidthLeft, n(3.0)),
+        (BorderStyleTop, t("dotted")),
+        (BorderStyleRight, t("dashed")),
+        (BorderStyleBottom, t("solid")),
+        (BorderStyleLeft, t("none")),
+        (BorderRadiusTopLeft, n(10.0)),
+        (BorderRadiusTopRight, n(10.0)),
+        (BorderRadiusBottomRight, n(10.0)),
+        (BorderRadiusBottomLeft, n(10.0)),
+    ];
+    let k = lay_out(
+        StyleProps::default(),
+        vec![(2, 1, box_rows), (3, 2, css_rows("width:20px;height:10px"))],
+        &[],
+    );
+    let failures = mismatches(
+        "mixed patterned sides",
+        &k,
+        &[(2, [0.0, 0.0, 112.0, 55.0]), (3, [5.0, 6.0, 20.0, 10.0])],
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// A 400px-wide `display: grid` with these rows and track lists.
 fn grid(rows: Rows, columns: &[GridTrack], track_rows: &[GridTrack]) -> StyleProps {
     let mut p = props(&[vec![(Display, t("grid")), (Width, n(400.0))], rows].concat());

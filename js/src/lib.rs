@@ -22,7 +22,10 @@
 //! store)` returns the answer's value — or a `Promise` of it, when it awaited
 //! `fetch` — and throws for an error (an object with `kind` of
 //! `UnknownSource`, `BadArguments`, or `Unavailable` and a `message`; any
-//! other throw is `Unavailable`). `fetch(url, init)` is the web's, over the
+//! other throw is `Unavailable`). In a running session, an answer's own
+//! error becomes `Failed(Error, …)`: its resource fails or send ends unsent,
+//! while the asking commit stands (LLP 1027.000 D3). Bake and replacement
+//! validation still refuse it. `fetch(url, init)` is the web's, over the
 //! host's ticket path: the module describes, the host runs under the grants,
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
 //! `text()`, `json()`, `arrayBuffer()`. Liveness is the module's, as a
@@ -184,6 +187,8 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
+    /// A replacement candidate must answer successfully before it can be installed.
+    validating: bool,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
     /// Delivering between answers (a background round, a let-go call's
@@ -769,6 +774,8 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
+        let refuses = self.host.baking || self.host.validating;
+        let session = store.is_some() && !refuses;
         // No answer waits for another to begin (LLP 1097 D4.5): answers
         // interleave at their awaits, as two async calls do on the web, and
         // storage keeps the order it was issued in (the prelude's queue).
@@ -841,7 +848,15 @@ impl Module {
         }
         let answer = match result {
             Err(e) => Err(e),
-            Ok(Step::Done(r)) => r.map(Answer::Now),
+            // The web learns a rejection after the input commits. Native
+            // answers fail the same target (LLP 1027.000 D3).
+            Ok(Step::Done(r)) => r.map(Answer::Now).map_err(|e| match e {
+                DataError::Unavailable(m) | DataError::BadArguments(m) if session => {
+                    DataError::Failed(FailureCode::Error, m)
+                }
+                DataError::Failed(_, m) if refuses => DataError::Unavailable(m),
+                e => e,
+            }),
             Ok(Step::Pending { call, ticket }) => {
                 let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)

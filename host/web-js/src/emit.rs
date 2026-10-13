@@ -535,9 +535,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if ["x_frame", "x_measure", "x_elementFromPoint"]
-        .iter()
-        .any(|name| em.uses.names.contains(*name))
+    if [
+        "x_frame",
+        "x_measure",
+        "x_elementFromPoint",
+        "x_elementsFromPoint",
+    ]
+    .iter()
+    .any(|name| em.uses.names.contains(*name))
     {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
@@ -1262,7 +1267,10 @@ impl Em<'_> {
                 | EventKind::Hover
                 | EventKind::Focus
                 | EventKind::Blur
+                | EventKind::Focusin
+                | EventKind::Focusout
                 | EventKind::Key
+                | EventKind::Keycapture
                 | EventKind::Keyup
                 | EventKind::Submit
                 | EventKind::Load
@@ -1305,8 +1313,12 @@ impl Em<'_> {
                 | EventKind::Scroll
                 | EventKind::Refresh
                 | EventKind::Pan
+                | EventKind::Toggle
                 | EventKind::Cancel
+                | EventKind::Close
+                | EventKind::Scrollend
                 | EventKind::Resize
+                | EventKind::Intersect
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight

@@ -28,6 +28,8 @@ else cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
 if (!js) for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
 const bytes = [...readFileSync(dir + '/app.plan')];
 const noNavigate = [...readFileSync(dir + '/no-navigate.plan')];
+const noNotfound = [...readFileSync(dir + '/no-notfound.plan')];
+const noRoot = [...readFileSync(dir + '/no-root.plan')];
 // Only substitute the baked plan at the actual wasm's boot ABI. All
 // commits, keyed rows, control presses and journal lines are production.
 function fixture(plan) {
@@ -389,7 +391,9 @@ try {
     await historyTap(-1); await until(`location.pathname==='/post/42'`);
     const back = await record('refused Back', '/post/42', n + 1, 2, 0, 'history: Back refused');
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1, 1]);
-    assert.equal(back.logs.lines.length, 1);
+    // One refusal. The fixture's three resources fail (it has no data), and say so in the same log whenever they
+    // settle: before this step's lines begin on a fast boot, among them on a slower one (a page that loads a face).
+    assert.equal(back.logs.lines.filter(l => l.includes('Back refused')).length, 1, back.logs.lines.join('\n'));
   });
   await run('Back from a route with no Back control follows navigate', async () => {
     const n = await fresh(); await tap('push-notifications'); await record('no-control prelude', '/notifications', n + 1, 2, 0);
@@ -472,6 +476,43 @@ try {
     assert.equal(await evaluate('location.origin'), url);
     assert.equal(launched.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/x?agent=1');
     assert.deepEqual(consoleLines, [], 'no browser exception for a double-slash notfound location');
+  });
+  // LLP 1116.009 D2, on both targets: an app with no `notfound` route is given one and its screen ("Page not found", a way
+  // home), so a launch at a location no route matches keeps its URL and boots. The JS target builds the plan that declares
+  // none; the wasm page launches the plan that does at the location, then swaps for one that does not, whose table (the
+  // compiler's written `notfound`) still describes the carried stack.
+  await run('a launch at a location no route matches, and no notfound route, keeps its URL and says so', async () => {
+    if (js) { served = dir + '/no-notfound'; jsBuild('no-notfound.plan', served); }
+    try {
+      const lines = consoleLines.length;
+      const n = await fresh('/absent/path');
+      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNotfound)}))`);
+      const kept = await record('unmatched launch', '/absent/path', n, 2, 0);
+      assert.equal(kept.calls.filter(c => c.name === 'pushState').length, 0, 'the entry is replaced, not pushed');
+      assert.equal(await evaluate(`document.querySelector('[data-testid="not-found-message"]')?.textContent`), 'There is no page at /absent/path.');
+      assert.equal(await evaluate(`document.querySelector('[data-testid="not-found-title"]')?.textContent`), 'Page not found');
+      assert.deepEqual(consoleLines.slice(lines), [], 'the app boots: no browser exception');
+      const at = await evaluate(`(()=>{const el=document.querySelector('[data-testid="not-found-home"]'); el.scrollIntoView({block:'center'}); const r=el.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+      await call('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...at });
+      await call('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...at });
+      await until(`location.pathname === '/'`);
+      await record('Go Home opens the first screen', '/', n + 1, 1, 0);
+    } finally { served = dist; }
+  });
+  // The same, where no navigation root draws a screen for it: the first screen opens, the refusal journaled (the runner's
+  // `launch`; router.js `launch`), and the address bar shows it.
+  await run('a launch at a location no route matches, in an app with no navigation root, opens the first screen', async () => {
+    if (js) { served = dir + '/no-root'; jsBuild('no-root.plan', served); }
+    try {
+      const lines = consoleLines.length;
+      await fresh('/absent/path');
+      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noRoot)}))`);
+      await until(`location.pathname === '/'`);
+      const got = await evaluate(`(async()=>{const state=await exact.agent({op:'state'}); return {url:state.slots.nav.tabs[0].stack.at(-1).url, depth:state.slots.nav.tabs[0].stack.length, logs:(await exact.agent({op:'logs',since:0})).lines}})()`);
+      assert.deepEqual([got.url, got.depth], ['/', 1]);
+      assert.equal(got.logs.filter(l => l.includes('router launch refused: no route matches /absent/path')).length, 1, got.logs.join('\n'));
+      assert.deepEqual(consoleLines.slice(lines), [], 'the app boots: no browser exception');
+    } finally { served = dist; }
   });
   await run('accepted entries before boot and queued commits', async () => {
     await call('Page.navigate', {url: url + '/__test-mirror'});

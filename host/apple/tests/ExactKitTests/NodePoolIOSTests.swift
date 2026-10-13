@@ -48,6 +48,27 @@ final class NodePoolIOSTests: XCTestCase {
         return p
     }
 
+    func testQueuedPopoverEventsDoNotFollowARecycledRow() throws {
+        for newEvent in [false, true] {
+            let p = fixture(), row = try XCTUnwrap(p.views[10])
+            row.props["popover"] = "auto"; row.handlers.insert("toggle")
+            var events: [String] = []
+            p.onClipboard = { id, _, payload in events.append("\(id):\(payload)") }
+            p.popoverEvents.changed(row, open: false)
+            let token = row.incarnation
+            p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+                + [["op": "children", "id": 1, "ids": [20]]]))
+            XCTAssertTrue(p.views[20] === row)
+            XCTAssertNotEqual(row.incarnation, token)
+            row.props["popover"] = "auto"; row.handlers.insert("toggle")
+            if newEvent { p.popoverEvents.changed(row, open: true) }
+            let drained = expectation(description: "queued toggle tasks drained")
+            DispatchQueue.main.async { drained.fulfill() }
+            wait(for: [drained], timeout: 20)
+            XCTAssertEqual(events, newEvent ? ["20:closed,open"] : [])
+        }
+    }
+
     func testARetiredRowsViewsComeBackUnderTheNextRowsIds() throws {
         let p = fixture()
         let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11]), button = try XCTUnwrap(p.views[12])

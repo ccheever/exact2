@@ -9,6 +9,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod balance;
+pub use balance::{balanced_width, BALANCE_MAX_LINES};
 mod bands;
 mod chrome;
 pub use chrome::chrome_break;

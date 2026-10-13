@@ -450,6 +450,25 @@ fn provisional_counts_once_per_successful_layout_only_for_native_fields() {
     assert_eq!(k.node(2).unwrap().frame.width, 100.0);
 }
 
+/// LLP 1116.007 D4: `appearance: textfield` is the platform's field, its
+/// chrome measured and its content rect published as `auto`'s are; only
+/// `none` is the author's box.
+#[test]
+fn a_textfield_appearance_is_a_native_field() {
+    let (mut k, state) = tree(chrome());
+    k.set_env(env(16.0)).unwrap();
+    layout(&mut k);
+    let auto = k.node(2).unwrap().field_content_rect();
+    assert!(auto.is_some());
+    patch(&mut k, 2, &[(StyleId::Appearance, "textfield")]);
+    state.borrow_mut().1.clear();
+    layout(&mut k);
+    assert_eq!(k.node(2).unwrap().field_content_rect(), auto);
+    patch(&mut k, 2, &[(StyleId::Appearance, "none")]);
+    layout(&mut k);
+    assert_eq!(k.node(2).unwrap().field_content_rect(), None);
+}
+
 #[test]
 fn secure_search_and_textarea_requests_use_resolved_authored_fonts() {
     let (mut k, state) = tree(FieldChrome::default());

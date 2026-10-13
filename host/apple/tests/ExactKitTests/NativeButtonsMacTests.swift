@@ -55,6 +55,95 @@ final class NativeButtonsMacTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]]
     }
 
+    /// LLP 1116.008 (team-kanban: "Delete is not styled as destructive"): an ordinary
+    /// `button destructive=true` is AppKit's destructive role (`hasDestructiveAction`) in the
+    /// platform's red, whatever accent it only inherits: red ink on a push or borderless button,
+    /// a red bezel under AppKit's white on the accent look. What the author wrote wins: an accent
+    /// written on the button, a colour on its title.
+    func testADestructiveButtonIsAppKitsDestructiveRoleInTheSystemsRedUnlessTheAuthorPaintedIt() throws {
+        let indigo: [Int] = [97, 85, 245, 255]
+        let orange: [Int] = [255, 141, 40, 255]
+        func node(_ id: Int, destructive: Bool, accent: [Int], wrote: Bool = false) -> [[String: Any]] {
+            var ops = native(id, destructive ? ["destructive": "true"] : [:])
+            ops[0]["style"] = ["appearance": "auto", "accent_color": accent, "written": wrote ? ["accent_color"] : [String]()]
+            return ops
+        }
+        var green = face("Green", macos: "push", style: "bordered")
+        green.rows.title["text_color"] = .array([.number(0), .number(128), .number(0), .number(255)])
+        let faces: [UInt32: ButtonFace] = [
+            2: face("Delete", macos: "push"), 3: face("Delete", macos: "borderless", style: "plain"),
+            4: face("Delete", macos: "push-accent", style: "filled"), 5: face("Keep", macos: "push"),
+            6: face("Delete", macos: "push"), 7: green,
+        ]
+        let p = presenter(box(1) + node(2, destructive: true, accent: indigo) + node(3, destructive: true, accent: indigo)
+                          + node(4, destructive: true, accent: indigo) + node(5, destructive: false, accent: indigo)
+                          + node(6, destructive: true, accent: orange, wrote: true) + node(7, destructive: true, accent: indigo)
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7]], ["op": "roots", "ids": [1]]], faces: faces)
+        let button = { (id: UInt32) in try XCTUnwrap(p.controls.controls[id] as? NativeButtonMac, "\(id)") }
+        let red = NSColor.systemRed
+        func ink(_ b: NativeButtonMac) -> NSColor? {
+            guard b.attributedTitle.length > 0 else { return nil }
+            return b.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        }
+        let push = try button(2), plain = try button(3), prominent = try button(4)
+        XCTAssertTrue(push.hasDestructiveAction); XCTAssertTrue(plain.hasDestructiveAction); XCTAssertTrue(prominent.hasDestructiveAction)
+        XCTAssertEqual(ink(push), red, "red ink on a push button")
+        XCTAssertEqual(plain.contentTintColor, red, "and on a borderless one")
+        XCTAssertEqual(ink(plain), red)
+        XCTAssertEqual(prominent.bezelColor, red, "a red bezel under AppKit's own white title on the accent look")
+        XCTAssertNotEqual(ink(prominent), red, "AppKit draws its own title on it")
+        // Not destructive: the accent it inherits, AppKit's ink.
+        let keep = try button(5)
+        XCTAssertFalse(keep.hasDestructiveAction)
+        XCTAssertNotEqual(ink(keep), red)
+        // An accent written on the button wins over the role's red; a colour on its title does too.
+        let accented = try button(6)
+        XCTAssertTrue(accented.hasDestructiveAction, "still the role")
+        XCTAssertNotEqual(ink(accented), red, "no red ink over an authored accent")
+        let painted = try button(7)
+        XCTAssertEqual(ink(painted), NSColor(srgbRed: 0, green: 128 / 255, blue: 0, alpha: 1))
+    }
+
+    /// The role has AppKit's manners with it: an `NSButton` takes the click that brings its
+    /// window forward, and one with `hasDestructiveAction` does not (measured on macOS 27.0.1),
+    /// so a person's first click on a window behind never presses Delete. The agent's window is
+    /// never key, so its every click counts (LLP 1115.000 D7.9), a destructive button's too:
+    /// AppKit's answer alone left the driver no way to press one, and Shelf's "Remove…" row,
+    /// painted under the agent, took its tap and did nothing.
+    func testADestructiveButtonTakesTheAgentsClickAndNoOtherThatActivatesItsWindow() throws {
+        let p = presenter(box(1) + native(2, ["destructive": "true"]) + native(3, x: 140)
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Delete"), 3: face("Keep")])
+        p.viewport.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let delete = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac), keep = try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac)
+        XCTAssertTrue(delete.hasDestructiveAction)
+        addTeardownBlock { NodeView.everyClickCounts = ExactEnv.agentMode }
+        NodeView.everyClickCounts = false
+        XCTAssertTrue(keep.acceptsFirstMouse(for: nil), "a button clicks through")
+        XCTAssertFalse(delete.acceptsFirstMouse(for: nil), "a destructive one does not: AppKit's answer, a person's")
+        NodeView.everyClickCounts = true
+        XCTAssertTrue(delete.acceptsFirstMouse(for: nil), "the agent's every click counts")
+        // A click through the application, as the agent's `tap` sends it, the up queued for the button's tracking.
+        func click(_ button: NSButton) {
+            let at = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            func event(_ type: NSEvent.EventType) -> NSEvent {
+                NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+            }
+            let up = event(.leftMouseUp)
+            NSApp.postEvent(up, atStart: true)
+            NSApp.sendEvent(event(.leftMouseDown))
+            if NSApp.nextEvent(matching: [.leftMouseUp], until: nil, inMode: .default, dequeue: true) != nil { NSApp.sendEvent(up) }
+        }
+        click(delete)
+        XCTAssertEqual(pressed, [2], "the agent's click presses a destructive button in a window that is not key")
+        click(keep)
+        XCTAssertEqual(pressed, [2, 3])
+    }
+
     func testItIsAppKitsButtonPressingOnce() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2, ["testId": "go"]) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
@@ -77,6 +166,74 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertNil(p.controls.activate(try XCTUnwrap(p.views[2])), "the agent clicks it as a person does")
         XCTAssertEqual(p.controls.observation(try XCTUnwrap(p.views[2]))?["view"] as? String, "NSButton")
         XCTAssertFalse(try XCTUnwrap(p.views[2]).acceptsFirstResponder, "only the native control is in the key loop")
+    }
+
+    func testARIAUnavailabilityKeepsNativeButtonFocusableAndPressable() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityDisabled": "true", "testId": "update"])
+                          + box(3, ["accessibilityRole": "button", "tabIndex": "0", "accessibilityDisabled": "true"], handlers: ["press"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]], faces: [2: face("Check for updates")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertTrue(button.acceptsFirstResponder)
+        XCTAssertTrue(button.canBecomeKeyView)
+        XCTAssertFalse(button.isAccessibilityEnabled(), "AXEnabled is false while the control remains operable")
+        let ax = p.axElements(roots: [p.viewport])
+        let update = try XCTUnwrap((ax["elements"] as? [[String: Any]])?.first { $0["testId"] as? String == "update" })
+        XCTAssertEqual((update["states"] as? [String: Any])?["disabled"] as? Bool, true)
+        let role = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(role.acceptsFirstResponder)
+        XCTAssertFalse(role.isAccessibilityEnabled())
+        button.performClick(nil)
+        XCTAssertEqual(pressed, [2])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(button.isAccessibilityEnabled(), "clearing ARIA restores AXEnabled")
+    }
+
+    func testAncestorARIAUnavailabilityReachesButtonAndRefreshes() throws {
+        let p = presenter(box(1, ["accessibilityRole": "group", "accessibilityDisabled": "true"])
+                          + native(2, ["testId": "nested"])
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [2: face("Update")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertFalse(button.isAccessibilityEnabled(), "the descendant is refreshed when its ancestor changes")
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, false)
+        XCTAssertEqual(button.cell?.accessibilityAttributeValue(.enabled) as? Bool, false)
+        let ax = p.axElements(roots: [p.viewport])
+        let nested = try XCTUnwrap((ax["elements"] as? [[String: Any]])?.first { $0["testId"] as? String == "nested" })
+        XCTAssertEqual((nested["states"] as? [String: Any])?["disabled"] as? Bool, true)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(button.isAccessibilityEnabled())
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, true, "an explicit false overrides the ancestor, as Chrome does")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityDisabled"]]]))
+        XCTAssertFalse(button.isAccessibilityEnabled())
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, false)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(button.isAccessibilityEnabled())
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, true)
+        XCTAssertEqual(button.cell?.accessibilityAttributeValue(.enabled) as? Bool, true)
+    }
+
+    func testARIAUnavailabilityReachesAppKitControlAndItsCell() throws {
+        for kind in ["checkbox", "radio", "switch", "select", "range", "date"] {
+            let props = ["type": kind == "switch" ? "checkbox" : kind, "accessibilityRole": kind == "switch" ? "switch" : kind, "accessibilityDisabled": "true", "testId": kind]
+            let p = presenter(box(1) + [["op": "create", "id": 2, "kind": "control", "props": props, "style": [:]],
+                                        ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 140.0, "h": 30.0],
+                                        ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [:])
+            let control = try XCTUnwrap(p.controls.controls[2], kind)
+            XCTAssertTrue(control.isEnabled, kind)
+            XCTAssertEqual(control.accessibilityAttributeValue(.enabled) as? Bool, false, kind)
+            if let cell = control.cell { XCTAssertEqual(cell.accessibilityAttributeValue(.enabled) as? Bool, false, "\(kind) cell") }
+            let ax = p.axElements(roots: [p.viewport])
+            XCTAssertTrue((ax["elements"] as? [[String: Any]])?.contains {
+                ($0["states"] as? [String: Any])?["disabled"] as? Bool == true
+            } == true, "tree --ax reports the \(kind) disabled")
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+            XCTAssertEqual(control.accessibilityAttributeValue(.enabled) as? Bool, true, kind)
+            if let cell = control.cell { XCTAssertEqual(cell.accessibilityAttributeValue(.enabled) as? Bool, true, "\(kind) cell") }
+            window.close()
+        }
     }
 
     /// LLP 1115.000 D7.1: a click moves no focus, press or no press.

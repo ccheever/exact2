@@ -116,19 +116,34 @@ extension Presenter {
               node.inlineText.indices.contains(location.index) else { return nil }
         return node.inlineText[location.index]
     }
-    func inlineEnabled(_ id: UInt32) -> Bool {
-        guard let host = textHost(id), !host.inert, !host.disabled,
-              let value = inlineText(id), value.props["disabled"] != "true" else { return false }
-        var current: InlineText? = value
+    func inlineAriaUnavailable(_ id: UInt32) -> Bool {
+        var current = inlineText(id)
         while let run = current {
-            if run.props["inert"] == "true" { return false }
+            if let value = run.props["accessibilityDisabled"] { return value == "true" }
             current = inlineText(run.parent)
         }
-        return true
+        return textHost(id)?.ariaUnavailable == true
+    }
+    func inlineEnabled(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.disabled,
+              let value = inlineText(id), value.props["disabled"] != "true" else { return false }
+        return !inlineInert(id)
+    }
+    func inlineInert(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.inert, let value = inlineText(id) else { return true }
+        var current: InlineText? = value
+        while let run = current {
+            if run.props["inert"] == "true" { return true }
+            current = inlineText(run.parent)
+        }
+        return false
     }
     func forgetParagraph(_ node: NodeView) {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
+        #if os(iOS)
+        textSelection.remove(node) // its text interaction and selection go with it
+        #endif
     }
     func applyParagraph(_ id: UInt32, _ runs: [InlineText]) {
         guard let node = views[id] else { return }
@@ -157,6 +172,8 @@ extension Presenter {
         #if os(macOS)
         // Its `href` runs' pointing hand (`resetCursorRects`).
         if hadLinks || rows.contains(where: \.isLink) { node.window?.invalidateCursorRects(for: node) }
+        keyViewLoopStale = true
+        if !node.inlineKeyViews.isEmpty { _ = node.syncInlineKeyViews() }
         #endif
     }
 }

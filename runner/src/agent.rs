@@ -705,6 +705,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         media.gamut.keyword(),
         if media.high_dynamic_range { "high" } else { "standard" }
     );
+    s.push_str(",\"displayMode\":");
+    quote(media.display_mode.keyword(), &mut s);
     s.push('}');
     // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
     if !runner.faults().is_empty() {

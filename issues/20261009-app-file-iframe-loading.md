@@ -11,6 +11,29 @@
 
 Load permitted app:/ documents through typed paths, honoring sandbox/origin policy, URL cleanup and errors. Prove iOS PDF pixels as well as tree state. Separate fitted PDF/object/PDFKit surface stays deferred.
 
+## Implementation and remaining verification
+
+Scoped loading is implemented in the JS and wasm web hosts and Apple's typed
+WebKit document path. The web browser regression covers HTML document loading, PDF MIME,
+missing/refused paths, unchanged-source preservation and URL cleanup. Chrome
+loads blob HTML and plain text without `allow-same-origin`, but blocks PDF
+viewers under any sandbox; the web hosts report the latter through `error`.
+The wasm listener regression holds data activation to verify early load/error
+delivery and settlement. Apple preserves non-HTML MIME types; its plain-text
+regression checks literal markup and an unexecuted script with `allow-scripts`
+on macOS and an iOS 27 simulator. The emitter and prerender regressions fail on the old `about:blank` behavior and now pass.
+`WebDocumentsTests.testAppFilePDFPixelsAndMissingFileError` passes on macOS,
+including a snapshot of the PDF's red rectangle and the missing-file error.
+
+The same test compiles and loads the document on an iOS 27 iPhone 18 Pro Max
+simulator, but its pixel assertion fails: `0` red pixels, expected more than
+`100`. Both WebKit's snapshot and a subsequent UIKit hierarchy capture are
+black. The hostless XCTest process also reports `UIApp is nil`; these runs do
+not distinguish a rendering failure from a capture limitation. The test keeps
+its UIKit image as an XCTest attachment. After the bounded fix loop, this issue
+remains open for a PDF screenshot from an actual iOS app. Missing-file error
+handling passed on both native hosts. The fitted PDF element remains deferred.
+
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
 ## Original report

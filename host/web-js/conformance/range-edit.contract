@@ -1,0 +1,47 @@
+// The issue #275 editor: range replacement updates the controlled value once,
+// preserves selection by default, and adds no undo step (LLP 1069.001).
+component RangeEdit
+  state body = "see @a.ts now"
+  state edits = 0
+  state caret = ""
+  state picked = ""
+  state inputType = ""
+  action edited(value: string, e: InputEvent)
+    body = value
+    inputType = e.inputType
+    edits = edits + 1
+    caret = `${e.selectionStart}-${e.selectionEnd}`
+  action selected(e: InputEvent)
+    picked = `${e.selectionStart}-${e.selectionEnd}`
+  action pick
+    setSelectionRange("editor", 4, 9)
+  action replace
+    setRangeText("editor", "[a.ts]", 4, 9)
+  action current
+    setRangeText("editor", "😀")
+  action append
+    setRangeText("editor", "!", 999, 999, "end")
+  action start
+    setRangeText("editor", "Look", 0, 3, "start")
+  action select
+    setRangeText("editor", "See", 0, 4, "select")
+  action refused
+    setRangeText("editor", "bad", 9, 4)
+  view
+    column testId="root" padding=16 gap=8
+      textarea id="editor" testId="editor" value=body input=edited select=selected rows=3
+      button press=pick testId="pick"
+        text "Select reference"
+      button press=replace testId="replace"
+        text "Replace reference"
+      button press=current testId="current"
+        text "Replace selection"
+      button press=append testId="append"
+        text "Append"
+      button press=start testId="start"
+        text "Replace at start"
+      button press=select testId="select"
+        text "Select replacement"
+      button press=refused testId="refused"
+        text "Refuse reversed range"
+      text `${body}|${edits}|${caret}|${picked}` testId="result"

@@ -1,18 +1,15 @@
-// The UIKit presenter (LLP 1008 §9): the viewport scroll view over a
-// content-sized document, one `NodeView` per kernel node, the host's
-// batches applied, the keyboard's inset and the field it reveals. It
-// belongs to one session (LLP 1031 D1) and reaches the session's canvases,
-// web views, and menus through it.
+// The UIKit presenter (LLP 1008 §9): a viewport scroll view over a content-sized
+// document, one `NodeView` per kernel node, host batches, keyboard insets and
+// field reveal. It belongs to one session (LLP 1031 D1) and reaches that session's
+// canvases, web views and menus.
 #if os(iOS) || os(tvOS)
 import UIKit
 import CoreText
 import os
-
 package final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
-
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
@@ -23,7 +20,7 @@ package final class Presenter {
     /// turn, without waiting for a batch an idle app may never commit (LLP
     /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
     /// heights, switches), then tab bars and controls.
-    func requestProjectionSync() {
+    package func requestProjectionSync() {
         guard !projectionSyncOwed else { return }
         projectionSyncOwed = true
         DispatchQueue.main.async { [weak self] in
@@ -32,8 +29,7 @@ package final class Presenter {
             guard !applying else { return }
             // Rows stay carried: a trait refresh never pulls a row (and a
             // first responder or a touch in it) out of its cell. Lists mount
-            // first, so a segment or control in a carried row is judged
-            // where it shows.
+            // first, so a segment or control in a carried row is judged where it shows.
             groupedLists?.sync(changed: [])
             segments.sync()
             controls.sync()
@@ -52,6 +48,7 @@ package final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     package let viewport: ScrollView = Viewport(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
+    lazy var focusEvents = FocusEvents(self)
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
     var leaving: [UInt32: Leaving] = [:]
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsIOS.swift`).
@@ -59,6 +56,8 @@ package final class Presenter {
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh() }
     package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
+    /// Open top-layer views in viewport points; a native confirmation has no frame of its own.
+    package var openTopLayerFrames: [(UInt32, CGRect)] { menus.presented.map { ($0.id, $0.convert($0.bounds, to: viewport)) } + (menus.nativeConfirmation.map { [($0.id, CGRect.zero)] } ?? []) }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
@@ -92,7 +91,7 @@ package final class Presenter {
     lazy var leaves = HeavyLeaves(self)
     lazy var flats = FlatLeaves(self)
     /// The native swipe rows (LLP 1008 §9), a grouped list's included.
-    package lazy var swipeActions = SwipeActionsHost(self)
+    package lazy var swipeActions = SwipeActionsHost(self); lazy var rowCells = RowCells(self)
     lazy var accent = AppAccent(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
@@ -168,12 +167,13 @@ package final class Presenter {
     /// insets its content by this and reveals the field being edited, in the
     /// keyboard's own animation.
     package var keyboardInset: CGFloat = 0
-
+    /// What scrollers took below their content to show a field above pinned
+    /// content, while the keyboard is up (`PinnedRoom`).
+    let pinnedRoom = PinnedRoom()
     var hasKeyboardEditor: Bool {
         views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
             || hasNativeKeyboardEditor
     }
-
     /// A native module's own text input (a composer's UITextView) focused
     /// inside this viewport: the keyboard is this session's business as for
     /// its own fields, so the page resizes above it.
@@ -277,7 +277,7 @@ package final class Presenter {
     /// A drag is moving the keyboard: on the scroller that shows, a grouped list's collection view included.
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
-            guard node.scroll != nil, let sv = navigation.shownScroll(node) else { return false }
+            guard let sv = node.scrollView else { return false }
             return sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging)
         }
     }
@@ -311,6 +311,7 @@ package final class Presenter {
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.setKeyboardInset(overlap)
             }
+            if top == nil { self.pinnedRoom.release() }
             self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
         }
         // Under the agent (LLP 1012) the change applies at once, as the
@@ -346,6 +347,7 @@ package final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        focusEvents.reset()
         // Every hatched node ends first, its view and platform object there.
         elements.reset()
         resetFlights()
@@ -363,7 +365,7 @@ package final class Presenter {
         fieldSelections.reset()
         edited = nil
         menus.reset()
-        swipeActions.reset()
+        swipeActions.reset(); rowCells.reset()
         pool.reset()
         leaves.reset()
         flats.reset()
@@ -397,7 +399,7 @@ package final class Presenter {
         if root.frame.size != size { root.frame = CGRect(origin: .zero, size: size) }
         if viewport.contentSize != size { viewport.contentSize = size }
     }
-    var onPress: ((UInt32) -> Void)?
+    var onPress, onClose: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
     /// Host intrinsic sizes, several at once under one layout.
     var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
@@ -479,6 +481,7 @@ package final class Presenter {
         return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
     }
 
+    lazy var popoverEvents = PopoverEvents(self)
     /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
     /// confirmation by its id, the platform's alert or sheet (MenusIOS).
     func dialogCommand(_ name: String, _ id: String) {
@@ -560,13 +563,13 @@ package final class Presenter {
 
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
-    var onFocus: ((UInt32) -> Void)?
-    var onBlur: ((UInt32) -> Void)?
+    var onFocus, onBlur: ((UInt32) -> Void)?
     /// A `key` or `keyup` (`KeyPress.up`) at a node (KeyEvents.swift).
     var onKey: ((UInt32, KeyPress) -> Void)?
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
+    var onSelectionChange: ((UInt32, String, Int, Int, [CGRect]) -> Void)? // a `text`'s part of the selection (`TextSelectionIOS`)
     /// A touch went down on a node (`true`) or came up (LLP 1005 §3).
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
@@ -580,6 +583,7 @@ package final class Presenter {
     /// A scroller with a `scroll` handler moved: left, top, then its
     /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`.
     var onScroll: ((UInt32, [Double]) -> Void)?
+    var onScrollend: ((UInt32) -> Void)?
     /// A scroller (nil: the page) moved, handler or not: `frame()` reads
     /// boxes where the viewer sees them (LLP 1051.000 D1).
     var onScrolled: ((UInt32?, Double, Double) -> Void)?
@@ -629,6 +633,13 @@ package final class Presenter {
     func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
         guard edited == id else { return }
         edited = nil
+        var value = value
+        // A number input's typed value past `min` or `max` commits as the
+        // bound (LLP 1116.008 D5), told as a step is: `input`, then `change`.
+        if let node = views[id], let bound = node.clampTypedNumber(value) {
+            value = bound
+            if node.handlers.contains("input") { onInput?(id, bound) }
+        }
         if change { onChange?(id, value) }
     }
     package func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
@@ -665,14 +676,13 @@ package final class Presenter {
             send(view.id) { [self] in onHover?(view.id, false) }
         }
     }
-    func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
-    func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     /// A `contextmenu` with its point (studio diary R22): kind 10 and its line.
     func contextmenu(_ id: UInt32, line: String) { send(id) { [self] in onClipboard?(id, 10, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
+    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int, rects: [CGRect] = []) { send(id) { [self] in onSelectionChange?(id, text, start, end, rects) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
     func refresh(_ id: UInt32) { send(id) { [self] in onRefresh?(id) } }
@@ -683,6 +693,7 @@ package final class Presenter {
         send(id) { [self] in onPanRelease?(id, vx, vy) }
     }
     func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
+    func scrollend(_ id: UInt32) { send(id) { [self] in onScrollend?(id) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
     package func message(_ id: UInt32, _ value: String) {
@@ -782,6 +793,7 @@ package final class Presenter {
                 leaves.batchApplied(moved: moved)
                 #if os(iOS)
                 resolveStatusBar()
+                textSelection.batchEnded()
                 #endif
                 if moved { session?.natives.refreshWorldGeometry() }
                 flushPendingFocus()
@@ -793,7 +805,7 @@ package final class Presenter {
         for op in batch.ops {
             let kind = op.op
             switch kind {
-            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
+            case .create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent: touchedIDs.append(op.id)
             default: break
             }
             if kind == .create || kind == .frame || kind == .content { moved = true }
@@ -809,7 +821,7 @@ package final class Presenter {
                 navigation.installInitialOwner(batch)
             }
             let id = op.id
-            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
+            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy || kind == .fieldContent) }
             switch kind {
             case .transformDrag:
                 if let binding = TransformDragBinding(op.payload) {
@@ -843,6 +855,9 @@ package final class Presenter {
                 if flats.create(op) { continue }
                 let reused = pool.take(id)
                 let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
+                #if os(iOS)
+                v.groupedOwner = op.kind == "list" && op.props["listStyle"] != nil
+                #endif
                 v.handlers = op.handlers
                 // Before the style makes it a scroll container: a swipe row's waits.
                 v.swipeOwner = op.props["swipeContent"] != nil
@@ -942,6 +957,7 @@ package final class Presenter {
                     flats.promote(id)
                 }
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
+                anchorChanges.notePresentation(op, on: v)
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
@@ -965,19 +981,9 @@ package final class Presenter {
         session?.canvases.cancelMovedControls()
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
-        for id in scrollers.union(pendingScrolls).union(materialNodes) {
-            guard let node = views[id] else { continue }
-            // A modal's live source retains its old geometry until release.
-            // Its scroll writes must wait too, especially on newly added rows
-            // whose extent is still zero. releaseBackground applies both.
-            if !modals.defersGeometry(for: node) {
-                if !collections.owns(node.id) { node.restoreScrollPosition() }
-                if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
-                node.applyPendingScroll()
-            }
-            if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
-        }
-        pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
+        let changed = touchedAndAbove(touchedIDs)
+        swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
+        groupedLists?.sync(changed: changed)
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)
         menuKey.sync()
@@ -992,19 +998,35 @@ package final class Presenter {
         #endif
         menus.sync()
         glassGroups.reconcile()
-        let changed = touchedAndAbove(touchedIDs)
-        swipeActions.sync(changed: changed)
-        groupedLists?.sync(changed: changed)
-        // `prepare` put carried rows back under the list's hidden sheet, where
-        // the pass above judged a segmented control in one unavailable (shown
-        // dimmed, deaf to a finger); judge it again where it shows, in its cell.
-        if groupedLists?.carriesRows == true { segments.sync() }
         positionContexts()
+        let ariaMoved = Set(batch.ops.filter { $0.op == .children }.flatMap(\.ids).filter { id in
+            guard let node = views[id] else { return false }
+            return node.accessibilityTraits.contains(.notEnabled) != (node.disabled || node.ariaUnavailable)
+        })
+        let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
+        let disabledRoots = Set(ariaProps).union(ariaMoved)
         // Finish controls and frames before UIKit synchronously lays out the destination.
         afterBatch { [weak self] in
             guard let self else { return }
-            if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
-            syncAccessibility(changed: changed)
+            navigation.batchApplied(batch, rowsOnly: rowsOnly)
+            keyboardToolbars.finishBackendChange()
+            for id in scrollers.union(pendingScrolls).union(materialNodes) {
+                guard let node = views[id] else { continue }
+                // A modal's live source retains its old geometry until release.
+                // Its scroll writes must wait too, especially on newly added rows
+                // whose extent is still zero. releaseBackground applies both.
+                if !modals.defersGeometry(for: node) {
+                    // Navigation can resize a native port after its row projection.
+                    // Settle that layout before restoring or authoring an offset.
+                    if node.groupedOwner { node.scrollView?.layoutIfNeeded() }
+                    if !collections.owns(node.id) { node.restoreScrollPosition() }
+                    if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
+                    node.applyPendingScroll()
+                }
+                if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
+            }
+            pendingScrolls = pendingScrolls.filter { self.views[$0]?.pendingScrollTop != nil || self.views[$0]?.pendingScrollLeft != nil }
+            syncAccessibility(changed: changed.union(ariaMoved), disabledRoots: disabledRoots)
         }
         #if os(iOS)
         syncScrollsToTop()
@@ -1016,6 +1038,7 @@ package final class Presenter {
     /// parked row, `NodePool`).
     @discardableResult
     func release(_ id: UInt32, _ leaving: (NodeView) -> Void) -> NodeView? {
+        focusEvents.removed(id)
         session?.canvases.destroy(view: id)
         svg.forget(id)
         canvas2d.forget(id)
@@ -1315,6 +1338,7 @@ package final class Presenter {
     private(set) var title: String?
     var onTitle: ((String?) -> Void)?
     #if os(iOS)
+    lazy var textSelection = TextSelectionHost(self) // `user-select: text` (LLP 1115.000 D11.6)
     /// The status bar's resolved style (LLP 1105), and who is told of a change.
     var statusBar = StatusBarChoice()
     var onStatusBar: ((StatusBarChoice) -> Void)?
@@ -1456,21 +1480,5 @@ extension CGRect {
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> CGRect {
         CGRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
-}
-
-/// The window's first responder, found the way UIKit offers: an action sent
-/// to nil reaches it.
-enum FirstResponder {
-    private static weak var found: UIResponder?
-    static var current: UIResponder? {
-        found = nil
-        UIApplication.shared.sendAction(#selector(UIResponder.exactReportFirstResponder), to: nil, from: nil, for: nil)
-        return found
-    }
-    fileprivate static func report(_ responder: UIResponder) { found = responder }
-}
-
-extension UIResponder {
-    @objc fileprivate func exactReportFirstResponder() { FirstResponder.report(self) }
 }
 #endif

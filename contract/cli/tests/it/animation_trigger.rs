@@ -70,6 +70,7 @@ fn report(r: &mut Runner<Data>, offset: f64) -> Advanced {
             port_main: 300.0,
             port_cross: 400.0,
             cross: 400.0,
+            padding: [0.0; 2],
             measurements: c
                 .rows
                 .iter()

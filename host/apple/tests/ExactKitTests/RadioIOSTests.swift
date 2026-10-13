@@ -142,6 +142,18 @@ final class RadioIOSTests: XCTestCase {
         XCTAssertTrue(window.hitTest(CGPoint(x: a.x + 17, y: a.y), with: nil) === green, "17 points from red, 13 from green")
     }
 
+    func testARIAUnavailableRadioKeepsItsTraitAfterRefusedChange() throws {
+        let p = presenter()
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityDisabled": "true"]]]))
+        let green = try XCTUnwrap(p.controls.controls[3] as? ExactRadio)
+        XCTAssertTrue(green.accessibilityTraits.contains(.notEnabled))
+        accepts = false
+        tap(green)
+        XCTAssertEqual(shown(p), [2])
+        XCTAssertTrue(green.isEnabled, "ARIA state leaves input enabled")
+        XCTAssertTrue(green.accessibilityTraits.contains(.notEnabled))
+    }
+
     func testTheArrowsMoveFocusAndCheckAndTheAgentTypesTrue() throws {
         let p = presenter()
         let red = try XCTUnwrap(p.views[2])

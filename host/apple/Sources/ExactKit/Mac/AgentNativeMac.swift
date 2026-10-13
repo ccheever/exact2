@@ -96,6 +96,7 @@ extension Presenter {
         if let surface = sub as? RegionSurfaceMac, let regions = session?.regions, surface.owner === regions { return ("region", owner?.id) }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
         if dialogs.inspectionOwns(sub) { return ("dialog", owner?.id) }
+        if navigation.inspectionOwns(sub) { return ("ground", owner?.id) }
         if sub === viewport { return ("viewport", nil) }
         if sub === root { return ("document", nil) }
         if sub.nextResponder is NSViewController { return ("controller", nil) }
@@ -108,6 +109,7 @@ extension Presenter {
         if menus.hides(n) { return "menus" }
         if navigation.hides(n) { return "navigation" }
         if toolbar.hides(n) { return "toolbar" }
+        if sidebar.hides(n) { return "sidebar" }
         return nil
     }
 
@@ -252,7 +254,7 @@ extension Presenter {
             guard seen[id] === v, v.window != nil else { report.skip("offWindow"); continue }
             if v.placedAncestor != nil { report.skip("placed"); continue }
             if menus.projects(v) || dialogs.projects(v) { report.skip("projected"); continue }
-            if toolbar.hides(v) { report.skip("projected"); continue }
+            if toolbar.hides(v) || sidebar.suppresses(v) { report.skip("projected"); continue }
             if f.transformed || v.frameRotation != 0 || v.layer.map({ !CATransform3DIsIdentity($0.transform) }) == true { report.skip("transformed"); continue }
             if v.layer?.animationKeys()?.isEmpty == false { report.skip("animating"); continue }
             let sv = v.superview

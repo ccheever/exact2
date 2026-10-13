@@ -33,7 +33,7 @@ component Habit
         text "Done yesterday" testId="status"
       else
         text "Not done yet" testId="status"
-      button press=markDone disabled=includes(doneDays, today) testId="done"
+      button press=markDone disabled=includes(doneDays, today) buttonStyle="filled" testId="done"
         text "Mark Done"
 ```
 
@@ -58,22 +58,16 @@ test "an entry made 30 s after midnight, before the tick, is the new day's"
   expect text "status" == "Done today"
 ```
 
-- **The write reads the clock itself.** The minute-ticked `now` is for display: it can
-  be a minute behind, so an entry keyed by `today` just after midnight lands on
-  yesterday. The action that writes takes its instant (`let at = time.epochAtZero +
-  performanceNow()`) and keys the entry `formatDate(at, time.utcOffset, "iso")`; setting
-  `now` there too moves the display with it. An action reads the state it started
-  with, so the `today` derive is still the old day inside it.
-- `performanceNow()` is milliseconds since this launch of the app; it restarts at 0 on
-  every launch, so store `time.epochAtZero + performanceNow()`, never
-  `performanceNow()` alone ([timer-that-survives-relaunch](timer-that-survives-relaunch.md)).
-- A derive that reads the clock doesn't update by itself: keep the time in state that
-  a `task … every` writes (a minute for a date, a second or less for a timer).
-- `formatDate(ms, time.utcOffset, "iso")` is the day key; keys compare as strings
-  (`"2026-03-14" < "2026-03-15"`). `"medium"` is `Mar 14, 2026`, `formatTime(…,
-  "short")` is `11:30 PM`; `calendarDiff(from, to, "years")` counts an age.
-- `utcOffset` is the zone's offset now: every host answers `exactTime()` again when it
-  changes (a DST change or a new zone), checked before a timer fires, so the minute's
-  tick brings it. So `shown - 86400000` can miss by an hour across a DST change; format
-  a past instant in the data module with `new Intl.DateTimeFormat(locale, { timeZone })`.
-  Tests pin `epoch` and `time-zone`; the driver's default is 2026-01-01T00:00:00Z in UTC.
+- **The write reads the clock itself.** The minute-ticked `now` is for display and can be a
+  minute behind, so an entry keyed by `today` just after midnight lands on yesterday: the action
+  takes `let at = time.epochAtZero + performanceNow()` and keys `formatDate(at, time.utcOffset,
+  "iso")` (an action reads the state it started with, so `today` is still the old day in it).
+- A derive that reads the clock doesn't update by itself: keep the time in state that a
+  `task … every` writes (a minute for a date, a second or less for a timer). Store
+  `time.epochAtZero + performanceNow()`, never `performanceNow()` alone, which restarts at 0 each
+  launch ([timer-that-survives-relaunch](timer-that-survives-relaunch.md)).
+- `"iso"` is the day key and keys compare as strings; `"medium"` is `Mar 14, 2026`,
+  `formatTime(…, "short")` is `11:30 PM`.
+- `utcOffset` is the zone's offset now (a DST change arrives with the next tick), so
+  `shown - 86400000` can miss by an hour across one. Tests pin `epoch` and `time-zone`; the
+  driver's default is 2026-01-01T00:00:00Z in UTC.

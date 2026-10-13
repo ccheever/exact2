@@ -40,6 +40,23 @@ package enum SystemColor {
     nonisolated(unsafe) private static var lastTint: Native?
     nonisolated(unsafe) private static var resolutions = 0
 
+    #if os(macOS)
+    /// @ref LLP 1115.002 D5, LLP 1115.000 D3.7 — set, on the main thread,
+    /// while a view in a table's selected row that AppKit draws emphasized
+    /// resolves its ink (`NodeView.paragraphSpec`, TableInkMac.swift): a
+    /// role that is ink resolves to the selected item's text.
+    nonisolated(unsafe) static var selectedItem = false
+    /// The roles that are ink, and the share of
+    /// `alternateSelectedControlTextColor` a stock table draws each at in an
+    /// emphasized selected row (measured on macOS 27.0.1, TableInkMac.swift).
+    /// The accent and the link's colour, which AppKit leaves alone and which
+    /// cannot be read on the accent, are the selected item's text whole.
+    private static let selectedInk: [String: Double] = [
+        "labelColor": 1, "textColor": 1, "controlTextColor": 1, "headerTextColor": 1, "linkColor": 1, "@tint": 1,
+        "secondaryLabelColor": 0.92, "tertiaryLabelColor": 0.61, "quaternaryLabelColor": 0.39,
+    ]
+    #endif
+
     /// Whether Increased Contrast is on, as `prefers-contrast` reads it (an
     /// agent's `prefer contrast more` pins it, LLP 1095 D7).
     static var highContrast: Bool { DisplayPreferences.contrast == "more" }
@@ -61,6 +78,10 @@ package enum SystemColor {
     static func channels(_ name: String, dark: Bool, contrast: Bool? = nil, elevated: Bool = false,
                          tint resolvedTint: [Double]? = nil, tintColor: PlatformColor? = nil, fallback: [Double]?) -> [Double]? {
         let contrast = contrast ?? highContrast
+        #if os(macOS)
+        if selectedItem, Thread.isMainThread, let share = selectedInk[name],
+           var c = rgba(.alternateSelectedControlTextColor, dark: dark, contrast: contrast) { c[3] *= share; return c }
+        #endif
         if name.hasPrefix("@tint") {
             let alpha = name.contains("/") ? Double(name.split(separator: "/").last ?? "") ?? 1 : 1
             if var c = resolvedTint, c.count == 4 { c[3] *= alpha; return c }

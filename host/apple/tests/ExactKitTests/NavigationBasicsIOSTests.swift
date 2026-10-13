@@ -19,6 +19,26 @@ final class NavigationBasicsIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
 
+    func testNotificationClickSetsColdLaunchLocationOnlyOnce() {
+        let session = ExactApp.shared.makeSession(label: "notification-\(UUID().uuidString)")
+        sessions.append(session)
+        let presenter = NotificationPresenter()
+        presenter.app = ExactApp.shared
+        let date = Date()
+        let info: [AnyHashable: Any] = ["navigate": "/thread/42", "session": session.label,
+                                        "owner": session.notificationOwnerID]
+        presenter.deliver(id: "thread-42", date: date, info: info)
+        XCTAssertEqual(session.launchLocation, "/thread/42")
+        presenter.deliver(id: "thread-42", date: date, info: ["navigate": "/other", "session": session.label,
+                                                                           "owner": session.notificationOwnerID])
+        XCTAssertEqual(session.launchLocation, "/thread/42")
+        XCTAssertTrue(session.pendingLaunchLocations.isEmpty, "a duplicate click must not queue another navigation")
+        presenter.deliver(id: "thread-43", date: date, info: ["navigate": "/thread/43", "session": session.label,
+                                                                           "owner": session.notificationOwnerID])
+        XCTAssertEqual(session.launchLocation, "/thread/42")
+        XCTAssertEqual(session.pendingLaunchLocations, ["/thread/43"])
+    }
+
     override func tearDown() {
         for session in sessions { session.destroy() }
         sessions = []
@@ -51,12 +71,12 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.frame = window.screen.bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.addSubview(view)
         self.window = window
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
         spin(0.3)
@@ -167,6 +187,22 @@ final class NavigationBasicsIOSTests: XCTestCase {
         try tapNode(session, "toggle-subtitle")
         until("the subtitle came back") { !view.subtitle.isHidden }
         XCTAssertTrue(item.titleView === hatches, "the hatch's title view is left alone")
+    }
+
+    func testARIAUnavailablePressableTitleKeepsItsAction() throws {
+        let session = try fixture("aria-title")
+        let (_, _, chat) = try chat(session)
+        let view = try XCTUnwrap(chat.navigationItem.titleView as? HeaderTitleView)
+        let group = try node(session, "title-group")
+        let header = try node(session, "header-chat")
+        let heading = try node(session, "title-chat")
+        group.props["accessibilityDisabled"] = "true"
+        view.update(try XCTUnwrap(HeaderTitle(header: header, heading: heading, tap: group, apart: [])), title: "Chat")
+        XCTAssertTrue(view.isEnabled, "ARIA does not disable the title action")
+        XCTAssertTrue(view.accessibilityTraits.contains(.notEnabled))
+        group.props["accessibilityDisabled"] = "false"
+        view.update(try XCTUnwrap(HeaderTitle(header: header, heading: heading, tap: group, apart: [])), title: "Chat")
+        XCTAssertFalse(view.accessibilityTraits.contains(.notEnabled))
     }
 
     /// LLP 1116 D2 (amending LLP 1075.003 §9.10): a heading the header holds
@@ -322,6 +358,13 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // The pushed-route rule stands.
         let (_, _, chat) = try chat(session)
         XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
+    }
+
+    func testTheNavigationFixtureReachesTheScreensBottomEdge() throws {
+        _ = try fixture("basics-screen")
+        let window = try XCTUnwrap(window)
+        XCTAssertEqual(window.frame, window.screen.bounds)
+        XCTAssertGreaterThan(window.safeAreaInsets.bottom, 0)
     }
 
     func testAnInlineTitlesScrollerGoesUnderTheBar() throws {

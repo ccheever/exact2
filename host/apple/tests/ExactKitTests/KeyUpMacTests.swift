@@ -53,6 +53,34 @@ final class KeyUpMacTests: XCTestCase {
         XCTAssertEqual(KeyPress("a").payload, "a", "a chord alone when the host knows no more")
     }
 
+    func testCaptureRunsBeforeTargetAndBubbleAndCanClaimTheFieldDefault() throws {
+        let p = try fixture()
+        p.views[1]!.handlers.insert("keycapture")
+        p.views[2]!.handlers.insert("keycapture")
+        p.views[1]!.handlers.remove("key")
+        p.views[1]!.handlers.remove("keyup")
+        XCTAssertFalse(p.views[1]!.acceptsFirstResponder, "capture alone adds no Tab stop")
+        p.views[1]!.handlers.formUnion(["key", "keyup"])
+        var heard: [String] = []
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : "bubble")") }
+        XCTAssertFalse(p.routeKey(event(.keyDown, 11, [], "b"), focused: true))
+        XCTAssertEqual(heard, ["1 capture", "2 capture", "2 bubble", "1 bubble"])
+        heard = []
+        p.onKey = { id, press in
+            heard.append("\(id) \(press.capture ? "capture" : "bubble")")
+            if id == 1 && press.capture { p.propagationStopped = true }
+        }
+        XCTAssertFalse(p.routeKey(event(.keyDown, 11, [], "b"), focused: true))
+        XCTAssertEqual(heard, ["1 capture"])
+        heard = []
+        p.onKey = { id, press in
+            heard.append("\(id) \(press.capture ? "capture" : "bubble")")
+            if id == 2 && press.capture { p.propagationStopped = true; p.defaultPrevented = true }
+        }
+        XCTAssertTrue(p.routeKey(event(.keyDown, 11, [], "b"), focused: true))
+        XCTAssertEqual(heard, ["1 capture", "2 capture"])
+    }
+
     /// A modifier is a flags change to AppKit: pressed, a keydown that holds
     /// it; released, a keyup that no longer does. The device bits tell the
     /// sides apart, so the left ⌘'s release while the right is held is one.
@@ -123,6 +151,19 @@ final class KeyUpMacTests: XCTestCase {
         XCTAssertEqual(heard.lines, ["input 한", "keydown Meta+Meta MetaLeft", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
         XCTAssertEqual(editor.string, "한")
         XCTAssertFalse(p.endedComposition(event(.keyDown, 11, leftCommand, "b", at: 1)), "a later ⌘B is a chord like any")
+    }
+
+    func testCaptureHearsACommandChordAfterTheComposedInput() throws {
+        let p = try fixture()
+        p.views[1]!.handlers.insert("keycapture")
+        p.views[2]!.handlers.insert("input")
+        var heard: [String] = []
+        p.onInput = { _, value in heard.append("input \(value)") }
+        p.onKey = { id, press in heard.append("\(id) \(press.capture ? "capture" : "key")") }
+        let editor = try compose("한")
+        XCTAssertFalse(p.routeKey(event(.keyDown, 11, leftCommand, "b"), focused: true))
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(heard, ["input 한", "1 capture", "2 key", "1 key"])
     }
 
     /// A composer's ⌘Enter during a composition sends what was typed: its

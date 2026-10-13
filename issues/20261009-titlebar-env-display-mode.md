@@ -9,7 +9,28 @@
 
 ## Current scope
 
-Add selected Window Controls Overlay env values/displayMode first, including fullscreen transitions and fallback. Choose manifest title-row/traffic-light configuration before arbitrary positioning. Saved-frame repair already landed.
+Remaining: Window Controls Overlay `env(titlebar-area-x|y|width|height)`,
+including absent-value fallback and fullscreen geometry transitions, then
+manifest title-row/traffic-light configuration before arbitrary positioning.
+Saved-frame repair already landed.
+
+The display-mode slice is implemented: `exactViewport().displayMode` and
+`state.device.displayMode`; browser media-query changes on both web targets;
+macOS window-scoped fullscreen entry/exit notifications; `standalone` as the
+native default. Apple supports `prefer display-mode`; browser drivers refuse
+unsupported emulation, and Linux keeps the default and refuses substitution.
+See LLP 1039 D7. The tests are
+`runner`'s `display_mode_*`, the web ABI's `display_mode_bits_*`,
+`host/web/tests/display-mode.test.mjs`, and `DisplayModeMacTests`.
+The web ABI test combines display mode with fold counts, posture, gamut
+and HDR at boot and on updates; the browser test checks the packed word
+as well as the JS target’s facts.
+`DisplayModeMacTests` supplies the window state and notifications; real macOS
+fullscreen entry/exit remains unverified because the XCTest process could not
+activate or enter fullscreen. The Chrome test checks the real media-query value
+and injects changes to exercise installed-app modes without a PWA installation.
+This issue stays open until titlebar env geometry and configuration land, with
+real macOS fullscreen verification still required.
 
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 

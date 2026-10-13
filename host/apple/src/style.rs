@@ -16,6 +16,7 @@
 //! 1115.000 D2): a presenter reads it where the platform's answer stands for
 //! what the author left unsaid, and an inherited value is never in it.
 
+use crate::gradient::gradient_json;
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
     Dimension, Env, NodeRef, NodeType, Overflow, PositionArea, PropId, PropValue, RowValue,
@@ -82,10 +83,6 @@ fn presenter_ignores(name: &str) -> bool {
             | "justify_items"
             | "field_sizing"
             | "text_transform"
-            | "border_style_top"
-            | "border_style_right"
-            | "border_style_bottom"
-            | "border_style_left"
     )
 }
 
@@ -140,8 +137,22 @@ fn style_json_rows(
             RowValue::ShapeOutside(_) => false, // LLP 1043.000 M3
             // Layout only (LLP 1053 G1): the kernel sizes the box.
             RowValue::AspectRatio(_) => false,
+            RowValue::PositionTryFallbacks(v) => {
+                let _ = write!(out, "\"{}\"", v.css());
+                true
+            }
+            // Sent as laid out: clamped at zero on a row with no negative
+            // values.
             RowValue::Dimension(d) => {
-                push_dimension(&mut out, env.map_or(d, |e| d.resolve(e)));
+                let d = match env.map_or(d, |e| d.resolve(e)) {
+                    Dimension::Points(v) | Dimension::Percent(v)
+                        if v < 0.0 && exact_kernel::style::calc::nonnegative_row(id) =>
+                    {
+                        Dimension::Points(0.0)
+                    }
+                    d => d,
+                };
+                push_length(&mut out, d, env);
                 true
             }
             // @ref LLP 1061 D6 — `[x, y]`, each points or `{"pct": n}`.
@@ -456,6 +467,20 @@ fn style_json_rows(
     (out, skipped)
 }
 
+/// A length row: a calculation tree with its handle and environment, which
+/// Swift resolves against its basis by the kernel's evaluator
+/// (`exact_calc_resolve`, LLP 1116 D5); anything else as [`push_dimension`]
+/// writes it.
+fn push_length(out: &mut String, d: Dimension, env: Option<&exact_kernel::Env>) {
+    let Dimension::Compare(c) = d else {
+        return push_dimension(out, d);
+    };
+    // A native button's face arrives resolved without its environment: its
+    // terms read the default one
+    let fallback = exact_kernel::Env::default();
+    crate::calc::write(out, c, env.unwrap_or(&fallback));
+}
+
 fn push_dimension(out: &mut String, d: Dimension) {
     match d {
         Dimension::Auto => out.push_str("\"auto\""),
@@ -476,7 +501,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
         | Dimension::Segment(..)
         | Dimension::Viewport(..)
         | Dimension::Compare(..) => {
-            unreachable!("resolved")
+            unreachable!("resolved, and a calculation written by push_length")
         }
     }
 }
@@ -968,7 +993,7 @@ pub fn style_json_presented(
             }
             if let RowValue::Dimension(d) = computed.get(id) {
                 let mut value = String::new();
-                push_dimension(&mut value, d.resolve(env));
+                push_length(&mut value, d.resolve(env), Some(env));
                 let comma = if json == "{}" { "" } else { "," };
                 json.pop();
                 let _ = write!(json, "{comma}\"{}\":{value}}}", id.name());
@@ -1035,89 +1060,6 @@ pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap
         out.insert(PropId::GlassGroup.name().to_string(), num(points));
         out.insert("glassGroupAuto".to_string(), "true".to_string());
     }
-}
-
-/// A gradient for the presenter (LLP 1066): its shape — `linear` degrees,
-/// a `to <corner>` as `[right, bottom]`, or `radial` as `[circle, extent,
-/// x%, xpx, y%, ypx]` (extent: closest-side, closest-corner, farthest-side,
-/// farthest-corner) — and `stops` flat as `t, r, g, b, a`, positions 0–1.
-/// The box, so the placement, is the presenter's. Stops are already expanded
-/// to mix as CSS's premultiplied ones do (Core Graphics and Core Animation
-/// mix unpremultiplied); a `light-dark()` gradient also carries `dark`, and
-/// the view picks by its own appearance (LLP 1034 D2).
-fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
-    use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
-    // LLP 1100 D2: interpolated outside sRGB, the ramp crosses as unclipped
-    // extended linear sRGB floats, alpha 0–1.
-    let stops = |dark: bool| {
-        if let Some(ramp) = g.interpolated(dark) {
-            let parts: Vec<String> = ramp
-                .into_iter()
-                .map(|(at, c, a)| {
-                    format!(
-                        "{},{},{},{},{}",
-                        num(at),
-                        c[0] as f32,
-                        c[1] as f32,
-                        c[2] as f32,
-                        a as f32
-                    )
-                })
-                .collect();
-            return format!("[{}]", parts.join(","));
-        }
-        let parts: Vec<String> = premultiplied_ramp(&g.resolved(dark))
-            .into_iter()
-            .map(|(at, c)| format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a()))
-            .collect();
-        format!("[{}]", parts.join(","))
-    };
-    let shape = match g.kind {
-        GradientKind::Linear(Direction::Angle(deg)) => format!("\"linear\":{}", num(deg)),
-        GradientKind::Linear(Direction::Corner { right, bottom }) => {
-            format!("\"corner\":[{},{}]", u8::from(right), u8::from(bottom))
-        }
-        // @ref LLP 1077 D5 — `[from, x%, xpx, y%, ypx]`.
-        GradientKind::Conic { from, at } => {
-            let axis = |l: Length| match l {
-                Length::Percent(p) => format!("{},0", num(p)),
-                Length::Px(px) => format!("0,{}", num(px)),
-            };
-            format!("\"conic\":[{},{},{}]", num(from), axis(at[0]), axis(at[1]))
-        }
-        GradientKind::Radial { circle, extent, at } => {
-            let axis = |l: Length| match l {
-                Length::Percent(p) => format!("{},0", num(p)),
-                Length::Px(px) => format!("0,{}", num(px)),
-            };
-            format!(
-                "\"radial\":[{},{},{},{}]",
-                u8::from(circle),
-                extent as u8,
-                axis(at[0]),
-                axis(at[1])
-            )
-        }
-    };
-    let dark = if g.is_scheme_aware() {
-        format!(",\"dark\":{}", stops(true))
-    } else {
-        String::new()
-    };
-    let space = if g.interpolation(false).is_some() {
-        ",\"space\":\"srgb-linear\""
-    } else {
-        ""
-    };
-    let dark_space = if g.is_scheme_aware() && g.interpolation(true).is_some() {
-        ",\"darkSpace\":\"srgb-linear\""
-    } else {
-        ""
-    };
-    format!(
-        "{{{shape},\"stops\":{}{dark}{space}{dark_space}}}",
-        stops(false)
-    )
 }
 
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.
@@ -1257,6 +1199,11 @@ mod flow_tests {
         let mut area = StyleProps::default();
         area.set_dynamic(StyleId::PositionArea, &StyleValue::Text("top".into()))
             .unwrap();
+        area.set_dynamic(
+            StyleId::PositionTryFallbacks,
+            &StyleValue::Text("flip-block, flip-inline, flip-block flip-inline".into()),
+        )
+        .unwrap();
         kernel
             .apply(
                 0,
@@ -1269,6 +1216,10 @@ mod flow_tests {
             .unwrap();
         let placed = json(&kernel);
         assert_eq!(placed["position_area"], "top", "{placed}");
+        assert_eq!(
+            placed["position_try_fallbacks"],
+            "flip-block, flip-inline, flip-block flip-inline"
+        );
         assert_eq!(placed["margin_bottom"], 12, "{placed}");
         assert_eq!(placed["margin_left"], "auto", "{placed}");
     }
@@ -1492,5 +1443,24 @@ mod flow_tests {
         let json: serde_json::Value =
             serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
         assert!(json.get("system_colors").is_none(), "{json}");
+    }
+}
+
+#[cfg(test)]
+mod negative_rows {
+    use super::*;
+    use exact_kernel::{StyleId, StyleValue};
+
+    /// Presenters read padding from this dictionary.
+    #[test]
+    fn a_negative_calculated_padding_is_sent_as_zero() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(
+            StyleId::PaddingLeft,
+            &StyleValue::Text("calc(0px - 10px)".into()),
+        )
+        .unwrap();
+        let (json, _) = style_json(&s, &Env::default());
+        assert!(json.contains("\"padding_left\":0"), "{json}");
     }
 }

@@ -37,6 +37,33 @@ pub struct WallTime {
     pub utc_offset: f64,
 }
 
+std::thread_local! {
+    static LAUNCH: std::cell::Cell<Option<WallTime>> = const { std::cell::Cell::new(None) };
+}
+
+/// Boot under `time`, the date the host knows at launch: a runner booted
+/// inside reads it from its first settle, so a resource whose arguments
+/// read the time (the zone's offset in a kept answer's identity) is asked
+/// with the real one, not with zero until the host's first `set_time`.
+/// `None`, or a fact that does not validate, boots on zero as before.
+pub fn launching<T>(time: Option<WallTime>, boot: impl FnOnce() -> T) -> T {
+    /// Puts the outer date back however `boot` leaves, an unwind too.
+    struct Restore(Option<WallTime>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LAUNCH.with(|l| l.set(self.0));
+        }
+    }
+    let time = time.filter(|t| t.validate().is_ok());
+    let _restore = Restore(LAUNCH.with(|l| l.replace(time)));
+    boot()
+}
+
+/// The date a boot under [`launching`] reads first.
+pub(crate) fn launch_time() -> WallTime {
+    LAUNCH.with(|l| l.get()).unwrap_or_default()
+}
+
 impl WallTime {
     /// Refuse a non-finite or implausible fact before changing any state.
     pub fn validate(self) -> Result<(), crate::RunnerError> {

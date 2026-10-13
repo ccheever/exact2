@@ -162,6 +162,7 @@ fn family(engine: &mut TextEngine, style: &exact_kernel::TextStyle, italic: bool
         line_clamp: 0,
         overflow_wrap: Default::default(),
         white_space: Default::default(),
+        text_wrap_style: Default::default(),
         direction: exact_kernel::Direction::Ltr,
         text_indent: 0.0,
         text_box_trim: Default::default(),

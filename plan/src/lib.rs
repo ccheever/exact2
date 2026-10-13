@@ -639,6 +639,90 @@ pub fn is_portable_asset_path(source: &str) -> bool {
         .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
+/// Whether `member`, one unquoted member of a `font-family` list, is a
+/// family name as CSS parses it (CSS Fonts 4 §2.1 `<custom-ident>+`): CSS
+/// identifiers separated by whitespace. A lone identifier may not be a
+/// CSS-wide keyword or `default`, and a complete generic family may not
+/// begin a longer name. Chrome, Firefox and WebKit agree on each case
+/// (`CSS.supports("font-family", …)`, 2026-10-12); compiled literals and
+/// run-time strings are checked by this one rule.
+pub fn is_css_family_name(member: &str) -> bool {
+    const SPACE: [char; 5] = [' ', '\t', '\n', '\r', '\x0c'];
+    let start = |c: char| c.is_ascii_alphabetic() || c == '_' || !c.is_ascii();
+    let escape =
+        |rest: &str| rest.starts_with('\\') && !rest[1..].starts_with(['\n', '\r', '\x0c']);
+    let mut idents = Vec::new();
+    let mut rest = member.trim_matches(SPACE);
+    while !rest.is_empty() {
+        let mut chars = rest.chars();
+        let first = chars.next().unwrap();
+        let second = chars.as_str();
+        let begins = if first == '-' {
+            second.starts_with('-') || second.starts_with(start) || escape(second)
+        } else {
+            start(first) || escape(rest)
+        };
+        if !begins {
+            return false;
+        }
+        let mut i = 0;
+        while i < rest.len() {
+            let tail = &rest[i..];
+            if escape(tail) {
+                // `\` then up to six hex digits and one whitespace, or any
+                // one other character; at the end, U+FFFD.
+                let hex = tail[1..]
+                    .bytes()
+                    .take(6)
+                    .take_while(u8::is_ascii_hexdigit)
+                    .count();
+                i += 1 + match hex {
+                    0 => tail[1..].chars().next().map_or(0, char::len_utf8),
+                    n => n + usize::from(tail[1 + n..].starts_with(SPACE)),
+                };
+                continue;
+            }
+            let c = tail.chars().next().unwrap();
+            if start(c) || c.is_ascii_digit() || c == '-' {
+                i += c.len_utf8();
+            } else if SPACE.contains(&c) {
+                break;
+            } else {
+                return false;
+            }
+        }
+        idents.push(&rest[..i]);
+        rest = rest[i..].trim_start_matches(SPACE);
+    }
+    let is = |ident: &str, words: &[&str]| words.iter().any(|w| ident.eq_ignore_ascii_case(w));
+    match idents.as_slice() {
+        [] => false,
+        [one] => !is(
+            one,
+            &[
+                "inherit",
+                "initial",
+                "unset",
+                "revert",
+                "revert-layer",
+                "default",
+            ],
+        ),
+        [first, ..] => !is(
+            first,
+            &[
+                "serif",
+                "sans-serif",
+                "cursive",
+                "fantasy",
+                "monospace",
+                "system-ui",
+                "math",
+            ],
+        ),
+    }
+}
+
 impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")

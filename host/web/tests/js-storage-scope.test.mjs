@@ -15,14 +15,14 @@ import { appDigest, developmentStore } from '../../../scripts/agent-launch.mjs';
 
 const webJs = new URL('../../web-js/', import.meta.url).pathname, web = new URL('../', import.meta.url).pathname;
 const root = mkdtempSync(resolve(tmpdir(), 'exact-js-storage-'));
-const STANDINS = { 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'animationClocks', 'launchLocation'], 'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
+const STANDINS = { 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'], 'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] };
+  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] };
 /** The runtime as a build lays it out for the app at `appDir`, or as written (a release) when it is null. */
 function runtime(name, appDir) {
   const dir = resolve(root, name), ship = code => appDir ? developmentStore(code, appDir) : code;
   mkdirSync(dir);
-  for (const f of ['rt.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'persist.js']) writeFileSync(resolve(dir, f), ship(readFileSync(resolve(webJs, f), 'utf8')));
+  for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'persist.js']) writeFileSync(resolve(dir, f), ship(readFileSync(resolve(webJs, f), 'utf8')));
   writeFileSync(resolve(dir, 'storage-environment.js'), ship(readFileSync(resolve(web, 'storage-environment.js'), 'utf8')));
   for (const [file, names] of Object.entries(STANDINS)) writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n'));
   writeFileSync(resolve(dir, 'media.js'), ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'].map(n => `export const ${n} = () => {};`).join('\n') + '\nexport const MEDIA_EVENTS = new Set();');

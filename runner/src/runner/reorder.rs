@@ -339,6 +339,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            u.fonts = Some(self.fonts.clone());
             u.reuse = self.reuse;
             tree.edit_reorder(id, &mut u, edit)
                 .map(|r| (r, u.ops, u.notes, u.renewed, u.shown))

@@ -161,6 +161,41 @@ brings the design and its fixture.
   LLP 1035.001 D10 changes: selection stays the authored props, activation
   the synchronous `press`.
 
+### D7 — Display mode is the window's current presentation
+
+Charlie's 2026-10-08 ruling in
+[`20261009-titlebar-env-display-mode`](../issues/20261009-titlebar-env-display-mode.md)
+admits `displayMode: string` on `exactViewport()`. Implementer: Codex,
+2026-10-13. It reads the current
+[`display-mode` media feature](https://www.w3.org/TR/appmanifest/#display-modes),
+not the manifest's requested mode. The web reads `matchMedia` at boot and
+re-answers on its change events on both targets. Values are `browser`,
+`standalone`, `fullscreen`, `minimal-ui`, `window-controls-overlay`,
+`picture-in-picture` and `tabbed`, when the browser reports them.
+
+On macOS, the session's own window's `.fullScreen` style mask selects
+`fullscreen`; otherwise it is `standalone`. Mounting in a window and its
+`didEnterFullScreen`/`didExitFullScreen` notifications re-answer the fact.
+An unrelated window's notification changes nothing. iOS, Linux and hosts
+without a reading use `standalone`, as does the bake. A navigation route
+presented fullscreen does not change the window's display mode.
+
+The runner and native media wire carry the fact in bits 11–13: 0 standalone,
+1 browser, 2 fullscreen, 3 minimal-ui, 4 window-controls-overlay,
+5 picture-in-picture, 6 tabbed. The remaining value reads standalone.
+The web facts word reserves bits 8–25 for the fold and page look. It
+carries gamut in 26–27, HDR in 28 and display mode in 29–31; the wasm
+bridge unpacks these into the runner’s media bits.
+`state.device.displayMode` reports it even without an app reader.
+`prefer display-mode <value>` uses a session-local substitute on Apple.
+Chrome and the Playwright carrier refuse unsupported emulation by name:
+Chrome accepts the CDP request but does not change this media feature.
+Linux currently reports its default and
+refuses a substitute. No new agent operation or plan format is added.
+
+This is the display-mode slice. `env(titlebar-area-x|y|width|height)` and
+manifest title-row configuration remain in the open issue.
+
 ## 4. Interview, as it would read
 
 The navigation root stays `main` and the routes stay its direct children

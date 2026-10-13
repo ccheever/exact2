@@ -46,6 +46,46 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         return (interaction, configuration, controller)
     }
 
+    func testCommandsCloseTheContextMenuAndReturnItsPreviewImmediately() throws {
+        let p = presenter()
+        defer { p.menus.reset() }
+        let pop = try XCTUnwrap(p.views[2]), row = try XCTUnwrap(p.views[3])
+        for command in ["hidePopover", "togglePopover"] {
+            let (interaction, configuration, _) = try opened(p)
+            p.menus.context.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: nil)
+            XCTAssertTrue(p.menus.isOpen(pop))
+            p.menus.action(command, ["m"])
+            XCTAssertFalse(p.menus.isOpen(pop), command)
+            XCTAssertTrue(pop.isHidden)
+            XCTAssertTrue(row.superview === pop.container)
+            p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        }
+    }
+
+    func testLiftedPreviewKeepsAuthoredARIAUnavailableAndRefreshesItsButton() throws {
+        let p = presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        p.buttonFace = { _ in var face = ButtonFace(); face.title = "Inside"; return face }
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "control", "props": ["type": "button"], "handlers": ["press"], "style": ["appearance": "auto"]],
+            ["op": "frame", "id": 5, "x": 0, "y": 0, "w": 80, "h": 40],
+            ["op": "children", "id": 3, "ids": [5]],
+        ]))
+        let (_, _, controller) = try opened(p)
+        let preview = try XCTUnwrap(p.views[3]), child = try XCTUnwrap(p.views[5])
+        XCTAssertTrue(preview.superview === controller.view)
+        let button = try XCTUnwrap(p.controls.controls[5] as? UIButton)
+        for disabled in [true, false, true] {
+            p.apply(wireBatch([["op": "props", "id": 9, "set": ["accessibilityDisabled": String(disabled)]]]))
+            XCTAssertEqual(child.ariaUnavailable, disabled)
+            XCTAssertEqual(button.accessibilityTraits.contains(.notEnabled), disabled)
+            XCTAssertTrue(button.isEnabled, "ARIA changes exposure, not input")
+        }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(child.ariaUnavailable, "the nearest explicit value wins")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+    }
+
     func testABatchWhileLiftedMovesTheRowsHomeAndItsSize() throws {
         if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
         let p = presenter()

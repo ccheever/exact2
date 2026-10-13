@@ -14,6 +14,11 @@ extension NodeView {
     /// and a key the app prevented never came at all: its `key` handlers
     /// heard every key before the editor did (`Presenter.keyDown`).
     @objc package func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if props["type"]?.lowercased() == "number", !textView.hasMarkedText(),
+           selector == #selector(NSResponder.moveUp(_:)) || selector == #selector(NSResponder.moveDown(_:)) {
+            step(up: selector == #selector(NSResponder.moveUp(_:)))
+            return true
+        }
         guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
         presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
         if handlers.contains("submit") { presenter?.submit(id) }
@@ -31,7 +36,7 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         showFieldFocus(false)
         presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
-        if handlers.contains("blur") { presenter?.blur(id) }
+        presenter?.blur(id)
     }
     @objc package func controlTextDidChange(_ obj: Notification) {
         // What AppKit says of the app's own value going in is not typing.
@@ -44,6 +49,7 @@ extension NodeView {
         }
         if !disabled { typedText(field?.stringValue ?? "") }
         if let editor = field?.currentEditor() as? NSTextView { applyHeldValue(to: editor) }
+        if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds (LLP 1116.007 D4)
     }
     /// The composition in `editor` is over, the app told of its text: what
     /// the app wrote while it lasted and is still held lands now

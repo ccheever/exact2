@@ -71,3 +71,48 @@ Keep open with the bounded scope below.
 LLP 1001 explicitly waits for a consumer; this request supplies one. Keep the scope to these two CSS styles.
 
 Use schema.json as the authority and Chrome fixtures for side widths, mixed sides and rounded corners. Preserve border widths in layout; do not add the other unrequested border styles.
+
+## Implementation (2026-10-11)
+
+Contract and the schema admit `dotted` and `dashed` on border longhands,
+four-sided `border-style`, and `border`/`border-<side>` shorthands. The kernel
+keeps their widths in layout; both web targets emit the authored CSS for Chrome
+to paint. AppKit, UIKit and Linux paint patterned sides with separate straight
+side strokes or a rounded centreline and compare twelve 1× cases against the
+web screenshot. AppKit and Linux pass the 1× raster band declared in LLP 1001.
+The driven Mac app's 2× screenshot, reduced to the Chrome fixture size,
+differs by 1.19/255 mean RGB and 0.98% of pixels beyond 48 over the full page;
+the Linux app's 1× screenshot differs by 0.60/255 and 0.65% respectively.
+
+Review fix (2026-10-11): Linux now clips patterned ink to the rounded border
+ring as well as the side join; a bottom-only dotted border test catches ink
+outside the outline and inside the padding. Linux and Apple parity checks now
+require ink and gaps on the 1 px dotted underline itself. A blank or solid
+underline no longer passes by being averaged over its 100×70 box.
+
+Review fix round 3 (2026-10-11): the schema gives column rules a separate
+`none | hidden | solid` enum, so a bound value cannot switch to a pattern that
+native column-rule painters omit. Linux and Apple reverse all four thin dotted
+side paths to match Chrome's 1 px phase. Their parity checks now require ink
+and gaps on each edge of the 1 px dotted and dashed boxes, and compare the
+1 px dotted phase against Chrome on each edge. The driven Mac app's current
+2× screenshot, reduced to the Chrome fixture size, differs by 0.59/255 mean
+RGB and 0.65% of pixels beyond 48; `dot1` differs by 0.043/255 mean.
+
+Review fix round 5 (2026-10-12): Linux round dots no longer shorten their
+spacing by 0.01 px per dot; the 2,000 px side regression test checks the final
+dot's position. Reproduced after rebasing onto `63ad4b82e`: restoring the old
+formula makes `round_dots_keep_their_period_along_a_long_side` fail with the
+last dot ending at 1995.4999 px instead of 1998 px.
+
+## What remains
+
+Drive the border fixture in the iOS app, then close this issue. All four UIKit
+border parity tests passed on an iOS 27.0 simulator on 2026-10-11, including
+the 1 px dotted underline. The earlier iOS app bundle built, but its fixture
+drive still never opens the agent socket; iOS 26.4 and 26.5 did the same before
+the painter. The app-level iOS screenshot remains unmeasured. The round-3
+UIKit test bundle built on 2026-10-12, but `test-without-building` first lost
+its simulator destination; a targeted retry on iOS 26.5 stalled in its first
+test, and an iOS 27.0 simulator could not boot (`launchd_sim` did not respond).
+The new thin-edge guards have not run on UIKit.

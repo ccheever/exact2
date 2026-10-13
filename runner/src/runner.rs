@@ -13,14 +13,17 @@ mod control;
 mod event;
 pub mod faults;
 mod field;
+mod fonts;
 pub mod foresee;
 pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
 mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};
+mod intersect;
 mod reorder;
 mod reorder_codec;
 mod reorder_group;
+pub use intersect::Intersection;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod root_font;
@@ -67,7 +70,7 @@ mod query;
 mod queue;
 pub use queue::QUEUE_BOUND;
 pub mod router;
-pub use lists::ListTextPosition;
+pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
 mod surface_record;
 mod time;
@@ -378,6 +381,7 @@ pub struct Runner<D: DataSource> {
     scrolled: crate::geometry::Scrolled,
     /// Each `resize` handler's node and the content box last delivered.
     resized: resize::Resized,
+    intersections: intersect::Intersections,
     /// Refused requests, for `state` (LLP 1070.000 §2.2).
     into_view_refused: std::collections::VecDeque<String>,
     surfaces: Vec<SurfaceUpdate>,
@@ -510,6 +514,7 @@ pub struct Runner<D: DataSource> {
     sounds: crate::sound::Sounds,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
+    fonts: std::rc::Rc<std::cell::RefCell<crate::bridge::RuntimeFonts>>,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -818,9 +823,11 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             sounds: Default::default(),
             root_font: Default::default(),
+            fonts: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),
+            intersections: Vec::new(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             renewed: Vec::new(),
@@ -860,7 +867,7 @@ impl<D: DataSource> Runner<D> {
             delivery,
             viewport,
             page: Default::default(),
-            time: Default::default(),
+            time: crate::time::launch_time(),
             place: Default::default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
@@ -950,16 +957,7 @@ impl<D: DataSource> Runner<D> {
                 if runner.resources[i].is_some() {
                     continue;
                 }
-                let name = runner.plan.str(runner.plan.resources[i].name);
-                let seed = runner
-                    .store
-                    .kept(&kept::kept_name(name))
-                    .and_then(kept::decode)
-                    .filter(|(args, value)| {
-                        let row = &runner.plan.resources[i];
-                        args.len() == row.args.len as usize - usize::from(row.context)
-                            && runner.check_shape(i, value).is_ok()
-                    });
+                let seed = runner.kept_seed(i);
                 if let Some((args, value)) = seed {
                     runner.resources[i] = Some(ResourceState {
                         args,
@@ -992,6 +990,7 @@ impl<D: DataSource> Runner<D> {
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
+        runner.journal_kept_seeds();
         runner.init_late_slots(carried)?;
         let now = runner.now_ms;
         // A gated task starts idle; the gate step arms the ones whose gate
@@ -1019,6 +1018,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
+            u.fonts = Some(runner.fonts.clone());
             u.discard = runner.kernel.is_detached();
             let tree = Tree::create(&mut u)?;
             (tree, u.ops, u.surfaces, u.notes, u.shown)
@@ -1044,18 +1044,7 @@ impl<D: DataSource> Runner<D> {
         if !note.is_empty() {
             runner.log(note);
         }
-        // @ref LLP 1048.003 D6 — what the first frame shows from the bake
-        // until its source is ready (feed F24: say so in the journal).
-        for i in 0..runner.stale.len() {
-            if runner.stale[i]
-                && runner.resources[i]
-                    .as_ref()
-                    .is_some_and(|s| s.value.is_compiled())
-            {
-                let line = lines::build_time(runner.plan.str(runner.plan.resources[i].name));
-                runner.log(line);
-            }
-        }
+        runner.journal_build_time();
         // Grants that do not parse grant nothing: said once here, and in
         // each refusal (the store's, the host's).
         if let Some(why) = runner.store.unparsed() {
@@ -1139,21 +1128,9 @@ impl<D: DataSource> Runner<D> {
         &self.kernel
     }
 
-    /// A scroll container the host presents now stands at `(left, top)` CSS
-    /// px, or the page does (`None`): what `frame` and `measure` subtract
-    /// from the kernel's scroll-free box natively. Noted, never dispatched.
-    pub fn scrolled(&mut self, view: Option<ViewId>, left: f64, top: f64) {
-        self.scrolled.note(&self.kernel, view, left, top);
-    }
-
     /// The kernel, mutably (a host lays out through it).
     pub fn kernel_mut(&mut self) -> &mut Kernel {
         &mut self.kernel
-    }
-
-    /// The plan.
-    pub fn plan(&self) -> &Plan {
-        &self.plan
     }
 
     /// Same immutable plan as a targeted node read. No work until an inspector

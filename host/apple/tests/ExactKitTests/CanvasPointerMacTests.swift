@@ -125,6 +125,31 @@ final class CanvasPointerMacTests: XCTestCase {
         XCTAssertEqual(rows.last?.2 ?? .nan, 30, accuracy: 0.001, "motion resumes from the covered position")
     }
 
+    /// A 2D canvas's bitmap sits in the content box a pointer's offsets are
+    /// from, also when layout sends a new one alone: a percentage padding
+    /// whose containing block narrowed moves it without a new size, so no
+    /// draw comes to place it.
+    func testA2DCanvasBitmapFollowsAContentBoxSentAlone() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "canvas2d", "handlers": ["pointerdown"]],
+            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 5]]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 220.0, "h": 100.0],
+            ["op": "fieldContent", "id": 1, "rect": [20.0, 0.0, 200.0, 100.0]]
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        p.canvas2d.apply(1, ["lifetime": 1, "generation": 0, "fresh": true, "w": 200, "h": 100, "scale": 1.0, "stretch": false,
+                             "box": [20.0, 0.0, 200.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [Data]()], layer: node.layer)
+        let bitmap = try XCTUnwrap(node.layer?.sublayers?.first { $0.frame.size == CGSize(width: 200, height: 100) })
+        XCTAssertEqual(bitmap.frame.minX, 20)
+        p.apply(wireBatch([["op": "fieldContent", "id": 1, "rect": [15.0, 0.0, 200.0, 100.0]]]))
+        XCTAssertEqual(bitmap.frame.minX, node.contentBox().minX)
+        XCTAssertEqual(bitmap.frame.minX, 15)
+        p.canvas2d.forget(1)
+    }
+
     func testChordedButtonsAreMovesAndMotionIsThePositionsChange() {
         let (s, canvas, window) = fixture(); defer { s.destroy() }
         let input = canvas.canvasInput as! CanvasInputHost

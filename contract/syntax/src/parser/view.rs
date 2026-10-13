@@ -158,7 +158,12 @@ impl Parser {
             self.next();
             // The attribute list may continue on deeper lines that
             // begin with `name=`; a child never does (LLP 1035.005 D1).
-            while self.at_continuation() {
+            // So may a part's block, `::placeholder` (parts.rs).
+            while self.at_continuation() || self.at_part() {
+                if self.at_part() {
+                    self.part(&format!("`{word}`"), false, &mut attrs)?;
+                    continue;
+                }
                 self.attr_line(&mut positional, &mut attrs, true)?;
                 self.newline()?;
             }

@@ -130,7 +130,7 @@ extension NodeView {
         while let v = view {
             #if os(iOS) || os(tvOS)
             if let group = v.superview as? GlassGroupView { return (group.owner, reasons) }
-            if let slot = v.superview as? GlassSlot, slot.effect != nil { return (slot.superview as? NodeView, reasons) }
+            if let slot = v.superview as? GlassSlot, slot.isolates { return (slot.superview as? NodeView, reasons) }
             if v.alpha < 1 { note("opacity") }
             if v.layer.mask != nil { note("mask") }
             if v !== self, v.clipsToBounds || v.layer.masksToBounds { note("clip") }
@@ -198,10 +198,22 @@ final class GlassGroupView: UIVisualEffectView {
     }
 }
 
-/// A grouped glass's slot (D4): its material inside, the effect nil while
-/// joined to the group and a container while isolated, switched in place
-/// (LLP 1053.000.000 §2 row 15).
-final class GlassSlot: UIVisualEffectView {}
+/// A grouped glass's slot (D4): its material inside, its effect a container
+/// while isolated and an empty effect while joined to the group, switched in
+/// place (LLP 1053.000.000 §2 row 15). Never nil: iOS 26.0 keeps a container
+/// effect set to nil, and the glass would stay isolated.
+final class GlassSlot: UIVisualEffectView {
+    var isolates: Bool {
+        guard #available(iOS 26.0, tvOS 26.0, *) else { return false }
+        return effect is UIGlassContainerEffect
+    }
+    /// Whether the slot changed
+    func isolate(_ isolated: Bool) -> Bool {
+        guard #available(iOS 26.0, tvOS 26.0, *), isolates != isolated else { return false }
+        effect = isolated ? UIGlassContainerEffect() : UIVisualEffect()
+        return true
+    }
+}
 
 extension NodeView {
     /// What `container` names without a group: the scroll, the canvas
@@ -280,11 +292,7 @@ extension NodeView {
     @discardableResult func reconcileGlass() -> Bool {
         guard let material = glassBody, #available(iOS 26.0, tvOS 26.0, *) else { return false }
         let (container, reasons) = glassPath()
-        guard container != nil else {
-            guard let slot = glassSlot, slot.effect != nil else { return false }
-            slot.effect = nil
-            return true
-        }
+        guard container != nil else { return glassSlot?.isolate(false) ?? false }
         let slot = glassSlot ?? {
             let made = GlassSlot(effect: nil)
             made.frame = bounds
@@ -296,10 +304,7 @@ extension NodeView {
             glassSlot = made
             return made
         }()
-        let isolated = !reasons.isEmpty
-        guard (slot.effect != nil) != isolated else { return false }
-        slot.effect = isolated ? UIGlassContainerEffect() : nil
-        return true
+        return slot.isolate(!reasons.isEmpty)
     }
 }
 #else
