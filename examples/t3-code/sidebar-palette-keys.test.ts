@@ -233,7 +233,7 @@ describe('TH-8: Custom snooze\'s date button and calendar', () => {
     expect(overlays).toContain('testId="snooze-unit" width="100%"');
     const field = await source('snooze-calendar.contract');
     expect(field).toContain('button id="snooze-date" popovertarget="snooze-calendar" press=open');
-    expect(field).toContain('column id="snooze-calendar" popover="auto" role="dialog" aria-label="Choose snooze date"');
+    expect(field).toContain('column id="snooze-calendar" popover="auto" position-try-fallbacks="none" role="dialog" aria-label="Choose snooze date"');
     expect(field).toContain('column aria-modal=true retainFocus=true tabindex=-1 width='); // Escape is the popover's while it shows
     // The keys are the grid's (DayPicker handleDayKeyDown: a day button's), out of the Tab order; a month button's
     // arrows do nothing (sidebar-palette-keys.test.contract presses them).
