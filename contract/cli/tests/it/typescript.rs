@@ -370,3 +370,44 @@ fn a_contract_without_sources_has_no_summary() {
          // Static types do not replace runtime shape, identity, or grant checks.\n\n"
     ));
 }
+
+#[test]
+#[ignore = "async lane: checks the stream handle with tsc"]
+fn generated_socket_handle_types_text_binary_and_close_events() {
+    let plan = contract::compile(CONTRACT).unwrap();
+    let fixture = Fixture::new();
+    fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+    let output = fixture.check(
+        r#"
+import type { StreamSocket } from './app.contract.d.ts';
+let kept: StreamSocket | undefined;
+fetch('wss://example.test', { exactStream(event, socket) {
+  kept = socket;
+  const payload: string | ArrayBuffer = event.data;
+  const code: number | undefined = event.code;
+  const reason: string | undefined = event.reason;
+  const clean: boolean | undefined = event.wasClean;
+  return typeof payload === 'string' ? payload : new TextDecoder().decode(payload);
+}});
+function mutation() {
+  if (!kept) return;
+  kept.send('subscribe');
+  kept.send(new Uint8Array([1, 2]));
+  kept.send(new ArrayBuffer(2));
+  kept.close(4001, 'finished');
+  const state: number = kept.readyState;
+  const bytes: number = kept.bufferedAmount;
+  // @ts-expect-error the handle cannot send arbitrary records
+  kept.send({ secret: true });
+  // @ts-expect-error the state is owned by the transport
+  kept.readyState = 1;
+}
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

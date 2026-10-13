@@ -1,6 +1,7 @@
 # macOS: `backdrop-filter` blurs only its parent's subtree, so a glass panel one wrapper deeper shows the content behind it sharp
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Kept the declared parent-subtree limit under ruling 12 after the time-boxed plate attempt found no reliable insertion point; documented in LLP 1053.000 §3, vocab and pitfalls
 **Systems:** host/apple macOS, backdrop-filter
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
@@ -134,3 +135,14 @@ The guide, pitfalls and `contract vocab backdrop-filter` now give the working
 authoring advice: make the glass a direct sibling of what it covers.
 `scripts/fixtures/backdrop-nested.contract` keeps the A/B reproduction, a list
 under sibling/nested glass, and a clipped wrapper for that future verification.
+
+## 2026-10-13 closed under ruling 12
+
+Charlie's ruling (2026-10-12): try a time-boxed backdrop plate on provably
+clear paths, and "stop and keep the limit if the clear path is too narrow".
+The plate attempt stopped at the three-round limit (above) without a
+reliable insertion point, so the declared limit stands: on macOS a
+`backdrop-filter` samples only its parent's subtree; make the glass a
+sibling of what it covers (LLP 1053.000 §3, `contract vocab
+backdrop-filter`, docs/agent-pitfalls.md). Reopen with a new approach
+(layer restructuring or a window snapshot) if a consumer needs more.

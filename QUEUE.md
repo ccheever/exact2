@@ -860,6 +860,15 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
     on 4387e37b5, 131 on ae01efb63); it passed in an unthrottled run, so likely timing.
   - `BackSessionMacTests` crashed ("Negative value is not representable") on a tree at 7c5499a7d
     and passes on 4387e37b5 and after.
+- **iOS Swift host tests failing on main** (2026-10-13, `bun host/apple/build.mjs --test --ios` on
+  an iPhone 17 Pro simulator, iOS 27.0, at 48755525c, and the same eight on every run of the
+  scrollend branch after): `HDRColorTests` (`testADrawnHDRColourGetsAHalfFloatStore`,
+  `testDrawnGradientAndBoxGradientTakeTheNodesLimit`, `testGradientLayersPreserveWideAndHDRStops`),
+  `HDRImageTests` (`testAGainMapRecoversLightAboveSDRWhite`, `testTheSDRRenditionStaysWithinSDR`),
+  `PickerColorTests` (`testAnHDRPhotoKeepsItsGainMapAndProfile`, `testOrientationIsAppliedNotCopied`)
+  and `RasterColorTests.testEveryFixtureDecodesToItsClassStorageAndColors`: all HDR or colour
+  storage (the result bundle: RGBA8 against RGBAh, rec2100-hlg against display-p3, HDR stored
+  as SDR, an HDR photo still HDR as JPEG), cause unconfirmed; xcodebuild's log names no assertion.
 - **The date at launch on the other hosts** (2026-10-12; Apple boots under it now,
   `exact_runner::time::launching`): Linux and the Rust/Wasm web host tell `set_time` after the
   boot, and the render host, the content-region host and direct `Host::boot_stored` never enter
