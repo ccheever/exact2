@@ -203,7 +203,7 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(title.isHiddenOrHasHiddenAncestor)
         XCTAssertTrue(try node("notes-b").isHidden, "its buttons are the bar's")
         let add = try node("add-book"), notes = try node("notes-b"), count = try node("count-b"), search = try node("search")
-        XCTAssertEqual(items(window), ["NSToolbarToggleSidebarItem", "NSToolbarSidebarTrackingSeparatorItemIdentifier", "exact.navigation.back", "exact.command.\(add.id)",
+        XCTAssertEqual(items(window), ["NSToolbarToggleSidebarItem", "NSToolbarSidebarTrackingSeparatorItemIdentifier", "exact.command.\(add.id)",
                                        "exact.split.separator", "exact.command.\(notes.id)", "exact.command.\(count.id)", "NSToolbarFlexibleSpaceItem", "exact.search.\(search.id)"])
         XCTAssertEqual(p.covers.delivered[notes.id], .whole)
         XCTAssertNil(p.covers.delivered[title.id])
@@ -228,10 +228,13 @@ final class SplitMacTests: XCTestCase {
         XCTAssertTrue(p.navigation.canGoBack)
         XCTAssertEqual(feed.table.selectedRow, 2)
         XCTAssertEqual(window.title, "Library")
+        // Back is at the bar's leading end, after the sidebar's own items, and came with the push.
+        XCTAssertEqual(Array(items(window).prefix(3)), ["NSToolbarToggleSidebarItem", "NSToolbarSidebarTrackingSeparatorItemIdentifier", "exact.navigation.back"])
         XCTAssertTrue(p.navigation.goBack())
         XCTAssertFalse(has("route-notes"))
         XCTAssertFalse(other.isHidden)
         XCTAssertFalse(p.navigation.canGoBack)
+        XCTAssertFalse(items(window).contains("exact.navigation.back"), "and goes with it")
 
         // The divider moves: the detail is laid out at its pane's new size.
         columns.splitView.setPosition(columns.sidebarWidth + 400, ofDividerAt: columns.listDivider)
@@ -305,7 +308,7 @@ final class SplitMacTests: XCTestCase {
         let book = try node("route-book-a"), add = try node("add-book"), notes = try node("notes-a"), count = try node("count-a"), search = try node("search")
         XCTAssertTrue(book.superview === columns.detailPane)
         // No sidebar's button; the list's items, the separator on the one divider, the detail's.
-        XCTAssertEqual(items(window), ["exact.navigation.back", "exact.command.\(add.id)", "exact.split.separator",
+        XCTAssertEqual(items(window), ["exact.command.\(add.id)", "exact.split.separator",
                                        "exact.command.\(notes.id)", "exact.command.\(count.id)", "NSToolbarFlexibleSpaceItem", "exact.search.\(search.id)"])
         XCTAssertEqual(window.title, "Library")
         // The window stops at the list's 200, the divider and the detail's minimum.

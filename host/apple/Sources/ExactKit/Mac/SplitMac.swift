@@ -176,7 +176,10 @@ final class SplitHost {
     /// Whether the keyboard is in the detail's pane: `view` is in it.
     func holdsFocus(_ view: NSView?) -> Bool { pane(holding: view) != nil }
 
+    /// A restart: every view goes, the pane's routes with them, and the new
+    /// runner knows no block.
     func reset() {
+        for entry in held.values { entry.route.removeFromSuperview() }
         held.removeAll(); rowOf.removeAll(); seen.removeAll(); kept.removeAll(); ended.removeAll()
         asked = nil; shown = nil; pressing = nil; lastDetail = nil
         controller?.split(false, width: nil, empty: false)
