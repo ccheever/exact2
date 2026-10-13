@@ -13,6 +13,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **A px `width` beside text in a role does not grow with Dynamic Type.** A `text` whose
+  font is a role (`-exact-body`, or a `rem`/`em` size) scales with the person's text size,
+  and a box the author sized in px does not, so at accessibility sizes the text runs past
+  it (a day label under its icon, "Low" and "High" run together). That is CSS too. Fix: say
+  the width in `rem` or `em` (`width="3rem"`), size columns with a grid of `auto` tracks,
+  or let the row wrap (`flex-wrap="wrap"`). (Bake-off round 13, weather; LLP 1116.011 D2.4.)
+
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
