@@ -686,6 +686,7 @@ export function validate(value, node, at, root) {
   }
   if (actual === 'number' && (!Number.isFinite(value) || (node.minimum != null && value < node.minimum) || (node.maximum != null && value > node.maximum))) problems.push(`${where}: outside the allowed numeric range`);
   if (actual === 'array' && node.minItems != null && value.length < node.minItems) problems.push(`${where}: fewer than ${node.minItems} items`);
+  if (actual === 'array' && node.maxItems != null && value.length > node.maxItems) problems.push(`${where}: more than ${node.maxItems} items`);
   if (actual === 'array' && node.items) value.forEach((v, i) => problems.push(...validate(v, node.items, `${at}[${i}]`, root)));
   if (actual === 'object') {
     for (const key of node.required ?? []) if (!(key in value)) problems.push(`${where}: missing required ${JSON.stringify(key)}`);
