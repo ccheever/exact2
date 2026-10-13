@@ -5,7 +5,7 @@
 **Systems:** Plan, Runner, Kernel (seam), Data seam
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
-**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership, bounded catch-up and regression reconciliation (§Scroll completion); implementation remains parked.
+**Amended:** 2026-10-13, Astra: scroll completion measurements, time ownership, shell-wake and agent-call limits, and regression reconciliation (§Scroll completion); implementation remains parked.
 **Implementer:** Claude (Fable 5), landing 2026-08-28 (this document transcribes the landing)
 **Related:** LLP 1004 (the decisions this executes), LLP 1006 (the compiler that emits this format), LLP 1001 (the kernel the runner drives), LLP 1002 (the clock discipline the runner shares), LLP 0485 (the flat plan; research)
 
@@ -953,14 +953,26 @@ Put the advancing loop in `Presenter`, where it can borrow `Host`, apply
 commands, arrange and dispatch scrolling before choosing another instant.
 Replace the parked `Host::advance_clock` loop and the split work in
 `Presenter::{advance, animation_frame, tick, clock, clock_until_request,
-clocked}` with one driver and thin mode wrappers. `Presenter::tick` is part
-of this replacement: `display.rs` and `android.rs` must route their
-`p.tick(wall)` calls through the same owner, including calls after
-`advance`. `Host::{advance_effects, frame, advance_until_request, tick}`
-become bounded steps under it. Neither `Host::observe_time` nor `Host::tick`
-may assign `now_ms` past an unserviced timer or eligible completion; they
-only observe/seek the instant already landed by the driver. In particular,
-a shell tick at 140 cannot skip an end due at 100 and a timer due at 105.
+clocked}` with one driver and thin mode wrappers. `Presenter::tick` runs
+that driver, then calls the motion seek at its **landed instant**, never
+at an unreached wall-time target. Route the paired advance/frame and tick
+calls in `display.rs`, `canvas.rs::frame_held` and `android.rs` through the
+same wake scope below. `Host::{advance_effects, frame, advance_until_request}`
+become bounded runner steps under the driver.
+
+**`Host::tick` remains a motion seek.** It retires presses, seeks the motion
+engine, projects layout motion and presents, retaining its layout-changed
+result. It fires no runner timers or scroll completions. It may adopt the
+requested time when no runner timer or eligible completion is due earlier;
+otherwise it seeks only as far as that earlier boundary and leaves the
+work pending. Never move backwards. Presenter must keep Host's completion
+ceiling current as unfinished deadlines or eligible queued events change;
+a standalone Host has no such scrolling work, but still checks its runner's
+deadline. This ceiling grants no independent completion ownership.
+`Host::observe_time` likewise cannot move `now_ms` past unserviced work.
+With no pending work, a bare Host's `tick(400)` still
+seeks to 400 without a preceding Presenter call. In a shell, only the
+driver services deadlines: E@100 and T@105 precede a seek to 140.
 
 The driver's next instant is the earliest `Runner::timer_due_ms()`,
 host-owned completion deadline, eligible queued event time or requested
@@ -972,18 +984,64 @@ ties, with the existing reorder-deadline handling). `Runner::land_then` likewise
 landed continuations. `advance_until_request` stops only at an action
 issuing a request, not after each action.
 
-**Preserve main's per-call catch-up limits.** An `AdvanceBudget` carries
-the receipt count used by `TIMER_FIRE_LIMIT` (4,096) across only the
+**Preserve main's per-call catch-up limits for agents.** An `AdvanceBudget`
+carries the receipt count used by `TIMER_FIRE_LIMIT` (4,096) across the
 micro-steps that replace **one** call to `advance_timed`,
 `advance_until_request` or `frame`. Reaching an intermediate timer or
-scroll deadline does not reset it. Returning from that original call does:
-it is not shared across an entire agent operation, live wake or request
-resumption. Each `clock_stepped` iteration's `Presenter::clock_until_request`
+scroll deadline does not reset it. For an agent, returning from that
+original call does: it is not shared across the entire operation or its
+request resumptions. Each `clock_stepped` iteration's `Presenter::clock_until_request`
 starts fresh, and its final `Presenter::clock` gets another fresh allowance,
 as on main. Separate `land_then` calls and the existing hatch/settle call
 boundaries also keep their own allowances. Do not introduce a budget
 stricter than main for any agent operation. `clock_within`'s `rounds` and
 `hatch_drains` and `clock_stepped`'s 4,096 request-stop iterations stay unchanged.
+
+**One live shell wake shares one budget.** The shell opens a driver scope
+for its live work, carrying `AdvanceBudget`, the landed clock, any
+`TimerFireLimit` stop, and the live event-turn boundary. All catch-up in
+that scope shares the allowance, including `pump`, input catch-up,
+`advance`, `animation_frame` and `tick`; an internal return cannot refresh
+it. In `display.rs` it lasts through the iteration's advance/frame and
+motion tick. In `canvas.rs::frame_held` it includes the initial non-quick
+pump, advance/frame and tick. In `android.rs` it lasts through the
+pre-paint calls, `display_frame`/`display_complete`, deferred collections
+and `advance_after`'s post-paint `advance(wall())`. A later `wall()` in that
+same wake changes the requested destination, not the allowance. Standalone
+live entry calls open a scope only when none is active. Agent calls keep
+the separate boundaries above.
+
+A `TimerFireLimit` stop is retained until that wake ends. Later wrappers
+must not retry catch-up toward either the original or a newer wall time:
+they can apply already produced receipts and seek motion at the returned
+landed clock, but cannot advance it. A `frame` refused by that limit has
+not run its frame tasks; a subsequent `tick` neither runs them nor retries
+the refused frame. The next independent wake starts fresh; missed frame
+tasks are not replayed. Without a stop, `tick` must still service eligible
+completion work the preceding call did not service, using the remaining
+allowance. A completion itself spends no timer receipt; a due runner batch
+still precedes it. Reaching count 4,096 is not itself a stop: an end can
+still run if no further guarded runner action must run first. A refused
+batch and the completions waiting behind it remain pending.
+
+**Keep Android's paint deferral.** When its loop chooses `advance_after`,
+mark the wake as deferring runner catch-up until the frame is out, before
+calling `Presenter::tick`. The initial pump/input wrappers must not
+eagerly catch up to wall time before the shell has chosen this scheduling
+phase; hold that catch-up until the decision is made and pass the phase
+to every wrapper. Arrivals blocked by a deferred batch stay queued for
+post-paint service, rather than applying input ahead of that batch.
+The next due runner batch is a barrier during
+this phase. The driver may deliver an eligible completion strictly before
+that barrier, but must not run the deferred timer, advance past it, or
+deliver an end tied with it. Recheck the barrier after each handler. On
+reaching it, return the landed instant and let `Host::tick` seek only that
+instant for paint. Release the barrier after `display_frame` and
+`display_complete` (or once the loop has no pending paint), then run the
+deferred `advance` with the **same** budget and stop state. Thus E@100 can
+precede paint and T@105 follow paint; an E tied at 105 follows that timer
+after paint. This retains timer deferral even when motion must wait for
+the post-paint advance. An exhausted wake cannot resume after paint.
 
 This needs a runner change, not just a Presenter receipt counter. Add
 `&mut AdvanceBudget` to private `Runner::advance_within`, and expose
@@ -998,11 +1056,11 @@ main has no limit check before that timeout; do not add one or otherwise
 tighten the existing guard as part of this refactor. Actual presented
 frame actions and direct event receipts remain outside that catch-up
 count. Enforce the existing guards inside each batch, using the cumulative
-count from this one original call. Counting only after a returned batch
-can already have exceeded the allowance. These budget-taking methods are
-proposed interfaces, not APIs present on main.
+count from the enclosing agent call or live wake. Counting only after a
+returned batch can already have exceeded the allowance. These budget-taking
+methods are proposed interfaces, not APIs present on main.
 
-When an existing limit guard refuses the next action in this call,
+When an existing limit guard refuses the next action in this scope,
 return `TimerFireLimit { limit: 4096 }` with the
 runner's **landed clock**, not the candidate next deadline or requested
 destination. Apply receipts already returned; keep unconsumed timers,
@@ -1052,8 +1110,10 @@ Use different event-turn progress rules for live and agent drives:
   prevents the clock advancing. On the next turn, stamp their eligibility
   with its arrival time, service earlier deadlines and the due runner batch,
   then deliver the retained snapshot. Subsequent reentry waits again.
-  Multiple wrappers called in one shell iteration share this boundary;
-  `advance` followed by `tick` is not two opportunities to drain the chain.
+  Multiple wrappers called in one shell iteration share both this boundary
+  and the wake's budget and stop state, including Android's post-paint
+  advance; `advance` followed by `tick` is not two opportunities to drain
+  the chain.
   A timer at 500 that stops an alternating-offset chain therefore runs even
   though every end until then starts another instant scroll. Do not spin
   another host turn synchronously at the old timestamp.
@@ -1101,9 +1161,10 @@ redate the move it reports. Linux's discrete `wheel_at`/`wheel_at_time`
 notches and known instant commands queue completion at their application
 instant. The Android reader sample stream alone uses the 100 ms fallback.
 An owned animation supplies its own end.
-All micro-steps of one original advancement call use its budget-taking
-runner variant; a helper may not refresh that call's allowance. Existing
-outer call boundaries, including request resumes, still start fresh.
+All driver micro-steps use the budget-taking runner variant. A helper
+cannot refresh the enclosing agent call's or live wake's allowance.
+Existing agent call boundaries, including request resumes, start fresh;
+live wrappers inside one wake do not.
 
 `Host::timer_due_ms` (or the loop's forwarding wake query) returns the
 minimum of runner and eligible completion/event deadlines. Sleeping shells
@@ -1221,6 +1282,36 @@ Additional regressions when implementation resumes:
   fixture may use a wheel to manufacture the 100 ms deadline.
   Also test an earlier timer that scrolls/hides/removes and the timer/end
   tie at 100. Runner actions and their batch effects win that tie.
+- Exercise the actual live call sequences in `display.rs` and
+  `canvas.rs::frame_held`, including the latter's non-quick pump. With a
+  repeating 1 ms timer, first tick at 1, seek wall time 1,000,000 in one
+  wake. Test both `advance` then `tick` and `animation_frame` then `tick`,
+  with motion requiring that tick. Require exactly 4,096 timer actions,
+  `TimerFireLimit`, runner/Host clocks at 4096 ms, motion engine at 4.096 s,
+  and the next timer still due at 4097 after **every** subsequent wrapper
+  in that wake. An actual frame-task counter must stay unchanged after the refused frame
+  and its following tick. Only a new wake gets another allowance. Also
+  start a wake with `advance(4095)`, then call `tick(1_000_000)`: it has
+  one timer receipt left, not 4,096. Give this fixture an owned completion
+  at 4096; it must deliver E@4096 after T@4096 and before refusal at the
+  next tick, without a new allowance. Keep live handler continuations
+  deferred across all those wrappers.
+- Drive Android's `advance_after` branch with a paint marker P, motion
+  requiring `tick(140)`, E due at 100 and T due at 105. Include its initial
+  pump; it must not fire T before paint. Pre-paint tick delivers E@100,
+  lands at 100 and seeks motion there; paint follows, then
+  the deferred `advance(150)` runs T@105 and lands at 150: `"ept"`.
+  An input arrival at 140 blocked behind T must dispatch only after paint
+  and T, at 140, in that same post-paint drive.
+  In a fresh fixture with E and T both due at 105, neither runs before
+  paint; post-paint order is `"pte"`, clock 150. For budget coverage,
+  defer a 1 ms repeating timer to after paint: pre-paint tick remains at
+  0, post-paint advance toward 1,000,000 stops at 4096 with 4,096 actions,
+  and a later wrapper in that wake cannot resume. Separately exhaust the
+  allowance in the wake's earlier pump/input catch-up, then take the
+  deferred path: post-paint advance must retain that same stop and clock,
+  even with a later `wall()` target. Use reader/owned-animation completion
+  fixtures, not wheel quiet deadlines.
 - At Presenter level, boot a repeating 1 ms timer with its first tick at
   1, no scroll events and no other scheduled work. Seek to 1,000,000 in
   one agent call: exactly 4,096 timer actions, `TimerFireLimit`, runner and
@@ -1258,5 +1349,29 @@ Additional regressions when implementation resumes:
   moving B. A jump interrupting an unfinished animation has one end, unlike
   a jump following an already completed instant scroll. Android reader
   timing still needs carrier qualification.
+
+Keep the meaning of these existing direct Host motion tests in
+`host/linux/tests/it/`; none needs a Presenter to land its motion sample:
+
+| File and test | Preserved assertion |
+|---|---|
+| `animation.rs::an_animation_plays_under_the_clock_and_stops_with_its_row` | `h.tick(400)` seeks the animation: opacity moves from 0.4 to 0.7. |
+| `height.rs::tick_projects_and_catch_uses_used_constrained_height_with_zero_displacement` | Tick projects constrained Height; catching uses that presented height. |
+| `height.rs::translate_only_frames_do_not_relayout_or_remeasure` | Motion-only ticks do not report layout changes or remeasure text. |
+| `holds.rs::catch_uses_current_presentation_and_retains_newest_authored_target` | Tick samples current presentation and later reaches the retained authored target after release. |
+| `presence.rs::a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once` | Ticks at 200 and 421 sample and finish the sibling's layout motion. |
+
+Add a direct Host guard case: with a timer due at 100, `tick(140)` stops
+at 100, leaves the timer pending and fires no action; a Presenter drive
+then services it before seeking farther. Cover the supplied completion
+ceiling too. Two existing overdue-timer tests need a fixture adjustment
+when this guard is implemented:
+`holds.rs::overdue_timers_keep_runner_order_without_rewinding_held_or_unrelated_motion`
+and `height.rs::overdue_height_timer_retargets_held_layout_without_rewinding_engine`.
+Keep their overdue catch-up and held-target assertions through 250, then
+disarm the fixture's repeating timer before the final motion-only seek
+to 750 or 10,000. Those final samples assert arrival at the last authored
+target; they must not grant `Host::tick` permission to skip the next timer
+at 300. No test changes are part of this document amendment.
 
 QUEUE remains open for the host implementation and native qualification.

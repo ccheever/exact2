@@ -796,12 +796,15 @@ sits on that list carries the trade it would take.
   - Web `clock settle` can return `settled: true` during smooth scrolling and before a `scrollend` handler's jump chain finishes, as measured by LLP 1005's runtime probes.
   - Verify web lifetime parity: `rt.js` suppresses `scrollend` for a disconnected element or a gone owner but still delivers `scroll`; the `glue.js` end listener has no equivalent guard.
   - Physical macOS momentum completion remains unqualified; verify one end after the coast with a real trackpad, as in the existing momentum entry below.
-- **`scrollend` on the Linux and Android host** (2026-10-13; web and Apple have it, LLP 1005): a
-  move there ends once still for 100 ms, but the presenter's clock is not fresh when a scroll
-  arrives (a wheel and the Android reader's moves carry no time), and the loops wake on the host's
-  runner timer. Needs the deadline in `Host::timer_due_ms` and the dispatch at the `advance` and
-  `clock` paths; `host/linux/src/host.rs` is at its line cap.
-  A Linux build is parked on the Mac Studio (branch `q1013/linux-scrollend`, `~/lanes/q1013/wt/linux-scrollend`, 2026-10-13): `host.rs`'s clock moved to `host_clock.rs` (1,428 lines), and a completion fires once 100 ms after a wheel. Two review rounds found what it does not settle, all one rule: a completion is due 100 ms after the scroller's last offset change whatever moved it (a key's `scrollBy`, the Android reader, a layout clamp), is delivered at that deadline on the runner's timeline after the scroll events already caused and before a runner timer later than it, and is owed while the scroller has a layout box (an inert one under a modal still owes it). `Host` advances time while `Presenter` owns offsets, queued events and commands, so delivering at each deadline needs one loop that owns both. Its 14 failing cases are in `target/scrollend-order-regressions.rs` there. Chrome 155 ends an instant scroll sooner and does not end again after a layout clamp.
+- **`scrollend` on the Linux and Android host** (2026-10-13; web and Apple have it):
+  implement the rule and time-owner design in
+  [LLP 1005, Scroll completion](llp/1005-plan-and-runner-v1.spec.md#scroll-completion).
+  The implementation is parked on `q1013/linux-scrollend`. The LLP reconciles its
+  14 review regressions and 12 committed tests against Chrome, and specifies completion
+  ordering, shell-wake budgets, Android paint deferral and agent-call limits. Keep one
+  loop over Host's time and Presenter's offsets, events and commands; native qualification
+  remains open. `host/linux/src/host.rs` is at its line cap; the parked branch extracts
+  its clock into `host_clock.rs`.
 - **One presenter pass for the batches a frame lands together (iOS)** (2026-10-13, from the
   Bluesky clone's quotes fling): most fling frames apply four batches: the app's `scroll=` batch
   (the clone writes state every frame), one or two list fill slices that `landFill` lands inside
