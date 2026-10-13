@@ -25,6 +25,10 @@ struct HeaderRule {
     let leading: [NodeView], trailing: [NodeView], items: [NodeView]
     let search: NodeView?, segments: NodeView?, tap: NodeView?
 
+    /// The nodes handed to the shared rule, in all: what a projection walks,
+    /// which the tests pin (a feed's rows are never among them).
+    nonisolated(unsafe) static var walked = 0
+
     /// The route's first child is a shown `header` whose author wrote
     /// `appearance: none` (LLP 1075.003 §9.10): the rule makes no bar of it
     /// (`fact::AUTHORED`), and on iOS a pushed route with one gets no bar
@@ -69,6 +73,7 @@ struct HeaderRule {
         func add(_ node: NodeView) {
             let children = node.container.subviews.compactMap { $0 as? NodeView }
             nodes.append(node)
+            Self.walked += 1
             words.append(Self.facts(node, back: back))
             words.append(UInt32(children.count))
             for child in children { add(child) }

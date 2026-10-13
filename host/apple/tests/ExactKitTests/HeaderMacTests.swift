@@ -251,6 +251,22 @@ final class HeaderMacTests: XCTestCase {
         p.toolbar.detach()
     }
 
+    /// A route whose first child is no header is answered before its
+    /// subtree is read: a feed's rows are not handed to the rule at each
+    /// projection, as they were several times a scroll batch (the Bluesky
+    /// clone's fling hitch, 2026-10-13). A header first is walked, and only
+    /// its own subtree.
+    func testARouteWhoseFirstChildIsNoHeaderIsAnsweredWithoutWalkingIt() throws {
+        let rows = Array(31..<71)
+        let feed = view(30) + rows.flatMap { view($0, "text", ["text": "row \($0)"]) } + [children(30, rows), children(2, [30, 10, 15])]
+        let p = fixture(extra: feed)
+        let before = HeaderRule.walked
+        XCTAssertNil(HeaderRule(route: try node(p, 2), back: "back", backIsPlatforms: false, projected: true))
+        XCTAssertEqual(HeaderRule.walked, before, "nothing of the feed is walked")
+        XCTAssertNotNil(HeaderRule(route: try node(p, 3), back: "back", backIsPlatforms: false, projected: true))
+        XCTAssertEqual(HeaderRule.walked - before, 6, "the header (20), Back and its symbol (21, 210), the heading (22), Share and its text (23, 231); not the page (25)")
+    }
+
     /// A modal route is a sheet (D7.4, `RouteSheetMacTests`): the window
     /// keeps the title and the items of the route it stands over, which
     /// cannot be pressed under it, and the modal route's own header is its
