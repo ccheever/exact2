@@ -78,13 +78,41 @@ final class DialogSheet {
     func fit(_ size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
         used = size
-        let whole = chrome?.size(around: size) ?? size
+        // A window's content is whole points: a fraction's is the next one up.
+        var whole = chrome?.size(around: size) ?? size
+        whole = CGSize(width: whole.width.rounded(.up), height: whole.height.rounded(.up))
         guard window.contentView?.frame.size != whole else { return }
         // AppKit keeps an attached sheet centred as its size changes.
         window.setContentSize(whole)
     }
     /// The rows round the content changed: the window is the same content and the new rows.
     func refit() { fit(used) }
+}
+
+extension NodeView {
+    /// Whether its ground is the window's background and no author wrote
+    /// it: the ground the compiler gives a modal route (LLP 1116.009 D3) and
+    /// the Mac's grouped form (LLP 1115.002 D6).
+    private var groundIsTheWindows: Bool {
+        guard case .object(let role)? = style["background_color"], role["sys"]?.string == "windowBackgroundColor" else { return false }
+        return !wrote("background_color")
+    }
+
+    /// @ref LLP 1095 D3 — the window's background, as a role, names the
+    /// surface a box stands on. In a sheet that surface is the sheet's own
+    /// ground: AppKit's, lighter than a window's in Dark Mode (`#2c2828`
+    /// over `#1e1e1e`, measured) and no colour a box can paint. So a box in
+    /// a sheet that was given that ground and whose author wrote none
+    /// paints none, and the sheet's shows; a ground an author wrote is
+    /// painted as written.
+    var standsOnSheetGround: Bool { window is SheetWindow && groundIsTheWindows }
+
+    /// The subtree moved into a sheet's window, or out of it: its boxes on
+    /// the window's ground are painted again, on the ground they now have.
+    func sheetGroundChanged() {
+        if groundIsTheWindows { applyBoxLayer(); needsDisplay = true }
+        for case let child as NodeView in container.subviews { child.sheetGroundChanged() }
+    }
 }
 
 extension NSView {
@@ -169,6 +197,7 @@ extension DialogHost {
         if entry.route { adopt(entry, sheet) }
         guard let block = block(of: entry) else { return }
         presenter.blocks.show(entry.dialog, in: sheet.content, block: block) { [weak sheet] size in sheet?.fit(size) }
+        entry.dialog.sheetGroundChanged()
         // A presenter with no session lays nothing out again: the dialog
         // keeps the box the page gave it, at the sheet's corner.
         if presenter.blocks.used[entry.dialog.id] == nil { entry.dialog.setFrameOrigin(.zero) }
@@ -199,6 +228,7 @@ extension DialogHost {
         if entry.route { release(entry) }
         if live(dialog) { dialog.frame = entry.frame }
         presenter?.blocks.release(dialog)
+        if live(dialog) { dialog.sheetGroundChanged() }
         if key, let over, over.isVisible { over.makeKey() }
     }
 

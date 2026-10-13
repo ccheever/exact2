@@ -74,11 +74,17 @@ final class BlockHost {
         /// Its authored parent's view, and the sibling that followed it.
         weak var home: NSView?
         weak var next: NSView?
+        /// Its authored siblings before it as it left, nearest last, and
+        /// its turn among the subtrees shown.
+        var before: [Sibling] = []
+        var turn = 0
         var block: HostBlock
         /// What its container does with its used size (a sheet sizes its window).
         var used: ((CGSize) -> Void)?
     }
+    private struct Sibling { weak var node: NodeView? }
     private var entries: [UInt32: Entry] = [:]
+    private var turns = 0
     /// Each block's used size, as the last layout returned it.
     private(set) var used: [UInt32: CGSize] = [:]
     /// A block's used size changed: a sheet sizes its window from it.
@@ -91,12 +97,15 @@ final class BlockHost {
 
     /// The node children `home` holds, with the subtrees that left it for a
     /// container of their own back in their places: its authored children,
-    /// for a reader of the tree's shape (a stack's routes).
+    /// for a reader of the tree's shape (a stack's routes). Each goes after
+    /// the nearest sibling that was before it and is still there, so a
+    /// sibling mounted since (a route pushed over it) comes after it.
     func authored(_ mounted: [NodeView], in home: NSView) -> [NodeView] {
         guard !entries.isEmpty else { return mounted }
         var out = mounted
-        for entry in entries.values.sorted(by: { $0.node.id < $1.node.id }) where entry.home === home && !out.contains(where: { $0 === entry.node }) {
-            if let next = entry.next, let at = out.firstIndex(where: { $0 === next }) { out.insert(entry.node, at: at) } else { out.append(entry.node) }
+        for entry in entries.values.sorted(by: { $0.turn < $1.turn }) where entry.home === home && !out.contains(where: { $0 === entry.node }) {
+            let after = entry.before.reversed().lazy.compactMap { sibling in out.firstIndex { $0 === sibling.node } }.first
+            out.insert(entry.node, at: after.map { $0 + 1 } ?? 0)
         }
         return out
     }
@@ -108,7 +117,11 @@ final class BlockHost {
         if entries[node.id] == nil {
             let home = node.superview, siblings = home?.subviews ?? []
             let next = siblings.firstIndex(of: node).flatMap { $0 + 1 < siblings.count ? siblings[$0 + 1] : nil }
-            entries[node.id] = Entry(node: node, home: home, next: next, block: block, used: used)
+            // Its authored siblings, those already in containers of their own among them.
+            let nodes = home.map { authored($0.subviews.compactMap { $0 as? NodeView }, in: $0) } ?? []
+            let before = nodes.prefix { $0 !== node }.map { Sibling(node: $0) }
+            turns += 1
+            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, used: used)
         } else { entries[node.id]?.block = block; entries[node.id]?.used = used }
         if node.superview !== container {
             container.addSubview(node)

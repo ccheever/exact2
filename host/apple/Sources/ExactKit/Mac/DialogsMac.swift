@@ -41,8 +41,8 @@ final class DialogHost {
     var painted = ExactEnv.authoredChrome
     /// A mouse went down on the window behind a sheet (SheetsMac.swift).
     var downBehind = false
-    /// The routes' sheets are being reconciled (RouteSheetMac.swift).
-    var syncingRoutes = false
+    /// The routes' sheets are being reconciled, and a batch asked again meanwhile (RouteSheetMac.swift).
+    var routeSync = (running: false, again: false)
     private var accessibilityBlocker: ObjectIdentifier?
     /// The native button drawn as the open dialog's default (DefaultButtonMac.swift).
     weak var drawnDefault: NativeButtonMac?
@@ -180,7 +180,11 @@ final class DialogHost {
     }
     func reset() {
         presenter?.alerts.reset()
+        // A route's sheet is not brought back by the batch its leaving sends: navigation still names its route.
+        let was = routeSync.running
+        routeSync.running = true
         while let dialog = active { close(dialog, restoreFocus: false) }
+        routeSync = (was, false)
     }
     /// A children op still addresses the authored parent, even while a dialog
     /// is in the top layer. Removing that edge retires its presentation.

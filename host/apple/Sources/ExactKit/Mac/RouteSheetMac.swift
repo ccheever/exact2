@@ -8,13 +8,15 @@
 // focus and every test id are the authored ones, and the kernel lays it out
 // in a containing block (D8.2) whose used size is the sheet's.
 //
-// **Its size.** With none authored the block is a maximum on each axis (the
-// content area of the page's window, less this sheet's own rows) and the
-// route fits its content, as a `dialog` does: its `inset` is not read, since
-// AppKit places the sheet. An authored `width` or `height` in points is the
-// block's size on that axis, so it wins over the content and over the
-// window, as a hand-built sheet of a fixed size overhangs a small parent; an
-// authored percentage is of the maximum.
+// **Its size.** The block is a maximum on each axis: the content area of
+// the page's window, less this sheet's own rows. With no authored size the
+// route fits its content under it, as a `dialog` does, and its `inset` is
+// not read, since AppKit places the sheet. An authored `width` or `height`
+// is used as written (a percentage is of the maximum) and wins over the
+// content. It does not win over the window: a route wider than the window's
+// content area stops there, where AppKit's own sheet of a fixed size
+// overhangs its parent. A block that *is* the authored size needs that size
+// here, and a host is sent no layout row (`width`, `height`, `inset`).
 //
 // **Its header**, read by the shared rule (`HeaderRule`), is laid out as
 // SwiftUI lays a sheet's out (measured on macOS 27.0.1,
@@ -230,6 +232,11 @@ extension NavigationHost {
         var found: [(route: NodeView, header: SheetHeader?)] = []
         let back = root.props["navigationBack"].flatMap { $0.isEmpty ? nil : $0 }
         var index = selected
+        // A route pushed over a modal one is not a sheet's content yet: both are painted in the window, as before.
+        if routes[selected].props["navigationPresentation"] != "modal", let modal = routes[..<selected].last(where: { $0.props["navigationPresentation"] == "modal" }) {
+            let why = "route #\(routes[selected].id) is pushed over it, and a sheet holds one route"
+            if keptSheets[modal.id] != why { keptSheets[modal.id] = why; presenter.session?.log("route sheet: modal route #\(modal.id) stays painted in the window: \(why)") }
+        }
         while index > 0, routes[index].props["navigationPresentation"] == "modal" {
             let route = routes[index]
             if !concerned, keptSheets[route.id] != nil { return found }
@@ -260,27 +267,32 @@ extension DialogHost {
     /// sheet arrives or leaves): the modal routes navigation shows as
     /// sheets are sheets, and one it no longer shows leaves, the top first.
     func syncRoutes() {
-        guard let presenter, !syncingRoutes else { return }
-        syncingRoutes = true
-        defer { syncingRoutes = false }
-        var left = false
-        for entry in entries.reversed() where entry.route {
-            let wanted = presenter.navigation.sheets.contains { $0.route === entry.dialog }
-            if !wanted || !live(entry.dialog) { close(entry.dialog); left = true }
-        }
-        // The routes that left are navigation's to hide again, and those under them its to show.
-        if left { presenter.navigation.resync() }
-        // A header is read again only by a batch that can have changed it.
-        let read = presenter.navigation.sheetsRead
-        presenter.navigation.sheetsRead = false
-        for wanted in presenter.navigation.sheets {
-            if let entry = entry(ofRoute: wanted.route) { if read { project(entry, wanted.header) }; continue }
-            guard live(wanted.route), let page = presenter.viewport.window else { continue }
-            let front = window ?? page
-            let entry = Entry(wanted.route, previous: focusOwner(front), route: true)
-            entry.header = wanted.header
-            present(entry, over: front)
-        }
+        guard let presenter else { return }
+        // A batch that lands while a sheet arrives or leaves is read when it has.
+        if routeSync.running { routeSync.again = true; return }
+        routeSync.running = true
+        defer { routeSync.running = false }
+        repeat {
+            routeSync.again = false
+            var left = false
+            for entry in entries.reversed() where entry.route {
+                let wanted = presenter.navigation.sheets.contains { $0.route === entry.dialog }
+                if !wanted || !live(entry.dialog) { close(entry.dialog); left = true }
+            }
+            // The routes that left are navigation's to hide again, and those under them its to show.
+            if left { presenter.navigation.resync() }
+            // A header is read again only by a batch that can have changed it.
+            let read = presenter.navigation.sheetsRead
+            presenter.navigation.sheetsRead = false
+            for wanted in presenter.navigation.sheets {
+                if let entry = entry(ofRoute: wanted.route) { if read { project(entry, wanted.header) }; continue }
+                guard live(wanted.route), let page = presenter.viewport.window else { continue }
+                let front = window ?? page
+                let entry = Entry(wanted.route, previous: focusOwner(front), route: true)
+                entry.header = wanted.header
+                present(entry, over: front)
+            }
+        } while routeSync.again
     }
 
     /// The sheet's window was made for `entry`: its rows press the authored buttons.
@@ -330,22 +342,14 @@ extension DialogHost {
     }
 
     /// The containing block a sheet gives its subtree: a maximum on each
-    /// axis, the content area of the page's window. A route's is less its
-    /// sheet's own rows, and an authored length is its size on that axis.
+    /// axis, the content area of the page's window, and for a route less
+    /// its sheet's own rows. Under a maximum the kernel uses an authored
+    /// size as written (D8.2), so nothing here reads the route's rows,
+    /// which a host is not sent.
     func block(of entry: Entry) -> HostBlock? {
         guard var most = maximum else { return nil }
-        guard entry.route, let chrome = entry.sheet?.chrome else { return .atMost(most) }
-        most.height = max(0, most.height - chrome.rows)
-        let route = entry.dialog, uniform = route.number("border_width")
-        // The route's own box round an authored content size, as CSS has a content box.
-        func outer(_ length: CGFloat, _ sides: [String]) -> CGFloat {
-            let edges = route.style["box_sizing"]?.string == "border-box" ? 0
-                : sides.reduce(0) { $0 + route.number("padding_\($1)") + route.number("border_width_\($1)", uniform) }
-            return length + edges + sides.reduce(0) { $0 + route.number("margin_\($1)") }
-        }
-        let width = route.style["width"]?.number.map { HostBlock.Axis.size(outer(CGFloat($0), ["left", "right"])) } ?? .atMost(most.width)
-        let height = route.style["height"]?.number.map { HostBlock.Axis.size(outer(CGFloat($0), ["top", "bottom"])) } ?? .atMost(most.height)
-        return HostBlock(width: width, height: height)
+        if entry.route, let chrome = entry.sheet?.chrome { most.height = max(0, most.height - chrome.rows) }
+        return .atMost(most)
     }
 
     /// The driver's tap on an authored button a sheet's row stands for:

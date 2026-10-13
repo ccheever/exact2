@@ -228,11 +228,13 @@ final class HeaderMacTests: XCTestCase {
         p.toolbar.detach()
     }
 
-    /// A modal route is a sheet's content (stage 6c): until it is a sheet
-    /// its own header stays painted in it, and the window keeps the title
-    /// and the items of the route it stands over, which cannot be pressed
-    /// under it.
-    func testAModalRoutesHeaderStaysPaintedAndTheWindowKeepsTheRouteBeneath() throws {
+    /// A modal route is a sheet (D7.4, `RouteSheetMacTests`): the window
+    /// keeps the title and the items of the route it stands over, which
+    /// cannot be pressed under it, and the modal route's own header is its
+    /// sheet's: the heading its title row, the stack's Back control its
+    /// cancelling button, and what the sheet has no row for (Share) still
+    /// in the header.
+    func testAModalRouteIsASheetAndTheWindowKeepsTheRouteBeneath() throws {
         let p = fixture(extra: [["op": "props", "id": 3, "set": ["navigationPresentation": "modal"]]])
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
@@ -242,14 +244,25 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(window.title, "Library", "a sheet does not rename its window")
         XCTAssertEqual(identifiers(), [back, "exact.command.11", "exact.command.13", "exact.command.14"])
         XCTAssertTrue(try node(p, 10).isHidden)
-        XCTAssertFalse(try node(p, 20).isHidden, "the modal route's header paints, whole")
-        XCTAssertEqual(p.covers.delivered, [10: .whole])
+        let sheet = try XCTUnwrap(window.attachedSheet), chrome = try XCTUnwrap(sheet.contentView as? RouteChrome)
+        XCTAssertTrue(try node(p, 3).window === sheet, "the route is in its sheet")
+        XCTAssertEqual(chrome.title.stringValue, "Detail")
+        XCTAssertEqual([chrome.cancel.isHidden, chrome.confirm.isHidden], [false, true], "Back cancels; nothing in it confirms")
+        XCTAssertEqual(chrome.cancel.title, "Back", "a symbol's button says its name")
+        XCTAssertFalse(try node(p, 20).isHidden, "what the sheet has no row for stays in the header")
+        XCTAssertEqual([try node(p, 21).isHidden, try node(p, 22).isHidden, try node(p, 23).isHidden], [true, true, false])
+        XCTAssertEqual(p.covers.delivered, [10: .whole, 21: .whole, 22: .whole])
         let add = try XCTUnwrap(p.toolbar.items[13])
         XCTAssertFalse(p.toolbar.validateToolbarItem(add), "the route beneath is inert under it")
         XCTAssertFalse(add.isEnabled)
         XCTAssertFalse(p.toolbar.backItem.isEnabled, "a modal route's close is its own")
-        XCTAssertNil(p.toolbar.activate(try node(p, 23)), "its buttons are in the page")
+        XCTAssertNil(p.toolbar.activate(try node(p, 23)), "its buttons are in the sheet")
+        XCTAssertEqual(p.dialogs.activate(try node(p, 21)), true, "the sheet's row presses the authored button")
+        XCTAssertEqual(pressed, [21])
         select("a", in: p)
+        XCTAssertNil(window.attachedSheet, "the sheet leaves with the route")
+        XCTAssertEqual([try node(p, 21).isHidden, try node(p, 22).isHidden], [false, false], "the header is as authored again")
+        XCTAssertEqual(p.covers.delivered, [10: .whole])
         XCTAssertTrue(p.toolbar.validateToolbarItem(add))
         XCTAssertTrue(add.isEnabled)
         p.toolbar.detach()

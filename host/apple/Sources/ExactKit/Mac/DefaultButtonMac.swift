@@ -34,8 +34,10 @@ extension DialogHost {
     /// Return is drawn as the default button of a key window. Kept current
     /// as the dialog opens, closes and changes.
     func syncDefaultButton() {
-        // The sheet's own row is drawn as the default, not the authored button it stands for.
+        // The sheet's own row is drawn as the default, not the authored button it stands for;
+        // it arrives in its sheet without its key equivalent too, so it is given again.
         let row = entries.last?.header?.confirm
+        if let confirm = entries.last?.sheet?.chrome?.confirm, !confirm.isHidden, confirm.keyEquivalent != "\r" { confirm.keyEquivalent = "\r" }
         let next = active.flatMap(defaultButton).flatMap { $0 === row ? nil : presenter?.controls.controls[$0.id] as? NativeButtonMac }
         if let old = drawnDefault, old !== next, old.keyEquivalent == "\r" { old.keyEquivalent = "" }
         if let next, next.keyEquivalent != "\r" { next.keyEquivalent = "\r" }
