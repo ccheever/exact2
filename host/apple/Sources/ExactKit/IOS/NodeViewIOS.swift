@@ -177,7 +177,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if CanvasInputs.owns(touch.view) { return false }
         if gestureRecognizer === swipeRecognizer, gestureRecognizer.numberOfTouches == 0 { swipeDownX = touch.location(in: window).x }
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
-        if gestureRecognizer === contextRecognizer, selectsText(under: touch) { return false } // its long press selects (LLP 1115.000 D11.6)
+        #if os(iOS)
+        if gestureRecognizer === contextRecognizer {
+            guard presenter?.menus.eligible(self) == true else { return false }
+            if let hit = touch.view as? NodeView, let source = hit.contextMenuSource, source !== self { return false }
+        }
+        #endif
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view
