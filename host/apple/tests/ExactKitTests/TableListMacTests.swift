@@ -206,8 +206,9 @@ final class TableListMacTests: XCTestCase {
                   each r in seed key=`k${r}`
                     scroll swipeContent=`row-${r}` swipeTrailing=`delete-${r}` testId=`swipe-${r}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
                       row width="100%"
-                        link id=`row-${r}` href=`/item/${r}` testId=`row-${r}` width="100%" flex-shrink=0 scroll-snap-align="start" display="flex" padding="10px 16px"
-                          text `Row ${r}` testId=`title-${r}`
+                        link id=`row-${r}` href=`/item/${r}` testId=`row-${r}` width="100%" flex-shrink=0 scroll-snap-align="start" display="flex" align-items="center" padding="10px 16px"
+                          text `Row ${r}` testId=`title-${r}` flex=1
+                          image "symbol:forward-chevron" aria-hidden=true testId=`chevron-${r}`
                         button id=`delete-${r}` destructive=true press=remove(r) testId=`delete-${r}` flex-shrink=0 scroll-snap-align="start"
                           text "Delete"
             when e.name == "item"
@@ -241,6 +242,15 @@ final class TableListMacTests: XCTestCase {
         f.settle()
         XCTAssertEqual(try f.node("detail").accessibleText, "Item 3", "pressing the row followed its link")
         XCTAssertTrue(f.feed.keyTarget === link, "and the keys of the selected row are its link's")
+        // No disclosure chevron on a table's row: its glyph is not drawn in the cell, and is in the painted list.
+        f.presenter.press(try f.node("back").id)
+        f.settle()
+        let chevron = try f.node("chevron-3")
+        XCTAssertNotNil(chevron.symbolView?.image, "the row holds a chevron")
+        XCTAssertEqual(chevron.symbolView?.alphaValue, 0, "which a table's row does not draw")
+        XCTAssertGreaterThan(chevron.frame.width, 0, "its box is layout's still")
+        f.presenter.tables.painted = true
+        XCTAssertEqual(try f.node("chevron-3").symbolView?.alphaValue, 1, "painted rows draw theirs")
     }
 }
 

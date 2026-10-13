@@ -12,6 +12,12 @@
 //   too, which then cannot be read on the accent).
 // - In a selected row that is not emphasized, and in any other row, nothing changes.
 //
+// A row in a table also draws no disclosure chevron (LLP 1115.002 D5, §5
+// Q4): SwiftUI's list of navigation links draws none on the Mac, and the
+// table's selection says which row is open. The symbol's node keeps its box
+// (layout is not asked again for a row as it mounts), and its glyph is not
+// drawn while the row is in a cell.
+//
 // So here: text whose colour is unsaid or names a role (a label colour, the
 // link's, the accent) is the selected item's text, a label colour at its
 // measured share; a symbol whose tint is unsaid or names a role is drawn as
@@ -32,6 +38,21 @@ extension NodeView {
             above = view.superview
         }
         return false
+    }
+
+    /// This node is the root view of a row that went into a table's cell,
+    /// or came out of one: a disclosure chevron in it (the `forward-chevron`
+    /// role, or SF's glyph by name) is not drawn in the cell. Its glyph's
+    /// view is made clear: whether it is hidden is CSS `visibility`'s
+    /// (`applyCssVisibility`), written again with every style.
+    func rowDisclosure(hidden: Bool) {
+        func walk(_ view: NSView) {
+            if let node = view as? NodeView, let leaf = node.symbolView, ["chevron.forward", "chevron.right"].contains(node.props["symbolName"] ?? "") {
+                leaf.alphaValue = hidden ? 0 : 1
+            }
+            for child in (view as? NodeView)?.container.subviews ?? view.subviews where child is NodeView { walk(child) }
+        }
+        walk(self)
     }
 
     /// The row this node is the root view of became, or stopped being, a

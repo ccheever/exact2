@@ -487,6 +487,42 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertEqual(f.table.selectedRow, 7)
     }
 
+    func testTheTableIsOneTabStopAndWhatIsInItsRowsIsStillReached() throws {
+        let f = try keyed()
+        let was = KeyboardNavigation.agent
+        defer { KeyboardNavigation.agent = was }
+        /// The Tab loop from the table, as AppKit walks it: each stop's next, until it comes round.
+        func loop() -> [NSView] {
+            f.presenter.syncKeyViewLoop()
+            var stops: [NSView] = [f.table], next = f.table.nextKeyView
+            while let view = next, view !== f.table, stops.count < 400 { stops.append(view); next = view.nextKeyView }
+            return stops
+        }
+        func ids(_ stops: [NSView]) -> [String] {
+            stops.compactMap { stop in f.presenter.views.values.first { f.presenter.keyView(of: $0) === stop }?.props["testId"] }
+        }
+        XCTAssertTrue(f.presenter.keyView(of: f.list) === f.table, "the list's key view is its table")
+        // Keyboard Navigation off, the system's default: Tab moves between
+        // text fields and lists. The table is a stop, and so is the field
+        // in a row, which is in a cell and no subview of the list.
+        KeyboardNavigation.agent = false
+        var stops = ids(loop())
+        XCTAssertEqual(stops.first, "rows", "the table stands in the loop where its list is")
+        XCTAssertTrue(stops.contains("field-3"), "a field in a row is reached: \(stops)")
+        XCTAssertFalse(stops.contains { $0.hasPrefix("row-") || $0.hasPrefix("bump-") }, "and no row or button is a stop: \(stops)")
+        // On: every control is a stop, a button in a row too, but not the rows: the table selects those.
+        KeyboardNavigation.agent = true
+        stops = ids(loop())
+        XCTAssertTrue(stops.contains("rows") && stops.contains("bump-3") && stops.contains("field-3") && stops.contains("grow"), "\(stops)")
+        XCTAssertFalse(stops.contains { $0.hasPrefix("row-") }, "a row that presses is the table's to select, not a stop of its own: \(stops)")
+        // Tab from the table goes to the first stop in its rows.
+        KeyboardNavigation.agent = false
+        _ = loop()
+        XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        key(48, "\t", in: f)
+        XCTAssertNotNil(try f.node("field-3").field?.currentEditor(), "Tab from the table reached the field in row 3")
+    }
+
     /// The window server's picture of the fixture's window, saved where `EXACT_PROOF_SHOTS` says.
     private func shot(_ f: TableFixture, _ name: String) {
         typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?

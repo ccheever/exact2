@@ -65,10 +65,11 @@ final class TableHost {
         for (id, list) in presenter.listViews {
             let why = painted ? "" : refusal(list)
             if let why {
-                feeds.removeValue(forKey: id)?.remove()
+                if let feed = feeds.removeValue(forKey: id) { feed.remove(); presenter.keyViewLoopStale = true }
                 if !why.isEmpty, said[id] != why { said[id] = why; presenter.session?.log("table: list #\(id) keeps painted rows: \(why)") }
             } else if feeds[id] == nil {
                 feeds[id] = TableFeed(list, presenter: presenter, style: .inset)
+                presenter.keyViewLoopStale = true
                 if said[id] != "" { said[id] = ""; presenter.session?.log("table: list #\(id) is an NSTableView") }
             }
         }
@@ -116,6 +117,18 @@ final class TableHost {
         }
         return false
     }
+    /// Whether `node` is what a click on its table's row presses
+    /// (`TableFeed.pressing`): the table's own to select, and no Tab stop.
+    func pressesRow(_ node: NodeView) -> Bool {
+        var above: NSView? = node
+        for _ in 0..<24 {
+            guard let view = above, !(view is NSTableView) else { return false }
+            if let cell = view as? TableRowCell { return cell.row.flatMap { cell.feed?.row(of: $0) }.flatMap { cell.feed?.pressing($0) } === node }
+            above = view.superview
+        }
+        return false
+    }
+
     // MARK: The agent
 
     /// What AppKit shows for a list that is a table, and for a row of one

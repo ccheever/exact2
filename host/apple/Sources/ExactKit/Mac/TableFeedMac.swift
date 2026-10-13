@@ -74,6 +74,7 @@ final class TableRowCell: NSTableCellView {
             addSubview(node)
             feed?.moved()
             textMoved = true
+            node.rowDisclosure(hidden: true)
             if backgroundStyle == .emphasized { node.rowEmphasisChanged(true) }
         }
         place()
@@ -109,6 +110,7 @@ final class TableRowCell: NSTableCellView {
         home.addSubview(row)
         row.frame = kernel
         feed.moved()
+        row.rowDisclosure(hidden: false)
         if backgroundStyle == .emphasized { row.rowEmphasisChanged(false) }
     }
 
@@ -283,6 +285,9 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         sync()
     }
 
+    /// The list's mounted children in their order, wherever each is (a
+    /// cell, the document): the Tab loop walks them (KeyViewLoopMac.swift).
+    var mounted: [NodeView] { children?.filter { presenter?.views[$0.id] === $0 } ?? rows.map(\.node) }
     /// Where the presenter keeps the list's rows: its document, or the
     /// list itself when it is no scroller of its own.
     var home: NSView? { list.map { $0.scroll?.documentView ?? $0.container } }
