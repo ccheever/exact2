@@ -790,10 +790,10 @@ impl<D: DataSource> Runner<D> {
         let launched_place = crate::time::launch_place();
         // A refused boot puts back the overrides it took (a session still running keeps its own).
         let (mut restore, replaced) = crate::bridge::RestoreOverrides::set(&plan);
-        let failed_mut = vec![None; plan.mutations.len()];
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
+            failed_mut: vec![None; plan.mutations.len()],
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
@@ -831,7 +831,6 @@ impl<D: DataSource> Runner<D> {
             pending: Vec::new(),
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
-            failed_mut,
             announced: Default::default(),
             native: Native::default(),
             watching: Vec::new(),
