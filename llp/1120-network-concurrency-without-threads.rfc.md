@@ -1,7 +1,7 @@
 # LLP 1120: Network concurrency without a thread per request
 
 **Type:** RFC
-**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Nothing is built.
+**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Stage 1 is built behind a switch, off (§4); §5's Apple gate, measured 2026-10-12, failed, so the switch stays off.
 **Systems:** the native executor (`host/apple/src/executor_core.rs`, `executor_stream.rs`, `executor_body.rs`), compiled into Apple, Linux and the render host; ibex2's fetch layer (`vendor/ibex/crates/ibex2/src/stdlib/fetch.rs`) and transports (`transport/darwin.rs`, `darwin_http.mm`, `darwin_websocket.*`, `websocket.rs`, `rustls_http.rs`).
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-10, r6 and r7 2026-10-12
@@ -532,6 +532,27 @@ There are no shims; each step deletes what it replaces in the executor.
 - tiny-ceiling saturation at the cap of 8, with no ordered stall.
 
 This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
+
+**As measured, the Apple gate (2026-10-12): failed; `EXACT_HTTP_ASYNC` stays off.** Three LTE windows of the four interleaved arms, 12 cold launches each (`measure.py --only cold`, the clone signed out at its c5e6e50, simulator x2-perf2). LTE was pf/dummynet pipes on the resolved API addresses (anchor `com.apple/exact-lte`, the lead's root-owned scripts), standing in for the Network Link Conditioner; every exchange with a recorded remote reached a shaped address. The arms are the stage-1c builds (`EXACT_HTTP_WORKERS`, `EXACT_HTTP_IN_FLIGHT`, 0612b2087); the C arms also set the switch at launch, and from window 2 on every block's connection log (`IBEX2_HTTP_METRICS`, one line per exchange, written when its metrics arrive at completion) shows the transport its arm names.
+- **The windows.** Window 1 is clean except C7, which ran the workers (a cached build lost its baked switch; the check above was added after). Window 2 is **contaminated**: another agent ran simulator flings, three iOS builds and an all-processes Time Profiler for all of it (05:07:30–05:17:23Z). Window 3 (06:18–06:26Z) is clean, the machine idle but for one transient system process, and is the only clean C7. The clean data are windows 1 and 3.
+- **`zero_to_post`, ms, median (IQR, worst):**
+
+  | window | A7 | C7 | A6 | C |
+  |---|---|---|---|---|
+  | 1 | 1452 (137, 1715) | (ran the workers) | 1508 (248, 2351) | 1481 (194, 2002) |
+  | 2, contaminated | 1537 (198, 3337) | 1498 (103, 1775) | 1543 (188, 1984) | 1521 (678, 16505), 2 failed |
+  | 3 | 1630 (284, 2810) | 1620 (110, 1943) | 1624 (128, 1955) | 1602 (78, 1932) |
+
+  From window 1 to window 3 the medians rose 178 ms (A7), 116 (A6) and 121 (C); the cause isn't known. Within window 3 only A7's first block is high (1770, against 1613 and 1634).
+- **Verdicts, window 3 (window 1 where it can say):**
+  1. **Fails.** C7 beats A7 by 10 ms, against A7's IQR of 284; C7's worst (1943) is better than A7's (2810). Sharing a session and HTTP/2 doesn't buy a measurable launch on this path.
+  2. **Not shown.** In windows 2 and 3, every exchange with a recorded endpoint rode one `h2` connection per launch under C7 and C, seven under A7 and six under A6 (window 1's C also one). Two window-2 C launches are partly unrecorded: the failed one logged no endpoint or protocol for any of its 12 exchanges, and the 16.5 s one none for 6 of its 27 (`getServices` and the first five feed reads; the other 21 share one connection). The log has one time per exchange, at completion, so that the feed reads overlap on the one connection, which the gate asks for, is not measured.
+  3. **Fails with gate 5:** C's failed run stops C's comparison (the rule above). Window 3's numbers alone would pass: C 1602 against C7 1620 (IQR 110); worst 1932 against 1943.
+  4. **Fails with gate 5,** likewise. Windows 1 and 3 alone would pass: C 1481 and 1602 against A6 1508 and 1624; worst 2002 and 1932 against 2351 and 1955.
+  5. **Fails for C.** Windows 1 and 3 have no failed run (one window-1 C launch logged 27 exchanges, one pagination read fewer, with all 19 feed reads). But window 2's C failed two launches, and by the rule above a treatment failure fails that arm's gate; contamination doesn't excuse it. One painted nothing (the null in its block); the other painted at 16.5 s with 14 of its 19 feed reads, five author feeds never connecting and not retried (it is in the table's median, IQR and worst; without it, C's window 2 is 1513, IQR 186, worst 3050).
+- **In sum:** in the clean windows' gated pairs async was not slower (C7 against A7, C against A6 and C7), and in window 3 its spread was the narrowest (C's IQR 78, C7's 110, against 284 and 128); but the primary outcome, gate 1, is a tie well inside the noise, and C failed two launches in window 2.
+- **Finding: one connection, one point of failure (window 2).** In C's failed launch the connection's setup stalled for 15 s, the request deadline (`data/atproto.ts`), and every request of the launch was cancelled together (`NSURLErrorCancelled`, -999, in that run's simulator log); its 12 log lines carry no endpoint or protocol, in two clusters 15 s apart. The cause is open: we read a 15 s stall as unlikely to be CPU contention, a judgement, not a measurement, in a contaminated window. Hypotheses, not shown: the 16.5 s launch (`connect_to_post` 16263 ms), whose five unconnected feed reads log the same way, is the same stall, the rest of its reads getting a connection; under the workers the same stall would cost one connection's share of the exchanges (two to seven of 28), still a failed run, rather than all of them, and no worker launch lost an exchange in any window. Before any default-on, worth trying: a connection-setup timeout shorter than the request deadline with a retry on a fresh connection, or a second connection when the first hasn't opened.
+- **Not done:** the 1b review follow-ups (§4, needed only if this gate passed), stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and a physical device. Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
 
 ## 6. Questions for the ruling
 
