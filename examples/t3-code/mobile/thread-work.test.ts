@@ -357,10 +357,63 @@ test('read header Copy preserves relative paths and existing collection bounds',
   expect(JSON.parse(mobileThreadActivity(activity, empty, clientFor([empty]), now, false, '', 'visit').nativeWorkRow).copyText).toBe('Read file');
 });
 
-test('read header Copy leaves titled and other dynamic rows on their existing path', () => {
-  for (const fields of [{ toolName: 'Read', title: 'Read source' }, { toolName: 'unknown', kind: 'read' },
+for (const { name, item, expected } of [
+  { name: 'trimmed title', item: { title: ' \tread source\n ', input: { file_path: '/repo/a.ts' } }, expected: 'Read source\n/repo/a.ts' },
+  { name: 'static T3 title while running', item: { title: 't3_thread_read', status: 'running', input: { file_path: '/repo/a.ts' } }, expected: 'Read a T3 thread\n/repo/a.ts' },
+  { name: 'completed MCP title alias', item: { title: '  mcp__t3-code__t3_thread_read completed  ', status: 'failed', input: { file_path: '/repo/a.ts' } }, expected: 'Read a T3 thread\n/repo/a.ts' },
+  { name: 'OpenCode2 title alias', item: { title: 't3-code-thread_id_t3_thread_read', input: { file_path: '/repo/a.ts' } }, expected: 'Read a T3 thread\n/repo/a.ts' },
+  { name: 'unrecognized foreign MCP title', item: { title: 'mcp__other__t3_thread_read', input: { file_path: '/repo/a.ts' } }, expected: 'Mcp__other__t3_thread_read\n/repo/a.ts' },
+  { name: 'original collected fields', item: { title: 'inspect source', fileName: 'root.ts', input: { path: 'input.ts' },
+    result: { path: 'result.ts' }, data: { path: 'data.ts' }, changes: [{ path: 'change.ts' }, { path: 'input.ts' }] },
+    expected: 'Inspect source\nroot.ts\ninput.ts\nresult.ts\ndata.ts\nchange.ts' },
+  { name: 'duplicate summary and path', item: { title: '/repo/a.ts', input: { file_path: '/repo/a.ts' } }, expected: '/repo/a.ts' },
+  { name: 'empty path list', item: { title: 'read source', input: {}, output: { path: '/output-only.ts' } }, expected: 'Read source' },
+]) test(`titled Read header Copy uses ${name} from the original item`, () => {
+  const row = projected({ type: 'dynamic_tool', toolName: 'Read', ...item }), client = clientFor([row]);
+  const shown = mobileThreadActivity({ ...activity, label: 'Grouped display label', detailOpen: false }, row, client, now, false, '', 'visit');
+  expect(shown.nativeWorkRow).not.toBe('');
+  expect(JSON.parse(shown.nativeWorkRow)).toMatchObject({ copyText: expected, label: 'Grouped display label', expanded: false });
+  expect(shown).toMatchObject({ nativeWorkImage: false, nativeWorkDetail: false, nativeCommandDetail: false, call: false, output: '' });
+});
+
+test('titled Read Copy keeps original paths and route ownership through disclosure and fetching', async () => {
+  const row = projected({ type: 'dynamic_tool', toolName: 'Read', title: ' read source ', input: { file_path: '/repo/a.ts' }, outputOmitted: true });
+  const client = clientFor([row]), requests: Obj[] = [], before = JSON.stringify(client.projection);
+  client.scopes = []; client.local.drafts[client.draftKey] = '  ';
+  client.rpc = async (_native, method, payload) => {
+    requests.push({ method, ...payload });
+    return { item: { ...obj(row.item), title: 'Fetched title', input: { file_path: '/fetched/b.ts' }, outputOmitted: false, output: 'Fetched file body' } };
+  };
+  const props = { ...activity, label: 'Grouped display label', icon: 'file-text', iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' };
+  const collapsed = mobileThreadActivity({ ...props, detailOpen: false }, row, client, now, false, '', 'visit');
+  expect(collapsed.nativeWorkRow).not.toBe('');
+  const initial = JSON.parse(collapsed.nativeWorkRow), expected = 'Read source\n/repo/a.ts';
+  expect(initial).toMatchObject({ copyText: expected, label: 'Grouped display label', symbol: 'doc.text', expanded: false, expandable: true });
+  expect(collapsed).toMatchObject({ nativeWorkImage: true, iconURL: props.iconLight, nativeWorkDetail: false, nativeCommandDetail: false, call: false, output: '' });
+  expect(JSON.parse(mobileThreadActivity({ ...props, expandable: false }, row, client, now, false, '', 'visit').nativeWorkRow)).toMatchObject({ copyText: expected, expandable: false });
+  expect(requests).toEqual([]);
+  await chatLocal(client, native, 'item-detail', activity.id, 'open');
+  expect(await refreshNextOpenTurnItemDetail(client, native, now)).toBe(true);
+  const expanded = mobileThreadActivity(props, row, client, now, true, '', 'visit');
+  expect(JSON.parse(expanded.nativeWorkRow)).toMatchObject({ copyText: expected, owner: initial.owner, expanded: true });
+  expect(expanded).toMatchObject({ nativeWorkImage: true, iconURL: props.iconDark, nativeWorkDetail: false, nativeCommandDetail: false,
+    call: false, body: '/repo/a.ts', output: 'Fetched file body' });
+  const otherVisit = JSON.parse(mobileThreadActivity(props, row, client, now, true, '', 'other-visit').nativeWorkRow);
+  expect(otherVisit.owner).not.toBe(initial.owner); expect(otherVisit.copyText).toBe(expected);
+  client.generation++;
+  const otherGeneration = JSON.parse(mobileThreadActivity(props, row, client, now, true, '', 'visit').nativeWorkRow);
+  expect(otherGeneration.owner).not.toBe(initial.owner); expect(otherGeneration.copyText).toBe(expected);
+  await chatLocal(client, native, 'item-detail', activity.id, 'closed');
+  expect(mobileThreadActivity({ ...props, detailOpen: false }, row, client, now, false, '', 'visit').expanded).toBe(false);
+  expect(requests).toEqual([{ method: 'orchestration.getTurnItem', threadId: 'source', itemId: 'item', revision: time }]);
+  expect(client.draft).toBe('  '); expect(client.threadId).toBe('thread'); expect(JSON.stringify(client.projection)).toBe(before);
+});
+
+test('read header Copy leaves other dynamic rows on their existing path', () => {
+  for (const fields of [{ toolName: 'unknown', kind: 'read' },
     { toolName: 'unknown', viewedImagePath: '/repo/image.png' }, { toolName: 'Skill', input: { skill: 'full-send' } },
     { toolName: 'cua_repl.js', input: { title: 'Read source' } }, { toolName: 'mcp__t3-code__t3_thread_read' },
+    { toolName: 'mcp__t3-code__t3_thread_read', title: 't3_pending_request_read' },
     { type: 'notification', toolName: 'Read' }]) {
     const row = projected({ type: 'dynamic_tool', input: { file_path: '/repo/a.ts' }, ...fields });
     expect(mobileThreadActivity(activity, row, clientFor([row]), now, false, '', 'visit')).toMatchObject({ nativeWorkRow: '', nativeWorkImage: false });
@@ -382,7 +435,8 @@ test('image work headers preserve theme fallbacks and all symbol-header Copy byt
   ];
   for (const item of [{ type: 'file_search', title: '  find source  ', pattern: '  needle  ', results: [{ fileName: 'main.ts', line: 2, preview: 'needle' }] },
     { type: 'web_search', title: '  find docs  ', patterns: ['', '  needle  '], results: [{ title: 'Docs', url: 'https://example.com' }] },
-    { type: 'dynamic_tool', toolName: 'Read', input: { file_path: './main.ts' } }]) {
+    { type: 'dynamic_tool', toolName: 'Read', input: { file_path: './main.ts' } },
+    { type: 'dynamic_tool', toolName: 'Read', title: 'read source', input: { file_path: './main.ts' } }]) {
     const row = projected(item), client = clientFor([row]);
     for (const dark of [false, true]) for (const source of sources) {
       const props = { ...activity, detailOpen: false }, plain = mobileThreadActivity(props, row, client, now, dark, '', 'visit');
@@ -398,7 +452,8 @@ test('image work headers preserve theme fallbacks and all symbol-header Copy byt
 test('image work headers retain disclosure, original content and route ownership', async () => {
   for (const item of [{ type: 'file_search', pattern: 'old', results: [{ fileName: 'old.ts' }] },
     { type: 'web_search', patterns: ['old'], results: [{ url: 'https://example.com/old' }] },
-    { type: 'dynamic_tool', toolName: 'Read', input: { file_path: 'old.ts' }, outputOmitted: true }]) {
+    { type: 'dynamic_tool', toolName: 'Read', input: { file_path: 'old.ts' }, outputOmitted: true },
+    { type: 'dynamic_tool', toolName: 'Read', title: 'read source', input: { file_path: 'old.ts' }, outputOmitted: true }]) {
     const row = projected(item), client = clientFor([row]), before = JSON.stringify(client.projection), requests: Obj[] = [];
     client.local.drafts[client.draftKey] = '  ';
     client.rpc = async (_native, method, payload) => {
@@ -435,7 +490,6 @@ test('image work headers retain disclosure, original content and route ownership
 
 test('image composition does not widen existing command, Fork or generic dynamic headers', () => {
   for (const item of [{ type: 'command_execution', input: 'pwd' }, { type: 'fork', targetThreadId: 'child' },
-    { type: 'dynamic_tool', toolName: 'Read', title: 'Read source', input: { file_path: 'main.ts' } },
     { type: 'dynamic_tool', toolName: 'mcp__t3-code__preview_open', input: {} }]) {
     const row = projected(item), client = clientFor([row]);
     const plain = mobileThreadActivity(activity, row, client, now, false, '', 'visit');
