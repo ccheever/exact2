@@ -49,6 +49,40 @@ fn the_date_arrives_as_one_commit_and_bad_facts_are_refused() {
     assert_eq!(text(&r), "1790000000000/120");
 }
 
+/// A host that knows the date at launch boots under it: the first frame
+/// reads it, and telling the same fact after commits nothing; an invalid
+/// fact boots on zero, as before.
+#[test]
+fn a_date_known_at_launch_is_read_from_the_first_frame() {
+    let plan = contract::bake(contract::compile(APP).unwrap(), NoData).unwrap();
+    let boot = |time| {
+        exact_runner::time::launching(time, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: -420.0,
+    };
+    let mut r = boot(Some(at));
+    assert_eq!(text(&r), "1790000000000/-420");
+    assert!(r.set_time(1_790_000_000_000.0, -420.0).unwrap().is_none());
+    let bad = exact_runner::time::WallTime {
+        epoch_at_zero: f64::NAN,
+        utc_offset: 0.0,
+    };
+    assert_eq!(text(&boot(Some(bad))), "0/0");
+    // Outside `launching`, nothing is left behind.
+    assert_eq!(text(&boot(None)), "0/0");
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]
