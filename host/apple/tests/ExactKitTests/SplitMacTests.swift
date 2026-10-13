@@ -330,6 +330,27 @@ final class SplitMacTests: XCTestCase {
         XCTAssertFalse(p.navigation.canGoBack)
     }
 
+    func testAnUnsupportedDeclaredToolbarKeepsBothSplitHeadersPainted() throws {
+        let session = try boot(tabs: false, size: CGSize(width: 1100, height: 500))
+        let p = session.presenter
+        _ = compose(ExactView(session: session), width: 1100, sidebar: false)
+        try press("row-a")
+        let library = try node("route-library"), notes = try node("notes-a")
+        let children = library.container.subviews.compactMap { ($0 as? NodeView).map { Int($0.id) } }
+        p.apply(wireBatch([
+            ["op": "create", "id": 10000, "kind": "view", "props": ["accessibilityRole": "toolbar", "toolbarPlacement": "window"]],
+            ["op": "create", "id": 10001, "kind": "image", "props": ["symbolName": "book"]],
+            ["op": "children", "id": 10000, "ids": [10001]],
+            ["op": "children", "id": Int(library.id), "ids": children + [10000]]
+        ]))
+        XCTAssertNil(p.toolbar.header)
+        XCTAssertNil(p.toolbar.beside)
+        XCTAssertFalse(try node("add-book").isHiddenOrHasHiddenAncestor)
+        XCTAssertFalse(notes.isHiddenOrHasHiddenAncestor)
+        XCTAssertNil(p.covers.delivered[notes.id])
+        XCTAssertTrue(p.toolbar.items.isEmpty)
+    }
+
     func testASheetOverTheSplitLeavesBothPanesUnderItAndTheListsKeyWinsATie() throws {
         let session = try boot(tabs: true, size: CGSize(width: 1100, height: 500))
         let p = session.presenter

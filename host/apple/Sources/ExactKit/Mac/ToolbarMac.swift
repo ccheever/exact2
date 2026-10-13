@@ -484,7 +484,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// beside its detail: read as the window's is, and kept as authored,
     /// buttons and all, where the bar cannot show the whole of it.
     private func readBeside(in window: NSWindow) -> WindowHeader? {
-        guard !ExactEnv.authoredChrome, let routes = presenter.navigation.splitHeaderRoutes, let route = routes.beside,
+        guard !ExactEnv.authoredChrome, !declares(in: window), let routes = presenter.navigation.splitHeaderRoutes, let route = routes.beside,
               route.window === window, visible(route) else {
             decideBeside(nil)
             return nil
