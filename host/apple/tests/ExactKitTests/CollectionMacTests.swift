@@ -114,6 +114,23 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
         XCTAssertTrue(CSSCursor.value("pointer") === NSCursor.pointingHand)
         XCTAssertNil(CSSCursor.value("auto"))
+        // The resize keywords are macOS 15's frame-resize cursors, as Chrome
+        // and Safari draw them there: an edge or a corner moves outward, a
+        // two-way keyword both ways, and a divider is a column or a row.
+        guard #available(macOS 15, *) else { return }
+        let outward: [(String, NSCursor.FrameResizePosition)] = [
+            ("n-resize", .top), ("e-resize", .right), ("s-resize", .bottom), ("w-resize", .left),
+            ("ne-resize", .topRight), ("nw-resize", .topLeft), ("se-resize", .bottomRight), ("sw-resize", .bottomLeft),
+        ]
+        for (name, position) in outward {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .outward), name)
+        }
+        let both: [(String, NSCursor.FrameResizePosition)] = [("ns-resize", .top), ("ew-resize", .left), ("nesw-resize", .topRight), ("nwse-resize", .topLeft)]
+        for (name, position) in both {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .all), name)
+        }
+        XCTAssertTrue(CSSCursor.value("col-resize") === NSCursor.columnResize)
+        XCTAssertTrue(CSSCursor.value("row-resize") === NSCursor.rowResize)
     }
     func testOverflowAutoCreatesAnAutohidingScrollContainer() {
         _ = NSApplication.shared

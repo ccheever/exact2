@@ -9,24 +9,23 @@
 
 ## Summary
 
-Two things keep a Mac page's CSS resize cursors from looking as Chrome's (and Safari's) do on the same Mac.
+`CSSCursor.value` (`host/apple/Sources/ExactKit/Mac/CSSCursor.swift`) maps `n-resize`, `e-resize`, `s-resize` and
+`w-resize` to AppKit's legacy `resizeUp`/`resizeRight`/`resizeDown`/`resizeLeft` (24×24), `ns-resize` and
+`row-resize` to `resizeUpDown` (24×28), `ew-resize` and `col-resize` to `resizeLeftRight` (30×24), and all six
+diagonals (`ne-`, `nw-`, `se-`, `sw-`, `nesw-`, `nwse-resize`) to the crosshair (24×24), because AppKit 14 had no
+diagonal. macOS 15 added the frame-resize cursors (`NSCursor.frameResize(position:directions:)`, `columnResize`,
+`rowResize`) and marks the legacy six "to be deprecated" in their favour. Chrome on macOS 15+ uses them
+(`ui/base/cocoa/cursor_utils.mm`, "Match Safari's cursor choices"): an edge (`n-` … `w-resize`) and a corner
+(`ne-` … `sw-resize`) is the frame cursor at that position, `.outward`; `ns-`, `ew-`, `nesw-` and `nwse-resize` are
+the frame cursor at the top, left, top-right and top-left, `.all`; `col-resize` and `row-resize` are `columnResize`
+and `rowResize`. Their images are 18×28 (vertical), 24×18 (horizontal) and 22×22 (diagonal).
 
-1. **The shapes.** `CSSCursor.value` (`host/apple/Sources/ExactKit/Mac/CSSCursor.swift`) maps `n-resize`,
-   `e-resize`, `s-resize` and `w-resize` to AppKit's legacy `resizeUp`/`resizeRight`/`resizeDown`/`resizeLeft`
-   (24×24), `ns-resize` and `row-resize` to `resizeUpDown` (24×28), `ew-resize` and `col-resize` to
-   `resizeLeftRight` (30×24), and all six diagonals (`ne-`, `nw-`, `se-`, `sw-`, `nesw-`, `nwse-resize`) to the
-   crosshair (24×24), because AppKit 14 had no diagonal. macOS 15 added the frame-resize cursors
-   (`NSCursor.frameResize(position:directions:)`, `columnResize`, `rowResize`) and marks the legacy six "to be
-   deprecated" in their favour. Chrome on macOS 15+ uses them (`ui/base/cocoa/cursor_utils.mm`, "Match Safari's
-   cursor choices"): an edge (`n-` … `w-resize`) and a corner (`ne-` … `sw-resize`) is the frame cursor at that
-   position, `.outward`; `ns-`, `ew-`, `nesw-` and `nwse-resize` are the frame cursor at the top, left, top-right
-   and top-left, `.all`; `col-resize` and `row-resize` are `columnResize` and `rowResize`. Their images are 18×28
-   (vertical), 24×18 (horizontal) and 22×22 (diagonal).
-2. **The outer half of an overflowing child shows the arrow.** A node with a `cursor` gets an AppKit cursor rect
-   over its bounds (`NodeView.resetCursorRects`). AppKit clips a view's cursor rects to its superviews' bounds,
-   though `clipsToBounds` is false and the part outside is drawn and hit (the page's hit test reaches it), so a
-   resize handle that straddles its parent's edge, as T3's floating player's do, shows its cursor only on the
-   inner half. CSS shows it wherever the element is hit (`overflow: visible`).
+**The outer half of a handle that straddles its parent's edge**, which T3 saw show the arrow, does not reproduce on
+main. AppKit's cursor-rect lookup follows the view hit test, not the superview's bounds (a plain `NSView` parent
+loses the outer half, a parent whose `hitTest` reaches its overflow keeps it), and `NodeView.hitTest` reaches CSS
+visible overflow (`overflowHit`). A fixture of T3's player (a `z-index` 40 box, an `overflow: hidden` column, a
+`pointer-events: none` border, eight straddling handles with `pan`, text under it) shows each handle's cursor 6 pt
+outside the edge as inside it, before and after a move or a resize of the player.
 
 ## Why this arose
 
@@ -39,7 +38,7 @@ G4-16 (B2) found the browser panel's resize cursors' images differ in size from 
 
 ## Reproduction
 
-A box whose eight handles straddle its edges, each with its `cursor`:
+A box whose eight handles straddle its edges, each with its `cursor` (T3's player has this shape):
 
 ```text
 box position="relative" width=200 height=120 margin=40
@@ -48,19 +47,19 @@ box position="relative" width=200 height=120 margin=40
   ...
 ```
 
-On macOS 15+, hover each handle: the inner half shows the legacy shape (or the crosshair on a corner), the outer
-half the arrow. Chrome shows the frame-resize cursor on both halves.
+On macOS 15+, hover each handle: it shows the legacy shape, or the crosshair on a corner. Chrome shows the
+frame-resize cursor.
 
 | Scenario | Platform | Actual | Expected (Chrome 155, macOS) |
 |---|---|---|---|
 | `n-resize` … `w-resize` | macOS 26.6.2 (25G83) | `resizeUp` … `resizeLeft`, 24×24 | `frameResize(position: .top …, directions: .outward)`, 18×28 / 24×18 |
 | `ne-resize` … `sw-resize`, `nesw-resize`, `nwse-resize` | same | the crosshair, 24×24 | `frameResize(position: .topRight …)`, 22×22 |
 | `ns-resize`, `ew-resize` | same | `resizeUpDown` 24×28, `resizeLeftRight` 30×24 | `frameResize(position: .top / .left, directions: .all)` |
-| `col-resize`, `row-resize` | same | `resizeLeftRight`, `resizeUpDown` | `columnResize`, `rowResize` |
-| The outer half of a handle that straddles its parent's edge | same | the arrow | the handle's cursor |
+| `col-resize`, `row-resize` | same | `resizeLeftRight`, `resizeUpDown` (on macOS 26 the very objects `columnResize` and `rowResize` return) | `columnResize`, `rowResize` |
 
 ## Current scope
 
-Both: the macOS 15+ mapping (keeping the macOS 14 fallbacks), and the authored cursor over the part of a node
-outside an ancestor's bounds. Not in scope: `move`, `all-scroll`, `cell`, `help`, `wait` and `progress`, which
-Chrome draws from private Core Cursor images AppKit has no public shape for.
+The macOS 15+ mapping, keeping the macOS 14 fallbacks. Not in scope: `move`, `all-scroll`, `cell`, `help`, `wait`
+and `progress`, which Chrome draws from private Core Cursor images AppKit has no public shape for. 2026-10-14: the
+outer-half arrow did not reproduce on main (Summary); T3's re-run of DP-4's eight zones decides whether the clone has
+a cause of its own, filed then with the clone's tree at the point.
