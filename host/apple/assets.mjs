@@ -79,7 +79,7 @@ function catalogFiles(root) {
 export function iosAssets(app, dir, device, options = {}) {
   return appleAssets(app, dir, { ...options, device, platform: options.tv ? 'tvos' : 'ios' });
 }
-export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected } = {}) {
+export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected, launch = 'system' } = {}) {
   const sourcePlatform = platform === 'tvos' ? 'ios' : platform;
   const catalogs = appleAssetCatalogInventory(app, sourcePlatform);
   if (expected !== undefined && JSON.stringify(catalogs) !== JSON.stringify(expected))
@@ -87,7 +87,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
   if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
   if (kept) {
     const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
-    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
+    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null, launch,
       app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
       // What the compile itself writes: a cache from before `--accent-color` named no accent
       'accent-color'])).digest('hex').slice(0, 16);
@@ -97,7 +97,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       rmSync(making, { recursive: true, force: true });
       mkdirSync(making, { recursive: true });
       try {
-        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs })));
+        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs, launch })));
         rmSync(made, { recursive: true, force: true });
         renameSync(making, made);
       } finally { rmSync(making, { recursive: true, force: true }); }
@@ -117,7 +117,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       return copied;
     });
     const assets = resolve(work, 'Generated.xcassets');
-    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) } : {};
+    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets, launch) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
     if (catalog && platform === 'ios' && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
@@ -152,10 +152,21 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
  * (the manifest's `background_color` and `background_color_dark`): iOS crossfades
  * from the launch screen to the first frame, and between two screens of one
  * colour that crossfade is invisible, so the app opens on its first frame.
+ * Where the manifest names none, the app's unsaid background is the platform's
+ * (LLP 1115 D2): `systemBackground`, which an empty `UILaunchScreen` already is
+ * in both schemes, or, where the first route scrolls a grouped list (`launch`,
+ * the bake's `launchBackground`, LLP 1116.011 D2.3), `systemGroupedBackground`,
+ * which the system shows as #F2F2F7 and black. That is a colour set of its own
+ * (a reference to the system colour compiles to its light value alone), so the
+ * window under the first frame (`ExactLaunch`, read by the presenter) is the
+ * same grey and nothing lighter shows between the launch screen and the first
+ * frame (stopwatch, round 13: "blank white screen for ~1 s").
  * `UILaunchScreen` names colours only from an asset catalog, so this
  * writes its colour set for the shared compile. Returns the plist keys to merge. */
-function launchScreen(app, catalog) {
-  const light = app.manifest.background_color, dark = app.manifest.background_color_dark;
+function launchScreen(app, catalog, launch = 'system') {
+  const named = app.manifest.background_color;
+  const light = named ?? (launch === 'grouped' ? '#F2F2F7' : undefined);
+  const dark = named ? app.manifest.background_color_dark : launch === 'grouped' ? '#000000' : undefined;
   if (!light) return {};
   const components = (hex, field) => {
     const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
