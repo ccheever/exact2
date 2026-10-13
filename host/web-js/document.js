@@ -6,21 +6,21 @@
 // wins field by field, a deeper head over a shallower one and, at one depth,
 // the later in document order; a head inside a route its navigation root has
 // not selected is inactive. A root is an element with `navigationBack` and
-// `navigationKey`, its routes its children with a `navigationKey`, and the
-// selected one the route whose key is the root's, when one is: read from
-// those attributes, never from what the projection hides (`projectRoots`).
+// `navigationKey`; its selected route is in its direct stack or one of its
+// tabpanels (`unselectedForHead`, navigation.js). Selection comes from those
+// attributes, never from what the projection hides (`projectRoots`).
 // After each commit's tree update, once the page has had a head, the active
 // head is found again, so one that changes, leaves or is covered gives its
 // fields to the next; the page's title and description follow it as the web
-// host's `documentHead` writes them (document-glue.js), the page's own title
-// where no head sets one.
-import { unselected } from "./navigation.js";
+// host's `documentHead` writes them (document-glue.js). Where no head sets a
+// title it is the selected route's header's heading, else the app's name
+// (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
+import { unselected, unselectedForHead, pageTitle } from "./navigation.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
 export const Head = {};
 const Heads = new Set();
-let Own = null; // the page's title before a head's
 
 /** A head: its node `t` (a `<template>` rt.js placed) and its `fields`, each
  * text or a getter `effect` follows. Its fields are the page's while it is
@@ -33,12 +33,6 @@ export function head(t, fields, effect, after) {
   Heads.add(h);
   return () => Heads.delete(h);
 }
-/** Whether `c`, a child of `p`, is a route `p` has not selected. */
-function covered(p, c) {
-  const key = p.getAttribute?.("navigationKey"), own = c.getAttribute?.("navigationKey");
-  return key != null && own != null && own !== key && p.hasAttribute("navigationBack")
-    && [].some.call(p.childNodes, r => r.getAttribute?.("navigationKey") === key);
-}
 /** Whether `e` lies under a route or a tabpanel its navigation root leaves unselected (runner/src/head.rs `inactive`). */
 export function inactive(e) { for (let p = e.parentNode; p; p = p.parentNode) if (p.hasAttribute?.("navigationBack") && unselected(p).some(off => off.contains(e))) return true; return false; }
 function publish() {
@@ -47,9 +41,13 @@ function publish() {
   // among its siblings, from the root's children down (the order without
   // `compareDocumentPosition`, which a render's DOM, dom.js, lacks).
   for (const h of Heads) {
-    const at = [];
+    const at = [], path = new Set([h.t]);
     let c = h.t;
-    for (let p = c.parentNode; p && c !== root && !covered(p, c); c = p, p = p.parentNode) at.unshift([].indexOf.call(p.childNodes, c));
+    for (let p = c.parentNode; p && c !== root; c = p, p = p.parentNode) {
+      if (p.hasAttribute?.("navigationBack") && unselectedForHead(p).some(off => path.has(off))) break;
+      at.unshift([].indexOf.call(p.childNodes, c));
+      path.add(p);
+    }
     if (c === root) live.push([at, h.f]);
   }
   live.sort(([a], [b]) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return (a[i] ?? -1) - (b[i] ?? -1); });
@@ -63,9 +61,7 @@ function publish() {
   if (JSON.stringify(next) === JSON.stringify(Head)) return;
   for (const k in Head) delete Head[k];
   Object.assign(Head, next);
-  Own ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
-  const title = Head.headTitle ?? Own;
-  if (document.title !== title) document.title = title;
+  pageTitle(Head.headTitle ?? null);
   let m = document.querySelector('meta[name="description"]');
   if (Head.headDescription == null) m?.remove();
   else { if (!m) { m = document.createElement("meta"); m.setAttribute("name", "description"); document.head.append(m); } m.content = Head.headDescription; }
@@ -75,10 +71,11 @@ function publish() {
  * navigation.js's, the web host's own): each root's routes are projected,
  * the covered hidden and inert, now and after every commit's tree (`after`,
  * rt.js `After`), as the web host projects after every batch; Escape on a
- * modal route presses its back, and `navigate` takes a popstate's location. */
-export function projectRoots(history, navigate, say, after) {
+ * modal route presses its back, and `navigate` takes a popstate's location
+ * (unheard, `hostBack` and `hostGo` are the router's own). */
+export function projectRoots(history, navigate, say, after, hostBack, hostGo) {
   const root = document.getElementById("exact-root"), project = () => history.project(root, say);
-  history.connect(root, navigate, say);
+  history.connect(root, navigate, say, hostBack, hostGo);
   after.push(project); project();
 }
 

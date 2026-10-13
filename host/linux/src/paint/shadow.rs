@@ -276,6 +276,7 @@ impl ShadowPaint {
                 out.push(BorderFill {
                     region,
                     clip,
+                    ring_clip: None,
                     color: [self.color[0], self.color[1], self.color[2], alpha],
                     ring: None,
                 });

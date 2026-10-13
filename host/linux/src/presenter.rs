@@ -31,16 +31,24 @@ use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+pub mod access;
+mod addressed_tap;
+mod ahead;
 mod arrange;
 mod arrange_geometry;
+mod arrive;
+mod back;
+pub mod bars;
 mod clock;
 mod collection;
 mod commands;
 mod contact;
 mod control;
 mod delivery;
+mod device;
 mod display_frame;
 mod events;
+mod feedback;
 mod field;
 #[cfg(test)]
 mod field_tests;
@@ -67,38 +75,53 @@ mod height;
 mod height_drag;
 #[cfg(test)]
 mod height_drag_tests;
+mod hosted;
 mod images;
 mod links;
+mod palette;
 mod preferences;
+mod requests;
 mod retained_action;
 mod reveal;
+mod scrollers;
 mod shortcuts;
 #[cfg(target_os = "android")]
 pub(crate) mod still;
 mod swipe;
+pub mod top;
 mod transform;
 mod transform_geometry;
 mod typing;
+mod window;
 
 #[cfg(test)]
-#[path = "presenter/collection_tests.rs"]
 mod collection_tests;
+#[cfg(test)]
+mod kept_rows_tests;
 
 #[cfg(test)]
-#[path = "presenter/swipe_tests.rs"]
 mod swipe_tests;
 
 #[cfg(test)]
-#[path = "presenter/events_tests.rs"]
 mod events_tests;
 
 #[cfg(test)]
-#[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
+#[cfg(test)]
+mod spacing_tests;
+
+pub use device::Device;
+pub use hosted::action as field_action;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
+pub(crate) use palette::reported_accent;
+pub use palette::{Material, Palette, MATERIAL_ROLES};
+pub use pointer::PointerKind;
+pub use requests::{Haptic, Request};
+pub use scrollers::{Scroller, Under, PAGE};
+pub use window::{Chrome, Window};
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
@@ -116,6 +139,8 @@ pub struct Presenter<D: DataSource> {
     pending_dev: Option<crate::fetch::Generation>,
     pending_update: bool,
     text: Shared,
+    /// A touch down's press, to lay out ahead (`ahead.rs`).
+    ahead: Option<ahead::Ahead>,
     pub(crate) brush: Painter,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
@@ -129,6 +154,10 @@ pub struct Presenter<D: DataSource> {
     /// when another replaces the one it measured (LLP 1079 D3).
     pub(crate) hosts: u64,
     pub(crate) focus: Option<ViewId>,
+    /// Last connected path from the focused node, for a removal commit.
+    focus_out: Vec<(ViewId, Event)>,
+    /// The current pointer press may yield its focus to a newly mounted field.
+    pub(crate) autofocus_from: Option<ViewId>,
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
@@ -151,6 +180,8 @@ pub struct Presenter<D: DataSource> {
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
+    /// What the focus's following of the route keeps (`arrive.rs`).
+    route_focus: arrive::State,
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
@@ -169,8 +200,31 @@ pub struct Presenter<D: DataSource> {
     boxes_serial: u64,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the system's
-    /// appearance, which only an agent sets here (LLP 1061 D5).
+    /// appearance, which the device's shell says ([`Presenter::set_device`])
+    /// or an agent (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
+    /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
+    device: Option<Device>,
+    /// What the pointer is, and how far it moves before a contact is a
+    /// drag: a mouse and the shared slop until a shell says (D7.4).
+    pointer_kind: PointerKind,
+    slop: f64,
+    /// The shell's window, its insets, and the page's place in it (D3.3).
+    window: window::State,
+    /// What a shell that scrolls by itself was told of its scrollers (D7.3).
+    reader: scrollers::Reader,
+    /// The reported colours this presenter last painted from (D4), and what
+    /// it asks of its shell (D5).
+    colors: palette::State,
+    requests: requests::State,
+    /// The text fields the shell hosts, as it was told them (D8).
+    hosted: hosted::State,
+    /// The top layer's open surface, where a shell makes windows (D10).
+    top: top::State,
+    /// The shell's top app bar and navigation bar, where it has them (D11).
+    bars: bars::State,
+    /// The accessibility tree its shell was last told, where one asks (D13).
+    access: access::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -202,6 +256,9 @@ pub struct Presenter<D: DataSource> {
     /// The commands the last commits' actions asked for, for the loop that
     /// runs them (`run_commands`).
     commands: Vec<exact_runner::Command>,
+    /// Range replacement selects wait until the action's commands finish.
+    field_select_tasks: Vec<ViewId>,
+    field_change_tasks: std::collections::BTreeSet<ViewId>,
     /// Driven by the agent (`agent.rs`): a `share` is held, never refused
     /// (LLP 1069.003 D6).
     pub(crate) agent: bool,
@@ -339,7 +396,10 @@ impl<D: DataSource> Presenter<D> {
             delivery,
             launch,
             region,
+            Some(text.clone()),
         )?;
+        // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
+        let error = error.or(host.set_display_scale(f64::from(scale)));
         let mut images = Images::with_assets(assets.clone());
         images.fit(viewport, scale);
         if assets.is_selected() {
@@ -379,6 +439,7 @@ impl<D: DataSource> Presenter<D> {
             group: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
+            ahead: None,
             viewport,
             scroll: BTreeMap::new(),
             page: (0.0, 0.0),
@@ -387,6 +448,8 @@ impl<D: DataSource> Presenter<D> {
             compat: String::new(),
             hosts: 0,
             focus: None,
+            focus_out: Vec::new(),
+            autofocus_from: None,
             edited: None,
             fields: BTreeMap::new(),
             held: 0,
@@ -395,6 +458,7 @@ impl<D: DataSource> Presenter<D> {
             chosen: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
+            route_focus: Default::default(),
             pointer: None,
             hovered: Vec::new(),
             hover_point: None,
@@ -407,6 +471,17 @@ impl<D: DataSource> Presenter<D> {
             dirty: true,
             deferred_collections: None,
             scheme: (None, false),
+            device: None,
+            pointer_kind: PointerKind::Mouse,
+            slop: exact_motion::gesture::SLOP,
+            window: Default::default(),
+            reader: Default::default(),
+            colors: Default::default(),
+            requests: Default::default(),
+            hosted: Default::default(),
+            top: Default::default(),
+            bars: Default::default(),
+            access: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
@@ -422,6 +497,8 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            field_select_tasks: Vec::new(),
+            field_change_tasks: Default::default(),
             agent: false,
             booting: true,
             content_registration: region,
@@ -520,43 +597,6 @@ impl<D: DataSource> Presenter<D> {
         Ok(e)
     }
 
-    /// A restart with carried state (a dev reload, a delivered update)
-    /// replaces the tree. Focus follows the focused node's place in the
-    /// runner's tree — its index among its siblings at each level, and its
-    /// type — and the restarted tree autofocuses nothing; a node mounted
-    /// later still may.
-    fn focus_place(&self) -> Option<(Vec<usize>, NodeType)> {
-        let (kernel, roots) = (self.host.kernel(), self.host.runner().roots());
-        let node_type = kernel.node(self.focus?)?.node_type;
-        let (mut path, mut at) = (Vec::new(), self.focus?);
-        loop {
-            let parent = kernel.node(at)?.parent;
-            let siblings = parent.map_or(Some(roots.clone()), |p| {
-                kernel.node(p).map(|n| n.children())
-            })?;
-            path.push(siblings.iter().position(|&id| id == at)?);
-            let Some(parent) = parent else { break };
-            at = parent;
-        }
-        path.reverse();
-        Some((path, node_type))
-    }
-    fn restore_focus(&mut self, kept: Option<(Vec<usize>, NodeType)>) {
-        let kernel = self.host.kernel();
-        let rows = kernel.rows(None).unwrap_or_default();
-        self.autofocus_processed = rows.iter().map(|r| r.id).collect();
-        let target = kept.and_then(|(path, node_type)| {
-            let (mut ids, mut id) = (self.host.runner().roots(), None);
-            for index in path {
-                let at = *ids.get(index)?;
-                ids = kernel.node(at)?.children();
-                id = Some(at);
-            }
-            id.filter(|&id| kernel.node(id).is_some_and(|n| n.node_type == node_type))
-        });
-        self.focus = target.filter(|&id| self.focusable(id) && !self.host.route_visibility(id).1);
-    }
-
     /// The host.
     pub fn host(&self) -> &Host<D> {
         &self.host
@@ -632,7 +672,8 @@ impl<D: DataSource> Presenter<D> {
         }
         self.brush.scale = scale;
         self.dirty = true;
-        self.resize(width, height)
+        let told = self.host.set_display_scale(f64::from(scale));
+        told.or(self.resize(width, height))
     }
 
     /// A display needs another animation or GPU canvas frame.
@@ -669,8 +710,7 @@ impl<D: DataSource> Presenter<D> {
         self.queue_collections();
         let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
-        let resized = self.deliver_resizes();
-        error.or(refined).or(geometry).or(resized)
+        error.or(refined).or(geometry)
     }
 
     // Collection feedback calls this directly: never recurse through refinement.
@@ -690,7 +730,10 @@ impl<D: DataSource> Presenter<D> {
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
-            self.executor.resume_ordered();
+            for (ticket, reason) in self.executor.resume_ordered() {
+                self.host.refuse_request(ticket, reason, true);
+                self.executor.notify();
+            }
         }
         self.cancel_removed_controls();
         self.forget_replaced_choices();
@@ -742,52 +785,19 @@ impl<D: DataSource> Presenter<D> {
                     .map(|reason| format!("selected asset refused: {reason}"))
             });
         }
-        if let Some(f) = self.focus {
-            if self.host.kernel().node(f).is_none() || self.host.route_visibility(f).1 {
-                self.focus = None;
-                self.dirty = true;
-            }
+        let (focus_sent, focus_error) = self.clear_removed_focus();
+        error = error.or(focus_error);
+        if focus_sent {
+            return error;
         }
         self.sync_authored_scroll();
         self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
-        // Only autofocus nodes matter: a walk that keeps those, in
-        // preorder, not an export row per node of every mounted row.
-        let kernel = self.host.kernel();
-        if !self.autofocus_processed.is_empty() {
-            self.autofocus_processed.retain(|id| attached(kernel, *id));
-        }
-        let candidates = if kernel.has_prop(PropId::Autofocus) {
-            kernel.preorder_where(&kernel.roots(), |_, props| {
-                props.bool(PropId::Autofocus) == Some(true)
-            })
-        } else {
-            Vec::new()
-        };
-        {
-            for id in candidates {
-                if self.autofocus_processed.contains(&id)
-                    || !self.focusable(id)
-                    || self.host.route_visibility(id).1
-                {
-                    continue;
-                }
-                if !self
-                    .box_of(id)
-                    .is_some_and(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
-                {
-                    continue;
-                }
-                self.autofocus_processed.insert(id);
-                if self.focus.is_none() {
-                    self.focus = Some(id);
-                    self.dirty = true;
-                }
-                break;
-            }
-        }
+        // The focus a commit leaves: its `autofocus`, then the route's.
+        error = error.or(self.autofocus());
+        self.arrive();
         error
     }
 
@@ -802,6 +812,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => self.executor.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }
@@ -842,6 +854,7 @@ impl<D: DataSource> Presenter<D> {
         for id in &renewed {
             self.dirty |= self.scroll.remove(id).is_some();
         }
+        self.hosted_renewed(&renewed);
         self.hatches.renewed.extend(&renewed);
         let reports = self.images.renew(self.host.kernel(), &renewed);
         if reports.is_empty() {
@@ -930,12 +943,14 @@ impl<D: DataSource> Presenter<D> {
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
-        // LLP 1012 §1: this host has no safe area or software keyboard; its
-        // fold is whatever the agent preferred (LLP 1078 D7).
+        // LLP 1012 §1: the insets a device's shell told (`window.rs`; zeros
+        // on a host with none, which has no safe area or software keyboard);
+        // the fold is whatever the agent preferred (LLP 1078 D7).
         let fold = self.host.runner().viewport().fold;
+        let [top, right, bottom, left, keyboard] = self.env_insets().map(|v| num(r2(v)));
         let _ = write!(
             s,
-            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0,\"device-posture\":\"{}\",\"horizontal-viewport-segments\":{},\"vertical-viewport-segments\":{},\"viewport-segments\":[",
+            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":{top},\"safe-area-inset-right\":{right},\"safe-area-inset-bottom\":{bottom},\"safe-area-inset-left\":{left},\"keyboard-inset-height\":{keyboard},\"device-posture\":\"{}\",\"horizontal-viewport-segments\":{},\"vertical-viewport-segments\":{},\"viewport-segments\":[",
             num(clock),
             num(r2(vw)),
             num(r2(vh)),
@@ -1072,7 +1087,8 @@ impl<D: DataSource> Presenter<D> {
     /// The deepest painted box under a point (viewport points), through
     /// every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
-        if !self.display.contains(x, y) {
+        // Under an open surface of the top layer the page is inert.
+        if !self.display.contains(x, y) || self.top_open() {
             return None;
         }
         self.boxes();
@@ -1086,60 +1102,6 @@ impl<D: DataSource> Presenter<D> {
                     && self.display.allows(self.host.kernel(), b.id)
             })
             .find_map(|b| self.svg_hit(b, x, y))
-    }
-
-    /// The agent's `tap`: a press at the node's center through the same
-    /// path a pointer takes.
-    pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
-        self.boxes();
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
-            return Err(format!("view {id} is hidden or inert"));
-        }
-        if crate::navigation::popover_invoker(self.host.kernel(), id) {
-            return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
-        }
-        let b = self
-            .box_of(id)
-            .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = crate::paint::tap_point(self.host.kernel(), &b).unwrap_or_else(|| b.center());
-        let mut hit = self.hit(x, y);
-        while hit.is_some() && hit != Some(id) {
-            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
-        }
-        if hit != Some(id) {
-            return Err(format!(
-                "view {id} is covered or not hit at its projected center"
-            ));
-        }
-        let now = self.host.now();
-        let actual = self.hit(x, y).and_then(|hit| {
-            self.control_target(hit)
-                .or_else(|| self.handler_target(hit, EventKind::Press))
-        });
-        if let Some(actual) = actual.filter(|actual| {
-            *actual != id
-                && !self.drawn_in(*actual, id)
-                && self
-                    .control_target(id)
-                    .or_else(|| self.handler_target(id, EventKind::Press))
-                    != Some(*actual)
-        }) {
-            return Err(format!(
-                "view {id} activates view {actual} at its projected center"
-            ));
-        }
-        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
-        let activated = self.press_at(x, y, now);
-        self.hatch_tapped(mark, x, y);
-        if actual.is_some() && activated.is_none() {
-            return Err(format!("view {id} did not accept activation"));
-        }
-        let id = activated.unwrap_or(id);
-        Ok(format!(
-            "{{\"tapped\":{id},\"at\":[{},{}]}}",
-            num(r2(x)),
-            num(r2(y))
-        ))
     }
 
     /// A wheel at a point (the web's sign: a positive `dy` scrolls down).
@@ -1381,6 +1343,7 @@ impl<D: DataSource> Presenter<D> {
         self.hovered.clear();
         self.pointer_held = None;
         self.hatch_reset();
+        self.top_replaced();
         self.hosts += 1;
         self.measure();
     }
@@ -1455,12 +1418,10 @@ impl<D: DataSource> Presenter<D> {
     pub fn rect_of(&mut self, id: ViewId) -> Option<Rect4> {
         self.box_of(id).map(|b| b.rect)
     }
-
     /// A scroll container's offset.
     pub fn scroll_of(&self, id: ViewId) -> (f32, f32) {
         self.scroll.get(&id).copied().unwrap_or((0.0, 0.0))
     }
-
     /// How many nodes are live.
     pub fn node_count(&self) -> usize {
         self.host.kernel().live_count()

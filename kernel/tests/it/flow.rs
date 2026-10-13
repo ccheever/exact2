@@ -11,10 +11,10 @@ fn patch(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(s),
     }
 }
-fn n(n: f64) -> StyleValue {
+fn n(n: f64) -> StyleValue<'static> {
     StyleValue::Number(n)
 }
-fn t(s: &str) -> StyleValue {
+fn t(s: &str) -> StyleValue<'_> {
     StyleValue::Text(s.into())
 }
 fn create(id: u32, node_type: NodeType) -> Op {

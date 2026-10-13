@@ -24,10 +24,10 @@ pub(crate) struct BundlePin {
 
 // @ref LLP 0057.000#l1--the-bindings-door — this table is the trust root for
 // the compiler/VM identity shared by the bindings and the owning runtime.
-// The v4 release is not published yet, so every digest is a deliberately
-// rejecting sentinel. They MUST be replaced with the v4 asset digests only
-// after the immutable release and its Sigstore attestations are verified; see
-// scripts/update-hermes-lean-sys-pins.mjs.
+// These are the authenticated immutable v4 release digests. Keep this tag and
+// complete table together until a successor release is published and every
+// archive attestation is verified; scripts/update-hermes-lean-sys-pins.mjs
+// performs that single transition.
 pub(crate) const PINNED_BUNDLES: &[BundlePin] = &[
     BundlePin {
         target: "aarch64-apple-darwin",

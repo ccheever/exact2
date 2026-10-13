@@ -20,7 +20,8 @@ export async function duringOp(s, op) {
   if (word === 'logs') return s.logs();
   if (word === 'tree') return args[1] === '--ax' ? s.tree(args[2], { ax: true }) : s.tree(args[1], args[2] === 'under' ? args[3] : undefined);
   if (word === 'layout') return s.layout(...layoutArgs(args.slice(1)));
-  if (word === 'screenshot') return s.screenshot(args[1] ?? 'screenshot.png', args[3] === 'save' ? args[2] : args[2] === 'window', args[3]);
+  // Mid-gesture, as it stands: no settle (LLP 1116.003 D8 settles a screenshot otherwise).
+  if (word === 'screenshot') return s.screenshot(args[1] ?? 'screenshot.png', args[3] === 'save' ? args[2] : args[2] === 'window', args[3], true);
   return s.state(args[1], args[2] === 'under' ? args[3] : undefined, args[2] === 'pose', args[2] === 'busy', {
     ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}),
     ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}),
@@ -87,6 +88,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   const phase = async (name, opts) => {
     const r = await s.pointer(name, opts);
     if (r.error || r.delivery === 'unsupported') throw new Error(`drag: ${name}: ${r.error ?? r.reason ?? 'unsupported'}`);
+    if (r.landError) throw new Error(`drag: ${name} was delivered; landing what it started failed: ${r.landError}`);
     return r;
   };
   try {
@@ -100,6 +102,14 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (down.delivery !== 'unsupported') {
       s.contact = down.contact === false ? null : { x: down.at[0], y: down.at[1] };
       if (Number.isFinite(down.clock)) s.now = down.clock;
+    }
+    if (down.delivery === 'unsupported' && ['ios', 'host-ios'].includes(host)) {
+      // iOS holds no contact across requests: a drag on a scroller is what the scroll view's pan ends with, its content
+      // moved with the finger (LLP 1116.003); any other drag is refused, never answered `unsupported` as a success.
+      if (during.length) throw new Error('drag: during needs the finger held down, which only --touch platform does on iOS (LLP 1080.000 §11)');
+      const r = await carrier.ask({ op: 'tap', id: node.id, scrollDrag: [dx, dy], ...(from ? { from: start } : {}) });
+      if (r.error) throw new Error(r.error);
+      return noted(await s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), await reorderNotes(s, mark));
     }
     if (down.delivery === 'unsupported') {
       const { phase: _, ...refused } = down;

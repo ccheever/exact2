@@ -6,7 +6,7 @@
 // IndexedDB under a handle the store holds; its code is fetched on first
 // use); `openAuthSession` is auth.js.
 import * as source from '__APP_TS__';
-import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
+import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
 import { answering, files as bodyFiles } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
@@ -137,9 +137,9 @@ const pageModule = () => page ??= load().then(m => m.pageModule({
 }));
 const native = Object.freeze({
   get available() { return true; },
-  call() { throw new Error('native.call: the web has no synchronous module call; use native.later'); },
-  watch(topic) { if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
-  later: request => pageModule().then(p => p.later(request)),
+  call() { if (overlaying.on) throw inOverlay('native.call()'); throw new Error('native.call: the web has no synchronous module call; use native.later'); },
+  watch(topic) { if (overlaying.on) throw inOverlay('native.watch()'); if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
+  later: request => overlaying.on ? Promise.reject(inOverlay('native.later()')) : pageModule().then(p => p.later(request)),
 });
 // App storage as a source sees it (`storage`, LLP 1027.001): `fs` and
 // `sqlite` over the web host's own adapters (`storage-fs.js`,
@@ -183,6 +183,7 @@ function landed(op, ok, value) {
   op.reject(error);
 }
 function queued(what, run) {
+  if (overlaying.on) return Promise.reject(inOverlay(`storage.${what.split(' ')[0]}()`)); // `what` is the method, then its path
   if (head && queue.length >= MAX_QUEUED) {
     journal.push(`t=${clock.now} storage refused: full (${what})`);
     return Promise.reject(Object.assign(new Error(`storage queue full: ${MAX_QUEUED} operations wait`), { kind: 'Unavailable', code: 'full' }));
@@ -276,7 +277,7 @@ function storageOf(grants) {
 }
 // A stream (LLP 1016.000; ts-fetch.js), opened by ts-stream.js, loaded on
 // first use so a module that never streams carries none of it.
-const opener = (stream, conv) => (deliver, controller) => import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller));
+const opener = (stream, conv, name) => (deliver, controller) => { controller.streamName = name; return import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller)); };
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   bodyFiles.appId = source.appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
@@ -311,31 +312,50 @@ export function install(data, mixed = false, modules = null) {
       if (k && types) try { source.kept(r.source, k[0].map((a, i) => named(a, types[0][i])), named(k[1], types[1])); } catch {}
     }
   };
-  const ts = (name, args, store, target) => {
+  const ts = (name, args, store, target, mutation = false) => {
     if (!seeded) seed();
     const types = sourceTypes[name], [params, result] = types ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null };
+    const call = answering.call = { stream: null, mutation };
     let r;
     try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
     // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
-    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read }; }
+    if (call.effects?.length && (call.stream || r && typeof r.then === 'function')) {
+      Promise.resolve(r).catch(() => {}); call.settled = true;
+      throw new Error('a socket mutation must answer synchronously');
+    }
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
       const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
     }
     call.settled = true;
-    return { v: conv(shaped(r), result, target_), store: seen.read };
+    return { v: conv(shaped(r), result, target_), store: seen.read, effects: call.effects?.map(effect => () => {
+      try { effect(); } catch (e) { journal.push(`t=${clock.now} send ${target_} failed: ${e?.message ?? e}; socket frames were refused`); }
+    }) };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js
   // then asks it first and this module for what it calls unknown.
-  data.answer = mixed ? (name, args, store, target) => { try { return ts(name, args, store, target); } catch { return null; } } : ts;
+  data.answer = mixed ? (name, args, store, target, mutation) => { try { return ts(name, args, store, target, mutation); } catch { return null; } } : ts;
+  // An overlay (`overlay.js`): what a resource shows while writes affect it, in overlay mode; `undefined` without one.
+  overlaying.say = line => journal.push(`t=${clock.now} ${line}`);
+  data.overlay = source.overlay && ((name, args, answer, writes) => {
+    const types = sourceTypes[name]; if (!types) return undefined;
+    const keep = [], ws = writes.map(w => { const t = sourceTypes[w.source]; return Object.freeze({ id: w.id, mutation: w.mutation, source: w.source, answered: w.answered,
+      args: w.args.map((a, i) => named(a, t?.[0][i])), ...(w.reply === undefined ? {} : { reply: named(w.reply, t?.[1]) }), keep: () => { if (!keep.includes(w.id)) keep.push(w.id); } }); });
+    overlaying.on = true;
+    try {
+      const v = source.overlay(name, args.map((a, i) => named(a, types[0][i])), named(answer, types[1]), ws);
+      if (v && typeof v.then === 'function') throw new Error('an overlay returned a promise: it runs synchronously inside a commit and cannot await; compute its value from `answer` and `writes` and return it');
+      return v === undefined ? undefined : { value: conv(checked(name, v, types[1]), types[1], `overlay ${name}`), keep };
+    } finally { overlaying.on = false; }
+  });
   data.ts = ts;
   for (const f of data.q.splice(0)) f();
 }

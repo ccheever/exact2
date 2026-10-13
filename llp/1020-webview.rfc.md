@@ -524,6 +524,22 @@ inner frame remain only where one document cannot keep that parity:
   allow (`appTransportSecurity`), as for a remote guest. The page sees only
   an `error` event when a sub-resource fails; the host logs it to stderr
   (`exact: iframe <src>: <url> did not load (<likely reason>)`).
+- **App files (Charlie, 2026-10-08; implemented 2026-10-13).** An
+  `app:/data`, `app:/cache` or `app:/tmp` source uses the app's file roots,
+  refusing traversal and other roots (LLP 1069.002 D7). Apple reads it off
+  the main thread and serves the bytes through the same typed-document
+  path as a bundled file; the web creates a typed object URL owned by the
+  iframe and revokes it on source change or removal; rebinding the same
+  source preserves the document. Plain text keeps its MIME type and is never
+  interpreted as HTML. The authored `sandbox` and message-origin checks
+  still apply. Chrome loads blob HTML/text with an opaque sandbox origin,
+  but blocks PDF viewers under any sandbox. The web host reports that
+  blocked app PDF through `error`, as it does an unavailable app file,
+  with a message and no `load` for the empty frame. Load/error events that
+  precede data activation are delivered once the executor is ready.
+  This is the scoped local-file failure rule, not a change to network
+  iframe failures. A fitted PDF element and Chrome's PDF viewer fragments
+  remain outside this scope.
 - **Direct** is the web view's own document. A local one is served at the
   synthetic origin above, with `sandbox` sent as a `Content-Security-Policy: sandbox …`
   header, which WebKit enforces on a top-level document, opaque origin

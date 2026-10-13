@@ -10,6 +10,8 @@ mod ownership;
 mod rekey;
 #[path = "smooth_tests.rs"]
 mod smooth;
+#[path = "text_tests.rs"]
+mod text;
 
 fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     let mut a = Asm::new();
@@ -17,7 +19,12 @@ fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     b.code(a)
 }
 fn binding(kind: BindingKind, id: u16, expr: exact_plan::Code) -> BindingsRow {
-    BindingsRow { kind, id, expr }
+    BindingsRow {
+        kind,
+        id,
+        expr,
+        written: true,
+    }
 }
 fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
     plan_with(n, row_state, follow, false)
@@ -191,6 +198,7 @@ impl Harness {
             port_cross: 640.0,
             port_main: 320.0,
             cross: 640.0,
+            padding: [0.0; 2],
             measurements: vec![],
             focus_view: None,
             interaction_view: None,
@@ -249,7 +257,7 @@ fn bounded_bootstrap_twenty_traversals_release_row_slots_and_kernel_views() {
         let mut h = Harness::new(n, true, false);
         assert_eq!(h.snapshot().rows.len(), BOOTSTRAP_ROWS);
         assert_eq!(h.tree.last_work.rows_keyed, n);
-        let weak = Rc::downgrade(&h.collection().mounted[0].row.slots);
+        let weak = Rc::downgrade(h.collection().mounted[0].row.slots.as_ref().unwrap());
         let original = h.snapshot().rows[0].root;
         for traversal in 0..20 {
             for step in 0..20 {
@@ -474,6 +482,7 @@ fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
 fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     let h = Harness::new(10, false, false);
     let mut f = h.feedback(12.0);
+    f.padding = [92.0, 83.5];
     let row = &h.snapshot().rows[0];
     f.measurements.push(RowMeasurement {
         view: row.view,
@@ -481,7 +490,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         size: 20.5,
     });
     let bytes = f.encode().unwrap();
-    assert_eq!(bytes.len(), 104);
+    assert_eq!(bytes.len(), 120);
     assert_eq!(CollectionFeedback::decode(&bytes).unwrap(), f);
     let fill = CollectionFill {
         velocity: -1200.5,
@@ -494,15 +503,35 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         CollectionFeedback::decode_with_fill(&filled).unwrap(),
         (f.clone(), fill)
     );
+    let lean = CollectionFill { lean: true, ..fill };
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
+        (f.clone(), lean)
+    );
     assert_eq!(
         CollectionFeedback::decode_with_fill(&bytes).unwrap().1,
         CollectionFill::default()
     );
-    let mut version1 = bytes.clone();
-    version1[..4].copy_from_slice(&1u32.to_le_bytes());
-    assert!(CollectionFeedback::decode(&version1).is_err());
+    for version in [1u32, 3] {
+        let mut old = bytes.clone();
+        old[..4].copy_from_slice(&version.to_le_bytes());
+        assert!(CollectionFeedback::decode(&old).is_err());
+    }
+    // The padding the host laid out (LLP 1010 §6.9) is a length: a negative
+    // or nonfinite one is refused at either end
+    for (end, bad) in [0, 1]
+        .into_iter()
+        .flat_map(|end| [(end, -1.0), (end, f64::NAN)])
+    {
+        let mut sent = bytes.clone();
+        sent[56 + end * 8..64 + end * 8].copy_from_slice(&bad.to_le_bytes());
+        assert!(CollectionFeedback::decode(&sent).is_err());
+        let mut wrong = f.clone();
+        wrong.padding[end] = bad;
+        assert!(wrong.encode().is_err());
+    }
     let mut fast = filled.clone();
-    fast[64..72].copy_from_slice(&f64::INFINITY.to_le_bytes());
+    fast[80..88].copy_from_slice(&f64::INFINITY.to_le_bytes());
     assert!(CollectionFeedback::decode(&fast).is_err());
     for length in 0..bytes.len() {
         assert!(CollectionFeedback::decode(&bytes[..length]).is_err());
@@ -511,7 +540,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     trailing.push(0);
     assert!(CollectionFeedback::decode(&trailing).is_err());
     let mut bad = bytes.clone();
-    bad[76..80].copy_from_slice(&u32::MAX.to_le_bytes());
+    bad[92..96].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(CollectionFeedback::decode(&bad).is_err());
     f.measurements.push(f.measurements[0]);
     assert!(f.encode().is_err());
@@ -711,6 +740,7 @@ fn runner_feedback(r: &crate::Runner<NoData>) -> CollectionFeedback {
         port_cross: 640.0,
         port_main: 320.0,
         cross: 640.0,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -851,8 +881,8 @@ fn measured_interior_zero_run_bounds_25k_realized_views_and_row_slots() {
     let focus = bootstrap.rows[1].root;
     let interaction = bootstrap.rows[2].root;
     let retired_root = bootstrap.rows[3].root;
-    let retired_slots = Rc::downgrade(&h.collection().mounted[3].row.slots);
-    let pinned_slots = Rc::downgrade(&h.collection().mounted[1].row.slots);
+    let retired_slots = Rc::downgrade(h.collection().mounted[3].row.slots.as_ref().unwrap());
+    let pinned_slots = Rc::downgrade(h.collection().mounted[1].row.slots.as_ref().unwrap());
     let mut first = h.feedback(0.0);
     first.focus_view = Some(focus);
     first.interaction_view = Some(interaction);
@@ -1420,7 +1450,10 @@ fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
     let sites = crate::instance::SiteIndex::new(&h.plan);
     let mut ids = Ids::default();
     let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
-    let all = h.tree.list_text(&mut u, view, None).unwrap();
+    let all = h
+        .tree
+        .list_text(&mut u, view, None, crate::ListTextPolicy::Web)
+        .unwrap();
     assert!(all.starts_with("row 0\n\nrow 1\n\n"), "{}", &all[..40]);
     assert!(all.ends_with("row 127"));
     let position = |key, offset| crate::ListTextPosition {
@@ -1434,6 +1467,7 @@ fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
             &mut u,
             view,
             Some((position("n:126", 2), position("n:1", 3))),
+            crate::ListTextPolicy::Web,
         )
         .unwrap();
     // UTF-16 offsets within the first and last paragraphs, in either order.

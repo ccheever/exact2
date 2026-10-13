@@ -98,3 +98,23 @@ test('stop aborts the job and ignores a poll already in flight', async () => {
   expect(state.busy).toBe(false);
   expect(state.messages).toHaveLength(1);
 });
+test('a sent message shows from the send, once, until the answer has it', async () => {
+  const a = await app();
+  const source = await import(`./app.ts?case=${moduleId}`);
+  const before = await a.call('snapshot', '', 'ai-1', 1, 100);
+  let kept = 0;
+  const write = (reply?: { id: string }, answered = false) => ({ id: 7, mutation: 'changed', source: 'sendMessage', args: ['ai-1', ' Hello ', '', 100], reply, answered, keep: () => { kept++; } });
+  const shown = source.overlay('snapshot', ['', 'ai-1', 1, 100, 0], before, [write()]);
+  expect(shown.messages.map((m: any) => m.body)).toEqual([...before.messages.map((m: any) => m.body), 'Hello']);
+  expect([shown.count, shown.messages.at(-1).outgoing]).toEqual([before.messages.length + 1, true]);
+  // Another conversation's answer, or one the service ignored, shows nothing.
+  expect(source.overlay('snapshot', ['', 'ai-2', 1, 100, 0], await a.call('snapshot', '', 'ai-2', 1, 100), [write()])).toBeUndefined();
+  expect(source.overlay('snapshot', ['', 'ai-1', 1, 100, 0], before, [write({ id: '' })])).toBeUndefined();
+  // An answer asked after the landing that lacks it keeps it; one that has it shows as it is, never twice.
+  expect(source.overlay('snapshot', ['', 'ai-1', 1, 100, 0], before, [write({ id: 'm-1' }, true)]).count).toBe(before.messages.length + 1);
+  expect(kept).toBe(1);
+  globalThis.fetch = (async () => Response.json({ id: 'turn' })) as typeof fetch;
+  await a.call('sendMessage', 'ai-1', ' Hello ', '', 100);
+  const after = await a.call('snapshot', '', 'ai-1', 1, 100);
+  expect(source.overlay('snapshot', ['', 'ai-1', 1, 100, 0], after, [write()])).toBeUndefined();
+});

@@ -170,3 +170,22 @@ impl Offer {
         finite(self.width) && finite(self.height)
     }
 }
+
+/// A box's padding and border as its layout resolved them, each left, top,
+/// right, bottom.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct BoxInset {
+    pub(crate) padding: [f32; 4],
+    pub(crate) border: [f32; 4],
+}
+
+impl BoxInset {
+    /// A Taffy layout's padding and border.
+    pub(crate) fn of(l: taffy::tree::Layout) -> BoxInset {
+        let ltrb = |r: taffy::geometry::Rect<f32>| [r.left, r.top, r.right, r.bottom];
+        BoxInset {
+            padding: ltrb(l.padding),
+            border: ltrb(l.border),
+        }
+    }
+}

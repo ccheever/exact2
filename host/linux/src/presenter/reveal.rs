@@ -10,6 +10,12 @@ use super::*;
 impl<D: DataSource> Presenter<D> {
     /// `{"revealed":id,"scrolled":…}`, with where the middle moved from and to.
     pub fn reveal(&mut self, id: ViewId) -> Result<String, String> {
+        // A row of the top layer's open surface is no box of the page's:
+        // it is in view in its window (LLP 1115.001 D10). Nor is what a
+        // shell's bar stands for (D11): it is in view in the bar.
+        if self.surface_row(id) || self.bar_node(id) {
+            return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
+        }
         let middle = |b: &PaintedBox| (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
         let inside =
             |(x, y): (f32, f32), r: Rect4| x >= r.0 && y >= r.1 && x < r.0 + r.2 && y < r.1 + r.3;
@@ -21,7 +27,7 @@ impl<D: DataSource> Presenter<D> {
         if inside(from, (0.0, 0.0, vw, vh)) && b.clip.is_none_or(|c| inside(from, c)) {
             return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
         }
-        self.scroll_into(id, delta);
+        self.scroll_into(id, false, delta);
         let to = self.box_of(id).map_or(from, |b| middle(&b));
         Ok(format!(
             "{{\"revealed\":{id},\"scrolled\":{},\"from\":[{},{}],\"to\":[{},{}]}}",
@@ -52,7 +58,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         let (block, inline) = (text(1).unwrap_or("start"), text(2).unwrap_or("nearest"));
-        self.scroll_into(id, |t, p| {
+        self.scroll_into(id, true, |t, p| {
             (
                 aligned(inline, t.0, t.0 + t.2, p.0, p.2) - p.0,
                 aligned(block, t.1, t.1 + t.3, p.1, p.3) - p.1,
@@ -116,15 +122,41 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// Keep `id` in view where the viewport ends sooner than it did (a
+    /// software keyboard rose under the field being edited): each scroll
+    /// container above it, then the page, moves only as far as it must, the
+    /// web's `scrollIntoView` with `nearest` on both axes.
+    pub(super) fn keep_in_view(&mut self, id: ViewId) {
+        self.scroll_into(id, false, |t, p| {
+            (
+                aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
+                aligned("nearest", t.1, t.1 + t.3, p.1, p.3) - p.1,
+            )
+        });
+    }
+
     /// Each scroll container above `id`, innermost first, then the page,
     /// moves by what `by(target, port)` asks (viewport coordinates), clamped
     /// to its travel.
-    fn scroll_into(&mut self, id: ViewId, by: impl Fn(Rect4, Rect4) -> (f32, f32)) {
+    fn scroll_into(&mut self, id: ViewId, spacing: bool, by: impl Fn(Rect4, Rect4) -> (f32, f32)) {
         let (vw, vh) = self.display.viewport().unwrap_or(self.viewport);
         // The scroll containers above it, innermost first, with their axes and travel.
         let mut scrollers = Vec::new();
         let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
+        let margin = kernel
+            .node(id)
+            .map(|n| {
+                let r = &n.style.rare;
+                [
+                    r.scroll_margin_top,
+                    r.scroll_margin_right,
+                    r.scroll_margin_bottom,
+                    r.scroll_margin_left,
+                ]
+                .map(|d| d.at_basis(kernel.arena().env(), 0.0))
+            })
+            .unwrap_or([0.0; 4]);
         let mut at = self.display.parent(kernel, id);
         while let Some(a) = at {
             let Some(node) = kernel.node(a) else { break };
@@ -140,16 +172,42 @@ impl<D: DataSource> Presenter<D> {
             let scrolls = |o| matches!(o, Overflow::Scroll | Overflow::Auto);
             let (ox, oy) = bounds.axes;
             if scrolls(ox) || scrolls(oy) {
-                scrollers.push((a, scrolls(ox), scrolls(oy), bounds.max));
+                let r = &node.style.rare;
+                let padding = [
+                    r.scroll_padding_top,
+                    r.scroll_padding_right,
+                    r.scroll_padding_bottom,
+                    r.scroll_padding_left,
+                ];
+                scrollers.push((
+                    a,
+                    scrolls(ox),
+                    scrolls(oy),
+                    bounds.max,
+                    padding,
+                    node.style.border_widths(),
+                ));
             }
             at = self.display.parent(kernel, a);
         }
-        for (a, sx, sy, max) in scrollers {
+        for (a, sx, sy, max, padding, borders) in scrollers {
             let (Some(target), Some(scroller)) = (self.box_of(id), self.box_of(a)) else {
                 continue;
             };
+            let port = inset(scroller.rect, borders);
+            let basis = [port.3, port.2, port.3, port.2];
+            let padding = std::array::from_fn(|i| {
+                padding[i]
+                    .at_basis(self.host.kernel().arena().env(), basis[i])
+                    .max(0.0)
+            });
             let off = self.scroll.get(&a).copied().unwrap_or((0.0, 0.0));
-            let (dx, dy) = by(target.rect, scroller.rect);
+            let (target, port) = if spacing {
+                (inset(target.rect, margin.map(|n| -n)), inset(port, padding))
+            } else {
+                (target.rect, port)
+            };
+            let (dx, dy) = by(target, port);
             let next = (
                 if sx {
                     (off.0 + dx).clamp(0.0, max.0)
@@ -171,7 +229,12 @@ impl<D: DataSource> Presenter<D> {
         if let Some(target) = self.box_of(id) {
             let doc = self.document();
             let max = ((doc.0 - vw).max(0.0), (doc.1 - vh).max(0.0));
-            let (dx, dy) = by(target.rect, (0.0, 0.0, vw, vh));
+            let target = if spacing {
+                inset(target.rect, margin.map(|n| -n))
+            } else {
+                target.rect
+            };
+            let (dx, dy) = by(target, (0.0, 0.0, vw, vh));
             let next = (
                 (self.page.0 + dx).clamp(0.0, max.0),
                 (self.page.1 + dy).clamp(0.0, max.1),
@@ -223,4 +286,13 @@ fn aligned(align: &str, t0: f32, t1: f32, p0: f32, size: f32) -> f32 {
         _ if (t0 < p0 && length <= size) || (t1 > p1 && length > size) => t0,
         _ => t1 - size,
     }
+}
+
+fn inset(rect: Rect4, [top, right, bottom, left]: [f32; 4]) -> Rect4 {
+    (
+        rect.0 + left,
+        rect.1 + top,
+        (rect.2 - left - right).max(0.0),
+        (rect.3 - top - bottom).max(0.0),
+    )
 }

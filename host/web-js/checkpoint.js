@@ -43,7 +43,8 @@ function dev() {
 
 /** A root slot carried by authored name and full declared shape. */
 export function devSignal(name, initial, type, declared, router = false) {
-  const cp = dev(), kept = cp?.slots?.find(s => s[0] === name);
+  // The launch locale must reach newly added initializers before language().
+  const cp = dev(), kept = name === '#locale' ? null : cp?.slots?.find(s => s[0] === name);
   const value = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), launchLocation()) : decode(kept[2])) : initial;
   const out = sig(value, type, type === "s" ? name : undefined); out.n.devName = name; out.n.devType = declared; return out;
 }

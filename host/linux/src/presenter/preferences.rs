@@ -1,9 +1,12 @@
 //! What the host tells the app about the device and its user, after boot:
 //! the date (LLP 1027.000.000), the display preferences (LLP 1061 D5; LLP
-//! 1069.000 D1) and the page's facts (LLP 1069.000 D2). This host reads no
-//! system setting: it reports no preference, a light system, a visible page,
+//! 1069.000 D1) and the page's facts (LLP 1069.000 D2). The presenter reads
+//! no system setting itself. On Android the reader reads the device's and
+//! tells them whole ([`Presenter::set_device`], LLP 1115.001 D3); an agent
+//! sets them one at a time (`prefer`). Until either speaks, as on desktop
+//! Linux, the app is told no preference, a light system, a visible page,
 //! online, with focus (the app is the whole display: no other window can take
-//! it), and no share sheet; an agent sets them (`prefer`).
+//! it), and no share sheet.
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
@@ -28,6 +31,9 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Layout(error));
         }
         if let Some(error) = host.set_root_font_size(runner.host_root_font_size()) {
+            return Err(HostError::Layout(error));
+        }
+        if let Some(error) = host.set_display_scale(runner.display_scale()) {
             return Err(HostError::Layout(error));
         }
         let time = self.host.runner().wall_time();
@@ -85,8 +91,9 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
-    /// The root font size `rem` lengths follow (LLP 1069.000 D3): 16 here,
-    /// as a browser's `medium`, unless an agent says otherwise.
+    /// The root font size `rem` lengths follow (LLP 1069.000 D3): 16, a
+    /// browser's `medium`, until the device's shell says its font scale
+    /// ([`Presenter::set_device`]: 16 times it) or an agent a size.
     pub fn set_root_font_size(&mut self, px: f64) -> Option<String> {
         let error = self.host.set_root_font_size(px);
         if error.is_some() {

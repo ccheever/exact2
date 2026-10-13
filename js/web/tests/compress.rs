@@ -29,7 +29,7 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
             )
         })
         .collect::<serde_json::Map<_, _>>();
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
         .env("CHROME", chrome)
         .env(

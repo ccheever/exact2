@@ -33,6 +33,7 @@ public final class ExactView: NSView {
     @objc public func stopSpeaking(_ sender: Any?) { Self.speech.stopSpeaking(at: .immediate) }
     private static let speech = AVSpeechSynthesizer()
     private var lastSize = CGSize.zero
+    private var fitPending = false
     private var lastDisplayScale: CGFloat = 0
     private var shortcutMonitor: Any?
     /// Screen changes and HDR suppression: HDR pictures re-plan (LLP 1100 D9).
@@ -41,6 +42,15 @@ public final class ExactView: NSView {
     /// is the window's business, LLP 1008 §9); the insets themselves are
     /// computed here.
     public var onViewportFit: (() -> Void)?
+    /// The window's owner asks that its new window put the caret in the
+    /// session's first key view (LLP 1115.000 D7.5), as AppKit does a
+    /// window's `initialFirstResponder`: with Keyboard Navigation off the
+    /// first text field, with none nothing. Done once, the turn after the
+    /// first frame, unless the author's `autofocus` said where the focus
+    /// goes or the first key view is in a canvas that takes input
+    /// (`Presenter.focusInitialKeyView`). Off by default: a view embedded in
+    /// someone else's window takes no focus they did not give it.
+    public var focusesFirstKeyView = false
 
     /// The window owner opts in; embedded Exact views never claim chrome by
     /// mounting. Returns false rather than replacing an existing toolbar.
@@ -53,12 +63,34 @@ public final class ExactView: NSView {
         return session.presenter.toolbar.attach(to: window)
     }
     public func detachWindowToolbar() { session.presenter.toolbar.detach() }
+
+    /// Whether the session's root tab bar should be this view's window's
+    /// sidebar now (LLP 1115.002 D3): the app has root tabs whose placement
+    /// the author left unsaid, and this is not the agent's own chrome. The
+    /// window's owner composes it (`ExactSidebarController`), as it opts in
+    /// to the toolbar; a view mounted in someone else's window claims none.
+    public var wantsWindowSidebar: Bool { session.presenter.sidebar.wanted }
+    /// Whether a stack of the session shows its list beside its detail (LLP
+    /// 1115.002 D4): the window's owner composes the same controller for it,
+    /// with or without a sidebar, and a view in someone else's window keeps
+    /// a stack that pushes.
+    public var wantsWindowSplit: Bool { session.presenter.navigation.split.wanted }
+    /// The owner hears when `wantsWindowSidebar` or `wantsWindowSplit`
+    /// changes, after the batch that changed it.
+    public var onWindowSidebar: (() -> Void)? {
+        get { session.presenter.sidebar.onWanted }
+        set { session.presenter.sidebar.onWanted = newValue; session.presenter.navigation.split.onWanted = newValue }
+    }
     public var hasWindowToolbar: Bool {
         guard let toolbar = session.presenter.toolbar.toolbar else { return false }
         return window?.toolbar === toolbar
     }
 
     public init(session: ExactSession) {
+        // Under the agent its light is the app's before this view reads an
+        // appearance, which a windowless view keeps: the control text is
+        // primed from it before the first layout (LLP 1104 D4).
+        _ = Agent.systemAppearance
         self.session = session
         super.init(frame: .zero)
         let viewport = session.presenter.viewport
@@ -70,7 +102,8 @@ public final class ExactView: NSView {
             self?.syncInsets()
             self?.onViewportFit?()
         }
-        var names: [Notification.Name] = [NSWindow.didChangeScreenNotification, NSApplication.didChangeScreenParametersNotification]
+        var names: [Notification.Name] = [NSWindow.didChangeScreenNotification, NSApplication.didChangeScreenParametersNotification,
+                                          NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification]
         if #available(macOS 26, *) {
             names += [.NSApplicationShouldBeginSuppressingHighDynamicRangeContent,
                       .NSApplicationShouldEndSuppressingHighDynamicRangeContent]
@@ -91,11 +124,18 @@ public final class ExactView: NSView {
     /// the first responder — as a page's shortcuts hear keys with no element
     /// focused (jukebox F11). Of several sessions in one window, the first in
     /// view order hears them then.
-    func ownsShortcutFocus() -> Bool {
+    func ownsShortcutFocus(in other: NSWindow? = nil) -> Bool {
+        // A sheet's window, or a popover's, holds this session's nodes alone (SheetsMac.swift).
+        if let other, other !== window { return self.session.presenter.hosts(other) }
         let first = window?.firstResponder
         let responder = first as? NSView
         let editorOwner = (responder as? NSTextView)?.delegate as? NSView
         if responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true { return true }
+        // In the pane that holds this session's detail beside its list (LLP 1115.002 D4).
+        let split = self.session.presenter.navigation.split
+        if split.holdsFocus(responder) || split.holdsFocus(editorOwner) { return true }
+        // This session's search field, which the window's toolbar hosts (LLP 1115.002 D2).
+        if let node = self.session.presenter.keyTarget(first), node.pageField != nil { return true }
         guard let window, first == nil || first === window, let content = window.contentView else { return false }
         func session(in view: NSView) -> ExactView? {
             if let found = view as? ExactView { return found }
@@ -103,6 +143,19 @@ public final class ExactView: NSView {
             return nil
         }
         return session(in: content) === self
+    }
+
+    /// The trackpad's swipe back from a pushed route (LLP 1115.000 D5.1,
+    /// `BackSwipe`): the page's scroll view passes a sideways gesture up
+    /// here when it is pinned for it and this says a swipe may be tracked.
+    public override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
+        axis == .horizontal && session.presenter.navigation.canGoBack
+    }
+    public override func scrollWheel(with event: NSEvent) {
+        if !session.presenter.backSwipe.scroll(event) { super.scrollWheel(with: event) }
+    }
+    public override func swipe(with event: NSEvent) {
+        if !session.presenter.backSwipe.swiped(deltaX: event.deltaX) { super.swipe(with: event) }
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -138,6 +191,18 @@ public final class ExactView: NSView {
     /// Boot at the first real size (an embedder's view), else resize; the
     /// insets follow.
     private func fit() {
+        if Owner.shared.isServingMain {
+            if !fitPending {
+                fitPending = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
+                    self.fit()
+                }
+            }
+            return
+        }
         if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         session.presenter.dialogs.layout()
         session.presenter.menus.layout()
@@ -149,6 +214,7 @@ public final class ExactView: NSView {
             lastDisplayScale = scale
             session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
             session.rasters.displayChanged()
+            session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
         }
         if !session.booted {
             // A refused boot is terminal (LLP 1031 D8): the session says why
@@ -184,6 +250,7 @@ public final class ExactView: NSView {
         super.viewDidMoveToWindow()
         session.natives.scopesChanged()
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
+        session.tellPreferences()
         session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)
         session.canvases.refreshLifecycle()
@@ -194,20 +261,21 @@ public final class ExactView: NSView {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
-                guard let self, event.window === self.window else { return event }
+                guard let self, self.session.presenter.hosts(event.window) else { return event }
                 // A modifier pressed is a keydown on the web (`"Shift"`), and
                 // released a keyup (#140); to AppKit a flags change, which
                 // goes on to it either way.
                 if event.type == .flagsChanged {
-                    if self.ownsShortcutFocus() { _ = self.session.presenter.keyDown(event); self.session.presenter.keyUp(event) }
+                    if self.ownsShortcutFocus(in: event.window) { _ = self.session.presenter.keyDown(event); self.session.presenter.keyUp(event) }
                     return event
                 }
                 if event.type != .keyDown && event.type != .keyUp {
                     self.session.presenter.menus.pointer(event)
-                    return event
+                    // A click on the window behind a `closedby="any"` sheet is the sheet's.
+                    return self.session.presenter.dialogs.pointer(event) ? nil : event
                 }
                 if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }
-                let focused = self.ownsShortcutFocus()
+                let focused = self.ownsShortcutFocus(in: event.window)
                 let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
                 if focused, event.modifierFlags.intersection([.command,.control]).isEmpty,
                    self.session.canvases.pressedControlKey(code,down:event.type == .keyDown,timestamp:event.timestamp) {return nil}
@@ -220,6 +288,9 @@ public final class ExactView: NSView {
         // view wants no frames; a mounted one asks again.
         session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
         if window != nil { fit(); session.presenter.syncAccessibility() }
+        // In a window's sidebar pane, or out of it: the sidebar stands for
+        // the tablist only while it is in a window (SidebarMac.swift).
+        session.presenter.sidebar.sync()
     }
 
     /// The insets the kernel gets: under `viewport-fit=cover` the view's own

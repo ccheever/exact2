@@ -27,7 +27,8 @@ use super::element::{
     blocks, contents, css_style_of, folds, host_css_of, props_of, restricts_touch, svg_props_of,
     tag_of,
 };
-use super::{font_names, layers, Host};
+use super::fonts::font_names_for_runner;
+use super::{layers, Host};
 
 #[path = "page.rs"]
 mod page;
@@ -182,7 +183,7 @@ pub fn project_tree<D: DataSource>(
         tree,
         tree.roots(),
         handlers,
-        font_names(runner.plan()),
+        font_names_for_runner(runner),
         None,
         writing,
     )?;
@@ -238,7 +239,7 @@ fn walk<D: DataSource>(
         &src,
         &roots,
         runner.handlers(),
-        font_names(runner.plan()),
+        font_names_for_runner(runner),
         computed,
         Writing::default(),
     )?;
@@ -678,6 +679,9 @@ impl<S: Source> Walk<'_, '_, S> {
                 // `navigates` + `navigableURL`, `frameURL`: a refused link
                 // loses its href; a refused frame shows about:blank.
                 "href" if !navigable(value) => {}
+                "src" if element == "iframe" && value.starts_with("app:/") => {
+                    attrs.push(("data-app-src".into(), Some(value.clone())));
+                }
                 "src"
                     if element == "iframe"
                         && !frame_navigable(value, props.get("sandbox").map(String::as_str)) =>

@@ -10,14 +10,14 @@ import XCTest
 final class PressFeedbackIOSTests: XCTestCase {
     private var window: UIWindow!
 
-    private func fixture(style: [String: Any] = ["press_scale": 0.97]) throws -> (Presenter, NodeView) {
+    private func fixture(style: [String: Any] = ["press_scale": 0.97], handlers: [String] = ["press"]) throws -> (Presenter, NodeView) {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
         p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": style],
+            ["op": "create", "id": 1, "kind": "button", "handlers": handlers, "style": style],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 50.0, "y": 50.0, "w": 200.0, "h": 100.0],
         ]))
@@ -62,11 +62,87 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(v.press.to, 1)
     }
 
-    func testANodeWithoutTheRowGivesNoFeedback() throws {
+    /// LLP 1115: a node that declares no feedback gets the platform's, a dim
+    /// (UIKit's custom button), never a scale; the dim is an additive
+    /// animation, so the model's alpha stays the engine's.
+    func testANodeWithoutTheRowDimsAsUIKitDoes() throws {
         let (_, v) = try fixture(style: [:])
         v.pressed = true
-        XCTAssertTrue(v.press.idle)
+        XCTAssertTrue(v.press.idle, "no scale")
         XCTAssertTrue(v.transform.isIdentity)
+        XCTAssertEqual(v.alpha, 1, "the model is untouched")
+        let hold = try XCTUnwrap(v.layer.animation(forKey: "pressDim") as? CABasicAnimation)
+        XCTAssertTrue(hold.isAdditive)
+        XCTAssertEqual(hold.keyPath, "opacity")
+        XCTAssertEqual(try XCTUnwrap(hold.fromValue as? Float), NodeView.dimmedOpacity - 1, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(hold.toValue as? Float), NodeView.dimmedOpacity - 1, accuracy: 1e-6)
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
+        XCTAssertEqual(try XCTUnwrap(v.layer.presentation()).opacity, NodeView.dimmedOpacity, accuracy: 0.01, "dimmed on screen at once")
+        // Released: it fades back, after the shortest flash.
+        v.pressed = false
+        let back = try XCTUnwrap(v.layer.animation(forKey: "pressDim") as? CABasicAnimation)
+        XCTAssertEqual(back.duration, NodeView.dimFade)
+        XCTAssertEqual(try XCTUnwrap(back.toValue as? Float), 0)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: NodeView.dimHold + NodeView.dimFade + 0.1))
+        CATransaction.flush()
+        XCTAssertEqual(try XCTUnwrap(v.layer.presentation()).opacity, 1, accuracy: 1e-6, "faded back")
+    }
+
+    /// A quick tap in a scroll view arrives with its down and up in one turn
+    /// (`delaysContentTouches`): the dim still flashes.
+    func testAQuickTapStillFlashesTheDim() throws {
+        let (_, v) = try fixture(style: [:])
+        v.pressed = true
+        v.pressed = false
+        let back = try XCTUnwrap(v.layer.animation(forKey: "pressDim") as? CABasicAnimation)
+        XCTAssertEqual(back.fillMode, .backwards, "held dimmed until it begins")
+        XCTAssertGreaterThan(back.beginTime, v.layer.convertTime(CACurrentMediaTime(), from: nil) + NodeView.dimHold / 2)
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
+        XCTAssertEqual(try XCTUnwrap(v.layer.presentation()).opacity, NodeView.dimmedOpacity, accuracy: 0.01)
+    }
+
+    /// The finger leaving the box lifts the dim, re-entering dims again; a
+    /// cancel (a pan the scroll view takes) lifts it.
+    func testTheDimFollowsTheFingerAndACancel() throws {
+        let (_, v) = try fixture(style: [:])
+        v.pressed = true
+        v.pressFollows(inside: false)
+        XCTAssertNil(v.press.dimmedAt)
+        v.pressFollows(inside: true)
+        XCTAssertNotNil(v.press.dimmedAt)
+        v.touchesCancelled([], with: nil)
+        XCTAssertFalse(v.pressed)
+        XCTAssertNil(v.press.dimmedAt)
+    }
+
+    /// Author > platform: any written press scale (1 included) or pointer
+    /// handlers of its own are the author's feedback; a scrim over the window
+    /// shows none; a native button is UIKit's own.
+    func testTheAuthorsFeedbackAndScrimsGetNoDim() throws {
+        let (_, scaled) = try fixture(style: ["press_scale": 1])
+        scaled.pressed = true
+        XCTAssertNil(scaled.layer.animation(forKey: "pressDim"))
+        XCTAssertFalse(scaled.platformPressDims)
+        let (_, plain) = try fixture(style: [:])
+        XCTAssertTrue(plain.platformPressDims)
+        let (_, own) = try fixture(style: [:], handlers: ["press", "pointerdown"])
+        XCTAssertFalse(own.platformPressDims)
+        let (q, scrim) = try fixture(style: [:])
+        q.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0]]))
+        XCTAssertFalse(scrim.platformPressDims)
+        scrim.pressed = true
+        XCTAssertNil(scrim.layer.animation(forKey: "pressDim"))
+    }
+
+    /// A view taken for another node drops a dim still showing.
+    func testRebindingDropsTheDim() throws {
+        let (_, v) = try fixture(style: [:])
+        v.pressed = true
+        v.stopPressEase()
+        XCTAssertNil(v.layer.animation(forKey: "pressDim"))
+        XCTAssertNil(v.press.dimmedAt)
     }
 
     func testThePressFoldsIntoTheEnginesScaleAndSurvivesItsWrites() throws {

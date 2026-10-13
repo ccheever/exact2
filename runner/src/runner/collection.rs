@@ -105,42 +105,15 @@ impl<D: DataSource> Runner<D> {
         }
         let view = feedback.view;
         let mut tree = self.tree.take().expect("booted");
-        // @ref LLP 1010 §6.9 — the list's own padding and scroll padding,
-        // `env()` and a computed value resolved: the room a host scrolls
-        // before and past the rows, and the inset `scrollIntoView` aligns
-        // within. Not the layout's padding, which adds a route's cover (LLP
-        // 1075.003 §3.5) that Apple's hosts do not scroll.
-        if let Some(node) = self.kernel.node(view) {
-            let env = self.kernel.env();
-            let points = |d: exact_kernel::Dimension| match d.resolve(&env) {
-                exact_kernel::Dimension::Points(n) => n as f64,
-                _ => 0.0,
-            };
-            let (s, r) = (node.style, &node.style.rare);
-            tree.set_collection_insets(
-                view,
-                crate::instance::collection::Insets {
-                    padding: [
-                        s.padding_top,
-                        s.padding_right,
-                        s.padding_bottom,
-                        s.padding_left,
-                    ]
-                    .map(points),
-                    scroll: [
-                        r.scroll_padding_top,
-                        r.scroll_padding_right,
-                        r.scroll_padding_bottom,
-                        r.scroll_padding_left,
-                    ]
-                    .map(points),
-                },
-            );
-        }
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
+            let scroll_margin = |view| scroll_margin(&self.kernel, view);
+            let scroll_padding = |view| scroll_padding(&self.kernel, view);
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
             update.reuse = self.reuse;
+            update.scroll_padding = Some(&scroll_padding);
+            update.scroll_margin = Some(&scroll_margin);
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
                     (
@@ -281,6 +254,48 @@ impl<D: DataSource> Runner<D> {
         }
         Ok(result)
     }
+    /// List `view`'s port is at `offset` (from its first row, as a report's):
+    /// the rows mounted out of the port that now show stop holding what
+    /// waits for them (LLP 1055 D13), in a commit of their own. No report:
+    /// the window and its rows stay the last report's, for a host that
+    /// waits for more travel before its next one.
+    pub fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<Advanced, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let mut result = Advanced {
+            receipts: Vec::new(),
+            now_ms: self.now_ms,
+            error: None,
+        };
+        if !offset.is_finite() {
+            return Ok(result);
+        }
+        let mut tree = self.tree.take().expect("booted");
+        let mut ids = std::mem::take(&mut self.ids);
+        let shown = {
+            let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
+            tree.show_collection(&mut update, view, offset);
+            update.shown
+        };
+        self.tree = Some(tree);
+        self.ids = ids;
+        self.shown.extend(shown);
+        if (self.shown.revealed.iter()).any(|v| self.kernel.is_awaiting(*v)) {
+            match self.apply(Vec::new()) {
+                Ok(receipt) => result.receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Err(error) => {
+                    self.poison();
+                    return Err(error);
+                }
+            }
+        }
+        Ok(result)
+    }
     /// After an ordinary commit: a list whose edge waited under a covered
     /// route asks its host for a report once the route shows, which offers
     /// the edge it reaches then.
@@ -402,4 +417,40 @@ impl<D: DataSource> Runner<D> {
         }
         renewed
     }
+}
+
+/// `view`'s `scroll-padding`, top, right, bottom, left, in points, as its
+/// committed style resolves it now ([`Update::scroll_padding`]): `env()` and a
+/// computed value resolved.
+pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let env = kernel.arena().env();
+    let r = &node.style.rare;
+    [
+        r.scroll_padding_top,
+        r.scroll_padding_right,
+        r.scroll_padding_bottom,
+        r.scroll_padding_left,
+    ]
+    .map(|d| match d.resolve(env) {
+        exact_kernel::Dimension::Points(n) => n as f64,
+        _ => 0.0,
+    })
+}
+
+/// The expanded target box used by a keyed list jump.
+pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let r = &node.style.rare;
+    [
+        r.scroll_margin_top,
+        r.scroll_margin_right,
+        r.scroll_margin_bottom,
+        r.scroll_margin_left,
+    ]
+    .map(|d| f64::from(d.at_basis(kernel.arena().env(), 0.0)))
 }

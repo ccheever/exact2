@@ -9,6 +9,10 @@ use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
 
+/// Whether a led window leans ([`CollectionFill::lean`]): off unless asked.
+static LEAN: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_LEAN").is_ok_and(|v| v == "1"));
+
 /// One future model position, not the acknowledged picture's input position.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct ModelScroll {
@@ -46,10 +50,9 @@ struct Cursor {
     key: Option<NodeKey>,
     sequence: u64,
     corrected: Option<u64>,
-    dimensions: Option<(f64, f64, f64, f64)>,
-    /// The last report, and the list's main-axis padding it went with: a
-    /// change of padding alone is news to the runner (LLP 1010 §6.9).
-    sent: Option<(CollectionFeedback, [f64; 2])>,
+    dimensions: Option<(f64, f64, f64, [f64; 2])>,
+    /// The last report.
+    sent: Option<CollectionFeedback>,
     queued: bool,
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
@@ -118,7 +121,7 @@ impl Cursor {
             *offset = target;
         }
     }
-    fn geometry(&mut self, dimensions: (f64, f64, f64, f64)) {
+    fn geometry(&mut self, dimensions: (f64, f64, f64, [f64; 2])) {
         if self.dimensions.is_some_and(|old| old != dimensions) {
             self.advance();
         }
@@ -230,12 +233,10 @@ fn main_of(axis: ListAxis, offset: (f32, f32)) -> f32 {
         ListAxis::Horizontal => offset.0,
     }
 }
+/// A padding against a containing block `basis` wide, clamped at 0, padding's
+/// range: a `calc()` that resolves below it computes to 0 (CSS Values 4 §10.12)
 fn length(kernel: &Kernel, value: Dimension, basis: f64) -> f64 {
-    match value.resolve(&kernel.env()) {
-        Dimension::Points(n) => n as f64,
-        Dimension::Percent(n) => basis * n as f64 / 100.,
-        _ => 0.,
-    }
+    f64::from(value.at_basis(kernel.arena().env(), basis as f32)).max(0.)
 }
 
 fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
@@ -583,25 +584,22 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node_by_key(facts.list) else {
             return false;
         };
-        let snapshots = self.host.collections();
+        let snapshots = self.host.collections_shallow();
         let Some(snapshot) = snapshots.iter().find(|s| s.view == node.id) else {
             return false;
         };
         let Some(g) = geometry(self.host.kernel(), snapshot, self.viewport.0 as f64) else {
             return false;
         };
-        // Nonzero vertical inset authoring is outside the measured-row policy.
-        // Do not admit a handbuilt plan that bypassed the compiler's rejection.
-        let basis = containing_width(self.host.kernel(), node.id, self.viewport.0 as f64);
+        // Native scroll offsets include leading padding; feedback starts at
+        // the first row. Both padding ends must match the last report.
         g.axis == ListAxis::Vertical
-            && g.origin == 0.
-            && length(self.host.kernel(), node.style.padding_bottom, basis) == 0.
-            && self
-                .collection
-                .cursors
-                .get(&node.id)
-                .is_some_and(|c| c.sequence == facts.scroll_sequence)
-            && facts.scroll_top == self.scroll_of(node.id).1 as f64
+            && facts.revision == snapshot.revision
+            && self.collection.cursors.get(&node.id).is_some_and(|c| {
+                c.sequence == facts.scroll_sequence
+                    && c.dimensions == Some((g.width, g.height, g.cross, g.padding))
+            })
+            && facts.scroll_top == (self.scroll_of(node.id).1 as f64 - g.origin).max(-g.origin)
             && facts.port_width == g.width
             && facts.port_height == g.height
             && facts.row_width == g.cross
@@ -794,6 +792,37 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
+    /// The scrolled list's rows that show where its port now is start what
+    /// waited for that ([`exact_runner::Runner::collection_shown`]), without
+    /// a report: for a pass that waits.
+    #[cfg(target_os = "android")]
+    pub(crate) fn show_collection(&mut self) {
+        let Some(view) = self.last_wheel else {
+            return;
+        };
+        let Some(snapshot) = self.host.collection(view) else {
+            return;
+        };
+        let Some(g) = geometry(self.host.kernel(), &snapshot, self.viewport.0 as f64) else {
+            return;
+        };
+        let main = self
+            .scroll
+            .get(&view)
+            .map_or(0., |off| main_of(g.axis, *off));
+        let offset = (main as f64 - g.origin).max(-g.origin);
+        match self.host.collection_shown(view, offset) {
+            Ok(true) => {
+                if let Some(error) = self.sync_commit() {
+                    self.host.log(error);
+                }
+                self.dirty = true;
+            }
+            Ok(false) => {}
+            Err(error) => self.host.log(error),
+        }
+    }
+
     /// Slice the next passes ([`State::limit`]) with the scrolled list's
     /// velocity, or build whole windows (`None`).
     #[cfg(target_os = "android")]
@@ -874,7 +903,7 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             };
             let planned = cursor.sequence;
-            cursor.geometry((g.width, g.height, g.cross, g.origin));
+            cursor.geometry((g.width, g.height, g.cross, g.padding));
             let resized_from = (cursor.sequence != planned).then_some(planned);
             // Match the browser's post-layout scrollTop (scrollLeft on a
             // horizontal list) prop write. Consume each changed request once;
@@ -915,6 +944,7 @@ impl<D: DataSource> Presenter<D> {
             // An authored request this pass is a jump: nothing planned before it lands.
             let resized_from = resized_from.filter(|_| cursor.sequence == planned + 1);
             if let Some(main) = cursor.correction(snapshot, resized_from) {
+                let was = self.scroll.get(&view).copied().unwrap_or_default();
                 cursor.model_main(
                     key,
                     axis,
@@ -922,6 +952,10 @@ impl<D: DataSource> Presenter<D> {
                     self.display.attached(),
                     self.scroll.entry(view).or_default(),
                 );
+                // The content stays where it shows: a shell that scrolls
+                // this list itself goes on from where it was (D7.3).
+                let now = self.scroll.get(&view).copied().unwrap_or_default();
+                self.reader.rebased(view, was, now);
                 self.dirty = true;
             }
             if self.scroll.get(&view).copied() != before {
@@ -949,6 +983,7 @@ impl<D: DataSource> Presenter<D> {
                 port_main: g.main(),
                 port_cross: g.port_cross(),
                 cross: g.cross,
+                padding: g.padding,
                 measurements: snapshot
                     .rows
                     .iter()
@@ -981,20 +1016,23 @@ impl<D: DataSource> Presenter<D> {
                         == Some(view)
                 }),
             };
-            // Unchanged facts and padding are news only to a list a slice left
-            // pending.
-            let sent = (feedback.clone(), g.padding);
-            if cursor.sent.as_ref() == Some(&sent) && !snapshot.pending {
+            // Unchanged facts, the padding among them (LLP 1010 §6.9), are
+            // news only to a list a slice left pending.
+            if cursor.sent.as_ref() == Some(&feedback) && !snapshot.pending {
                 continue;
             }
-            cursor.sent = Some(sent);
+            cursor.sent = Some(feedback.clone());
+            let velocity = (self.collection.velocity)
+                .filter(|(v, _)| *v == view)
+                .map_or(0.0, |(_, v)| v);
             let fill = CollectionFill {
-                velocity: self
-                    .collection
-                    .velocity
-                    .filter(|(v, _)| *v == view)
-                    .map_or(0.0, |(_, v)| v),
+                velocity,
                 limit: self.collection.limit,
+                // `EXACT_LEAN=1`: a window this host leads keeps half a
+                // viewport behind it (crypto rests 4 MB lower after a fling;
+                // a turn back at 24,000 dp/s shows up to 58% of its view
+                // blank for one to four frames, against 35% for two).
+                lean: velocity != 0.0 && *LEAN,
                 ..CollectionFill::default()
             };
             match self.host.collection_feedback_filled(feedback, fill) {
@@ -1070,15 +1108,15 @@ mod tests {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((190., 300., 170., 10.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((190., 300., 170., [10., 0.]));
         assert_eq!(cursor.correction(&s, None), None);
         let mut cursor = Cursor {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((200., 300., 180., 20.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((200., 300., 180., [20., 0.]));
         assert_eq!(
             cursor.correction(&s, None),
             None,
@@ -1090,8 +1128,8 @@ mod tests {
             sequence: 2,
             ..Cursor::default()
         };
-        cursor.geometry((200., 300., 180., 10.));
-        cursor.geometry((200., 348., 180., 10.));
+        cursor.geometry((200., 300., 180., [10., 0.]));
+        cursor.geometry((200., 348., 180., [10., 0.]));
         assert_eq!(cursor.correction(&s, Some(2)), Some(200.));
         let mut cursor = Cursor {
             sequence: u64::MAX,
@@ -1141,5 +1179,61 @@ mod tests {
         assert_eq!(facts.width, 100.);
         assert_eq!(facts.cross, 60.);
         assert_eq!(facts.origin, 0.);
+    }
+
+    /// A padding whose `calc()` resolves below zero is zero, CSS's range for
+    /// padding (LLP 1010 §6.9): the origin, the range and the reported
+    /// padding all take 0, on either axis, and the runner accepts the report.
+    #[test]
+    fn a_negative_resolved_padding_is_zero_on_either_axis() {
+        struct Rows;
+        impl DataSource for Rows {
+            fn query(
+                &mut self,
+                _: &str,
+                _: &[exact_runner::Value],
+            ) -> Result<exact_runner::Value, exact_runner::DataError> {
+                Ok(exact_runner::Value::list(
+                    (0..50)
+                        .map(|i| exact_runner::Value::Number(i as f64))
+                        .collect(),
+                ))
+            }
+        }
+        let below = "\"calc(env(safe-area-inset-bottom) - 12px)\"";
+        for list in [
+            format!("list virtualized=true width=200 height=100 overflow-x=\"hidden\" padding-top={below} padding-bottom={below}"),
+            format!("list virtualized=true display=\"flex\" width=200 height=100 overflow-x=\"scroll\" overflow-y=\"hidden\" padding-left={below} padding-right={below}"),
+        ] {
+            let source = format!("component App\n  resource rows = rows() as shape list<number>\n  view\n    column width=200\n      {list}\n        each x in rows key=x\n          text `${{x}}` width=40 height=20\n");
+            let plan = contract::compile(&source).unwrap();
+            let (mut host, error) = Host::boot(
+                &plan.encode(),
+                Rows,
+                Box::new(exact_kernel::MonospaceMeasurer::default()),
+                400.,
+                500.,
+            )
+            .unwrap();
+            assert!(error.is_none());
+            let snapshot = host.collections()[0].clone();
+            let facts = geometry(host.kernel(), &snapshot, 400.).unwrap();
+            assert_eq!((facts.origin, facts.padding), (0., [0.; 2]), "{list}");
+            let feedback = CollectionFeedback {
+                view: snapshot.view,
+                revision: snapshot.revision,
+                scroll_sequence: 1,
+                offset: 0.,
+                port_main: facts.main(),
+                port_cross: facts.port_cross(),
+                cross: facts.cross,
+                padding: facts.padding,
+                measurements: vec![],
+                focus_view: None,
+                interaction_view: None,
+            };
+            host.collection_feedback_filled(feedback, CollectionFill::default())
+                .unwrap_or_else(|e| panic!("{list}: {e:?}"));
+        }
     }
 }

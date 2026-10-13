@@ -34,7 +34,8 @@ fn raster_tint_matches_chrome_in_both_painters() {
 }
 
 /// LLP 1095 D8: an untinted symbol is `AccentColor`, here its fallback pair
-/// (`#007aff`, no report on Linux), not the text colour; a tint row wins.
+/// (`#0088ff`, iOS 27's measured tint: LLP 1115.000 D3.2; no report on
+/// Linux), not the text colour; a tint row wins.
 #[test]
 fn an_untinted_symbol_paints_the_accent_fallback() {
     crate::pin_font();
@@ -67,6 +68,6 @@ fn an_untinted_symbol_paints_the_accent_fallback() {
             .min_by_key(|c| u16::from(c[0]) + u16::from(c[1]) + u16::from(c[2]))
             .unwrap()
     };
-    assert_eq!(ink(0), [0x00, 0x7a, 0xff]);
+    assert_eq!(ink(0), [0x00, 0x88, 0xff]);
     assert_eq!(ink(48), [0xff, 0x00, 0x00]);
 }

@@ -54,6 +54,27 @@ function made(path, blob, version) {
 }
 globalThis.exact.appURL = appURL;
 
+// An iframe owns its URL: changing its source or ending its node releases
+// it without revoking another element's view of the same file (LLP 1020 §10).
+export async function appFrame(el, state, appId, committed = () => {}) {
+  try {
+    const path = state.path.split(/[?#]/, 1)[0];
+    const store = await fileStore(appId);
+    const blob = picked.get(path) ?? (await store.blob(path, typeFor(path))).blob;
+    if (!state.live) return;
+    // Chrome refuses PDF viewers in every sandbox, including allow-same-origin.
+    if (blob.type.split(';', 1)[0].toLowerCase() === 'application/pdf' && el.hasAttribute('sandbox'))
+      throw new Error('sandbox blocks PDF documents');
+    state.url = URL.createObjectURL(blob);
+    el.setAttribute('src', state.url + (state.path.includes('#') ? '#' + state.path.split('#').slice(1).join('#') : ''));
+    committed();
+  } catch (error) {
+    if (!state.live) return;
+    state.failed = true;
+    el.dispatchEvent(new CustomEvent('error', { detail: `iframe: ${state.path}: ${error.message === 'sandbox blocks PDF documents' ? error.message : 'file unavailable'}` }));
+  }
+}
+
 globalThis.exact.picker = function install(host) {
   // host: { dispatch(id, kind, payload), pickedPath(name), appId, log(line) }
   // What the last page picked is gone (D4).
@@ -140,6 +161,7 @@ globalThis.exact.picker = function install(host) {
     change: (el, id) => el.files?.length ? deliver(id, [...el.files]).finally(() => { el.value = ''; }) : Promise.resolve(),
     cancel: (id) => host.dispatch(id, 27, ''),
     appURL: (path) => appURL(path, host.appId),
+    appFrame: (el, state, committed) => appFrame(el, state, host.appId, committed),
     /** The agent's answer (D9): `files` as the driver sent them, or null for `tap @t cancel`. */
     answer(id, files) {
       if (!files) { host.dispatch(id, 27, ''); return Promise.resolve(); }
@@ -157,5 +179,5 @@ globalThis.exact.picker = function install(host) {
 function typeFor(name) {
   const ext = name.toLowerCase().split('.').pop();
   return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
-    svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', json: 'application/json', md: 'text/markdown', txt: 'text/plain' }[ext] ?? 'application/octet-stream';
+    svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml', xml: 'application/xml', json: 'application/json', md: 'text/markdown', txt: 'text/plain' }[ext] ?? 'application/octet-stream';
 }

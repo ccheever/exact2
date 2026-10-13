@@ -135,7 +135,33 @@ final class KnobDrag {
     }
 }
 
+extension Presenter {
+    /// Charge the report (decode, layout and apply) to the
+    /// rows it created. Cheap rows share those fixed costs in the next report.
+    /// Grow at most twofold and retain recent expensive samples conservatively.
+    struct ListFillCost {
+        private(set) var secondsPerRow: TimeInterval?
+        private var lastRows = 1
+        mutating func record(seconds: TimeInterval, rows: Int) {
+            guard rows > 0 else { return }
+            let sample = max(0.000001, seconds / Double(rows))
+            secondsPerRow = max(sample, (secondsPerRow ?? sample) * 0.75 + sample * 0.25)
+            lastRows = rows
+        }
+        func rows(within remaining: TimeInterval) -> UInt32 {
+            guard remaining > 0 else { return 0 }
+            guard let secondsPerRow else { return 1 }
+            let fitting = floor(remaining * 0.9 / secondsPerRow)
+            return UInt32(max(0, min(Double(lastRows) * 2, fitting, Double(UInt32.max - 1))))
+        }
+    }
+}
+
 extension CollectionHost {
+    /// AppKit insets no list's port by a bar it runs under (iOS's
+    /// `portInsets`): nothing moves it.
+    func portInsets(_ id: UInt32) -> [Double]? { nil }
+    func keepStart(_ id: UInt32, at top: Double) {}
     /// The contiguous run of mounted rows that reaches into the port, in the
     /// document's coordinates and across its full cross size. Padding
     /// before the first item or after the last counts as covered. Nil when
@@ -220,28 +246,6 @@ extension CollectionHost {
         }
     }
 
-    func orderChildren(_ children: [NodeView], in container: NSView) {
-        // Spacer reuse can move a pinned row within the same parent. Detaching
-        // it to reorder clears AppKit's first responder, even when its logical
-        // selection and the row itself survive the collection commit.
-        // A row playing its exit (LLP 1063) is still a subview but no longer
-        // a child: it stays above its old siblings, where `beginExit` put it,
-        // and every subview has a rank (mail F22: a nil rank trapped). A
-        // paint ghost keeps its own place (`keepingGhosts`).
-        let wanted = Set(children.map(ObjectIdentifier.init))
-        let leaving = container.subviews.filter { ($0 as? NodeView).map { !$0.paintGhost } ?? false && !wanted.contains(ObjectIdentifier($0)) }
-        let ordered = container.subviews.filter { !($0 is NodeView) } + NodeView.keepingGhosts(children.filter { $0.superview === container }, in: container) + leaving
-        guard !ordered.elementsEqual(container.subviews, by: { $0 === $1 }) else { return }
-        var ranks = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
-        withUnsafeMutablePointer(to: &ranks) { context in
-            container.sortSubviews({ left, right, raw in
-                let order = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
-                let a = order[ObjectIdentifier(left)]!, b = order[ObjectIdentifier(right)]!
-                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
-            }, context: context)
-        }
-    }
-
     func pointerDown(_ view: UInt32?, event: NSEvent) {
         guard contactEvent !== event else { return }
         contactEvent = event
@@ -264,20 +268,22 @@ extension CollectionHost {
             let available = max(0, bounds.height - content.minY - (node.bounds.height - content.maxY))
             let cross = measured ?? available
             guard cross.isFinite else { return nil }
+            let start = max(0, node.padding("left")), end = max(0, node.padding("right"))
             // From the first item: negative in the padding before it, down
             // to that padding (LLP 1010 §6.9).
-            return CollectionFacts(offset: Double(max(-node.number("padding_left"), at.x - content.minX)),
+            return CollectionFacts(offset: Double(max(-start, at.x - content.minX)),
                 portMain: Double(max(0, bounds.width)), portCross: Double(max(0, bounds.height)),
                 cross: Double(cross), measurements: [], focus: nil, interaction: nil,
-                padding: [Double(node.number("padding_left")), Double(node.number("padding_right"))])
+                paddingStart: Double(start), paddingEnd: Double(end))
         }
         let available = max(0, bounds.width - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        return CollectionFacts(offset: Double(max(-node.number("padding_top"), at.y - content.minY)),
+        let start = max(0, node.padding("top")), end = max(0, node.padding("bottom"))
+        return CollectionFacts(offset: Double(max(-start, at.y - content.minY)),
             portMain: Double(max(0, bounds.height)), portCross: Double(max(0, bounds.width)),
             cross: Double(width), measurements: [], focus: nil, interaction: nil,
-            padding: [Double(node.number("padding_top")), Double(node.number("padding_bottom"))])
+            paddingStart: Double(start), paddingEnd: Double(end))
     }
     /// A row wrapper's size across the list.
     func crossSize(_ id: UInt32, horizontal: Bool) -> Double? {
@@ -409,7 +415,7 @@ extension CollectionHost {
             switch event.type {
             case .leftMouseDown, .rightMouseDown, .otherMouseDown:
                 let point = presenter.viewport.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-                pointerDown(nodeID(presenter.viewport.hitTest(point)), event: event)
+                pointerDown(nodeID(TableRowCell.whatIsThere { presenter.viewport.hitTest(point) }), event: event)
             case .leftMouseUp, .rightMouseUp, .otherMouseUp:
                 // Release after AppKit delivers this event and any authored
                 // handler. Captured generation is checked by the weak helper.

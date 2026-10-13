@@ -131,21 +131,20 @@ impl Parser {
 
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
     /// initializer (`form` "as none" when that initializer is `none`; authoring bench):
-    /// its type is inferred.
+    /// its type is inferred. The refusal leads with the edit, `drop` and the type as
+    /// written (LLP 1116.014 D1).
     pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
         let state = w == "state";
         if form == ":" && self.at_punct(":") {
             let from = if state {
-                "; an empty start is `none` or `[]`, and the writes give it its type"
+                "a state's type is inferred (an empty start is `none` or `[]`, and the writes \
+                 give it its type)"
             } else {
-                ", which is its expression's"
+                "a derive's type is its expression's"
             };
             return self.err(
                 "syntax-expected",
-                format!(
-                    "a {w}'s type is inferred, so `{w} {name}` takes no `: type`: \
-                     write `{w} {name} = …`{from}"
-                ),
+                format!("drop `: {}`; {from}", self.written_type()),
             );
         }
         if form.starts_with("as") && self.at_ident("as") {
@@ -159,10 +158,49 @@ impl Parser {
             };
             return self.err(
                 "syntax-expected-newline",
-                format!("a {w} takes no `as`: its type is inferred from {from}"),
+                format!(
+                    "drop `as {}`; a {w}'s type is inferred from {from}",
+                    self.written_type()
+                ),
             );
         }
         Ok(())
+    }
+
+    /// The type written after the `:` or `as` the parser stands at, as the author
+    /// wrote it: its tokens up to the `=`, a `persist` or the end of the line.
+    fn written_type(&self) -> String {
+        let mut text = String::new();
+        for t in &self.tokens[(self.pos + 1).min(self.tokens.len())..] {
+            match &t.kind {
+                TokenKind::Ident(w) if w == "persist" => break,
+                TokenKind::Ident(w) => text.push_str(w),
+                TokenKind::Punct("=") => break,
+                TokenKind::Punct(",") => text.push_str(", "),
+                TokenKind::Punct(p) => text.push_str(p),
+                TokenKind::Number(n) => text.push_str(&n.to_string()),
+                _ => break,
+            }
+        }
+        text
+    }
+
+    /// `persist` after a state's initializer (LLP 1116 D5): where it is
+    /// written. A derive has nothing of its own to keep.
+    pub(super) fn persist_word(&mut self, w: &str, name: &str) -> R<Option<Span>> {
+        if !self.at_ident("persist") {
+            return Ok(None);
+        }
+        if w != "state" {
+            return self.err(
+                "syntax-persist-derive",
+                format!(
+                    "a derive is recomputed from what it reads, so `derive {name}` has nothing \
+                     to keep: write `persist` on the `state` it reads"
+                ),
+            );
+        }
+        Ok(Some(self.next().span))
     }
 
     /// A name a binder introduces, or one that refers to a binder's name: any

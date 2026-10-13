@@ -27,7 +27,7 @@ const ASSET: &str = "hermes-vanilla-test-target.tar.gz";
 const CACHE_ARCHIVE: &str = ".hermes-lean-sys-bundle.tar.gz";
 
 #[test]
-fn a_target_override_is_named_for_its_target_and_unpinned_targets_say_so() {
+fn a_target_override_is_named_for_its_target_and_android_tracks_the_release() {
     assert_eq!(
         target_override_variable("aarch64-linux-android"),
         "HERMES_LEAN_SYS_DIR_aarch64_linux_android"
@@ -36,11 +36,17 @@ fn a_target_override_is_named_for_its_target_and_unpinned_targets_say_so() {
         target_override_variable("aarch64-apple-ios-sim"),
         "HERMES_LEAN_SYS_DIR_aarch64_apple_ios_sim"
     );
-    let error = pin_for_target("aarch64-linux-android").unwrap_err();
-    assert!(
-        error.contains("HERMES_LEAN_SYS_DIR_aarch64_linux_android"),
-        "{error}"
-    );
+    if RELEASE_TAG == "hermes-vanilla-d412d3bd8512-v4" {
+        let error = pin_for_target("aarch64-linux-android").unwrap_err();
+        assert!(
+            error.contains("HERMES_LEAN_SYS_DIR_aarch64_linux_android"),
+            "{error}"
+        );
+    } else {
+        let pin = pin_for_target("aarch64-linux-android").expect("post-v4 Android pin");
+        assert_eq!(pin.asset, "hermes-vanilla-aarch64-linux-android.tar.gz");
+        parse_pin_sha256(pin.sha256).expect("authenticated Android archive digest");
+    }
 }
 
 #[test]

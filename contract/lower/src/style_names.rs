@@ -63,6 +63,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("r", "css SVG 2", AttrTarget::Styles(&[StyleId::R])),
     // style rows, by their CSS property names
     ("white-space", "css CSS Text 3", AttrTarget::Styles(&[StyleId::WhiteSpace])),
+    ("text-wrap-style", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
+    ("text-wrap", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
+    // @ref LLP 1104 D3 — `::placeholder`'s `color`, the part block's
+    // declaration (contract_syntax::PLACEHOLDER_COLOR); never written as one name.
+    ("::placeholder color", "css CSS Pseudo-Elements 4", AttrTarget::Styles(&[StyleId::PlaceholderColor])),
     ("overflow-wrap", "css CSS Text 3", AttrTarget::Styles(&[StyleId::OverflowWrap])),
     ("field-sizing", "css CSS Form Control Styling 1", AttrTarget::Styles(&[StyleId::FieldSizing])),
     ("scroll-snap-type", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollSnapType])),
@@ -90,6 +95,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("resize", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Resize])),
     ("user-select", "css CSS UI 4", AttrTarget::Styles(&[StyleId::UserSelect])),
     // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
+    ("position-try-fallbacks", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionTryFallbacks])),
     ("position-area", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionArea])),
     ("text-decoration-line", "css CSS Text Decoration 3", AttrTarget::Styles(&[StyleId::TextDecorationLine])),
     // @ref LLP 1064 D5
@@ -119,6 +125,10 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // platform draws it.
     ("accent-color", "css CSS UI 4", AttrTarget::Styles(&[StyleId::AccentColor])),
     ("appearance", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Appearance])),
+    // @ref LLP 1104 D6 — a text field's focus ring off: `outline: none`,
+    // the one value either name takes (`fields::outline_refusal`).
+    ("outline-style", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
+    ("outline", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
     ("-exact-tint-color", "exact LLP 1011", AttrTarget::Styles(&[StyleId::TintColor])),
     ("opacity", "css CSS Color 4", AttrTarget::Styles(&[StyleId::Opacity])),
     // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
@@ -225,6 +235,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("scroll-padding-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingRight])),
     ("scroll-padding-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingBottom])),
     ("scroll-padding-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingLeft])),
+    ("scroll-margin", "css CSS Scroll Snap 1", AttrTarget::Styles(&[ StyleId::ScrollMarginTop, StyleId::ScrollMarginRight, StyleId::ScrollMarginBottom, StyleId::ScrollMarginLeft, ])),
+    ("scroll-margin-top", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginTop])),
+    ("scroll-margin-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginRight])),
+    ("scroll-margin-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginBottom])),
+    ("scroll-margin-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginLeft])),
     ("z-index", "css CSS 2", AttrTarget::Styles(&[StyleId::ZIndex])),
     ("order", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Order])),
     ("transition", "css CSS Transitions 1", AttrTarget::Styles(&[StyleId::Transition])),
@@ -253,6 +268,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("-exact-scroll-edge-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::ScrollEdgeEffect])),
     ("-exact-hover-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::HoverEffect])),
     ("-exact-smart-invert", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SmartInvert])),
+    // @ref LLP 1116.001 D1.4 — a text shrinks to fit its line, down to half.
+    ("-exact-fit", "exact LLP 1116.001 D1.4", AttrTarget::Styles(&[StyleId::Fit])),
     ("dynamic-range-limit", "css CSS Color HDR 1", AttrTarget::Styles(&[StyleId::DynamicRangeLimit])),
     // @ref LLP 1034 §8 — a subtree's colour scheme.
     ("color-scheme", "css CSS Color Adjustment 1", AttrTarget::Styles(&[StyleId::ColorScheme])),
@@ -281,6 +298,14 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("column-count", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
     ("column-rule", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
     ("column-rule-width", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
+    // @ref LLP 1115 D3 — a platform text style, as WebKit's
+    // `font: -apple-system-headline`; no other `font` value.
+    ("font", "css CSS Fonts 4", AttrTarget::Shorthand),
+    // CSS Inline Layout 3 §4: the trim's row, and the edge's two words
+    // projected through `shorthands`.
+    ("text-box-trim", "css CSS Inline Layout 3", AttrTarget::Styles(&[StyleId::TextBoxTrim])),
+    ("text-box-edge", "css CSS Inline Layout 3", AttrTarget::Shorthand),
+    ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
 ];
 
 /// The target of a style attribute, if `name` is one.

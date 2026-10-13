@@ -39,13 +39,18 @@ pub mod abi;
 pub mod app_module;
 pub mod batch;
 mod button;
+pub mod calc;
 pub mod canvas_text;
 pub mod collapse;
 pub mod content_region;
 pub mod control_text;
 pub mod corner;
+#[cfg(target_vendor = "apple")]
+mod defaults;
 pub mod delivery;
 pub mod executor;
+pub mod geometry;
+pub mod gradient;
 pub mod host;
 pub mod link;
 pub mod markup;

@@ -122,7 +122,10 @@ component Markdown
           // A virtualized list's container takes no block-axis padding (its
           // rows are the extent), so the page's top and end space is the
           // first and last rows' own. A block's id is its index.
-          list virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" box-sizing="border-box"
+          // A document is text its reader copies from, so it says so: the
+          // web and the Mac select it anyway, and an iPhone selects only
+          // what its author said (LLP 1115.000 D11.6), one block at a time.
+          list appearance="none" virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" user-select="text" testId="document" box-sizing="border-box"
             each b in doc.blocks key=`${doc.path}:${b.id}`
               view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
                 Blocks(block=b)
@@ -160,7 +163,7 @@ component Blocks
     block: Block
   view
     when block.kind == "heading"
-      text aria-level=block.depth testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+      text role="heading" aria-level=block.depth font-size="1em" font-weight=400 testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
         Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
     else
       when block.kind == "paragraph"

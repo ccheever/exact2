@@ -1,6 +1,6 @@
 //! CSS `transition` shorthand → [`Transitions`].
 //!
-//! @ref LLP 1002 §2 (the web is the standard: the authored form is CSS's own
+//! @ref LLP 1002 §2, LLP 1115 §2 (names stay CSS: the authored form is CSS's own
 //! `transition` shorthand; `-exact-spring(stiffness, damping, mass)` is the
 //! one declared extension, LLP 1081 D2)
 //!
@@ -311,6 +311,11 @@ pub(crate) fn split_top_level(s: &str, sep: char) -> Vec<&str> {
 mod tests {
     use super::*;
     use crate::property::Property;
+
+    #[test]
+    fn spring_shorthand_refuses_non_finite_derived_coefficients() {
+        assert!(Transitions::parse("opacity -exact-spring(100, 1e200, 1)").is_err());
+    }
 
     #[test]
     fn css_shorthand_parses_and_bad_forms_are_refused_by_name() {

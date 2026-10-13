@@ -23,7 +23,9 @@ function parse(text) {
   else if (!(path.startsWith("/") && !path.startsWith("//"))) return null;
   return { scheme: text.slice(0, colon).toLowerCase(), authority, path, query, fragment };
 }
-const origin = u => u.authority == null ? null : `${u.scheme}://${u.authority.toLowerCase()}`;
+const unsafeCallback = u => u && (u.authority?.includes("@") || (["http", "https"].includes(u.scheme) && u.authority == null));
+const host = u => (u.authority ?? "").split("@").at(-1).toLowerCase();
+const origin = u => u.authority == null ? null : `${u.scheme}://${host(u)}`;
 const decode = s => { try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch { return s.replace(/\+/g, " "); } };
 const pairs = q => (q ?? "").split("&").filter(Boolean).map(p => { const i = p.indexOf("="); return i < 0 ? [decode(p), ""] : [decode(p.slice(0, i)), decode(p.slice(i + 1))]; });
 const loopback = u => ["localhost", "127.0.0.1", "[::1]"].includes((u.authority ?? "").replace(/:\d+$/, ""));
@@ -34,8 +36,8 @@ function admits(grant, u) {
   if (!o) return false;
   const wild = grant.indexOf("://*.");
   if (wild >= 0) {
-    const scheme = grant.slice(0, wild), domain = grant.slice(wild + 5).toLowerCase(), host = (u.authority ?? "").toLowerCase();
-    return scheme.toLowerCase() === u.scheme && domain.split(".").length >= 2 && !/[:/*]/.test(domain) && host.length > domain.length + 1 && host.endsWith("." + domain);
+    const scheme = grant.slice(0, wild), domain = grant.slice(wild + 5).toLowerCase(), name = host(u);
+    return scheme.toLowerCase() === u.scheme && domain.split(".").length >= 2 && !/[:/*]/.test(domain) && name.length > domain.length + 1 && name.endsWith("." + domain);
   }
   return !grant.includes("*") && grant.replace(/\/+$/, "").toLowerCase() === o;
 }
@@ -46,6 +48,7 @@ function checkGrants(s, grants) {
   const lines = grants.split("\n").map(l => l.trim()).filter(Boolean);
   const u = parse(s.url);
   if (!u) return "the authorization URL is not absolute";
+  if (u.authority?.includes("@")) return "the authorization URL carries userinfo";
   if (!lines.some(l => l.startsWith("auth.session ") && admits(l.slice(13).trim(), u))) return `outside the app's grants (auth.session ${origin(u) ?? ""})`;
   const granted = lines.some(l => l.startsWith("auth.callback ") && l.slice(14).trim() === s.callback);
   const page = parse(location.origin);
@@ -71,9 +74,9 @@ function accept(s, got) {
  * names, the values of `client_id` and `request_uri` only, the callback,
  * `state` and `ephemeral`. */
 function summary(s) {
-  const u = parse(s.url), out = { origin: u ? `${u.scheme}://${u.authority ?? ""}` : "", path: u?.path ?? "", params: [] };
+  const u = parse(s.url), out = { origin: u ? origin(u) ?? "" : "", path: u?.path ?? "", params: [] };
   for (const [n, v] of pairs(u?.query)) { out.params.push(n); if (n === "client_id" || n === "request_uri") out[n] = v; }
-  return Object.assign(out, { callback: s.callback, state: s.state, ephemeral: s.ephemeral });
+  return Object.assign(out, { callback: unsafeCallback(parse(s.callback)) ? "<redacted callback>" : s.callback, state: s.state, ephemeral: s.ephemeral });
 }
 
 // ---------------------------------------------------------------- sessions
@@ -90,6 +93,8 @@ function settle(ticket, status, body) {
 
 /** Install `authCallback` and `openAuthSession` for the page's source.
  * `target()` names the resource or mutation whose answer is running. */
+const bent = s => /^\s*https?:/i.test(s) && /[\\\t\n\r]/.test(s);
+
 export function install(grants, target) {
   (globalThis.exact ??= {}).auth = { holds, answer };
   globalThis.authCallback = () => location.origin + CALLBACK;
@@ -103,9 +108,15 @@ export function install(grants, target) {
     const done = (status, body) => { if (status === 200) resolve(body); else { const e = new Error(body || "the auth session failed"); Object.defineProperty(e, "status", { value: status, enumerable: true }); reject(e); } };
     const refuse = (status, why) => { say(`auth ${ticket}: answered ${status}`); done(status, why); };
     const s = { url: String(url), callback: o.callback, state: o.state, ephemeral: !!o.ephemeral };
+    // A browser reads a backslash in an http(s) URL as a slash and drops tabs
+    // and newlines, so such a URL can hide userinfo from parse(): refuse it unechoed.
+    if (bent(s.url)) return refuse(502, "the authorization URL is not a plain http: or https: URL");
+    if (bent(s.callback)) return refuse(502, "the callback is not a scheme:/path or https://host/path");
     const u = parse(s.url), cb = parse(s.callback);
     if (!u || !["https", "http"].includes(u.scheme) || u.authority == null) return refuse(502, u ? "the authorization URL is not http: or https:" : "the authorization URL is not absolute");
-    if (!cb || cb.fragment != null || cb.query != null) return refuse(502, "the callback is not a scheme:/path or https://host/path");
+    if (u.authority.includes("@")) return refuse(502, "the authorization URL carries userinfo");
+    if (!cb || cb.fragment != null || cb.query != null || (["http", "https"].includes(cb.scheme) && cb.authority == null)) return refuse(502, "the callback is not a scheme:/path or https://host/path");
+    if (cb.authority?.includes("@")) return refuse(502, "the callback carries userinfo");
     const denied = checkGrants(s, grants);
     if (denied) return refuse(403, denied);
     // One session per window: the same target's earlier one is superseded;

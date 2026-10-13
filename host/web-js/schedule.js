@@ -4,7 +4,7 @@
 // A queue mutation keeps one ticket in flight; a later send waits in `m.wait` with its send-time arguments and is
 // asked in a `next` commit of its own once the mutation is free: no ticket, no `then` or `next` armed, not stalled.
 // A gated task is in `clock.timers` only while its gate holds; a new key re-arms it from the commit's time.
-import { Mutations, Tasks, commit, M, journal, clock, drive, paint, order, write, eq, untracked, useSchedule, refused, Refusal } from "./rt.js";
+import { Mutations, Tasks, commit, recommit, M, journal, clock, drive, paint, order, write, eq, untracked, useSchedule, refused, Refusal } from "./rt.js";
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const BOUND = 64; // runner QUEUE_BOUND: the 65th waiter refuses its action
 let Asked = new Set(), State = [];
@@ -73,9 +73,10 @@ const Q = {
     m.next = Infinity;
     if (Q.own) {
       m.wait.shift();
+      const shown = m.ended(); // its write ends: the resources it showed in drop it (overlay.js)
       say(`${m.name} queued send refused: ${e.message}`);
       // Nothing waits behind it and nothing is in flight: the view hears `pending` end, as after a failed reply.
-      if (!m.wait.length && !m.ticket) { pending(m); commit(() => {}, "a refused queued send"); }
+      if ((!m.wait.length && !m.ticket) || shown) { pending(m); recommit(() => {}, "a refused queued send"); }
     } else {
       m.stall = untracked(basis);
       say(`${m.name} next refused (${e.message}); waits for a change`);

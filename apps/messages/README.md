@@ -8,6 +8,10 @@ at `da3b4d6ad3d6a4ac9fa95fb2efd9a532bdf0544e`. Its `ui-metrics.md`, Composer,
 ChatScreen, and native balloon-path implementation supply the measurements. The
 reference's MIT license is in `assets/reference-LICENSE.txt`.
 
+It is a pixel-match port of that reference, with its colours and sizes written
+out in hex and points, not a style guide: a new app leaves those unsaid and names
+colour roles (LLP 1115, `docs/contract-for-agents.md`, "Prefer native controls").
+
 Run from the repository root in two terminals:
 
 ```sh

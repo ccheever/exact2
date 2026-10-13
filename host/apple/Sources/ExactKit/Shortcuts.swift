@@ -14,7 +14,11 @@ extension Presenter {
     /// The frontmost shown `aria-modal` view, the most recently made of
     /// those shown: while one is up only shortcuts inside it are heard.
     var shortcutModal: NodeView? {
-        chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
+        #if os(iOS) || os(tvOS)
+        // A dialog in its sheet is modal with nothing written (LLP 1115.000 D11.5).
+        if let dialog = menus.sheets.topDialog { return dialog }
+        #endif
+        return chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
             .last { $0.props["accessibilityModal"] == "true" && $0.accessibilityVisible }
     }
 

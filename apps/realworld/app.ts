@@ -1,4 +1,4 @@
-import type { Answer, Sources, Result } from './app.contract.d.ts';
+import type { Answer, Overlay, Sources, Result } from './app.contract.d.ts';
 
 // RealWorld's hosted API (docs.realworld.show). The token is a store secret
 // (LLP 1018): localStorage on the web, the Keychain on Apple.
@@ -19,32 +19,47 @@ type Author = Profile;
 // A mutation's answer runs its `then` (app.contract); what it changes is
 // refetched by its `refreshes` declaration.
 
-// Favorites and follows: `favs` and `follows` are the one store of what the
-// reader pressed, by article and by author, and every view reads its state
-// through them (the `favs` and `follows` resources). A press writes its entry
-// before the request goes (the optimistic flip, read by the declared refresh
-// at the send), the answer replaces it, a failure puts back what was there.
-// The newest press per key wins; a change of reader forgets them all.
+// Favorites and follows: `favs` and `follows` hold what the server last said
+// the reader has favorited and followed, by article and by author, and every
+// view reads them through the `favs` and `follows` resources. A press shows at
+// once through the overlay below, its reply replaces the entry, and a failure
+// leaves it as it was. The newest press per key wins; a change of reader
+// forgets them all.
 type Fav = { slug: string; favorited: boolean; favoritesCount: number };
 type Follow = { username: string; following: boolean };
 const favs = new Map<string, Fav>(), follows = new Map<string, Follow>();
 const presses = new Map<string, number>();
 let press = 0;
-function flip<T>(store: Map<string, T>, key: string, now: T, work: () => Promise<T>, kind: string): Promise<Change> {
-  const before = store.get(key), n = ++press, id = `${kind}:${key}`;
+function flip<T>(store: Map<string, T>, key: string, work: () => Promise<T>, kind: string): Promise<Change> {
+  const n = ++press, id = `${kind}:${key}`;
   presses.set(id, n);
-  store.set(key, now);
   return change(kind, async () => {
-    try {
-      const after = await work();
-      if (presses.get(id) === n) store.set(key, after);
-    } catch (e) {
-      if (presses.get(id) === n) { if (before === undefined) store.delete(key); else store.set(key, before); }
-      throw e;
-    }
+    const after = await work();
+    if (presses.get(id) === n) store.set(key, after);
     return key;
   });
 }
+// A press shows over the answer until the first answer asked after it landed.
+const pressed = (w: { answered: boolean; source: string }, source: string) => w.source === source && !w.answered;
+export const overlay: Overlay = (source, _args, answer, writes) => {
+  if (source === 'favorites') {
+    const by = new Map((answer as Fav[]).map(f => [f.slug, f]));
+    for (const w of writes) if (pressed(w, 'favorite')) {
+      const [slug, on, count] = w.args as [string, boolean, number];
+      by.set(slug, { slug, favorited: on, favoritesCount: Math.max(0, count + (on ? 1 : -1)) });
+    }
+    return [...by.values()] as never;
+  }
+  if (source === 'followings') {
+    const by = new Map((answer as Follow[]).map(f => [f.username, f]));
+    for (const w of writes) if (pressed(w, 'follow')) {
+      const [username, following] = w.args as [string, boolean];
+      by.set(username, { username, following });
+    }
+    return [...by.values()] as never;
+  }
+  return undefined;
+};
 const forget = () => { favs.clear(); follows.clear(); wrote(); };
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 function date(iso: unknown): string {
@@ -210,11 +225,11 @@ const sources: Sources = {
   logout: (_, store) => { store.forget('realworld.jwt'); forget(); return { ok: true, errors: [] }; },
   favorites: () => [...favs.values()],
   followings: () => [...follows.values()],
-  favorite: ([slug, on, count], store) => flip(favs, slug, { slug, favorited: on, favoritesCount: Math.max(0, count + (on ? 1 : -1)) }, async () => {
+  favorite: ([slug, on], store) => flip(favs, slug, async () => {
     const a = (await api(store, `${slugPath(slug)}/favorite`, on ? 'POST' : 'DELETE')).article;
     return { slug, favorited: !!a?.favorited, favoritesCount: Number(a?.favoritesCount) || 0 };
   }, 'favorite'),
-  follow: ([name, on], store) => flip(follows, name, { username: name, following: on }, async () => {
+  follow: ([name, on], store) => flip(follows, name, async () => {
     const p = (await api(store, `/profiles/${encodeURIComponent(name)}/follow`, on ? 'POST' : 'DELETE')).profile;
     return { username: name, following: !!p?.following };
   }, 'follow'),

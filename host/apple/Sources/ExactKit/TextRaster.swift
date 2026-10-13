@@ -167,7 +167,7 @@ struct TextRasterJob {
         }
         let positions = zip(lines, baselines).map { line, baseline in
             let inset = insets.at(CTLineGetStringRange(line).location)
-            return CGPoint(x: box.minX + inset.left + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width - inset.width))),
+            return CGPoint(x: box.minX + inset.left + TextEngine.penOffset(line, flush: flush, room: Double(box.width - inset.width), rtl: insets.rtl),
                            y: box.minY + baseline.rounded())
         }
         if ellipsis {

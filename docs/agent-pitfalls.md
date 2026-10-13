@@ -5,10 +5,20 @@ as symptom → cause → what to do, with where it was found. Delete the entry i
 change that fixes the footgun, or that makes the compiler, runtime or driver
 diagnose it. **Candidate diagnostic** marks one that could become a check cheaply.
 
-Read [the agent guide](contract-for-agents.md) first. This list holds what that
-guide's rules don't make obvious.
+> **Lookup reference; start at [start-here.md](start-here.md).** It names the pitfalls
+> that cost agents the most, and its [recipes](recipes/) avoid the rest. Search this list by symptom (`grep -n`) when
+> something compiles and misbehaves; don't read it front to back.
+
+This list holds what the [agent guide](contract-for-agents.md)'s rules don't make obvious.
 
 ## Layout
+
+- **A px `width` beside text in a role does not grow with Dynamic Type.** A `text` whose
+  font is a role (`-exact-body`, or a `rem`/`em` size) scales with the person's text size,
+  and a box the author sized in px does not, so at accessibility sizes the text runs past
+  it (a day label under its icon, "Low" and "High" run together). That is CSS too. Fix: say
+  the width in `rem` or `em` (`width="3rem"`), size columns with a grid of `auto` tracks,
+  or let the row wrap (`flex-wrap="wrap"`). (Bake-off round 13, weather; LLP 1116.011 D2.4.)
 
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
@@ -18,12 +28,38 @@ guide's rules don't make obvious.
   with `overflow-y="auto"`, or a `column height="100%"` holding a `scroll` with `flex=1
   min-height=0`. (Authoring bench, LLP 1087, r33 t1-tip and ios25 t1-tip, 2026-10-06.)
 
+- **A checkbox, a radio or a range touches the text beside it.** Cause: a control
+  has no margin of its own on any host (LLP 1115.000 D10.1): the few pixels a
+  browser's own sheet puts around them are reset, as every common reset does, so
+  the page and the native control are laid out alike. Fix: `gap` on the row
+  (`row align-items="center" gap=8`), which a grouped `list`'s rows already have.
+  (Wave 2 of LLP 1115.000, a scratch page on the web, the Mac and iOS, 2026-10-11.)
+
+- **A label beside a `range` or a `progress value=` wraps onto two lines, and the
+  control is wide.** Cause: both are `width: 100%` unless you say otherwise (LLP
+  1115.000 D10.2), and in a `row` that is the control's flex basis: the row
+  overflows by the label's width and CSS shrinks both children, the label down
+  to its longest word ("Screen brightness", 164 points, became 116 beside a
+  range in a 400-point row). Fix: `flex=1 min-width=0` on the control, which
+  then takes what the label leaves; or a `width`. In a `column` or a plain box
+  nothing is needed. **Candidate diagnostic:** a `range` or a determinate
+  `progress` with no `width` or `flex` beside a `text` in a `row`. (Wave 2 of
+  LLP 1115.000, Chrome 154 and the kernel alike, 2026-10-11.)
+
 - **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
   number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
   28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or
   `width`, which means pixels. Fix: write `line-height="28px"`, or a ratio such as
   `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
+
+- **A `\n` in a text runs its two lines together.** ``text `${ref}\nResults rounded.` ``
+  showed one line on the web and in an iOS grouped footer. Cause: `white-space:
+  normal` (CSS's default) collapses a line feed to a space, as a `<div>` does. Fix:
+  `white-space="pre-line"` on the text, which every host then draws as two lines
+  (a grouped list's footer and cells included), or two `text`s. **Candidate
+  diagnostic:** a literal `\n` in a text whose `white-space` collapses it.
+  (Bake-off round 6, unit-converter; LLP 1116.004 D2, 2026-10-11.)
 
 - **A ported `clamp(inset, 15, 60)` never stops at 60.** Cause: React Native
   code's `clamp(value, min, max)` (lodash's order) is not CSS's `clamp(MIN, VAL,
@@ -38,14 +74,18 @@ guide's rules don't make obvious.
   parent `min-height=0` (`min-width=0` across a row), or position it absolutely in
   a sized box. (Signal Clone DIARY, build 7.)
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
-  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: add
-  `object-fit="contain"` to every symbol with a `width`/`height`. (Signal Clone,
-  2026-10-02.)
-- **On iOS the whole window scrolls when the keyboard opens, and the header goes
-  with it.** Cause: without `interactive-widget`, the root is not resized for the
-  keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
-  `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
-  toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
+  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
+  it follows its text (in a button, tab or bar item, its title's font; give it a
+  `font-size` if it must differ; a native button refuses its symbol's `width` and
+  `height`). A symbol you do size by its box needs `object-fit="contain"`. (Signal
+  Clone, 2026-10-02.)
+- **In dark mode the navigation title and status bar turn white on a light page.**
+  Cause: the app paints a fixed light background (`background-color="#FAF7F2"`)
+  while the system is dark, so UIKit's bars and the platform's colours go dark
+  around it. Fix: leave the background unsaid (the platform's, LLP 1115), or, for a
+  deliberately light-only design, write `color-scheme="light"` on the root, which
+  holds the whole app in light as `overrideUserInterfaceStyle` does. (Shelf port,
+  2026-10-09.)
 
 - **The app is wider than the window, and its tests still pass.** A root with
   `width="100%"` and `padding=24` is 48 points too wide: sizes are `content-box`, as
@@ -99,10 +139,45 @@ guide's rules don't make obvious.
   `height="100%"`). Fix: `box-sizing="border-box"` on the padded box or its style;
   or drop `width`, since a box in a block or a `column` already fills the width.
   (Chat2 and Workout DIARY, Gallery's `height`; reproduced on the web, 2026-10-04.)
-  **Candidate diagnostic:** the compiler could name `box-sizing` when a
-  content-box node has `width="100%"` and horizontal padding.
+  **Diagnosed:** the compiler warns (`lower-width-padding`) for a content-box
+  container with `width="100%"` and horizontal padding or a border, and `check`
+  names the box that runs past its parent by its padding (LLP 1116.009 D5).
+
+- **A one-edge border draws a frame, and a drawer closed to `height=0` stays open
+  a few pixels.** `border-top-width=1 border-style="solid"` on a 60 × 20 box drew a
+  1 px top and 3 px sides and bottom (66 × 24); with `box-sizing="border-box"` and
+  `height=0` the box was 4 px tall. Cause: `border-style` sets all four sides (CSS),
+  and a side whose width is unsaid keeps CSS's initial `medium`, 3 px. Fix: say the
+  one side: `border-top="1px solid"` (the side's shorthand), or
+  `border-top-width=1 border-top-style="solid"`. (T3 Code clone's terminal drawer,
+  whose panes lost 6 px to side borders, 2026-10-06; reproduced on the web and
+  macOS, 2026-10-12.)
 
 ## Lists and scrolling
+
+- **A frame's cell count is not its stretched layout width.** Giving the
+  harness's animation rows a width of `animCols` cells changed fullscreen layout in
+  a window narrower than the animation's minimum 20 cells. `width="100%"`
+  preserved the stretched box, but adding it with `height="1lh"` did not reduce
+  text measurement calls. Keep auto sizing unless the alternative is both
+  behaviorally equivalent and measurably faster. Verified across animation
+  frames and resizes, 2026-10-10.
+
+- **A closed dialog still creates an eager `each`'s rows.** Hiding a dialog
+  hides its presentation; an ordinary `each` still instantiates the children.
+  For a large optional list, gate the rows with `when`, or use a supported
+  `list virtualized=true` shape. The terminal now reports a closed dialog's
+  virtual list with a zero viewport, releasing its row views while retaining
+  its index and scroll position. The LLP tree initializes that index on first
+  use. Keep the dialog itself mounted for the host command to address.
+  Found and verified in the LLP terminal reader (2026-10-10).
+
+- **An unchanged row style is evaluated on every animation tick.** Passing the
+  whole row to a helper, such as `weight(run)`, makes the runner's dependency
+  scan count every field of that row. A color change then reevaluates its font
+  weight too. Pass the fields the helper uses (`weight(run.bold, run.dim)`)
+  so the binding can skip unrelated changes. Found in the harness's matrix
+  animation, 2026-10-10; LLP 1017.003 D6 describes the field mask.
 
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
   mutation answers the whole list (10,000 rows), and on the JS target a Rust
@@ -189,52 +264,104 @@ guide's rules don't make obvious.
   sends a mutation that `refreshes` its cards holds until storage answers, so a quick
   second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
   Fix: in a test or drive put `clock settle` between drags. Showing the move in
-  the drop's own commit (the board in state the action writes, saved through the
-  mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
+  the drop's own commit (an `overlay` on the cards' source, or the board in state the
+  action writes, saved through the mutation) only removes the wait for storage, which
+  shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
 
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
-  by the root's `navigationBack`; with no such enabled control in the active route
-  it is refused (the log says "back gesture refused"). Fix: `navigationBack="back"`
-  on the root and an `id="back"` button on every pushed screen (LLP 1038 §6).
-  **Candidate diagnostic:** the compiler could warn on a stacked route with no
-  control of that id.
+  by the root's `navigationBack`, and a route that declares one that is disabled
+  refuses it (the log says "back gesture refused" and why). A route with no such
+  control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
+- **A `link` to a route does nothing on iOS or the Mac.** On the web the browser's
+  Back and Forward and a `link` to a declared route work with no `navigate` handler:
+  the runner pops or goes there itself (LLP 1115 D5, LLP 1115.000 D4.3). A native host
+  has that only for Back; a link, or a URL the system opens, is refused there (the log
+  says "navigate refused"). Fix: `navigate=follow` on the root and
+  `action follow(url: string)` with `nav = go(nav, url)`, as every pattern has;
+  `one-screen` keeps it with one route (LLP 1116.002, 1116.003).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
-  collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
-  names one; a title collapses only with the scroller right after the route's
-  `header`. Fix: a `scroll id="feed" flex=1 min-height=0` right after the `header`
-  and `navigationScroll="feed"` on the route (docs/contract-for-agents.md, "Routes and
-  web documents"). The compiler refuses a name nothing in the route carries, or one
-  on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
+  collapses.** Cause: a route is a box, not a scroller; a title collapses only with
+  the scroller right after the route's `header`. Fix: a `scroll flex=1 min-height=0`
+  right after the `header`. It is the bar's scroller with nothing written, and
+  `navigationScroll="id"` on the route names a different one
+  (docs/contract-for-agents.md, "Routes and web documents"). A pushed route's large
+  title opens collapsed over its scroller and expands on a pull (QUEUE.md); keep
+  large titles for a stack's first screen. The compiler refuses a name nothing in the
+  route carries, or one on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
   compiler could refuse a named scroller that is not right after the `header` (an
   iOS-only rule today, so not refused); the hosts could journal a route whose
   content overflows with nothing to scroll it (QUEUE.md).
+- **The root screen has no native bar, and the log says `navigationKey "0" matches no
+  route`.** Cause: the list route is keyed by a name (`navigationKey="items"`, as the
+  `list-detail` and `rest` patterns key it) while the root names the visit,
+  `` navigationKey=`${top(nav).id}` `` (`"0"` at the stack's root), so at the root no
+  route is selected and nothing is projected. A closed sheet or a popped screen leaves
+  the route beneath it live (LLP 1035.001 D1, amended); it used to stay inert on the web
+  and blank on iOS (chat-rooms, bake-off round 6). Fix: key them alike: every route
+  `` navigationKey=`${e.id}` `` under a `` `${top(nav).id}` `` root, or the patterns'
+  root expression, `"items"` while the list is on top, with the named list route.
+  **Diagnosed:** the compiler warns (`lower-navigation-key`), and for the reverse, a
+  root keyed by a literal over routes keyed by id, where no push is ever shown (a tap
+  on a row did nothing, chat-rooms round 12, about eight minutes).
 - **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
-  dismissal refused: no enabled navigationBack control in the active route").
-  Cause: as for edge-swipe back, the swipe presses the control named by the root's
-  `navigationBack`, and a `navigationPresentation="modal"` route with no enabled
-  control of that id refuses it; `closedby="none"` refuses it too. Fix: an
-  `id="back"` button (Cancel, Done) in every sheet (`ModalIOS.swift`,
-  `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
+  dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
+  control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
+  control always swipes down (LLP 1115 D5). (`ModalIOS.swift`, `refusesDismissal`.)
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
-  grouped list). Fix: the native Contract forms
+  grouped list), and values copied from a screenshot: Apple's system colours as hex
+  (`#8e8e93`, `#007aff`, `#f2f2f7`), headings as `font-size=34 font-weight=700`, a
+  large title or a search bar painted in the content. Each is a tell: it misses dark
+  mode, Increased Contrast and the next iOS. Fix: the native Contract forms
   ([the agent guide](contract-for-agents.md#views-layout-and-interaction), "Prefer
-  native controls"); a hand-built lookalike of a system control is a bug. Match a
-  reference's structure and controls, not its pixels. (Exact-new iOS app feedback,
-  2026-10-04.)
+  native controls"): a `header` with a `role="heading" aria-level=1` (the large
+  title) and an `input type="search"` (the bar's search field); a colour role
+  (`-exact-secondary-label`, `AccentColor`, `-exact-grouped-background`) or nothing
+  where you would write a hex. A hand-built lookalike of a system control is a bug.
+  Match a reference's structure and controls, not its pixels; copy
+  [`apps/shelf`](../apps/shelf/app.contract), the recipe, and run `bun
+  scripts/no-tells.mjs <app>`, which lists every literal colour, font size and weight
+  left. (Exact-new iOS app feedback, 2026-10-04; LLP 1115.)
+- **Dark mode is unreadable: white text on a light card, labels lost on a light page.**
+  Cause: a brand written as hex on a page, a card or text (`#f3f5f1`, `#ffffff`,
+  `#18392d`); it stays the same in dark mode while the platform's text and controls
+  turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: the one
+  authored colour is the accent on the root, a role (`accent-color="-exact-system-indigo"`)
+  or one `light-dark(light, dark)` pair; surfaces and text are roles (`-exact-label`)
+  or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
+  first op. (LLP 1116.002 D1.)
+- **A card is white on a white page in light mode.** Cause:
+  `-exact-secondary-grouped-background` (white in light) on a plain page (white), as
+  start-here once suggested; two round-5 apps' cards vanished so. Fix: surfaces in
+  pairs. A card on a plain page is `-exact-secondary-background` (light grey, dark
+  grey); on a `-exact-grouped-background` page (light grey, black) it is
+  `-exact-secondary-grouped-background` (white, dark grey); a surface inside a card is
+  the tertiary role of its pair (`-exact-tertiary-background`,
+  `-exact-tertiary-grouped-background`). (LLP 1116.003 D3.3.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
   To see the bars, the tab bar and sheets as a person does, drive with `--chrome
   platform` and take `screenshot out.png window`; menus stay the agent's popovers
-  there. (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
+  there. On the Mac the same switch shows a `dialog` and a modal route as
+  sheets and a popover
+  that is no menu as AppKit's popover; each is a window of its own, so a plain
+  `screenshot` (the viewport's own drawing) leaves it out and says so
+  (`notShown`). (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
+- **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
+  `backdrop-filter` samples only the parent's subtree, even when every wrapper
+  is transparent. Make the glass a direct sibling of what it covers; put a
+  floating composer beside its scrolling transcript. Check it with `agent macos
+  "screenshot glass.png window"`: only the composited window capture shows
+  background filters; a plain `screenshot` shows every macOS glass sharp.
+  (T3 Code backdrop case B; LLP 1053.000 §3.)
 - **A link in the app's own scheme never matches.** `signalclone://connect?x=1`
   reaches the root's `navigate` handler as the location `/connect?x=1`: the scheme
   is dropped and the host becomes the first path segment (`location_of`, LLP 1038
@@ -243,17 +370,20 @@ guide's rules don't make obvious.
 - **VoiceOver reads the screen behind a full-screen overlay.** A call screen
   or menu drawn as a root child above the bars hides the chat list from sight,
   not from VoiceOver: it still reached the rows and the native tab bar behind.
-  Fix: `role="dialog" aria-modal=true` on the overlay's root (LLP 1080.003); on
-  iOS its siblings, the tab container and its bars among them, are then skipped
-  while it shows. (Signal Clone, build 13.) Not `role="alertdialog"` on content
-  you lay out: see the next entry.
+  Fix: a route with `navigationPresentation="fullscreen"`, which UIKit presents
+  over the bars with the page under it inert; or `aria-modal=true` on the overlay's
+  root (LLP 1080.003), so on iOS its siblings, the tab container and its bars among
+  them, are skipped while it shows. (Signal Clone, build 13.) Not `role="dialog"`
+  on the box, which gets no dialog behaviour (`lower-dialog-role`), nor
+  `role="alertdialog"` on content you lay out: see the next entry.
 - **`role="alertdialog"` refuses a dialog laid out in a `column`.**
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
-  1021: iOS's sheet, macOS's menu), whose rows can only be text, buttons that
-  close it, and one cancel. Fix: give a modal you lay out yourself `role="dialog"
-  aria-modal=true`; keep `alertdialog` for a flat list of text and buttons.
-  (x2apps onboarding's Delete account?, 2026-10-04.)
+  1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
+  close it, and one cancel. Fix: a modal you lay out yourself is a sheet, a route
+  with `navigationPresentation="modal"` (recipes/navigation-stack.md); keep
+  `alertdialog` for a flat list of text and buttons. (x2apps onboarding's Delete
+  account?, 2026-10-04.)
 - **`tabIndex` on a module tag is refused.** `` `paint-surface` has no attribute
   `tabIndex`; `tabIndex` is spelled `tabindex` here ``. Cause: HTML's
   `tabindex` is now an attribute on every element and module tag's box (LLP
@@ -274,8 +404,30 @@ guide's rules don't make obvious.
   saved record (refresh the resource after each write, or key the child by a string or
   number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
   t7-wizard, 2026-10-05/06.)
+- **A grouped-list row you lay out loses its side insets, or its content runs off the
+  card.** Cause: the sheet gives a custom row (a `row` that is not a title/value row)
+  its padding, and `padding="12px 0"` replaces all four sides, so the row's content
+  starts and ends at the card's edge; a `row`'s children are a flex row, so a `column`
+  or a bar inside takes no width either. Fix: put the content in a `column flex=1`
+  (`apps/shelf`'s Progress and Yearly Goal rows), which the sheet keeps 15 from the
+  card and the separator, or make the row itself a `column`, which stacks its children
+  (LLP 1116 D2); to choose that space write the row's `padding-top`/`padding-bottom`
+  only, which replaces the column's. (Shelf recipe, 2026-10-10.)
+- **A text field or `textarea` in a grouped-list row written `appearance="none"` reads
+  as plain text on the web.** Cause: `appearance="none"` is the author's bare box on
+  every host: on a desktop page an 18 px line with no border or background, a small
+  target ("inputs read as plain text", bake-off round 7). Fix: leave the field unsaid.
+  Each host draws its field in a row: iOS borderless in its cell, which is the field (a
+  tap anywhere in the row reaches it), the web and macOS a field with its line, corners
+  and height (LLP 1116.005 D2), as `apps/shelf`'s add sheet shows. (Shelf recipe,
+  2026-10-10; round 7, 2026-10-11.)
 
 ## Actions
+
+- **A scalar resource cannot use `empty("idle")`.** `empty()` takes named
+  fields only for a record shape; a string's `empty()` is `""`. Use a pure
+  fallback function for a nonempty string. (`type-placeholder-fields`,
+  reproduced while testing TypeScript failure parity, 2026-10-13.)
 
 - **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
   after it starts, so state it fills is empty until then, after a test `reload`
@@ -315,7 +467,11 @@ guide's rules don't make obvious.
   read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
   helper should see, `follow(next)`, or a `let` bound before the assignment for
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
-  the workaround.)
+  the workaround.) In the action's own body the same read is a warning,
+  `analyze-read-after-assign`: `now = performanceNow()` then `if now >= endsAt`
+  tests the last tick's time (focus-timer's phases changed 250 ms late in two
+  bake-off rounds). Fix: `let stamp = performanceNow()`, `now = stamp`, and read
+  `stamp`.
 
 - **A delete or save is lost when the page reloads right after it.** An action that
   `send`s a write and navigates away in the same commit passes every test, but a
@@ -402,6 +558,12 @@ guide's rules don't make obvious.
   value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
   codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
   13.)
+- **A field's `change` fires when a tap elsewhere blurs it.** A dialog that adds
+  a word on `change` adds it the moment the person taps a duration or another
+  control, before they meant to submit. Cause: `change` is the commit event, and
+  a text field commits on Enter and on blur, as in HTML. Fix: submit on `submit`
+  (Return, a form's button) and keep `change` for normalizing the draft.
+  (The Bluesky clone's muted words dialog, 2026-10-08.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does
@@ -419,9 +581,13 @@ guide's rules don't make obvious.
   out and checked only when the refreshed answer lands, so a slow store shows no tick,
   and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
   macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
-  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
-  `send`), and seed that state from the saved record as a form does. (Authoring bench,
-  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+  the answer. Fix: give the mutation `refreshes form` and export an `overlay` that lays
+  the pending save over `form`'s answer (the agent guide's "Optimistic writes: the
+  overlay"), so `form.terms` reads the new value from the click until the refreshed
+  answer has it; or bind the box to state the
+  action writes at once (`terms = value`, then `send`), seeded from the saved record as
+  a form does. (Authoring bench, LLP 1087, codex17 t7-wizard, 2026-10-05; the overlay
+  checked on the web with a save that never answers, 2026-10-09.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
@@ -446,12 +612,20 @@ guide's rules don't make obvious.
   with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
-  `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
+  `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
+  circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
   not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
   #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
   a border on the scroll itself shrinks it, so put a hairline on the content (Splitter
-  DIARY, rough 10).
+  DIARY, rough 10). A grouped list's row is exempt (its list cell swipes), but there
+  `width="100%"` on the scroll runs past the card by the section's 16-pt inset and
+  clips the content's last control on every host: use `list-rows`' grouped form
+  (grocery-list DIARY, issue 2, about 15 minutes, round 3). A button indented as the
+  `scroll`'s sibling, not its child, is no swipe action (iOS refuses the row, the web
+  draws it as a second line): the compiler warns (`lower-swipe-wiring`) when a
+  `swipeContent`, `swipeLeading` or `swipeTrailing` names an `id` not inside the
+  `scroll` (grocery-list, round 12, about seven minutes).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone
@@ -510,6 +684,16 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **An alert's action has not run by the next step on iOS.** `tap "remove-confirm"`
+  then `clock data` finds nothing removed, though a drive shows the press. Cause:
+  UIKit runs an alert button's handler after the alert has gone, a transition the
+  tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
+  after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
+  (Shelf recipe, 2026-10-10.)
+- **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
+  driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
+  as the drive's first operation. (Shelf recipe, 2026-10-10.)
+
 - **Asserting a boot loading state against a live backend is a race.** The
   real reply lands on real time, and under load it can arrive before the first
   `expect`, so `expect tree has "loading"` passes once and fails once. Assert
@@ -556,18 +740,21 @@ guide's rules don't make obvious.
   included: a backend on real time otherwise sees the app's dates months early
   ("Due in 403783 min"). (Bluesky clone, b12, 2026-10-07; app farm round 2.)
 
-- **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
-  captures the presented route (a fit-content repost sheet came out 402 × 270
-  points), so its type looks twice its size when viewed as a screen. Fix:
-  `screenshot out.png window` for the screen as a person sees it. (Bluesky clone,
-  b12, 2026-10-07.)
-
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
   so the frame and the computed style still read the old value: the toggle
   looks unchanged. Fix: `clock settle` (or `clock +N` past the transition)
   before `screenshot`. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-07:
   about 5 minutes and a probe script to find.)
+
+- **A macOS `screenshot` shows no focus ring on a native field or button.** AppKit
+  draws its focus ring only in the key window of the active app, and the driver's
+  window is never key; nor is the ring in any picture a process can make of its own
+  window (`cacheDisplay`, the layer tree). A focused native field looks unfocused
+  in the picture, and a bare field shows only the ring Exact itself draws. Fix: do
+  not judge a Mac focus ring from the driver's picture; read `state`'s `focus`, and
+  look at a key window by hand. (LLP 1115.000 D7.9, 2026-10-12: an earlier lane
+  concluded from the picture that AppKit's ring never drew.)
 
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,
@@ -577,6 +764,12 @@ guide's rules don't make obvious.
   the native reply is still pending. Fix: put `clock data` after the input, before the
   `expect` that reads what its reply sets.
   (Authoring bench, LLP 1087, ios23 t5-pomodoro, 2026-10-05; iOS round 6.)
+
+- **An `iframe` can show an app-owned document.** Use
+  `src="app:/data/doc.pdf"` (also `app:/cache` and `app:/tmp`). The host
+  reads it as its file type and keeps the authored sandbox; a missing or
+  refused app file fires `error`, without a successful `load`. This does
+  not provide a portable fit-to-width PDF viewer or toolbar controls.
 
 - **An `iframe` of `http://` from a named host loads under the agent and shows an
   App Transport Security error in the macOS app.** `http://localtest.me:5173/` or
@@ -634,12 +827,6 @@ guide's rules don't make obvious.
   `time-zone` lines in a test file) so both agree and the run stays reproducible.
   (Depot, 2026-10-05.)
 
-- **An iOS screenshot right after a tap shows a segmented control on its old
-  segment.** The tree says the new one is selected. Cause: UIKit animates the
-  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
-  before the screenshot (it moves the app's clock that second too, so a timer due in
-  it fires). (Authoring bench, t1-tip on iOS, 2026-10-05.)
-
 - **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
   the runner refuses a date, time or datetime outside `min`/`max` (the agent says the
   date was refused) on iOS, macOS, Linux and the wasm web; the JS web target keeps the
@@ -653,6 +840,28 @@ guide's rules don't make obvious.
   `testId` and drive with `bun exact.mjs agent ios tree "tap <testId>"
   "screenshot s.png"`; find targets with `tree`, or `tree --ax` for the
   accessibility tree. (Exact-new iOS app feedback, 2026-10-04.)
+
+- **`build.mjs --ios … --phone <udid>` installed onto someone else's simulator.**
+  Cause: a simulator build reads `--sim` (or `EXACT_SIM`); `--phone` is the
+  device's, so it fell back to a booted iPhone, another drive's
+  (2026-10-09). `agent ios` and `smoke.mjs ios` choose the same way. Now a
+  choice among several booted iPhones is refused, naming the caller's way to
+  choose; fix: always pass
+  `--sim <udid>` to `build.mjs` and set `EXACT_SIM=<udid>` for the agent and
+  the smokes.
+
+- **`tap <row>` pressed a link card, Like or Repost inside the row.** Cause: a
+  plain tap aimed at the row's middle, and a finger there presses the deepest
+  control (the Bluesky clone liked and reposted real people's posts,
+  2026-10-09). Now a tap that names a node presses that node: one with its own
+  `press` is pressed beside the control its middle holds (the reply's `avoided`
+  says so, `at` where it landed), or refused when no point of it reaches it; one
+  without a `press` refuses rather than press a control inside it
+  (`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
+  Fix: tap the control by its own `testId`, or `tap <row> at <x> <y>` (a point
+  from its top left) for whatever a finger there reaches; name a point too when a
+  refusal says no point reaches the row but a thin strip of it does (the search
+  is a grid). Every host (LLP 1012 §1).
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
@@ -723,6 +932,15 @@ guide's rules don't make obvious.
   store) into that folder first; `logs` shows the module's `console.log`.
   (Signal clone, live transport, 2026-10-05.)
 
+- **A drive shows another app's data.** Cause: a store is named by the app's id, and
+  apps made before `exact new` wrote a unique id share one when they share a name
+  (`com.example.contacts-exact2`, a bake-off's every round): a native drive's
+  `--storage s1`, a simulator's container and the installed app are that id's. The
+  web keeps a development store by the app's folder too, so there it is the app's
+  own. Fix: give an older app an id of its own, in `app.json`'s `app.id` (and `id`)
+  and `app.ts`'s `appId`, as `exact new` writes them (`com.example.<name>-3f9a2c`).
+  (LLP 1116.004 D8, bake-off round 6 contacts.)
+
 - **A save that fails in the background is lost to the person.** An answer that
   saves unawaited has replied before the write fails, so no answer reports it;
   `logs` has `storage failed: …`, but the person sees nothing. Fix: keep the
@@ -761,6 +979,13 @@ guide's rules don't make obvious.
 
 ## Working on exact2 itself
 
+- **Bundling `host/web-js/rt.js` alone reports missing imports.** Its
+  `./navigation.js` and other relative imports are supplied beside it by the
+  web build, so `bun build host/web-js/rt.js` is not a valid host build. Use
+  `host/web-js/build.mjs` to verify the target, or `bun build
+  host/web-js/rt.js --external '*'` for a syntax-only check. (Events lane,
+  2026-10-11.)
+
 - **A bisect that shares another worktree's Cargo target directory builds
   stale code.** `CARGO_TARGET_DIR` pointed at one worktree while checking out
   older commits in another left generated enums (`PropId`, `Stdlib`) from the
@@ -784,12 +1009,32 @@ guide's rules don't make obvious.
   seconds` line of the whole run, read the verdict from it, then kill the
   `xcodebuild test` PID whose `-derivedDataPath` is under your own checkout.
   `build.mjs` then reports `BUILD INTERRUPTED`, which is not a test failure.
+- **`build.mjs <app> --test` can break tests that assume Caltrain data.** The
+  Swift suite links the named app's plan and sources; its owner and batch tests
+  call `defaultLocation`. Use `build.mjs --test` for the full AppKit suite, then
+  drive a fixture app separately with `agent macos --app <app> --plan <plan>`.
+- **A web wasm `--plan` override cannot add an unlinked capability.** The wasm
+  artifact links capabilities from the app's baked `app.contract`. A separate
+  plan that first uses geometry can boot with `Unlinked("geometry")` even when
+  that plan works on the JS and native hosts. Bake the test Contract as the
+  app's source when testing a new wasm capability.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
   older commit left there. Fix: name the apps and pass `--build` with a
   `--wasm-root` of your own (`conform.mjs <app> --build --strict --wasm-root
   /tmp/<yours>`). With no apps named, an empty root compares nothing and passes.
+- **An `EXACT_WEB_DIST` build compiles, then fails renaming its stage.** The
+  destination's parent directory does not exist. Create that parent before
+  running `host/web/build.mjs --wasm` with an external dist path.
+- **`conform.mjs --help` starts conformance.** It has no help flag; an unknown
+  flag does not stop the run. Read its usage comment instead. A run against a
+  shared wasm root may spawn app builds, which can outlive an interrupted parent.
+- **A synthetic conformance fixture crashes with `ENOENT` under the wasm root.**
+  Its `// data: <app>` line named an app without a web host (the focus fixture
+  first named `hello`), so `--build` made no wasm dist for it. Name an app with
+  a web host, and a Linux host when using `--linux` (`caltrain` for the focus
+  fixture). (`focus-bubble` conformance, 2026-10-12.)
 - **A web size or speed number is inflated.** Cause: a development web build
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,
@@ -819,6 +1064,18 @@ guide's rules don't make obvious.
   Flush ranks before capture and disable actions for that flush, including
   mirror writes. A same-batch texture upload then sees the new front sibling.
   (LLP 1083.000, Astra 6 regression.)
+- **A view's `accessibilityActionNames()` read in-process is not what
+  VoiceOver is offered.** It answered `[]` for a `NodeView` while an
+  assistive app read `AXPress`. Cause: that method is the legacy list;
+  AppKit's server adds every `accessibilityPerform…` the class overrides and
+  then drops each that `isAccessibilitySelectorAllowed(_:)` refuses. Fix: read
+  `NSAccessibilityEntryPointActionNames(element)` (exported; AppKit's
+  `CopyActionNames` handler calls it), as `ContextMenuMacTests` does, and
+  offer an action conditionally through `isAccessibilitySelectorAllowed`. An
+  `NSButton` is ignored and its cell is the element, so a native button's
+  action goes on its cell (`NativeButtonCellMac`). While the session is
+  locked, an `AXUIElement` read from any process stops at the application.
+  (X84, 2026-10-12.)
 - **A sub-agent's half-written crate breaks every build in the worktree.**
   Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
   every `cargo` command, so one that does not parse or compile yet stops
@@ -829,8 +1086,11 @@ guide's rules don't make obvious.
 - **"I opened it in a terminal" is not "it is running".** `open -na
   Ghostty.app --args -e …` can return success while the window reports "The
   terminal failed to initialize". Before telling a person the app is up,
-  confirm its process (`pgrep -f <binary>`) and kill a failed window's
-  instance before retrying (LLP 1101.002 §0 P16).
+  confirm the process you launched is alive (the PID recorded at launch:
+  launch the binary directly and keep `$!`, then `kill -0 $pid`), and kill
+  that recorded PID before retrying — never a PID found by name or pattern
+  (`pgrep -f`, `pkill`), which on a shared machine is another lane's
+  process as often as yours (LLP 1101.002 §0 P16; `rules/RULES.md`, Fleet).
 
 - **An external native app rebuilds on every unchanged direct Cargo invocation.**
   Cargo treats a missing optional `assets`/`deck` input as perpetually dirty;
@@ -908,3 +1168,27 @@ guide's rules don't make obvious.
   draws the face. If the row was designed around bare text tabs, write
   `appearance="none"` on those tabs. Native Fixture's header needed this
   after buttons became native by default. (LLP 1059 D2a, LLP 1104 D9.)
+
+- **An AppKit segment's AX child lookup can recurse through its control.**
+  Asking the native cell for `AXChildren` while an `NSSegmentedControl`
+  overrides its children re-enters the control's override, even when the
+  query began at `super.accessibilityChildren()`. Expose the native children
+  temporarily during that lookup; test the exposed segment's AX attributes.
+
+- **UIKit menu and alert actions are models, not accessibility elements.**
+  Setting or testing `accessibilityTraits` on `UIAction`, `UIMenu` or
+  `UIAlertAction` does not change what VoiceOver reads from the presented row
+  or button. UIKit's public disabled states also stop selection. Test the
+  presented accessibility element when claiming an ARIA projection; leave
+  `aria-disabled` actions selectable and declare the UIKit deviation.
+
+- **AppKit's `setAccessibilityEnabled(false)` does not make a control's
+  `AXEnabled` false.** Check the exposed control and its cell with
+  `accessibilityAttributeValue(.enabled)` or `tree --ax`; checkbox, radio,
+  popup, slider and date cells keep reporting enabled until they answer that
+  attribute themselves. `NSSwitch` has no cell.
+
+- **Vertical percentage `intersect-margin` follows Chrome's root height.**
+  Horizontal percentages use root width. The native sampler matches the
+  measured browser behavior, which differs from the W3C draft's all-width
+  rule (LLP 1001). Use `px` when the overscan is an absolute distance.

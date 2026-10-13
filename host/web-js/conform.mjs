@@ -10,19 +10,27 @@
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
 //
-// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
+// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10] [--jobs 4]
 //   (the JS builds go to <out>/dist/<target>)
+//   --jobs drives that many targets at once (default 4), each with its own
+//   browsers, servers and Linux host; the report is in target order.
 //   apps default to every app with a built wasm dist under --wasm-root
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
 //   --build makes each named app's wasm dist there first (and an
 //   EXACT_WEB_LINK=all data-app dist for --synthetic, whose swapped plans
-//   can use any capability);
+//   can use any capability); without it a dist older than its sources is
+//   refused by name (a `wasm-open` failure), as the driver refuses one;
 //   --synthetic adds host/web-js/conformance/*.contract (and */app.contract), run on
 //   Caltrain's wasm dist with the plan swapped in (agent `--plan`), whose
 //   data sources they may ask; the JS side loads the same Rust module. A
 //   plan whose first lines say `// data: <app>` runs on that app's dist
 //   instead, for its sources and the capabilities it links; one that says
-//   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts.
+//   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts, and
+//   `scale=<n>` in that line opens all three at that display scale
+//   (EXACT_SCALE: Chrome's own device scale factor for both pages, the Linux
+//   host's pixels a point), so a hairline is the same device pixel on each
+//   (LLP 1115.000 D10.3, D14.2); with none every host is at the scale its
+//   environment names, 1 unless EXACT_SCALE says.
 //   Every page freezes media time (`mediaClock: 'frozen'`: rate 0 from a
 //   media element's first load): a playing video would otherwise follow the
 //   wall clock, so two pages read different positions; play, pause and seeks
@@ -63,20 +71,32 @@ import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { conformArgs } from './conform-args.mjs';
 import { open } from '../../scripts/agent.mjs';
-import { chromium } from '../../scripts/agent-launch.mjs';
+import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
+import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
+/** `spawnSync`'s result without holding the event loop: the other targets'
+ *  drives keep running while one builds. */
+const spawned = (command, args, options) => new Promise((done) => {
+  const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '', stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
+  child.on('error', (error) => done({ status: null, stdout, stderr: stderr + error.message }));
+  child.on('close', (status) => done({ status, stdout, stderr }));
+});
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const argv = process.argv.slice(2);
-const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
-const wasmRoot = resolve(opt('--wasm-root', '/tmp/e3-wasm'));
-const out = resolve(opt('--out', '/tmp/exact-web-js-conform'));
-const maxSteps = Number(opt('--steps', 10));
-const crossBrowser = opt('--browser', null);
+const { options, named } = conformArgs(argv);
+const wasmRoot = resolve(options['--wasm-root']);
+const out = resolve(options['--out']);
+const maxSteps = Number(options['--steps']);
+const crossBrowser = options['--browser'];
 if (crossBrowser != null && !['firefox', 'webkit'].includes(crossBrowser)) throw new Error(`--browser: firefox or webkit, not ${crossBrowser}`);
 const known = crossBrowser ? JSON.parse(readFileSync(resolve(here, 'conformance', `known-${crossBrowser}.json`), 'utf8')) : [];
 // An entry names one difference exactly, or a class of them: `*` in app, step or
@@ -91,8 +111,7 @@ const knownFor = (app, step, field, what) => knownByKey.get(`${app}\0${step}\0${
   ?? knownClasses.find(c => c.app.test(app) && c.step.test(step) && c.field.test(field) && (!c.pattern || c.pattern.test(what)))?.entry;
 if (known.some(entry => !entry.app || !entry.step || !entry.field || !entry.reason)) throw new Error(`known-${crossBrowser}.json: every entry needs app, step, field, and reason`);
 if (knownByKey.size !== exact.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
-const only = opt('--only', null);
-const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--browser', '--only'].includes(argv[i - 1]));
+const only = options['--only'];
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 // The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
@@ -197,7 +216,7 @@ function diffPng(a, b, sideBySide, masks = []) {
   return share;
 }
 // The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
-const STATE_KEYS = ['slots', 'derives', 'resources', 'head', 'reorder', 'sounds', 'sessionCore'];
+const STATE_KEYS = ['slots', 'derives', 'resources', 'writes', 'head', 'reorder', 'sounds', 'sessionCore'];
 // The media session (LLP 1098 D10) by testId (each target numbers its views its own way) and the artwork's path (each
 // page has its own port): what every host records (`sessionCore`, Linux's too), and what the pages publish (`session`).
 const addSession = s => {
@@ -243,7 +262,11 @@ async function target(t, report) {
     }
     return;
   }
-  const build = spawnSync('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve(out, 'dist', t.name)], { cwd: root, encoding: 'utf8' });
+  // An app's wasm page is served from here and opened by its address, so the driver has no dist to check, as it checks
+  // a synthetic plan's (`webDist`). One older than its sources is refused here by the driver's rule (agent-launch.mjs;
+  // LLP 1012.001.000 D1): both pages would be the app as it was built, the JS build being of the dist's plan.
+  if (!t.contract && !crossBrowser) try { refuseStale('web', resolve(t.wasm, '.exact-build.json'), webChanges(t.wasm, resolveApp(t.app)).all, 'conform.mjs with --build'); } catch (e) { return fail('wasm-open', e.message); }
+  const build = await spawned('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve(out, 'dist', t.name)], { cwd: root });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
   // A route that paints its boot document first is checked as its server
@@ -271,8 +294,9 @@ async function drive(t, report, fail, dir, ws, js) {
   const reference = crossBrowser ? 'chrome' : 'wasm', other = crossBrowser ?? 'js';
   const pair = async (left, right) => crossBrowser ? [await left(), await right()] : Promise.all([left(), right()]);
   try {
-    // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both.
+    // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both. `scale=` is the display's, a launch fact of every host.
     const facts = Object.fromEntries([...(t.contract ? /^\/\/ agent: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1] ?? '' : '').matchAll(/(\w+)=(\S+)/g)].map(([, k, v]) => [k, k === 'epoch' ? Number(v) : v]));
+    const scaled = facts.scale ? { env: { EXACT_SCALE: String(facts.scale) } } : {}; delete facts.scale;
     if (crossBrowser) {
       // Both engines hold media time and the default line height equal (agent-launch.mjs `parityScript`):
       // `line-height: normal` is each engine's own font metric (Firefox 20 px where Chrome is 18 at 16px
@@ -283,16 +307,16 @@ async function drive(t, report, fail, dir, ws, js) {
       try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url, ...parity }); }
       catch (e) { return fail(`${reference}-open`, e.message.replace(/\s+/g, ' ').trim()); }
     } else {
-      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
+      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...scaled, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${reference}-open`, e.message.split('\n')[0]); }
-      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: js.url , mediaClock: 'frozen' }); }
+      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...scaled, url: js.url , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${other}-open`, e.message.split('\n')[0]); }
     }
     const linux = crossBrowser || t.urls ? null : linuxFor(t);
     if (linux?.why) report.steps.push({ target: t.name, step: 'linux', skipped: linux.why });
     else if (linux) {
       // An app runs its own binary's plan (the web dist's names the web's Rust module); a synthetic plan is swapped in.
-      try { L = await open({ host: 'linux', app: t.app, ...facts, ...(t.contract ? { plan: t.plan } : {}) }); }
+      try { L = await open({ host: 'linux', app: t.app, ...facts, ...scaled, ...(t.contract ? { plan: t.plan } : {}) }); }
       catch (e) { fail('linux-open', e.message.split('\n').filter(l => !/^crash report/.test(l)).slice(0, 4).join(' ').slice(0, 400)); }
     }
     // The first step the Linux host cannot take ends its comparison (its state has left the wasm page's).
@@ -308,6 +332,9 @@ async function drive(t, report, fail, dir, ws, js) {
       let linuxReport = null;
       driveAt = `${step} state`;
       const [sw, sj] = await pair(() => W.state(), () => J.state().catch(e => ({ error: e.message })));
+      // A write's id orders it within one runtime; each numbers them apart (the Linux host's too), so the mutations and states compare.
+      const plainWrites = s => { if (s?.writes) s.writes = s.writes.map(w => ({ mutation: w.mutation, landed: w.landed })); };
+      plainWrites(sw); plainWrites(sj);
       addSession(sw); addSession(sj);
       if (sj.error) { fail(step, `state: ${other} ${sj.error}`); st++; }
       else if (crossBrowser) {
@@ -319,7 +346,7 @@ async function drive(t, report, fail, dir, ws, js) {
       const o2 = diffLists(norm(tw), norm(tj), 'tree', other, reference); o2.forEach((x, i) => fail(step, x, crossBrowser ? `tree.${i}` : null)); st += o2.length;
       await onLinux(step, async L => {
         const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [];
-        addSession(sl);
+        plainWrites(sl); addSession(sl);
         for (const k of STATE_KEYS) diffJSON(sw[k], sl[k], k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
@@ -354,14 +381,16 @@ async function drive(t, report, fail, dir, ws, js) {
       // own clock); nearest-neighbour on both leaves one filter to compare.
       const still = `document.getElementById('conform-still') || document.head.insertAdjacentHTML('beforeend', '<style id=conform-still>img{image-rendering:pixelated!important}</style>'); new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))`;
       await pair(() => W.carrier?.evaluate(still).catch(() => {}), () => J.carrier?.evaluate(still).catch(() => {}));
+      // Each picture is the clock's, a transition where it stands, as a film's frame is (a plain
+      // screenshot shows one where it ends, LLP 1116.003 D8, which the wasm target's does not).
       if (crossBrowser) {
         // Preserve the other engine's picture even when Chrome's oracle
         // cannot capture (for example a broken GPU process on Linux).
         for (const [session, path, label] of [[J, pj, other], [W, pw, reference]]) {
-          try { await session.screenshot(path); }
+          try { await session.screenshot(path, false, undefined, true); }
           catch (error) { fail(step, `${label} screenshot: ${error.message.split('\n')[0]}`); st++; }
         }
-      } else await pair(() => W.screenshot(pw), () => J.screenshot(pj));
+      } else await pair(() => W.screenshot(pw, false, undefined, true), () => J.screenshot(pj, false, undefined, true));
       // A playing video's frames and controls are the browser's clock, not the runner's.
       if (!crossBrowser) {
         const share = diffPng(pw, pj, resolve(dir, `${slug}-side-by-side.png`), lw.nodes.filter(n => n.type === 'Video'));
@@ -371,7 +400,7 @@ async function drive(t, report, fail, dir, ws, js) {
       return tw;
     };
     // A scripted scenario (`conformance/<app>.steps`): one agent operation
-    // a line — `tap <target>`, `type <target> <text…>`, `key <target> <name>`, `clock <+ms|settle>`,
+    // a line — `resize <width>x<height>`, `tap <target>`, `type <target> <text…>`, `key <target> <name>`, `clock <+ms|settle>`,
     // `back` (the browser's history), `wheel <target> <dy> [dx]`, `into
     // <list> <key> [block]` (a virtualized list's row by key), `drag
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
@@ -406,7 +435,7 @@ async function drive(t, report, fail, dir, ws, js) {
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0], ...(rest[1] === 'for' ? { for: Number(rest[2]) } : rest[1] ? { phase: rest[1] } : {}) }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'move' ? s.pointer('move', { dx: Number(target), dy: Number(rest[0]), ms: Number(rest[1] ?? 200) }) : op === 'drag' && rest[0] === 'to' ? s.tap(target, { drag: { to: rest[1], over: Number(rest[2] ?? 200) } }) : op === 'drag' && rest[3] === 'hold' ? s.tap(target, { drag: { dx: Number(rest[0]), dy: Number(rest[1]), over: Number(rest[2]), hold: Number(rest[4]) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'mediasession' ? s.tap(target, { mediaSession: rest[0], ...(rest[1] != null ? { seconds: Number(rest[1]) } : {}) }) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'resize' ? s.resize(...target.split('x').map(Number)) : op === 'tap' ? s.tap(target) : op === 'menu' ? s.tap(target, { contextmenu: true }) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'key' ? s.type(target, { key: rest[0], ...(rest[1] === 'for' ? { for: Number(rest[2]) } : rest[1] ? { phase: rest[1] } : {}) }) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'move' ? s.pointer('move', { dx: Number(target), dy: Number(rest[0]), ms: Number(rest[1] ?? 200) }) : op === 'drag' && rest[0] === 'to' ? s.tap(target, { drag: { to: rest[1], over: Number(rest[2] ?? 200) } }) : op === 'drag' && rest[3] === 'hold' ? s.tap(target, { drag: { dx: Number(rest[0]), dy: Number(rest[1]), over: Number(rest[2]), hold: Number(rest[4]) } }) : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'mediasession' ? s.tap(target, { mediaSession: rest[0], ...(rest[1] != null ? { seconds: Number(rest[1]) } : {}) }) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
       // named, side-effect-free refusals are exercised by agent.test.mjs.
@@ -564,7 +593,7 @@ async function bootPress(t, report, fail, dist, browser) {
   const bin = `${t.app}-render`;
   const at = [['linux', `${t.app}-linux`], ['web', `${t.app}-web`]].find(([dir]) => existsSync(resolve(root, 'apps', t.app, dir, 'src/bin', `${bin}.rs`)));
   if (!at) return fail(step, `${t.app} has no ${bin} entry to serve the page`);
-  const b = spawnSync('cargo', ['build', '--profile', HOST_DEV, '-q', '-p', at[1], '--bin', bin], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const b = await spawned('cargo', ['build', '--profile', HOST_DEV, '-q', '-p', at[1], '--bin', bin], { cwd: root });
   if (b.status !== 0) return fail(step, `${bin}: ${b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
   const server = spawn(resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), HOST_DEV, bin), ['--serve', dist, '--port', '0'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
   let proxy, S;
@@ -651,6 +680,7 @@ const LINUX_APART = {
   'synthetic-rowsmore': ['up', "a mouse press focuses the button on the page and not on the Linux host"],
   'synthetic-reorder': ['drag grip-5 0 -300 500', "a drag past the list's top autoscrolls on the page and not on the Linux host, so the row lands elsewhere"],
   'interaction-gallery': ['drag sheet-handle 0 -150 300', "a height drag ends 3 px apart (518 on the page, 521 on the Linux host)"],
+  'synthetic-native-buttons': ['tap open-dialog', 'the Linux host does not present dialogs (LLP 1001, LLP 1021 D2): it refuses a `commandfor` press, so the opener keeps the focus'],
   textflow: ['drag orb-1 60 40 300', "a drag advances the scene's elapsed time on the Linux host and not on the page"],
 };
 const linuxCrate = app => { const f = resolve(root, 'apps', app, 'linux', 'Cargo.toml'); return existsSync(f) ? /^name\s*=\s*"([^"]+)"/m.exec(readFileSync(f, 'utf8'))?.[1] : null; };
@@ -732,23 +762,42 @@ if (linuxRef && argv.includes('--build') && engineReady) {
   }
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
-if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
+if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${options['--label']}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (synthetic.length) {
+  // The compiler is built once, as `cargo run` builds it, and run directly
+  // for each fixture: a `cargo run` per fixture repeats Cargo's freshness check.
+  const compiler = spawnSync('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract'], { cwd: root, encoding: 'utf8' });
+  const contractBin = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'debug', 'contract');
   for (const { f, data } of synthetic) {
     const name = 'synthetic-' + (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
     if (dangling(f)) { report.failures.push({ target: name, step: 'fixture', what: `${f} links ${readlinkSync(contract)}, which this tree lacks` }); continue; }
-    const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+    const c = compiler.status === 0 ? spawnSync(contractBin, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' }) : compiler;
     if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
     // Synthetic plans ask their data app's sources (Caltrain's stations, nearest, search): its wasm links them.
     targets.push({ name, app: data, wasm: realpathSync(resolve(wasmRoot, data)), contract, plan });
   }
 }
-for (const t of engineReady ? targets : []) {
-  const before = report.failures.length;
-  process.stderr.write(`${t.name}: `);
-  try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
-  process.stderr.write(`${report.failures.length - before} failures\n`);
+// Several targets at once, one queue: `next` is read and advanced with no
+// await between, and each target's failures are its own entries.
+const jobs = Math.max(1, Number(options['--jobs']));
+const queue = engineReady ? targets : [];
+let next = 0;
+try {
+  await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+    while (next < queue.length) {
+      const t = queue[next++];
+      try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
+      process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
+    }
+  }));
+} finally {
+  closeFilesystemReader();
 }
+// The report lists targets in their order, whatever order they finished in.
+const order = new Map(targets.map((t, i) => [t.name, i]));
+const byOrder = (a, b) => (order.get(a.target) ?? -1) - (order.get(b.target) ?? -1);
+report.failures.sort(byOrder);
+report.steps.sort(byOrder);
 writeFileSync(resolve(out, 'report.json'), JSON.stringify(report, null, 1));
 const byTarget = {};
 for (const f of report.failures) (byTarget[f.target] ??= []).push(f);
@@ -757,7 +806,7 @@ const lines = [`# JS target ${crossBrowser ? `cross-browser conformance (Chrome 
 for (const t of targets) {
   const mine = report.steps.filter(x => x.target === t.name), s = mine.filter(x => x.differences != null && !x.reference), info = report.targets[t.name] ?? {};
   const lx = mine.filter(x => x.reference === 'linux'), lskip = mine.find(x => x.step === 'linux' || x.linux === 'stopped');
-  const lcell = lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`;
+  const lcell = (lskip && !lx.length ? lskip.skipped.replace(/^not compared on Linux: /, 'not compared: ') : `${lx.filter(x => x.differences === 0).length} / ${lx.length}${lskip ? ` (stopped at ${lskip.step})` : ''}`);
   const testCell = info.tests ? crossBrowser ? `${info.tests.chrome} / ${info.tests[crossBrowser]}` : `${info.tests.wasm} / ${info.tests.js}` : '—';
   lines.push(`| ${t.name} | ${info.jsBuild === false ? 'refused' : info.jsBuild ? 'ok' : '—'} | ${s.length} | ${s.filter(x => x.differences === 0).length} | ${(byTarget[t.name] ?? []).length} | ${testCell} |${crossBrowser ? ` ${(info.maxLayoutDelta ?? 0).toFixed(3)} px |` : ''}${linuxRef ? ` ${lcell} |` : ''}`);
 }
@@ -778,3 +827,4 @@ if (argv.includes('--strict') && report.failures.length) {
   }
   process.exit(1);
 }
+process.exit(0);

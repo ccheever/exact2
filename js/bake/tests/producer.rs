@@ -282,12 +282,13 @@ assert.equal(readDevGeneration(cache,prefix+'app.js'),null);
 assert.deepEqual(readDevGeneration(cache,prefix+'app.hbc')?.body,files.get('app.hbc'));
 assert.equal(readDevGeneration(cache,prefix+'private.js'),null);
 "#;
-    let result = std::process::Command::new("bun")
-        .args(["--input-type=module", "-e", probe])
-        .arg(out)
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .unwrap();
+    let result =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .args(["--input-type=module", "-e", probe])
+            .arg(out)
+            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .output()
+            .unwrap();
     assert!(
         result.status.success(),
         "{}",
@@ -511,12 +512,10 @@ fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
         "bake deferral creates no fabricated request"
     );
     live.data().load().unwrap();
-    let error = live.data_ready().unwrap_err();
-    // A storage refusal fails with the `storage` failure code (LLP 1109 D3).
-    assert!(
-        format!("{error:?}").contains("Failed(Storage"),
-        "runtime storage refusal remains a failure: {error:?}"
-    );
+    live.data_ready().unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    assert_eq!(live.failed_resources().len(), 1);
+    assert!(!live.has_pending());
     f.write(
         "app.contract",
         &CONTRACT.replace("as shape string", "as shape string else fallback()"),
@@ -885,7 +884,7 @@ fn web_build(app: &Path) -> Result<(), String> {
     let out = app.join("web-out");
     let _ = std::fs::remove_dir_all(&out);
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let built = std::process::Command::new("bun")
+    let built = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg(root.join("host/web-js/build.mjs"))
         .args(["logic", "--render", "none", "--out"])
         .arg(&out)
@@ -1309,6 +1308,13 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
     let error = producer.bake(&f.0, None).err().unwrap();
     assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
     assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
+    // LLP 1116 D8: the refusal names where randomness comes from instead.
+    assert!(
+        error.contains(
+            "seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md)"
+        ),
+        "{error}"
+    );
     // An explicit date, a member named `now` elsewhere, a comment, and a
     // `Date` or `performance` the module binds itself are fine.
     f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\nexport const stamp = (performance: { now(): number }) => performance.now();\n");

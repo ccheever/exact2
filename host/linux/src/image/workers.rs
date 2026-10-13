@@ -105,6 +105,7 @@ impl Backend {
         name: &str,
         assets: &Arc<Assets>,
     ) -> Result<Arc<SourceOwner>, Refusal> {
+        Workers::process().start();
         let mut state = self.state.lock().unwrap();
         let mut queued = false;
         state.sources.retain(|_, source| source.strong_count() > 0);
@@ -182,6 +183,7 @@ impl Backend {
         &self,
         demand: exact_raster::Demand,
     ) -> Result<exact_raster::RequestId, Refusal> {
+        Workers::process().start();
         let id = self.session.request(demand)?;
         self.requests.lock().unwrap().insert(id);
         Ok(id)
@@ -261,7 +263,7 @@ impl Backend {
             let Prepared::Ready(header) = *source.prepared.lock().unwrap() else {
                 return Err(Refusal::Stale);
             };
-            let plan = png_decode::DecodePlan::new(header, (key.pixels.width, key.pixels.height))?;
+            let plan = png_decode::DecodePlan::of_key(header, &key)?;
             if plan.cost != permit.cost() || header.metadata != permit.metadata() {
                 return Err(Refusal::ConflictingMetadata);
             }
@@ -276,6 +278,7 @@ impl Backend {
             let bitmap = Arc::new(Bitmap::from_source(
                 pixels,
                 plan.natural(),
+                plan.crop,
                 charge,
                 source.clone(),
             ));
@@ -348,13 +351,21 @@ impl Workers {
     fn process() -> &'static Arc<Self> {
         static WORKERS: OnceLock<Arc<Workers>> = OnceLock::new();
         WORKERS.get_or_init(|| {
-            let workers = Arc::new(Self {
+            Arc::new(Self {
                 gate: Gate::process(),
                 backends: Mutex::new(Vec::new()),
                 cursor: Mutex::new(0),
-            });
+            })
+        })
+    }
+    /// Start the process's two decoders, once: at the first picture source
+    /// or request, so an app that shows no picture carries no decoder (each
+    /// otherwise woke five times a second on its backstop).
+    fn start(self: &Arc<Self>) {
+        static STARTED: std::sync::Once = std::sync::Once::new();
+        STARTED.call_once(|| {
             for n in 0..2 {
-                let owner = workers.clone();
+                let owner = self.clone();
                 std::thread::Builder::new()
                     .name(format!("exact-png-{n}"))
                     .spawn(move || {
@@ -364,8 +375,7 @@ impl Workers {
                     })
                     .expect("PNG worker");
             }
-            workers
-        })
+        });
     }
     fn sessions(&self) -> Vec<Arc<Backend>> {
         let mut backends = self.backends.lock().unwrap();

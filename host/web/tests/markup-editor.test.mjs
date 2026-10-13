@@ -1,5 +1,5 @@
 // @ref LLP 1045 D1/D5/D6 — native DOM edits, controlled source and shared undo.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
@@ -11,41 +11,121 @@ const chrome = installed();
 const engines = ['chromium', 'firefox', 'webkit'].filter(name => name === 'chromium' ? !chrome.unavailable : existsSync(playwright[name].executablePath()));
 const wasm = engines.length ? readFileSync(await buildEditor()) : null;
 
-async function editor(engine, source, drive) {
+async function editor(engine, source, drive, runtime = false) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/markup-editor.js') return new Response(Bun.file(resolve(WEB, 'markup-editor.js')), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
+    if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); // no data sources in this fixture
+    if (runtime && path.endsWith('.js')) {
+      const js = resolve(WEB, '../web-js', path.slice(1));
+      return new Response(Bun.file(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+    }
     return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" style="width:500px;height:240px"></textarea><pre id="echo"></pre>
       <script type="module">
         globalThis.exact = {};
-        await import('./markup-editor.js');
         let field = document.getElementById('editor');
         field.value = ${JSON.stringify(source)};
-        const install = await exact.installMarkupEditor;
-        const host = { live: el => el.isConnected, select() {}, replace(el) {
-          field = el;
-          field.addEventListener('input', () => { document.getElementById('echo').textContent = field.value; field.value = field.value; });
-        } };
-        window.restoreMarkup = () => { field.setAttribute('markup', 'markdown'); field = install(field, host); };
-        field = install(field, host);
-        window.field = () => field;
-        window.ready = true;
+        if (${runtime}) {
+          const { mde, on, onKey, Hosts } = await import('./rt.js');
+          window.heard = [];
+          on(document.body, 'keycapture', key => {
+            heard.push('outer:' + key);
+            if (key === 's') Hosts.stopPropagation();
+            if (key === 'p') Hosts.preventDefault();
+          }, onKey);
+          on(document.body, 'key', key => heard.push('bubble:' + key), onKey);
+          on(field, 'key', key => heard.push('key:' + key), onKey);
+          on(field, 'keycapture', key => {
+            heard.push('capture:' + key);
+            if (key === 'x' || key.toLowerCase() === 'b') Hosts.preventDefault();
+            if (key === 't') Hosts.stopPropagation();
+          }, onKey);
+          mde(field);
+        } else {
+          await import('./markup-editor.js');
+          const install = await exact.installMarkupEditor;
+          const host = { live: el => el.isConnected, select() {}, replace(el) {
+            field = el;
+            field.addEventListener('input', () => { document.getElementById('echo').textContent = field.value; field.value = field.value; });
+          } };
+          window.restoreMarkup = () => { field.setAttribute('markup', 'markdown'); field = install(field, host); };
+          field = install(field, host);
+          window.field = () => field;
+          window.ready = true;
+        }
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
-  const browser = await playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chrome.executable } : {}) });
+  const context = await (await browser(engine)).newContext();
   try {
-    const page = await browser.newPage();
+    const page = await context.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.port}/`);
-    await page.waitForFunction(() => window.ready);
+    await page.waitForFunction(runtime ? () => document.getElementById('editor')?.exactMarkup : () => window.ready);
     await drive(page, page.locator('#editor'));
     expect(errors).toEqual([]);
-  } finally { await browser.close(); server.stop(true); }
+  } finally { await context.close(); server.stop(true); }
 }
 
+// One browser per engine for this file; each editor above gets a context of
+// its own (its page, its undo, its storage), closed when it is done.
+const launched = new Map();
+function browser(engine) {
+  if (!launched.has(engine)) launched.set(engine, playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chrome.executable } : {}) }));
+  return launched.get(engine);
+}
+afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); }, 60000);
+
 for (const engine of engines) {
+  test(`${engine}: JS runtime forwards Markdown key cancellation in both directions`, async () => {
+    await editor(engine, 'hello', async (page, field) => {
+      await field.focus();
+      await field.evaluate(el => getSelection().selectAllChildren(el));
+      await page.keyboard.press('x');
+      expect(await field.evaluate(el => el.value)).toBe('hello');
+      expect(await page.evaluate(() => heard.splice(0))).toEqual(['outer:x', 'capture:x', 'key:x', 'bubble:x']);
+      await page.keyboard.press('p');
+      expect(await field.evaluate(el => el.value)).toBe('hello');
+      expect(await page.evaluate(() => heard.splice(0))).toEqual(['outer:p', 'capture:p', 'key:p', 'bubble:p']);
+      await page.keyboard.press('s');
+      expect(await field.evaluate(el => el.value)).toBe('s');
+      expect(await page.evaluate(() => heard.splice(0))).toEqual(['outer:s']);
+      await page.keyboard.press('t');
+      expect(await field.evaluate(el => el.value)).toBe('st');
+      expect(await page.evaluate(() => heard.splice(0))).toEqual(['outer:t', 'capture:t']);
+      await field.evaluate(el => getSelection().selectAllChildren(el));
+      await page.keyboard.press('ControlOrMeta+B');
+      expect(await field.evaluate(el => el.value)).toBe('st');
+    }, true);
+  }, 60000);
+
+  test(`${engine}: a cancelled capture shortcut leaves selected Markdown unchanged`, async () => {
+    await editor(engine, 'hello', async (page, field) => {
+      await field.focus();
+      await field.evaluate(el => {
+        getSelection().selectAllChildren(el);
+        document.addEventListener('keydown', e => {
+          if (e.isTrusted && e.key.toLowerCase() === 'b' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.exactStopped = true;
+            e.$stopped = true;
+          }
+        }, true);
+      });
+      await page.keyboard.press('ControlOrMeta+B');
+      expect(await field.evaluate(el => el.value)).toBe('hello');
+      for (const flag of ['exactStopped', '$stopped']) {
+        await field.evaluate((el, flag) => {
+          const event = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true });
+          event[flag] = true;
+          el.dispatchEvent(event);
+        }, flag);
+        expect(await field.evaluate(el => el.value)).toBe('hello');
+      }
+    });
+  }, 60000);
+
   test(`${engine}: browser Select All includes hidden syntax`, async () => {
     for (const source of ['# Heading', '```js\ncode\n```', '# Heading\n\n[link](https://example.com)\n\n```js\ncode\n```']) {
       await editor(engine, source, async (page, field) => {

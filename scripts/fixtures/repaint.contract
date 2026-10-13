@@ -1,0 +1,18 @@
+// LLP 1116.005 D4: a text that changes or leaves is repainted on the commit
+// that changes it, on iOS. Stopwatch's shape, in a stack that scrolls: a
+// centred status line that Reset makes a collapsed space (its box laid out
+// to nothing), a count whose text changes, and a line a `when` removes
+// (TextRepaintIOSTests).
+component Repaint
+  state laps = 3
+  action reset
+    laps = 0
+  view
+    scroll width="100%" height="100%" testId="page"
+      column align-items="center" gap=16 padding=24
+        text (laps > 0 ? `${laps} ${laps == 1 ? "lap" : "laps"}` : " ") font-size=24 testId="status"
+        text `${laps} in all` font-size=24 testId="count"
+        button press=reset testId="reset"
+          text "Reset"
+        when laps > 0
+          text "Lap 3" font-size=24 testId="lap"

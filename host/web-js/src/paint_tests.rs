@@ -3,6 +3,48 @@ use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{builder::PlanBuilder, BindingKind, BindingsRow, Plan, Value};
 use std::collections::BTreeMap;
 
+fn bun_command() -> std::process::Command {
+    std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+}
+
+#[cfg(unix)]
+#[test]
+fn bun_command_uses_the_named_binary() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("exact-bun-probe-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let stub = dir.join("bun");
+    let marker = dir.join("invoked");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf invoked > \"$EXACT_BUN_MARKER\"\nexec \"$EXACT_BUN_REAL\" \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "paint_tests::dynamic_backdrop_grammar_agrees_with_the_kernel",
+            "--nocapture",
+        ])
+        .env("BUN", &stub)
+        .env(
+            "EXACT_BUN_REAL",
+            std::env::var_os("BUN").unwrap_or_else(|| "bun".into()),
+        )
+        .env("EXACT_BUN_MARKER", &marker)
+        .output()
+        .unwrap();
+    let invoked = marker.exists();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(invoked, "the BUN executable was not invoked");
+}
+
 #[test]
 fn native_field_templates_keep_the_marker_for_runtime_and_rendering() {
     let plan = contract::compile(include_str!("../conformance/native-fields.contract")).unwrap();
@@ -68,7 +110,7 @@ fn dynamic_backdrop_grammar_agrees_with_the_kernel() {
         Err(reason) => (css, None, Some(reason)),
     })
     .collect();
-    let output = std::process::Command::new("bun")
+    let output = bun_command()
         .args(["-e", "const {backdropValue}=await import('./backdrop.js');for(const [input,expected,reason] of JSON.parse(process.argv[1])){let why=null;const actual=backdropValue(input,n=>why=n);if(actual!==expected||why!==reason)throw Error(JSON.stringify({input,expected,actual,reason,why}));}"])
         .arg(serde_json::to_string(&cases).unwrap())
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -114,6 +156,7 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
                     kind: BindingKind::Style,
                     id: row as u16,
                     expr: builder.constant(&value),
+                    written: true,
                 }
             })
             .collect();
@@ -121,6 +164,7 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
             kind: BindingKind::Prop,
             id: PropId::TestId as u16,
             expr: builder.constant(&Value::str(&format!("n{id}"))),
+            written: true,
         });
         let node = builder.node(
             NodeType::View as u8,
@@ -326,7 +370,7 @@ fn compare_cases(dir: &std::path::Path, labels: &[impl AsRef<str>]) {
         serde_json::to_string(&labels.iter().map(AsRef::as_ref).collect::<Vec<_>>()).unwrap(),
     )
     .unwrap();
-    let output = std::process::Command::new("bun")
+    let output = bun_command()
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../web/tests/paint-order/compare.mjs"
@@ -561,6 +605,7 @@ fn bound_transition_stacking_matches_kernel() {
         "-exact-spring(300, 30, 0)",
         "-exact-spring(300, 30)",
         "-exact-spring(300, 30, 1e309)",
+        "-exact-spring(100, 1e200, 1)",
     ];
     for property in properties {
         for easing in easings {
@@ -572,6 +617,7 @@ fn bound_transition_stacking_matches_kernel() {
     for count in [8, 9] {
         values.push(vec!["opacity 1s"; count].join(", "));
     }
+    values.push("opacity 1s linear, color -exact-spring(100, 1e200, 1)".into());
     for count in [64, 65] {
         values.push(format!("200ms linear({})", vec!["0"; count].join(",")));
     }
@@ -583,6 +629,7 @@ fn bound_transition_stacking_matches_kernel() {
             kind: BindingKind::Style,
             id: StyleId::Transition as u16,
             expr: Default::default(),
+            written: true,
         },
     )
     .unwrap();
@@ -592,7 +639,7 @@ fn bound_transition_stacking_matches_kernel() {
     );
     use std::io::Write;
     use std::process::Stdio;
-    let mut child = std::process::Command::new("bun")
+    let mut child = bun_command()
         .arg("-")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -617,7 +664,7 @@ fn bound_transition_stacking_matches_kernel() {
         let mut style = exact_kernel::StyleProps::default();
         let _ = style.set_dynamic(
             StyleId::Transition,
-            &exact_kernel::StyleValue::Text(value.clone()),
+            &exact_kernel::StyleValue::Text(value.as_str().into()),
         );
         let own = exact_kernel::paint_order::own_from(exact_kernel::paint_order::Facts {
             style: &style,

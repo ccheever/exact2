@@ -134,14 +134,34 @@ final class BarTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
 /// menu shows.
 final class MenuButton: UIButton {
     weak var focus: MenuFocus?
+    weak var popover: NodeView?
+    var toggled: ((Bool) -> Void)?
+    private(set) var isMenuOpen = false
+    private var menuConfiguration: UIContextMenuConfiguration?
+    func dismissMenu() {
+        guard isMenuOpen else { return }
+        isMenuOpen = false
+        toggled?(false)
+        contextMenuInteraction?.dismissMenu()
+    }
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
         focus?.setAside()
+        self.menuConfiguration = configuration
+        isMenuOpen = true
+        toggled?(true)
     }
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
-        guard let animator else { focus?.restore(); return }
-        animator.addCompletion { [weak self] in self?.focus?.restore() }
+        guard self.menuConfiguration === configuration else { return }
+        if isMenuOpen { isMenuOpen = false; toggled?(false) }
+        let ended: () -> Void = { [weak self] in
+            guard let self, self.menuConfiguration === configuration else { return }
+            self.menuConfiguration = nil
+            self.focus?.restore()
+        }
+        guard let animator else { ended(); return }
+        animator.addCompletion(ended)
     }
 }
 #endif

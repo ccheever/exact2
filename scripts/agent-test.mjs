@@ -10,6 +10,7 @@ import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
+import { serverUrl } from './verify.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
@@ -23,6 +24,48 @@ export function textOf(nodes, node, live = false) {
   // `live`: only what an active screen shows (a covered descendant's text is not this node's name).
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null && !(live && nodes[i].inactive)) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
+}
+
+/** The node a test's target names in a tree: a covered screen's copy only when no active one carries it (shop F16). */
+const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.props.testId === target); return matches.find((m) => !m.inactive) ?? matches[0]; };
+
+/** `expect text <target> == <value>` over a `tree` reply's nodes: null when it holds, else `{ message }` — with
+ * `unshown` when the tree's text is right but the shipped app does not show the node: a header node the iOS
+ * navigation bar leaves out, which the agent's own chrome still paints (LLP 1116 D2). No clock can change that. */
+export function textExpectation(nodes, target, value) {
+  const n = targetNode(nodes, target), got = n ? textOf(nodes, n) : undefined;
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}` };
+  return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
+}
+
+/** `expect tree <present|missing> <target>`, as `textExpectation`: a node present in the tree that the shipped app does not show is not present. */
+export function treeExpectation(nodes, target, present) {
+  const n = targetNode(nodes, target);
+  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : 'absent'}` };
+  return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
+}
+
+/** Whether a tree node is a disabled control: every host's tree reports the prop as `true`. `aria-disabled`
+ * (`accessibilityDisabled`) reads as disabled for an expectation, but its press still dispatches, so only
+ * a truly disabled control has its press refused (`refuseDisabled`). */
+const propTrue = (n, key) => n?.props?.[key] === true || n?.props?.[key] === 'true';
+const isDisabled = (n) => propTrue(n, 'disabled');
+const readsDisabled = (n) => isDisabled(n) || propTrue(n, 'accessibilityDisabled');
+
+/** `expect disabled|enabled <target>` (LLP 1116.010 D3): null when the control the target names is as asked, else `{ message }`. */
+export function disabledExpectation(nodes, target, disabled) {
+  const n = targetNode(nodes, target), word = disabled ? 'disabled' : 'enabled';
+  if (!n) return { message: `expected "${target}" ${word}, no view carries that testId` };
+  return readsDisabled(n) === disabled ? null : { message: `expected "${target}" ${word}, it was ${disabled ? 'enabled' : 'disabled'}` };
+}
+
+/** A press on a disabled control does nothing, and each host said so its own way (the web's silently, a native one in the words of the view
+ * that took the touch), so a step that presses one fails the same on every host (LLP 1116.010 D3): the test of a refusal is `expect disabled`.
+ * Not a hover, a wheel, a pinch, a drag, a drop or a scroll to a row: those a disabled control does not take as a press. */
+export async function refuseDisabled(s, node, target, opts = {}) {
+  if (node.entity !== undefined || ['hover', 'wheel', 'pinch', 'drag', 'drop', 'into', 'history', 'mediaSession', 'gesture'].some((k) => opts[k] !== undefined && opts[k] !== false)) return;
+  const read = await s.op({ op: 'tree', target: node.id, shallow: true }).catch(() => null);
+  if (isDisabled(read?.nodes?.find((n) => n.id === node.id))) throw new Error(`${target} is disabled: a press does nothing (\`expect disabled ${JSON.stringify(String(target))}\` asserts it)`);
 }
 
 // What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
@@ -127,6 +170,23 @@ export function driveNotes(s, { host, storage }) {
     } catch { /* advice only */ }
   };
 }
+/** A test's `request` line (LLP 1116.006 D8): `st.path` under `base`, the server URL the app calls (or a whole URL),
+ * its body as JSON, `as` the bearer token, as the rest pattern names a persona. A status outside 200 through 299 or no
+ * answer throws, saying what came back; with `expect <status>` (LLP 1116.010 D3) that status is what passes, and any other
+ * throws: the test of a refusal. */
+export async function serverRequest(base, st) {
+  const whole = /^https?:\/\//.test(st.path);
+  if (!whole && !base) throw new Error(`request: app.ts calls no local server (http://127.0.0.1:<port>), so ${JSON.stringify(st.path)} is under nothing; write the whole URL`);
+  const url = whole ? st.path : `${base}${st.path}`, said = `request ${st.method} ${url}${st.as ? ` as ${st.as}` : ''}`;
+  const headers = { ...(st.body != null ? { 'content-type': 'application/json' } : {}), ...(st.as ? { authorization: `Bearer ${st.as}` } : {}) };
+  let res;
+  try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
+  catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
+  const text = (await res.text().catch(() => '')).trim();
+  const answered = `the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`;
+  if (st.expect != null ? res.status !== st.expect : !res.ok) throw new Error(`${said}: ${answered}${st.expect != null ? `, expected ${st.expect}` : ''}`);
+}
+
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
 const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
 
@@ -141,8 +201,13 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`, each result `{ name, failures, notes }`: notes are advice, never a failure.
+ * `atEnd(s, { name, index, size, store, failures, reload, launch, reached, restart, typed, touched })` (verify's, LLP 1116.005 D7; `launch`: the epoch, zone, locale
+ * and seed the test launched with, LLP 1116.007 D3.4; `reached`: the epoch a relaunch starts at, the date it launched at plus the virtual
+ * time it reached, as a `reload` relaunches, LLP 1116.009 D1; `restart`: on the web, the `reload` step itself, run on the session so the page loads
+ * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
+ * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -151,15 +216,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const results = [];
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };
-  const id = resolveApp(app).id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
-  const base = device ? null : chrome ? driveStore(id, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
+  const selected = resolveApp(app), id = selected.id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
+  const base = device ? null : chrome ? driveStore(selected, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
   // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
   // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
   // Android's stores are on the device, out of the driver's reach, but a run's names stay its own there too (LLP 1107).
   const tag = base || host === 'android' ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
+  const server = serverUrl(selected.dir); // where a `request` line's path is (LLP 1116.006 D8)
   for (const [n, t] of tests.entries()) {
     const failures = [];
+    let end = null;
     const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
@@ -170,7 +237,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const armed = new Map(); // prefix -> the line that armed it with a count
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
     // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
-    const notes = [];
+    const notes = [], shots = []; // `shots`: the paths of the test's own `screenshot` steps (verify --shots copies them)
     const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;
@@ -182,7 +249,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       leading++;
     }
     // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
-    // a test, so a `reload` relaunches at the same date on every host (the web's page keeps its launch URL's).
+    // a test, so a `reload` relaunches from the same date on every host. `facts.epoch` is the date at the clock's zero
+    // of the launch now running: a `reload` moves it on by the virtual time that launch reached (LLP 1116.009 D1).
     try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
@@ -192,7 +260,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // `--touch platform` makes every tap a real touch too (splitter rough 12: a test of what a finger reaches).
     const drags = !device && ['ios', 'host-ios'].includes(host) && t.steps.some((st) => st.op === 'drag');
     const fingers = touch !== 'agent' ? touch : drags ? 'drag' : 'agent';
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars });
+    // The date a relaunch starts at: this launch's date at the clock's zero plus the virtual time the test has reached
+    // (every `clock +N`, settle and timer), as the runner reports it; whole milliseconds, which every host takes.
+    const first = facts.epoch; // the test's launch date, which a `reload` moves `facts.epoch` on from
+    const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale });
     let s = await launch(fresh);
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
@@ -200,7 +272,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // driver connected). An unsettled wait leaves the expects to name what is still in flight.
     const data = async () => { if (!beforeData) await s.clock('data'); };
     // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
-    // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied.
+    // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied; both
+    // at the virtual time the test had reached, as a phone restarted at 9:05 wakes at 9:05 (LLP 1116.009 D1).
     // It asks what persists, so storage the app started and did not await finishes first, as `clock data` lands it
     // (LLP 1097 D9): a write lost at `reload` is what a crash does. The next `logs` begins with what it waited for.
     const reload = async () => {
@@ -214,27 +287,33 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A page whose table no fetch or fault request made yet still has its launch's; an unreadable state is an error.
       const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
-      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars }); s.notes = notes;
+      facts.epoch = await reached();
+      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
+    // What the test typed since its last other input: fields it left holding a draft (verify's reload does not compare them); and all it typed.
+    const typed = new Set(), touched = new Set();
     // Whether a clock step has let the app's first loads answer (without `before data`, the wait before the first step).
     let loaded = !beforeData;
     // The line whose `close` closed the window, if one did.
     let closedAt = null;
+    // A `request` line's, until the clock moves on: the app shows the write when it next reads (its poll, `clock +N`).
+    let unpolled = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
     let current = null;
-    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.landError) throw new Error(`the input was delivered; landing what it started failed: ${r.landError}`); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
     // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem).
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
       const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('');
+      if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
       failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}`);
@@ -254,7 +333,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       };
       // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
       // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
-      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize']);
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize', 'back']);
       const settleFired = async () => {
         if (!armed.size) return;
         const faults = (await s.state()).faults ?? [];
@@ -266,6 +345,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         current = st.line;
         try {
           if (INPUTS.has(st.op)) await settleFired();
+          if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
@@ -310,27 +390,37 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
-            case 'clock': await s.clock(st.arg); input = null; loaded = true; break;
+            case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
+            // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
+            // shows changes until it reads again.
+            case 'request': await serverRequest(server, st); unpolled = st.line; break;
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
             // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
             // one that closed takes the session, so a step after it fails naming it.
             // Counted faults are checked first: a window that closes takes the table with it.
             case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
-            case 'screenshot': await s.screenshot(st.path); break;
+            // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
+            // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
+            case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
+            case 'screenshot': await s.screenshot(st.path); shots.push(resolve(st.path)); break;
             case 'expect-tree': {
               const tree = await s.tree();
-              const found = tree.nodes.some((n) => n.props.testId === st.target);
+              const f = treeExpectation(tree.nodes, st.target, st.present);
               // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
               const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
-              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+              if (f?.unshown) failures.push(`${at}: ${f.message}`);
+              else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+              break;
+            }
+            case 'expect-disabled': {
+              const f = disabledExpectation((await s.tree()).nodes, st.target, st.disabled);
+              if (f) await fail(`${at}: ${f.message}`);
               break;
             }
             case 'expect-text': {
-              const { nodes } = await s.tree();
-              // As a target is found: a covered screen's copy only when no active one carries it (shop F16).
-              const matches = nodes.filter((n) => n.props.testId === st.target), n = matches.find((m) => !m.inactive) ?? matches[0];
-              const got = n ? textOf(nodes, n) : undefined;
-              if (got !== st.value) await fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
+              const f = textExpectation((await s.tree()).nodes, st.target, st.value);
+              if (f?.unshown) failures.push(`${at}: ${f.message}`);
+              else if (f) await fail(`${at}: ${f.message}`);
               break;
             }
             case 'expect-state': {
@@ -344,7 +434,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
                 if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
                 got = got[field]; path += `.${field}`;
               }
-              if (missing != null) { failures.push(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
+              if (missing != null) { await fail(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
               if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
@@ -385,12 +475,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
+      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, epoch: first, env: env ?? {} }), reached: await reached(), typed: [...typed], touched: [...touched], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
-    results.push({ name: t.name, failures, notes });
-    if (base) rmSync(resolve(base, store), { recursive: true, force: true });
+    results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
+    if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length;
   return { passed: results.length - failed, failed, results };

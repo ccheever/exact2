@@ -50,7 +50,7 @@ CSS fragmentation has three kinds of container: columns, pages (print, `@page`) 
 | `column-gap` | the existing `f32` row; `normal` clears it (below) | `normal` |
 | `column-fill` | `balance`, `auto` | `balance` |
 | `column-rule-width` | a length; `thin`, `medium`, `thick` as 1, 3, 5 px | `medium` |
-| `column-rule-style` | `none`, `hidden`, `solid` (the `BorderStyle` the hosts paint) | `none` |
+| `column-rule-style` | `none`, `hidden`, `solid` (its own enum, also for bound values) | `none` |
 | `column-rule-color`, `column-rule` | a color; the shorthand | `currentcolor` |
 | `widows`, `orphans` | a positive integer; inherited | `2` |
 | `break-before`, `break-after` | `auto`, `avoid`, `column`, `avoid-column` | `auto` |

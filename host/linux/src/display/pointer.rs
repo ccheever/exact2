@@ -11,8 +11,10 @@ pub(super) fn dispatch<D: DataSource>(
     event: InputEvent,
     now_ms: f64,
 ) -> Result<(), String> {
-    if !matches!(event, InputEvent::Key { .. } | InputEvent::Cancel)
-        && !p.display_input_mapping(viewport, scale)
+    if !matches!(
+        event,
+        InputEvent::Key { .. } | InputEvent::Back | InputEvent::Cancel
+    ) && !p.display_input_mapping(viewport, scale)
     {
         // An uncertified physical release must end capture without executing
         // a drop. Refusing its coordinates must not strand a hold or item pin.
@@ -48,6 +50,11 @@ pub(super) fn dispatch<D: DataSource>(
         }
         InputEvent::Aux(bit, down) => p.pointer_aux(bit, down, pointer.0, pointer.1, now_ms),
         InputEvent::Cancel => p.pointer_lost(now_ms)?,
+        // A mouse's back button (LLP 1115.000 D5.4): Back, in the presenter's
+        // order. With nowhere to go back to a desktop app stays as it is.
+        InputEvent::Back => {
+            p.system_back(now_ms);
+        }
         InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
         // The same targeted path as VNC and agent keys: text, Escape blur and a
         // canvas's held keys (`hardware_key`). Escape also ends a pointer hold.
@@ -120,6 +127,79 @@ mod tests {
             .props
             .str(PropId::Text)
             .unwrap()
+    }
+    /// LLP 1115.000 D5.4: a desktop's ways Back as evdev reports them, a
+    /// mouse's back button, Alt (56) around Left (105), and KEY_BACK (158),
+    /// each popping a pushed route that says nothing about Back.
+    #[test]
+    fn the_back_button_and_the_back_keys_pop_a_pushed_route() {
+        let plan = contract::compile(
+            r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  action open
+    nav = push(nav, "/detail")
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          when e.name == "home"
+            button press=open testId="open"
+              text "Open"
+          when e.name == "detail"
+            text "Detail" testId="detail"
+"#,
+        )
+        .unwrap();
+        let mut p = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (400., 500.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap()
+        .0;
+        let find = |p: &Presenter<NoData>, name: &str| {
+            let k = p.host().kernel();
+            (k.find_by_test_id(name).first()).and_then(|key| Some(k.node_by_key(*key)?.id))
+        };
+        let on_detail = |p: &Presenter<NoData>| {
+            find(p, "detail").is_some_and(|id| !p.host().route_visibility(id).0)
+        };
+        let key = |code, down| InputEvent::Key {
+            code,
+            shift: false,
+            down,
+            repeat: false,
+        };
+        let mut at = (20., 40.);
+        let ways = [
+            vec![InputEvent::Back],
+            vec![
+                key(56, true),
+                key(105, true),
+                key(105, false),
+                key(56, false),
+            ],
+            vec![key(158, true), key(158, false)],
+        ];
+        for way in ways {
+            let open = find(&p, "open").unwrap();
+            p.dispatch_press(open, 0., false);
+            assert!(on_detail(&p), "pushed");
+            for event in &way {
+                dispatch(&mut p, &mut at, (400., 500.), 1., *event, 10.).unwrap();
+            }
+            assert!(!on_detail(&p), "{way:?} went back");
+            // From the first screen there is nowhere to go: nothing happens.
+            for event in &way {
+                dispatch(&mut p, &mut at, (400., 500.), 1., *event, 20.).unwrap();
+            }
+            assert!(find(&p, "open").is_some());
+        }
     }
     #[test]
     fn relative_and_absolute_display_events_release_or_escape_once() {

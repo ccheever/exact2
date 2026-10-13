@@ -1,10 +1,10 @@
 //! Exact-offer reuse must preserve the injected measurer's inputs and invalidation.
 mod reader {
     use exact_kernel::{Op, StyleId, StyleProps, StyleValue};
-    pub fn number(value: f64) -> StyleValue {
+    pub fn number(value: f64) -> StyleValue<'static> {
         StyleValue::Number(value)
     }
-    pub fn text(value: &str) -> StyleValue {
+    pub fn text(value: &str) -> StyleValue<'_> {
         StyleValue::Text(value.into())
     }
     pub fn style(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {

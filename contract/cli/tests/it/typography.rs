@@ -100,7 +100,7 @@ fn text_indent_is_a_length_that_inherits_and_reaches_the_paragraph() {
 
 #[test]
 fn multicol_rows_lower_with_their_keywords() {
-    use exact_kernel::{BorderStyle, BreakBetween, BreakInside, ColumnFill, Dimension, StyleId};
+    use exact_kernel::{BreakBetween, BreakInside, ColumnFill, Dimension, StyleId};
     let r = boot(concat!(
         "component App\n  view\n    column\n",
         "      view columns=\"120px 3\" column-gap=10 column-fill=\"auto\" widows=3 testId=\"flow\"\n",
@@ -131,7 +131,7 @@ fn multicol_rows_lower_with_their_keywords() {
     );
     assert_eq!(
         (rule.column_rule_width, rule.column_rule_style),
-        (1.0, BorderStyle::Solid)
+        (1.0, exact_kernel::ColumnRuleStyle::Solid)
     );
     assert!(rule.column_rule_color.is_some());
     let two = node("two").style;
@@ -223,5 +223,215 @@ fn fragmentation_outside_columns_is_refused_by_what_it_would_need() {
         ))
         .unwrap_err();
         assert!(e.message.contains("write `view`"), "{tag}: {e}");
+    }
+}
+
+/// CSS `text-box` (Inline Layout 3 §4): the shorthand, `text-box-edge`'s two
+/// words, the trim's own row, and a laid-out box that keeps only the cap
+/// height (the monospace face's 0.7 em) when trimmed to cap and baseline.
+#[test]
+fn text_box_trims_a_paragraph_to_its_edges() {
+    use exact_kernel::{TextBoxEdge, TextBoxTrim};
+    let r = boot(concat!(
+        "component App\n  view\n    column align-items=\"flex-start\" text-box-edge=\"cap alphabetic\"\n",
+        "      text \"TTI\" font-size=10 testId=\"plain\"\n",
+        "      text \"TTI\" font-size=10 text-box=\"trim-both cap alphabetic\" testId=\"both\"\n",
+        "      text \"TTI\" font-size=10 text-box-trim=\"trim-start\" testId=\"start\"\n",
+        "      text \"TTI\" font-size=10 text-box=\"ex text\" testId=\"ex\"\n",
+        "      text \"TTI\" font-size=10 text-box=\"normal\" testId=\"normal\"\n",
+        "      text \"TTI\" font-size=10 text-box=\"cap alphabetic trim-start\" testId=\"after\"\n",
+        "      text \"TTI\" font-size=10 text-box=\"trim-end auto\" testId=\"auto\"\n",
+    ));
+    let mut r = r;
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(400.0, 400.0))
+        .unwrap();
+    let k = r.kernel();
+    let node = |t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
+    let rows = exact_kernel::StyleMask::ALL;
+    let style = |t: &str| node(t).computed_style(rows);
+    assert_eq!(
+        (style("both").text_box_trim, style("both").text_box_edge),
+        (TextBoxTrim::TrimBoth, TextBoxEdge::CapAlphabetic)
+    );
+    // The edge inherits; the trim does not.
+    assert_eq!(
+        (style("plain").text_box_trim, style("plain").text_box_edge),
+        (TextBoxTrim::None, TextBoxEdge::CapAlphabetic)
+    );
+    assert_eq!(
+        (style("start").text_box_trim, style("start").text_box_edge),
+        (TextBoxTrim::TrimStart, TextBoxEdge::CapAlphabetic)
+    );
+    assert_eq!(
+        (style("ex").text_box_trim, style("ex").text_box_edge),
+        (TextBoxTrim::TrimBoth, TextBoxEdge::Ex)
+    );
+    assert_eq!(style("normal").text_box_trim, TextBoxTrim::None);
+    // The trim may follow the edge, and `auto` is an edge, in the shorthand.
+    assert_eq!(
+        (style("after").text_box_trim, style("after").text_box_edge),
+        (TextBoxTrim::TrimStart, TextBoxEdge::CapAlphabetic)
+    );
+    assert_eq!(
+        (style("auto").text_box_trim, style("auto").text_box_edge),
+        (TextBoxTrim::TrimEnd, TextBoxEdge::Auto)
+    );
+    // 10 pt on a 12 pt line, baseline at 9.6: trimmed to cap and baseline, 7.
+    assert_eq!(node("plain").frame.height, 12.0);
+    assert!(
+        (node("both").frame.height - 7.0).abs() < 1e-3,
+        "{:?}",
+        node("both").frame
+    );
+    assert!(
+        (node("start").frame.height - 9.4).abs() < 1e-3,
+        "{:?}",
+        node("start").frame
+    );
+    for (value, says) in [
+        ("\"trim-both ideographic\"", "not implemented"),
+        ("\"cap cap\"", "not a text-box value"),
+        ("\"cap\"", "needs its under edge"),
+        ("\"\"", "an empty value"),
+        ("\"cap trim-both alphabetic\"", "out of place"),
+    ] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    text \"a\" text-box={value}\n"
+        ))
+        .unwrap_err();
+        assert!(e.message.contains(says), "{value}: {e}");
+    }
+    // The trim is a text's; a block's would cut lines the hosts measure on
+    // its text.
+    let e = contract::compile("component App\n  view\n    column text-box=\"trim-both cap alphabetic\"\n      text \"a\"\n")
+        .unwrap_err();
+    assert!(e.message.contains("trims a `text`"), "{e}");
+    // A paragraph that is its own columns, and an inline run, are refused
+    // rather than drawn untrimmed.
+    for (src, says) in [
+        (
+            "    text \"a\" column-count=2 text-box=\"trim-both cap alphabetic\"\n",
+            "every column",
+        ),
+        (
+            "    text \"a\" text-box-trim=\"trim-start\" columns=\"2\"\n",
+            "every column",
+        ),
+        (
+            "    text \"a\" text-box-trim=\"trim-start\" column-width=1\n",
+            "every column",
+        ),
+        (
+            "    text \"a\" column-count=1 text-box=\"trim-both cap alphabetic\"\n",
+            "every column",
+        ),
+        (
+            "    text\n      text \"a\" text-box-trim=\"trim-both\"\n",
+            "inline `text` run",
+        ),
+        (
+            "    text \"a\" display=\"flex\" text-box=\"trim-both cap alphabetic\"\n",
+            "flex or grid",
+        ),
+        (
+            "    text \"a\" display=(yes ? \"grid\" : \"block\") text-box-trim=\"trim-end\"\n",
+            "flex or grid",
+        ),
+        (
+            "    text \"a\" column-count=(yes ? 2 : \"auto\") text-box-trim=\"trim-end\"\n",
+            "every column",
+        ),
+    ] {
+        let e = contract::compile(&format!("component App\n  state yes = true\n  view\n{src}"))
+            .unwrap_err();
+        assert!(e.message.contains(says), "{src}: {e}");
+    }
+    // Columns that make no multi-column container, a shorthand that trims
+    // nothing, and declarations a later one overrides are not refused.
+    for src in [
+        "    text \"a\" column-count=2 text-box-trim=\"none\"\n",
+        "    text \"a\" column-count=2 text-box=\"none cap alphabetic\"\n",
+        "    text \"a\" columns=\"auto\" text-box=\"trim-both cap alphabetic\"\n",
+        "    text \"a\" column-count=2 text-box=\"trim-both cap alphabetic\" text-box-trim=\"none\"\n",
+        "    text \"a\" columns=\"2\" column-count=\"auto\" text-box=\"trim-both cap alphabetic\"\n",
+        "    text \"a\" column-count=2 text-box-trim=(yes ? \"none\" : \"none\")\n",
+        "    text \"a\" columns=(yes ? \"auto\" : \"auto\") text-box=\"trim-both cap alphabetic\"\n",
+        "    text \"a\" display=(yes ? \"block\" : \"none\") text-box=\"trim-both cap alphabetic\"\n",
+        "    text \"a\" column-count=2 text-box-trim=\"unset\"\n",
+        "    text \"a\" column-width=\"unset\" text-box=\"trim-both cap alphabetic\"\n",
+    ] {
+        let compiled = contract::compile(&format!("component App\n  state yes = true\n  view\n{src}"));
+        assert!(compiled.is_ok(), "{src}: {:?}", compiled.err());
+    }
+    // A class's declarations come before the node's own, which override them
+    let classed =
+        "style Columns\n  column-count=2\ncomponent App\n  view\n    text \"a\" class=Columns";
+    let trimmed = " text-box=\"trim-both cap alphabetic\"";
+    let e = contract::compile(&format!("{classed}{trimmed}\n")).unwrap_err();
+    assert!(e.message.contains("every column"), "{e}");
+    let compiled = contract::compile(&format!("{classed} column-count=\"auto\"{trimmed}\n"));
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+    // A conditional class's branch that declares a row not at all leaves it
+    // initial, which trims nothing and lays nothing out as flex or grid
+    for src in [
+        "style Off\n  text-box-trim=\"none\"\nstyle Plain\n  color=\"#ff0000\"\ncomponent App\n  state yes = true\n  view\n    text \"a\" class=(yes ? Off : Plain) column-count=2\n",
+        "style Block\n  display=\"block\"\nstyle Plain\n  color=\"#ff0000\"\ncomponent App\n  state yes = true\n  view\n    text \"a\" class=(yes ? Block : Plain) text-box=\"trim-both cap alphabetic\"\n",
+    ] {
+        let compiled = contract::compile(src);
+        assert!(compiled.is_ok(), "{src}: {:?}", compiled.err());
+    }
+}
+
+/// A trimmed paragraph split across an ancestor's columns is cut at its outer
+/// ends only, as `box-decoration-break: slice` has it (Inline Layout 3 §4.2):
+/// four 12 pt lines in 24 pt columns, the first column losing the first
+/// line's 2.6 above the cap height, the second the last line's 2.4 below the
+/// baseline, and the lines either side of the break kept whole. (A fragment
+/// before a break runs to its column's end, as the cutter has every box.)
+#[test]
+fn a_trimmed_paragraph_split_by_columns_is_cut_at_its_outer_ends() {
+    let mut r = boot(concat!(
+        "component App\n  view\n    view width=200 height=24 column-width=90 column-gap=20 column-fill=\"auto\"\n",
+        "      text \"T\\nT\\nT\\nT\" white-space=\"pre\" font-size=10 text-box=\"trim-both cap alphabetic\" testId=\"split\"\n",
+    ));
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(400.0, 400.0))
+        .unwrap();
+    let k = r.kernel();
+    let key = k.find_by_test_id("split")[0];
+    let f = k.fragments(key).expect("split");
+    assert_eq!(
+        f.iter().map(|f| f.lines).collect::<Vec<_>>(),
+        [(0, 2), (2, 4)],
+        "{f:?}"
+    );
+    // The second column starts after the first two lines, the first trimmed
+    // at its top (9.4 + 12), and holds a whole line and the last, trimmed at
+    // its baseline (12 + 9.6).
+    assert!(
+        (f[1].dy + 21.4).abs() < 1e-3 && (f[1].height - 21.6).abs() < 1e-3,
+        "{f:?}"
+    );
+}
+
+/// CSS `text-wrap-style` (LLP 1001 §6): `auto | balance`; Chrome's other
+/// breakers and the old `normal` are refused with what is implemented.
+#[test]
+fn unsupported_text_wrap_styles_name_the_css_values_we_support() {
+    for (attr, value) in [
+        ("text-wrap-style", "normal"),
+        ("text-wrap-style", "pretty"),
+        ("text-wrap", "stable"),
+    ] {
+        let source = format!("component App\n  view\n    text \"Hello\" {attr}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert!(
+            error.message.contains("\"auto\", \"balance\"")
+                || error.message.contains("implements `auto` and `balance`"),
+            "{error}"
+        );
     }
 }

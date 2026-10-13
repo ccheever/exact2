@@ -1,12 +1,53 @@
 #if os(macOS)
 import AppKit
 
-/// A scroll container that chains: a wheel event it cannot consume in its
-/// dominant direction — nothing to scroll, or already at that edge — goes
-/// to the next responder, so an inner `scroll` node never traps the page.
-/// The web's rule (`overscroll-behavior: auto`); AppKit's default is to
-/// swallow it.
+/// A `scroll` node's scroll view. AppKit scrolls it (LLP 1115.000 D8.2): its
+/// momentum, its wheel step, its rubber band. What is decided here is whose
+/// a wheel event is. One this view cannot take in its dominant direction —
+/// nothing to scroll, or a gesture that begins at that edge — goes to the
+/// next responder, so an inner `scroll` node never traps the page
+/// (`overscroll-behavior: auto`; AppKit's default is to swallow it).
 package final class ChainingScrollView: NSScrollView {
+    /// Empty document and clip hits take this view. The node owns their
+    /// mouse contact, even if a handler removes the scroll view mid-press.
+    weak var pointerOwner: NodeView?
+    private var mouseHeld = false
+    private var removeAfterMouseUp = false
+    /// Removed mid-press, the view stays, transparent, until the up, which
+    /// AppKit sends only to it. Only in the window, as `NodeView`'s
+    /// (`MouseChainMac`): one already out hears no up, and AppKit also asks
+    /// here when it frees the parent (`-[NSView _finalize]`). A view that
+    /// stayed would reach its own dealloc still a subview, which AppKit
+    /// raises (the T3 Code clone's abort on a thread change, X87).
+    package override func removeFromSuperview() {
+        if mouseHeld, window != nil {
+            removeAfterMouseUp = true
+            alphaValue = 0
+        } else { super.removeFromSuperview() }
+    }
+    package override func hitTest(_ point: NSPoint) -> NSView? {
+        removeAfterMouseUp ? nil : super.hitTest(point)
+    }
+    package override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        pointerOwner?.acceptsFirstMouse(for: event) ?? super.acceptsFirstMouse(for: event)
+    }
+    package override func mouseDown(with event: NSEvent) {
+        if let pointerOwner {
+            mouseHeld = true
+            pointerOwner.mouseDown(with: event)
+        } else { super.mouseDown(with: event) }
+    }
+    package override func mouseDragged(with event: NSEvent) {
+        if let pointerOwner { pointerOwner.mouseDragged(with: event) } else { super.mouseDragged(with: event) }
+    }
+    package override func mouseUp(with event: NSEvent) {
+        defer {
+            mouseHeld = false
+            if removeAfterMouseUp { super.removeFromSuperview() }
+        }
+        if let pointerOwner { pointerOwner.mouseUp(with: event) } else { super.mouseUp(with: event) }
+    }
+
     /// AppKit withdraws responsive scrolling from a subclass that overrides
     /// `scrollWheel(with:)`, and then every frame of a gesture is driven from
     /// the main thread (`NSScrollingBehaviorSingleThreadedVBL`), behind
@@ -28,9 +69,15 @@ package final class ChainingScrollView: NSScrollView {
         set { super.scrollerStyle = .overlay }
     }
 
-    /// Points per line for a wheel without precise deltas — the browser's
-    /// tick.
-    static let lineHeight: CGFloat = 40
+    /// Whether a wheel this view takes is applied here, at once, and not
+    /// handed to AppKit: under the agent, whose drive reads an offset back in
+    /// the same turn and whose clock AppKit's scrolling does not follow (it
+    /// applies a wheel some tens of milliseconds later, on its own frames,
+    /// and animates a notch; and a gesture the agent hands over whole from
+    /// one call is not tracked as the event queue's is: measured on macOS
+    /// 27.0, AppKit applies one event of it). For a person a `scroll` node
+    /// is scrolled by AppKit (LLP 1115.000 D8.2), as the page is.
+    static var appliesAtOnce = ExactEnv.agentMode
     /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
     var collectionWillScroll: (() -> Void)?
     var scrollsX = true
@@ -55,10 +102,12 @@ package final class ChainingScrollView: NSScrollView {
     /// function of the event and the geometry, and `ExactKitTests` checks it
     /// without an animation, a clock, or a window.
     enum Routing: Equatable {
-        /// Hand the gesture to `NSScrollView` — a contained axis, whose
-        /// scrolling, momentum, and rubber band are AppKit's to run.
+        /// Hand it to `NSScrollView`: this view scrolls, and its scrolling,
+        /// its momentum, its wheel step and its rubber band are AppKit's to
+        /// run (LLP 1115.000 D8.2).
         case appKit
-        /// Scroll this view by hand: an `auto` axis with room to move.
+        /// Scroll this view by hand, at once: the agent's wheel
+        /// (`appliesAtOnce`).
         case here
         /// Pass it to the enclosing scroller (CSS scroll chaining).
         case chain
@@ -85,25 +134,30 @@ package final class ChainingScrollView: NSScrollView {
     /// Where `dx`/`dy` goes. `phased` is whether the event carries a gesture
     /// phase — a lift or a momentum end, which have no delta at all.
     func routing(dx: CGFloat, dy: CGFloat, phased: Bool, in extent: Extent) -> Routing {
+        // What this view takes is AppKit's to scroll; the agent's wheel is
+        // applied here (`appliesAtOnce`).
+        let taken: Routing = Self.appliesAtOnce ? .here : .appKit
         // A gesture's phase transitions carry no delta — the lift that ends a
         // trackpad scroll is a zero-delta `.ended`, and momentum ends the
         // same way — and AppKit's elastic state machine needs them: without
         // the lift it never learns the gesture is over, so a stretched rubber
         // band stays stretched. A contained axis is AppKit's to drive, so it
-        // sees every event of the gesture, delta or not. An `auto` axis is
-        // driven here and has no use for them.
+        // sees every event of the gesture, delta or not. An `auto` axis sees
+        // them once the gesture is its own (`latched`): before any scroller
+        // owns a gesture, one that may yet go to the scroller around this
+        // one is not begun here.
         if dx == 0 && dy == 0 {
             return (containX || containY) && phased ? .appKit : .drop
         }
         // A wheel with no phases is its own gesture and is not split (LLP
         // 1070 G2, Chrome's rule, measured in its §2): the deepest scroller
-        // that can take any of its components takes the ones it can, and
-        // the rest is dropped; one that can take none chains, unless the
-        // tick's axis is contained here.
+        // that can take any of its components takes it; one that can take
+        // none chains, unless the tick's axis is contained here. A mouse
+        // wheel does not rubber-band on this platform, whoever scrolls it.
         if !phased {
             if take(dx, scrolls: scrollsX, limit: extent.maxX, at: extent.origin.x)
                 || take(dy, scrolls: scrollsY, limit: extent.maxY, at: extent.origin.y) {
-                return .here
+                return taken
             }
             return (dx != 0 && containX) || (dy != 0 && containY) ? .drop : .chain
         }
@@ -112,26 +166,19 @@ package final class ChainingScrollView: NSScrollView {
         let room = vertical ? (scrollsY && extent.maxY > 0) : (scrollsX && extent.maxX > 0)
         // A contained axis never hands a gesture to an ancestor. Contained
         // with nowhere to go, it stops here: passing it on is exactly what
-        // `contain` forbids.
-        //
-        // Only a *gesture* goes to AppKit. A wheel with no phases is a mouse
-        // wheel, and a mouse wheel does not rubber-band on this platform —
-        // elastic overscroll is a trackpad's. Clamping one here rather than
-        // handing it over keeps it synchronous, and synchronous is what makes
-        // it drivable: `super.scrollWheel` scrolls over several frames, so an
-        // agent that wheels and then reads the offset races the animation.
-        // A phased gesture gets AppKit, its momentum, and its rubber band.
+        // `contain` forbids. With room the gesture is AppKit's, under the
+        // agent too: its rubber band is only AppKit's to draw.
         if vertical ? containY : containX {
-            if !room { return .drop }
-            return phased ? .appKit : .here
+            return room ? .appKit : .drop
         }
         // Per axis: can this view move in the delta's direction? (Flipped
         // document: origin grows as content scrolls up; a negative delta
-        // scrolls content up.)
+        // scrolls content up.) A gesture that begins at this view's end goes
+        // to the scroller around it.
         return take(vertical ? dy : dx,
                     scrolls: vertical ? scrollsY : scrollsX,
                     limit: vertical ? extent.maxY : extent.maxX,
-                    at: vertical ? extent.origin.y : extent.origin.x) ? .here : .chain
+                    at: vertical ? extent.origin.y : extent.origin.x) ? taken : .chain
     }
 
     private func take(_ delta: CGFloat, scrolls: Bool, limit: CGFloat, at origin: CGFloat) -> Bool {
@@ -148,8 +195,12 @@ package final class ChainingScrollView: NSScrollView {
         weak var owner: ChainingScrollView?
         var chosen = false
         var active = false
+        /// The owner's gesture is AppKit's to run.
+        var appKit = false
     }
     static var latch = Latch()
+    /// The gesture's zero-delta `began`, while no scroller owns the gesture.
+    static var unsentBegan: NSEvent?
 
     /// What a phased event does here, given the latch: the routing to act
     /// on, choosing this view as the owner when it is the first to take it.
@@ -162,21 +213,31 @@ package final class ChainingScrollView: NSScrollView {
         if latch.chosen {
             guard let owner = latch.owner else { return .drop }
             if owner !== view { return view.isDescendant(of: owner) ? .chain : .drop }
-            // The owner keeps what it cannot take: the rest is dropped (or
-            // rubber-banded by AppKit on a contained axis), never chained.
+            // A gesture AppKit runs is AppKit's whole, which is the contract
+            // it asks for: the events past this view's end, where it
+            // rubber-bands or stops as its elasticity says and never hands
+            // on, and the zero-delta lift and momentum's end, without which
+            // a stretched band stays stretched.
+            if latch.appKit { return .appKit }
+            // Scrolled by hand, the owner keeps what it cannot take: the
+            // rest is dropped, never chained.
             return routing == .chain ? .drop : routing
         }
         guard moving, routing != .chain else { return routing }
         latch.owner = view
         latch.chosen = true
+        latch.appKit = routing == .appKit
         return routing
     }
 
     package override func scrollWheel(with event: NSEvent) {
-        // Precise deltas (a trackpad) are in points; a wheel's are in lines.
+        (superview as? NodeView)?.cancelElementScroll()
+        // Precise deltas (a trackpad) are in points; a wheel's are in lines,
+        // of the height AppKit scrolls a line by (10 points unless set; it
+        // was 40 here, a browser's tick).
         let precise = event.hasPreciseScrollingDeltas
-        var dx = precise ? event.scrollingDeltaX : event.deltaX * ChainingScrollView.lineHeight
-        var dy = precise ? event.scrollingDeltaY : event.deltaY * ChainingScrollView.lineHeight
+        var dx = precise ? event.scrollingDeltaX : event.deltaX * horizontalLineScroll
+        var dy = precise ? event.scrollingDeltaY : event.deltaY * verticalLineScroll
         let phased = !(event.phase.isEmpty && event.momentumPhase.isEmpty)
         let extent = self.extent
         var route = routing(dx: dx, dy: dy, phased: phased, in: extent)
@@ -184,8 +245,23 @@ package final class ChainingScrollView: NSScrollView {
             let began = event.phase.contains(.began) && event.momentumPhase.isEmpty
             let over = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled)
                 || event.phase.contains(.cancelled)
+            let owned = Self.latch.chosen
             route = Self.latched(&Self.latch, view: self, began: began, over: over,
                                  moving: dx != 0 || dy != 0, routing: route)
+            // A `began` with no delta is nobody's yet and is dropped where it
+            // lands. The scroller that comes to own the gesture hands it to
+            // AppKit first, so the gesture AppKit runs has its beginning; the
+            // event that made it the owner goes back to the head of the
+            // queue, where AppKit's tracking, or the window, takes it next.
+            if began { Self.unsentBegan = dx == 0 && dy == 0 && route == .drop ? event : nil }
+            if route == .appKit, !owned, Self.latch.chosen, let first = Self.unsentBegan, first !== event {
+                Self.unsentBegan = nil
+                collectionWillScroll?()
+                NSApp.postEvent(event, atStart: true)
+                super.scrollWheel(with: first)
+                return
+            }
+            if over { Self.unsentBegan = nil }
         }
         switch route {
         case .drop:
@@ -197,9 +273,8 @@ package final class ChainingScrollView: NSScrollView {
             nextResponder?.scrollWheel(with: event)
         case .here:
             collectionWillScroll?()
-            // What this view can take of it, it takes itself — never through
-            // AppKit, whose nested-scroll routing may move the enclosing view
-            // or animate later, doubling a delta applied here.
+            // The agent's wheel: what this view can take of it, it takes
+            // itself, at once, and the rest is dropped.
             if !take(dx, scrolls: scrollsX, limit: extent.maxX, at: extent.origin.x) { dx = 0 }
             if !take(dy, scrolls: scrollsY, limit: extent.maxY, at: extent.origin.y) { dy = 0 }
             let target = NSPoint(x: min(max(extent.origin.x - dx, 0), extent.maxX),

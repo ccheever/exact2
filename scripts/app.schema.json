@@ -159,7 +159,7 @@
     "background_color": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds."
+      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds. Unset, the iOS launch screen is the platform's: systemBackground, or the grouped background where the first route scrolls a grouped list."
     },
     "lang": {
       "description": "The W3C manifest's language: a BCP 47 tag for the page's <html lang> and the web manifest. Absent is en.",
@@ -195,6 +195,19 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    "protocol_handlers": {
+      "type": "array",
+      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",
+      "items": {
+        "type": "object",
+        "required": ["protocol", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
+          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" }
+        }
       }
     },
     "file_handlers": {
@@ -248,7 +261,7 @@
       ],
       "properties": {
         "id": {
-          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>; change it before distributing.",
+          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
         },
@@ -340,6 +353,15 @@
               "type": "array",
               "items": {
                 "type": "string"
+              }
+            },
+            "queriesSchemes": {
+              "description": "Other apps' URL schemes a native module may ask `canOpenURL` about, to see whether the app is installed (Info.plist's LSApplicationQueriesSchemes): iOS answers false for any scheme not listed, and honours at most 50. A scheme as RFC 3986 writes it, without `:`.",
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
               }
             },
             "team": {

@@ -6,9 +6,17 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { buildInfo, commitOf, releaseNotes, NOTES_MAX } from './buildinfo.mjs';
+import { nativeManifestMetadata } from '../../scripts/app.mjs';
 
 const root = resolve(import.meta.dir, '../..');
 const now = new Date('2026-10-08T10:00:00Z');
+
+test('native binary identity includes protocol handler registration and templates', () => {
+  const manifest = { app: { id: 'com.exact.links' }, protocol_handlers: [{ protocol: 'exacttest', url: '/open?u=%s' }] };
+  const first = nativeManifestMetadata(manifest, 'macos');
+  expect(first.protocol_handlers).toEqual(manifest.protocol_handlers);
+  expect(nativeManifestMetadata({ ...manifest, protocol_handlers: [{ protocol: 'exacttest', url: '/callback?u=%s' }] }, 'macos')).not.toEqual(first);
+});
 
 test('an app inside exact2 carries exact2\'s commit alone, and the kind', () => {
   const info = buildInfo({ dir: resolve(root, 'apps/caltrain') }, { root, now });

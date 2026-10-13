@@ -40,8 +40,9 @@ component Textflow
     scene = value
     elapsed = 0
   action appearance
-    dark = not dark
-    setScheme(dark ? "light" : "dark")
+    let next = not dark
+    dark = next
+    setScheme(next ? "dark" : "light")
   action typeSize
     largeType = not largeType
   action pause

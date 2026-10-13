@@ -73,26 +73,28 @@ async function readEvents(response, limit, message, controller) {
   } finally { reader.releaseLock?.(); }
 }
 
-// A WebSocket that only listens (LLP 1016.000 D3; LLP 1069.004 slice 3),
-// owned here, never by the module realm. Each text message is a message;
-// messages that arrive before the last was handed over coalesce to the
-// newest (D4). A binary message, or one over the ceiling, ends it refused;
-// the far side's close ends it as natively (`the socket closed (1000)`); an
-// abort (the runner let the ticket go) closes it. Nothing is ever sent.
-export function readSocket(url, limit, message, controller) {
-  const encoder = new TextEncoder();
+// The transport belongs to the resource's abort controller (LLP 1016.000).
+// `protocol` opts the JS TypeScript adapter into D7: ordered frames and a
+// private transport handle; the other adapters still take snapshot delivery.
+export function readSocket(url, limit, message, controller, protocol) {
+  const encoder = new TextEncoder(), MAX_BYTES = 1048576, MAX_FRAMES = 256;
   const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
   return new Promise((resolve) => {
-    let socket, opened = false, ended = false, newest = null, coalesced = 0, timer = null;
+    let socket, opened = false, ended = false, newest = null, coalesced = 0, timer = null, queue = [], bytes = 0, sent = 0;
     const flush = () => {
       clearTimeout(timer); timer = null;
-      if (newest === null || ended) return;
-      const m = { event: '', id: '', data: newest, coalesced };
-      newest = null; coalesced = 0; message(m);
+      if (ended) return;
+      if (protocol) {
+        const frames = queue; queue = []; bytes = 0;
+        for (const data of frames) { if (ended) break; message({ event: '', id: '', data, coalesced: 0 }); }
+      } else if (newest !== null) {
+        const m = { event: '', id: '', data: newest, coalesced };
+        newest = null; coalesced = 0; message(m);
+      }
     };
     const end = (outcome) => {
       if (ended) return;
-      ended = true; clearTimeout(timer);
+      ended = true; clearTimeout(timer); queue = []; newest = null; bytes = 0;
       controller.signal.removeEventListener('abort', abort);
       try { socket?.close(1000); } catch {}
       resolve(outcome);
@@ -102,18 +104,57 @@ export function readSocket(url, limit, message, controller) {
     try { socket = new WebSocket(url); } catch (error) { return end(failed(1, String(error?.message ?? error))); }
     socket.binaryType = 'arraybuffer';
     controller.signal.addEventListener('abort', abort);
-    socket.onopen = () => { opened = true; };
+    const check = size => {
+      if (ended || socket.readyState !== 1) throw new DOMException('the socket is not open', 'InvalidStateError');
+      if (!protocol.admit()) throw new Error("outside the app's grants (net.websocket)");
+      if (socket.bufferedAmount + size > MAX_BYTES) throw new DOMException('socket buffer exceeds 1 MiB', 'QuotaExceededError');
+    };
+    protocol?.socket(Object.freeze({
+      get readyState() { return ended ? 3 : socket.readyState; },
+      get bufferedAmount() { return ended ? 0 : socket.bufferedAmount; },
+      get sent() { return sent; },
+      check,
+      send(data) {
+        const size = typeof data === 'string' ? encoder.encode(data).length : data.byteLength;
+        check(size); socket.send(data); sent++;
+      },
+      close(code = 1000, reason = '') {
+        check(0);
+        if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) throw new DOMException('invalid socket close code', 'InvalidAccessError');
+        if (typeof reason !== 'string' || encoder.encode(reason).length > 123) throw new SyntaxError('socket close reason exceeds 123 UTF-8 bytes');
+        socket.close(code, reason);
+      },
+    }));
+    socket.onopen = () => {
+      if (ended) return;
+      opened = true;
+      if (protocol) message({ event: 'open', id: '', data: '', coalesced: 0 });
+    };
     socket.onmessage = (e) => {
       if (ended) return;
-      if (typeof e.data !== 'string') return end(failed(2, "a binary message: a socket's messages are text"));
-      if (e.data.length > limit || encoder.encode(e.data).length > limit) return end(failed(2, 'a message exceeds the response ceiling'));
-      if (newest !== null) coalesced++;
-      newest = e.data;
+      if (!protocol && typeof e.data !== 'string') return end(failed(2, "a binary message: a socket's messages are text"));
+      const size = typeof e.data === 'string' ? encoder.encode(e.data).length : e.data.byteLength;
+      if (size > limit) {
+        if (protocol) flush();
+        return end(failed(2, 'a message exceeds the response ceiling'));
+      }
+      if (protocol) {
+        if (queue.length >= MAX_FRAMES || bytes + size > MAX_BYTES) {
+          flush();
+          return end(failed(2, 'socket receive queue exceeds 256 frames or 1 MiB'));
+        }
+        queue.push(e.data); bytes += size;
+      } else {
+        if (newest !== null) coalesced++;
+        newest = e.data;
+      }
       timer ??= setTimeout(flush, 0);
     };
     socket.onclose = (e) => {
       flush();
-      end(failed(1, !opened ? 'the socket did not open' : e.reason ? `the socket closed (${e.code}: ${e.reason})` : `the socket closed (${e.code})`));
+      const outcome = failed(1, !opened ? 'the socket did not open' : e.reason ? `the socket closed (${e.code}: ${e.reason})` : `the socket closed (${e.code})`);
+      if (protocol && opened) outcome.close = { code: e.code, reason: e.reason, wasClean: e.wasClean };
+      end(outcome);
     };
   });
 }
@@ -140,7 +181,7 @@ import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
-export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {}, bodyFile }) {
+export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {}, bodyFile, protocol }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
@@ -167,7 +208,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
   // `net.websocket`, above); its method, headers and body are not sent.
   if (socket && op.bodyFrom != null) return failed(2, 'exactBodyFrom: a WebSocket sends no body');
-  if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
+  if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller, protocol && { ...protocol, admit: () => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), url, 'websocket') });
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
@@ -207,7 +248,9 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     if (signal.aborted) return failed(4, 'request aborted');
     if (!active()) return failed(4, 'request source unloaded');
   }
-  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
+  // A browser answers a `manual` redirect with an opaque-redirect response
+  // (Fetch §2.2.6: status 0, no Location)
+  const init = { method, headers, redirect: op.redirect ?? 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
   else if (fileBody) init.body = fileBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
@@ -236,13 +279,13 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 }
 
 // A stream on the JS target (host/web-js: rust-data.js, ts-data.js): `request`
-// over a source's request, as the wasm host runs it, so a stream is admitted,
-// read, coalesced and ended the same on both web targets (LLP 1016.000).
-export function streamed(req, grantSet, message, controller, bodyFile) {
+// over a source's request with the wasm host's admission and ownership.
+// Only the TypeScript adapter opts into ordered protocol frames (D7).
+export function streamed(req, grantSet, message, controller, bodyFile, protocol) {
   let body = '';
   for (const b of req.raw ?? []) body += String.fromCharCode(b);
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
-    { grantSet, controllers: new Set(), controller, message, bodyFile, localAssetURL: url => new URL(url, location.href).href,
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, redirect: req.redirect, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+    { grantSet, controllers: new Set(), controller, message, bodyFile, protocol, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }
 

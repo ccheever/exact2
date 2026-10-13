@@ -45,14 +45,6 @@ impl Lowerer<'_> {
             }
         }
         self.check_group(virtualized, attrs, children, scope)?;
-        // @ref LLP 1010 §6.9 — `scroll-padding` is read by a virtualized
-        // list's `scrollIntoView` alone; a native host aligns nothing else by
-        // it, where the browser would.
-        if let Some(a) = attrs.iter().find(|a| a.name.starts_with("scroll-padding")) {
-            if !virtualized {
-                return err("lower-scroll-padding", format!("`{}` insets where a virtualized list's `scrollIntoView` aligns a row; native hosts read it nowhere else, so on {} the web alone would follow it: put it on a `list virtualized=true`, or leave it out", a.name, if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), a.span);
-            }
-        }
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -277,8 +269,8 @@ impl Lowerer<'_> {
     /// Main-axis padding on a virtualized list (@ref LLP 1010 §6.9): CSS's
     /// room before the first row and after the last, inside the scroll
     /// content. It takes what padding takes elsewhere (a number,
-    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: the
-    /// runner reads the list's resolved padding from layout at every report.
+    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: each
+    /// host reports the padding it laid out with the list's offset.
     /// A percentage is refused: Apple's hosts place rows from the authored
     /// padding, which has no containing block to resolve one against.
     /// `scroll-padding` along the axis takes the same forms: the inset a

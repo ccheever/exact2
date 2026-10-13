@@ -15,7 +15,9 @@ impl StyleProps {
             (self.border_style_left, self.border_width_left),
         ]
         .map(|(style, width)| match style {
-            BorderStyle::Solid | BorderStyle::Inset => width.max(0.0),
+            BorderStyle::Solid | BorderStyle::Inset | BorderStyle::Dotted | BorderStyle::Dashed => {
+                width.max(0.0)
+            }
             BorderStyle::None | BorderStyle::Hidden => 0.0,
         })
     }

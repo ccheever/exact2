@@ -4,18 +4,62 @@
 //! data source is ready — a TypeScript module its host loads after first
 //! pixel — and the runner asks again at `data_ready`.
 //!
-//! Encoded as the identifying arguments (one canonical list) and the value, hex, joined
-//! by `|`; a kept answer whose arguments no longer match, whose bytes no
-//! longer decode, or whose value no longer fits the declared shape is
-//! simply not used, and the compiled empty-store placeholder stands.
+//! Kept as the identifying arguments' canonical list followed by the answer's
+//! canonical bytes, each decoded as it was encoded; a kept answer whose arguments no longer match, whose
+//! bytes no longer decode, or whose value no longer fits the declared shape
+//! is simply not used, and the compiled empty-store placeholder stands.
 
-use super::{DataSource, Runner, RunnerError};
+use super::{DataSource, ResourceState, Runner, RunnerError};
 use crate::store::Store;
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
-/// The largest kept answer, encoded: a session, a list of names — never a feed.
-pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
+/// The largest kept answer: its identifying arguments' and its value's canonical bytes, 4 KiB together (a session,
+/// a list of names — never a feed)
+const KEPT_DATA_BYTES: usize = 4096;
+/// The longest kept entry: the data, with the arguments' list header
+pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
+
+/// Whether answers are kept, and the resources an answer too big to keep was said of, once each
+#[derive(Debug, Default)]
+pub(super) struct Keeping {
+    pub(super) on: bool,
+    pub(super) too_big: Vec<usize>,
+    /// Kept answers this boot refused, by resource, with why: journaled
+    /// with the ones it shows, so a refusal is never silent.
+    pub(super) refused: Vec<(usize, String)>,
+}
+
+/// Note that resource `i`'s kept answer, kept for `kept`, was refused
+/// for this launch's identifying `now` (or, with `now` unknown, because
+/// they read a store reader still on its fallback). Once per resource.
+pub(super) fn refuse(
+    keeping: &mut Keeping,
+    plan: &exact_plan::Plan,
+    i: usize,
+    kept: &[Value],
+    now: Option<&[Value]>,
+) {
+    if keeping.refused.iter().any(|(r, _)| *r == i) {
+        return;
+    }
+    let json = |args: &[Value]| {
+        let mut out = String::new();
+        crate::agent::untyped_json(&Value::list(args.to_vec()), &mut out);
+        out
+    };
+    let why = match now {
+        Some(now) => format!(
+            "this launch asks for {}",
+            super::lines::shortened(&json(now))
+        ),
+        None => "this launch's arguments read a store reader still on its fallback".into(),
+    };
+    let name = plan.str(plan.resources[i].name);
+    keeping
+        .refused
+        .push((i, super::lines::kept_refused(name, Some(&json(kept)), &why)));
+}
 
 /// The store name a resource's kept answer lives under.
 /// The kept entries in `snapshot` no declared reader of `plan` seeds. A
@@ -23,7 +67,7 @@ pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
 /// so any other entry (a reader made transient, a resource removed) is
 /// forgotten on disk, not carried forever. A reload's carried readers are
 /// checked for compatibility instead.
-pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -> Vec<String> {
+pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
     snapshot
         .iter()
         .filter_map(|(name, _)| {
@@ -39,7 +83,7 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -
 
 /// Every kept entry in `snapshot`: what an app that keeps no answers
 /// forgets (LLP 1069.008.000 D7).
-pub(super) fn all(snapshot: &[(String, String)]) -> Vec<String> {
+pub(super) fn all(snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
     snapshot
         .iter()
         .filter(|(name, _)| name.starts_with(Store::KEPT))
@@ -53,17 +97,17 @@ pub(super) fn kept_name(resource: &str) -> String {
     name
 }
 
-pub(super) fn encode(args: &[Value], value: &Value) -> String {
-    let mut s = hex(&Value::list(args.to_vec()).to_bytes());
-    s.push('|');
-    s.push_str(&hex(&value.to_bytes()));
-    s
+pub(super) fn encode(args: &[Value], value: &Value) -> Vec<u8> {
+    let mut w = exact_plan::bytes::Writer::default();
+    Value::list(args.to_vec()).encode(&mut w);
+    value.encode(&mut w);
+    w.into_vec()
 }
 
-// Count canonical bytes only as far as the hex-text budget permits. Iterators
+// Count canonical bytes only as far as the budget permits. Iterators
 // borrow children: even an enormous list never allocates a traversal-sized stack.
 fn fits(args: &[Value], value: &Value) -> bool {
-    let mut remaining = (MAX_KEPT_BYTES - 1) / 2 - 5; // separator and args-list header
+    let mut remaining = KEPT_DATA_BYTES;
     let mut stack = vec![std::slice::from_ref(value).iter(), args.iter()];
     while let Some(items) = stack.last_mut() {
         let Some(item) = items.next() else {
@@ -98,54 +142,134 @@ fn fits(args: &[Value], value: &Value) -> bool {
     true
 }
 
-pub(super) fn decode(text: &str) -> Option<(Vec<Value>, Value)> {
-    if text.len() > MAX_KEPT_BYTES {
+pub(super) fn decode(bytes: &[u8]) -> Option<(Vec<Value>, Value)> {
+    if bytes.len() > MAX_KEPT_BYTES {
         return None;
     }
-    let (a, v) = text.split_once('|')?;
-    let args = match Value::from_bytes(&unhex(a)?).ok()? {
-        Value::List(items) => items.to_vec(),
-        _ => return None,
+    // Each from its own depth, as it was kept: no envelope costs the answer a level
+    let mut r = exact_plan::bytes::Reader::new(bytes);
+    let Value::List(args) = Value::decode(&mut r).ok()? else {
+        return None;
     };
-    let value = Value::from_bytes(&unhex(v)?).ok()?;
-    Some((args, value))
-}
-
-/// Two lowercase digits a byte (`{:02x}`'s), without the formatter: a kept
-/// answer is written on a first press's path.
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push(char::from(DIGITS[usize::from(b >> 4)]));
-        out.push(char::from(DIGITS[usize::from(b & 15)]));
-    }
-    out
-}
-
-fn unhex(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    fn digit(b: u8) -> Option<u8> {
-        match b {
-            b'0'..=b'9' => Some(b - b'0'),
-            b'a'..=b'f' => Some(b - b'a' + 10),
-            b'A'..=b'F' => Some(b - b'A' + 10),
-            _ => None,
-        }
-    }
-    s.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| Some(digit(pair[0])? * 16 + digit(pair[1])?))
-        .collect()
+    let value = Value::decode(&mut r).ok()?;
+    r.is_empty().then(|| (args.to_vec(), value))
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Whether resource `i`'s identifying call arguments (not its `with`
+    /// context) read, directly or through derives, a store-reading resource
+    /// still on its fallback, its compiled answer or placeholder, before its
+    /// source is ready: its identity is not yet known, so its kept answer
+    /// must wait. An account resource with no kept answer of its own shows
+    /// its placeholder (`did: ""`), and that empty id would match whatever
+    /// another launch kept (LLP 1027.005 D3, 2026-10-10). Kept seeds,
+    /// carried and checkpoint answers and non-store values are known.
+    pub(super) fn identity_unknown(&self, i: usize, states: &[Option<ResourceState>]) -> bool {
+        use crate::instance::Input;
+        let deps = self.sites.deps();
+        let row = &self.plan.resources[i];
+        let identity = row.args.len as usize - usize::from(row.context);
+        let mut work: Vec<_> = row
+            .args
+            .iter()
+            .take(identity)
+            .map(|a| deps.reads_of(&self.plan, self.plan.arg(a).expr))
+            .collect();
+        let mut derives = vec![false; self.plan.derives.len()];
+        while let Some(reads) = work.pop() {
+            for input in deps.inputs(&reads) {
+                match input {
+                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
+                        if self.store_readers[r]
+                            && states[r]
+                                .as_ref()
+                                .is_some_and(|s| s.placeholder || s.value.is_compiled()) =>
+                    {
+                        return true;
+                    }
+                    Input::Derive(d) if !derives[d] => {
+                        derives[d] = true;
+                        work.push(deps.derives[d].clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// What the first frame shows from the bake until its source is ready
+    /// (LLP 1048.003 D6; feed F24: say so in the journal), and each store
+    /// reader whose build-time answer a store holding secrets passed over
+    /// for its placeholder (LLP 1027 D4, 2026-10-10).
+    pub(super) fn journal_build_time(&mut self) {
+        let secrets = self.store.opened_with_secrets();
+        for i in 0..self.stale.len() {
+            let Some(state) = self.resources[i].as_ref().filter(|_| self.stale[i]) else {
+                continue;
+            };
+            let name = self.plan.str(self.plan.resources[i].name);
+            let line = if state.value.is_compiled() {
+                super::lines::build_time(name)
+            } else if state.placeholder
+                && secrets
+                && self.store_readers[i]
+                && self.plan.resources[i].initial.len > 0
+            {
+                super::lines::secrets_unseen(name)
+            } else {
+                continue;
+            };
+            self.log(line);
+        }
+    }
+
+    /// Journal each kept answer the first frame shows, with the arguments it
+    /// was kept for (development tools read the journal; its request lines
+    /// already carry URLs), so a stale answer is traceable to its key.
+    pub(super) fn journal_kept_seeds(&mut self) {
+        self.journal_refused();
+        for i in 0..self.plan.resources.len() {
+            if let Some(state) = self.resources[i].as_ref().filter(|s| s.kept_seed) {
+                let mut args = String::new();
+                crate::agent::untyped_json(&Value::list(state.args.clone()), &mut args);
+                let line =
+                    super::lines::kept_shown(self.plan.str(self.plan.resources[i].name), &args);
+                self.log(line);
+            }
+        }
+    }
+
+    /// Journal the kept answers refused by a settlement that stood: at
+    /// boot, and at a later commit before readiness (an identity changed).
+    pub(super) fn journal_refused(&mut self) {
+        for (_, line) in std::mem::take(&mut self.keeping.refused) {
+            self.log(line);
+        }
+    }
+
+    /// The kept answer that may seed resource `i`'s first frame: its
+    /// identifying arguments and value, when they still decode, count as
+    /// many arguments as the call identifies and fit its shape; otherwise
+    /// the refusal is noted for the journal.
+    pub(super) fn kept_seed(&mut self, i: usize) -> Option<(Vec<Value>, Value)> {
+        let row = &self.plan.resources[i];
+        let name = self.plan.str(row.name);
+        let entry = self.store.kept(&kept_name(name))?;
+        let identity = row.args.len as usize - usize::from(row.context);
+        let seed = decode(entry)
+            .filter(|(args, value)| args.len() == identity && self.check_shape(i, value).is_ok());
+        if seed.is_none() {
+            let line = super::lines::kept_refused(name, None, "it no longer decodes or fits");
+            self.keeping.refused.push((i, line));
+        }
+        seed
+    }
+
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
-        if !self.keeps_answers || !self.store_readers[i] {
+        if !self.keeping.on || !self.store_readers[i] {
             return;
         }
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
@@ -159,31 +283,49 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         // @ref LLP 1027.005 D6 — context reaches the source but does not
-        // enter the kept entry or its 8 KB budget. With no context these
-        // are the exact same arguments and encoding as before.
+        // enter the kept entry or its budget.
         let row = &self.plan.resources[i];
         let args = &args[..row.args.len as usize - usize::from(row.context)];
+        let name = kept_name(self.plan.str(row.name));
         if !fits(args, value) {
+            // An older answer kept for it would show stale at the next launch: forget it (with the commit), and
+            // say so once
+            self.store.forget_kept(&name);
+            if !self.keeping.too_big.contains(&i) {
+                self.keeping.too_big.push(i);
+                let line = format!(
+                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes (4 KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under 4 KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key (LLP 1027 D4)",
+                    self.plan.str(row.name)
+                );
+                self.log(line);
+            }
             return;
         }
-        let encoded = encode(args, value);
-        let name = kept_name(self.plan.str(self.plan.resources[i].name));
-        self.store.keep(&name, &encoded);
+        self.store.keep(&name, encode(args, value));
     }
 
     /// The data source is ready — a host loaded its TypeScript module after
     /// the first pixel (LLP 1027 D4): every deferred resource shown
     /// from a placeholder is asked again, and every send made before now
     /// is sent, in one commit. `None` when nothing was waiting, or when the
-    /// source is still not ready.
+    /// source is still not ready. Hosts call it once, so a stand-in's
+    /// resource is asked here or not at all: that ask never refuses the
+    /// commit, and a refusal fails the resource, which `refresh` asks again,
+    /// as after a failed reply.
     pub fn data_ready(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
         let stale: Vec<usize> = (0..self.stale.len()).filter(|i| self.stale[*i]).collect();
+        // Writes made before the source was ready are overlaid from here
+        self.overlays.iter_mut().for_each(|o| *o = None);
         if self.unsent.is_empty() {
-            return self.recommit(stale, "data_ready");
+            if stale.is_empty() && self.writes.records.is_empty() {
+                return Ok(None);
+            }
+            self.owe(&stale);
+            return self.commit_again(stale, "data_ready").map(Some);
         }
         let what = format!(
             "data_ready ({} asked again, {} sent)",
@@ -192,7 +334,8 @@ impl<D: DataSource> Runner<D> {
         );
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(false);
-        self.refresh_next.extend(stale);
+        self.refresh_next.extend(&stale);
+        self.owe(&stale);
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
@@ -218,9 +361,33 @@ impl<D: DataSource> Runner<D> {
             }
         };
         self.conclude(checkpoint, &result, was_poisoned);
+        let dropped = result.is_err() && !self.poisoned;
+        // Refused, the sends it asked are not asked again (a host makes one
+        // `data_ready`): they are dropped, said in the journal, and their
+        // writes end.
+        if dropped {
+            for (m, ..) in std::mem::take(&mut self.unsent) {
+                let name = self.plan.str(self.plan.mutations[m].name).to_string();
+                self.log(super::lines::unsent_refused(
+                    &name,
+                    "data_ready was refused",
+                ));
+                self.end_write(m, None);
+            }
+            self.sync_pending_flags();
+        }
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
+        // The refusal is in the journal; the commit that ends them, and asks
+        // what `data_ready` owed, is the host's to apply, as after a failed
+        // reply.
+        if dropped {
+            self.owe(&stale);
+            return self
+                .commit_again(stale, "the sends a refused data_ready dropped")
+                .map(Some);
+        }
         result.map(Some)
     }
 
@@ -245,6 +412,8 @@ impl<D: DataSource> Runner<D> {
                 {
                     match self.mutation_slot(m) {
                         Ok(slot) => {
+                            self.forget_ticket(super::Target::Mutation(m));
+                            self.land_write(m, None, &value);
                             self.slots[slot] = Value::some(value);
                             self.landed.push(m);
                             for r in self.declared_refreshes(m) {
@@ -259,7 +428,6 @@ impl<D: DataSource> Runner<D> {
                     Some("its answer does not fit the mutation's shape".to_string())
                 }
                 Ok(super::Answer::Later(request)) => {
-                    self.reread_next.extend(self.declared_refreshes(m));
                     later.push((m, source, args, request));
                     None
                 }
@@ -267,6 +435,11 @@ impl<D: DataSource> Runner<D> {
             };
             if let Some(why) = refused {
                 self.log(super::lines::unsent_refused(&name, &why));
+                // Its write ends; the resources it showed in drop it in
+                // this commit, and a refusal of the commit does not bring
+                // it back.
+                self.refused_unsent.push((m, self.asked_write(m)));
+                self.end_write(m, None);
             }
         }
         self.sync_pending_flags();
@@ -286,29 +459,30 @@ mod tests {
     fn a_kept_answer_round_trips_and_a_damaged_one_is_not_used() {
         let args = vec![Value::str("mv"), Value::Number(3.0)];
         let value = Value::record(vec![Value::Bool(true), Value::str("ada")]);
-        let text = encode(&args, &value);
-        let (a, v) = decode(&text).unwrap();
+        let bytes = encode(&args, &value);
+        let (a, v) = decode(&bytes).unwrap();
         assert_eq!(a, args);
         assert_eq!(v.to_bytes(), value.to_bytes());
-        assert!(decode("").is_none());
-        assert!(decode("zz|00").is_none());
-        let valid_args = hex(&Value::list(vec![]).to_bytes());
-        for invalid in ["€", "€x", "é", "💬", "a💬a", "0g", "+1"] {
-            assert!(decode(&format!("{invalid}|00")).is_none());
-            assert!(decode(&format!("{valid_args}|{invalid}")).is_none());
+        assert!(decode(b"").is_none());
+        assert!(decode(&bytes[..bytes.len() - 1]).is_none());
+        // An entry kept as hex text, or bytes that are not an arguments list then one answer, is not used
+        assert!(decode(b"0500000000|00").is_none());
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        for not_an_entry in [
+            Value::list(args.clone()).to_bytes(),
+            [Value::str("mv").to_bytes(), value.to_bytes()].concat(),
+            trailing,
+        ] {
+            assert!(decode(&not_an_entry).is_none());
         }
-        assert!(decode(&text[..text.len() - 1]).is_none());
+        // The deepest answer a value may be still decodes: keeping it costs no level
+        let mut deep = Value::Number(1.0);
+        for _ in 0..64 {
+            deep = Value::record(vec![deep]);
+        }
+        assert!(decode(&encode(&args, &deep)).is_some());
         assert_eq!(kept_name("remembered"), "exact.kept.remembered");
-    }
-
-    #[test]
-    fn hex_is_two_lowercase_digits_a_byte() {
-        let every: Vec<u8> = (0..=255).collect();
-        let reference = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        assert_eq!(hex(&every), reference(&every));
-        assert_eq!(hex(&[]), "");
-        let value = Value::record(vec![Value::str("é💬"), Value::Number(-2.5)]).to_bytes();
-        assert_eq!(hex(&value), reference(&value));
     }
 
     #[test]
@@ -330,8 +504,8 @@ mod tests {
                 );
             }
         }
-        // Hex plus its separator is always odd: 8191 fits, 8193 does not.
-        for size in [4084, 4085, 4086, 10000] {
+        // The data budget's edge: with no arguments, a string of 4091 bytes fits (its header is 5), 4092 does not.
+        for size in [4090, 4091, 4092, 10000] {
             let value = Value::str(&"x".repeat(size));
             for args in [&[][..], &values[..]] {
                 assert_eq!(

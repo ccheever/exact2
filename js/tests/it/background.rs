@@ -57,7 +57,7 @@ pub(crate) fn drive(
         rounds(m, s);
         for (token, dispatch) in m.release(s) {
             let a = held.remove(&token).expect("released work was held");
-            let Dispatch::Run(Work::Now(work)) = dispatch else {
+            let Dispatch::Run(Work::Now(work)) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             let outcome = std::thread::spawn(work).join().unwrap();
@@ -73,7 +73,7 @@ pub(crate) fn drive(
         match answer {
             Answer::Now(v) => done.push(text(v)),
             Answer::Later(request) => match request.continuation {
-                Some(token) => match m.dispatch(token, s) {
+                Some(token) => match crate::runnable(m.dispatch(token, s)) {
                     Dispatch::Run(Work::Now(work)) => {
                         let outcome = std::thread::spawn(work).join().unwrap();
                         let next = m.parse(s, "work", &a, outcome).unwrap();
@@ -139,7 +139,7 @@ impl Host {
     fn emit(&mut self) {
         for request in self.runner.take_requests() {
             let token = request.request.continuation.expect("storage continuation");
-            match self.runner.dispatch_work(token) {
+            match crate::runnable(self.runner.dispatch_work(token)) {
                 Dispatch::Run(w) => self.work.push_back((request.ticket, w)),
                 Dispatch::Held => {
                     self.held.insert(token, request.ticket);
@@ -148,7 +148,7 @@ impl Host {
             }
         }
         for (token, dispatch) in self.runner.release_work() {
-            let Dispatch::Run(w) = dispatch else {
+            let Dispatch::Run(w) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             if let Some(ticket) = self.held.remove(&token) {
@@ -262,7 +262,7 @@ fn an_unawaited_write_lands_after_the_reply_and_an_awaited_one_before() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let a = args("save", "first");
     assert!(
         matches!(m.answer(&mut s, "work", &a).unwrap(), Answer::Now(_)),
@@ -290,7 +290,7 @@ fn two_unawaited_edits_then_a_read_see_the_second_edit_and_a_chain_its_first() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let mut answers = Vec::new();
     for (op, value) in [("save", "one"), ("save", "two"), ("read-at", "song")] {
         let a = args(op, value);
@@ -320,7 +320,7 @@ fn an_answer_awaiting_background_work_waits_for_it() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let save = args("save", "one");
     let saved = m.answer(&mut s, "work", &save).unwrap();
     let after = args("await-saving", "");
@@ -342,7 +342,7 @@ fn the_258th_operation_is_refused_full_and_journaled() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "flood", ""), "full");
     let journal = DataSource::take_logs(&mut m);
     assert!(
@@ -366,7 +366,7 @@ fn background_work_cannot_fetch_or_call_native() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "save-then-fetch", "a"), "saved a");
     assert!(call(&mut m, &mut s, "last-error", "").contains("fetch() called from background work"),);
     assert_eq!(call(&mut m, &mut s, "save-then-native", "b"), "saved b");
@@ -390,7 +390,7 @@ fn background_failures_and_unhandled_rejections_are_journaled() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "save-bad", "x"), "saved x");
     assert_eq!(call(&mut m, &mut s, "last-error", ""), "ENOENT");
     let state = m.background_state().unwrap();
@@ -420,7 +420,7 @@ fn a_database_left_open_by_failed_background_work_is_journaled() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "open-leak", "x"), "answered");
     rounds(&mut m, &s);
     let journal = DataSource::take_logs(&mut m);
@@ -446,7 +446,7 @@ fn a_chained_save_lands_and_the_next_edit_is_not_behind_it() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     for value in ["third", "fourth"] {
         let a = args("deferred", value);
         assert!(
@@ -537,7 +537,7 @@ fn answers_begin_at_once_and_interleave_at_their_awaits() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let first = args("append", "A1,A2");
     let a = m.answer(&mut s, "work", &first).unwrap();
     assert!(matches!(a, Answer::Later(_)), "it awaits its write");
@@ -566,7 +566,7 @@ fn unloading_finishes_what_the_answers_left() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     for value in ["one", "two", "three"] {
         let a = args("save", value);
         assert!(matches!(
@@ -606,7 +606,8 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
             .request
             .continuation
             .expect("background continuation");
-        let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) else {
+        let Dispatch::Run(Work::Now(work)) = crate::runnable(host.runner.dispatch_work(token))
+        else {
             panic!("a background round runs");
         };
         let outcome = std::thread::spawn(work).join().unwrap();
@@ -621,7 +622,7 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
         let Some(token) = request.request.continuation else {
             continue;
         };
-        if let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) {
+        if let Dispatch::Run(Work::Now(work)) = crate::runnable(host.runner.dispatch_work(token)) {
             let outcome = std::thread::spawn(work).join().unwrap();
             host.runner.fulfill(request.ticket, outcome).unwrap();
         }
@@ -639,7 +640,7 @@ fn a_failed_storage_continuation_releases_the_queue() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     let a = args("file", "first");
     assert!(matches!(
         m.answer(&mut s, "work", &a).unwrap(),
@@ -679,4 +680,55 @@ fn a_failed_storage_continuation_releases_the_queue() {
     assert_eq!(read_file(&root, "song"), "after");
     let state = m.background_state().unwrap();
     assert_eq!(state.queued + state.in_flight, 0);
+}
+
+#[test]
+fn worker_placed_typescript_storage_keeps_the_document_owner() {
+    use exact_runner::{Dispatch, Placement, Reply, Work};
+    fn read(module: &mut exact_js::Placed<Module>, store: &mut Store, path: &str) -> String {
+        let args = args("read-size", path);
+        let mut answer = module.answer(store, "work", &args).unwrap();
+        for _ in 0..8 {
+            let Answer::Later(request) = answer else {
+                let Answer::Now(value) = answer else {
+                    unreachable!()
+                };
+                return text(value);
+            };
+            let Dispatch::Run(Work::Later(work)) =
+                module.dispatch(request.continuation.unwrap(), store)
+            else {
+                panic!("worker turn did not dispatch")
+            };
+            let (tx, rx) = std::sync::mpsc::channel();
+            work(Reply::new(move |outcome| {
+                tx.send(outcome).unwrap();
+            }));
+            answer = module
+                .parse(
+                    store,
+                    "work",
+                    &args,
+                    rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(),
+                )
+                .unwrap();
+        }
+        panic!("document read did not settle")
+    }
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("note");
+    std::fs::write(&file, "owner").unwrap();
+    let doc = exact_data::documents::mint(&file, 9130).unwrap();
+    let mut owner = root.module().placed(Placement::Worker);
+    owner.set_document_owner(9130);
+    owner.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    assert_eq!(read(&mut owner, &mut store, &doc), "5");
+    let mut other = root.module().placed(Placement::Worker);
+    other.set_document_owner(9131);
+    other.activate().unwrap();
+    assert!(read(&mut other, &mut store, &doc).contains("document ENOENT:"));
+    exact_data::documents::forget(9130);
 }

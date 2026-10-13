@@ -1,4 +1,18 @@
 //! Form-control boxes recorded from Chrome 154.0.8037.92 (Linux) on 2026-10-02.
+//! The switch and select rows were recorded again on 2026-10-10 (LLP 1116
+//! D1), from Chrome 154.0.8037.98 (macOS), when the page began drawing its
+//! own switch and select: the switch's 60 boxes are the same in Firefox 155
+//! and in WebKit 26.6's own switch. A select's widths follow its option's
+//! text, so its intrinsic pair is the platform's font's (macOS here). The
+//! date, time and datetime-local rows were recorded again on 2026-10-11
+//! (LLP 1116.001 D1), from the same Chrome on macOS, when the page gave them
+//! the field look: a border box 36 px tall, as a select is.
+//!
+//! The range and the determinate progress at `width: 100%`, which lowering
+//! writes for both (LLP 1115.000 D10.2), and the progress at `width: auto`
+//! and `height: auto`, were recorded on 2026-10-11 from Chrome 154.0.8037.98
+//! (macOS, headless), with the sheet's `contain-intrinsic-size` on the
+//! progress.
 //!
 //! Each case is a control with `display:block;margin:0` in a 400 px parent.
 //! The page uses `host/web/index.html`'s control reset. The intrinsic pairs
@@ -31,15 +45,15 @@ const KINDS: &[Kind] = &[
         default: (13.0, 13.0),
         expected: &CHECKBOX,
     },
-    // Chromium does not implement HTML's `switch` attribute, so its oracle
-    // is the specified checkbox fallback. Apple hosts report their UISwitch/
-    // NSSwitch size through the same intrinsic seam.
+    // Chromium does not implement HTML's `switch` attribute, so the page
+    // draws one in WebKit's 38 x 22 box (index.html). Apple hosts report
+    // their UISwitch/NSSwitch size through the same intrinsic seam.
     Kind {
         name: "switch",
         ty: "checkbox",
         role: Some("switch"),
-        intrinsic: (13.0, 13.0),
-        default: (13.0, 13.0),
+        intrinsic: (38.0, 22.0),
+        default: (38.0, 22.0),
         expected: &SWITCH,
     },
     Kind {
@@ -62,24 +76,24 @@ const KINDS: &[Kind] = &[
         name: "date",
         ty: "date",
         role: None,
-        intrinsic: (150.0, 21.0),
-        default: (150.0, 21.0),
+        intrinsic: (164.0, 36.0),
+        default: (164.0, 36.0),
         expected: &DATE,
     },
     Kind {
         name: "time",
         ty: "time",
         role: None,
-        intrinsic: (111.796_875, 22.796_875),
-        default: (111.796_875, 22.796_875),
+        intrinsic: (131.796_88, 36.0),
+        default: (131.796_88, 36.0),
         expected: &TIME,
     },
     Kind {
         name: "datetime-local",
         ty: "datetime-local",
         role: None,
-        intrinsic: (240.0, 21.0),
-        default: (240.0, 21.0),
+        intrinsic: (247.0, 36.0),
+        default: (247.0, 36.0),
         expected: &DATETIME_LOCAL,
     },
     // `Long choice` was the widest option in the recorder.
@@ -87,9 +101,9 @@ const KINDS: &[Kind] = &[
         name: "select",
         ty: "select",
         role: None,
-        intrinsic: (102.0, 19.0),
+        intrinsic: (135.0, 36.0),
         // A select with no options; a host reports the chosen option's box.
-        default: (22.0, 19.0),
+        default: (46.0, 36.0),
         expected: &SELECT,
     },
 ];
@@ -208,9 +222,21 @@ impl Variant {
 }
 
 fn laid_out(kind: Kind, context: Context, variant: Variant, report_intrinsic: bool) -> Kernel {
+    laid_out_as(kind, "", context, variant, report_intrinsic)
+}
+
+/// [`laid_out`] with `implied` under the variant's rows, as lowering writes
+/// a tag's own rows under its author's.
+fn laid_out_as(
+    kind: Kind,
+    implied: &str,
+    context: Context,
+    variant: Variant,
+    report_intrinsic: bool,
+) -> Kernel {
     let mut root = rows(context.root());
     root.push((StyleId::Width, n(400.0)));
-    let item = rows(&context.item(variant.css()));
+    let item = rows(&format!("{implied};{}", context.item(variant.css())));
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -295,6 +321,264 @@ fn controls_without_a_host_intrinsic_use_chromes_bare_defaults() {
         ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// LLP 1115.000 D10.2: a range is lowered `width: 100%`, and with that row
+/// it is as wide as what holds it in every placement, as Chrome's is; a
+/// variant's own `width` replaces the row. Its height is the control's.
+#[test]
+fn a_range_as_lowered_is_full_width_in_every_placement() {
+    let range = *KINDS.iter().find(|k| k.name == "range").unwrap();
+    let mut failures = Vec::new();
+    for context in Context::ALL {
+        for variant in Variant::ALL {
+            let kernel = laid_out_as(range, "width:100%", context, variant, true);
+            let (width, height) = RANGE_FULL[variant as usize];
+            failures.extend(mismatches(
+                &format!("range {} {}", context.name(), variant.name()),
+                &kernel,
+                &[(2, [0.0, 0.0, width, height])],
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A determinate `progress` (`value` set) in each placement, its host
+/// reporting a size of its own (UIKit's bar is 4 points tall). `implied` is
+/// under the variant's rows, as lowering writes a tag's rows under its
+/// author's.
+fn progress_laid_out(implied: &str, context: Context, variant: Variant) -> Kernel {
+    let mut root = rows(context.root());
+    root.push((StyleId::Width, n(400.0)));
+    let item = rows(&format!("{implied};{}", context.item(variant.css())));
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&root)),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Control,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(props(&item)),
+        },
+    ];
+    for (prop, value) in [(PropId::Type, "progress"), (PropId::Value, "0.5")] {
+        ops.push(Op::SetProp {
+            id: 2,
+            prop,
+            value: PropValue::Str(value.into()),
+        });
+    }
+    ops.extend([
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel.set_intrinsic_size(2, Some((300.0, 4.0))).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    kernel
+}
+
+/// The boxes of a determinate `progress` whose rows under each variant's
+/// are `implied`, against `expected`, context by variant.
+fn progress_failures(implied: &str, expected: &[[(f32, f32); 10]; 6]) -> Vec<String> {
+    let mut failures = Vec::new();
+    for context in Context::ALL {
+        for variant in Variant::ALL {
+            let kernel = progress_laid_out(implied, context, variant);
+            let (width, height) = expected[context as usize][variant as usize];
+            failures.extend(mismatches(
+                &format!("progress `{implied}` {} {}", context.name(), variant.name()),
+                &kernel,
+                &[(2, [0.0, 0.0, width, height])],
+            ));
+        }
+    }
+    failures
+}
+
+/// LLP 1115.000 D10.2: a determinate `progress` is lowered `width: 100%`,
+/// and with that row it is as wide as what holds it in every placement, as
+/// Chrome's `<progress>` is, `1em` tall in its border box (the UA sheet's
+/// height); a variant's own `width` replaces the row, and a host's own size
+/// does not move it.
+#[test]
+fn a_determinate_progress_as_lowered_is_full_width_in_every_placement() {
+    let failures = progress_failures("width:100%", &[PROGRESS_FULL; 6]);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// What it falls back to. With `width: auto` it is a block of intrinsic
+/// size `10em` by `1em`: as wide as a block container or a stretching one
+/// (a flex column, a grid, between insets), and `10em` where CSS sizes a
+/// box by its content (a flex row's basis, an absolutely positioned box).
+/// With `height: auto` it is `1em` of content, so padding adds to it.
+#[test]
+fn a_determinate_progress_falls_back_to_10em_by_1em() {
+    let mut failures = progress_failures("width:auto", &PROGRESS_AUTO);
+    failures.extend(progress_failures(
+        "width:100%;height:auto",
+        &[PROGRESS_FULL_AUTO_HEIGHT; 6],
+    ));
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// LLP 1116 D8: with no width row at all (no plan has none: lowering writes
+/// one) a determinate `progress` is HTML's UA box in every placement. The
+/// UA sheet's `width: 10em; height: 1em; box-sizing: border-box` are
+/// specified sizes, so a flex column or a grid keeps them where it
+/// stretches a range, and a host's own size does not move them.
+#[test]
+fn a_determinate_progress_with_no_width_row_is_htmls_ua_box_in_every_placement() {
+    let failures = progress_failures("", &PROGRESS);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// In a flex row a full-width range or progress gives way to its
+/// neighbours: both shrink below their intrinsic width, to what a sibling
+/// that does not shrink leaves (Chrome 154: 50 of a 200 px row beside a
+/// 150 px box; a percentage-wide range is compressible, and the page gives
+/// the progress `min-width: 0`). A range of `auto` width keeps its 129 and
+/// overflows, as Chrome's does.
+#[test]
+fn a_full_width_range_or_progress_shrinks_beside_a_rows_other_children() {
+    let squeezed = |ty: &str, value: bool, css: &str| {
+        let mut ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(props(&rows("display:flex;width:200px"))),
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(props(&rows("width:150px;height:10px;flex-shrink:0"))),
+            },
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::Control,
+            },
+            Op::SetStyle {
+                id: 3,
+                patch: Box::new(props(&rows(css))),
+            },
+            Op::SetProp {
+                id: 3,
+                prop: PropId::Type,
+                value: PropValue::Str(ty.into()),
+            },
+        ];
+        if value {
+            ops.push(Op::SetProp {
+                id: 3,
+                prop: PropId::Value,
+                value: PropValue::Str("0.5".into()),
+            });
+        }
+        ops.extend([
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        let mut kernel = Kernel::with_monospace();
+        kernel.apply(0, 1, &ops).unwrap();
+        kernel
+            .compute_layout(1, Offer::definite(800.0, 600.0))
+            .unwrap();
+        let frame = kernel.node(3).unwrap().frame;
+        (frame.x, frame.width)
+    };
+    assert_eq!(squeezed("range", false, "width:100%"), (150.0, 50.0));
+    assert_eq!(squeezed("range", false, "width:50%"), (150.0, 50.0));
+    assert_eq!(squeezed("range", false, "width:auto"), (150.0, 129.0));
+    assert_eq!(
+        squeezed("range", false, "width:100%;min-width:80px"),
+        (150.0, 80.0),
+        "an authored minimum is the author's"
+    );
+    assert_eq!(squeezed("progress", true, "width:100%"), (150.0, 50.0));
+    assert_eq!(squeezed("progress", true, "width:auto"), (150.0, 50.0));
+}
+
+/// The bar's `em`s follow its font size, and a `value` given or taken makes
+/// a `progress` the bar or the 20 × 20 activity indicator again.
+#[test]
+fn a_progress_bar_follows_its_font_size_and_its_value() {
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows("width:400px"))),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Control,
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::Type,
+            value: PropValue::Str("progress".into()),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    let size = |k: &mut Kernel| {
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        let f = k.node(2).unwrap().frame;
+        (f.width, f.height)
+    };
+    assert_eq!(size(&mut kernel), (20.0, 20.0), "no value: the indicator");
+    let value = |v: &str| Op::SetProp {
+        id: 2,
+        prop: PropId::Value,
+        value: PropValue::Str(v.into()),
+    };
+    kernel.apply(1, 2, &[value("0.25")]).unwrap();
+    assert_eq!(size(&mut kernel), (160.0, 16.0), "a value: the bar");
+    kernel.apply(2, 3, &[value("0.5")]).unwrap();
+    assert_eq!(size(&mut kernel), (160.0, 16.0));
+    let font = Op::SetStyle {
+        id: 1,
+        patch: Box::new(props(&rows("width:400px;font-size:20px"))),
+    };
+    kernel.apply(3, 4, &[font]).unwrap();
+    assert_eq!(size(&mut kernel), (200.0, 20.0), "10em by 1em");
+    let clear = Op::ClearProp {
+        id: 2,
+        prop: PropId::Value,
+    };
+    kernel.apply(4, 5, &[clear]).unwrap();
+    assert_eq!(size(&mut kernel), (20.0, 20.0));
 }
 
 #[test]
@@ -717,12 +1001,12 @@ const CHECKBOX: [[(f32, f32); 10]; 6] = [
 ];
 #[rustfmt::skip]
 const SWITCH: [[(f32, f32); 10]; 6] = [
-    [(13.0, 13.0), (300.0, 13.0), (100.0, 20.0), (13.0, 13.0), (300.0, 13.0), (13.0, 40.0), (13.0, 40.0), (13.0, 10.0), (100.0, 13.0), (13.0, 13.0)],
-    [(13.0, 13.0), (300.0, 13.0), (100.0, 20.0), (13.0, 13.0), (300.0, 13.0), (13.0, 40.0), (13.0, 40.0), (13.0, 10.0), (100.0, 13.0), (13.0, 13.0)],
-    [(400.0, 13.0), (300.0, 13.0), (300.0, 20.0), (400.0, 200.0), (300.0, 13.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 13.0), (300.0, 13.0)],
-    [(400.0, 13.0), (300.0, 13.0), (300.0, 20.0), (400.0, 200.0), (300.0, 13.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 13.0), (300.0, 13.0)],
-    [(13.0, 13.0), (300.0, 13.0), (100.0, 20.0), (13.0, 13.0), (300.0, 13.0), (13.0, 40.0), (13.0, 40.0), (13.0, 10.0), (100.0, 13.0), (13.0, 13.0)],
-    [(400.0, 13.0), (300.0, 13.0), (300.0, 20.0), (400.0, 200.0), (300.0, 13.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 13.0), (300.0, 13.0)],
+    [(38.0, 22.0), (300.0, 22.0), (100.0, 22.0), (38.0, 22.0), (300.0, 22.0), (38.0, 40.0), (38.0, 40.0), (38.0, 10.0), (100.0, 22.0), (38.0, 22.0)],
+    [(38.0, 22.0), (300.0, 22.0), (100.0, 22.0), (38.0, 22.0), (300.0, 22.0), (38.0, 40.0), (38.0, 40.0), (38.0, 10.0), (100.0, 22.0), (38.0, 22.0)],
+    [(400.0, 22.0), (300.0, 22.0), (300.0, 22.0), (400.0, 200.0), (300.0, 22.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 22.0), (300.0, 22.0)],
+    [(400.0, 22.0), (300.0, 22.0), (300.0, 22.0), (400.0, 200.0), (300.0, 22.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 22.0), (300.0, 22.0)],
+    [(38.0, 22.0), (300.0, 22.0), (100.0, 22.0), (38.0, 22.0), (300.0, 22.0), (38.0, 40.0), (38.0, 40.0), (38.0, 10.0), (100.0, 22.0), (38.0, 22.0)],
+    [(400.0, 22.0), (300.0, 22.0), (300.0, 22.0), (400.0, 200.0), (300.0, 22.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 22.0), (300.0, 22.0)],
 ];
 #[rustfmt::skip]
 const FILE: [[(f32, f32); 10]; 6] = [
@@ -744,39 +1028,78 @@ const RANGE: [[(f32, f32); 10]; 6] = [
 ];
 #[rustfmt::skip]
 const DATE: [[(f32, f32); 10]; 6] = [
-    [(150.0, 21.0), (300.0, 21.0), (150.0, 21.0), (150.0, 75.0), (320.0, 41.0), (150.0, 40.0), (150.0, 40.0), (150.0, 10.0), (150.0, 21.0), (150.0, 21.0)],
-    [(150.0, 21.0), (300.0, 21.0), (150.0, 21.0), (150.0, 75.0), (320.0, 41.0), (150.0, 40.0), (150.0, 40.0), (150.0, 10.0), (150.0, 21.0), (150.0, 21.0)],
-    [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
-    [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
-    [(150.0, 21.0), (300.0, 21.0), (150.0, 21.0), (150.0, 75.0), (320.0, 41.0), (150.0, 40.0), (150.0, 40.0), (150.0, 10.0), (150.0, 21.0), (150.0, 21.0)],
-    [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
+    [(164.0, 36.0), (300.0, 36.0), (164.0, 36.0), (164.0, 82.0), (300.0, 56.0), (164.0, 40.0), (164.0, 40.0), (164.0, 10.0), (164.0, 36.0), (164.0, 36.0)],
+    [(164.0, 36.0), (300.0, 36.0), (164.0, 36.0), (164.0, 82.0), (300.0, 56.0), (164.0, 40.0), (164.0, 40.0), (164.0, 10.0), (164.0, 36.0), (164.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(164.0, 36.0), (300.0, 36.0), (164.0, 36.0), (164.0, 82.0), (300.0, 56.0), (164.0, 40.0), (164.0, 40.0), (164.0, 10.0), (164.0, 36.0), (164.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
 ];
 #[rustfmt::skip]
 const TIME: [[(f32, f32); 10]; 6] = [
-    [(111.796875, 22.796875), (300.0, 22.796875), (111.796875, 22.796875), (111.796875, 55.890625), (320.0, 42.796875), (111.796875, 40.0), (111.796875, 40.0), (111.796875, 10.0), (111.796875, 22.796875), (111.796875, 22.796875)],
-    [(111.796875, 22.796875), (300.0, 22.796875), (111.796875, 22.796875), (111.796875, 55.890625), (320.0, 42.796875), (111.796875, 40.0), (111.796875, 40.0), (111.796875, 10.0), (111.796875, 22.796875), (111.796875, 22.796875)],
-    [(400.0, 22.796875), (300.0, 22.796875), (300.0, 22.796875), (400.0, 200.0), (320.0, 42.796875), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 22.796875), (300.0, 22.796875)],
-    [(400.0, 22.796875), (300.0, 22.796875), (300.0, 22.796875), (400.0, 200.0), (320.0, 42.796875), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 22.796875), (300.0, 22.796875)],
-    [(111.796875, 22.796875), (300.0, 22.796875), (111.796875, 22.796875), (111.796875, 55.890625), (320.0, 42.796875), (111.796875, 40.0), (111.796875, 40.0), (111.796875, 10.0), (111.796875, 22.796875), (111.796875, 22.796875)],
-    [(400.0, 22.796875), (300.0, 22.796875), (300.0, 22.796875), (400.0, 200.0), (320.0, 42.796875), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 22.796875), (300.0, 22.796875)],
+    [(131.79688, 36.0), (300.0, 36.0), (131.79688, 36.0), (131.79688, 65.890625), (300.0, 56.0), (131.79688, 40.0), (131.79688, 40.0), (131.79688, 10.0), (131.79688, 36.0), (131.79688, 36.0)],
+    [(131.79688, 36.0), (300.0, 36.0), (131.79688, 36.0), (131.79688, 65.890625), (300.0, 56.0), (131.79688, 40.0), (131.79688, 40.0), (131.79688, 10.0), (131.79688, 36.0), (131.79688, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(131.79688, 36.0), (300.0, 36.0), (131.79688, 36.0), (131.79688, 65.890625), (300.0, 56.0), (131.79688, 40.0), (131.79688, 40.0), (131.79688, 10.0), (131.79688, 36.0), (131.79688, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
 ];
 #[rustfmt::skip]
 const DATETIME_LOCAL: [[(f32, f32); 10]; 6] = [
-    [(240.0, 21.0), (300.0, 21.0), (240.0, 21.0), (240.0, 120.0), (320.0, 41.0), (240.0, 40.0), (240.0, 40.0), (240.0, 10.0), (240.0, 21.0), (240.0, 21.0)],
-    [(240.0, 21.0), (300.0, 21.0), (240.0, 21.0), (240.0, 120.0), (320.0, 41.0), (240.0, 40.0), (240.0, 40.0), (240.0, 10.0), (240.0, 21.0), (240.0, 21.0)],
-    [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
-    [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
-    [(240.0, 21.0), (300.0, 21.0), (240.0, 21.0), (240.0, 120.0), (320.0, 41.0), (240.0, 40.0), (240.0, 40.0), (240.0, 10.0), (240.0, 21.0), (240.0, 21.0)],
-    [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
+    [(247.0, 36.0), (300.0, 36.0), (247.0, 36.0), (247.0, 123.5), (300.0, 56.0), (247.0, 40.0), (247.0, 40.0), (247.0, 10.0), (247.0, 36.0), (247.0, 36.0)],
+    [(247.0, 36.0), (300.0, 36.0), (247.0, 36.0), (247.0, 123.5), (300.0, 56.0), (247.0, 40.0), (247.0, 40.0), (247.0, 10.0), (247.0, 36.0), (247.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(247.0, 36.0), (300.0, 36.0), (247.0, 36.0), (247.0, 123.5), (300.0, 56.0), (247.0, 40.0), (247.0, 40.0), (247.0, 10.0), (247.0, 36.0), (247.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+];
+// A range at `width: 100%` (LLP 1115.000 D10.2), variant by variant: the
+// same in every context, since a percentage resolves against the 400 px
+// parent whatever lays the range out.
+#[rustfmt::skip]
+const RANGE_FULL: [(f32, f32); 10] =
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 200.0), (320.0, 36.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)];
+// `<progress value=0.5>` at `width: 100%`: every context the same. Its
+// height is the UA sheet's `1em` in a border box, so `aspect-ratio` and
+// padding do not move it.
+#[rustfmt::skip]
+const PROGRESS_FULL: [(f32, f32); 10] =
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)];
+// At `width: 100%; height: auto`: `1em` of content, which a ratio replaces
+// and padding adds to.
+#[rustfmt::skip]
+const PROGRESS_FULL_AUTO_HEIGHT: [(f32, f32); 10] =
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 200.0), (300.0, 36.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)];
+// At `width: auto`: a block of intrinsic size 10em by 1em.
+#[rustfmt::skip]
+const PROGRESS_AUTO: [[(f32, f32); 10]; 6] = [
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (32.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (32.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (32.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (32.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (32.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+];
+// `<progress value=0.5>` (no `max`) with no width row, recorded the same
+// way from Chrome 154.0 (macOS, headless) on 2026-10-10 (LLP 1116 D8): every
+// context the same, as its UA width and height are specified, not intrinsic.
+#[rustfmt::skip]
+const PROGRESS: [[(f32, f32); 10]; 6] = [
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
 ];
 #[rustfmt::skip]
 const SELECT: [[(f32, f32); 10]; 6] = [
-    [(102.0, 19.0), (300.0, 19.0), (102.0, 20.0), (102.0, 51.0), (300.0, 39.0), (102.0, 40.0), (102.0, 40.0), (102.0, 10.0), (102.0, 19.0), (102.0, 19.0)],
-    [(102.0, 19.0), (300.0, 19.0), (102.0, 20.0), (102.0, 51.0), (300.0, 39.0), (102.0, 40.0), (102.0, 40.0), (102.0, 10.0), (102.0, 19.0), (102.0, 19.0)],
-    [(400.0, 19.0), (300.0, 19.0), (300.0, 20.0), (400.0, 200.0), (300.0, 39.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 19.0), (300.0, 19.0)],
-    [(400.0, 19.0), (300.0, 19.0), (300.0, 20.0), (400.0, 200.0), (300.0, 39.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 19.0), (300.0, 19.0)],
-    [(102.0, 19.0), (300.0, 19.0), (102.0, 20.0), (102.0, 51.0), (300.0, 39.0), (102.0, 40.0), (102.0, 40.0), (102.0, 10.0), (102.0, 19.0), (102.0, 19.0)],
-    [(400.0, 19.0), (300.0, 19.0), (300.0, 20.0), (400.0, 200.0), (300.0, 39.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 19.0), (300.0, 19.0)],
+    [(135.0, 36.0), (300.0, 36.0), (135.0, 36.0), (135.0, 67.5), (300.0, 56.0), (135.0, 40.0), (135.0, 40.0), (135.0, 10.0), (135.0, 36.0), (135.0, 36.0)],
+    [(135.0, 36.0), (300.0, 36.0), (135.0, 36.0), (135.0, 67.5), (300.0, 56.0), (135.0, 40.0), (135.0, 40.0), (135.0, 10.0), (135.0, 36.0), (135.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
+    [(135.0, 36.0), (300.0, 36.0), (135.0, 36.0), (135.0, 67.5), (300.0, 56.0), (135.0, 40.0), (135.0, 40.0), (135.0, 10.0), (135.0, 36.0), (135.0, 36.0)],
+    [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
 ];
 #[rustfmt::skip]
 const TEXT: [[(f32, f32); 10]; 6] = [

@@ -12,6 +12,7 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_BINDINGS").is_none() {
         return;
     }
+
     println!("cargo:rerun-if-env-changed=EXACT_JS_ENGINE");
     if std::env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub") {
         let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
@@ -58,6 +59,9 @@ fn main() {
         .file("src/bindings/install.cc")
         .include(&headers)
         .std("c++17");
+    if std::env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_some() {
+        installer.define("IBEX2_TEST_SUPPORT", None);
+    }
     if target_os == "windows" {
         installer.flag("/EHsc").define("NOMINMAX", None);
     }
@@ -185,6 +189,7 @@ fn build_platform_backends(is_apple: bool) {
     }
     for source in [
         "src/transport/darwin_http.mm",
+        "src/transport/darwin_task.mm",
         "src/secrets/darwin_keychain.mm",
     ] {
         println!("cargo:rerun-if-changed={source}");

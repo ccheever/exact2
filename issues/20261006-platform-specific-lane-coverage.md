@@ -16,3 +16,17 @@ The Windows work remains scoped to the admitted Skirmish/Windows Desk consumers,
 Add target-native verification through the existing asynchronous fleet/lane: build the admitted Windows consumers and exercise their carrier; build/test Linux-qualified code on Linux, with headless checks plus a bounded device smoke where needed. If such evidence is already produced outside this repo, link and integrate its failures into the existing lane instead of duplicating infrastructure.
 
 Acceptance: changing a cfg(windows) or cfg(target_os = "linux") carrier branch produces a corresponding platform build result. A deliberate compile failure is detected and attributed. Publish which runtime/device behavior remains unqualified; do not treat the macOS stub build as platform proof.
+
+## 2026-10-11 lane result
+
+Tier 2 now cross-checks `exact-linux` with `caltrain-linux` and `exact-windows`
+with `windows-desk` on their real targets. Both checks passed on this Mac with
+Zig supplying C and the Rust target libraries installed. This proves those
+source branches compile. Window presentation, KMS, and input devices still need
+native-machine runs.
+
+**Remains open:** select and qualify the other Linux app crates. The all-app
+cross-check reached `ibex2`'s target C++ binding after the pinned Linux Hermes
+bundle and frozen Bun dependencies were installed, then failed because the Mac
+has no `x86_64-linux-gnu-g++`. A target `CXX` setting or a stub-engine compile
+may resolve it, but neither was verified within the three-round fix limit.

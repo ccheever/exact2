@@ -15,8 +15,8 @@ import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { webRequestURL } from '../../scripts/origin.mjs';
-import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
+import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
+import { compilerWarnings, INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
@@ -53,12 +53,15 @@ function build(app, dist) {
     child.on('exit', (code) => {
       building = null;
       const packages = devPackages(stage);
-      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}` }); }
+      // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
+      const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
+      if (types) console.log(types);
+      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       replaceBuild(stage, dist);
-      done({ error: null, logic, packages });
+      done({ error: null, logic, packages, warnings: compilerWarnings(log) });
     });
   });
 }
@@ -70,8 +73,17 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // A first build that fails (a refusal or a compile error) serves its
   // errors in the page and builds again at the next edit.
   let built = await build(app, dist), error = built.error, logicRevision = built.logic ?? '';
+  // The compiler's warnings (LLP 1116.004 D7) when they change, not again at each save that leaves them.
+  let warned = '';
+  const warn = (warnings) => {
+    if (!warnings || warnings.join('\n') === warned) return;
+    if (warnings.length) console.log(warnings.join('\n'));
+    else console.log('the compiler warns of nothing now');
+    warned = warnings.join('\n');
+  };
   if (error) console.log(`JS target: ${app.name} does not build; its errors show in the page\n${error}`);
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
+  warn(built.warnings);
   console.log('plan ready');
   const clients = new Set();
   const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
@@ -87,6 +99,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       logicRevision = built.logic;
       pending.set(++seq, at);
       console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
+      warn(built.warnings);
       push({ reload: seq, revision: logicRevision });
     }
     if (again) { again = false; rebuild(); }
@@ -115,7 +128,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   };
   // The app's sources, and the runtime and compiler it builds with.
   const watchers = [watch(app.dir, { recursive: true }, changed(app.dir)), watch(resolve(root, 'host/web-js'), { recursive: true }, changed(resolve(root, 'host/web-js')))];
-  for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
+  for (const f of ['navigation.js', 'index.html', 'neutral.css', 'look.mjs']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
   // Each Contract package the app uses, wherever it is installed or linked.
   const packages = new Set();
   const contractSources = new Set();
@@ -148,8 +161,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
 const children=e=>[...(e?.children??[])].filter(x=>x.hasAttribute('data-carry-type')||x.hasAttribute('data-listitemkey'));
-const reserved=new Set(['exactDelivery','exactViewport','exactTime','exactPage','exactSurface']);
-const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:x.state[0].map(s=>[s.n.devName,s.n.devType,encode(s())]),answers:logic?[]:x.resources.filter(r=>!reserved.has(r.source)&&!r.ticket&&!r.waiting&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,focus}};
+const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:x.state[0].map(s=>[s.n.devName,s.n.devType,encode(s())]),answers:logic?[]:x.resources.filter(r=>!r.owned&&!r.failed&&!r.ticket&&!r.waiting&&!r.ov&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,focus}};
 const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
@@ -208,9 +220,9 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     // to it (below), started at the first such request.
     if (url.pathname === '/exact.json' || url.pathname === '/__dev' || url.pathname === '/__dev/open' || url.pathname.startsWith('/__dev/generation/')
       || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
-    const found = buildTreeFile(dist, url.pathname);
+    const found = buildTreeFile(dist, url.pathname, req.headers.accept);
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
-    if (!found && error && !url.pathname.slice(1).includes('.')) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
+    if (!found && error && (url.pathname === '/' || appDocumentPath(url.pathname, acceptsHTML(req.headers.accept)))) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     let body = installer.page(found.route, readFileSync(found.path), access);
     if (found.route.endsWith('.html')) {

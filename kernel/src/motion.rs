@@ -594,14 +594,13 @@ impl Kernel {
         Some(target)
     }
 
-    /// Shape and inherited opt-in for native content-height transitions.
-    /// The host decides admission/lifetime; numeric-only preserves the existing
-    /// explicit-owner path. Auto is measured separately, never read from the
-    /// current presented frame. Inert boxes remain eligible while collapsing.
+    /// Shape and inherited keyword opt-in for native height transitions.
+    /// Numeric heights use either box sizing; auto requires border-box target
+    /// measurement, never the current presented frame. Inert boxes remain
+    /// eligible while collapsing.
     pub fn height_transition_target(&self, owner: NodeKey) -> Option<(Dimension, bool)> {
         let node = self.node_by_key(owner)?;
-        if node.style.box_sizing != BoxSizing::BorderBox
-            || node.style.transition.matching(Property::Height).is_none()
+        if node.style.transition.matching(Property::Height).is_none()
             || self.arena().is_inline_run(owner.index)
         {
             return None;
@@ -609,7 +608,7 @@ impl Kernel {
         let height = node.style.height;
         match height {
             Dimension::Points(px) if px.is_finite() && px >= 0.0 => {}
-            Dimension::Auto => {}
+            Dimension::Auto if node.style.box_sizing == BoxSizing::BorderBox => {}
             _ => return None,
         }
         let allowed = node.computed_row(StyleId::InterpolateSize, |s| s.interpolate_size)

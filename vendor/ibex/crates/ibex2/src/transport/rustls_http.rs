@@ -338,7 +338,7 @@ pub(crate) fn connect_socket(
 
 /// Wait for a connecting socket to become writable. A `poll(2)` returns when
 /// the connection completes instead of imposing a sleep on every connection
-/// (Exact patch 3).
+/// (LLP 0068.002 §2).
 #[cfg(not(windows))]
 fn wait_writable(socket: &socket2::Socket, timeout: Duration) {
     #[cfg(unix)]
@@ -482,7 +482,7 @@ impl Transport for RustlsHttpTransport {
         );
         let agent = &lease.slot.as_ref().unwrap().agent;
         // Replace all agent defaults: no shorter internal phase limit may win
-        // before the request's own timeout (Exact patch 7).
+        // before the request's own timeout (LLP 0068.000 §4).
         let req = match request.timeout {
             Some(limit) => agent
                 .configure_request(req)

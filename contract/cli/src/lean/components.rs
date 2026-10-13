@@ -119,10 +119,15 @@ impl Emitter<'_> {
         let mut states = Vec::new();
         for (i, s) in c.states.iter().enumerate() {
             states.push(format!(
-                "{{ name := {}, ty := {}, init := {} }}",
+                "{{ name := {}, ty := {}, init := {}{} }}",
                 string(&s.name),
                 ct.slots.get(offset + i).map_or(".unknown".into(), ty),
-                self.expr(&s.expr)?
+                self.expr(&s.expr)?,
+                if c.persists(&s.name) {
+                    ", persist := true"
+                } else {
+                    ""
+                }
             ));
         }
         let mut ids = 0usize;

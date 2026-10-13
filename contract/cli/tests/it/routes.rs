@@ -702,11 +702,151 @@ component App
             .contains("`main > column > column > column > column`"),
         "{error}"
     );
-    // A key outside any root is not a route.
+    // A key outside any root is not a route: below a root that carries
+    // none, nothing is a navigation root (LLP 1116 D6 makes the first root
+    // with a key one).
     contract::compile(
-        "component App\n  view\n    column navigationKey=\"a\"\n      column navigationKey=\"b\"\n",
+        "component App\n  view\n    column\n      column navigationKey=\"a\"\n        column navigationKey=\"b\"\n",
     )
     .unwrap();
+}
+
+#[test]
+fn a_root_with_a_key_and_no_back_control_named_is_the_navigation_root() {
+    // @ref LLP 1116 D6, LLP 1115 D5 — `navigationBack` is optional: the
+    // first root with a `navigationKey` is the navigation root, naming the
+    // empty id, which no control carries, so the platform's Back is the
+    // router's own (the unit-converter builder lost the native bar to it).
+    let source = r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          text e.url
+"#;
+    let mut r = boot(contract::compile(source).unwrap(), "/detail");
+    let root = r.kernel().roots()[0];
+    let props = &r.kernel().node(root).unwrap().props;
+    assert_eq!(props.str(PropId::NavigationBack), Some(""));
+    assert_rows(&r);
+    let top = selected(&state(&r)["slots"]["nav"]).last().unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    assert!(
+        r.host_back(top).unwrap().is_some(),
+        "the system Back pops the router"
+    );
+    assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
+    assert_rows(&r);
+    // Routes now sit where every host finds them, or are refused.
+    let wrapped = source.replace(
+        "      each e in stack(nav) key=e.id\n        column navigationKey",
+        "      column\n        each e in stack(nav) key=e.id\n          column navigationKey",
+    );
+    let error = contract::compile(&wrapped).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    // A named control is the author's, as before.
+    let named = contract::compile(&source.replace(
+        "main navigationKey=`${top(nav).id}`",
+        "main navigationKey=`${top(nav).id}` navigationBack=\"back\"",
+    ))
+    .unwrap();
+    let r = boot(named, "/detail");
+    let root = r.kernel().roots()[0];
+    assert_eq!(
+        r.kernel()
+            .node(root)
+            .unwrap()
+            .props
+            .str(PropId::NavigationBack),
+        Some("back")
+    );
+}
+
+#[test]
+fn an_app_with_no_notfound_route_is_given_one_that_keeps_the_url_and_says_so() {
+    // @ref LLP 1116.009 D2 — a location no route matches keeps its URL: the
+    // compiler writes `notfound` and a screen for it where the app draws a
+    // route per stack entry, whether the route element is under a `when` or
+    // stands for every entry (a blank screen for one no branch names).
+    let source = r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          when e.name == "home"
+            text "Home" testId="home"
+          when e.name == "detail"
+            text "Detail" testId="detail"
+"#;
+    let under_when = source
+        .replace(
+            "        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          when e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          when e.name == \"detail\"\n            text \"Detail\" testId=\"detail\"\n",
+            "        when e.name == \"home\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Home\" testId=\"home\"\n        when e.name == \"detail\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Detail\" testId=\"detail\"\n",
+        );
+    assert_ne!(under_when, source);
+    for source in [source, under_when.as_str()] {
+        let plan = contract::compile(source).unwrap();
+        let notfound: Vec<_> = plan.routes.iter().filter(|r| r.notfound).collect();
+        assert_eq!(notfound.len(), 1, "the compiler wrote one `notfound` route");
+        assert_eq!(plan.str(notfound[0].name), "notfound");
+        let mut r = boot(plan, "/absent/path?q=1");
+        // The location stays: no refusal, the root beneath it, the screen over it.
+        assert_eq!(r.take_router_change().unwrap().url, "/absent/path?q=1");
+        assert!(!r.journal().any(|l| l.contains("refused")));
+        let nav = state(&r)["slots"]["nav"].clone();
+        let stack = selected(&nav);
+        assert_eq!(stack.len(), 2);
+        assert_eq!(stack[0]["name"], "home");
+        assert_eq!(stack[1]["name"], "notfound");
+        assert_rows(&r);
+        let k = r.kernel();
+        assert_eq!(k.find_by_test_id("not-found").len(), 1);
+        let message = k.node_by_key(k.find_by_test_id("not-found-message")[0]);
+        assert_eq!(
+            message.unwrap().props.str(PropId::Text),
+            Some("There is no page at /absent/path?q=1.")
+        );
+        // A way home: a link to the first screen, which the platform follows as the router's own
+        // `go` (no `navigate` handler here), the not-found entry gone.
+        let link = r.kernel().find_by_test_id("not-found-home")[0];
+        assert_eq!(
+            r.kernel()
+                .node_by_key(link)
+                .unwrap()
+                .props
+                .str(PropId::Href),
+            Some("/")
+        );
+        r.host_go("/").unwrap().unwrap();
+        assert_eq!(r.take_router_change().unwrap().url, "/");
+        assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
+        assert!(r.kernel().find_by_test_id("not-found").is_empty());
+        assert_eq!(r.kernel().find_by_test_id("home").len(), 1);
+        assert_rows(&r);
+    }
+    // An app that writes `notfound` draws its own; one with no navigation
+    // root has no screen to draw it in, and keeps the table it wrote.
+    let own = source.replace(
+        "    detail \"/detail\"\n",
+        "    detail \"/detail\"\n  notfound\n",
+    );
+    let plan = contract::compile(&own).unwrap();
+    assert_eq!(plan.routes.iter().filter(|r| r.notfound).count(), 1);
+    let r = boot(plan, "/absent");
+    assert!(r.kernel().find_by_test_id("not-found").is_empty());
+    let bare = "routes nav\n  home \"/\"\ncomponent App\n  view\n    text top(nav).url\n";
+    assert!(contract::compile(bare)
+        .unwrap()
+        .routes
+        .iter()
+        .all(|r| !r.notfound));
 }
 
 #[test]

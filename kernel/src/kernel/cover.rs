@@ -9,6 +9,14 @@
 //! Authored rows never change, and a host that reports nothing (the web,
 //! Linux, the agent's presentation) lays out exactly as authored.
 //!
+//! A scroller whose content the platform itself insets — UIKit's adjusted
+//! content inset under a navigation bar and over the home indicator — is
+//! reported by those insets (`Inset`): its content box for layout excludes
+//! them, so content that fills the scroller's height rests between the bar
+//! and the indicator, while the content keeps its place (the platform's
+//! inset moves it) and its published scroll extent leaves them out (the
+//! platform adds them back). Scrolling content still passes under both.
+//!
 //! A replaced header that cleared the status bar itself (the web's
 //! `padding-top: env(safe-area-inset-top)` under `viewport-fit=cover`)
 //! hands that inset to its route's top cover, so the route's content starts
@@ -29,6 +37,10 @@ pub enum HostCover {
     Edges([f32; 4]),
     /// Replaced by a native control: the box takes no space.
     Whole,
+    /// A scroller the platform insets by these points at its top and bottom
+    /// edges: subtracted from its content box's height for layout, never
+    /// moving the content, and left out of its published extent.
+    Inset([f32; 2]),
 }
 
 impl Kernel {
@@ -43,12 +55,16 @@ impl Kernel {
             .arena
             .slot_of(view)
             .ok_or(LayoutError::UnknownView(view))?;
-        if let Some(HostCover::Edges(edges)) = cover {
-            if !edges.iter().all(|e| e.is_finite() && *e >= 0.0) {
-                return Err(LayoutError::InvalidIntrinsicSize(view).into());
-            }
+        let edges: &[f32] = match &cover {
+            Some(HostCover::Edges(e)) => e,
+            Some(HostCover::Inset(e)) => e,
+            _ => &[],
+        };
+        if !edges.iter().all(|e| e.is_finite() && *e >= 0.0) {
+            return Err(LayoutError::InvalidIntrinsicSize(view).into());
         }
-        let cover = cover.filter(|c| *c != HostCover::Edges([0.0; 4]));
+        let cover =
+            cover.filter(|c| *c != HostCover::Edges([0.0; 4]) && *c != HostCover::Inset([0.0; 2]));
         let before = self.arena.cover(slot);
         if before == cover {
             return Ok(());
@@ -74,6 +90,54 @@ impl Kernel {
     }
 }
 
+/// A cover's part of a box's engine style (@ref LLP 1075.003 §3.5): a
+/// container's bars add to the padding of the route they cover, a box a bar
+/// replaces takes no space, and a scroller the platform insets ends its
+/// content box that much sooner (LLP 1116.000 D1.2): its end padding takes
+/// both insets, so its children keep their start and their scroll extent's
+/// end is where the platform's own inset begins.
+pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    let (style, env) = (arena.style(slot), arena.env());
+    match arena.cover(slot) {
+        Some(HostCover::Whole) => s.display = taffy::style::Display::None,
+        Some(HostCover::Edges([top, right, bottom, left])) => {
+            let top = top + header_inset(arena, slot, top);
+            s.padding = taffy::geometry::Rect {
+                top: style.padding_top.floor_lp(env, top),
+                right: style.padding_right.floor_lp(env, right),
+                bottom: style.padding_bottom.floor_lp(env, bottom),
+                left: style.padding_left.floor_lp(env, left),
+            };
+        }
+        Some(HostCover::Inset([top, bottom])) => {
+            s.padding.bottom = style.padding_bottom.floor_lp(env, top + bottom);
+        }
+        None => {}
+    }
+}
+
+/// The scroll extent a scroller publishes: what the engine measured, less
+/// the insets the platform adds back (`Inset`).
+pub(crate) fn published_extent(arena: &NodeArena, slot: u32, extent: (f32, f32)) -> (f32, f32) {
+    match arena.cover(slot) {
+        Some(HostCover::Inset([top, bottom])) => (extent.0, (extent.1 - top - bottom).max(0.0)),
+        _ => extent,
+    }
+}
+
+/// Whether the platform insets this scroller (`Inset`).
+pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
+    matches!(arena.cover(slot), Some(HostCover::Inset(_)))
+}
+
+/// `s` as authored at the end the platform's inset took (`apply`).
+pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
+    if inset(arena, slot) {
+        let (style, env) = (arena.style(slot), arena.env());
+        s.padding.bottom = style.padding_bottom.floor_lp(env, 0.0);
+    }
+}
+
 /// A box's children changed: a covered box's top cover may hold its first
 /// child's inset (`header_inset`), so its engine style is derived again.
 pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
@@ -85,7 +149,7 @@ pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror,
 
 /// The top inset a box's replaced first child cleared for itself: that
 /// child is covered whole and pads its top by `env(safe-area-inset-top)`
-/// (or a comparison that reads it, LLP 1001 §2).
+/// (or a `calc()` or comparison that reads it, LLP 1001 §2).
 /// It counts only while a bar covers the box's top (`top > 0`); a scroller
 /// that goes under the bar is inset by the platform instead.
 pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
@@ -101,7 +165,9 @@ pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
             arena.env().inset(Edge::Top)
         }
         // `max(env(safe-area-inset-top), 12px)` clears the inset too.
-        (true, Some(HostCover::Whole), Dimension::Compare(c)) if c.reads(Edge::Top) => {
+        (true, Some(HostCover::Whole), Dimension::Compare(c))
+            if c.reads(Edge::Top, arena.env()) =>
+        {
             arena.env().inset(Edge::Top)
         }
         _ => 0.0,

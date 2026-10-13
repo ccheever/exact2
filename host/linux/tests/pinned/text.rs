@@ -66,6 +66,65 @@ fn agent_layout_adds_fragment_fields_only_for_flowed_paragraphs() {
     }
 }
 
+/// CSS `text-box` (Inline Layout 3 §4) on Linux: a trimmed paragraph is cut
+/// to its font's cap height and baseline, its first baseline moving up by
+/// the top's cut, and a trim's own cache entry is never the untrimmed one's.
+#[test]
+fn text_box_trims_to_the_fonts_cap_height_and_baseline() {
+    use exact_kernel::{AxisOffer, StyleProps, TextBoxEdge, TextBoxTrim};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    let mut spec = exact_linux::paint::text_spec(&StyleProps::default(), "TTI");
+    let plain = engine.measure(&spec, AxisOffer::Definite(200.0));
+    spec.text_box_trim = TextBoxTrim::TrimBoth;
+    spec.text_box_edge = TextBoxEdge::CapAlphabetic;
+    let both = engine.measure(&spec, AxisOffer::Definite(200.0));
+    let (plain_base, both_base) = (plain.first_baseline.unwrap(), both.first_baseline.unwrap());
+    assert!(both.height < plain.height * 0.8, "{plain:?} → {both:?}");
+    assert!(
+        (both.height - both_base).abs() < 1e-3,
+        "the box ends at the baseline: {both:?}"
+    );
+    assert!(
+        both_base > 0.0 && both_base < plain_base,
+        "the cap height stays above it"
+    );
+    spec.text_box_trim = TextBoxTrim::TrimStart;
+    let start = engine.measure(&spec, AxisOffer::Definite(200.0));
+    assert!(
+        (start.height - (plain.height - (plain_base - both_base))).abs() < 1e-3,
+        "{start:?}"
+    );
+    spec.text_box_trim = TextBoxTrim::None;
+    assert_eq!(engine.measure(&spec, AxisOffer::Definite(200.0)), plain);
+}
+
+/// The root inline box's font sets the trim (Inline Layout 3 §4.2): text
+/// that is all a 10 pt span in a 20 pt paragraph is cut to the 20 pt cap
+/// height. DejaVu Sans's cap height is 1493 of its 2048 units.
+#[test]
+fn text_box_trims_to_the_root_inline_boxs_font() {
+    use exact_kernel::{AxisOffer, StyleProps, TextBoxEdge, TextBoxTrim};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    let mut spec = exact_linux::paint::text_spec(&StyleProps::default(), "TTI");
+    spec.text_box_trim = TextBoxTrim::TrimBoth;
+    spec.text_box_edge = TextBoxEdge::CapAlphabetic;
+    spec.strut.size = 20.0;
+    spec.strut.line_height = None;
+    for run in &mut spec.runs {
+        run.size = 10.0;
+        run.line_height = None;
+    }
+    let both = engine.measure(&spec, AxisOffer::Definite(200.0));
+    let cap = 20.0 * 1493.0 / 2048.0;
+    assert!(
+        (both.first_baseline.unwrap() - cap).abs() < 0.05,
+        "the 20 pt cap height, not the 10 pt span's: {both:?}"
+    );
+    assert!((both.height - cap).abs() < 0.05, "{both:?}");
+}
+
 #[test]
 fn emergency_wrapping_preserves_the_two_intrinsic_width_rules() {
     use exact_kernel::{AxisOffer, OverflowWrap, StyleProps};
@@ -214,8 +273,11 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                 line_clamp: 0,
                 overflow_wrap: exact_kernel::OverflowWrap::Normal,
                 white_space: exact_kernel::WhiteSpace::Normal,
+                text_wrap_style: exact_kernel::TextWrapStyle::Auto,
                 direction: exact_kernel::Direction::Ltr,
                 text_indent: 0.0,
+                text_box_trim: exact_kernel::TextBoxTrim::None,
+                text_box_edge: exact_kernel::TextBoxEdge::Auto,
             },
             None,
         );

@@ -19,12 +19,12 @@ package struct CollectionFacts: Equatable {
     var measurements: [CollectionMeasurement]
     var focus: UInt32?
     var interaction: UInt32?
-    /// The main-axis padding before the rows and after them: not on the
-    /// wire (the runner reads it from its kernel), but a change of it alone
-    /// is still news to the runner (LLP 1010 §6.9).
-    var padding: [Double] = []
+    /// The main-axis padding before the rows and after them, as laid out:
+    /// the room `offset` counts past (LLP 1010 §6.9).
+    var paddingStart = 0.0
+    var paddingEnd = 0.0
 
-    /// Wire version 3: `velocity` (points/s, positive toward the end),
+    /// Wire version 4: `velocity` (points/s, positive toward the end),
     /// `limit`, the rows past what it owes this report may build (nil: any),
     /// and whether an enclosing list is moving (LLP 1070 F2).
     /// `createOnly` and `noBuild` split a moving list's report around the
@@ -35,8 +35,8 @@ package struct CollectionFacts: Equatable {
             var le = value.littleEndian
             withUnsafeBytes(of: &le) { bytes.append(contentsOf: $0) }
         }
-        integer(UInt32(3)); integer(view); integer(revision); integer(sequence)
-        for value in [offset, portMain, portCross, cross] { integer(value.bitPattern) }
+        integer(UInt32(4)); integer(view); integer(revision); integer(sequence)
+        for value in [offset, portMain, portCross, cross, paddingStart, paddingEnd] { integer(value.bitPattern) }
         integer(focus ?? 0); integer(interaction ?? 0)
         integer((velocity.isFinite ? velocity : 0).bitPattern); integer(limit.map { Swift.min($0, UInt32.max - 1) } ?? UInt32.max)
         integer(UInt32(ancestorMoving ? 1 : 0) | UInt32(createOnly ? 2 : 0) | UInt32(noBuild ? 4 : 0))
@@ -208,6 +208,9 @@ package final class CollectionHost {
         /// leave above a deep offset shrink the document first, and the
         /// platform's clamp to it is not a scroll (`endBatch`'s shift).
         var batchStart: Double?
+        /// The platform's insets of the port when the batch began
+        /// (`portInsets`): one that changed under it moved the port.
+        var batchInsets: [Double]?
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -372,7 +375,7 @@ package final class CollectionHost {
         #endif
     }
     func beginBatch(_ batch: Batch) {
-        if batchDepth == 0 { for (view, entry) in entries { entry.batchStart = geometry(view)?.offset } }
+        if batchDepth == 0 { for (view, entry) in entries { entry.batchInsets = portInsets(view); entry.batchStart = geometry(view)?.offset } }
         batchDepth += 1
         for op in batch.ops where op.op == .collections {
             guard let items = op.payload["items"] as? [[String: Any]] else { continue }
@@ -406,6 +409,18 @@ package final class CollectionHost {
             let planned = entry.cursor.sequence, jumped = entry.cursor.jumpedAt
             if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
             entry.port = dimensions
+            // The port went under the bar or came out from under it (LLP
+            // 1116.000 D1.3): the platform's clamp to the new frame and its
+            // compensation for the new inset are not the reader moving, and
+            // together they put an opened transcript's end an inset short.
+            // Where the port starts stays (CSS's scrollTop), before any
+            // correction lands.
+            if let start = entry.batchStart, let insets = entry.batchInsets, insets != portInsets(view) {
+                correcting = true
+                keepStart(view, at: start)
+                correcting = false
+            }
+            entry.batchInsets = nil
             if let correction = entry.snapshot.correction, correction.from != nil {
                 // Rows before the anchor changed size in this batch: the
                 // offset moves with them before this frame displays, even

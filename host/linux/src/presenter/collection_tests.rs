@@ -678,6 +678,7 @@ fn feedback_budget_schedules_later_progress_and_stale_rows_do_not_commit() {
         port_cross: 360.,
         port_main: 180.,
         cross: 336.,
+        padding: [0.0; 2],
         measurements: vec![exact_runner::RowMeasurement {
             view: snapshot.rows[0].view,
             epoch: snapshot.rows[0].epoch + 1,
@@ -1105,6 +1106,75 @@ fn scroll_into_view_aligns_any_element_in_its_scroller() {
         p.run_commands(Rows::default);
         settle(&mut p);
         assert_eq!(p.scroll_of(port).1, top, "{button}");
+    }
+}
+
+#[test]
+fn scroll_into_view_applies_padding_and_margin() {
+    let cells: String = (0..20)
+        .map(|i| {
+            format!("        box id=\"cell-{i}\" height=50 width=200 scroll-margin=\"8 0 6\"\n")
+        })
+        .collect();
+    let mut p = boot_source(&format!(
+        r#"component App
+  action nearest
+    scrollIntoView("cell-9", block="nearest")
+  action start
+    scrollIntoView("cell-3")
+  action center
+    scrollIntoView("cell-10", block="center")
+  view
+    column
+      button "nearest" press=nearest testId="nearest"
+      button "start" press=start testId="start"
+      button "center" press=center testId="center"
+      scroll testId="port" width=200 height=100 scroll-padding="24 0 12"
+        column
+{cells}"#
+    ));
+    settle(&mut p);
+    let port = named(&p, "port");
+    // Below the port, `nearest` aligns its end; above it (from the centred
+    // cell-10), its start.
+    for (button, top) in [
+        ("nearest", 418.),
+        ("start", 118.),
+        ("center", 468.),
+        ("nearest", 418.),
+    ] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port).1, top, "{button}");
+    }
+}
+
+#[test]
+fn scroll_padding_percent_uses_the_port_inside_borders() {
+    let mut p = boot_source(
+        r#"component App
+  action start
+    scrollIntoView("target")
+  action end
+    scrollIntoView("target", block="end", inline="end")
+  view
+    column
+      button "start" press=start testId="start"
+      button "end" press=end testId="end"
+      scroll testId="port" width=200 height=200 border-top="20px solid black" border-left="10px solid black" scroll-padding="25%"
+        box width=1000 height=400
+        box id="target" width=50 height=50 margin-left=400
+        box width=1000 height=550
+"#,
+    );
+    settle(&mut p);
+    let port = named(&p, "port");
+    for (button, expected) in [("start", (300., 350.)), ("end", (300., 300.))] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port), expected, "{button}");
     }
 }
 

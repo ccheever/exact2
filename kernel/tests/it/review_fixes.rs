@@ -31,7 +31,9 @@ fn intrinsic_flex_items_do_not_include_their_containers_padding() {
         Box::new(result)
     }
     let number = StyleValue::Number;
-    let text = |value: &str| StyleValue::Text(value.into());
+    fn text(value: &str) -> StyleValue<'_> {
+        StyleValue::Text(value.into())
+    }
     for parent_direction in ["row", "column"] {
         for direction in ["row", "column"] {
             for inset in [0.0, 5.0, 14.0, 24.0] {

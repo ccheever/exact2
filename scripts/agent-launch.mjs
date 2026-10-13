@@ -3,13 +3,28 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
+import { DEFAULT_LOOK, LOOK } from '../host/web/look.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
+ * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, or Cargo's for a build
+ * script's (`warning: <crate>@<version>: …`); its file from `cwd` when it is below it. */
+export function compilerWarnings(text, cwd = process.cwd()) {
+  const lines = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = /^(?:warning: [\w-]+@[^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
+    if (!m) continue;
+    const near = relative(cwd, m[1]);
+    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
+  }
+  return [...lines];
+}
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {
@@ -109,17 +124,27 @@ export async function closeWindowsBrowser(child, cdp, exited, profile, terminate
 /** Where a web drive's named scratch store lives (`--storage <name>`), kept between drives as a native one is (dash,
  * weather, kanban: a second drive opened an empty store): Chrome's profile for it, beside the native stores' cache
  * (agent-test.mjs `storeBase`), and the port its page is served on — an origin's storage is its host and port's, so
- * one name is one port, from its hash, below the ephemeral range. */
+ * one name is one port, from its hash, below the ephemeral range. A store is its app's: its id's and its directory's
+ * (LLP 1116.004 D8: a bake-off's contacts read an earlier round's `contacts.json`, written under the same default
+ * id and store name), so two apps of one id never open each other's. */
 /** The store a drive with `env` uses: the driver's environment under the drive's own, as `runTests` places and removes
- * it and a native host sees it (review b5-c 3). */
-export const driveStore = (appId, storage, env, platform = process.platform) => {
+ * it and a native host sees it (review b5-c 3). `app` is resolveApp's: its `id` and `dir`. */
+export const driveStore = (app, storage, env, platform = process.platform) => {
   const launched = { ...process.env, ...(env ?? {}) };
-  return webStore(appId, storage, launched, launched.HOME || homedir(), platform);
+  return webStore(app, storage, launched, launched.HOME || homedir(), platform);
 };
-export function webStore(appId, storage, env = process.env, home = homedir(), platform = process.platform) {
+/** An app directory's twelve hex digits, which name its development stores: a drive's profiles here, and the
+ * page's own storage in a development web build (host/web-js/build.mjs `DEVELOPMENT_STORE`). `dir` is canonical
+ * (resolveApp's, through symlinks), so one app has one digest however it was reached. */
+export const appDigest = dir => createHash('sha256').update(dir).digest('hex').slice(0, 12);
+/** A host file as a development web build ships it for the app at `dir`: its `DEVELOPMENT_STORE` names the app's
+ * own store (storage-environment.js, rt.js `Kept`). A release ships the file as written, null: the id alone. */
+export const developmentStore = (code, dir) => code.replaceAll('const DEVELOPMENT_STORE = null;', `const DEVELOPMENT_STORE = ${JSON.stringify(appDigest(dir))};`);
+export function webStore({ id, dir }, storage, env = process.env, home = homedir(), platform = process.platform) {
+  if (!id || !dir) throw new Error('webStore: an app\'s id and directory name its store');
   const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
-  const base = resolve(cache, 'exact', appId, 'agent-web');
-  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${appId}/${storage}`).digest().readUInt32BE(0) % 28000 };
+  const digest = appDigest(dir), base = resolve(cache, 'exact', id, `agent-web-${digest}`);
+  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${id}/${digest}/${storage}`).digest().readUInt32BE(0) % 28000 };
 }
 
 /** One browser lookup for the agent and its tests: an explicit override,
@@ -148,11 +173,16 @@ export function parseFlags(argv) {
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
+    else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
     else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
     else if (argv[i] === '--url') flags.url = argv[++i];
     else if (argv[i] === '--device') flags.device = true;
+    // Android: the app on the Canvas reader (its APK), not the Linux host headless. Said as the variable
+    // `agent-android.mjs` reads, as `--sim` is said as EXACT_SIM: the driver's own file is at its line cap.
+    else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
@@ -161,6 +191,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--touch') flags.touch = argv[++i];
     else if (argv[i] === '--chrome') flags.chrome = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
+    else if (argv[i] === '--sim') flags.sim = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
@@ -208,17 +239,11 @@ export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
     Element.prototype.setAttribute = function (name, value) { const r = setAttribute.call(this, name, value); if (this instanceof HTMLMediaElement && String(name).toLowerCase() === 'src') reset(this); return r; };
     addEventListener('ratechange', e => { if (page.has(e.target)) swallow(e); }, true);
     addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { of(e.target); real.def.set.call(e.target, 0); real.rate.set.call(e.target, 0); } }, true); }` : '';
-  // The cross-browser parity sheet (`lineHeight` set) also pins a default native button's UA metrics to
-  // Chrome's: each engine's UA sheet sizes a bare `<button>` its own way (plain HTML, 16px page: padding
-  // 1px 6px in Chrome, 1px 4px in Firefox, 0 6px 1px and an 11px font in WebKit, so "Case 1" is 58.3, 52.9
-  // and 50.6 px wide), and with these rows all three agree within 0.3 px. Only the styles that keep the UA
-  // box (`bordered`, the default, and `gray`); the others set their own padding (host/web/index.html).
-  // A native field (`data-native`) the same way: its UA padding, border and `normal` line height differ
-  // (plain HTML, 16px system-ui: an input is 24, 26 and 30 px tall, a two-row textarea 42, 48 and 46).
-  // Over index.html's `[data-native] { all: revert }`, under a field's authored (inline) rows.
-  const controls = "#exact-root button:is([data-button-style=bordered],[data-button-style=gray]){padding:1px 6px;border-width:2px}"
-    + ` #exact-root input[data-native]{padding:1px 2px;border-width:2px;line-height:${lineHeight}}`
-    + ` #exact-root textarea[data-native]{padding:2px;border-width:1px;line-height:${lineHeight}}`;
+  // The cross-browser parity sheet (`lineHeight` set) also pins a native field's (`data-native`) line
+  // height, `normal` in each engine's own metric. Its padding and border, like every native button's,
+  // are the page's own since LLP 1116 D1 (host/web/index.html), the same in every engine. Over index.html's
+  // field rule, under a field's authored (inline) rows.
+  const controls = `#exact-root input[data-native],#exact-root textarea[data-native]{line-height:${lineHeight}}`;
   const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}} ${controls}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
   return media + line;
 }
@@ -243,6 +268,14 @@ export function withFaults(href, failFetch) {
   return url.href;
 }
 
+/** The page address at another date at the clock's zero (a test's `reload`, LLP 1116.009 D1): `epoch` Unix ms, else the address as it is. */
+export function withEpoch(href, epoch) {
+  if (epoch === undefined) return href;
+  const url = new URL(href);
+  url.searchParams.set('epoch', String(epoch));
+  return url.href;
+}
+
 /** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
 export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
 
@@ -254,7 +287,8 @@ export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}
   if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date, Unix milliseconds at or after 1970, or now');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
-  if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
+  // Below 2^32, as every host draws it (LLP 1116.005 D5): refused, not wrapped.
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
   // Refuse malformed drive input before starting a process on any host.
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
@@ -405,8 +439,10 @@ export function gitIgnored(dir, keep = []) {
 // saved world, an export — and the trees a build takes files from (the bake's
 // assets and deck, a game's art and logic, a native module's scripts, the host
 // crates, fonts and strings). A build reads more than the bake captures, so the
-// rule names the outputs and leaves everything else an input.
-export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv)$/i;
+// rule names the outputs and leaves everything else an input. A local server's
+// database and its journal are written as the app runs (round 4's book-club: a
+// write-ahead log made every native drive stale; LLP 1116.002 D4).
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv|db|sqlite3?)(-(wal|shm|journal))?$/i;
 export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 // An agent's own tree (notes: shots/, tools/; platformer: drive.sh, tools/*.ops)
 // and a test file are never inputs, even when the name looks like a source.
@@ -417,26 +453,69 @@ const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
 const HELPER = /\.(?:sh|ops)$/;
 const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
+// What app.ts reaches (LLP 1116.003 D1.1). The bake captures every TypeScript
+// and JSON file but type-checks and bundles from the entry alone (its tsconfig's
+// `files` is `__exact_entry.ts`, which imports app.ts: js/bake/src/typescript.mjs),
+// so a file app.ts never imports — a backend the app reaches only over HTTP
+// (round 5's book-club `server/index.ts`), a script — is no build's input. Read
+// by scanning each source's module specifiers (type-only imports and references
+// included) and taking every file a relative one can resolve to as the bake's
+// resolution would, a `typescript.sources` mount as if beside app.ts under its
+// name: over-inclusion costs only a rebuild. Null (every TypeScript file counts)
+// without an app.ts, or when tsconfig maps bare specifiers (`paths`, `baseUrl`).
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|<reference\s+path\s*=\s*)(['"])([^'"\n]+)\1/g;
+export const MODULE_FILE = /\.(tsx?|json)$/;
+export const CONFIG_JSON = /^(app|package|jsconfig|tsconfig[^/]*)\.json$/;
+/** The declarations the bake writes beside app.ts: its output, never an input. */
+export const DECLARATIONS = 'app.contract.d.ts';
+/** The files app.ts imports, transitively (and itself), by path; or null. */
+export function moduleGraph(dir, manifest) {
+  const entry = resolve(dir, 'app.ts');
+  if (!existsSync(entry)) return null;
+  try { if (/"(paths|baseUrl)"\s*:/.test(readFileSync(resolve(dir, 'tsconfig.json'), 'utf8'))) return null; } catch {}
+  const mounts = Object.entries(manifest?.typescript?.sources ?? {}).map(([name, path]) => [resolve(dir, name), resolve(dir, String(path))]);
+  const disk = path => { for (const [at, real] of mounts) if (path === at || path.startsWith(at + '/')) return real + path.slice(at.length); return path; };
+  const graph = new Set(), seen = new Set(), queue = [entry];
+  while (queue.length) {
+    const at = queue.pop(), file = disk(at);
+    let isFile = false; try { isFile = statSync(file).isFile(); } catch {}
+    if (seen.has(at) || !isFile) continue;
+    seen.add(at); graph.add(file);
+    if (!/\.tsx?$/.test(file)) continue;
+    for (const [, , spec] of readFileSync(file, 'utf8').matchAll(SPECIFIER)) {
+      if (!spec.startsWith('.')) continue;
+      const base = resolve(dirname(at), spec), stem = base.replace(/\.(m?js|jsx)$/, '');
+      queue.push(base, ...['.ts', '.tsx', '.d.ts', '.json', '/index.ts', '/index.tsx', '/index.d.ts'].map(end => base + end), ...['.ts', '.tsx', '.mts', '.d.ts'].map(end => stem + end));
+    }
+  }
+  return graph;
+}
+
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the
  * app's Rust crates (which can `include_bytes!` any file beside them), and
  * what `app.json` names (an icon). Shots, tools, repros and test files never
- * count (LLP 1012: a drive refuses a stale build, not an agent's notes). Of
- * the rest, a helper script outside a script tree, a gitignored file, or a
- * picture, log, note, export or saved world is not an input. */
+ * count (LLP 1012: a drive refuses a stale build, not an agent's notes), nor
+ * TypeScript or JSON app.ts never imports (`moduleGraph`). Of the rest, a
+ * helper script outside a script tree, a gitignored file, or a picture, log,
+ * note, export or saved world is not an input. */
 export function notBuildInput(dir, keep = []) {
   const ignored = gitIgnored(dir, keep);
   const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
   let manifest = ''; try { manifest = readFileSync(resolve(dir, 'app.json'), 'utf8'); } catch {}
+  let parsed = {}; try { parsed = JSON.parse(manifest); } catch {}
+  const graph = moduleGraph(dir, parsed);
   const inCrate = path => {
     for (let at = dirname(path); at.startsWith(dir + '/'); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
     return false;
   };
   return path => {
     const rel = relative(dir, path);
-    if ((AGENT_TREE.test(rel) && !under(path, keep)) || TEST_FILE.test(rel)) return true;
-    if (BUILD_SOURCE.test(rel) || INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel)) return false;
+    if ((AGENT_TREE.test(rel) && !under(path, keep)) || TEST_FILE.test(rel) || rel === DECLARATIONS) return true;
+    const native = INPUT_TREE.test(rel) || under(path, keep) || inCrate(path) || manifest.includes(rel);
+    if (graph && MODULE_FILE.test(rel) && !CONFIG_JSON.test(rel) && !native && !graph.has(path)) return true;
+    if (BUILD_SOURCE.test(rel) || native) return false;
     if (HELPER.test(rel) && !SCRIPT_TREE.test(rel)) return true;
     return OUTPUT.test(rel) || ignored(path);
   };
@@ -445,7 +524,10 @@ export function notBuildInput(dir, keep = []) {
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
-  const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
+  const { build, target, started } = JSON.parse(readFileSync(receipt, 'utf8'));
+  // A file edited while the build ran is newer than what it read, though older than the receipt written at its end
+  // (LLP 1116.008 D2): the build's own start bounds it, else (an older receipt) the receipt's time.
+  const since = Math.min(statSync(receipt).mtimeMs, Date.parse(started) || Infinity);
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   // A game's proof, pins and helper scripts are not native inputs either
   // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
@@ -461,7 +543,10 @@ export function receiptChanges(receipt, app) {
   const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-  const tools = info ? depInfoNewer(since, null, info) : [];
+  // It names every source the bake captured (its rerun-if-changed): of the app's own, those the
+  // walk above skips are no input here either (a backend app.ts never imports); one gone still counts.
+  const skipped = path => { const at = resolve(ROOT, path); return at.startsWith(app.dir + '/') && existsSync(at) && skip(at); };
+  const tools = info ? depInfoNewer(since, null, info).filter(path => !skipped(path)) : [];
   return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
 }
 
@@ -489,11 +574,13 @@ export function webInputs(app, js, since = -Infinity) {
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
-/** Content digests of every input of a web build, recorded in its marker. */
+/** Content digests of every input of a web build, recorded in its marker; and the look it was built in, where that is
+ * not the default one (LLP 1115.000 D4 part B; host/web/look.mjs): a setting, so no file's digest says it. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+  return { ...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), ...(LOOK === DEFAULT_LOOK ? {} : { [LOOK_INPUT]: LOOK }) };
 }
+const LOOK_INPUT = 'EXACT_WEB_LOOK';
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
  * change. A marker without digests (an older build) trusts the times. */
@@ -503,7 +590,9 @@ export function webChanges(dist, app) {
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
-  const appChanges = own.filter(changed), shared = roots.filter(changed);
+  // A build in another look than this drive's is stale, whatever its files say.
+  const look = built.inputs && (built.inputs[LOOK_INPUT] ?? DEFAULT_LOOK) !== LOOK ? [`${LOOK_INPUT}=${LOOK}`] : [];
+  const appChanges = own.filter(changed), shared = [...roots.filter(changed), ...look];
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
@@ -651,6 +740,22 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
     return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked "Leave site?", answered "Stay"', delivery: 'browser-window', native: 'Page.close' };
   } finally { clearTimeout(timer); cdp.listeners.splice(cdp.listeners.indexOf(listener), 1); }
 }
+
+/** The agent's `back` on the web (LLP 1116.006 D4), the carrier's half: an open modal `dialog` or `role="alertdialog"`
+ * popover takes the Escape a person presses, a real key the browser makes the dialog's close request (`closedby="none"`
+ * keeps it open, as a `cancel` handler that prevents it does). `escape` presses it (CDP's, or Playwright's keyboard).
+ * Null with none open: the page's agent then takes the browser's Back from the selected route (navigation.js `back`). */
+export async function backLayer(req, { evaluate, escape, frame }) {
+  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { error: 'tap back takes no other input fields' };
+  const open = `document.querySelectorAll('dialog:modal, [role="alertdialog"]:popover-open').length`, before = await evaluate(open);
+  if (!before) return null;
+  await escape();
+  await frame();
+  return { back: 'dialog', delivery: 'platform', ...(await evaluate(open) >= before ? { refused: 'the dialog stayed open: its closedby is "none", or a `cancel` handler prevented the close' } : {}) };
+}
+
+/** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
+export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
 
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through

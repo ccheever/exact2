@@ -1048,7 +1048,8 @@ fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
         assert!(error.is_none());
         let result = p.tap(view(&p, "parent"));
         if actionable {
-            assert!(result.unwrap_err().contains("activates"));
+            // Covered by the child's own press: refused, naming it (LLP 1012 §1).
+            assert!(result.unwrap_err().contains("would press"));
             assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
         } else {
             result.unwrap();

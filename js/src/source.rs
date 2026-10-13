@@ -3,6 +3,10 @@
 use super::*;
 
 impl DataSource for Module {
+    fn set_document_owner(&mut self, owner: u64) {
+        self.document_owner = owner;
+    }
+
     fn take_logs(&mut self) -> Vec<String> {
         self.journal_lines()
     }
@@ -124,6 +128,7 @@ impl DataSource for Module {
         // its disposable engine can only record ordinary host requests.
         self.unload();
         self.directories = None;
+        self.host.validating = true;
         self.activate()
     }
 
@@ -132,6 +137,7 @@ impl DataSource for Module {
             .map(|pair| {
                 let mut module = pair.module;
                 module.directories = self.directories.clone();
+                module.document_owner = self.document_owner;
                 module.native_factory = self.native_factory;
                 module
             })
@@ -154,7 +160,7 @@ impl DataSource for Module {
     }
 
     /// A `Later` answer the runner dropped before handing it out — a refused
-    /// pass, or a re-read whose reply's refresh asks again — is dropped here
+    /// pass, or an ask a later pass of the same settlement replaced — is dropped here
     /// too. Left parked, a call shares its key with the call still in
     /// flight, and `resume`, which finds a call by key, could give it that
     /// call's storage step (files diary F18: a mutation refreshing a
@@ -308,7 +314,7 @@ impl DataSource for Module {
         // A resource whose answer the bake's storage refusal ended (an
         // uncaught `code: 'bake'`) is the device's to answer: that is
         // `DeferredAtBake` (aab190948), and the runner shows its placeholder.
-        // An error the source raises itself stays fatal, even after a
+        // At bake, an error the source raises itself stays fatal, even after a
         // refusal it caught (kanban2 #5).
         let answer = self.begin(Some(store), Some(target), source, args);
         self.refresh_background();
@@ -326,5 +332,15 @@ impl DataSource for Module {
         let answer = self.resume(store, Some(target), source, args, outcome);
         self.refresh_background();
         answer
+    }
+
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        Module::overlay(self, source, args, answer, writes)
     }
 }

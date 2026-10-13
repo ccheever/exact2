@@ -1,0 +1,79 @@
+// Starter: one screen: today's total, buttons that log an amount, a dated log kept in a file.
+// The one colour written is the accent, on the root: any system colour, as here (teal, mint or
+// yellow as well), or one pair, `accent-color="light-dark(#0a7d61, #3dd6a8)"`. Surfaces and
+// text are roles or unsaid, so dark mode is the platform's: a hex on a page, card or text stays
+// light as the bars turn dark.
+// One route: a second screen is a route under `home`, a `when e.name == …` beside this one and
+// `nav = push(nav, path(…))`, and `follow` keeps the browser's Back and deep links working.
+use SummaryCard, RoundButton, RowText from "exact:content"
+
+routes nav
+  home "/"
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+
+shape Drink
+  id: string
+  ml: number
+  day: string
+
+shape Log
+  total: number
+  entries: list<Drink>
+
+shape Reply
+  ok: bool
+  error: string
+
+
+component App
+  // The day is the person's own: `exactTime()` and a minute's tick, so the total turns over at midnight.
+  resource time = exactTime() as shape Time
+  state now = 0
+  derive goal = 2000
+  derive today = formatDate(time.epochAtZero + now, time.utcOffset, "iso")
+  resource log = loadLog(today) as shape Log else empty()
+  mutation saved as shape Reply queue refreshes log
+  task tick mount
+    every(60000, step)
+  action step
+    now = performanceNow()
+  // An entry's day is read at the write, not from `today`, which can be a minute behind.
+  action add(ml: number)
+    let at = time.epochAtZero + performanceNow()
+    now = performanceNow()
+    send saved = addEntry(ml, formatDate(at, time.utcOffset, "iso"))
+  action undo
+    send saved = undoEntry(today)
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main testId="root" navigationKey=`${top(nav).id}` navigate=follow width="100%" height="100%"
+      accent-color="-exact-system-indigo"
+      each e in stack(nav) key=e.id
+        when e.name == "home"
+          column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0
+            // A title and one button: the title takes the row (`flex=1`) and the button sits at its end.
+            header display="flex" align-items="center" padding="8px 16px"
+              text "Starter" role="heading" aria-level=1 flex=1
+              button press=undo disabled=(log.total == 0) testId="undo"
+                text "Undo"
+            scroll id="content" flex=1 min-height=0
+              // One number and its buttons: a focused column, centred, a phone's width at most, so on a
+              // wide window the buttons are not at the window's two edges. A list and its detail, or a
+              // dashboard, take two columns (`pattern dashboard`).
+              column gap=24 padding=16 max-width=420 margin-left="auto" margin-right="auto"
+                SummaryCard(label="Today", value=formatNumber(log.total, "decimal"), detail=(log.total >= goal ? "Goal reached" : `of ${formatNumber(goal, "decimal")} ml`), progress=some(min(1, log.total / goal)), symbol=some("symbol:activity"))
+                // Emphasis is a part, not paint on a button: round buttons, the accent for the main one.
+                row justify-content="space-between"
+                  RoundButton(label="250 ml", tint=none, press=add(250), disabled=false, testId="add-250")
+                  RoundButton(label="500 ml", tint=some("AccentColor"), press=add(500), disabled=false, testId="add-500")
+                // A card of your own on this plain page: `-exact-secondary-background`, a role for its text.
+                column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="history"
+                  text "History" role="heading" aria-level=3
+                  when length(log.entries) == 0
+                    text "Nothing yet. Tap an amount to log a drink." color="-exact-secondary-label" padding-top=6 padding-bottom=10 testId="history-empty"
+                  each x in log.entries key=x.id
+                    RowText(title=`${x.ml} ml`, detail=(x.day == today ? "Today" : x.day), value=none)

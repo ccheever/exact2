@@ -6,12 +6,13 @@
 //! hashing on the read path.
 
 use crate::generated::{PropId, PropKind};
+use smol_str::SmolStr;
 
 /// A typed prop value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropValue {
-    /// UTF-8 text.
-    Str(String),
+    /// Immutable UTF-8 text: short strings inline, longer strings shared.
+    Str(SmolStr),
     /// A boolean.
     Bool(bool),
     /// A signed integer.
@@ -66,13 +67,13 @@ impl PropValue {
 
 impl From<&str> for PropValue {
     fn from(s: &str) -> Self {
-        PropValue::Str(s.to_string())
+        PropValue::Str(s.into())
     }
 }
 
 impl From<String> for PropValue {
     fn from(s: String) -> Self {
-        PropValue::Str(s)
+        PropValue::Str(s.into())
     }
 }
 
@@ -127,6 +128,31 @@ impl PropList {
         self.get(id).and_then(PropValue::as_bool)
     }
 
+    /// Where the node links to: its `href`, unless that turns out empty.
+    /// @ref LLP 1115 §3 — an empty `href` is no link on any host: no link
+    /// colour, role or pointer, and nothing to follow. It is HTML's `<a>`
+    /// with no `href`: the node is still that element, which is what
+    /// `Arena::is_button` reads from the row's presence, so its box is laid
+    /// out as it was. Every host asks this and not the row.
+    pub fn link(&self) -> Option<&str> {
+        self.str(PropId::Href).filter(|href| !href.is_empty())
+    }
+
+    /// The level of a heading: its `aria-level`, else ARIA's default 2,
+    /// which lowering also writes. `None` when the node is no heading.
+    /// @ref LLP 1115.000 D12.5 — only `role="heading"` makes one, to
+    /// assistive technology as to the bar and the heading's style: an
+    /// `aria-level` alone is not a heading on any host (`treeitem`, `row`
+    /// and `listitem` take a level of their own). Every host asks this.
+    pub fn heading(&self) -> Option<i64> {
+        (self.str(PropId::AccessibilityRole) == Some("heading")).then(|| {
+            match self.get(PropId::AccessibilityHeadingLevel) {
+                Some(PropValue::Int(level)) if *level >= 1 => *level,
+                _ => 2,
+            }
+        })
+    }
+
     /// Whether `id` is set.
     pub fn contains(&self, id: PropId) -> bool {
         self.position(id).is_ok()
@@ -175,6 +201,92 @@ impl PropList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_text_is_inline_and_long_text_clones_share_storage() {
+        for text in ["", "a", "界é", "12345678901234567890123"] {
+            let PropValue::Str(value) = PropValue::from(text) else {
+                unreachable!()
+            };
+            assert!(!value.is_heap_allocated());
+            assert_eq!(value.as_str(), text);
+            assert_eq!(PropValue::from(text.to_string()).as_str(), Some(text));
+        }
+        for text in ["123456789012345678901234", "界".repeat(1024).as_str()] {
+            let value = PropValue::from(text);
+            let kept = value.clone();
+            assert_eq!(
+                value.as_str().unwrap().as_ptr(),
+                kept.as_str().unwrap().as_ptr()
+            );
+            drop(value);
+            assert_eq!(kept.as_str(), Some(text));
+        }
+    }
+
+    #[test]
+    fn text_storage_preserves_wire_exports_and_independent_kernel_forks() {
+        use crate::{wire, Kernel, MonospaceMeasurer, NodeType, Op};
+        for text in [
+            "".to_string(),
+            "12345678901234567890123".to_string(),
+            "123456789012345678901234".to_string(),
+            "界é\0e\u{301}\r\n".repeat(300),
+            "\n\n          ".repeat(8),
+        ] {
+            let set = Op::SetProp {
+                id: 1,
+                prop: PropId::Text,
+                value: text.as_str().into(),
+            };
+            let mut encoded = wire::codec::Writer::new();
+            set.encode_payload(&mut encoded);
+            let mut expected = wire::codec::Writer::new();
+            expected.u16(PropId::Text as u16);
+            expected.u8(PropKind::Str as u8);
+            expected.string(&text);
+            assert_eq!(encoded.into_vec(), expected.into_vec());
+            let ops = [
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::Text,
+                },
+                set,
+                Op::AttachRoot { id: 1 },
+            ];
+            let mut structured = Kernel::with_monospace();
+            structured.apply(0, 1, &ops).unwrap();
+            let mut decoded = Kernel::with_monospace();
+            decoded.apply_frame(&wire::encode(0, 1, &ops)).unwrap();
+            drop(ops);
+            assert_eq!(
+                structured.export(None).unwrap(),
+                decoded.export(None).unwrap()
+            );
+            let snapshot = crate::export::decode(&decoded.export(None).unwrap()).unwrap();
+            assert_eq!(snapshot.props[0].str(PropId::Text), Some(text.as_str()));
+            let fork = structured.rehydrate(Box::new(MonospaceMeasurer::default()));
+            structured
+                .apply(
+                    0,
+                    2,
+                    &[Op::SetProp {
+                        id: 1,
+                        prop: PropId::Text,
+                        value: "changed".into(),
+                    }],
+                )
+                .unwrap();
+            assert_eq!(
+                fork.node(1).unwrap().props.str(PropId::Text),
+                Some(text.as_str())
+            );
+            assert_eq!(
+                decoded.node(1).unwrap().props.str(PropId::Text),
+                Some(text.as_str())
+            );
+        }
+    }
 
     #[test]
     fn set_get_remove_keep_sorted_order() {

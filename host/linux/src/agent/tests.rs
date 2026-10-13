@@ -642,6 +642,58 @@ fn a_picker_is_held_and_answered_by_ticket() {
 }
 
 #[test]
+fn an_unrestricted_picker_copies_an_unknown_file_under_the_agent() {
+    let plan = contract::compile(
+        "component App\n  state picked = \"none\"\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>)\n    picked = match first(files) { case some(f) => `${f.path} ${f.size}`, case none => \"empty\" }\n  view\n    column width=300 height=300\n      input type=\"file\" id=\"attach\" display=\"none\" change=attach\n      button press=choose testId=\"choose\"\n        text \"Choose\"\n      text picked testId=\"picked\"\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let dir = std::env::temp_dir().join(format!("exact-any-picker-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("archive.xyz");
+    std::fs::write(&file, b"any bytes").unwrap();
+    let choose = p
+        .host()
+        .kernel()
+        .node_by_key(p.host().kernel().find_by_test_id("choose")[0])
+        .unwrap()
+        .id;
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{choose}}}"#));
+    let state: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(
+        state["pending"][0]["device"]["args"]["accept"],
+        serde_json::json!([])
+    );
+    let ticket = state["pending"][0]["ticket"].as_u64().unwrap();
+    handle(
+        &mut p,
+        &format!(
+            r#"{{"op":"type","ticket":{ticket},"text":{}}}"#,
+            serde_json::Value::from(file.to_string_lossy().into_owned())
+        ),
+    );
+    let state: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    let picked = state["slots"]["picked"].as_str().unwrap();
+    assert!(
+        picked.starts_with("app:/tmp/picked/") && picked.ends_with(".xyz 9"),
+        "{picked}"
+    );
+    let copied = crate::picker::resolve(picked.split(' ').next().unwrap()).unwrap();
+    assert_eq!(std::fs::read(copied).unwrap(), b"any bytes");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn settle_takes_one_bound_for_a_request_that_never_answers() {
     let plan = contract::compile(
         "component App\n  resource item = item() as shape bool else fallback()\n  view\n    text \"x\" height=20\n",

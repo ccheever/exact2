@@ -112,6 +112,8 @@ fn main() {
         .unwrap_or_else(|error| panic!("cannot inspect selected Hermes compiler: {error}"));
     metadata("include_dir", &install.include_dir.display().to_string());
     metadata("hermesc_path", &install.hermesc.display().to_string());
+    // @ref LLP 0068.002#2-patch-disposition — consumers use the compiler from
+    // this resolution, including the authenticated host half of a cross build.
     println!(
         "cargo:rustc-env=HERMES_LEAN_HERMESC_PATH={}",
         install.hermesc.display()
@@ -283,7 +285,10 @@ fn main() {
         // Ibex's Intl shims also link without a VM in the graph. Nothing links
         // `icu.lib`: the `unumf_*` entry points only `icu.dll` exports are
         // bound at run time by `ibex2` from System32's `icu.dll` by full path,
-        // so no import names `icu.dll` and an embedder needs no linker flag.
+        // so this crate adds no `icu.dll` import and an embedder needs no
+        // linker flag. (An embedder that also links `windows-sys`'s catch-all
+        // import library may see the same names bound to `icu.dll` directly;
+        // LLP 0057.000 §5.1.1 records that equivalent case.)
         // Unused import libraries add no import. `icu-full-data` selects
         // nothing more.
         println!("cargo:rustc-env=HERMES_LEAN_LINKED_OS_ICU={WINDOWS_OS_ICU_DLL}");

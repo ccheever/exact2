@@ -450,3 +450,42 @@ fn cancelling_color_motion_restores_inheriting_views_and_inline_runs() {
         "{paragraph}"
     );
 }
+
+/// LLP 1116 D5: a radius that is a calculation with a percentage crosses to
+/// Swift as a handle on the kernel's evaluator, the environment's inset in
+/// it: `min(50%, calc(env(safe-area-inset-top) + 10px))` is half the basis up
+/// to 60 points, then 30.
+#[test]
+fn a_calculated_radius_carries_its_own_environment() {
+    use exact_kernel::{Env, StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(
+            StyleId::BorderRadiusTopLeft,
+            &StyleValue::Text("min(50%, calc(env(safe-area-inset-top) + 10px))".into()),
+        )
+        .unwrap();
+    let context = |top| {
+        let (json, _) = exact_apple::style::style_json(&style, &Env::new(top, 0.0, 0.0, 0.0));
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let radius = &value["border_radius_top_left"];
+        let handle = radius["calc"].as_u64().unwrap() as u32;
+        let environment: Vec<f64> = radius["env"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
+        (
+            handle,
+            exact_apple::calc::Context::new(handle, &environment).unwrap(),
+        )
+    };
+    let (first_handle, first) = context(20.0);
+    assert_eq!(first.length(40.0), 20.0);
+    assert_eq!(first.length(200.0), 30.0);
+    let (other_handle, other) = context(2.0);
+    assert_eq!(first_handle, other_handle);
+    assert_eq!(other.length(200.0), 12.0);
+    assert_eq!(first.length(200.0), 30.0);
+}

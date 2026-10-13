@@ -94,6 +94,81 @@ fn log<D: DataSource>(p: &Presenter<D>) -> String {
 }
 
 #[test]
+fn focus_bubbles_into_within_and_out_of_a_wrapper() {
+    let source = include_str!("../../../../contract/corpus/focus-bubble.contract");
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let before = id(&p, "before");
+    let a = id(&p, "a");
+    let b = id(&p, "b");
+    let after = id(&p, "after");
+    let wrapper = id(&p, "wrapper");
+    assert!(
+        !p.focusable(wrapper),
+        "an ancestor listener is no focus stop"
+    );
+    // The corpus steps (focus-bubble.steps): a click, Tab past the wrapper
+    // onto its first child, moves within and out of it, `focus()`, and the
+    // focused child's removal.
+    p.tap(before).unwrap();
+    p.type_key(before, "Tab", "Tab", true, false).unwrap();
+    assert_eq!(p.focus, Some(a), "Tab skips the listening wrapper");
+    p.tap(b).unwrap();
+    p.tap(a).unwrap();
+    p.tap(after).unwrap();
+    p.tap(id(&p, "programmatic")).unwrap();
+    p.run_commands(|| Keeps);
+    // The button has no `id`: relatedTarget is some(""), as the DOM's.
+    assert_eq!(p.focus, Some(b));
+    p.tap(a).unwrap();
+    p.type_key(a, "Enter", "Enter", true, false).unwrap();
+    assert!(p.host().kernel().node(a).is_none());
+    assert_eq!(
+        log(&p),
+        "in:a:before;out:a:b;in:b:a;out:b:a;in:a:b;out:a:after;\
+         in:b:;out:b:a;in:a:b;out:a:-;"
+    );
+}
+
+#[test]
+fn a_pressed_button_that_removes_itself_sends_focusout_to_its_wrapper() {
+    let source = r#"component App
+  state shown = true
+  state log = ""
+  action left(e: FocusEvent)
+    log = `${log}out:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
+  action hide
+    shown = false
+  view
+    column focusout=left width=200
+      when shown
+        button "Hide" id="hide" press=hide testId="hide" height=32
+      text log testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.tap(id(&p, "hide")).unwrap();
+    assert_eq!(log(&p), "out:hide:-;");
+    assert_eq!(p.focus, None);
+}
+
+#[test]
 fn cursor_resolves_inheritance_hud_override_stationary_changes_and_unmount() {
     let source = r#"component CursorTest
   state armed = false
@@ -187,6 +262,116 @@ fn a_stopped_key_reaches_no_ancestor() {
         "the field heard them all: {}",
         log(&p)
     );
+}
+
+#[test]
+fn capture_precedes_target_and_bubble_and_controls_the_default() {
+    const SOURCE: &str = r#"component App
+  state draft = ""
+  state heard = ""
+  action edit(v: string)
+    draft = v
+  action outerCapture(k: string)
+    heard = `${heard}C`
+    if k == "x"
+      stopPropagation()
+    if k == "z"
+      preventDefault()
+  action innerCapture(k: string)
+    heard = `${heard}T`
+    if k == "y"
+      stopPropagation()
+  action inner(k: string)
+    heard = `${heard}K`
+  action outer(k: string)
+    heard = `${heard}B`
+  view
+    column keycapture=outerCapture testId="root" width=300 height=200
+      column key=outer
+        input value=draft input=edit keycapture=innerCapture key=inner testId="field"
+      text heard testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(SOURCE).unwrap().encode(),
+        Keeps,
+        (300., 200.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(
+        !p.focusable(id(&p, "root")),
+        "capture alone adds no Tab stop"
+    );
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    assert_eq!(log(&p), "CTKB");
+    p.type_key(field, "KeyX", "x", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBC");
+    p.type_key(field, "KeyY", "y", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBCCT");
+    p.type_key(field, "KeyZ", "z", true, false).unwrap();
+    assert_eq!(log(&p), "CTKBCCTCTKB");
+    assert_eq!(
+        p.host()
+            .kernel()
+            .node(field)
+            .unwrap()
+            .props
+            .str(PropId::Value),
+        Some("axy")
+    );
+}
+
+#[test]
+fn keys_skip_disabled_controls_without_cutting_off_ancestors() {
+    const SOURCE: &str = r#"component App
+  state heard = ""
+  action captured(k: string)
+    heard = `${heard}C`
+  action outer(k: string)
+    heard = `${heard}B`
+  action inner(k: string)
+    heard = `${heard}K`
+  action released(k: string)
+    heard = `${heard}U`
+  view
+    column keycapture=captured key=outer keyup=released testId="root"
+      column disabled=true
+        input value="" key=inner testId="field"
+      button disabled=true keycapture=inner key=inner keyup=inner testId="disabled-parent"
+        input value="" key=inner testId="nested-field"
+      input disabled=true keycapture=captured key=inner testId="disabled-field"
+      button "Disabled" disabled=true keycapture=captured key=inner testId="disabled-button"
+      text heard testId="log"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(SOURCE).unwrap().encode(),
+        Keeps,
+        (300., 200.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    assert_eq!(log(&p), "CKB");
+    let nested = id(&p, "nested-field");
+    p.type_key(nested, "KeyA", "a", true, false).unwrap();
+    p.type_key(nested, "KeyA", "a", false, false).unwrap();
+    assert_eq!(log(&p), "CKBCKBU");
+    for control in ["disabled-field", "disabled-button", "disabled-parent"] {
+        for kind in [EventKind::Keycapture, EventKind::Key, EventKind::Keyup] {
+            assert_eq!(
+                p.handler_target(id(&p, control), kind),
+                Some(id(&p, "root"))
+            );
+        }
+    }
 }
 
 #[test]
@@ -398,6 +583,37 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
     );
 }
 
+/// An `svg` paints its content where its hits land: inside the padding
+/// layout resolved, a percentage of the containing block's width (CSS Box
+/// Model 3 §4.1), so x 20 here and not 10.
+#[test]
+fn an_svg_paints_its_content_where_it_is_hit() {
+    const ART: &str = r##"component App
+  view
+    column width=400 height=200 background-color="#ffffff"
+      svg width=200 height=100 box-sizing="border-box" padding-left="5%"
+        rect x=0 y=0 width=20 height=20 fill="#ff0000"
+"##;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(ART).unwrap().encode(),
+        Keeps,
+        (400., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let frame = p.frame();
+    let red = |x| frame.pixel(x, 5).map(|c| (c.red(), c.green(), c.blue())) == Some((255, 0, 0));
+    assert_eq!((red(15), red(35)), (false, true));
+    let rect = |p: &mut Presenter<Keeps>, x| {
+        p.hit(x, 5.)
+            .is_some_and(|id| p.host.kernel().node(id).unwrap().node_type == NodeType::SvgRect)
+    };
+    assert_eq!((rect(&mut p, 15.), rect(&mut p, 35.)), (false, true));
+}
+
 /// A `wheel` is heard by a disabled box (it means nothing on a `<div>`, as
 /// in Chrome) and a disabled link (an `<a>`), and not by a disabled button
 /// (review b5-b 4, b5-delta).
@@ -574,6 +790,33 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
     );
     p.focus = None;
     assert_eq!(tab(&mut p, true), "disabled", "and Shift-Tab the last");
+}
+
+#[test]
+fn aria_disabled_keeps_a_linux_button_in_tab_order_and_runs_press() {
+    const APP: &str = "component App\n  state count = 0\n  action tick\n    count = count + 1\n  view\n    column width=200 height=100\n      button \"First\" testId=\"first\" height=20\n      button \"Update\" aria-disabled=true press=tick testId=\"update\" height=20\n      button \"Last\" testId=\"last\" height=20\n      text `${count}` testId=\"count\"\n";
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(APP).unwrap().encode(),
+        Keeps,
+        (200., 100.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.advance(16.);
+    p.tap(id(&p, "first")).unwrap();
+    p.hardware_key("Tab", "Tab", true, false);
+    p.hardware_key("Tab", "Tab", false, false);
+    assert_eq!(p.focus(), Some(id(&p, "update")));
+    p.tap(id(&p, "update")).unwrap();
+    let n = p
+        .host()
+        .kernel()
+        .node_by_key(p.host().kernel().find_by_test_id("count")[0])
+        .unwrap();
+    assert_eq!(n.props.str(PropId::Text), Some("1"));
 }
 
 #[test]
@@ -754,4 +997,194 @@ fn a_reload_forgets_unbound_controls_own_state() {
         "the checkbox starts unchecked again"
     );
     assert_eq!(p.field_text(free), "");
+}
+
+/// `bad` and the background round ask with a deadline only HTTP takes, so
+/// the executor refuses both at admission; `good` asks for work it runs.
+#[derive(Default)]
+struct Refused {
+    armed: bool,
+    landed: Arc<std::sync::atomic::AtomicUsize>,
+    good: Arc<std::sync::atomic::AtomicUsize>,
+}
+fn with_deadline(mut request: exact_runner::Request) -> exact_runner::Request {
+    request.timeout_ms = Some(5);
+    request
+}
+impl DataSource for Refused {
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn answer(&mut self, _: &mut Store, name: &str, _: &[Value]) -> Result<Answer, DataError> {
+        Ok(Answer::Later(match name {
+            "bad" => with_deadline(exact_runner::Request::continuation(1)),
+            _ => exact_runner::Request::continuation(2),
+        }))
+    }
+    fn continuation(
+        &mut self,
+        _: u64,
+    ) -> Option<Box<dyn FnOnce() -> exact_runner::Outcome + Send>> {
+        Some(Box::new(|| exact_runner::Outcome::Storage(vec![])))
+    }
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        name: &str,
+        _: &[Value],
+        _: exact_runner::Outcome,
+    ) -> Result<Answer, DataError> {
+        if name == "good" {
+            self.good.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(Answer::Now(Value::Number(1.)))
+    }
+    fn background(&mut self, _: &Store) -> Option<exact_runner::Request> {
+        (!std::mem::replace(&mut self.armed, true)).then(|| {
+            with_deadline(exact_runner::Request::continuation(
+                exact_runner::BACKGROUND,
+            ))
+        })
+    }
+    fn background_landed(
+        &mut self,
+        _: &Store,
+        _: exact_runner::Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.landed
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(None)
+    }
+}
+
+/// A refused background round behind a refused ordered request, and a send
+/// held behind both: driven only by the executor's wake, as the display loop
+/// is, the send still runs. The runner kept no refusal for a background
+/// ticket, so its refusal never settled and nothing lifted the fence over the
+/// send (Astra, round 2).
+#[test]
+#[cfg(unix)]
+#[allow(unsafe_code)] // poll(2) on the executor's wake, as the display loop waits
+fn a_send_held_behind_a_refused_background_round_runs_on_the_wake() {
+    let source = Refused::default();
+    let (landed, good) = (source.landed.clone(), source.good.clone());
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(
+            "component App\n  resource bad = bad() as shape number\n  mutation kept as shape number\n  action ask\n    send kept = good()\n  view\n    column width=200 height=200\n      button \"Ask\" press=ask testId=\"ask\" height=30\n",
+        )
+        .unwrap()
+        .encode(),
+        source,
+        (200., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    // Before any pump: `bad`'s refusal is still retained, so the send is held.
+    p.tap(id(&p, "ask")).unwrap();
+    let mut fds = libc::pollfd {
+        fd: p.executor_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    while good.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        // SAFETY: one valid pollfd for the duration of the call.
+        let ready = unsafe { libc::poll(&mut fds, 1, 2000) };
+        assert!(ready > 0, "no wake with the send still held");
+        p.pump(p.host().now());
+    }
+    assert_eq!(
+        landed.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the refused round settled"
+    );
+}
+
+/// Every answer waits on shared work: its continuation is a re-ask
+/// (`Dispatch::Again`), asked once, then the answer settles.
+#[derive(Default)]
+struct Waiting {
+    asked: std::collections::HashSet<String>,
+    settled: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl DataSource for Waiting {
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+        let i = match args[0] {
+            Value::Number(n) => n as u64,
+            _ => 0,
+        };
+        Ok(Answer::Later(exact_runner::Request::continuation(i + 1)))
+    }
+    fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
+        exact_runner::Dispatch::Again
+    }
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        args: &[Value],
+        _: exact_runner::Outcome,
+    ) -> Result<Answer, DataError> {
+        let i = match args[0] {
+            Value::Number(n) => n as u64,
+            _ => 0,
+        };
+        // Asked again once more, as a waiter re-parks before its work lands.
+        if self.asked.insert(i.to_string()) {
+            return Ok(Answer::Later(exact_runner::Request::continuation(1000 + i)));
+        }
+        self.settled
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Answer::Now(Value::Number(i as f64)))
+    }
+}
+
+/// Two hundred answers re-asked twice each, more than the re-ask markers'
+/// window of 128: driven only by the executor's wake, as the display loop
+/// is, every one settles and none is refused (LLP 1041 §8.4, amended
+/// 2026-10-09). Before, each re-ask was opaque work against the sixteen.
+#[test]
+#[cfg(unix)]
+#[allow(unsafe_code)] // poll(2) on the executor's wake, as the display loop waits
+fn re_asks_past_their_window_settle_on_the_wake_alone() {
+    const N: usize = 200;
+    let source = Waiting::default();
+    let settled = source.settled.clone();
+    let mut src = String::from("component App\n");
+    for i in 0..N {
+        src += &format!("  resource w{i} = wait({i}) as shape number\n");
+    }
+    src += "  view\n    column width=200 height=200\n      text \"waiting\"\n";
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(&src).unwrap().encode(),
+        source,
+        (200., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let mut fds = libc::pollfd {
+        fd: p.executor_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    while settled.load(std::sync::atomic::Ordering::SeqCst) < N {
+        // SAFETY: one valid pollfd for the duration of the call.
+        let ready = unsafe { libc::poll(&mut fds, 1, 2000) };
+        assert!(
+            ready > 0,
+            "no wake with {} of {N} settled",
+            settled.load(std::sync::atomic::Ordering::SeqCst)
+        );
+        p.pump(p.host().now());
+    }
+    assert!(p.host().runner().failed_resources().is_empty());
+    assert!(!p.host().runner().has_pending());
 }

@@ -42,11 +42,13 @@ import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/ru
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks } from '../apple/build.mjs';
-import { webRequestURL } from '../../scripts/origin.mjs';
+import { DEFAULT_LOOK, LOOK } from './look.mjs';
+import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
+import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
-const argv = process.argv.slice(2);
+const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
 // The dev wasm links every capability (LLP 1047 D7): a new plan that adds
 // one restarts in place, never waiting on a wasm rebuild.
@@ -108,7 +110,9 @@ async function currentWebBuild() {
   if (!(producersOnly ? existsSync(plan) : await builtAppMatches(dist, app))) return false;
   try {
     const build = JSON.parse(readFileSync(graphPath, 'utf8'));
+    // A bake in this run's look (its receipt names one only where it is not the default: look.mjs), of these sources.
     return build.version === 1 && build.trust === 'development' && build.binary?.configuration?.flags?.EXACT_WEB_LINK === 'all'
+      && (build.binary.configuration.flags.EXACT_WEB_LOOK ?? DEFAULT_LOOK) === LOOK
       && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }
@@ -1155,7 +1159,7 @@ const server = createServer(async (req, res) => {
   // app URL itself whose Accept names the envelope type: the dev-server
   // shortcut past the link rung (D1); a browser never sends it.
   // @ref LLP 1038 D7 — resolve files and extensionless locations before negotiation.
-  const { found, index } = await readWebRequest(dist, url.pathname);
+  const { found, index } = await readWebRequest(dist, url.pathname, acceptsHTML(req.headers.accept) ? 'text/html' : '');
   const wantsEnvelope = url.pathname === '/exact.json'
     || (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
   if (wantsEnvelope) {

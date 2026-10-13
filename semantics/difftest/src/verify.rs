@@ -11,7 +11,7 @@
 //! `semantics/Apps/Proofs/`.
 
 use crate::script::{Case, Event, Scripted};
-use crate::{check, compile, expectations, leanrun, oracle, seed_of, work_dir, Verdict};
+use crate::{check, compile, expectations, leanrun, oracle, work_dir, Verdict};
 use contract_syntax::{Span, Step};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -178,7 +178,7 @@ fn locate(
     let mut out = String::new();
     let site = |events: &[Event], id: &str| -> Option<String> {
         let plan = compile(case).ok()?;
-        let oracle = oracle::Oracle::new(&plan, seed_of(&case.name));
+        let oracle = oracle::Oracle::for_case(&plan, case);
         let node = crate::observe::site(plan, oracle, events, id)?;
         map.node(node).map(|(f, s)| at_span(f, s))
     };

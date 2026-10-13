@@ -53,7 +53,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             sheet.detents = detents.isEmpty ? [.large()] : detents
             sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
             sheet.prefersGrabberVisible = detents.count > 1
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            // Several: scrolling at the content's top grows the sheet, as
+            // UIKit's own sheets do (LLP 1115 wave 1).
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
@@ -109,7 +111,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // tvOS has neither grouped backgrounds nor a keyboard layout guide.
         view.backgroundColor = .white
         #else
-        view.backgroundColor = .secondarySystemGroupedBackground
+        // A sheet's surface where the author painted none: the platform's
+        // (LLP 1115 D2), which UIKit elevates in dark mode.
+        view.backgroundColor = .systemBackground
         let probe = UIView()
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false
@@ -149,6 +153,7 @@ private final class Presentation {
     let backgroundNode: NodeView?
     weak var backgroundHome: UIView?
     let backgroundHomeFrame: CGRect
+    let backgroundHomeSize: CGSize
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
@@ -170,6 +175,7 @@ private final class Presentation {
         backgroundNode = node
         backgroundHome = background.view.superview
         backgroundHomeFrame = background.view.frame
+        backgroundHomeSize = background.view.superview?.bounds.size ?? .zero
         backgroundInteraction = background.view.isUserInteractionEnabled
         backgroundAccessibility = background.view.accessibilityElementsHidden
         self.home = home
@@ -301,6 +307,18 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         guard canDismissByBackdrop(id), let route = layers.last?.route else { return }
         presenter.navigation.invokeBack(from: route)
     }
+    /// The agent's `back` on the top sheet (LLP 1116.006 D4): its swipe
+    /// down, refused as UIKit's is (`presentationControllerShouldDismiss`)
+    /// and ending as a completed one does (`invokeBack`). nil with no sheet
+    /// up; "" when it went, else why not.
+    func agentDismiss() -> String? {
+        guard let route = layers.last?.route else { return nil }
+        if inTransition { return "the sheet is still moving: `clock settle` first" }
+        if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return "its closedby is \"none\"" }
+        if refusesDismissal(of: route) { return presenter.navigation.backRefusal }
+        presenter.navigation.invokeBack(from: route)
+        return ""
+    }
 
     func prepare(_ batch: Batch) {
         for layer in layers where batch.ops.contains(where: {
@@ -342,7 +360,17 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     private func releaseBackground(_ layer: Presentation) {
         let background = layer.background
         layer.backgroundHome?.addSubview(background.view)
-        background.view.frame = layer.backgroundHomeFrame
+        // Its home kept resizing while it was away (framed to the sheet, then
+        // the keyboard coming back), and autoresizing would have carried it
+        // along. Put back at its old size, the home's next shrink took the
+        // difference out of it a second time: a navigation controller, which
+        // clips, cut its route off far above the keyboard until the
+        // dismissal ended.
+        let mask = background.view.autoresizingMask
+        background.view.frame = NavigationRules.restoredFrame(
+            layer.backgroundHomeFrame, homeThen: layer.backgroundHomeSize,
+            homeNow: layer.backgroundHome?.bounds.size ?? layer.backgroundHomeSize,
+            flexibleWidth: mask.contains(.flexibleWidth), flexibleHeight: mask.contains(.flexibleHeight))
         background.view.isUserInteractionEnabled = layer.backgroundInteraction
         background.view.accessibilityElementsHidden = layer.backgroundAccessibility
         // Frames precede content extents, as in a normal batch. A retired
@@ -576,7 +604,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
         guard layers.last?.controller === presentationController.presentedViewController,
               !presenter.navigation.canInvokeBack else { return }
-        presenter.session?.log("modal dismissal refused: no enabled navigationBack control in the active route")
+        presenter.session?.log("modal dismissal refused: \(presenter.navigation.backRefusal)")
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {

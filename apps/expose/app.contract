@@ -82,24 +82,25 @@ component Expose
   derive replyDone = match reply { case some(r) => r.done, case none => false }
   derive clearedRevision = match cleared { case some(r) => r.revision, case none => 0 }
   derive savedRevision = match saved { case some(r) => r.revision, case none => 0 }
-  resource inbox = inbox(replyRevision + clearedRevision) as shape Inbox
-  derive liveKey = pending(reply) ? floor(nowMs / 1000) : 0
+  // `ask` records the turn when it is sent: the inbox and the conversation are read again from the send, and
+  // each second while the reply is pending (`+ 1` keeps the key off 0, so the send's own commit changes it)
+  derive liveKey = pending(reply) ? floor(nowMs / 1000) + 1 : 0
+  resource inbox = inbox(replyRevision + clearedRevision, liveKey) as shape Inbox
   resource chat = conversation(thread, replyRevision + clearedRevision, liveKey) as shape Conversation
   resource intelligence = intelligence(savedRevision) as shape Intelligence
   derive inThread = screen == "messages" and thread == "expose"
   derive banner = bannerAt > 0 and not inThread
 
   action tick
+    let stamp = performanceNow()
+    let nextBannerAt = replyDone and replyRevision != bannerSeen and not inThread ? stamp : bannerAt
     if nowMs == 0
       setScheme(appearance)
-    nowMs = performanceNow()
+    nowMs = stamp
     if replyDone and replyRevision != bannerSeen
       bannerSeen = replyRevision
-      if not inThread
-        bannerAt = nowMs
-    if bannerAt > 0 and nowMs - bannerAt > 7000
-      bannerAt = 0
-    if toastAt > 0 and nowMs - toastAt > 2600
+    bannerAt = nextBannerAt > 0 and stamp - nextBannerAt > 7000 ? 0 : nextBannerAt
+    if toastAt > 0 and stamp - toastAt > 2600
       toastAt = 0
   task ticker mount
     every(1000, tick)

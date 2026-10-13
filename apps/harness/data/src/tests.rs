@@ -18,8 +18,137 @@ fn send(h: &mut Harness, source: &str, args: &[&str]) -> bool {
 fn mock() -> Harness {
     providers::mock::FAST.store(true, std::sync::atomic::Ordering::Relaxed);
     let mut h = Harness::with_options(Options::offline(None));
+    // These tests start from a settled banner, as the old constructor did.
+    let mut store = Store::new("", []);
+    let Answer::Later(request) = h.answer(&mut store, "workspace", &[]).unwrap() else {
+        panic!("workspace should start pending");
+    };
+    let outcome = h.continuation(request.continuation.unwrap()).unwrap()();
+    h.parse(&mut store, "workspace", &[], outcome).unwrap();
     assert!(send(&mut h, "setModel", &["mock"]));
     h
+}
+
+#[test]
+fn startup_metadata_keeps_the_banner_live_until_its_reply() {
+    let mut h = Harness::with_options(Options::offline(None));
+    let mut store = Store::new("", []);
+    let Answer::Later(request) = h.answer(&mut store, "workspace", &[]).unwrap() else {
+        panic!("workspace should start pending");
+    };
+    let token = request.continuation.unwrap();
+    assert!(h.continuation(token + 1).is_none());
+    let work = h.continuation(token).unwrap();
+    assert!(h.continuation(token).is_none(), "work is taken once");
+    drop(work);
+    let id = h.shared.lock().entries[0].id.clone();
+    assert!(h.shared.lock().entries[0].busy);
+    assert!(h.shared.lock().retire(&id));
+    assert_eq!(
+        h.shared.lock().entries.len(),
+        1,
+        "pending banner is retained"
+    );
+    assert_eq!(h.shared.lock().retired, 0.0);
+    let original = h.shared.lock().entries[0].blocks[1].runs[0].text.clone();
+    h.shared.lock().model = "another model".into();
+    let branch = "feature/metadata";
+    h.parse(
+        &mut store,
+        "workspace",
+        &[],
+        Outcome::Response(Response {
+            status: 200,
+            headers: Vec::new(),
+            body: branch.as_bytes().to_vec(),
+        }),
+    )
+    .unwrap();
+    let s = h.shared.lock();
+    assert_eq!(s.branch, branch);
+    assert!(!s.branch_loading);
+    assert!(!s.entries[0].busy);
+    let runs = &s.entries[0].blocks[1].runs;
+    assert_eq!(
+        runs[0].text, original,
+        "the banner keeps its original model"
+    );
+    assert_eq!(runs.last().unwrap().text, branch);
+    drop(s);
+    assert!(
+        h.shared.lock().retire(&id),
+        "completed banner can print once"
+    );
+    assert!(h.shared.lock().retire(&id));
+    assert_eq!(h.shared.lock().retired, 1.0, "retirement is idempotent");
+    assert!(matches!(
+        h.answer(&mut store, "workspace", &[]).unwrap(),
+        Answer::Now(_)
+    ));
+}
+
+#[test]
+fn clearing_during_metadata_lookup_settles_only_the_new_banner() {
+    for branch in ["", "topic/new"] {
+        let mut h = Harness::with_options(Options::offline(None));
+        let old = h.shared.lock().entries[0].id.clone();
+        assert!(send(&mut h, "submit", &["/clear"]));
+        assert!(h.shared.lock().entries[0].busy);
+        assert_ne!(h.shared.lock().entries[0].id, old);
+        finish_branch(&h.shared, branch.into());
+        let entries = h.shared.lock().entries.clone();
+        assert_eq!(entries.len(), 1);
+        assert!(!entries[0].busy);
+        let runs = &entries[0].blocks[1].runs;
+        assert_eq!(runs.len(), if branch.is_empty() { 3 } else { 5 });
+        if !branch.is_empty() {
+            assert_eq!(runs.last().unwrap().text, branch);
+        }
+        finish_branch(&h.shared, "duplicate".into());
+        assert_eq!(
+            h.shared.lock().entries,
+            entries,
+            "a settled banner never changes"
+        );
+    }
+}
+
+#[test]
+fn concurrent_workspace_requests_share_the_lookup_and_hold_the_inline_prefix() {
+    let mut h = Harness::with_options(Options::offline(None));
+    h.branch_lookup.set("topic/shared".into()).unwrap();
+    let mut store = Store::new("", []);
+    let mut tokens = Vec::new();
+    for _ in 0..2 {
+        let Answer::Later(request) = h.answer(&mut store, "workspace", &[]).unwrap() else {
+            panic!("workspace should start pending");
+        };
+        tokens.push(request.continuation.unwrap());
+    }
+    assert!(send(&mut h, "submit", &["/stress 100"]));
+    assert_eq!(
+        h.shared.lock().entries.len(),
+        101,
+        "produced entries are retained"
+    );
+    let snapshot = h.query("session", &[Value::str("inline")]).unwrap();
+    assert_eq!(Session::from_value(&snapshot).unwrap().entries.len(), 1);
+    let first = h.continuation(tokens[0]).unwrap()();
+    let second = h.continuation(tokens[1]).unwrap()();
+    for outcome in [first, second] {
+        h.parse(&mut store, "workspace", &[], outcome).unwrap();
+    }
+    assert_eq!(h.shared.lock().branch, "topic/shared");
+    let snapshot = h.query("session", &[Value::str("inline")]).unwrap();
+    assert_eq!(
+        Session::from_value(&snapshot).unwrap().entries.len(),
+        INLINE_ENTRIES
+    );
+    assert_eq!(
+        h.shared.lock().entries[0].blocks[1].runs.len(),
+        5,
+        "one branch suffix"
+    );
 }
 
 /// Drive until idle, answering every approval with `choice`, and check
@@ -260,6 +389,137 @@ fn bake_style_query_answers_without_side_effects() {
 }
 
 #[test]
+fn an_owned_frame_cleans_text_and_compacts_effective_style() {
+    use crate::shapes::{Frame, Line, Run};
+    let styles = [
+        (false, false, 400.0),
+        (false, true, 300.0),
+        (true, false, 700.0),
+        (true, true, 700.0),
+    ];
+    let lines = vec![
+        Line {
+            runs: styles
+                .iter()
+                .enumerate()
+                .map(|(i, &(bold, dim, _))| Run {
+                    text: if i == 0 {
+                        "\u{1b}A\t\n\u{85}\u{7f}界e\u{301}".into()
+                    } else {
+                        format!("style {i}")
+                    },
+                    fg: format!("#{i}{i}{i}{i}{i}{i}"),
+                    bg: format!("#{i}{i}{i}{i}{i}f"),
+                    bold,
+                    dim,
+                    ..Run::default()
+                })
+                .collect(),
+        },
+        Line::default(),
+    ];
+    let frame = Frame::from_value(&value::frame("\u{1b}frame\t\n", lines)).unwrap();
+    assert_eq!(frame.title, "␛frame  ");
+    let runs = &frame.lines[0].runs;
+    assert_eq!(runs[0].text, "␛A  界e\u{301}");
+    assert_eq!(runs.len(), styles.len());
+    for (i, (run, &(_, _, weight))) in runs.iter().zip(&styles).enumerate() {
+        assert_eq!(run.fg, format!("#{i}{i}{i}{i}{i}{i}"));
+        assert_eq!(run.bg, format!("#{i}{i}{i}{i}{i}f"));
+        assert_eq!(run.weight, weight);
+    }
+    assert!(frame.lines[1].runs.is_empty());
+}
+
+#[test]
+fn a_session_preserves_rich_runs_and_cleans_text_and_links() {
+    use crate::shapes::{Run, Session};
+    use crate::state::{Entry, State};
+    let mut styled = Run {
+        text: "\u{1b}A\t\n\u{85}\u{7f}界e\u{301}".into(),
+        fg: "#123456".into(),
+        bg: "#654321".into(),
+        bold: true,
+        italic: true,
+        dim: true,
+        under: true,
+        strike: true,
+        href: "https://example.test/界".into(),
+    };
+    let links = [
+        ("http://example.test/", "http://example.test/"),
+        ("file:///tmp/image.png", "file:///tmp/image.png"),
+        ("https://example.test/a b", ""),
+        ("https://example.test/\u{1b}", ""),
+        ("https://example.test/\u{85}", ""),
+        ("javascript:alert(1)", ""),
+    ];
+    let state = State {
+        entries: vec![Entry {
+            blocks: vec![Block {
+                kind: "p".into(),
+                runs: std::iter::once(styled.clone())
+                    .chain(links.iter().map(|(href, _)| Run {
+                        text: "link".into(),
+                        href: (*href).into(),
+                        ..Run::default()
+                    }))
+                    .collect(),
+                ..Block::default()
+            }],
+            ..Entry::default()
+        }],
+        ..State::default()
+    };
+    let session = Session::from_value(&value::session(&state, usize::MAX)).unwrap();
+    let runs = &session.entries[0].blocks[0].runs;
+    styled.text = "␛A  界e\u{301}".into();
+    assert_eq!(runs[0], styled);
+    for (run, (_, expected)) in runs[1..].iter().zip(links) {
+        assert_eq!(run.text, "link");
+        assert_eq!(run.href, expected);
+    }
+}
+
+#[test]
+fn every_animation_frame_preserves_its_effective_style() {
+    use crate::shapes::Frame;
+    assert_eq!(ANIMATIONS.len(), 11);
+    for name in ANIMATIONS {
+        for (cols, rows) in [(1, 1), (13, 5), (80, 24)] {
+            for tick in [0.0, 17.0, 1234.0] {
+                let (title, original) = anim::frame(name, tick, cols, rows);
+                let compact = Frame::from_value(&value::frame(&title, original.clone())).unwrap();
+                assert_eq!(compact.title, title);
+                assert_eq!(compact.lines.len(), original.len());
+                for (actual_line, original_line) in compact.lines.iter().zip(&original) {
+                    assert_eq!(actual_line.runs.len(), original_line.runs.len());
+                    for (actual, original) in actual_line.runs.iter().zip(&original_line.runs) {
+                        assert_eq!(actual.text, original.text);
+                        assert_eq!(actual.fg, original.fg);
+                        assert_eq!(actual.bg, original.bg);
+                        assert_eq!(
+                            actual.weight,
+                            if original.bold {
+                                700.0
+                            } else if original.dim {
+                                300.0
+                            } else {
+                                400.0
+                            }
+                        );
+                        assert!(!original.italic, "{name} uses italic");
+                        assert!(!original.under, "{name} uses underline");
+                        assert!(!original.strike, "{name} uses strike");
+                        assert!(original.href.is_empty(), "{name} uses a link");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn a_saved_key_switches_the_model_and_never_shows() {
     use std::os::unix::fs::PermissionsExt;
     const KEY: &str = "sk-or-v1-TESTONLY-0123456789abcdef";
@@ -377,6 +637,44 @@ fn a_huge_reply_settles_while_it_streams() {
     assert_eq!(code.blocks[0].lines.len(), 300, "the fence settled whole");
     let ids = ids(&s.entries);
     assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids increase");
+}
+
+#[test]
+fn inline_snapshots_drain_a_burst_without_mounting_it_all() {
+    let mut h = mock();
+    assert!(send(&mut h, "submit", &["/stress 2000"]));
+    let full = Session::from_value(&h.session()).unwrap();
+    assert_eq!(
+        full.entries.len(),
+        2001,
+        "the burst is produced immediately"
+    );
+    let fullscreen = h.query("session", &[Value::str("fullscreen")]).unwrap();
+    assert_eq!(Session::from_value(&fullscreen).unwrap(), full);
+    let initial = h.query("session", &[Value::str("")]).unwrap();
+    assert_eq!(
+        Session::from_value(&initial).unwrap().entries.len(),
+        INLINE_ENTRIES
+    );
+    let mut printed = vec![];
+    loop {
+        let snapshot = h.query("session", &[Value::str("inline")]).unwrap();
+        let session = Session::from_value(&snapshot).unwrap();
+        assert!(session.entries.len() <= INLINE_ENTRIES);
+        if session.entries.is_empty() {
+            assert_eq!(session.retired as usize, full.entries.len());
+            break;
+        }
+        let last = session.entries.last().unwrap().id.clone();
+        printed.extend(session.entries);
+        assert!(send(&mut h, "retire", &[&last]));
+    }
+    assert_eq!(printed, full.entries, "each entry reaches scrollback once");
+    assert!(send(&mut h, "submit", &["/clear"]));
+    let snapshot = h.query("session", &[Value::str("inline")]).unwrap();
+    let session = Session::from_value(&snapshot).unwrap();
+    assert_eq!(kinds(&session.entries), ["banner"]);
+    assert_eq!(session.epoch, 1.0);
 }
 
 #[test]
