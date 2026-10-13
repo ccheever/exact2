@@ -297,7 +297,12 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             // Out of the window's content before the split view takes it.
             if window.contentView === view || window.contentView == nil { window.contentView = NSView() }
             let minimum = scripted && ExactEnv.environment["EXACT_WINDOW_MINWIDTH"] == nil ? 0 : minimumSize.width
-            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum, sidebar: rail)
+            // A window that shows a list beside its detail is as wide as its
+            // columns need, a script's too: Q6's "always, with a minimum
+            // window width" has no narrower form to fall back to, and a
+            // detail squeezed to what a 420-point window leaves shows nothing.
+            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum, sidebar: rail,
+                                               minimumDetailWidth: windowDimension("minWidth", fallback: 320))
             sidebar = split
             // Full-size content, then the split view: the order AppKit
             // places a source list's first row by.

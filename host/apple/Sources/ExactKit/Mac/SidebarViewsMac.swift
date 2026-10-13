@@ -32,6 +32,7 @@ public final class ExactSidebarController: NSSplitViewController {
     private let detailItem: NSSplitViewItem
     private let autosave: String?
     private let minimumPageWidth: CGFloat
+    private let minimumDetailWidth: CGFloat
     private var pins: [NSLayoutConstraint] = []
     private var pinnedCover: Bool?
     /// The sidebar is hidden because the author hid the tab bar on this
@@ -47,7 +48,11 @@ public final class ExactSidebarController: NSSplitViewController {
     /// page goes, which with the columns' own minimums is the narrowest the
     /// window goes. `sidebar`: whether the app's root tab bar is the
     /// window's sidebar.
-    public init(view exact: ExactView, autosaveName: String?, minimumPageWidth: CGFloat, sidebar: Bool = true) {
+    /// `minimumDetailWidth` is the narrowest the detail's pane goes beside
+    /// a list (unsaid, the page's): with the list's 200 and the sidebar's
+    /// 144 it is the narrowest a window that splits goes, whoever sizes it.
+    public init(view exact: ExactView, autosaveName: String?, minimumPageWidth: CGFloat, sidebar: Bool = true, minimumDetailWidth: CGFloat? = nil) {
+        self.minimumDetailWidth = minimumDetailWidth ?? minimumPageWidth
         let list = sidebar ? SidebarList(host: exact.session.presenter.sidebar) : nil, page = NSViewController()
         page.view = NSView()
         exactView = exact
@@ -209,7 +214,7 @@ public final class ExactSidebarController: NSSplitViewController {
             let none = NSSplitViewItem.unspecifiedDimension
             pageItem.minimumThickness = on ? Self.listMinimum : minimumPageWidth > 0 ? minimumPageWidth : none
             pageItem.holdingPriority = on ? .init(255) : .defaultLow
-            detailItem.minimumThickness = on && minimumPageWidth > 0 ? minimumPageWidth : none
+            detailItem.minimumThickness = on && minimumDetailWidth > 0 ? minimumDetailWidth : none
             detailItem.isCollapsed = !on
             placed = nil
             // Now, not at the next display: the page is laid out at its column's width before it is seen.
@@ -249,12 +254,18 @@ public final class ExactSidebarController: NSSplitViewController {
 /// the page's ground; and what a split view shows with nothing selected.
 final class SplitDetail: NSViewController {
     let pane = BlockView(frame: .zero)
-    private let ground: ModalGround
+    /// The page's ground, drawn as the page's own view draws it: a scroll
+    /// view's background. AppKit tints the window's background colour with
+    /// the desktop's there in Dark Mode, and not where a view fills with it
+    /// (measured: `#2c2a29` beside `#1e1e1e` on one Mac), so anything else
+    /// under the detail made its pane a darker ground than the list's.
+    private let ground = NSScrollView()
+    private weak var presenter: Presenter?
     private let nothing = NSTextField(labelWithString: "")
     private var pins: [NSLayoutConstraint] = []
 
     init(presenter: Presenter) {
-        ground = ModalGround(presenter: presenter)
+        self.presenter = presenter
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { nil }
@@ -262,6 +273,11 @@ final class SplitDetail: NSViewController {
     override func loadView() {
         let view = NSView()
         ground.frame = view.bounds
+        ground.autoresizingMask = [.width, .height]
+        ground.drawsBackground = true
+        ground.backgroundColor = presenter?.pageBackground ?? .windowBackgroundColor
+        ground.hasVerticalScroller = false
+        ground.hasHorizontalScroller = false
         view.addSubview(ground)
         pane.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(pane)
@@ -284,8 +300,10 @@ final class SplitDetail: NSViewController {
         nothing.isHidden = true
         nothing.setAccessibilityIdentifier("exact.split.empty")
         view.addSubview(nothing)
-        NSLayoutConstraint.activate([nothing.centerXAnchor.constraint(equalTo: pane.centerXAnchor), nothing.centerYAnchor.constraint(equalTo: pane.centerYAnchor),
-                                     nothing.widthAnchor.constraint(lessThanOrEqualTo: pane.widthAnchor, constant: -32)])
+        // The words fit their pane where it has the room; they give it no minimum (AppKit gives a detail none).
+        let fits = nothing.widthAnchor.constraint(lessThanOrEqualTo: pane.widthAnchor, constant: -32)
+        fits.priority = .init(240)
+        NSLayoutConstraint.activate([nothing.centerXAnchor.constraint(equalTo: pane.centerXAnchor), nothing.centerYAnchor.constraint(equalTo: pane.centerYAnchor), fits])
         self.view = view
         pin(cover: false)
     }
@@ -319,7 +337,10 @@ final class SplitDetail: NSViewController {
     }
     /// What the pane says while it shows no route.
     var saysNothing: String? { isViewLoaded && !nothing.isHidden ? nothing.stringValue : nil }
-    func groundChanged() { if isViewLoaded { ground.needsDisplay = true } }
+    func groundChanged() {
+        guard isViewLoaded, let color = presenter?.pageBackground, ground.backgroundColor != color else { return }
+        ground.backgroundColor = color
+    }
 }
 
 /// The source list: one row a root tab.

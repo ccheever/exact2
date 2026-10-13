@@ -329,6 +329,16 @@ final class SplitMacTests: XCTestCase {
         let field = try XCTUnwrap(try node("field-b").field)
         XCTAssertTrue(window.makeFirstResponder(field))
         XCTAssertTrue(view.ownsShortcutFocus(), "the detail's pane holds this session's focus")
+        // The page's Tab order goes through the pane, where the route was written: its field is a stop of the page's loop.
+        p.keyViewLoopStale = true
+        p.flushKeyViewLoop()
+        var stop: NSView? = p.viewport.nextKeyView, reached = false
+        for _ in 0..<64 {
+            guard let at = stop, !reached else { break }
+            reached = at === field
+            stop = at.nextKeyView
+        }
+        XCTAssertTrue(reached, "Tab from the page reaches the detail's field")
         let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
                                                  context: nil, characters: "n", charactersIgnoringModifiers: "n", isARepeat: false, keyCode: 45))
         XCTAssertTrue(p.shortcuts.perform(key))
