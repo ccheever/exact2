@@ -193,7 +193,7 @@ final class RegionWorkerLayout {
             maxWidth = max(maxWidth, w)
             if retainHits {
                 if compact {
-                    summaries.append(RegionLine(line, flush: flush, width: width, captureHits: false,
+                    summaries.append(RegionLine(line, flush: flush, width: width, rtl: source.direction == 1, captureHits: false,
                                                 conservativeInk: lineInk.isNull ? .zero : lineInk))
                 } else { lines.append(line) }
             }
