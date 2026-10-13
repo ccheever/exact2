@@ -1526,7 +1526,7 @@
       "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal app|file|edit|view|go|window|help. AppKit projects the button into that menu, with or without a chord; other hosts retain the ordinary button. No layout effect."
     },
     {
-      "id": 262,
+      "id": 263,
       "name": "menuRemove",
       "kind": "str",
       "_comment": "@ref LLP 1021 §5.3: root -exact-menu-remove, a literal whitespace-separated list of standard AppKit menu item ids. Other hosts ignore this presentation hint."

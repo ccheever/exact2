@@ -457,7 +457,7 @@ the web emits `data-destructive` and retains authored CSS. AppKit and Linux do
 not yet map the role to native presentation. A red colour or action label never
 implies the flag.
 
-`menuRemove` (262, string) carries root `-exact-menu-remove`: a literal list of
+`menuRemove` (263, string) carries root `-exact-menu-remove`: a literal list of
 the standard AppKit item ids in LLP 1021 §5.3. AppKit suppresses those items
 and their menu equivalents; all other hosts ignore this non-CSS presentation
 hint. It changes no layout or window capability.
