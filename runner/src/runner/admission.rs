@@ -169,6 +169,7 @@ impl<D: DataSource> Runner<D> {
                 "it keeps its last value"
             }
             Target::Mutation(m) => {
+                self.failed_mut[m] = Some(why);
                 // Its write ends, and what it showed in is asked again.
                 self.end_write(m, write);
                 "it is not retried"

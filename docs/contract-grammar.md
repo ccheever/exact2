@@ -686,15 +686,17 @@ Compiler intrinsics and special forms additionally include:
 | Form | Meaning | Example |
 | --- | --- | --- |
 | `pending(resourceOrMutationName)` | Boolean; request is in flight | `pending(saved)` is `true` from `send saved = …` until its reply |
-| `failed(resourceName)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
-| `failure(resourceName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message, reason })` (LLP 1109 D3); `code` is one of the closed vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host; `reason` is the source error’s string `reason` (a Snapback refusal’s code such as `SLOT_FULL` or `E_RULE`), else `""`, on every host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
+| `failed(resourceOrMutationName)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
+| `failure(resourceOrMutationName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message, reason })` (LLP 1109 D3); `code` is the nonempty source `reason` when supplied, otherwise the infrastructure vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host; `reason` is the source error’s string `reason` (a Snapback refusal’s code such as `SLOT_FULL` or `E_RULE`), else `""`, on every host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
 | `path("routeName", args…)` | Checked encoded route location | `path("item", "7")` is `"/item/7"` |
 | `empty(field=constant, …)` | Resource placeholder's zero record with overrides | `resource days = loadDays() as shape Days else empty()` shows `Days`' zero until the answer |
 | `some(expr)` | Construct an option | `some(3)` is an `option<number>` holding 3 |
 | `DeclaredShape(field=value, …)` | Construct a record | `Day(key="mon", ml=0)` is a `Day` |
 | `DeclaredShape(base, field=value, …)` | Copy a record | `Day(d, ml=d.ml + 250)` is `d` with `ml` changed |
 
-`failure(x).code` is exactly one of six words, by what reached the runner
+`failure(x).code` preserves a domain refusal code (`SLOT_FULL`, `E_RULE`, `E_OFFLINE`)
+when the source throws an error carrying that string as `reason`. Otherwise it uses
+one of six infrastructure words, by what reached the runner
 (`runner/src/failure.rs`):
 
 | Code | When |
@@ -717,13 +719,18 @@ server answered, and the host will not take more than the app said it would;
 asking again gets the same answer, which `offline` would not imply. A
 new code is a breaking change; branch with a default case.
 
-`failure(x).reason` is not a seventh code: it rides beside `code`. A
-TypeScript source sets it by throwing (or letting through) an error whose
-`reason` property is a string; the snapback4 driver's `refused(why)` sets it
-to the Snapback refusal's code (`NOT_MANAGER`, `SLOT_FULL`, `E_RULE`, and
-`E_OFFLINE` beside `code` `offline`). Anything else, a Rust source's error
-among them, has `reason` `""`. Branch on it as on any string:
-`case some(f) => f.reason == "SLOT_FULL" ? "That slot is taken" : "…"`.
+`failure(x).reason` retains the domain string as well, empty when none was supplied.
+For a mutation, failure belongs to its latest send: a new send, a successful answer,
+or an explicit assignment clears it. A failed request retains its previous value,
+does not retry, and does not run `then`. A synchronous throw that refuses the sending
+action still rolls that action back; only an admitted request's failure persists.
+
+Finite string parameters are written `enum<"draft", "published">`. Members must be
+quoted, distinct strings, with at least one member. A literal call argument must be a
+member; a dynamic argument must have a compatible declared enum type. Shapes may
+use enums too; a source answer outside the declared vocabulary fails its shape check.
+Generated TypeScript uses the corresponding string literal union. An enum's placeholder
+is its first member. Enums use ordinary string values at the data seam.
 
 `Router`, `Tab`, `Entry`, and `Params` are introduced by routes. The compiler
 also declares `Geometry` (geometry reads), `Failure` (`failure(x)`'s

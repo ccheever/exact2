@@ -54,6 +54,8 @@ use injects::check_injects;
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ty {
+    /// A finite vocabulary of strings.
+    Enum(Vec<String>),
     /// `number`
     Number,
     /// `string`
@@ -80,6 +82,15 @@ impl std::fmt::Display for Ty {
         match self {
             Ty::Number => write!(f, "number"),
             Ty::String => write!(f, "string"),
+            Ty::Enum(values) => write!(
+                f,
+                "enum<{}>",
+                values
+                    .iter()
+                    .map(|s| format!("{s:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Ty::Bool => write!(f, "bool"),
             Ty::Unit => write!(f, "unit"),
             Ty::Option(t) => write!(f, "option<{t}>"),
@@ -112,6 +123,8 @@ impl Ty {
     /// The most specific type both agree on, or `None` when they conflict.
     pub fn unify(&self, other: &Ty) -> Option<Ty> {
         match (self, other) {
+            (Ty::String, Ty::Enum(_)) => Some(Ty::String),
+            (Ty::Enum(values), Ty::String) => Some(Ty::Enum(values.clone())),
             (Ty::Unknown, t) | (t, Ty::Unknown) => Some(t.clone()),
             (Ty::Option(a), Ty::Option(b)) => a.unify(b).map(|t| Ty::Option(Box::new(t))),
             (Ty::List(a), Ty::List(b)) => a.unify(b).map(|t| Ty::List(Box::new(t))),
@@ -133,9 +146,12 @@ impl Ty {
     pub fn matches_roster(&self, spec: &str) -> bool {
         match spec {
             "number" => *self == Ty::Number,
-            "string" => *self == Ty::String,
+            "string" => matches!(self, Ty::String | Ty::Enum(_)),
             "bool" => *self == Ty::Bool,
-            "any" => matches!(self, Ty::Number | Ty::String | Ty::Bool | Ty::List(_)),
+            "any" => matches!(
+                self,
+                Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool | Ty::List(_)
+            ),
             _ => *self == Self::from_roster(spec) && *self != Ty::Unknown,
         }
     }
@@ -161,8 +177,10 @@ impl Ty {
 /// call that would fail at runtime (`length(5)`) is refused here instead.
 fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
     match (f, spec) {
-        (Stdlib::Length | Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::List(_)),
-        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Bool),
+        (Stdlib::Length | Stdlib::IsEmpty, "any") => {
+            matches!(t, Ty::String | Ty::Enum(_) | Ty::List(_))
+        }
+        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool),
         (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
         _ => t.matches_roster(spec),
     }
@@ -297,6 +315,7 @@ impl Shapes {
 
     fn resolve_unbounded(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
         Ok(match t {
+            TypeExpr::Enum(values, _) => Ty::Enum(values.clone()),
             TypeExpr::Named(n, span) => match n.as_str() {
                 "number" => Ty::Number,
                 "string" => Ty::String,
@@ -680,7 +699,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
                     let t = infer(x, scope, shapes)?;
-                    if !matches!(t, Ty::Number | Ty::String | Ty::Bool) {
+                    if !matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool) {
                         return err(
                             "type-template-part",
                             format!("a template part must be a number, string, or bool, not `{t}`"),
@@ -812,7 +831,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 }
                 for (i, (arg, want)) in args.iter().zip(params).enumerate() {
                     let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(want, &t) {
+                    if !checks::accepts_expr(want, arg, &t) {
                         return err(
                             "type-argument",
                             format!(
@@ -845,7 +864,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 }
                 for (arg, pt) in args.iter().zip(params.iter()) {
                     let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(&t, pt) {
+                    if !checks::accepts_expr(pt, arg, &t) {
                         return err(
                             "type-argument",
                             format!("`{name}` expects `{pt}`, given `{t}`"),
@@ -1194,7 +1213,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .collect(),
         );
         let t = infer(&f.body, &scope, &shapes)?;
-        if !checks::can_unify(ret, &t) {
+        if !checks::accepts_expr(ret, &f.body, &t) {
             return err(
                 "type-fn-return",
                 format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),

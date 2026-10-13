@@ -337,8 +337,8 @@ fn failure_names_each_class_and_says_why() {
     assert_eq!(text(&r, "c"), "shape");
     assert_eq!(
         text(&r, "d"),
-        "full error",
-        "a refusal's code is its reason; its code stays the closed list's"
+        "full SLOT_FULL",
+        "a domain refusal is the exposed failure code"
     );
     let state = agent::handle(&r, r#"{"op":"state"}"#);
     assert!(

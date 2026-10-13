@@ -106,6 +106,15 @@ pub struct Failure {
 }
 
 impl Failure {
+    /// A domain refusal keeps the source's typed code; infrastructure keeps its class.
+    pub fn exposed_code(&self) -> &str {
+        if self.reason.is_empty() {
+            self.code.name()
+        } else {
+            &self.reason
+        }
+    }
+
     /// The failure a reply's error makes.
     pub fn of(error: &RunnerError) -> Failure {
         let (code, message, reason) = match error {

@@ -595,6 +595,8 @@ impl Translator<'_> {
                     self.out.push_str(&format!("{r}(r_{});", x.args[0]));
                 }
                 Opcode::PendingResource => self.push(format!("r_{}.p()", x.args[0])),
+                Opcode::FailedMutation => self.push(format!("m_{}.f()", x.args[0])),
+                Opcode::FailureMutation => self.push(format!("m_{}.e()", x.args[0])),
                 Opcode::FailedResource => self.push(format!("r_{}.f()", x.args[0])),
                 // `none` or the `Failure` record, `[code, message, reason]` (LLP 1109 D3).
                 Opcode::FailureResource => self.push(format!("r_{}.e()", x.args[0])),

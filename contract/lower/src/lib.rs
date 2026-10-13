@@ -565,6 +565,7 @@ impl<'a> Lowerer<'a> {
         Ok(match t {
             Ty::Number => self.b.primitive(TypeKind::Number),
             Ty::String => self.b.primitive(TypeKind::String),
+            Ty::Enum(values) => self.b.string_enum(values),
             Ty::Bool => self.b.primitive(TypeKind::Bool),
             Ty::Unit => self.b.primitive(TypeKind::Unit),
             Ty::Option(inner) => {

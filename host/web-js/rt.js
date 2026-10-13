@@ -543,7 +543,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   onEnd(() => { r.gone = true; }); // its region ended: an open stream closes (`Open`)
   Resources.push(r);
   m.p = () => (m(), pend());
-  m.f = () => (m(), fail() != null); m.e = () => (m(), fail()?.slice(1) ?? null); // `failure(x)`: `none`, or the `Failure` record `[code, message, reason]`
+  m.f = () => (m(), fail() != null); m.e = () => { m(); const f = fail(); return f ? [f[3] || f[1], f[2], f[3]] : null; }; // `failure(x)`: `none`, or the `Failure` record `[code, message, reason]`
   m.n.resource = r;
   m.r = r;
   return m;
@@ -552,7 +552,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
  * and the sends waiting their turn (`wait`, schedule.js), each asked at its `next`. */
 export const Mutations = [];
 export function mut(name, slot, refreshes, type, queue) {
-  const pend = sig(false);
+  const pend = sig(false), fail = sig(null);
   const m = { name, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend, refreshes: refreshes.map(x => x.r) };
   const shown = (re, undo) => { for (const r of m.refreshes) r.touch(undo); for (const r of re ?? []) r.reconcile(undo); }; // a write began or ended (overlay.js)
   Mutations.push(m);
@@ -563,21 +563,22 @@ export function mut(name, slot, refreshes, type, queue) {
   const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
     if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req, write: t.write }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
     if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
-    m.checked = p.v;
+    m.checked = p.v; W(fail, null);
     if (!o.more) m.ticket = null; W(pend, !!m.wait?.length);
     Ov.land(m, p.v, t.write);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, "it ends unsent", () => { m.ticket = null; write(pend.n, !!m.wait?.length); m.ended(t.write); });
+  }, "it ends unsent", (error, code, reason) => { write(fail.n, [reason || code || "error", error, reason || ""]); m.ticket = null; write(pend.n, !!m.wait?.length); m.ended(t.write); });
   Object.assign(m, {
     // A queue's assignment forgets nothing (LLP 1092 D4).
-    forget(undo) { if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } if (!m.wait) shown(Ov.endPending(m), undo); },
+    forget(undo) { undo?.push([fail.n, fail.n.v]); write(fail.n, null); if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } if (!m.wait) shown(Ov.endPending(m), undo); },
     ended(write) { const re = Ov.end(m, write); if (re) shown(re); return !!re; }, // its send in flight ended without landing: whether a write showed (the caller's commit publishes it)
     send(source, args, undo, own) {
       if (!own) shown(Ov.accept(m, source, args), undo); // its write shows from here (a queue's next was accepted as it began to wait)
       // A queue's send waits unless the mutation is free; `own` is a `next`'s, whose ask refusing drops it (LLP 1092 D3).
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
+      undo.push([fail.n, fail.n.v]); write(fail.n, null);
       let a;
       try {
         a = ask(source, args, name, true);
@@ -598,7 +599,7 @@ export function mut(name, slot, refreshes, type, queue) {
       if ("v" in a) for (const r of refreshes) R(r.r); // answered at once, it has landed: what it changes is forced (commit.rs `landed_now`)
     },
   });
-  m.p = () => pend();
+  m.p = () => pend(); m.f = () => fail() != null; m.e = () => fail();
   return m;
 }
 export function M(m, source, args, own) { Sends.push([m, source, args, own]); }

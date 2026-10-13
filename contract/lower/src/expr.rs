@@ -274,20 +274,18 @@ pub(crate) fn compile(
                 let [Expr::Ident(target, _)] = args.as_slice() else {
                     return err("lower-failed", format!("`{name}(x)` names one resource"), *span);
                 };
-                let Some((Ref::Resource(i), _)) = scope.lookup(target) else {
-                    return err(
-                        "lower-failed",
-                        format!("`{target}` is not a resource"),
-                        *span,
-                    );
-                };
-                let r = l.resources[i as usize];
-                if name == "failed" {
-                    asm.failed_resource(r);
-                    return Ok(Ty::Bool);
+                match scope.lookup(target) {
+                    Some((Ref::Resource(i), _)) => {
+                        let r = l.resources[i as usize];
+                        if name == "failed" { asm.failed_resource(r); } else { asm.failure_resource(r); }
+                    }
+                    Some((Ref::Mutation(i), _)) => {
+                        let m = l.mutations[i as usize];
+                        if name == "failed" { asm.failed_mutation(m); } else { asm.failure_mutation(m); }
+                    }
+                    _ => return err("lower-failed", format!("`{target}` is not a resource or mutation"), *span),
                 }
-                // @ref LLP 1109 D3 — `none`, or `some` of `{ code, message, reason }`.
-                asm.failure_resource(r);
+                if name == "failed" { return Ok(Ty::Bool); }
                 return Ok(Ty::Option(Box::new(Ty::Record("Failure".into()))));
             }
             if name == "pending" {

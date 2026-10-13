@@ -166,11 +166,9 @@ fn a_declaration_continued_on_an_indented_line_is_told_to_join_it() {
 }
 
 #[test]
-fn failed_names_why_a_mutation_is_not_its_argument() {
-    let src = "shape Saved\n  ok: bool\ncomponent App\n  mutation save as shape Saved\n  view\n    text failed(save) ? \"x\" : \"y\"\n";
-    let error = contract::compile(src).unwrap_err();
-    assert_eq!(error.id, "type-failed-argument");
-    assert!(error.message.starts_with("`save` is a mutation, and `failed` takes a resource: a mutation whose request fails without an answer keeps its previous value"), "{error}");
+fn failed_and_failure_name_mutations() {
+    let src = "shape Saved\n  ok: bool\ncomponent App\n  mutation save as shape Saved\n  view\n    text (match failure(save) { case some(f) => f.code, case none => failed(save) ? \"x\" : \"y\" })\n";
+    contract::compile(src).unwrap();
 }
 
 #[test]
@@ -412,4 +410,44 @@ fn a_shape_named_like_a_built_in_says_so() {
     )
     .unwrap_err();
     assert_eq!(error.message, "shape `A` declared twice");
+}
+
+#[test]
+fn enum_parameters_generate_literal_unions_and_refuse_unknown_members() {
+    let src = r#"shape Choice
+  value: enum<"draft", "published">
+fn echo(value: enum<"draft", "published">): enum<"draft", "published"> = value
+component App
+  resource choice = choice() as shape Choice else empty()
+  action choose(value: enum<"draft", "published">)
+    focus(value)
+  action go
+    choose("draft")
+  view
+    button "Choose" press=go
+"#;
+    let plan = contract::compile(src).unwrap();
+    let declarations = contract::typescript(&plan).unwrap();
+    assert!(
+        declarations.contains("\"draft\" | \"published\""),
+        "{declarations}"
+    );
+    for (good, bad) in [
+        ("choose(\"draft\")", "choose(\"missing\")"),
+        (
+            "enum<\"draft\", \"published\">",
+            "enum<\"draft\", \"draft\">",
+        ),
+    ] {
+        assert!(contract::compile(&src.replace(good, bad)).is_err(), "{bad}");
+    }
+    let enum_ty = plan
+        .types
+        .iter()
+        .position(|t| plan.str(t.name) == "enum")
+        .unwrap();
+    assert!(
+        exact_plan::Value::str("published").conforms(&plan, exact_plan::TypesId(enum_ty as u32))
+    );
+    assert!(!exact_plan::Value::str("missing").conforms(&plan, exact_plan::TypesId(enum_ty as u32)));
 }

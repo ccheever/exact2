@@ -323,6 +323,14 @@ impl<'a> Layout<'a> {
         let start = self.position(ty.span()).unwrap();
         match ty {
             TypeExpr::Named(..) => start + 1,
+            TypeExpr::Enum(..) => {
+                self.type_angles.insert(self.tokens[start + 1].span);
+                let end = (start + 2..self.tokens.len())
+                    .find(|&i| self.tokens[i].kind == TokenKind::Punct(">"))
+                    .unwrap();
+                self.type_angles.insert(self.tokens[end].span);
+                end + 1
+            }
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
                 let end = self.ty(inner);
                 self.type_angles.insert(self.tokens[start + 1].span);

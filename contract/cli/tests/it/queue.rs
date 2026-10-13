@@ -134,7 +134,11 @@ impl DataSource for Desk {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         if self.fail_parse {
-            return Err(DataError::Unavailable("parse refused".into()));
+            return Err(DataError::Failed(
+                exact_runner::failure::FailureCode::Error,
+                "parse refused".into(),
+                "FULL".into(),
+            ));
         }
         let op = args[0].as_str().unwrap_or("");
         match outcome {
@@ -776,4 +780,31 @@ fn the_commit_after_a_refused_queued_ask_reports_its_refusal() {
         Err(RunnerError::TaskKey { task }) if task == "watch"
     ));
     assert!(r.journal().any(|l| l.contains("rec queued send refused")));
+}
+
+#[test]
+fn mutation_failures_are_readable_clear_on_send_and_do_not_run_then() {
+    let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive broken = failed(wrote)\n  derive last =");
+    let mut r = boot_with(
+        &app,
+        Desk {
+            later: true,
+            ..Desk::default()
+        },
+    );
+    r.act("one", vec![Value::str("a")]).unwrap();
+    let t = tickets(&mut r);
+    r.data().fail_parse = true;
+    r.fulfill(t[0], reply("ok")).unwrap();
+    assert_eq!(r.derive("broken"), Some(&Value::Bool(true)));
+    assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+    assert_eq!(slot(&r, "log"), "");
+    r.data().fail_parse = false;
+    r.act("one", vec![Value::str("b")]).unwrap();
+    assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+    assert_eq!(r.derive("broken"), Some(&Value::Bool(false)));
+    let t = tickets(&mut r);
+    r.fulfill(t[0], reply("ok")).unwrap();
+    r.advance(0.0).unwrap();
+    assert_eq!(slot(&r, "log"), " b");
 }

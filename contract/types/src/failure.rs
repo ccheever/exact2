@@ -39,15 +39,18 @@ pub(super) fn check(
         _ => return None,
     };
     let [Expr::Ident(target, tspan)] = args else {
-        return Some(err(id, format!("`{name}(x)` names one resource"), span));
+        return Some(err(
+            id,
+            format!("`{name}(x)` names one resource or mutation"),
+            span,
+        ));
     };
     Some(match scope.lookup(target) {
-        Some((Ref::Resource(_), _)) => Ok(answer),
-        Some((Ref::Mutation(_), _)) => err(
+        Some((Ref::Resource(_) | Ref::Mutation(_), _)) => Ok(answer),
+        _ => err(
             id,
-            format!("`{target}` is a mutation, and `{name}` takes a resource: a mutation whose request fails without an answer keeps its previous value and its `then` does not run, so answer a domain result (`{{ ok: false, message }}`) to show the failure"),
+            format!("`{target}` is not a resource or mutation"),
             *tspan,
         ),
-        _ => err(id, format!("`{target}` is not a resource"), *tspan),
     })
 }

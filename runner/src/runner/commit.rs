@@ -24,6 +24,7 @@ pub(super) struct Checkpoint {
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
     failed_why: Vec<Option<crate::failure::Failure>>,
+    failed_mut: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
     writes: super::writes::Writes,
     unsent: Vec<(usize, String, Vec<Value>)>,
@@ -76,6 +77,7 @@ impl<D: DataSource> Runner<D> {
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
             failed_why: self.failed_why.clone(),
+            failed_mut: self.failed_mut.clone(),
             refresh_next: self.refresh_next.clone(),
             writes: self.writes.clone(),
             unsent: self.unsent.clone(),
@@ -138,6 +140,7 @@ impl<D: DataSource> Runner<D> {
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
                 self.failed_why = c.failed_why;
+                self.failed_mut = c.failed_mut;
                 self.refresh_next = c.refresh_next;
                 // Ids stay unique: a rolled-back send's id is never reused.
                 let seq = self.writes.seq;
@@ -474,6 +477,9 @@ impl<D: DataSource> Runner<D> {
                 written.contains(&self.plan.mutations[*m].slot.0) && !self.plan.mutations[*m].queue
             })
             .collect();
+        for m in asked.iter().chain(assigned.iter()) {
+            self.failed_mut[*m] = None;
+        }
         for m in &assigned {
             self.pending_mut[*m] = false;
             self.end_pending(*m, None);
@@ -544,6 +550,9 @@ impl<D: DataSource> Runner<D> {
         }
         for (rows, slot, _) in &row_undo {
             self.row_writes.record(frames, rows, *slot);
+        }
+        for m in asked.iter().chain(assigned.iter()) {
+            self.failed_mut[*m] = None;
         }
         for m in &assigned {
             self.forget(Target::Mutation(*m));
@@ -1123,6 +1132,7 @@ impl<D: DataSource> Runner<D> {
                 });
             }
             Target::Mutation(m) => {
+                self.failed_mut[m] = None;
                 let slot = self.mutation_slot(m)?;
                 self.land_write(m, p.write, &value);
                 self.slots[slot] = Value::some(value);

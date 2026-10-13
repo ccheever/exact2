@@ -18,6 +18,7 @@ pub fn zero(ty: &Ty, shapes: &Shapes) -> Option<Value> {
     Some(match ty {
         Ty::Number => Value::Number(0.0),
         Ty::String => Value::str(""),
+        Ty::Enum(values) => Value::str(values.first()?),
         Ty::Bool => Value::Bool(false),
         Ty::Unit => Value::Unit,
         Ty::Option(_) => Value::Option(None),

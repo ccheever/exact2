@@ -238,7 +238,7 @@ the runner's `error`/`it failed`/empty where it has no reason (vm.rs
 def failureValue (env : Env) (r : Nat) : Value :=
   if env.failedResources[r]?.getD false then
     .some (.record "Failure" (match env.failures[r]? with
-      | Option.some (Option.some (c, msg, why)) => [.str c, .str msg, .str why]
+      | Option.some (Option.some (c, msg, why)) => [.str (if why == "" then c else why), .str msg, .str why]
       | _ => [.str "error", .str "it failed", .str ""]))
   else .none
 

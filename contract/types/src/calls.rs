@@ -148,7 +148,7 @@ fn arg_types(
 ) -> Result<(), TypeError> {
     for (arg, pt) in args.iter().zip(params) {
         let t = infer(arg, scope, shapes)?;
-        if !checks::can_unify(&t, pt) {
+        if !checks::accepts_expr(pt, arg, &t) {
             return err(
                 "type-argument",
                 format!("`{callee}` expects `{pt}`, given `{t}`"),

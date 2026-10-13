@@ -15,6 +15,7 @@ pub(super) struct Settled {
     pending_res: Vec<bool>,
     failed_res: Vec<Option<crate::failure::Failure>>,
     pending_mut: Vec<bool>,
+    failed_mut: Vec<Option<crate::failure::Failure>>,
     store_readers: Vec<bool>,
     resource_args: Vec<Vec<Value>>,
 }
@@ -201,7 +202,10 @@ impl<D: DataSource> Runner<D> {
                     && base.failed_res[r]
                         == crate::failure::state(&self.failed_args, &self.failed_why, r)
             }
-            Input::PendingMutation(m) => base.pending_mut[m] == self.pending_mut[m],
+            Input::PendingMutation(m) => {
+                base.pending_mut[m] == self.pending_mut[m]
+                    && base.failed_mut[m] == self.failed_mut[m]
+            }
             Input::Clock => base.now_ms.to_bits() == self.now_ms.to_bits(),
         })
     }
@@ -293,6 +297,7 @@ impl<D: DataSource> Runner<D> {
                             failed_resources: &self.failed_args,
                             failed_why: &self.failed_why,
                             pending_mutations: &self.pending_mut,
+                            failed_mutations: &self.failed_mut,
                             store_dependent_derives: &derive_store_dependent,
                             store_dependent_resources: &self.store_readers,
                         };
@@ -366,6 +371,7 @@ impl<D: DataSource> Runner<D> {
                                 failed_resources: &self.failed_args,
                                 failed_why: &self.failed_why,
                                 pending_mutations: &self.pending_mut,
+                                failed_mutations: &self.failed_mut,
                                 store_dependent_derives: &derive_store_dependent,
                                 store_dependent_resources: &self.store_readers,
                             };
@@ -846,6 +852,7 @@ impl<D: DataSource> Runner<D> {
                 pending_res,
                 failed_res: crate::failure::states(&self.failed_args, &self.failed_why),
                 pending_mut: self.pending_mut.clone(),
+                failed_mut: self.failed_mut.clone(),
                 store_readers,
                 resource_args,
             });

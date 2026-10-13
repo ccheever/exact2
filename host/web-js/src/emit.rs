@@ -846,6 +846,7 @@ pub(crate) fn type_json(plan: &Plan, ty: exact_plan::TypesId) -> String {
     match t.kind {
         exact_plan::TypeKind::Number => "\"n\"".into(),
         exact_plan::TypeKind::Bool => "\"b\"".into(),
+
         exact_plan::TypeKind::String => "\"s\"".into(),
         exact_plan::TypeKind::Unit => "\"u\"".into(),
         exact_plan::TypeKind::Option => format!(
@@ -880,6 +881,16 @@ fn type_code(plan: &Plan, ty: exact_plan::TypesId) -> String {
     match t.kind {
         exact_plan::TypeKind::Number => "n".into(),
         exact_plan::TypeKind::Bool => "b".into(),
+        exact_plan::TypeKind::String if !t.fields.is_empty() => {
+            let values = serde_json::to_string(
+                &t.fields
+                    .iter()
+                    .map(|f| plan.str(plan.field(f).name))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            format!("e{}:{values}", values.encode_utf16().count())
+        }
         exact_plan::TypeKind::String => "s".into(),
         exact_plan::TypeKind::Unit => "u".into(),
         exact_plan::TypeKind::Option => {

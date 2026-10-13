@@ -349,7 +349,7 @@ impl Deps {
             .zip(env.pending_mutations)
             .enumerate()
         {
-            if old != new {
+            if old != new || seen.failed_mutations.get(i) != env.failed_mutations.get(i) {
                 bits.set(layout.pending_mutation(i));
             }
         }
@@ -401,7 +401,9 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
                 reads.bits.set(layout.resource(index));
                 reads.bits.set(layout.pending_resource(index));
             }
-            Opcode::PendingMutation => reads.bits.set(layout.pending_mutation(index)),
+            Opcode::PendingMutation | Opcode::FailedMutation | Opcode::FailureMutation => {
+                reads.bits.set(layout.pending_mutation(index))
+            }
             Opcode::FailedResource | Opcode::FailureResource => {
                 reads.bits.set(layout.resource(index));
                 reads.bits.set(layout.failed_resource(index));
@@ -441,6 +443,7 @@ pub struct Seen {
     resources: Vec<Option<Held>>,
     pending_resources: Vec<bool>,
     pending_mutations: Vec<bool>,
+    failed_mutations: Vec<Option<crate::failure::Failure>>,
     failed_resources: Vec<Option<crate::failure::Failure>>,
     now_ms: f64,
 }
@@ -463,6 +466,7 @@ impl Seen {
             resources: env.resources.to_vec(),
             pending_resources: env.pending_resources.to_vec(),
             pending_mutations: env.pending_mutations.to_vec(),
+            failed_mutations: env.failed_mutations.to_vec(),
             failed_resources: crate::failure::states(env.failed_resources, env.failed_why),
             now_ms: env.now_ms,
         }

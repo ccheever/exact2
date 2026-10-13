@@ -622,6 +622,8 @@ pub struct Field {
 /// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `T[]`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
+    /// A finite string vocabulary, `enum<"a", "b">`.
+    Enum(Vec<String>, Span),
     /// A named type: a primitive or a shape.
     Named(String, Span),
     /// `option<T>`.
@@ -634,7 +636,10 @@ impl TypeExpr {
     /// Where it was written.
     pub fn span(&self) -> Span {
         match self {
-            TypeExpr::Named(_, s) | TypeExpr::Option(_, s) | TypeExpr::List(_, s) => *s,
+            TypeExpr::Enum(_, s)
+            | TypeExpr::Named(_, s)
+            | TypeExpr::Option(_, s)
+            | TypeExpr::List(_, s) => *s,
         }
     }
 }

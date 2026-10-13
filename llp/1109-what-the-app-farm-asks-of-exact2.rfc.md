@@ -74,6 +74,36 @@
   `Error.prototype.name` is read-only, so the assignment threw and a native
   `E_OFFLINE` was `error`.
 
+### EX5 amendment: domain codes, mutation status and finite strings
+
+Commissioned by Charlie’s wave-10 EX5 brief, 2026-10-13; implementer Codex.
+This replaces D3’s six-code restriction for a source’s domain failures: the exposed
+`Failure.code` is its nonempty `reason`, otherwise the infrastructure class. The
+internal `FailureCode` still classifies transport/storage/shape failures; a source
+whose error carries `reason: "SLOT_FULL"` exposes that code directly on every host.
+`reason` remains available. Snapback’s `refused` helper already carries this string.
+
+`failed(x)` and `failure(x)` also accept mutations. One latest failure per mutation,
+not a history: cleared on new send, assignment or successful answer. A failed admitted
+request keeps the previous result, runs no `then`, and is never automatically retried.
+Superseded tickets cannot overwrite the current status. Status participates in view
+and derive invalidation and commit rollback. A synchronous action refusal still rolls
+back the action rather than committing a partial send. New validated mutation opcodes
+address the mutation table; no resource/mutation index overloading.
+
+Finite strings use `enum<"draft", "published">` in parameter and shape type positions.
+Nonempty, distinct quoted members; string values at the seam, string-literal unions
+in generated TypeScript. Literal arguments must belong to the vocabulary; dynamic
+arguments need the declared enum type. Shape answers are checked for membership on
+native and web runners. Placeholder zero is the first member. The existing plan string
+row carries members in its fields, with primitive-string field types; no new TypeKind.
+The Lean expression backend erases finite strings to strings (evaluation representation),
+so membership admission is separately covered by compiler and native/web shape tests.
+
+The UI’s virtual clock advances only Exact timers and motion. `epoch now` aligns
+launch time once; later seeks do not advance Snapback’s clock, auth expiry or jobs.
+Server scheduling proofs use the server’s own clock controls.
+
 ## 0. Summary
 
 The app farm built about 270 small web apps from `exact new`, each on a

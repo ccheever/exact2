@@ -155,7 +155,7 @@ record_variants! {
 impl VisitSpans for TypeExpr {
     fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
         match self {
-            Self::Named(_, span) => visit(span),
+            Self::Enum(_, span) | Self::Named(_, span) => visit(span),
             Self::Option(inner, span) | Self::List(inner, span) => {
                 inner.visit_spans(visit);
                 visit(span);

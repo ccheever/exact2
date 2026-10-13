@@ -3,7 +3,7 @@
 //! handler call sites, action bodies, then the view.
 
 use super::{
-    checks::{check_view, infer_owned_state_initializers},
+    checks::{self, check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use crate::calls::CAPTURE;
@@ -643,6 +643,18 @@ fn refine_params_from_view(
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
                                     let t = infer(arg, scope, shapes)?;
+                                    if matches!(ct.actions[ai][i], Ty::Enum(_))
+                                        && !checks::accepts_expr(&ct.actions[ai][i], arg, &t)
+                                    {
+                                        return err(
+                                            "type-argument",
+                                            format!(
+                                                "`{name}` expects `{}`, given `{t}`",
+                                                ct.actions[ai][i]
+                                            ),
+                                            arg.span(),
+                                        );
+                                    }
                                     if let Some(u) = ct.actions[ai][i].unify(&t) {
                                         ct.actions[ai][i] = u;
                                     }

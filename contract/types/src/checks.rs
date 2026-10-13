@@ -125,9 +125,20 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
     }
 }
 
+/// A literal may inhabit a finite string vocabulary; a dynamic string needs
+/// a source or state whose declared vocabulary guarantees membership.
+pub(super) fn accepts_expr(want: &Ty, expr: &Expr, have: &Ty) -> bool {
+    if let (Ty::Enum(values), Expr::Str(value, _)) = (want, expr) {
+        return values.contains(value);
+    }
+    can_unify(want, have)
+}
+
 /// Check compatibility without constructing a discarded merged type.
 pub(super) fn can_unify(a: &Ty, b: &Ty) -> bool {
     match (a, b) {
+        (Ty::String, Ty::Enum(_)) => true,
+        (Ty::Enum(a), Ty::Enum(b)) => b.iter().all(|value| a.contains(value)),
         (Ty::Unknown, _) | (_, Ty::Unknown) => true,
         (Ty::Option(a), Ty::Option(b)) | (Ty::List(a), Ty::List(b)) => can_unify(a, b),
         (Ty::Action(a), Ty::Action(b)) => {
