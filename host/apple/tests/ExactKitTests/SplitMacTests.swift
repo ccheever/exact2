@@ -207,6 +207,19 @@ final class SplitMacTests: XCTestCase {
                                        "exact.split.separator", "exact.command.\(notes.id)", "exact.command.\(count.id)", "NSToolbarFlexibleSpaceItem", "exact.search.\(search.id)"])
         XCTAssertEqual(p.covers.delivered[notes.id], .whole)
         XCTAssertNil(p.covers.delivered[title.id])
+        // What ARIA says of a button is what its item's element says, in a bar with the divider's separator
+        // among its items: the bar's elements are its items in order, a separator being none.
+        func element(_ label: String) throws -> NSAccessibilityProtocol {
+            let bar = try XCTUnwrap(window.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityProtocol }.first { $0.accessibilityRole() == .toolbar })
+            return try XCTUnwrap((bar.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityProtocol }.first { $0.accessibilityLabel() == label }, label)
+        }
+        p.apply(wireBatch([["op": "props", "id": Int(count.id), "set": ["accessibilityDisabled": "true"]]]))
+        window.contentView?.superview?.layoutSubtreeIfNeeded()
+        XCTAssertFalse(try element("Count").isAccessibilityEnabled(), "the detail's button, after the separator")
+        XCTAssertTrue(try element("Notes").isAccessibilityEnabled())
+        XCTAssertTrue(try element("Add Book").isAccessibilityEnabled())
+        p.apply(wireBatch([["op": "props", "id": Int(count.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(try element("Count").isAccessibilityEnabled())
         // The detail has no Back: nothing was pushed from it.
         XCTAssertFalse(p.navigation.canGoBack)
 
