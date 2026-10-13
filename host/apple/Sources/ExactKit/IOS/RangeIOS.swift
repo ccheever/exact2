@@ -53,8 +53,8 @@ extension ControlHost {
         let none = { if slider.trackConfiguration != nil { slider.trackConfiguration = .init(ticks: []) } }
         guard let step = range.step, range.max > range.min else { return none() }
         let steps = ((range.max - range.min) / step * 1e9).rounded() / 1e9
+        guard steps.isFinite, steps < Double(Self.maxStepTicks) else { return none() }
         let count = Int(steps.rounded(.down)) + 1
-        guard count <= Self.maxStepTicks else { return none() }
         slider.trackConfiguration = steps == steps.rounded()
             ? .init(numberOfTicks: count)
             : .init(ticks: (0..<count).map { .init(position: Float(Double($0) * step / (range.max - range.min)), title: nil, image: nil) })

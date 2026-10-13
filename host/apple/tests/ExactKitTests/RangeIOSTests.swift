@@ -66,6 +66,15 @@ final class RangeIOSTests: XCTestCase {
         s.value = 2.5
         XCTAssertEqual(s.value, 2.5)
     }
+
+    func testTinyStepsDoNotOverflowTheNativeTickCount() throws {
+        let (p, s) = try slider(["min": "0", "max": "100", "step": "1e-300", "value": "40"])
+        if #available(iOS 26.0, *) { XCTAssertNil(s.trackConfiguration) }
+        XCTAssertEqual(s.value, 40)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["step": "1e-20"]]]))
+        if #available(iOS 26.0, *) { XCTAssertNil(s.trackConfiguration) }
+        XCTAssertEqual(s.value, 40)
+    }
 }
 
 private func XCTAssertEqual(_ a: [Float], _ b: [Float], accuracy: Float, file: StaticString = #filePath, line: UInt = #line) {
