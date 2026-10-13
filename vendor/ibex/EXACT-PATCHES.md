@@ -129,10 +129,16 @@ runtime; it cannot discover or cancel jobs admitted afterward. This is runtime-w
 ownership, not cancellation correlated to one JavaScript Promise. A losing
 cancellation waits outside shared locks for publication's actual result.
 
-The ImageIO codec bounds source pixels, the explicitly retained decoded and trial
-buffers, and encoded output. Its 512 MiB scratch estimate is not a proven bound
-on ImageIO's opaque private allocator or peak process RSS. The consumer does not
-claim a platform allocator guarantee from the configured reservation.
+The ImageIO codec bounds source pixels and retained encoded output, and admits
+decoded/intermediate surfaces using component depth, aligned rows, decoder
+workspace and 25% native-workspace headroom within its 512 MiB scratch estimate.
+Large RGBA16 cases that previously exceeded the job reservation are now refused
+before pixel decode. LLP 1069.002's **Native image memory qualification,
+2026-10-13** records the retained adversarial corpus, baseline/final RSS and
+four-job cancellation/teardown evidence. The decision keeps in-process ImageIO
+for this app-local API. The estimate is not a proven cap on ImageIO's allocator,
+peak process RSS or native-call duration; hard process containment would require
+a separate codec service. The configured worker limit belongs to each work owner.
 
 The final-pin focused run passes 108 real lean JS integration tests, 22 native
 storage tests, 15 Fieldnotes mixed TypeScript/Rust persistence tests, and the
