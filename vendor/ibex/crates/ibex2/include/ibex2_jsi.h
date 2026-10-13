@@ -330,6 +330,17 @@ public:
   // @ref LLP 0068#opt-in-fetch-primitives-protocol — the bindings door gets the same harden guard as the owning runtime
   void harden(const CompiledScript& script);
   jsi::Function async_binding(const char* name, uint32_t op, const void* grants);
+  // Trusted native correlation for the ORIGINAL Promise returned by image op
+  // 121. The supplied runtime must own the value and match this adapter.
+  // Returns zero for non-image/forged/cross-adapter values, a settled Promise,
+  // or a detached adapter. No guest property, symbol or global carries the id.
+  // Immediately pass the id to Context::image_work_handle and retain that
+  // WorkHandle BEFORE pumping: taking a settlement retires the Rust mapping.
+  // A Promise returned by .then() is a different Promise and has no image id.
+  // The private brand holds only a weak adapter owner, never a JSI root.
+  // @ref LLP 0068.001#6-rust-and-borrowed-jsi-integration — native per-Promise work identity
+  uint64_t image_task_id(jsi::Runtime&, const jsi::Value& promise) const;
+
   // Endowed values built from the factories retained by install().
   jsi::Function fetch(const void* grants);
   jsi::Function websocket(const void* grants);

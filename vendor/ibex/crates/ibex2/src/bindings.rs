@@ -562,6 +562,9 @@ impl Context {
     pub fn image_work(&self) -> &crate::stdlib::fs_image::ImageWork {
         self.endowment.state.image_work()
     }
+    /// Look up the id obtained from C++ `Adapter::image_task_id` on the original
+    /// image Promise. Retain the returned handle before pumping: taking its task
+    /// settlement removes this mapping, while a retained handle keeps its outcome.
     pub fn image_work_handle(&self, task_id: u64) -> Option<crate::stdlib::fs_image::WorkHandle> {
         self.endowment.state.image_work_handle(task_id)
     }
