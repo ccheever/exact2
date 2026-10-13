@@ -506,7 +506,9 @@ export async function proof(meta, script) {
   const out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts', destination));
   const buildOut = resolve(app, 'artifacts');
   mkdirSync(buildOut, {recursive:true});
-  const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(app, 'dist'));
+  // Web builds replace dist atomically on every invocation. Keep that churn
+  // inside the excluded artifact tree, away from monitored source directories.
+  const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(buildOut, 'web-dist'));
   mkdirSync(out, {recursive:true});
   // Re-execute the actual proof, comparing every session's final simulation state.
   if (process.argv.includes('--paranoid')) {

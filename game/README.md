@@ -400,6 +400,12 @@ the result. In-place rewrites of manifest-owned generated files can complete in
 the same invocation. The app root is tracked whether or not `assets/` exists,
 so temporary files and source trees there cannot go unnoticed.
 
+Direct web proofs build into `artifacts/web-dist/`. The web builder replaces
+that directory on every build, so an `EXACT_WEB_DIST` override must also live
+inside an excluded output tree, such as `artifacts/` or `target/`, or outside
+the source trees. Otherwise each build changes a monitored parent directory
+and the proof cannot accept its receipt.
+
 ### Compare captured world state
 
 In a proof or an agent session, capture inspected state before and after an action:
@@ -438,7 +444,7 @@ Use Exact2's same eight operations: `tree`, `screenshot`, `tap`, `type`, `state`
 `layout`, `logs` and `clock`. An entity is addressed as `world:player`.
 
 ```sh
-EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/dist bun scripts/agent.mjs web \
+EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/artifacts/web-dist bun scripts/agent.mjs web \
   "tap play" "type world key KeyW for 1500" "layout world:player" \
   "state world:* busy" logs "screenshot run.world world save"
 ```
