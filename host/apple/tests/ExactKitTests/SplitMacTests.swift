@@ -337,7 +337,7 @@ final class SplitMacTests: XCTestCase {
             book "/book/:id"
         component App
           state mode = "shown"
-          state ids = ["a", "b"]
+          state ids = ["a"]
           state splitWidth = ""
           action follow(url: string)
             nav = go(nav, url)
@@ -350,7 +350,7 @@ final class SplitMacTests: XCTestCase {
           action empty
             ids = []
           action refill
-            ids = ["a", "b"]
+            ids = ["a"]
           view
             main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
               width="100%" height="100%"
@@ -376,11 +376,11 @@ final class SplitMacTests: XCTestCase {
                     button press=refill testId="refill"
                       text "Refill"
                     when mode != "removed"
-                      list testId="changing-list" display=(mode == "hidden" ? "none" : "flex")
+                      list testId="changing-list" appearance="none" width=100 height=100 display=(mode == "hidden" ? "none" : "flex")
                         flex-direction=(mode == "sideways" ? "row" : "column")
                         when mode != "commands"
                           each id in ids key=id
-                            link href=path("book", id) testId=`row-${id}`
+                            link href=path("book", id) display="block" width=50 height=50 testId=`row-${id}`
                               text id
                         when mode == "commands"
                           button press=refill
@@ -400,6 +400,8 @@ final class SplitMacTests: XCTestCase {
         XCTAssertEqual(split.shown?.table, list.id)
         try press("refill")
         XCTAssertTrue(split.active)
+        // One fixed-size row in a fixed-size list: changing direction moves
+        // no frame, so the host must still read the rule on the empty batch.
         try press("sideways")
         XCTAssertFalse(split.active, "a carousel is not a vertical list")
         try press("show")

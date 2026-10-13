@@ -84,8 +84,6 @@ final class NavigationHost {
     func sync(_ batch: Batch, reparented: Set<UInt32> = [], concerned: Bool? = nil) {
         var touched = Set<UInt32>()
         var subtrees = reparented
-        // Read again with no batch (`resync`): the split's rule is asked again too.
-        let resynced = concerned != nil
         // Whether a header can have changed: what the window's bar reads again for.
         let concerned = concerned ?? presenter.toolbar.concerns(batch)
         if concerned { sheetsRead = true }
@@ -142,7 +140,7 @@ final class NavigationHost {
                 if let at = found, stacks.indices.contains(at) {
                     let routes = stacks[at], selected = routes.firstIndex { $0.props["navigationKey"] == key } ?? 0
                     sheeted = sheetRoutes(routes, selected: selected, root: nav, concerned: concerned)
-                    split.read(root: nav, routes: routes, selected: selected, batch: resynced ? nil : batch)
+                    split.read(root: nav, routes: routes, selected: selected)
                 } else { split.readNone() }
                 sheets = sheeted
             }

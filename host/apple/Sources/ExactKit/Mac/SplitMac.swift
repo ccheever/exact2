@@ -119,10 +119,9 @@ final class SplitHost {
     var onWanted: (() -> Void)?
     private(set) weak var controller: ExactSidebarController?
 
-    /// What the rule was last asked of, and its answer.
-    private var asked: (route: UInt32, signature: [String], answer: StackSplit?)?
-    /// Each root route's last split: a list that loses its last row keeps its column.
-    private var kept: [UInt32: StackSplit] = [:]
+    /// Each root route's prior list: the runner decides whether it may keep
+    /// its column with no actionable rows, including static empty content.
+    private var kept: [UInt32: UInt32] = [:]
     /// Each route that is a row's detail, with that row's press.
     private var rowOf: [UInt32: UInt32] = [:]
     /// The routes read as some pane's so far: one that comes while a row is
@@ -181,37 +180,28 @@ final class SplitHost {
     func reset() {
         for entry in held.values { entry.route.removeFromSuperview() }
         held.removeAll(); rowOf.removeAll(); seen.removeAll(); kept.removeAll(); ended.removeAll()
-        asked = nil; shown = nil; pressing = nil; lastDetail = nil; selected = nil
+        shown = nil; pressing = nil; lastDetail = nil; selected = nil
         controller?.split(false, width: nil, empty: false)
     }
 
     private static func sheet(_ route: NodeView) -> Bool { ["modal", "fullscreen"].contains(route.props["navigationPresentation"] ?? "") }
 
-    /// The rule's answer for the stack whose root route is `list`, asked
-    /// again when the stack's routes or the route's `navigationSplit`
-    /// change, when a row is being pressed, or when the tree, properties or
-    /// styles that the rule reads change. Layout-only styles reach this host
-    /// as frames, so those invalidate the answer too; scroll ops alone do not.
-    private func ask(_ list: NodeView, _ routes: [NodeView], _ batch: Batch?) -> StackSplit? {
-        let said = list.props["navigationSplit"] ?? ""
-        guard said != "none" else { kept[list.id] = nil; asked = nil; return nil }
-        let signature = [said] + routes.map { "\($0.id)" }
-        let changed = batch?.ops.contains { [.create, .destroy, .children, .props, .style, .frame].contains($0.op) } ?? true
-        if asked?.route != list.id || asked?.signature != signature || pressing != nil || changed {
-            let answer = presenter.session?.runtime.stackSplit(list.id, retaining: kept[list.id]?.list)
-            asked = (list.id, signature, answer)
-            kept[list.id] = answer
-        }
-        return asked?.answer
+    /// Read the runner's rule every batch: layout-only style changes can
+    /// leave the wire's frames and paint unchanged. Only the prior list's
+    /// identity is kept; its eligibility and any explicit width are fresh.
+    private func ask(_ list: NodeView) -> StackSplit? {
+        let answer = presenter.session?.runtime.stackSplit(list.id, retaining: kept[list.id])
+        kept[list.id] = answer?.list
+        return answer
     }
 
     /// Each batch, inside the navigation's pass, which gates the routes by
     /// the answer: what the selected stack of the first root shows.
     /// `routes` is that stack and `selected` the route its root shows.
-    func read(root: NodeView, routes: [NodeView], selected: Int, batch: Batch?) {
+    func read(root: NodeView, routes: [NodeView], selected: Int) {
         defer { schedule() }
         guard !painted, let list = routes.first, routes.indices.contains(selected), !Self.sheet(list),
-              let rule = ask(list, routes, batch) else {
+              let rule = ask(list) else {
             if let list = routes.first, held.values.contains(where: { $0.list == list.id }) { ended.insert(list.id) }
             shown = nil
             return
