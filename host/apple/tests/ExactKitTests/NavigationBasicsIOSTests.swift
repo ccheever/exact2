@@ -667,10 +667,23 @@ final class NavigationBasicsIOSTests: XCTestCase {
         route.host?.reportCovers()
     }
 
-    func testPlainScrollEndMetricsMatchTheVisibleEndWithABottomToolbar() throws {
+    func testFullHeightPlainScrollOwnsTheNativeBottomInsetAndReachesItsEnd() throws {
+        // Hostless UIKit does not finish an animated tab selection.
+        let animations = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animations) }
         let session = try fixture("bottom-plain-end")
-        let (_, nav, route) = try chat(session)
-        let list = try node(session, "list-chat"), sv = try XCTUnwrap(list.scroll)
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        try tapNode(session, "tab-second")
+        until("Second selected") { tabs.selectedIndex == 1 }
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
+        until("Second's scroller is displayed with its tall content") {
+            sv.window != nil && sv.bounds.height > 0 && sv.contentSize.height > sv.bounds.height + 100
+        }
+        UIView.setAnimationsEnabled(animations)
         bottomToolbar(nav, route, shown: true)
         until("the toolbar insets the physical scroller") {
             sv.adjustedContentInset.bottom > self.window!.safeAreaInsets.bottom + 1
@@ -683,8 +696,8 @@ final class NavigationBasicsIOSTests: XCTestCase {
         list.handlers.insert("scroll")
         list.pendingScrollTop = 100_000
         list.applyPendingScroll()
-        until("the physical end has settled") {
-            abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
+        until("the physical end and its scroll event have settled") {
+            metrics != nil && abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
         }
         let event = try XCTUnwrap(metrics), room = list.scrollPortInsets(sv)
         XCTAssertEqual(event[5], Double(sv.bounds.height - room.top - room.bottom), accuracy: 0.5)
@@ -693,7 +706,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(end, route.view.bounds.maxY - sv.adjustedContentInset.bottom, accuracy: 0.5)
     }
 
-    func testShortPlainScrollRefitsForTheToolbarAndPreservesManualKeyboardRoom() throws {
+    func testPlainShortContentRefitsWhenTheToolbarChangesAndKeepsManualInsetRoom() throws {
         let session = try fixture("bottom-plain-short")
         let (_, nav, route) = try chat(session)
         let list = try node(session, "list-chat"), sv = try XCTUnwrap(list.scroll)
