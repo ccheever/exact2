@@ -723,20 +723,22 @@ final class TextSelectionMacTests: XCTestCase {
         p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
         XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma")
 
-        // The space after "Alpha": inside the selection, under no glyph. A
-        // test process's window has the focus only if a person gave it.
+        // Compare painted colours through the same capture path: AppKit's
+        // HDR colour conversion can differ from usingColorSpace's components.
         let space = try glyph(node, 5)
-        let rep = try XCTUnwrap(Capture.picture(of: node))
-        let scale = CGFloat(rep.pixelsWide) / rep.size.width
-        let drawn = try XCTUnwrap(rep.colorAt(x: Int((space.x + space.width / 2) * scale), y: Int(10 * scale))?.usingColorSpace(.sRGB))
-        var wanted: NSColor?
-        node.effectiveAppearance.performAsCurrentDrawingAppearance {
-            wanted = TextSelection.fill(focused: PageFacts.hasFocus(self.window)).usingColorSpace(.sRGB)
-        }
-        let fill = try XCTUnwrap(wanted)
-        XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.01, "at full strength: the page does not show through it")
-        for (got, want) in [(drawn.redComponent, fill.redComponent), (drawn.greenComponent, fill.greenComponent), (drawn.blueComponent, fill.blueComponent)] {
-            XCTAssertEqual(got, want, accuracy: 0.06, "\(drawn) is not \(fill)")
+        let swatch = Swatch(frame: NSRect(x: 0, y: 60, width: 10, height: 10))
+        p.root.addSubview(swatch)
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            swatch.color = TextSelection.fill(focused: PageFacts.hasFocus(window))
+            let fill = try XCTUnwrap(Capture.picture(of: swatch)?.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+            let rep = try XCTUnwrap(Capture.picture(of: node))
+            let scale = CGFloat(rep.pixelsWide) / rep.size.width
+            let drawn = try XCTUnwrap(rep.colorAt(x: Int((space.x + space.width / 2) * scale), y: Int(10 * scale))?.usingColorSpace(.sRGB))
+            XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.01, "at full strength: the page does not show through it")
+            for (got, want) in [(drawn.redComponent, fill.redComponent), (drawn.greenComponent, fill.greenComponent), (drawn.blueComponent, fill.blueComponent)] {
+                XCTAssertEqual(got, want, accuracy: 0.01, "\(appearance): \(drawn) is not \(fill)")
+            }
         }
 
         // A layer that has displayed needs no display until something asks.
@@ -804,7 +806,15 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertTrue(copy.target === held)
             XCTAssertTrue(copy.isEnabled)
             XCTAssertEqual(items.first { $0.title == "Cut" }?.isEnabled, false)
-            XCTAssertTrue(items.first { $0.title.hasPrefix("Search With ") }?.isEnabled == true)
+            // Search is present only when AppKit has a configured provider.
+            // Ask AppKit again before checking the host's targets and validation.
+            let native = try XCTUnwrap(held.menu(for: right))
+            let searches = items.filter { $0.title.hasPrefix("Search With ") }
+            XCTAssertEqual(searches.map(\.title), native.items.filter { $0.title.hasPrefix("Search With ") }.map(\.title))
+            for search in searches {
+                XCTAssertTrue(search.target === held)
+                XCTAssertTrue(search.isEnabled)
+            }
             // Copy is the page's: the whole selection, through the node's own copy.
             NSPasteboard.general.clearContents()
             _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)

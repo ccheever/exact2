@@ -96,6 +96,7 @@ final class PressFeedbackMacTests: XCTestCase {
     /// no scale. (It showed nothing: "macOS: AppKit's custom views show none".)
     func testAPressableThatDeclaresNoFeedbackShowsThePlatformsPressedLook() throws {
         let (p, v) = fixture(style: ["background_color": [240, 240, 245, 255]])
+        window.appearance = NSAppearance(named: .aqua)
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         XCTAssertTrue(v.platformPressTints)
