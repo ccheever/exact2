@@ -5,6 +5,7 @@
 **Systems:** Plan, Runner, Kernel (seam), Data seam
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
+**Amended:** 2026-10-13, Astra: scroll completion measurements and Linux design (§Scroll completion); implementation remains parked.
 **Implementer:** Claude (Fable 5), landing 2026-08-28 (this document transcribes the landing)
 **Related:** LLP 1004 (the decisions this executes), LLP 1006 (the compiler that emits this format), LLP 1001 (the kernel the runner drives), LLP 1002 (the clock discipline the runner shares), LLP 0485 (the flat plan; research)
 
@@ -332,14 +333,15 @@ The host still owns scrolling. The ABI's dispatch kind 13 carries two finite
 numbers as UTF-8 `left,top`; malformed coordinates are refused.
 
 `Scrollend` (2026-10-13, the Bluesky clone) is DOM's `scrollend`: no
-arguments, sent once a scroll that moved the offset is over, after its last
-`Scroll`. On the web it is the browser's own. On iOS it is the end of a drag
-that throws nothing, of its deceleration, or of an animated scroll; on macOS
-the end of a live scroll (a trackpad's, its momentum included); any other move
-there (a jump the app wrote, a mouse wheel's notches) ends once the offset has
-been still for 100 ms. A node without a `scrollend` handler takes it as
-nothing. ABI dispatch kind 51, no payload. Not yet on the Linux and Android
-host, whose scrolls a shell or the presenter's own input drive.
+arguments, sent after the `Scroll` belonging to a completed scroll. It is
+not a notification of every offset change, nor a promise that a handler
+cannot start another scroll before it arrives. The web hears the browser's
+own event. Apple uses native completion callbacks and, for moves those
+callbacks do not bracket, a 100 ms quiet fallback. That fallback is not
+Chrome's definition of completion. [Scroll completion](#scroll-completion)
+records the measured cases, native differences and Linux design. A node
+without a handler takes it as nothing. ABI dispatch kind 51, no payload.
+Linux and Android remain unimplemented on main.
 `act(name, args)` runs an action by name (tests; an agent goes through the host's input path, LLP 1012 §1). Arguments must
 conform to the parameters' declared types (`ArgumentType`) and every write to
 its slot's (`SlotType`) — so an authored `width = 1/0` is a typed refusal with
@@ -744,3 +746,269 @@ rule and is recorded as a spec deviation in LLP 1001. Windows and Android inheri
 sampler but their carriers are unqualified; terminal does not call the sampler. These deviations are also in LLP 1001; the issue
 stays open until native presenter tests and drives and the remaining geometry
 cases are qualified.
+
+## Scroll completion
+
+**Amendment, 2026-10-13; design: Astra, `q1013/scrollend-rule`.** This
+clarifies §6's event added by `46f300937`. The implementation to resume is
+the Linux lane `q1013/linux-scrollend`, parked at `cbd15e31a`; this amendment
+changes no host. The rules below are its target, not a claim that the
+current Apple or web agent implementations satisfy every case.
+
+The cause is two conflations: an offset change is not necessarily a scroll
+operation, and an unfinished operation is not an already queued completion.
+The parked host also advances the runner while the presenter still holds
+commands and scroll events from earlier instants. Neither a later event
+flush nor a longer quiet timeout repairs that ordering.
+
+### Browser evidence
+
+Measured on this worktree at `dfa6a2634`, 2026-10-13, with Bun 1.4.2,
+`playwright-core` and headless Chrome **155.0.8059.40**, selected by
+`scripts/agent-launch.mjs`'s `chromium()`. The throwaway probe and JSON trace
+are `target/scrollend-rule/chrome-scrollend.mjs` and `chrome-results.json`;
+run `bun target/scrollend-rule/chrome-scrollend.mjs`. They are local
+measurement artifacts, not a new check. There are 33 cases, each in its own
+browser context. The fixture has two 200 × 100 CSS-pixel overflow ports,
+2,000-pixel children and `overflow-anchor: none`. Listeners record event,
+offset, layout-box existence, connectedness, `performance.now()` and an
+animation-frame counter. Positive cases await events; absence is observed
+over 250–800 ms of animation frames, including a show after hiding. Those
+windows and the measured milliseconds below are observations, not timing
+assertions a host test should copy.
+
+`S` means `scroll`, `E` means `scrollend`; subscripts identify scrollers.
+The runtime cases import this checkout's `rt.js` and `agent.js`, using real
+`act`, command dispatch and `agentSettled({op: "clock", settle: true})`
+over the same DOM fixture. Only generated names metadata is empty; this is
+a runtime probe, not a compiled app drive.
+
+| Case and drive | Chrome observation |
+|---|---|
+| Wheel notches: Playwright `mouse.wheel(0, 60)`, once and three times separated by two animation frames | Each injected notch produced `S E` in one rendering turn, not one end 100 ms after the burst. This measures injected wheel input, not a physical trackpad's gesture phases or momentum. |
+| Programmatic jump: `scrollTop = 120` | `S E` in the next rendering turn, about 16 ms after the call; neither event was synchronous with the assignment. |
+| Animated scroll: `scrollTo({top: 600, behavior: "smooth"})` | Many `S`, then one `E`, about 450 ms after the call and 30–40 ms after the last `S`. No 100 ms wait. Native duration is not a cross-host constant. |
+| Key handler: prevent ArrowDown's default and call `scrollBy(0, 120)` | The same `S E` as an instant API jump. A key invoking an API is not a held native keyboard-scrolling gesture. |
+| A `scroll` handler jumps another 120 pixels, once | After an instant first jump: `S₁ [jump₂] E₁`, then `S₂ E₂` next turn. `E₁` reads the new offset. After the first sample of a smooth scroll: the jump interrupts the animation; `S₂ E` follows, with only one end. |
+| A `scrollend` handler jumps another 120 pixels, once | `S₁ E₁ [jump₂]`, then `S₂ E₂`, for both instant and smooth first scrolls. The first end does not consume the next scroll's end. |
+| Timer before the next frame; delayed delivery | A zero-delay JS timer scheduled after an instant jump in rAF ran before its `S E`. With a 105 ms timer and the main thread held for 140 ms, raw DOM delivered `S E` before that overdue timer in this run. Exact's live JS binding instead ran the overdue **runner timer before the Contract end handler**. No browser rule says an end has a universal 100 ms deadline or beats every later-due timer when delivered late. |
+| Layout clamp after an ended scroll: offset 700, then child height 160 | Offset became 60 and another `S` arrived; no second `E` in 400 ms. Shrinking to height 100 during a smooth scroll clamped to zero and still produced the original operation's one end, not an additional clamp end. |
+| Self or ancestor `display: none` during a smooth scroll, after its first `S` | No `E` while hidden or after showing again. This also held when showing in the very next rAF after forcing hidden layout. Restoring the saved offset did not start another scroll. |
+| Instant jump, then self or ancestor `display: none` before events dispatch | **The already queued `S E` still arrived while hidden.** Showing later produced no further end. This differs from hiding an unfinished smooth scroll. |
+| Set `inert`, or open a modal dialog, at the first smooth-scroll sample | The scroll reached 600 and ended once. Blocking new user input did not cancel the existing scroll. |
+| Remove the scroller | Removal during smooth scrolling suppressed its future end. Removal immediately after an instant jump still delivered the queued `S E` to the detached DOM element's retained listener. |
+| Two instant jumps in one turn | A then B produced `Sₐ Eₐ Sᵦ Eᵦ`; reversing the calls reversed that order. There was no global phase delivering every `S` before every `E`. |
+| A's end handler changes B before B's queued events | Moving B preserved its queued `Sᵦ Eᵦ`, reading B's new offset, and added `Sᵦ Eᵦ` next turn. Hiding or removing B also preserved the raw DOM events already queued for B. |
+| No movement: `scrollBy(0, -100)` at zero | No `S` or `E`. |
+| Agent `clock settle` | Chrome has no such API. Exact's current JS agent returned `settled: true` for an instant jump after its end, but also returned it during a smooth `scrollBy` and before all four ends of a handler-driven jump chain. The native scrolling timeline is not a Web Animations timeline that the agent can seek. |
+
+The distinction between finishing and dispatching agrees with CSSOM View's
+[completion definition](https://drafts.csswg.org/cssom-view/#scrolling) and
+[pending event queue](https://drafts.csswg.org/cssom-view/#scrolling-events).
+The draft leaves cross-scroller completion ordering as an open question;
+the table records Chrome's observed order for these drives. In particular,
+“after its last scroll” does not mean “after every scroll that any handler
+can subsequently cause.” Chrome exposes no completion deadline to script;
+the delayed-loop probe measures dispatch order, not an inferred compositor
+timestamp.
+
+### Apple today
+
+This column of the comparison is from source inspection, not fresh native
+device measurements. Both hosts share
+[`ScrollEnd.swift`](../host/apple/Sources/ExactKit/ScrollEnd.swift): `moved`
+sets an owed bit, `settle` replaces a wall-clock `DispatchWorkItem` due in
+100 ms, `hold` cancels it, and `take` clears the debt before dispatch.
+[`ScrollEndMac.swift`](../host/apple/Sources/ExactKit/Mac/ScrollEndMac.swift)
+and [`ScrollEndIOS.swift`](../host/apple/Sources/ExactKit/IOS/ScrollEndIOS.swift)
+decide when to call those operations.
+
+| Cases | Current macOS and iOS behavior |
+|---|---|
+| Wheel, instant jump, key-driven `scrollBy` | A reported changed offset outside a held native gesture/animation schedules the 100 ms quiet check on both hosts. An unchanged offset owes nothing. This can merge notches and delay instant jumps relative to Chrome. |
+| Gesture or animated scroll | macOS uses `didEndLiveScrollNotification`, then a main-queue turn so the collection's knob correction runs first; an owned `scrollIntoView` animation calls `endScroll` from its completion. iOS uses `scrollViewDidEndDragging` without deceleration, `scrollViewDidEndDecelerating`, or `scrollViewDidEndScrollingAnimation`; a finger, follow-end correction or offset driver can keep it held. |
+| Either handler scrolls again | `endScroll` takes the old debt, calls `sendScrollEvent`, checks that the view still belongs to the same node, then dispatches the end. A move from either handler can arm a new debt. It does not recursively drain the new scroll before sending the old end. Ordinary queued scroll handlers that run before the quiet check can postpone it. |
+| Runner timer between quiet deadline and next frame | The fallback is scheduled on real time, not in the runner's timer queue. The session dispatches with `now()` when its callback runs; `Runner::dispatch_at` first runs timers due by that value. A delayed callback can therefore follow a timer later than its intended quiet deadline. Agent time does not advance that `DispatchWorkItem`. |
+| Layout clamp | `scrollEndMoved` compares reported offsets; neither implementation classifies a visible layout clamp separately from a scroll. A clamp reported through the native callback can arm another end. The guards exclude hidden-layout resets and unchanged positions, not every clamp. This is a parity gap, not a rule Linux should inherit. |
+| Hidden self or ancestor, then shown | `hasScrollLayoutBox` walks ancestors for `display: none`; movement and delivery are suppressed while false. Hiding does not itself reset `ScrollEnd`. A quiet callback while hidden consumes the debt, but hiding and showing before that callback can retain it. Conversely, an already completed end can be suppressed while hidden. Both differ from Chrome's distinction above. |
+| Inert under a modal | The layout-box test does not reject `inert`, and `Presenter.send` checks the view's existence, not input eligibility. An owed end can still dispatch. |
+| Removed or pooled scroller | View identity is checked before and after the last scroll handler. iOS also checks its incarnation and resets pooled state. Exact drops delivery to a destroyed node; it cannot call the detached element listener that raw DOM retained. |
+| Two scrollers in one turn | Native callbacks/main-queue work dispatch each end separately and apply each handler before continuing. There is no shared deadline-ordered queue across scrollers. |
+| `clock settle` | `Agent.nativeInFlight()` knows some native scroll animations, but does not count `ScrollEnd.owed` or its quiet work item. A pending fallback alone need not keep settle busy. This is a gap in settle's fixed point. |
+
+Apple's callback contracts are
+[`didEndLiveScrollNotification`](https://developer.apple.com/documentation/appkit/nsscrollview/didendlivescrollnotification),
+[`scrollViewDidEndDragging`](https://developer.apple.com/documentation/uikit/uiscrollviewdelegate/scrollviewdidenddragging(_:willdecelerate:)),
+[`scrollViewDidEndDecelerating`](https://developer.apple.com/documentation/uikit/uiscrollviewdelegate/scrollviewdidenddecelerating(_:))
+and [`scrollViewDidEndScrollingAnimation`](https://developer.apple.com/documentation/uikit/uiscrollviewdelegate/scrollviewdidendscrollinganimation(_:)).
+The Mac notification's position relative to a real trackpad coast is still
+unqualified; QUEUE's physical-fling check remains. A test that posts that
+notification is not evidence about momentum.
+
+### Rule for hosts
+
+1. **Track a scroll, not every change of offset.** A user/API scroll that
+   actually moves owes an end. A no-op, boot restoration, resize, inset
+   adjustment or layout clamp alone owes none. A clamp can change the last
+   reported position of an existing scroll without creating another end.
+   Deliver that position's `scroll` in its ordinary event order.
+2. **Finish when the scroll mechanism finishes.** Use the browser's or
+   platform's completion for a gesture, coast or animation. A known instant
+   command finishes when its move is applied; queue its events for delivery
+   after the command, without inventing 100 ms of animation. For a stream
+   of offset samples with no gesture phases or completion signal, the native
+   fallback is 100 ms after the last actual scrolling move. This is an
+   explicit approximation: such a stream cannot reveal when the person's
+   gesture ended. It may merge Chrome's separate notches. A known animation
+   or instant command does not need that approximation.
+3. **Keep pending completion distinct from unfinished scrolling.** Queue
+   `scroll` before its corresponding end, coalescing repeated pending events
+   of the same target/type in a turn. Process a snapshot in enqueue order;
+   handler-caused events go to the next turn. Run each handler's commands
+   and layout before the next event; scroll payloads read the current
+   offset. A handler's new move does not retract an end already in the
+   snapshot. Before a quiet fallback has completed, however, a new actual
+   scroll move rearms its deadline. Do not drain reentrant scrolling to
+   infinity ahead of an already completed end.
+4. **Separate layout lifetime from input eligibility.** Losing a layout
+   box cancels unfinished scrolling immediately, including loss through an
+   ancestor, even if shown before its former deadline. Showing restores
+   position, not the cancelled scroll. Inertness and modal coverage alone
+   cancel nothing. An end already queued for a still-mounted hidden node
+   survives, as Chrome's does. Check node identity before every dispatch;
+   removal/reuse cancels Exact delivery, even for a queued end. Dropping the
+   raw DOM event on a destroyed Contract scope is a deliberate lifetime
+   deviation, shared with the web binding; retaining dead scopes for this
+   event is not admitted.
+5. **Order on the clock the host actually owns.** If the host knows a
+   completion deadline `d`, service it at `d`: timers due at or before `d`
+   retain `dispatch_at`'s precedence, their commands/layout are applied,
+   and the completion is revalidated before dispatch. Do not run a timer
+   due after `d` first merely because the next display frame is late.
+   `performanceNow()` in that completion is `d`. When only a native callback
+   tells the host that scrolling finished, the current session time at
+   delivery is the event time; due runner timers run first at that time. Neither Chrome's earlier
+   compositor instant nor an unreported UIKit/AppKit instant can be
+   reconstructed. This native timing deviation is not permission to stamp
+   a known Linux deadline at the next frame.
+6. **Settle includes delivery and consequences.** `clock settle` must
+   include unfinished scrolls, queued `scroll`/`scrollend`, commands they
+   produce and subsequent scrolls. A host-owned deadline is sought; a
+   platform-owned animation must finish through its executor within the
+   existing settle bound. Recompute after every delivery. A handler that
+   keeps scrolling reaches the existing bound and returns `settled: false`.
+   Do not manufacture native completion by sending a synthetic DOM event,
+   nor claim settlement because paint motion alone is idle. The current
+   web/Apple gaps above remain implementation work.
+
+Native scrolling's curve, duration and gesture recognition remain the
+platform's (LLP 1115). Apple's unbracketed 100 ms fallback remains a
+current implementation difference; where the host knows it applied an
+instant command, delaying it is avoidable. Clamp ends, stale ends revived
+by showing, and an early `settled: true` are defects, not additional
+permitted deviations. None is fixed by this document.
+
+### Linux: one owner of time
+
+Put the advancing loop in `Presenter`, where it can borrow `Host`, apply
+commands, arrange and dispatch scrolling before choosing another instant.
+Replace the parked `Host::advance_clock` loop and the split work in
+`Presenter::{advance, animation_frame, clock, clock_until_request, clocked}`
+with one driver and thin mode wrappers. `Host::{advance_effects, frame,
+advance_until_request, tick}` become bounded steps under that driver;
+`Host::observe_time` must not move the logical clock past unserviced work.
+Keep the runner's timer ordering, refusal and request-stop behavior.
+
+The driver's next instant is the earliest runner timer, host-owned scroll
+deadline or requested destination. Step to **one** runner timer at a time:
+its commands may move a scroller or change a deadline before another timer.
+Seek presentation to that instant, apply its receipt, `after_commit`'s
+layout/clamps, and `run_commands`; dispatch a snapshot of queued scroll events and apply each
+handler's commands before continuing. Reconsider deadlines after each
+commit. Finish a still-eligible fallback only after those same-instant
+effects; consume its old debt before enqueueing its completion so a handler
+can create the next debt. Drain successive event turns at this instant,
+before advancing beyond it. Each turn counts against settle's existing
+16-round bound; a live driver yields with work still pending rather than
+dropping it. A refusal or request stop leaves undispatched events and
+deadlines intact at the landed instant. Frame tasks still run once at the
+presented frame, not once per intermediate deadline.
+
+Move the parked `scroll_ends` ownership beside the offsets and event queue.
+Use node incarnation, completion state and enqueue order, not a hash map's
+iteration order or just an owed bit. For equal deadlines, preserve the order
+the completions became pending. A completed event in the current snapshot
+survives a later scroll; an unfinished fallback is rearmed. Revalidate each
+target after preceding handlers: removal drops it, inertness does not.
+`dispatch_authored_scroll` must not be a one-pass flush followed by an
+advance across newly queued work.
+
+Route `pump`, live input dispatch, `wheel_at_time`, reader samples, display
+acknowledgements and agent clock drives through this owner **before** their
+new input can change offsets. Timestamp a live arrival without assigning
+it to `Host.now` until earlier known work has run. Classify offset changes
+at their source: input samples, instant command/binding, animation, layout
+clamp or restoration. `clamp_scroll` reports position without calling the
+same completion arming path as `scrollBy`; collection feedback does not
+redate the move it reports. Linux's phase-less wheel/Android reader stream
+uses the 100 ms fallback; known instant commands queue completion at the
+command's instant. An owned animation supplies its own end.
+
+`Host::timer_due_ms` (or the loop's forwarding wake query) returns the
+minimum of runner and completion deadlines. Sleeping shells need that
+deadline even if no frame is wanted. `agent.rs`'s `settle`/`clock` uses the
+same driver and its pending-work query, rather than a maximum-deadline jump
+followed by `run_commands`. For example, fallback scroll A due at 100 and B
+due at 150 must process A's handler at 100; if it starts another phase-less
+scroll, that end is due at 200, not 250. A handler's instant `scrollBy`
+instead completes in the next event turn at 100. Stepped and single-jump
+drives must agree in both cases. Supply the existing command executor to
+the loop; do not add a second runner, clock or general scheduler.
+
+### Regression selection
+
+Keep Chrome's event/lifetime expectations separately from assertions about
+Linux's declared 100 ms fallback and deterministic clock. The parked
+branch's committed `presenter/scrollend_tests.rs`, `host_clock.rs` comment
+and QUEUE note identify these cases to carry into implementation:
+
+- Real offset movement, a no-op at an edge, an end-only handler, and exactly
+  one end for one completed scroll. A phase-less stream rearming at each
+  actual move is a fallback test; “Chrome waits 100 ms” is not.
+- Idle wheel, key-driven `scrollBy` and Android reader timestamps. Keep the
+  input-time assertions; replace a key command's mandatory 100 ms wait
+  with instant completion. Android still needs carrier qualification.
+- Binding/command scroll events already queued when advancing, and
+  collection feedback delivered later. Preserve the move's time, apply
+  commands before advancing, and never rearm for feedback alone.
+- Both handler reentry cases in the browser table. Keep the second end;
+  reject an assertion that every handler-caused scroll must precede the
+  first end. Distinguish interrupting an unfinished animation from adding
+  a scroll after an instant completion was queued.
+- A layout clamp after completion and during an existing scroll. Keep the
+  position/`scroll` assertions; replace “every clamp owes another end”
+  with the browser's counts of one total end in each measured sequence.
+- Hidden self and hidden ancestor, both a long hide and hide/show before
+  the former deadline. Keep cancellation of unfinished scrolling; add
+  preservation of an already queued instant end on a mounted hidden node.
+- An inert scroller under a modal, plus removal and node reuse. Replace
+  “route-inert cancels” with a layout-lifetime check; never dispatch a
+  removed node's handler merely because Chrome retains a detached listener.
+- Two scrollers, both enqueue orders, and A's end changing B. Preserve the
+  snapshot's ordering and execute A's commands before B's handler; do not
+  sort by node id or discard B's already completed event on a new move.
+- A fallback deadline at 100, timer at 105 and next frame/pump/input at 140;
+  a tie at 100; an earlier timer that scrolls, hides or removes the target.
+  Assert end-before-105 and timer-before-end on the tie only for the clock
+  Linux owns. Raw Chrome or Apple's delayed callbacks do not prove it.
+- `clock settle` with one scroll, a completion starting another, staggered
+  scrollers, and a bounded endless chain; compare a jump with stepped
+  advancement. Keep full consequence delivery as Exact's agent contract,
+  not a claim that today's browser agent already provides it.
+
+The parked lane also names an untracked
+`target/scrollend-order-regressions.rs` with 14 cases. That file is not in
+`cbd15e31a`'s tree. Its exact case-by-case disposition remains to be checked
+against this list when the file is available; none of those unseen cases
+is claimed as run or accepted here. QUEUE remains open for implementation
+and native qualification.
