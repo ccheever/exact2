@@ -1456,14 +1456,13 @@ export const x_performanceNow = () => { NowRead = true; if (Listener) return rea
 export * from "./roster.js"; // the roster's pure entries
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
-// starts at the base, and after boot holds the table the viewer's locale
-// reads, as the runner's `set_place` writes it; `t` reads that table, else
-// the base.
+// holds the table the viewer's launch locale reads before state initializes;
+// `t` reads that table, else the base.
 let Texts = [];
 export function strings(tables) { Texts = tables; }
 /** RFC 4647 lookup of the page's locale (an agent's `?locale`): the longest
  * subtag prefix a table is named for, without case, else the base. */
-function locale() {
+export function locale() {
   let tag = "en-US";
   try { tag = reportPlace().split("\0")[0]; } catch {}
   for (;;) {

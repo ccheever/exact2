@@ -270,9 +270,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             slot.0
         );
     }
-    // Localized strings (LLP 1060): the tables, and the locale slot (the
-    // base) before any initializer, which may call `t`; after boot the page's
-    // locale picks the table (rt.js `language`, the runner's `set_place`).
+    // Localized strings (LLP 1060): select the launch locale before any
+    // initializer, which may call `t`; `language` publishes it after mount.
     if let Some(slot) = plan.locale {
         let tables: Vec<String> = plan
             .locales
@@ -297,17 +296,17 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 )
             })
             .collect();
-        let init = code::expression(plan, plan.code(plan.slot(slot).init), &top, &mut em.uses)?;
+        let locale = em.uses.rt("locale");
         let strings = em.uses.rt("strings");
         let row = plan.slot(slot);
         let signal = if dev_reload {
             format!(
-                "$devSig({},{init},\"s\",{})",
+                "$devSig({},{locale}(),\"s\",{})",
                 serde_json::to_string(plan.str(row.name)).unwrap(),
                 type_json(plan, row.ty)
             )
         } else {
-            format!("{}({init},\"s\")", em.uses.rt("sig"))
+            format!("{}({locale}(),\"s\")", em.uses.rt("sig"))
         };
         let _ = write!(
             body,
