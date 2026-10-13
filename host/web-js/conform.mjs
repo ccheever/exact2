@@ -76,6 +76,7 @@ import { open } from '../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
+import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
 /** `spawnSync`'s result without holding the event loop: the other targets'
@@ -782,13 +783,17 @@ if (synthetic.length) {
 const jobs = Math.max(1, Number(opt('--jobs', Math.min(4, availableParallelism()))));
 const queue = engineReady ? targets : [];
 let next = 0;
-await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
-  while (next < queue.length) {
-    const t = queue[next++];
-    try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
-    process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
-  }
-}));
+try {
+  await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+    while (next < queue.length) {
+      const t = queue[next++];
+      try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
+      process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
+    }
+  }));
+} finally {
+  closeFilesystemReader();
+}
 // The report lists targets in their order, whatever order they finished in.
 const order = new Map(targets.map((t, i) => [t.name, i]));
 const byOrder = (a, b) => (order.get(a.target) ?? -1) - (order.get(b.target) ?? -1);
