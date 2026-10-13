@@ -24,6 +24,7 @@ const takesValue = (spec) => spec.includes(' ');
 const DRIVE = [
   ['--storage <name>', 'a scratch store, kept between drives by name'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
+  ['--scale <n>', 'shrink screenshots to n pixels per point; 1 captures points'],
   ['--chrome platform', 'Apple: UIKit\'s bars, the Mac\'s sidebar (default: painted)'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
@@ -36,7 +37,7 @@ const DRIVE = [
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
-  ['--json', 'one compact JSON object per op reply, one per line (default: indented text)'],
+  ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
 const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
@@ -135,8 +136,7 @@ Ops      a target is a testId, else a view's exact text or label
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
-    bodyAll: `Trace    trace <file> reads a saved development trace. Every op's forms: docs/contract-for-agents.md
-         "Inspection and testing", or agent web with no op.
+    bodyAll: `Trace    trace <file> reads a saved trace. Op forms: docs/contract-for-agents.md, "Inspection and testing".
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
          with --storage one fixed by app and store (20000-47999; "in use": another drive has it).
          ${NATIVE_PORTS}`,

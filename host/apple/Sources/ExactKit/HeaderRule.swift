@@ -25,6 +25,10 @@ struct HeaderRule {
     let leading: [NodeView], trailing: [NodeView], items: [NodeView]
     let search: NodeView?, segments: NodeView?, tap: NodeView?
 
+    /// The nodes handed to the shared rule, in all: what a projection walks,
+    /// which the tests pin (a feed's rows are never among them).
+    nonisolated(unsafe) static var walked = 0
+
     /// The route's first child is a shown `header` whose author wrote
     /// `appearance: none` (LLP 1075.003 §9.10): the rule makes no bar of it
     /// (`fact::AUTHORED`), and on iOS a pushed route with one gets no bar
@@ -57,13 +61,19 @@ struct HeaderRule {
     /// bar is made from, so none for a route that says
     /// `navigationBar="none"` or a header hidden as authored.
     init?(route: NodeView, back: String?, backIsPlatforms: Bool, projected: Bool) {
-        guard let first = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return nil }
+        // The rule makes a bar only of a first child that is a `header`
+        // (`exact_kernel::bars::header_shape`); any other is answered here,
+        // before walking it: a route whose first child is its feed would
+        // hand every row's facts over at each projection, several a batch.
+        guard let first = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
+              first.props["semanticTag"] == "header" else { return nil }
         // The route, then its first child's subtree, in preorder: two words
         // a node, its facts and the count of its children.
         var nodes: [NodeView] = [route], words: [UInt32] = [route.props["navigationBar"] == "none" ? 256 : 0, 1]
         func add(_ node: NodeView) {
             let children = node.container.subviews.compactMap { $0 as? NodeView }
             nodes.append(node)
+            Self.walked += 1
             words.append(Self.facts(node, back: back))
             words.append(UInt32(children.count))
             for child in children { add(child) }
