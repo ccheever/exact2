@@ -817,7 +817,7 @@ fn native_region_promotes_and_clears_the_fields_editor_rect() {
     assert!(!ops(&host.resize(400., 300.))
         .iter()
         .any(|op| op["op"] == "fieldContent"));
-    // Producer-level appearance change exercises the clearing protocol without
+    // Producer-level appearance change exercises the change of meaning without
     // introducing a bound appearance into Contract (which refuses it).
     let mut patch = exact_kernel::StyleProps::default();
     patch
@@ -842,10 +842,13 @@ fn native_region_promotes_and_clears_the_fields_editor_rect() {
         let metrics = request.with_request(|r| MonospaceMeasurer::default().measure(r));
         batch = host.complete_region_text(id, metrics, Rc::new(()));
     }
+    // A bare field's box is its CSS content box, here the editor rect it
+    // had (no chrome measured): what the presenter holds stays, never cleared
+    let last = ops(&batch)
+        .into_iter()
+        .rfind(|op| op["op"] == "fieldContent" && op["id"] == id);
     assert!(
-        ops(&batch)
-            .iter()
-            .any(|op| op["op"] == "fieldContent" && op["id"] == id && op["rect"].is_null()),
+        last.is_none_or(|op| op["rect"] == editor["rect"]),
         "{batch}"
     );
 }

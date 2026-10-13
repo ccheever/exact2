@@ -101,6 +101,7 @@ final class FormRowsMacTests: XCTestCase {
             ["op": "children", "id": 4, "ids": [5]],
             ["op": "children", "id": 1, "ids": [2, 4]],
             ["op": "frame", "id": 2, "x": 10.0, "y": 0.0, "w": 500.0, "h": 44.0],
+            contentOp(2, 500, 44, padding: [10, 0, 10, 12]),
             ["op": "frame", "id": 3, "x": 12.0, "y": 14.0, "w": 126.0, "h": 16.0],
             ["op": "frame", "id": 4, "x": 10.0, "y": 50.0, "w": 500.0, "h": 36.0],
             ["op": "frame", "id": 5, "x": 12.0, "y": 10.0, "w": 60.0, "h": 16.0],

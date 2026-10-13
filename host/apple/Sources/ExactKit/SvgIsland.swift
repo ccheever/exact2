@@ -179,6 +179,7 @@ enum SvgIsland {
         sub.scale = k
         sub.fonts = fonts
         let m = t.concatenating(CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+        sub.root.bounds = CGRect(origin: .zero, size: rect.size)
         sub.apply(["box": [0, 0, rect.width, rect.height], "t": [m.a, m.b, m.c, m.d, m.tx, m.ty], "els": els], dark: dark, clock: nil)
         if flip { ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1) }
         ctx.scaleBy(x: CGFloat(w) / rect.width, y: CGFloat(h) / rect.height)

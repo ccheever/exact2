@@ -220,7 +220,8 @@ final class AgentCheckIOSTests: XCTestCase {
             ["op": "frame", "id": 7, "x": 0.0, "y": 0.0, "w": 448.0, "h": 40.0],    // past, in a pager the author scrolls
             ["op": "frame", "id": 13, "x": 0.0, "y": 580.0, "w": 400.0, "h": 60.0],
             ["op": "frame", "id": 8, "x": 0.0, "y": 0.0, "w": 448.0, "h": 40.0],    // past, in a view that scrolls by default
-        ])
+            contentOp(10, 400, 400, padding: [0, 16, 0, 16]),
+        ] + [(2, 416.0), (3, 368), (4, 200), (5, 416), (6, 400), (7, 448), (8, 448)].map { contentOp($0, $1, 40, padding: [0, 24, 0, 24]) })
         let reply = agent.check([:])
         XCTAssertNil(reply["error"], "\(reply)")
         let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
