@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r12'
 pr_url: https://github.com/ccheever/exact2/pull/520
-verified_commit: a9ae1b645
+verified_commit: 41e23c58f
 ---
 
 # Main adoption, round 12 (the releaseHold crash fixed by #519), and the workarounds its fixes end
@@ -199,7 +199,7 @@ uncapped analysis).
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| AD-1: the branch contains main | pass at the final merge (main `0b956d63d`) | Adopted main; Checks |
+| AD-1: the branch contains main | pass at the final merge (main `0b956d63d`); main reached `c016978a6` while the checks ran (10 commits, not merged: Not done) | Adopted main; Checks |
 | AD-1: the framework tree is main's | pass: empty after `7c02ad186`, `7b0ab1cc8`, `e71f9d7cb`, `3c00d8b3b`, `4b09f25e7`, `7ad1899bf` and on the final head | Adopted main; Checks |
 | AD-1: the checks pass | see Checks | Checks |
 | AD-1: the clone works | pass: session 1 (shell, Settings General, Appearance, Providers, Tab from Back, Usage, the fixture thread, the file viewer, Settings from it, Back) exits 0 on both; every screen is pixel-equal but for the update pill (147 px, RT-3 X70). The lists and popovers keep the reference's presentation under `--chrome platform` (session 3b, after only) | [shell](https://raw.githubusercontent.com/ccheever/exact2/186077d9d38fbd2a946cd86e2d36383e056797d3/adopt-main-fixes-r12/ad1-shell.png), [thread and file viewer](https://raw.githubusercontent.com/ccheever/exact2/97497c53393374936d136fdb3d460a882f6832c2/adopt-main-fixes-r12/ad1-thread-files.png), [Mac presentations](https://raw.githubusercontent.com/ccheever/exact2/88a5316be91eadf0d6b1da893b54da236a0878ba/adopt-main-fixes-r12/ad1-platform-chrome.png), readouts |
@@ -271,29 +271,34 @@ Settings.
 
 ## Checks
 
-Once, on `a9ae1b645` (the code head after the second merge; `target/r12/checks.sh`). The commits after it change three test
-files' source guards (`1218c664f`), the records, and merge main's two web-only commits (`e71f9d7cb`: the web JS target's bound
-autofocus, `host/web-js`); on those, `bun test`, `caps` and `boot` ran again.
+Review round 1: once, on `41e23c58f` (the head after the sixth merge, main `0b956d63d`, and the records;
+`target/r12/checks-r1b.sh`). The first pass of these checks ran on `368deabcc` (main `169ea1efb`), all exit 0; main moved
+during it, so the sixth merge followed and the checks ran again. Round 12's first set ran on `a9ae1b645` (below the table).
 
 | Check | Exit | Note |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 1, then 0 | the first run: 3 fail, three source guards that read the old pill and popover lines (`settings-a-about`, `sidebar-palette-keys`, `usage-pr-pages`); after `1218c664f`: 4,850 pass, 1 skip, 0 fail (328 files), and again on `e71f9d7cb` |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,856 pass, 1 skip, 0 fail (328 files; round 12's six new guards included) |
 | strict `tsc` (README command) | 0 | |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6,470 slots, 120,810 nodes, 48 resources, 33,309,113 bytes; 233 `lower-colour-one-scheme`, 20 `lower-dialog-role` shown (the cap). Uncapped: 21 `analyze-read-after-assign`, 8 `lower-count-plural`, 1 `type-performance-now-persisted`, 73 `lower-dialog-role`, 233 colours, no `lower-width-padding` after the fix. `app.contract` 1,453 lines |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6,470 slots, 120,810 nodes, 48 resources, 33,309,129 bytes (the same on `3c00d8b3b` and after the sixth merge); 233 `lower-colour-one-scheme` and 20 `lower-dialog-role` shown (the cap), nothing new. `app.contract` 1,453 lines |
 | `cargo test -p t3-code-macos --lib` | 0 | 25 passed |
-| AppKit binaries | — | none touched (no clone Swift changed; `host/apple/modules/` unchanged since round 11) |
-| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap (again 0 on `e71f9d7cb`) |
+| AppKit binaries | — | none touched (no clone Swift changed) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
-| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,330 passed, 0 failed, 46 ignored (103 suites) |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,337 passed, 0 failed, 46 ignored (103 suites) |
 | `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
 | `cargo fmt --all -- --check` | 0 | |
-| `bun scripts/boot.mjs` | 0 | again 0 on `e71f9d7cb` |
+| `bun scripts/boot.mjs` | 0 | |
 | `cargo check --workspace --all-targets --keep-going` | 0 | |
-| `host/apple/build.mjs t3-code-macos --bundle` | 0 | three times: the before (`8c21a129d`), the live drive's (`2746b0f4c`'s sources) and the checks' (`a9ae1b645`) |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | four times in round 12: the before (`8c21a129d`), the live drive's (`2746b0f4c`'s sources), review round 1's drive (`3c00d8b3b`), and this head |
 
-After a fresh fetch on the final head: `git merge-base --is-ancestor origin/main HEAD` yes (main `ffe36f63a`), `git rev-list
---count HEAD..origin/feat(example)/t3-code` 0, `git diff origin/main HEAD -- ':!examples/t3-code' ':!Cargo.lock'
-':!Cargo.toml'` empty.
+Round 12's first set (on `a9ae1b645`, before review round 1): `bun test` 1 then 0 (three source guards that read the old pill
+and popover lines, fixed by `1218c664f`), every other check 0; `cargo test` 4,330 passed.
+
+After a fresh fetch on the final head: `git rev-list --count HEAD..origin/feat(example)/t3-code` 0; `git diff 0b956d63d HEAD --
+':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'` empty (the framework tree is main `0b956d63d`'s). Main moved again while
+these checks ran, to `c016978a6` (10 commits: Ibex's consumer adoption, 95 files, and an intersection fix), so `git
+merge-base --is-ancestor origin/main HEAD` is no at the end; they are not merged here (a merge of that size needs the checks
+again; the coordinator's landing merge or the next round takes them).
 
 ## Attempts and evidence
 
@@ -325,6 +330,8 @@ After a fresh fetch on the final head: `git merge-base --is-ancestor origin/main
 - Real input: steps 1–7 (the menu triggers G4-14 and LSF-6 and the literal R11-X79/X51 trigger need a real pointer; the
   pill's ring needs a key window; the "+N" toggle needs Network access on).
 - X87: a framework crash found here; the clone cannot work around it; not filed (the coordinator files framework issues).
+- Main's 10 commits after `0b956d63d` (to `c016978a6`: Ibex's consumer adoption, 95 files; an intersection fix), which
+  landed while the final checks ran: not merged (it needs the checks again); the coordinator's landing merge or round 13.
 - RT-3's listed workarounds stay (each needs a parity change across many sites, a rework, or a drive the round's lanes lack):
   X10's `text-wrap: balance` and `::placeholder` colours, X57's `text-align="left"` sites, X60's `tsStep`, X65's
   `usage-ground`, X66's `KeyMenuOpen`, X17's flips, #287's two stroked dashed rects, the terminal drawer's
