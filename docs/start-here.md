@@ -41,7 +41,7 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--storage` keeps data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
-`verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` after each edit, `verify ios` at milestones. A screen you
+`verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
@@ -183,8 +183,8 @@ Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
 
 ## Look it up
 
-Start from the nearest pattern, a tested app with what the recipes teach; a recipe
-(`recipes/<name>.md`) is for what it lacks.
+Start from the nearest pattern, a tested app with what the recipes teach. Open a recipe
+(`recipes/<name>.md`) only when writing what the pattern lacks.
 
 |Pattern|Already has|
 |---|---|
@@ -204,8 +204,7 @@ Start from the nearest pattern, a tested app with what the recipes teach; a reci
 
 The others are named for their topic (`timers`, `money`…).
 
-**Otherwise:** read the card once, then write: run `bun exact.mjs contract vocab`, or, if you only read
-files, read `docs/card.md` (the same text). It has every function, tag, part's
-call, test step, and how to do a screen, sheet, timer, colour, data, test.
-`contract vocab <name> …` answers a name it leaves out; `docs/contract-for-agents.md` and `reference.md`
-by section; `apps/shelf` is a whole app.
+**A name in question:** `bun exact.mjs contract vocab` prints the card, or read `docs/card.md` (the same
+text): every function, tag, part's call, test step, and how to do a screen, sheet, timer, colour,
+data, test. A lookup is for a name the card lacks (`contract vocab <name> …`) or a compile error;
+`docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.

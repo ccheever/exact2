@@ -478,8 +478,9 @@ first build resolves it, fetching them once (it needs the network then, not now)
 const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
 
 /** What an agent in the app's directory can't discover (LLP 1086 D1): what
- * its files are and the one guide to read, at most 1.5 KB because every step
- * carries it (LLP 1116.007 D2); `help` holds the rest. Paths are from the app to
+ * its files are, where to start and the one guide, at most 1.5 KB because every step
+ * carries it (LLP 1116.007 D2). It orders no step: builders load this file as
+ * instructions, and each instruction they follow re-sends their context (LLP 1116.012 D1). Paths are from the app to
  * this checkout, so \`update\` follows a checkout that moved. The authoring
  * diary's instructions are \`feedback status\`'s to print, for a project that
  * keeps one (LLP 1116 D3), so a project that doesn't never carries them. */
@@ -494,19 +495,14 @@ function agentNotes(dir, name, {game = false} = {}) {
 the manifest. The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
 overrides it).
 
-Read ${doc('start-here.md')} before writing code: the only
-required reading (LLP 1115 D7); it names the one recipe to open for each feature when you
-write that part. A screen to capture is a test's end (\`verify --shots <dir>\`); one
-\`agent\` drive takes any others (\`resize\`, \`prefer\`, \`screenshot\`).
-
-${DIARY_LINE}
-
-The rest: \`bun exact.mjs help\` gives each verb's common flags (and lists \`mac\`, \`linux\`, \`android\`,
-\`hatch\`, \`update\`, your own in app.json \`"commands"\`); a verb's \`--help\` only for the rest.
-Read the card once, then write: run \`bun exact.mjs contract vocab\`, or, if you only read files,
-read ${doc('card.md')}, the same text (every function, tag, part's call and test step, and how to
-do a screen, sheet, timer, colour, data, test); \`contract vocab <name>\` answers a name it leaves out.
+This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
+pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
+the only required reading (LLP 1115 D7). When a name is in question, \`bun exact.mjs contract
+vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too). Run
+\`bun exact.mjs verify\` when the features work, and \`verify ios\` once at the end for an iPhone
+app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
+${DIARY_LINE}
 Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
 \`Cargo.toml\`'s \`[patch.crates-io]\` and this block.
 ${END}
@@ -515,7 +511,7 @@ ${END}
 
 /** The one line that stands for the authoring diary (docs/diary.md): \`feedback
  * status\` prints the instructions when the project keeps a diary. */
-const DIARY_LINE = 'Run `bun exact.mjs feedback status` first; it prints what to keep.';
+const DIARY_LINE = 'The authoring diary: `bun exact.mjs feedback status` says whether this project keeps one.';
 
 /** A game's notes: the app's, for a world in Rust under Contract's menus. */
 function gameNotes(dir, name, doc) {
