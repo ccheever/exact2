@@ -82,7 +82,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "selectionchange" => Some("Selection"),
         // The target as HTML's `input` and `change` leave it (x2apps
         // codeedit #2, survey #2): its value, checked state and selection.
-        "input" | "change" => Some("InputEvent"),
+        "input" | "change" | "beforeinput" => Some("InputEvent"),
         "focusin" | "focusout" => Some("FocusEvent"),
         "resize" => Some("DOMRectReadOnly"),
         "intersect" => Some("IntersectionObserverEntry"),
@@ -164,6 +164,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("selectionEnd".into(), Ty::Number),
             ("selectionDirection".into(), Ty::String),
             ("inputType".into(), Ty::String),
+            ("data".into(), Ty::Option(Box::new(Ty::String))),
+            ("cancelable".into(), Ty::Bool),
+            ("isComposing".into(), Ty::Bool),
         ],
     );
     // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):

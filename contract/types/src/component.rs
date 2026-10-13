@@ -590,6 +590,7 @@ fn refine_params_from_view(
                             | "cut"
                             | "paste"
                             | "selectionchange"
+                            | "beforeinput"
                             | "beforeunload"
                             | "wheel"
                             | "drop"
@@ -701,7 +702,11 @@ fn refine_params_from_view(
                             // of its type or none: another type there is an
                             // argument left unbound, analysis's arity
                             // refusal (`handler_accepts`).
-                            if let Some(record) = crate::event_record(&a.name) {
+                            if let Some(record) = if a.name == "selectionchange" && field {
+                                Some("InputEvent")
+                            } else {
+                                crate::event_record(&a.name)
+                            } {
                                 let n = args.len() + payload.len() + 1;
                                 let fits = ct.actions[ai].len() == n
                                     && match &ct.actions[ai][n - 1] {

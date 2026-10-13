@@ -464,6 +464,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),
+        "beforeinput" => AttrTarget::Handler("beforeinput"),
         "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "intersect" => AttrTarget::Handler("intersect"),

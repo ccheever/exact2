@@ -16,13 +16,16 @@ const page = `<button id="outside">Outside</button><div id="exact-root"></div>
 <script type="module">
   import { commands } from './commands.js';
   import { runFocusCommands, controlEvent, onSelection } from './navigation.js';
-  import { onValue, OnHooks } from './rt.js';
+  import { onValue, OnHooks, onSelectionChange } from './rt.js';
+  import * as rt from './rt.js';
+  window.rt = rt;
+  window.bindSelection = field => onSelectionChange(field, 'selectionchange', record => window.seen.push(record), (name, f) => field.addEventListener(name, f));
   import './files.js';
   window.fileHook = OnHooks.file;
   import { ht } from './hatches.js';
   window.bindInput = (target, field, seen) => target === 'js'
     ? onValue(field, 'input', (value, record) => seen.push([value, record[5]]), (name, f) => field.addEventListener(name, f))
-    : controlEvent(field, 'input', (name, f) => field.addEventListener(name, f), (kind) => seen.push([field.value, kind === 48 ? 'insertReplacementText' : '']));
+    : controlEvent(field, 'input', (name, f) => field.addEventListener(name, f), (kind, payload) => seen.push([field.value, kind === 48 ? 'insertReplacementText' : kind === 54 ? payload.split(',')[0] : '']));
   window.hatch = ht;
   window.logs = [];
   window.replace = (target, args) => target === 'js' ? commands(s => logs.push(s)).setRangeText(...args)
@@ -162,7 +165,7 @@ check('web replacement input types include the hatch and browser correction even
       field.value = 'corrected'; field.dispatchEvent(new InputEvent('input', { inputType: 'insertReplacementText', bubbles: true }));
       field.value = 'typed'; field.dispatchEvent(new InputEvent('input', { inputType: 'insertText', bubbles: true }));
       return seen;
-    })()`)).toEqual([['x', 'insertReplacementText'], ['Palo', 'insertReplacementText'], ['corrected', 'insertReplacementText'], ['typed', '']]);
+    })()`)).toEqual([['x', 'insertReplacementText'], ['Palo', 'insertReplacementText'], ['corrected', 'insertReplacementText'], ['typed', 'insertText']]);
   }
 }), 30000);
 
@@ -214,7 +217,7 @@ check('file picker change supplies the complete InputEvent record', () => inChro
     fileHook(field, 'change', (files, e) => { record = e; branch = e[5] === ''; });
     field.dispatchEvent(new CustomEvent('exact-picked', { detail: 'app:/tmp/picked/a.txt\tfile.txt\ttext/plain\t1\t\t\t' }));
     return [record, branch];
-  })()`)).toEqual([['', false, 0, 0, 'none', ''], true]);
+  })()`)).toEqual([['', false, 0, 0, 'none', '', null, false, false], true]);
 }));
 
 check('text selection commands and rectangles match Chrome on both web targets', () => inChrome(async evaluate => {
@@ -316,3 +319,58 @@ check('text source ranges include breaks, inline ids, collapsed spaces and colum
     expect(result.logs).toEqual([]);
   }
 }), 30000);
+
+check('field selectionchange hears collapsed caret moves through the production binder', () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const field = document.createElement('textarea'); field.value = 'see @a.ts now';
+    document.getElementById('exact-root').append(field); field.focus(); field.setSelectionRange(4, 9);
+    window.seen = []; bindSelection(field);
+  })()`);
+  for (let i = 0; i < 2; i++) {
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 });
+  }
+  const seen = await evaluate(`new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(() => ok(window.seen))))`);
+  expect(seen.at(-1)?.slice(0, 5)).toEqual(['see @a.ts now', false, 3, 3, 'none']);
+}));
+
+check('beforeinput can cancel a real insertion but cannot cancel composition', () => inChrome(async (evaluate, call) => {
+  expect(await evaluate('typeof rt.onBeforeInput')).toBe('function');
+  await evaluate(`(() => {
+    const field = document.createElement('textarea'); field.id = 'editing'; field.value = 'ab';
+    document.getElementById('exact-root').append(field); field.focus(); field.setSelectionRange(1, 1);
+    window.seen = [];
+    rt.onBeforeInput(field, 'beforeinput', e => { seen.push(e); rt.Hosts.preventDefault(); }, (name, f) => field.addEventListener(name, f));
+  })()`);
+  await call('Input.insertText', { text: 'X' });
+  expect(await evaluate('document.getElementById("editing").value')).toBe('ab');
+  expect(await evaluate('seen[0].slice(5)')).toEqual(['insertText', 'X', true, false]);
+  expect(await evaluate(`(() => {
+    const event = new InputEvent('beforeinput', { inputType: 'insertCompositionText', data: 'あ', isComposing: true, cancelable: false });
+    document.getElementById('editing').dispatchEvent(event); return [event.defaultPrevented, seen.at(-1).slice(5)];
+  })()`)).toEqual([false, ['insertCompositionText', 'あ', false, true]]);
+}));
+
+check('Chrome paste cancellation and undo report their real input types', () => inChrome(async (evaluate, call) => {
+  const origin = await evaluate('location.origin');
+  await call('Browser.grantPermissions', { origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
+  await evaluate(`(async () => {
+    const field = document.createElement('textarea'); field.id = 'history'; field.value = 'ab';
+    document.getElementById('exact-root').append(field); field.focus(); field.setSelectionRange(1, 1);
+    window.seen = [];
+    rt.onBeforeInput(field, 'beforeinput', e => { seen.push(['before', ...e.slice(5)]); if (e[5] === 'insertFromPaste') rt.Hosts.preventDefault(); }, (name, f) => field.addEventListener(name, f));
+    rt.onValue(field, 'input', (v, e) => seen.push(['input', ...e.slice(5)]), (name, f) => field.addEventListener(name, f));
+    await navigator.clipboard.writeText('PASTE');
+  })()`);
+  await call('Input.insertText', { text: 'X' });
+  await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'v', code: 'KeyV', modifiers: 4, commands: ['paste'] });
+  await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'v', code: 'KeyV' });
+  expect(await evaluate('document.getElementById("history").value')).toBe('aXb');
+  expect(await evaluate('seen.at(-1)')).toEqual(['before', 'insertFromPaste', 'PASTE', true, false]);
+  await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'z', code: 'KeyZ', modifiers: 4, commands: ['undo'] });
+  await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'z', code: 'KeyZ' });
+  expect(await evaluate('document.getElementById("history").value')).toBe('ab');
+  expect(await evaluate('seen.slice(-2)')).toEqual([
+    ['before', 'historyUndo', null, true, false], ['input', 'historyUndo', null, false, false],
+  ]);
+}));

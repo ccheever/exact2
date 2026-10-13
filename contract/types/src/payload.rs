@@ -93,7 +93,11 @@ pub fn handler_arity_message(
     };
     // The event's record, the action's to take or leave
     // (`event_record`).
-    let record = crate::event_record(event);
+    let record = if event == "selectionchange" && control == Some("field") {
+        Some("InputEvent")
+    } else {
+        crate::event_record(event)
+    };
     let calls = match (quoted.is_empty(), &then) {
         (true, None) => format!("{site} calls `{name}` with nothing"),
         (true, Some(then)) => format!("{site} calls `{name}` with {then}"),

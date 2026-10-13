@@ -2576,7 +2576,11 @@ value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
 step. That input type also covers hatch replacements and browser spelling
 corrections, so it does not uniquely identify this command. `select` follows
 input only when the selection changes. URL inputs trim surrounding ASCII
-whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` and `beforeinput` are still unavailable.
+whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` reports caret moves through `InputEvent`, and
+`beforeinput` reports the proposed edit's `inputType` and optional `data`.
+Call `preventDefault()` to reject a cancelable edit; composition events
+are noncancelable. See the [form controls](contract-grammar.md#form-controls)
+section for host limits.
 See [form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange).
 
 Book typography is CSS's on every host. `text-align="justify"` fills all but

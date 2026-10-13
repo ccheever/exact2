@@ -26,7 +26,10 @@ impl<D: DataSource> Runner<D> {
         match (kind, value) {
             (
                 None,
-                ControlValue::Text(_) | ControlValue::Field(..) | ControlValue::Replacement(..),
+                ControlValue::Text(_)
+                | ControlValue::Field(..)
+                | ControlValue::Replacement(..)
+                | ControlValue::Edit(..),
             )
             | (Some(ControlKind::Checkbox | ControlKind::Switch), ControlValue::Checked(_))
             | (Some(ControlKind::File), ControlValue::Files(_)) => Ok(value.value()),

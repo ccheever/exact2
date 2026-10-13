@@ -34,7 +34,11 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("reachend", "`list`"),
     ("text-transform", "any tag but `input` and `textarea`"),
     ("transform", "SVG elements, including `svg` and SVG `text`"),
-    ("selectionchange", "`text`"),
+    (
+        "selectionchange",
+        "`text`, plain text `input` or `textarea`",
+    ),
+    ("beforeinput", "plain text `input` or `textarea`"),
     ("name", "`input type=\"radio\"`"),
     ("markup", "`text` or `textarea`"),
     // @ref LLP 1098 D1, D2 — the media session's, `media::check_session`.

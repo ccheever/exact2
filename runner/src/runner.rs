@@ -15,7 +15,7 @@ pub mod faults;
 mod field;
 mod fonts;
 pub mod foresee;
-pub use field::{FieldSelection, SelectionDirection};
+pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
 mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};

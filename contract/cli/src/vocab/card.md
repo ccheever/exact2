@@ -15,11 +15,11 @@ are checked against scripts/help.mjs.
 -->
 
 ## intro
-Exact card: what an app writes. `contract vocab <name> …` answers a name left out; `--all` lists every name.
+Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 ## functions
-at: at(list<T>, i) -> option<T>  (none past the end; -1 is the last)
-calendarDiff: (whole years or months between two YYYY-MM-DD dates)
+at: at(list<T>, i) -> option<T>  (none past end; -1 is last)
+calendarDiff: (whole years/months between YYYY-MM-DD dates)
 concat: concat(list<T>, list<T>) -> list<T>
 filter: filter(list<T>, x => bool) -> list<T>
 first: first(list<T>) -> option<T>
@@ -49,8 +49,8 @@ text | markup | selectionchange
 image | alt | load
 button | disabled buttonStyle destructive | press
 link | href | press
-input | value type inputmode min max step maxlength placeholder enterkeyhint autocomplete autocapitalize autofocus disabled readonly checked name accept multiple | input change submit
-textarea | value placeholder maxlength enterkeyhint | input change select
+input | value type inputmode min max step maxlength placeholder enterkeyhint autocomplete autocapitalize autofocus disabled readonly checked name accept multiple | input change submit select selectionchange beforeinput
+textarea | value placeholder maxlength enterkeyhint | input change select selectionchange beforeinput
 select | value disabled | change
 option | value
 progress | value max

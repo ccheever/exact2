@@ -246,6 +246,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("text-transform", "input", "text-transform=\"uppercase\""),
         ("transform", "view", "transform=\"scale(0.8)\""),
         ("selectionchange", "view", "selectionchange=done"),
+        ("beforeinput", "view", "beforeinput=done"),
         ("name", "view", "name=\"station\""),
         ("markup", "view", "markup=\"markdown\""),
         (

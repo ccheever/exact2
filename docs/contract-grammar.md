@@ -875,6 +875,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `FocusEvent` (the action takes it or leaves it) | `focusin`, `focusout`: `target` is the focused element's `id` (or `""`); `relatedTarget` is `some(id)` for the other element or `none` |
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
+| Zero or one `InputEvent` | `selectionchange` and `beforeinput`, on a plain text field |
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
 | None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
@@ -1239,9 +1240,13 @@ names — `value` (a checkbox's or a radio's own `value`, `on` when it has
 none; a range's number as text), `checked`, and a text field's
 `selectionStart`, `selectionEnd` (UTF-16 offsets into its value) and
 `selectionDirection` (`forward`, `backward` or `none`); a control without a
-text selection reports 0, 0 and `none`. `inputType` reports `insertReplacementText` for range replacements, hatch
-`input(text)`, and DOM edits carrying that type (such as browser spelling
-corrections); other input types currently report an empty string. After typing, the caret sits after
+text selection reports 0, 0 and `none`. `inputType` names the edit (for example
+`insertText`, `insertFromPaste`, `deleteContentBackward` or `historyUndo`).
+`data` is `option<string>`: inserted text, or `none` for deletion and history.
+`cancelable` and `isComposing` report whether the event can be canceled and
+whether it belongs to an IME composition. Events without edit metadata
+(`change`, `select`, `selectionchange`) report `""`, `none`, `false`, `false`.
+After typing, the caret sits after
 the typed text; the direction then is the platform's (Chrome's varies with
 the input), so test the offsets. A text field's `select` (an `input` that is
 no control, a `textarea` that is not the Markdown editor) is HTML's: it fires
@@ -1294,7 +1299,21 @@ hosts queue replacement selects after the action's commands and report the
 field's current value and selection at delivery. macOS Chrome resets direction
 to `none` on replacement; Apple follows it. URL inputs strip leading and trailing
 ASCII whitespace after removing CR/LF. Contract's
-field `selectionchange` and `beforeinput` remain unimplemented (issue #275).
+field `selectionchange` also reports collapsed caret moves through an optional
+`InputEvent`, independently of a reader's `Selection`. It is queued and
+coalesced per field, and reads the current value and selection at delivery.
+
+`beforeinput=action` takes an optional `InputEvent` describing the old value
+and selection and the proposed `inputType` and `data`. `preventDefault()`
+keeps a cancelable edit from changing the field. A subsequent `input`
+describes the applied edit and is noncancelable. IME composition edits are
+noncancelable; `preventDefault()` cannot interrupt them. `setRangeText`
+continues to emit only its recorded extra input, without beforeinput.
+The web forwards the browser's metadata. AppKit and Linux intercept ordinary
+field edits and paste before applying them; AppKit's undo/redo responder
+commands are cancelable too. UIKit's delegate observes ordinary edits,
+but undo operations that bypass its delegate remain a host limit. Linux
+has no native field undo history. These events exclude Markdown editors.
 
 ```text
 action edited(text: string, e: InputEvent)

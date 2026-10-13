@@ -912,7 +912,7 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
-        if tag != "text" && a.name == "selectionchange" {
+        if !matches!(tag, "text" | "input" | "textarea") && a.name == "selectionchange" {
             return err(
                 "lower-attr-tag",
                 format!("`selectionchange` belongs to `text`: it reports the part of the reader's text selection inside one paragraph, not `{tag}`"),

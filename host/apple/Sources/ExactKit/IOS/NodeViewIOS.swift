@@ -1035,6 +1035,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateMaterial()
         applyTextArea()
         if let f = field {
+            #if os(iOS)
+            f.pasteDelegate = FieldSelections.tracks(self) ? self : nil
+            #endif
             f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
             if let v = props["value"] { writeValue(v, into: f) }

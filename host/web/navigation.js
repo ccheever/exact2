@@ -1117,14 +1117,13 @@ export function setFieldRangeText(el, args, log) {
   catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
   el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
 }
-// LLP 1069.001 D4: `dispatch(kind, payload)` carries a checkbox (25, 24), radio (23, 1), field's selection
-// then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
-// decides, and one that refuses snaps a checkbox or a radio group back.
+// Edit data is length-prefixed in UTF-8; commas and newlines are valid text.
+function inputPayload(el, e) { return `${e.inputType ?? ""},${+e.cancelable},${+!!e.isComposing},${e.data == null ? -1 : new TextEncoder().encode(e.data).length},${e.data ?? ""}${fieldSelection(el)}${el.value}`; }
 export function controlEvent(el, kind, on, dispatch) {
-  if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
+  if (kind === "select" || kind === "selectionchange") return void (textField(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
+  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
   if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
-  // HTML's `change`: a text field's value committed, on blur or Enter.
   if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });
   on("input", (e) => {
     const value = el.value;
@@ -1135,7 +1134,7 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? (e.inputType === "insertReplacementText" ? 48 : 40) : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+    dispatch(textField(el) ? 54 : 23, textField(el) ? inputPayload(el, e) : value); settleValue(el, true);
   });
 }
 // D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then

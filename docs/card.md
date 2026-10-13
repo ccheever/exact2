@@ -1,9 +1,9 @@
-Exact card: what an app writes. `contract vocab <name> …` answers a name left out; `--all` lists every name.
+Exact card. Look up: `contract vocab <name> …`; list: `--all`.
 
 functions: call -> result
-  at(list<T>, i) -> option<T>  (none past the end; -1 is the last)
+  at(list<T>, i) -> option<T>  (none past end; -1 is last)
   back(router) -> Router
-  calendarDiff(from, to, "years" or "months") -> option<number>  (whole years or months between two YYYY-MM-DD dates)
+  calendarDiff(from, to, "years" or "months") -> option<number>  (whole years/months between YYYY-MM-DD dates)
   ceil(n) -> number
   concat(list<T>, list<T>) -> list<T>
   depth(router) -> number
@@ -59,8 +59,8 @@ tags: attributes; on events. Every tag takes CSS's style attributes (flex gap pa
   image "…": alt; on load
   button: disabled buttonStyle destructive; on press
   link: href; on press
-  input: value type inputmode min max step maxlength placeholder enterkeyhint autocomplete autocapitalize autofocus disabled readonly checked name accept multiple; on input change submit
-  textarea: value placeholder maxlength enterkeyhint; on input change select
+  input: value type inputmode min max step maxlength placeholder enterkeyhint autocomplete autocapitalize autofocus disabled readonly checked name accept multiple; on input change submit select selectionchange beforeinput
+  textarea: value placeholder maxlength enterkeyhint; on input change select selectionchange beforeinput
   select: value disabled; on change
   option "…": value
   progress: value max
