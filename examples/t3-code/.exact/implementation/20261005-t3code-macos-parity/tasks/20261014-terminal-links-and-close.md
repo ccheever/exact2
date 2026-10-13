@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-links-and-close
-pr_url:
+pr_url: https://github.com/ccheever/exact2/pull/531
 verified_commit:
 ---
 
@@ -191,4 +191,4 @@ On the final head's code (`1e4513680`; the later commits change only this record
 
 ## Next action
 
-The coordinator reviews and merges the draft PR, then runs the real-input batch steps.
+The coordinator reviews and merges draft PR #531, then runs the real-input batch steps.
