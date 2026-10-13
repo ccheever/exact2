@@ -891,8 +891,12 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
     observer on the list's last row, as the virtualized one has.
   - **A dynamic exit animation fails the web build only** (`exit-animation=(reduced ? "none" :
     "…")`: "a dynamic `exit_animation` is not one declaration", `host/web-js/src/style.rs`). iOS
-    builds it and `contract build` says nothing. First, cheap: `contract build` should report what
-    the JS target will refuse, so the author hears it at compile time; then the dynamic declaration.
+    builds it and `contract build` says nothing. Reporting it at compile time is not cheap
+    (x2-perf3, 2026-10-13): the JS target's refusals are spread through `host/web-js` (emit.rs,
+    rows.rs, style.rs), and `exact-web-js` depends on the `contract` package, so `contract build`
+    cannot run its emitter. Either the `contract` binary moves to a package of its own that depends
+    on both (scripts name `cargo run -p contract --bin contract`), or the refusals become one
+    registry in `contract` that the emitter reads. Then the dynamic declaration.
   - **Contract tests:** `back` reports "back refused" on a sheet over a sheet while the route does
     pop; a test can't fake a data source, or open a URL.
   - **Vocabulary:** no vertical scroll snap (the clone hand-built a pager); no direction hand-off
@@ -900,13 +904,24 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
     can't hold an inline badge (already in Charlie's asks).
 - **More gaps from the clone's workers** (bsky5, b32–b33, 2026-10-12), as reported; the
   first three look like small bugs:
-  - **`autofocus=false` still focuses the field on the web.**
-  - **The dev server answers 404 for a deep link whose last path segment has a dot** (it is taken
-    for a file).
-  - **A disabled button on the web is dimmed on top of the app's own disabled colours.**
+  - **A disabled button on the web is dimmed on top of the app's own disabled colours.** Not a
+    bug but LLP 1115.000 D6 on every host: a disabled custom pressable dims to half (the web's
+    `index.html` rule; the Mac's `syncDisabledLook`), and an authored `opacity` already wins on the
+    web. An app that draws its own disabled state gets both. Needs a ruling (x2-perf3, 2026-10-13):
+    an opt-out such as `-exact-disabled-look: none`, or no dim on a node whose fill or ink reads its
+    own `disabled` condition, which the compiler can tell.
   - Toasts have no warning style; a child component can't hold a resource; `agent` can't hold a
     fetch, so loading states can't be staged; no leftward swipe (`swiperight` only); no `exp`
     function; no hit slop.
+- **A dotted deep link whose last label is a file extension** (2026-10-13): the web servers
+  answer a navigation to `/profile/jay.bsky.team` with the app's document, but `/profile/photos.zip`
+  (`.zip` is a TLD) is taken for a missing file (`FILE_EXTENSIONS`, `scripts/origin.mjs`). Telling
+  them apart needs the app's routes on the server: answer the document when the path matches a
+  declared route template. External static hosts need their own rewrite either way.
+- **macOS `scrollend` and trackpad momentum, unverified** (2026-10-13): `ScrollEndMac.swift` ends a
+  live scroll at `NSScrollView.didEndLiveScrollNotification`, taken to come after the momentum
+  (Apple's older AppKit release notes say live scrolling covers it); the tests post the notification
+  themselves. Check with a real trackpad fling: one `scrollend`, after the coast.
 - **iOS long-press on an inline text run** (bsky5): a menu on a run inside a paragraph (a hashtag:
   See #tag posts, Mute #tag) acts as a tap. `NodeViewIOS.updateContextGestures` gives a long-press
   recognizer to node views only; runs get a menu on macOS (X77) and on the web.
