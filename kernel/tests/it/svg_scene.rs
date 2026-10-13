@@ -8,6 +8,9 @@ use exact_kernel::{
     Kernel, NodeType, Offer, Op, PropId, PropValue, StyleId, StyleProps, StyleValue,
 };
 
+#[path = "svg_scene/lengths.rs"]
+mod lengths;
+
 fn style(id: u32, rows: &[(StyleId, &str)]) -> Op {
     let mut patch = StyleProps::default();
     for (row, value) in rows {

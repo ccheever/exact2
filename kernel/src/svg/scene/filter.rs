@@ -701,10 +701,15 @@ impl Resolver<'_, '_> {
             let sub = {
                 let b = bx.unwrap_or((0.0, 0.0, 1.0, 1.0));
                 let len = |s: StyleId, d: Dimension, basis: f32, bo: f32, bs: f32| {
-                    p.style.mask.has(s).then(|| match (pobb, d) {
-                        (true, Dimension::Percent(v)) => bo + v / 100.0 * bs,
-                        (true, d) => bo + vp.resolve(d, 1.0) * bs,
-                        (false, d) => vp.resolve(d, basis),
+                    if !p.style.mask.has(s) {
+                        return None;
+                    }
+                    vp.resolve(d, if pobb { 1.0 } else { basis }).map(|v| {
+                        if pobb {
+                            bo + v * bs
+                        } else {
+                            v
+                        }
                     })
                 };
                 let x = len(StyleId::X, p.style.x, vp.width, b.0, b.2).unwrap_or(region.0);

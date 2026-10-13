@@ -801,16 +801,7 @@ impl Resolver<'_, '_> {
             target.node_type,
             NodeType::SvgSymbol | NodeType::SvgViewport | NodeType::Svg
         ) {
-            let size = |d: Dimension, basis: f32| match d {
-                Dimension::Auto => basis,
-                d => vp.resolve(d, basis),
-            };
-            let rect = (
-                x,
-                y,
-                size(style.width, vp.width).max(0.0),
-                size(style.height, vp.height).max(0.0),
-            );
+            let rect = viewport_rect(style, vp);
             let tstyle = cascade(&target, style);
             let vb = view_box(target.props);
             let view = view_box_transform(
@@ -923,15 +914,15 @@ impl Resolver<'_, '_> {
 /// A nested `svg`'s rect: `x`, `y`, and `width`/`height` whose `auto` is
 /// 100% (SVG 2 §8.2).
 fn viewport_rect(style: &StyleProps, vp: Viewport) -> (f32, f32, f32, f32) {
-    let size = |d: Dimension, basis: f32| match d {
-        Dimension::Auto => basis,
-        d => vp.resolve(d, basis),
-    };
     (
         vp.x(style.x),
         vp.y(style.y),
-        size(style.width, vp.width).max(0.0),
-        size(style.height, vp.height).max(0.0),
+        vp.resolve(style.width, vp.width)
+            .unwrap_or(vp.width)
+            .max(0.0),
+        vp.resolve(style.height, vp.height)
+            .unwrap_or(vp.height)
+            .max(0.0),
     )
 }
 

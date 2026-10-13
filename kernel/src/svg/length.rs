@@ -92,30 +92,33 @@ impl Viewport<'_> {
 
     /// A dimension row on the horizontal axis (`x`, `cx`, `width`, `rx`).
     pub fn x(&self, d: Dimension) -> f32 {
-        self.resolve(d, self.width)
+        self.resolve(d, self.width).unwrap_or(0.0)
     }
 
     /// A dimension row on the vertical axis (`y`, `cy`, `height`, `ry`).
     pub fn y(&self, d: Dimension) -> f32 {
-        self.resolve(d, self.height)
+        self.resolve(d, self.height).unwrap_or(0.0)
     }
 
     /// A dimension row on the diagonal (`r`).
     pub fn d(&self, d: Dimension) -> f32 {
-        self.resolve(d, self.diagonal())
+        self.resolve(d, self.diagonal()).unwrap_or(0.0)
     }
 
     /// A coordinate, or its default fraction, in user or object bounding box units.
     pub(super) fn coord(&self, d: Option<Dimension>, default: f32, basis: f32) -> f32 {
-        match d.map(|d| d.resolve(self.env)) {
-            None | Some(Dimension::Auto) => default * basis,
-            Some(d) => self.resolve(d, basis),
-        }
+        d.and_then(|d| self.resolve(d, basis))
+            .unwrap_or(default * basis)
     }
 
     /// A CSS length in user units, with percentages against the SVG basis.
-    pub fn resolve(&self, d: Dimension, basis: f32) -> f32 {
-        d.at_basis(self.env, basis)
+    /// `None` preserves `auto`, including an undefined environment length,
+    /// so the reader can apply the property's initial value.
+    pub fn resolve(&self, d: Dimension, basis: f32) -> Option<f32> {
+        match d.resolve(self.env) {
+            Dimension::Auto => None,
+            d => Some(d.at_basis(self.env, basis)),
+        }
     }
 }
 
