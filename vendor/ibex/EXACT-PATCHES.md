@@ -69,7 +69,11 @@ maxBytes})` resolving to `{path, type, size, width, height}`, as Exact's docs
 give it, and Exact's prelude (`js/src/prelude.js`) adapts that to upstream's
 positional binding (`compressImage(from, to, maxDimension, maxBytes)`, replying
 `width\theight\tsize`). The October 13 refresh replaced the declaration with
-the positional form; `contract/cli/tests/it/typescript.rs` now pins it.
+the positional form; `contract/cli/tests/it/typescript.rs` now pins it. A local
+patch in `stdlib/fs_image.rs` keeps the codes apps branch on: a source over the
+read cap is `compressImage: too-large:` (not the generic result limit), and a
+trial deadline that expires, in the source read or before publication, is
+`compressImage: timeout:` (`data/host/src/tests.rs` covers `too-large`).
 
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.

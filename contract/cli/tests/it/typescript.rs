@@ -145,9 +145,13 @@ fn compress_image_is_declared_as_the_docs_give_it() {
         "readonly type: \"image/jpeg\";",
         "readonly width: number;",
         "readonly height: number;",
+        "readonly size: number;",
+        "readonly path: string;",
     ] {
         assert!(declared.contains(line), "storage.d.ts lost `{line}`");
     }
+    // The engine's positional binding is the prelude's to adapt, never the app's.
+    assert!(!declared.contains("compressImage(from: string, to: string, maxDimension"));
     let reference = include_str!("../../../../docs/reference.md");
     assert!(reference.contains("`storage.fs.compressImage(from, to, {maxDimension, maxBytes})`"));
 }

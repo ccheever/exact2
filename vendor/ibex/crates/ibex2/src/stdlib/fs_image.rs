@@ -216,7 +216,8 @@ impl WorkHandle {
         }
         if Instant::now() >= deadline {
             record.state = WorkState::Abandoned;
-            record.outcome = Some(Err(failed("deadline expired before publication")));
+            // Exact: the `timeout` code apps branch on (exact2 LLP 1069.002 A1).
+            record.outcome = Some(Err(failed("timeout: deadline expired before publication")));
             return false;
         }
         record.state = WorkState::CommitStarted;
@@ -376,8 +377,11 @@ impl WorkControl {
     }
     /// Call BEFORE starting every decode/encode trial and between long-running chunks.
     pub fn check(&self) -> Result<(), HostError> {
-        if self.canceled() || Instant::now() >= self.deadline {
-            Err(failed("work abandoned or trial deadline expired"))
+        if self.canceled() {
+            Err(failed("work abandoned"))
+        } else if Instant::now() >= self.deadline {
+            // Exact: the `timeout` code apps branch on (exact2 LLP 1069.002 A1).
+            Err(failed("timeout: the trial deadline expired"))
         } else {
             Ok(())
         }
@@ -495,11 +499,22 @@ impl ImageJob {
         control.check()?;
         // Pin the destination parent before provider work; no later namespace lookup retargets it.
         let target = self.directories.prepare_atomic(&self.grants, &self.to)?;
-        let source =
-            self.directories
-                .read_bounded(&self.grants, &self.from, MAX_SOURCE_BYTES, &|| {
-                    control.check().is_err()
-                })?;
+        // Exact: a source over the read cap is the `too-large` the codec would
+        // say of it (exact2 LLP 1069.002 A1), not the generic result limit.
+        let source = self
+            .directories
+            .read_bounded(&self.grants, &self.from, MAX_SOURCE_BYTES, &|| {
+                control.check().is_err()
+            })
+            .map_err(|e| {
+                if e.to_string().contains(crate::stdlib::fs::RESULT_LIMIT) {
+                    failed("too-large: the source is over 64 MiB")
+                } else if !control.canceled() && Instant::now() >= control.deadline {
+                    failed("timeout: the source read ran past the trial deadline")
+                } else {
+                    e
+                }
+            })?;
         control.check()?;
         let image = self
             .service

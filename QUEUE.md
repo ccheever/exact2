@@ -848,6 +848,10 @@ sits on that list carries the trade it would take.
   live scroll at `NSScrollView.didEndLiveScrollNotification`, taken to come after the momentum
   (AppKit's 10.9 notes say it waits for an animation such as rubber banding, and do not name
   momentum); the tests post the notification themselves. Check with a real trackpad fling: one `scrollend`, after the coast.
+- **Selected-document `readdir` and `mkdir` codes on native** (2026-10-13, from the
+  compressImage review): since the Ibex refresh (f31c6e2ba), `readdir` and `mkdir` on a chosen
+  *file* answer `PermissionDenied` (the prelude's `failed`) where they answered `ENOTDIR` and
+  `EEXIST`, which the web still does (`vendor/ibex/crates/ibex2/src/stdlib/documents.rs`).
 - **iOS long-press on an inline text run** (bsky5): a menu on a run inside a paragraph (a hashtag:
   See #tag posts, Mute #tag) acts as a tap. `NodeViewIOS.updateContextGestures` gives a long-press
   recognizer to node views only; runs get a menu on macOS (X77) and on the web.

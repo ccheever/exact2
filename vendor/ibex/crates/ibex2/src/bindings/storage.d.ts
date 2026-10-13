@@ -29,11 +29,9 @@ export interface FileSystem {
    * Orientation is applied and no metadata is written. Needs `fs.read` on
    * `from` and `fs.write` on `to`, both `app:/` paths. Rejects with a
    * `TypeError` for a bad option, else with `code` `unsupported` (no codec
-   * on this host), `undecodable`, `too-large` (over 64 MiB or 64 Mi pixels),
-   * `unfit` (nothing fits) or `timeout` (20 s), or a filesystem code. The
-   * embedder's runtime adapts this to the engine's own positional binding
-   * (`compressImage(from, to, maxDimension, maxBytes)`, which replies
-   * `width\theight\tsize`; exact2's `js/src/prelude.js`), so apps never see it. */
+   * on this host), `undecodable`, `too-large` (over 64 MiB, 64 Mi pixels,
+   * or more decoding memory than the host allows), `unfit` (nothing fits) or
+   * `timeout` (20 s), or a filesystem code. */
   compressImage(from: string, to: string, options: CompressImageOptions): Promise<CompressedImage>;
 }
 

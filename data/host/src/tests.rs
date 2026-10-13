@@ -1027,6 +1027,19 @@ fn compress_image_answers_a_rust_source_as_typescripts() {
         )
         .unwrap_err();
         assert!(err.starts_with("compressImage: unfit: "), "{err}");
+        // A source over 64 MiB is the documented `too-large`, not the
+        // generic result limit its bounded read hits first.
+        let big = std::fs::File::create(paths.0.join("data/in/big.jpg")).unwrap();
+        big.set_len(64 * 1024 * 1024 + 1).unwrap();
+        let err = run(
+            &mut host,
+            storage::request(
+                "fs.compressImage",
+                json!({"path":"app:/data/in/big.jpg","destination":"app:/data/big-out.jpg","maxDimension":32,"maxBytes":2_000_000}),
+            ),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("compressImage: too-large: "), "{err}");
     } else {
         assert_eq!(
             result.unwrap_err(),
