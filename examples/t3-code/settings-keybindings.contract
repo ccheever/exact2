@@ -305,7 +305,7 @@ component WhenEditor
             LucideCircleX(size=14, color="light-dark(#dc2626, #f87171)")
             text view.error font-size="0.6875rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" testId="when-error"
       when length(view.lines) == 0 and view.error == ""
-        row gap="0.5rem" padding="0.75rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff1f)" background-color="light-dark(#f4f4f526, #ffffff05)"
+        row gap="0.5rem" padding="0.75rem" border-radius="0.5rem" border-style="dashed" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff1f)" background-color="light-dark(#f4f4f526, #ffffff05)"
           button press=setWhen(view.addRootCondition) class=KbCompact background-color="light-dark(#1b4ed8, #346bf1)" border-width=0
             LucidePlus(size=14, color="#ffffff")
             text "Condition" font-size="0.75rem" font-weight=500 color="#ffffff"
