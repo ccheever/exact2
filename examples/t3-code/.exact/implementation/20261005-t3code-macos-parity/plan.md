@@ -308,15 +308,19 @@ the verify-1011c groups and those tasks' rows: 141 rows, 70 passed, 29 failed, 2
 reachable, 1 not filmable, 4 other. Its failures and part passes are in `STATUS.md` "Known differences" (the user's
 rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`), which main PR #519 (opened
 2026-10-13, merged as `b49c56029`) files as `issues/closed/20261013-macos-a-click-after-a-node.md` and fixes.
-[adopt-main-fixes-r12](tasks/20261013-adopt-main-fixes-r12.md) (draft PR [#520](https://github.com/ccheever/exact2/pull/520)) adopts main `46f300937`, then `96ea7d177`, `ffe36f63a`, `aa9705c33`, `169ea1efb` and `0b956d63d`, with #519: agent mode
+[adopt-main-fixes-r12](tasks/20261013-adopt-main-fixes-r12.md) ([#520](https://github.com/ccheever/exact2/pull/520), merged 2026-10-13 by fast-forward as `9149492d4`) adopts main `46f300937`, then `96ea7d177`, `ffe36f63a`, `aa9705c33`, `169ea1efb` and `0b956d63d`, with #519: agent mode
 reproduces the crash's mechanism on the T3 tip's bundle and not on round 12's, and finds another framework crash of the
-same pattern (X87, main `3998e650e`: a press held on a scroller's empty area); the four rows wait for real input. It
+same pattern (X87, main `3998e650e`: a press held on a scroller's empty area; main fixed it by #523); the four rows wait for real input. It
 opts the clone's lists and popovers out of the Mac's table and `NSPopover` (LLP 1115.002 D5, D7.3) to keep the
 reference's look, retires X70's disabled pill, the "+N" toggle's solid underline and five solid boxes the reference draws
 dashed, and lists the other workarounds main's fixes since round 11 end (`EXACT2-GAPS.md` "Closed on main since round 11"),
 which the follow-up [r12-kept-workarounds](tasks/20261013-r12-kept-workarounds.md) holds (planned; Inspect app colors among
 them, now that main closed #321). The held tasks below can resume
 once it merges: main fixed X48 and X69 on 2026-10-12 (`eaf48e05c`, `afe11ead5`).
+[adopt-main-fixes-r13](tasks/20261014-adopt-main-fixes-r13.md) adopts main `898ca3a09` with #523 (`issues/closed/20261013-macos-a-press-held-on-a.md`):
+X87 is fixed (round 12's agent trigger aborts the T3 tip's bundle and runs on round 13's, as the reference); main's
+other commits since `0b956d63d` (Ibex's consumer adoption, the sticky-target intersection fix) end no clone workaround,
+so nothing is retired and r12-kept-workarounds stands.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
