@@ -3,11 +3,11 @@ name: 20261014-adopt-main-fixes-r14
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: passed
-delivery: none
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r14
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/549
 verified_commit: b40d3c08dd748bf05ef44a5c124b5232cb45f1ab
 ---
 
@@ -139,7 +139,7 @@ scrolling, real IME, pointer cursors or VoiceOver speech.
 | Final Contract plan | Pass: 28,103,415 bytes, 15.6% below the original feature baseline |
 | Native bundle/smoke | Build passed in 309.85 seconds; all ten connected smoke captures completed, with inspected screenshots and unchanged dirty Git state |
 | Remote first-wave merge | All eleven PRs confirmed merged by GitHub; feature checkpoint `1e3152209` |
-| Remote adoption merge | Pending publication |
+| Remote adoption merge | Published as draft [#549](https://github.com/ccheever/exact2/pull/549); merge pending |
 
 ## Attempts and evidence
 
@@ -160,7 +160,7 @@ branch. Durable proof is published in the [combined packet](https://github.com/c
 
 ## Next action
 
-Publish this verified adoption as a PR against the first-wave feature checkpoint.
+Merge verified adoption PR [#549](https://github.com/ccheever/exact2/pull/549) against the first-wave feature checkpoint.
 Merge by fast-forward or a real merge so main remains an ancestor. Keep the separate
 real-input parity rows open while the desktop is locked.
 
@@ -183,3 +183,7 @@ that provenance without changing application source or requiring a rebuild.
 
 This closes the bounded adoption task. It does not close the first-wave task matrices or
 claim real IME, VoiceOver, pointer, smooth-motion or authenticated-service acceptance.
+
+After evidence capture, the retained temporary driver received `stop`. Bun reported an
+EIO while its input closed. The recorded app PID was gone and port 16844 had no listener;
+fixture shutdown completed. This cleanup diagnostic did not affect the completed drive.
