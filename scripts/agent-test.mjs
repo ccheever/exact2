@@ -2,7 +2,7 @@
 // turns a file's `test` blocks into steps, and this drives them through the
 // session the operations use (`agent.mjs`'s `open`). `agent.mjs` re-exports it.
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -220,6 +220,17 @@ export function sweepTestStores(base, storage) {
   const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
   for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
 }
+/** `"backend"` follows the app's single net.fetch origin at test runtime. Literal prefixes stay literal. */
+export function backendFetchPrefixes(tests, origins) {
+  const unique = [...new Set(origins.map(o => o.replace(/\/+$/, '')))];
+  for (const t of tests) for (const step of t.steps) {
+    if (!['fail-fetch', 'pass-fetch'].includes(step.op) || step.prefix !== 'backend') continue;
+    if (unique.length !== 1) throw new Error(`line ${step.line}: fetch "backend" needs exactly one net.fetch origin; found ${unique.length}. Use a literal URL for a multi-backend app.`);
+    step.prefix = unique[0];
+  }
+  return tests;
+}
+
 /** Each mutation whose reply was refused, and why, from the journal line both runners write when they let its request
  * go (`request N (name) failed and is no longer pending: <it ends unsent | it is not retried>: <why>`). A mutation has no
  * `state.failed`: its slot keeps what it had and its `then` never runs, so this is the only place the reason is said
@@ -316,7 +327,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  const tests = JSON.parse(c.stdout);
+  // Native runs use the scaffold's same declared origin when no web admission file exists.
+  const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
+  const tests = backendFetchPrefixes(JSON.parse(c.stdout), granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
+  if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };

@@ -501,7 +501,7 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     const ts = readFileSync(resolve(dir, 'app.ts'), 'utf8'), tests = readFileSync(resolve(dir, 'app.test.contract'), 'utf8');
     assert.match(ts, /const origin = 'http:\/\/127\.0\.0\.1:4410';[^]*net\.fetch \$\{origin\}\\nsqlite\.open app:\/data/);
     assert.ok(ts.includes(`export const appId = '${manifest().app.id}'`));
-    assert.match(tests, /^fresh\nepoch now$[^]*fail fetch "http:\/\/127\.0\.0\.1:4410"/m);
+    assert.match(tests, /^fresh\nepoch now$[^]*fail fetch "backend"/m);
     const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
     assert.match(view, /failure\(board\)[^]*f\.reason/);
     assert.match(view, /resource board = notes\(persona, time.epochAtZero \+ sampledAt\)/);
@@ -512,7 +512,10 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     writeFileSync(resolve(parent, 'snapback/schema.q'), 'use personas carol\n');
     mkdirSync(resolve(parent, 'node_modules/.bin'), { recursive: true });
     writeFileSync(resolve(parent, 'node_modules/.bin/snapback4'), '#!/bin/sh\n[ "$1" = check ] && mkdir -p snapback/generated && echo "export const api = {};" > snapback/generated/api.ts\n');
-    spawnSync('chmod', ['+x', resolve(parent, 'node_modules/.bin/snapback4')]);
+    mkdirSync(resolve(parent, 'node_modules/snapback4/bin'), {recursive: true});
+    writeFileSync(resolve(parent, 'node_modules/snapback4/bin/snapback4.js'), `import {mkdirSync, writeFileSync} from 'node:fs';
+mkdirSync('snapback/generated', {recursive: true});
+writeFileSync('snapback/generated/api.ts', 'export const api = {};');`);
     assert.match(wireSnapback(dir, { build: false }), /snapback4 check: wrote/);
     assert.equal(manifest().typescript.sources.backend, '../snapback/generated');
     assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
@@ -521,7 +524,7 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     writeFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'fail fetch "http://127.0.0.1:4410/sync"\n');
     assert.match(wireSnapback(dir, { build: false, port: 4411 }), /dev --port 4411/);
     assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4411'/);
-    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "http:\/\/127\.0\.0\.1:4411"/);
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "backend"/);
     assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4411\/sync/);
     assert.ok(readFileSync(resolve(dir, 'app.ts'), 'utf8').includes('net.fetch http://127.0.0.1:44100'));
     const portSource = resolve(dir, 'app.ts');
@@ -532,7 +535,7 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     assert.equal(statSync(portSource).mtimeMs, mtime);
     wireSnapback(dir, {build: false, port: 4412});
     assert.equal(readFileSync(portSource, 'utf8'), unchanged.replaceAll('http://127.0.0.1:4411', 'http://127.0.0.1:4412'));
-    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "http:\/\/127\.0\.0\.1:4412"/);
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "backend"/);
     assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4412\/sync/);
     assert.throws(() => wireSnapback(dir, { build: false, port: 'x' }), /is not a port/);
     const custom = resolve(parent, 'custom');
@@ -589,3 +592,68 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     assert.match(readFileSync(resolve(plain, 'AGENTS.md'), 'utf8'), /exact new <path> --snapback[^]*bun exact\.mjs snapback/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 90_000); // Three offline Cargo resolutions.
+
+
+test('the online scaffold calls existing generated query/mutation handles and preserves authored apps', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-online-'));
+  try {
+    mkdirSync(resolve(parent, 'snapback/generated'), {recursive: true});
+    writeFileSync(resolve(parent, 'snapback/schema.q'), 'use personas carol\n');
+    writeFileSync(resolve(parent, 'snapback/generated/api.ts'), `export const api: Ops = {
+  search: { kind: "query", name: "search" },
+  create: { kind: "mutation", name: "create" },
+};`);
+    const dir = resolve(parent, 'explorer');
+    createApp(dir, {snapback: {online: true, build: false, port: 30126}});
+    const source = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    assert.match(source, /db.read\(api.search, args\)/);
+    assert.match(source, /db.send\(api.create, args\)/);
+    assert.match(source, /ArgsOf<typeof api.create>/);
+    assert.match(source, /'x-snapback-persona': "carol"/);
+    assert.ok(!source.includes('sqlite.open'));
+    const changed = source + '\n// authored fields follow\n';
+    writeFileSync(resolve(dir, 'app.ts'), changed);
+    wireSnapback(dir, {online: true, build: false});
+    assert.equal(readFileSync(resolve(dir, 'app.ts'), 'utf8'), changed);
+    const edited = resolve(parent, 'edited'); createApp(edited);
+    const custom = readFileSync(resolve(edited, 'app.ts'), 'utf8') + '\n// my app source\n';
+    writeFileSync(resolve(edited, 'app.ts'), custom);
+    wireSnapback(edited, {online: true, build: false});
+    assert.equal(readFileSync(resolve(edited, 'app.ts'), 'utf8'), custom);
+    const plain = resolve(parent, 'plain'); createApp(plain);
+    wireSnapback(plain, {online: true, build: false, port: 30126});
+    assert.match(readFileSync(resolve(plain, 'app.ts'), 'utf8'), /db.send\(api.create, args\)/);
+  } finally {rmSync(parent, {recursive: true, force: true});}
+});
+
+test('launchers and generated own commands find pinned Bun with an old PATH', () => {
+  const old = resolve(process.env.HOME, '.bun/bin/bun');
+  if (!existsSync(old)) return;
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-bun-'));
+  try {
+    const dir = resolve(parent, 'pinned'); createApp(dir);
+    const manifestPath = resolve(dir, 'app.json'), manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.commands = {runtime: ['bun', 'runtime.mjs']};
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(resolve(dir, 'runtime.mjs'), 'console.log(JSON.stringify({version:process.versions.bun,bun:process.env.BUN,path:Bun.which("bun")}));');
+    for (const explicit of [false, true]) {
+      const directEnv = {...process.env, PATH: '/usr/bin:/bin'};
+      if (explicit) directEnv.BUN = process.execPath; else delete directEnv.BUN;
+      const direct = spawnSync(resolve(dir, 'exact.mjs'), ['runtime'], {env: directEnv, encoding: 'utf8'});
+      assert.equal(direct.status, 0, direct.stderr);
+      assert.equal(JSON.parse(direct.stdout).version, process.versions.bun);
+      const rootDirect = spawnSync(resolve(import.meta.dirname, '../scripts/exact.mjs'), ['list'], {env: directEnv, encoding: 'utf8'});
+      assert.equal(rootDirect.status, 0, rootDirect.stderr);
+      const env = {...process.env, PATH: `${resolve(process.env.HOME, '.bun/bin')}:/usr/bin:/bin`};
+      if (explicit) env.BUN = process.execPath; else delete env.BUN;
+      const run = spawnSync(old, [resolve(dir, 'exact.mjs'), 'runtime'], {env, encoding: 'utf8'});
+      assert.equal(run.status, 0, run.stderr);
+      const observed = JSON.parse(run.stdout);
+      assert.equal(observed.version, process.versions.bun);
+      assert.equal(realpathSync(observed.bun), realpathSync(process.execPath));
+      assert.equal(realpathSync(observed.path), realpathSync(process.execPath));
+      const root = spawnSync(old, [resolve(import.meta.dirname, '../scripts/exact.mjs'), 'list'], {env, encoding: 'utf8'});
+      assert.equal(root.status, 0, root.stderr);
+    }
+  } finally {rmSync(parent, {recursive: true, force: true});}
+});

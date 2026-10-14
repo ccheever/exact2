@@ -29,7 +29,7 @@ for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`n
     const port = reservation.address().port; await new Promise(ok => reservation.close(ok));
     // Qualify the shipped npm shape, not a source-directory symlink.
     if (process.env.SNAPBACK4_REGISTRY) {
-      writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.27'}}));
+      writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.28'}}));
       run(process.execPath, ['install', '--registry', process.env.SNAPBACK4_REGISTRY]);
     } else {
       const packed = JSON.parse(run('npm', ['pack', packageDir, '--ignore-scripts', '--json', '--pack-destination', project]));
@@ -40,7 +40,7 @@ for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`n
     if (process.env.SNAPBACK4_REGISTRY) {
       binary = join(project, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
       env.SNAPBACK4_BIN = binary;
-      assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, '0.4.27');
+      assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, '0.4.28');
     }
     assert.ok(readFileSync(join(project, 'node_modules/snapback4/dist/contract.d.ts')).length);
     if (online) {
@@ -157,7 +157,7 @@ test "one online write"
       writeFileSync(join(app, 'app.test.contract'), readFileSync(join(app, 'app.test.contract'), 'utf8').replaceAll(from, old));
       run(process.execPath, ['exact.mjs', 'snapback', '--port', String(port)], app);
       assert.ok(readFileSync(join(app, 'app.ts'), 'utf8').includes(`const origin = '${from}/'`));
-      assert.ok(readFileSync(join(app, 'app.test.contract'), 'utf8').includes(`fail fetch "${from}"`));
+      assert.ok(readFileSync(join(app, 'app.test.contract'), 'utf8').includes('fail fetch "backend"'));
     }
     assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /import \{ api \} from '.\/backend\/api.ts'/);
     if (mode === 'serve') {
@@ -203,7 +203,7 @@ test "one online write"
       writeFileSync(tests, readFileSync(tests, 'utf8').replace('  expect text "sending" == "0 sending"',
         '  expect text "sending" == "0 sending"\n  expect text "status" == "Synced"\n  expect text "latest" == "dev:alice: from the tunnel"'));
     }
-    // 0.4.27 gates device consumers, and admits device-free online mounts.
+    // 0.4.28 gates device consumers, and admits device-free online mounts.
     run(binary, ['check']);
     const output = run(process.execPath, ['exact.mjs', 'test', 'web'], app);
     assert.match(output, /0 failed/);
@@ -227,6 +227,64 @@ test "one online write"
 
   } finally {
     if (server && server.exitCode === null) { const ended = new Promise(ok => server.once('exit', ok)); server.kill('SIGTERM'); await ended; }
+    rmSync(project, {recursive: true, force: true});
+  }
+}, 600_000);
+
+// The published README is executable input: keep the complete session flow and scaffold qualified together.
+test('registry online scaffold and complete password example work through test web', async () => {
+  const project = mkdtempSync(join(sdk, 'target/hs-password-')), app = join(project, 'app');
+  const env = {...process.env, CARGO_INCREMENTAL: '0', CARGO_PROFILE_DEV_DEBUG: '0', CARGO_PROFILE_TEST_DEBUG: '0'};
+  let server;
+  const run = (args, cwd = project) => {
+    const r = spawnSync(process.execPath, args, {cwd, env, encoding: 'utf8', timeout: 300_000});
+    assert.equal(r.status, 0, `${args.join(' ')}\n${r.stdout}\n${r.stderr}`);
+    if (args.includes('test') && args.includes('web')) {
+      assert.match(r.stdout, /0 failed/);
+      const page = /served at http:\/\/127\.0\.0\.1:(\d+)/.exec(r.stderr);
+      assert.ok(page);
+      if (env.PORT_LO && env.PORT_HI) assert.ok(+page[1] >= +env.PORT_LO && +page[1] <= +env.PORT_HI);
+    }
+    return r;
+  };
+  try {
+    writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.28'}}));
+    run(['install', '--registry', process.env.SNAPBACK4_REGISTRY ?? 'http://127.0.0.1:4873/']);
+    const binary = join(project, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
+    env.SNAPBACK4_BIN = binary;
+    assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, '0.4.28');
+    const reservation = createServer(); await listenOn(reservation, 0);
+    const port = reservation.address().port; await new Promise(ok => reservation.close(ok));
+    const guide = readFileSync(join(sdk, 'snapback4/README.md'), 'utf8');
+    const online = guide.split('### A complete online app\n')[1].split('### A complete online password app')[0];
+    const schema = /```quarry\n([\s\S]*?)\n```/.exec(online)[1];
+    mkdirSync(join(project, 'snapback'), {recursive: true});
+    writeFileSync(join(project, 'snapback/schema.q'), schema.replace('use personas alice, bob', 'use identity password') + '\n');
+    run([join(sdk, 'scripts/exact.mjs'), 'new', app, '--snapback', '--online', '--port', String(port)]);
+    assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /db.read\(api.recent, args\)/);
+    assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /db.send\(api.post, args\)/);
+    server = spawn(binary, ['dev', '--port', String(port), '--no-watch'], {cwd: project, env, stdio: ['ignore', 'pipe', 'pipe']});
+    await new Promise((ok, fail) => {
+      let log = ''; const timer = setTimeout(() => fail(new Error(log)), 30_000);
+      const read = bytes => {log += bytes; if (/SNAPBACK4_READY|^http:\/\/127\.0\.0\.1:\d+\s*$/m.test(log)) {clearTimeout(timer); ok();}};
+      server.stdout.on('data', read); server.stderr.on('data', read);
+      server.once('error', fail); server.once('exit', code => {clearTimeout(timer); fail(new Error(`backend exited ${code}: ${log}`));});
+    });
+    run(['exact.mjs', 'test', 'web'], app); // the generated existing-schema explorer compiles and boots
+    const password = guide.split('### A complete online password app\n')[1].split('### Live resources')[0];
+    const blocks = [...password.matchAll(/```(?:contract|ts)\n([\s\S]*?)\n```/g)].map(m => m[1]);
+    for (const [i, file] of ['app.contract', 'app.ts', 'app.test.contract'].entries())
+      writeFileSync(join(app, file), blocks[i].replaceAll('http://127.0.0.1:30100', `http://127.0.0.1:${port}`) + '\n');
+    // Going offline for logout must still remove the browser's stored session.
+    const tests = join(app, 'app.test.contract');
+    writeFileSync(tests, readFileSync(tests, 'utf8').replace('\ntest "a new test', '\n  fail fetch "backend"\n  tap "logout"\n  clock data\n  expect text "session" == "Signed out"\n  pass fetch "backend"\n  reload\n  clock data\n  expect text "session" == "Signed out"\n\ntest "a new test'));
+    run(['exact.mjs', 'contract', 'types', 'app.contract', '-o', 'app.contract.d.ts'], app);
+    const first = run(['exact.mjs', 'test', 'web'], app);
+    assert.match(first.stderr, /fresh: reseeding before each of 2 tests/);
+    // Repeated invocation proves backend reset and browser secret isolation.
+    run(['exact.mjs', 'test', 'web'], app);
+  } finally {
+    if (server && server.exitCode === null) {const ended = new Promise(ok => server.once('exit', ok)); server.kill('SIGTERM'); await ended;}
     rmSync(project, {recursive: true, force: true});
   }
 }, 600_000);

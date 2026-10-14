@@ -1,3 +1,4 @@
+import { ensureBun } from './bun.mjs';
 import { macResourceMappings, macResourceInventory, appleAssetCatalogInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
 // normally belong to the root workspace and build into `target/`; an explicit
@@ -308,15 +309,7 @@ export function webToolchainEnv(env) {
 const HELP = process.argv.slice(2).some(a => a === '--help' || a === '-h' || a === 'help');
 const PINNED_BUN = existsSync(resolve(ROOT, 'package.json'))
   ? JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager?.replace(/^bun@/, '') : null;
-if (process.versions.bun && PINNED_BUN) {
-  const [have, pin] = [process.versions.bun, PINNED_BUN].map(v => v.split('.').map(Number));
-  const at = pin.findIndex((part, i) => have[i] !== part);
-  if (at >= 0 && have[at] < pin[at] && !HELP) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins. Upgrade it (\`bun upgrade\`), or install ${PINNED_BUN} beside it and run the scripts with that one: \`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-${PINNED_BUN} bash -s bun-v${PINNED_BUN}\`, then \`~/.bun-${PINNED_BUN}/bin/bun ${process.argv.slice(1).map(arg => JSON.stringify(arg)).join(' ')}\``);
-  // Build steps start `bun` by name (the bake's compatibility inputs, the
-  // TypeScript compiler); they get the Bun that passed, not whatever is first on PATH.
-  const found = Bun.which('bun');
-  if (!found || realpathSync(found) !== realpathSync(process.execPath)) process.env.PATH = `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`;
-}
+if (process.versions.bun && PINNED_BUN && !HELP) ensureBun(PINNED_BUN);
 
 // `exact setup` installs Binaryen privately; every build finds the same pin.
 const binaryenBin = resolve(homedir(), '.cache/exact/binaryen', BINARYEN.replace(' ', '_'), 'bin');

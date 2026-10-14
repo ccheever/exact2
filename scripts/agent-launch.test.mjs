@@ -347,3 +347,12 @@ test('automatic web listeners stay in PORT_LO/PORT_HI and refuse exhaustion', as
     for (const server of [holder, page, exhausted]) if (server.listening) await new Promise(ok => server.close(ok));
   }
 });
+
+test('backend fetch prefixes follow the built origin and refuse ambiguous grants', async () => {
+  const {backendFetchPrefixes} = await import('./agent-test.mjs');
+  const tests = () => [{steps: [{op: 'fail-fetch', prefix: 'backend', line: 1}, {op: 'pass-fetch', prefix: 'backend', line: 2}, {op: 'fail-fetch', prefix: 'https://other.example', line: 3}]}];
+  expect(backendFetchPrefixes(tests(), ['http://127.0.0.1:30125/'])[0].steps.map(s => s.prefix))
+    .toEqual(['http://127.0.0.1:30125', 'http://127.0.0.1:30125', 'https://other.example']);
+  expect(() => backendFetchPrefixes(tests(), [])).toThrow(/exactly one net.fetch origin/);
+  expect(() => backendFetchPrefixes(tests(), ['https://one.example', 'https://two.example'])).toThrow(/literal URL/);
+});
