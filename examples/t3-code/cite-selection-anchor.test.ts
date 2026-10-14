@@ -160,7 +160,7 @@ function answer() {
     ...std, ...cite, citeOffset: fns.citeOffset, citeRunOffset: fns.citeRunOffset, citeStream: fns.citeStream,
     document: { blocks }, code: [], source: '["t","a"]', citeOffered: offered,
     frame: (id: string) => frames[id] ?? { ...geometry(0, 0, 0, 0), unavailable: true },
-    citeOfferSet: spy('offer'), citeWithdraw: spy('withdraw'), outsidePressDown: spy('windowDown'), outsidePressUp: spy('windowUp'),
+    citeOfferSet: spy('offer'), citeWithdraw: spy('withdraw'), citeHold: spy('hold'), citeHolding: false, outsidePressDown: spy('windowDown'), outsidePressUp: spy('windowUp'),
     preventDefault: spy('preventDefault'), stopPropagation: spy('stopPropagation'), focus: spy('focus'),
   });
   const selection = (text: string, start: number, end: number, rects: ReturnType<typeof geometry>[]) => ({ text, start, end, rects });
@@ -194,6 +194,21 @@ describe('G4-03b: the answer offers Cite as observeSelectionActions does', () =>
     a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 900, clientY: 300 }]);
     expect(a.offers()).toEqual([]);
     expect(a.calls.map(c => c[0])).toEqual(['windowDown', 'windowUp']);
+  });
+
+  test('a double-click: the release offers Cite and the double-click holds it 500 ms; a third click begins the wait again', () => {
+    const a = answer();
+    a.state.held = true; a.state.moved = true;
+    a.state.parts = [{ block: '2', start: 14, end: 21, lx: 13.1, ly: 3.1, lw: 46.1, lh: 16.5 }];
+    a.md.call('up', a.state, a.scope(), [{ buttons: 0, clientX: 316, clientY: 362.8 }]);
+    a.md.call('doubled', a.state, a.scope(), []);
+    expect(a.calls.map(c => c[0])).toEqual(['windowUp', 'offer', 'hold']);
+    expect(a.offers()[0]).toMatchObject({ x: 316, y: 362.8 });
+    const b = answer();
+    b.state.held = true; b.state.moved = true; b.state.parts = a.state.parts;
+    b.md.call('up', b.state, { ...b.scope(), citeHolding: true }, [{ buttons: 0, clientX: 316, clientY: 362.8 }]);
+    expect(b.calls.map(c => c[0])).toEqual(['windowUp', 'offer', 'hold']);
+    expect(source('markdown.contract')).toContain('column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys');
   });
 
   test('a selection made without the pointer is offered at once at its last line; cleared, it is withdrawn', () => {
@@ -265,15 +280,39 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   const offer = { source: '["t","a"]', ranges: '12-152', stream: 'Cite check.\nA closing …', size: 140, x: 501, y: 385, end: 'cite-["t","a"]-2', lx: 0, ly: 23.83, lw: 221.2, lh: 21 };
 
   test('an offer shows on its thread; a withdrawal by another answer, or none, leaves it; the scroll hides it', () => {
-    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '' };
-    window.call('citeOfferSet', state, { data: { threadId: 't' } }, [offer]);
-    expect(state).toMatchObject({ citeOffer: offer, citeFor: '["t","a"]', citeThread: 't' });
+    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeBlurAt: 0 };
+    window.call('citeOfferSet', state, { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeBlurs: 0 }, [offer]);
+    expect(state).toMatchObject({ citeOffer: offer, citeFor: '["t","a"]', citeThread: 't', citeViewport: '1280x840' });
     window.call('citeWithdraw', state, {}, ['["t","b"]']);
     expect(state.citeFor).toBe('["t","a"]');
     window.call('citeScrolled', state, {}, [0, 120]);
     expect(state.citeFor).toBe('');
-    expect(source('app-window.contract')).toContain('derive citeShows = citeFor != "" and citeThread == data.threadId and not pageCover and not settingsOpen and not modal');
+    expect(source('app-window.contract')).toContain('derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeBlurAt == citeBlurs and not pageCover and not settingsOpen and not modal');
     expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=citeScrolled');
+  });
+
+  test('Cite waits for the root\'s 500 ms after a double-click and hides once the window loses the focus (observeSelectionActions)', () => {
+    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeBlurAt: 0 };
+    const asked: number[] = [];
+    window.call('citeHold', state, { citeWaitAsk: (n: number) => asked.push(n) }, []);
+    window.call('citeHold', state, { citeWaitAsk: (n: number) => asked.push(n) }, []);
+    expect([state.citeWaits, asked]).toEqual([2, [1, 2]]);
+    window.call('citeOfferSet', state, { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeBlurs: 3 }, [offer]);
+    expect(state.citeBlurAt).toBe(3);
+    const window_ = source('app-window.contract');
+    expect(window_).toContain('and citeWaits <= citeWaitDone and citeBlurAt == citeBlurs and not pageCover');
+    expect(window_).toContain('    citeHold\n    citeHolding = (citeWaits > citeWaitDone)');
+    // The root: a wait asked is over 500 ms later; each focus loss counts.
+    const root = contractComponent('app.contract', 'T3Code');
+    const r: Env = { citeWaitAsked: 0, citeWaitDone: 0, citeBlurs: 0 };
+    root.call('citeWaitAsk', r, {}, [2]);
+    root.call('citeWaitOver', r, {}, []);
+    root.call('citeBlurred', r, {}, []);
+    expect(r).toEqual({ citeWaitAsked: 2, citeWaitDone: 2, citeBlurs: 1 });
+    const app = source('app.contract');
+    expect(app).toContain('  task citeWait when citeWaitAsked > citeWaitDone key=citeWaitAsked\n    after(500, citeWaitOver)');
+    expect(app).toContain('  task citeBlur when not page.hasFocus\n    after(1, citeBlurred)');
+    expect(app).toContain('T3Window(citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeBlurs=citeBlurs, data=data,');
   });
 
   test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {
@@ -299,7 +338,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
 
   test('Cite is drawn by the window above the timeline (the reference portals it to the body), not inside the answer', () => {
     expect(source('app-window.contract')).toContain('when citeShows\n          CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))');
-    expect(source('markdown.contract')).toContain('column width="100%" pointerdown=down pointerup=up keycapture=keys\n      DiagramBlocks(');
+    expect(source('markdown.contract')).toContain('column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys\n      DiagramBlocks(');
     expect(source('diff-cite.contract')).toMatch(/button id="cite-action" retainFocus=true press=press key=keys hover=hover focus=focusChanged\(true\) blur=focusChanged\(false\) disabled=tooLong aria-label=\(tooLong \? "Selection is too long to cite" : "Cite selection in composer"\) testId=`cite-\$\{offer.source\}` position="absolute" left=citeActionLeft\(offer.x, viewportWidth, tooLong\) top=citeActionTop\(offer.y, viewportHeight\) z-index=50/);
   });
 });

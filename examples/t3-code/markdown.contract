@@ -212,6 +212,9 @@ component AnswerMarkdown
     citeOffered: string
     citeOfferSet: action
     citeWithdraw: action
+    // A double-click's wait before Cite shows (SELECTION_MULTI_CLICK_INTERVAL_MS), and whether one runs.
+    citeHold: action
+    citeHolding: bool
     outsidePressDown: action
     outsidePressUp: action
   props
@@ -258,7 +261,8 @@ component AnswerMarkdown
     outsidePressDown(e)
     held = e.buttons == 1
     moved = false
-  // The release of a press that changed the selection: Cite at the release point.
+  // The release of a press that changed the selection: Cite at the release point; within a double-click's wait (a third
+  // click) the wait begins again.
   action up(e: PointerEvent)
     let bounds = frame("transcript")
     outsidePressUp()
@@ -266,6 +270,12 @@ component AnswerMarkdown
     moved = false
     if held and moved and source != "" and length(parts) > 0
       citeOfferSet(citeOfferFor(source, parts, citeStream(document.blocks, code), citeAxis(e.clientX, bounds.x, bounds.width, bounds.unavailable), citeAxis(e.clientY, bounds.y, bounds.height, bounds.unavailable)))
+      if citeHolding
+        citeHold()
+  // A double-click (after its release, which offered Cite): Cite shows once the wait is over.
+  action doubled
+    if source != ""
+      citeHold()
   // G4-03a (AssistantSelectionToolbar.tsx:87-107): a plain Tab while this answer's Cite shows, enabled, and does not hold
   // the focus (it is the window's, outside this box) focuses Cite; Escape hides it and keeps the selection.
   action keys(k: string, e: KeyboardEvent)
@@ -280,7 +290,7 @@ component AnswerMarkdown
   derive citeMarked = source != "" and citeQuote != "" and citeMessage != "" and (indexOf(source, `${citeMessage}"]`) >= 0 or source == citeMessage)
   derive markStart = citeMarked ? (citeAt >= 0 ? citeAt : indexOf(citeStream(document.blocks, code), citeQuote)) : -1
   view
-    column width="100%" pointerdown=down pointerup=up keycapture=keys
+    column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys
       DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected, markStart=markStart, markEnd=(markStart < 0 ? -1 : markStart + length(citeQuote)))
 
 // UserMessageBody: the same Markdown in the message's own ink, single
