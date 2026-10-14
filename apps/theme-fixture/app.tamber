@@ -19,4 +19,8 @@ theme
   border.hairline = light-dark(#cfd9de, #2f3336)
     when dark-style=dim: light-dark(#cfd9de, #38444d)
   accent.fill = #1d9bf0
+  accent.soft = light-dark(#8ecdf8, #1a5c8a)
+    when dark-style=dim: light-dark(#8ecdf8, #2b7bb5)
+  // A role's value: the platform's, which follows Increased Contrast.
+  text.label = -exact-label
   AccentColor = #1d9bf0
