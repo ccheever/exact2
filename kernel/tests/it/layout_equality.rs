@@ -634,11 +634,20 @@ fn compare(seed: u64, rounds: usize, mut world: World, first: Vec<Op>) {
     }
 }
 
+/// Each seed's world and kernels are its own, so the seeds run on threads of their own; a
+/// failing seed's panic names it, and the test fails with it.
+fn each_seed(seeds: impl IntoIterator<Item = u64>, check: impl Fn(u64) + Sync) {
+    let check = &check;
+    std::thread::scope(|threads| {
+        for seed in seeds {
+            threads.spawn(move || check(seed));
+        }
+    });
+}
+
 #[test]
 fn incremental_relayout_is_result_equal_to_full_relayout() {
-    for seed in [1, 2, 3, 5, 8, 13, 21, 34] {
-        run(seed, 40);
-    }
+    each_seed([1, 2, 3, 5, 8, 13, 21, 34], |seed| run(seed, 40));
 }
 
 /// LLP 1093 D5: a tree under a multi-column root, its cut's resume point
@@ -646,7 +655,7 @@ fn incremental_relayout_is_result_equal_to_full_relayout() {
 /// rehydration bit for bit.
 #[test]
 fn multicol_relayout_is_result_equal_to_full_relayout() {
-    for seed in 1..=16 {
+    each_seed(1..=16, |seed| {
         let mut world = World {
             rng: Rng::new(seed),
             next_id: 1,
@@ -681,14 +690,12 @@ fn multicol_relayout_is_result_equal_to_full_relayout() {
         first.extend(patch.clone());
         world.log.last_mut().unwrap().extend(patch);
         compare(seed, 30, world, first);
-    }
+    });
 }
 
 #[test]
 fn contained_pane_relayout_is_result_equal_to_full_relayout() {
-    for seed in 1..=24 {
-        run_panes(seed, 40);
-    }
+    each_seed(1..=24, |seed| run_panes(seed, 40));
 }
 
 #[test]
