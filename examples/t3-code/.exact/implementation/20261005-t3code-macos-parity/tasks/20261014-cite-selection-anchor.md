@@ -1,9 +1,9 @@
 ---
 name: 20261014-cite-selection-anchor
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
-delivery: none
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-cite-selection-anchor
@@ -61,3 +61,99 @@ T3 Code `1e2ecbd975` (`target/t3-ref/src-1e2ecbd975/apps/web/src`, MIT):
   `observeSelectionActions`: the pointer point on mouse-up, the multi-click delay).
 - `components/chat/AssistantCitationChip.tsx` (`popupAnchor`: the range's last client rect; `side={activeSourceAnchor ?
   "bottom" : "top"} align="end"`), `components/ui/popover.tsx` (`sideOffset = 4`).
+
+## Cause and fix
+
+**Reference first (CDP, the lane reference, 1280×840; `ref-cite2.mjs`, scenarios A to E with the clone's points).** A drag
+from "parser" to the end of "paragraph" (two lines) released at 420,208: Cite's top-left 420,208 (the release point);
+after Cite the comment 100..420 from 220.3 (the last rect ended at 420, its bottom 216.3). The closing paragraph (B):
+Cite 501,385 at the release, the comment 181.2..501.2 from 397.8. The code (C): Cite 607,282, the comment 289.6..609.6
+from 293.7. A double-click on "closing" (D): Cite at the click point 316,362; Tab: Cite focused (ring), the selection
+kept; Escape: Cite gone, the selection kept, the focus on the body. The pencil (E): the popup's right edge on the
+pencil's (394.5) and its bottom 4 pt above it.
+
+**G4-03b / KW-9.** Cite sat inside the answer (`position="absolute" right=0.5rem` under the block holding the selection's
+end) and the comment it opened anchored to that text's frame: a whole prose block or code block. Under the answer's last
+block Cite also lay over the row's footer (the copy and time row, a later sibling of the answer), which took its press:
+in the before drive (B) the press only cleared the selection. Now (`diff-cite.contract`, `markdown.contract`
+AnswerMarkdown, `app-window.contract`):
+
+- each text's part keeps its last selected line (`Selection.rects`' last, main `48755525c`) from the text's top-left
+  (`citePart`); the part ending last holds the selection's end (`citeEnd`);
+- the answer's box hears `pointerdown` and `pointerup` (and passes both on to the window's `outsidePressDown` /
+  `outsidePressUp`, which held the pointer before): a press in the answer hides Cite, a selection change while the button
+  is down waits, and the release offers Cite at the release point (`observeSelectionActions`); a selection made without
+  the pointer is offered at once at its last line's right and bottom + 4; both held in the timeline's box
+  (`resolveSelectionActionPosition`, `citeAxis`) and 8 pt inside the window with Cite's size (`citeActionLeft`/`Top`);
+- the window draws Cite (`CiteAction`, z-index 50) above the timeline, as the reference portals it to the body: on the
+  thread it was offered on, under no page, Settings or dialog; a press anywhere but on Cite, the timeline's `scroll`, a
+  window resize and the window losing the focus hide it; after a double-click it waits 500 ms
+  (`SELECTION_MULTI_CLICK_INTERVAL_MS`: the answer's `dblclick`, the root's `task citeWait`, since a task is the root's,
+  #108), and a third click within the wait begins it again;
+- the press measures the end text again and sends the last line's window frame (`citeLineFrame`), where
+  citation-comment.contract opens the comment (`align="end"` under it, unchanged), then `removeAllRanges()`.
+
+**G4-03a.** Keyboard navigation is off on the Mac, so a plain Tab from the paragraph moved the focus on (the composer in
+the before drive, the timeline's scroll area under real input) and the focus change cleared the selection and Cite. Now
+the answer's box has `keycapture=keys` (main `3f283d582`): a plain Tab (no Shift, Option, Control or Command) while this
+answer's Cite shows and is enabled calls `preventDefault()`, `stopPropagation()`, `focus("cite-action")`; Cite is the
+window's, outside the box, so a Tab while Cite holds the focus is not taken (`toolbar.contains(event.target)`). A focus
+entering a button keeps the selection (the host's rule). Cite draws the button's ring while focused
+(`focus-visible:ring-2 ring-offset-1`); Escape on Cite hides it and keeps the selection; Escape in the answer hides it
+without `preventDefault()`.
+
+**DCP-E.** Measured in both apps: the pencil's popup is `side="top" align="end"`, 4 pt off, in the reference (its right
+edge 394.5 on the pencil's 394.5, bottom 691.4 under the pencil at 695.4) and in the clone (71..391 on the pencil's 391,
+bottom 650.5 under 654.5). It sits left of its chip in both, past the composer's left edge in both: no change.
+
+## Acceptance results
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| G4-03a | pass (agent): double-click "closing", Tab: Cite holds the focus (`state.focus.logical` = the Cite button), its ring drawn, the selection kept; Escape: Cite hidden, the selection kept, nothing focused (the reference: the body). Before: Tab moved the focus to the composer and cleared both. Bun: the capture's arms (plain Tab, each modifier, no Cite of this answer, too long), Escape in the answer and on Cite | [dblclick](https://raw.githubusercontent.com/ccheever/exact2/c17006e3f8f849d96ee084710c0d65a0c0c21d66/cite-selection-anchor/g403a-d1-dblclick.png), [Tab](https://raw.githubusercontent.com/ccheever/exact2/6511b22bc9eadaf9a49e8db405f88cdeb2a30149/cite-selection-anchor/g403a-d2-tab.png), [Escape](https://raw.githubusercontent.com/ccheever/exact2/8dc0d863e718cd808b79a6cf9b018122e4b41d24/cite-selection-anchor/g403a-d3-escape.png), [record](https://raw.githubusercontent.com/ccheever/exact2/f4e5d0a130926631ef19f3f8dffe0ed4a93e2e08/cite-selection-anchor/cite-record.txt) |
+| G4-03b | pass (agent): Cite at the release point (A 420.4,208; B 500,385.5; C 607,282.5; D 316,362.8; the reference 420,208 / 501,385 / 607,282 / 316,362); after Cite the comment under the last line, right-aligned (A 100..420 from 219.6, B 181.2..501.2 from 397.4, C 288.9..608.9 from 293.3; the reference 100..420 from 220.3, 181.2..501.2 from 397.8, 289.6..609.6 from 293.7); Cite under the last block now takes its press (before: the row footer took it). Bun: the place functions against the reference's `resolveSelectionActionPosition` and its numbers, the part's line, the offer at the release, the double-click wait, the window's hides, the press's frame and `removeAllRanges()` | [A Cite](https://raw.githubusercontent.com/ccheever/exact2/ca386c26d0fac8284d841b536916b4c9d58d5a7f/cite-selection-anchor/g403b-a1-cite-place.png), [A comment](https://raw.githubusercontent.com/ccheever/exact2/414236f9fb0b1f30408070d36d6c0a45a3551469/cite-selection-anchor/g403b-a2-comment-anchor.png), [B Cite](https://raw.githubusercontent.com/ccheever/exact2/a07c7939f8470c4aafa51b332860fb24e8a2154d/cite-selection-anchor/g403b-b1-last-block.png), [B press](https://raw.githubusercontent.com/ccheever/exact2/8f124bb3effdc4a2ba76592ac8cc2eaa6f432ec1/cite-selection-anchor/g403b-b2-press.png), [C code](https://raw.githubusercontent.com/ccheever/exact2/8102c92e24cfaf7b736fadc21d3972c472df1cb0/cite-selection-anchor/g403b-c2-code.png), [record](https://raw.githubusercontent.com/ccheever/exact2/f4e5d0a130926631ef19f3f8dffe0ed4a93e2e08/cite-selection-anchor/cite-record.txt) |
+| G4-03b, the selection after Cite | pass (Bun: the press calls `removeAllRanges()` after the command); live, the citation mark covers the cited text while the comment is open, so the screenshot cannot tell the selection under it (the same colours before and after) | tests below |
+| DCP-E | pass, no change: the same rule and numbers as the reference (above) | [pencil](https://raw.githubusercontent.com/ccheever/exact2/407334f3db9d7ce31f6bf306e4af9ef32c98a8bc/cite-selection-anchor/dcpe-e1-pencil.png), [record](https://raw.githubusercontent.com/ccheever/exact2/f4e5d0a130926631ef19f3f8dffe0ed4a93e2e08/cite-selection-anchor/cite-record.txt) |
+| G4-03 and DCP-E under real input | open: real-input batch steps below | — |
+
+Drives (agent mode, 1280×840): before on this worktree's bundle of the feature tip `609f392d5` (lane
+`cite-selection-anchor-before`); after on this branch's bundle at `10fdff230` (lane `cite-selection-anchor-after`, a
+fresh home seeded with the lane's Cite fixture answer by `seed-cite.py`); the reference over CDP on lane
+`cite-selection-anchor`. An earlier after drive at `f43c88ba7` (before the ring, the outside press, the wait and the
+resize/focus hides) gave the same places; the final drive is the one retry the brief allows.
+
+## Real-input batch steps
+
+Launch this branch's bundle as a lane copy with the Cite fixture answer seeded (`seed-cite.py` on the lane's
+`statev2.sqlite`); thread "Timeline verification". Never send a message (no ⌘↵, no Return in the prompt).
+
+1. **G4-03 step 1-3.** Double-click "closing" in the closing paragraph. Expected: the word selected; about half a second
+   later Cite appears with its top-left at the click point. Press Tab: Cite takes the focus (a blue ring), the word stays
+   selected (VoiceOver or Accessibility Inspector: the button "Cite selection in composer" focused). Press Escape: Cite
+   disappears, the word stays selected.
+2. **G4-03 step 4-5.** Drag from "parser" to the end of "paragraph" (two lines). Expected: no Cite while the button is
+   down; at the release Cite's top-left at the pointer. Press Cite: "Edit citation comment" opens under the second line,
+   its right edge at the end of "paragraph"; the selection is gone; type `why`, Return: the chip reads "why".
+3. **G4-03b, the last block.** Drag across the closing paragraph's two lines; press Cite (it lies over the row's footer):
+   the comment opens under "last line.", right-aligned to it. Escape: the chip just cited is gone.
+4. **G4-03b, a code block.** Drag across `parsePatch(text: string)`; press Cite: the comment opens under the code line,
+   right-aligned to "string)"; Escape; the code is not left selected.
+5. **G4-03b, hides.** Select a word by a double-click, then: scroll the timeline (Cite hides, the word stays selected);
+   select again and resize the window (Cite hides); select again and switch to another app with ⌘Tab (Cite hides and
+   stays hidden on return); select again and click the sidebar's empty ground (Cite hides).
+6. **DCP-E.** Click the first citation chip's pencil: the popover above the chip, its right edge at the pencil's right
+   edge (it reaches left past the composer's edge, as the reference's does).
+
+## Tests
+
+- `cite-selection-anchor.test.ts` (18): the place functions run from their `.contract` lines against the reference's
+  `resolveSelectionActionPosition` and the toolbar's 8 pt hold (release points A to D, the last line's corner, the
+  timeline's box, the window's edges, "Shorten selection"'s width); a part's last line and the end part; the press's
+  frame measured again and citation-comment.contract's popup from it against the reference's B numbers; AnswerMarkdown's
+  actions with Contract's action semantics (a drag offers at the release, a press that changes nothing offers nothing, a
+  double-click holds, a selection made without the pointer is offered at once and withdrawn when cleared; the Tab
+  capture's arms; Escape); the window's offer, withdrawal, scroll, outside press, wait and focus-loss gates, the press
+  (the command's value, then `removeAllRanges()`), Cite drawn by the window; the root's wait and focus-loss count; DCP-E's
+  rule against both apps' numbers.
+- `diff-cite-popover.test.ts`: its DC-2 wiring test no longer reads the old in-answer button (moved to the test above).
+
