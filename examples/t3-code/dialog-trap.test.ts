@@ -88,6 +88,7 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
 const NOT_MODAL: Record<string, string> = {
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
+  'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment, diff-cite-popover)',
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
   'markdown.contract "context-chip-details"': 'Popover',
@@ -183,12 +184,21 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
     expect(guard).toContain('action hold(k: string, e: KeyboardEvent)\n    if k == "Tab" and e.shiftKey == start\n      preventDefault()\n      stopPropagation()\n      if target != ""\n        focus(target)');
   });
 
+  // A popup that takes the focus itself (the import wizard's, Base UI's `restoreFocus: "popup"`) has its guards beside it,
+  // before and after, as Base UI renders them around the popup, so Tab from the popup reaches its first stop and Shift+Tab
+  // the guard before it (adopt-main-fixes-r11 RT-5: main #490 carries Tab on from a focused box that is no stop, X79).
+  const BESIDE = new Set(['browser-profiles.contract `browser-import-step-${wizard.step}`']);
   for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED)) {
-    test(`${dialog.key}: the start guard is the popup's first child, the end guard its last`, () => {
+    test(`${dialog.key}: the start guard is the popup's first child, the end guard its last${BESIDE.has(dialog.key) ? ' (beside it: before and after)' : ''}`, () => {
       const base = GUARDED[dialog.key] === 'palette' && dialog.line.includes('position="absolute" left=floor((viewport.width - width) / 2) top=max(16') ? 'link-pr' : GUARDED[dialog.key]!;
-      const children = block(source(dialog.file).split('\n'), dialog.index).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
+      const lines = source(dialog.file).split('\n');
+      const beside = BESIDE.has(dialog.key);
+      // Beside the popup: its parent's children (the popup among them), less comments and blanks.
+      const parent = beside ? lines.slice(0, dialog.index).findLastIndex(line => line.trim() !== '' && !line.trimStart().startsWith('//') && indent(line) < indent(dialog.line)) : dialog.index;
+      const children = block(lines, parent).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
       const depth = indent(children[0]!);
       const direct = children.filter(line => indent(line) === depth);
+      if (beside) expect(direct.map(line => line.trim().split(/[ (]/)[0])).toEqual(['FocusGuard', 'column', 'FocusGuard']);
       expect(direct[0]!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-start", target=`);
       expect(direct.at(-1)!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-end", target=`);
       expect(children.filter(line => line.includes('FocusGuard(')).length).toBe(2);
@@ -460,7 +470,7 @@ describe('every modal dialog gives the focus back as it closes (Base UI\'s final
     'settings-b-icons.contract "project-icon-dialog"': { final: ['app-settings.contract', '"project-choose-icon"'] },
     'settings-b-icons.contract "project-favicon-picker"': { final: ['app-settings.contract', '"project-choose-file"'] },
     'settings-core-body.contract "restore-defaults-dialog"': { final: ['app-settings.contract', '"settings-restore-defaults"'] },
-    'settings-scheduled.contract "scheduled-task-dialog"': { final: ['app-settings.contract', '(restSubject == "" ? "new-scheduled-task" : `task-actions-${restSubject}`)'] },
+    'settings-scheduled.contract "scheduled-task-dialog"': { final: ['app-settings.contract', '(restSubject == "" or startsWith(restSubject, "new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)'] },
     'snapshot.contract "snapshot-setup-dialog"': { final: ['app-settings.contract', 'snapshotSetupFrom'] },
     'ssh-prompt.contract "ssh-password-dialog"': { own: ['app.contract', 'focus("ssh-connect")'] },
     'timeline-attachments.contract "image-preview"': { none: 'opened from a message\'s image, a video\'s play button or a context chip, and the view keeps only the image' },

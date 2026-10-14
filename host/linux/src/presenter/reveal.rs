@@ -10,6 +10,12 @@ use super::*;
 impl<D: DataSource> Presenter<D> {
     /// `{"revealed":id,"scrolled":…}`, with where the middle moved from and to.
     pub fn reveal(&mut self, id: ViewId) -> Result<String, String> {
+        // A row of the top layer's open surface is no box of the page's:
+        // it is in view in its window (LLP 1115.001 D10). Nor is what a
+        // shell's bar stands for (D11): it is in view in the bar.
+        if self.surface_row(id) || self.bar_node(id) {
+            return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
+        }
         let middle = |b: &PaintedBox| (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
         let inside =
             |(x, y): (f32, f32), r: Rect4| x >= r.0 && y >= r.1 && x < r.0 + r.2 && y < r.1 + r.3;
@@ -114,6 +120,19 @@ impl<D: DataSource> Presenter<D> {
             self.dirty = true;
             self.collection_scrolled(id);
         }
+    }
+
+    /// Keep `id` in view where the viewport ends sooner than it did (a
+    /// software keyboard rose under the field being edited): each scroll
+    /// container above it, then the page, moves only as far as it must, the
+    /// web's `scrollIntoView` with `nearest` on both axes.
+    pub(super) fn keep_in_view(&mut self, id: ViewId) {
+        self.scroll_into(id, |t, p| {
+            (
+                aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
+                aligned("nearest", t.1, t.1 + t.3, p.1, p.3) - p.1,
+            )
+        });
     }
 
     /// Each scroll container above `id`, innermost first, then the page,

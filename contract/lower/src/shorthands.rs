@@ -74,7 +74,8 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
             if name == "text-decoration" { out = Expr::Str(decoration(text, *span)?, *span); }
             else {
                 let part = border(name, text, *span)?[index % 3].clone();
-                out = if index.is_multiple_of(3) {
+                // A named width (`-exact-hairline`) stays its name: the kernel resolves it.
+                out = if index.is_multiple_of(3) && exact_kernel::style::relative::named_length(&part).is_none() {
                     let pt = part.ends_with("pt");
                     let value: f64 = part.strip_suffix("px").or_else(|| part.strip_suffix("pt")).unwrap_or(&part).parse().unwrap();
                     Expr::Number(value * if pt { 4.0 / 3.0 } else { 1.0 }, *span)
@@ -120,7 +121,9 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
         let lower = word.to_ascii_lowercase();
         // A border paints `inset`; a column rule does not (LLP 1093 §1).
         let rule = name == "column-rule";
-        if matches!(lower.as_str(), "none" | "hidden" | "solid") || (lower == "inset" && !rule) {
+        if matches!(lower.as_str(), "none" | "hidden" | "solid")
+            || (!rule && matches!(lower.as_str(), "inset" | "dotted" | "dashed"))
+        {
             if style.replace(lower).is_some() {
                 return err(
                     "lower-css-shorthand",
@@ -130,15 +133,17 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
             }
         } else if matches!(
             lower.as_str(),
-            "dotted" | "dashed" | "double" | "groove" | "ridge" | "inset" | "outset"
+            "double" | "groove" | "ridge" | "outset" | "dotted" | "dashed" | "inset"
         ) {
             let supported = if rule {
                 "none, hidden and solid"
             } else {
-                "none, hidden, solid and inset"
+                "none, hidden, solid, inset, dotted and dashed"
             };
             return err("lower-css-shorthand", format!("CSS line style `{word}` in `{name}` is not implemented by native painters; supported styles are {supported}"), span);
         } else if matches!(lower.as_str(), "thin" | "medium" | "thick")
+            // @ref LLP 1115.000 D10.3 — one device pixel, by name.
+            || exact_kernel::style::relative::named_length(word).is_some()
             || word
                 .strip_suffix("px")
                 .or_else(|| word.strip_suffix("pt"))
@@ -170,7 +175,12 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
                 )
                 .is_err()
             {
-                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths or thin/medium/thick{}", crate::values::role_hint(word).unwrap_or_default()), span);
+                // @ref LLP 1116.014 D1 — a role meant is named first.
+                if let Some(edit) = crate::edits::role_hint(word, true) {
+                    let edit = edit.shifted(text.find(word).unwrap_or(0));
+                    return err("lower-css-shorthand", edit.lead(name, text), span);
+                }
+                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths, `-exact-hairline` or thin/medium/thick"), span);
             }
             if color.replace(word.into()).is_some() {
                 return err(
@@ -394,7 +404,7 @@ fn decoration(text: &str, span: Span) -> Result<String, LowerError> {
             "line-through" if !strike && !none => strike = true,
             "solid" | "currentcolor" | "auto" => {},
             "underline-line-through" => return err("lower-css-shorthand", "`underline-line-through` is spelled `underline line-through`, CSS's two keywords (LLP 1081)", span),
-            _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness{}", crate::values::role_hint(word).unwrap_or_default()), span),
+            _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness{}", crate::edits::role_hint(word, false).map(|e| format!("; {}", e.clause())).unwrap_or_default()), span),
         }
     }
     match (underline, strike) {
@@ -418,12 +428,8 @@ impl Lowerer<'_> {
             let value = component(&a.value, &a.name, index)?;
             let component = Attr { value, ..a.clone() };
             let (code, ty) = self.typed_code(&component.value, scope, locals)?;
-            values::check_style_value(&component, &[row], &ty, font)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: row as u16,
-                expr: code,
-            });
+            values::check_style_value(&component, &[row], &ty, font, scope, &self.types.shapes)?;
+            bindings.push(crate::style_row(row, code, a.written));
         }
         Ok(())
     }

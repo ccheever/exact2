@@ -1,0 +1,40 @@
+component App
+  state count = 0
+  state inside = false
+  state ratio = 0
+  state initialCount = 0
+  state initialInside = false
+  state initialRatio = 0
+  state stickyCount = 0
+  state stickyInside = false
+  state stickyRatio = 0
+  action stickySeen(e: IntersectionObserverEntry)
+    stickyCount = stickyCount + 1
+    stickyInside = e.isIntersecting
+    stickyRatio = e.intersectionRatio
+  action initialSeen(e: IntersectionObserverEntry)
+    initialCount = initialCount + 1
+    initialInside = e.isIntersecting
+    initialRatio = e.intersectionRatio
+  action seen(e: IntersectionObserverEntry)
+    count = count + 1
+    inside = e.isIntersecting
+    ratio = e.intersectionRatio
+  view
+    column width=400 height=400
+      scroll width=200 height=100 testId="port"
+        box height=150 flex-shrink=0
+        box width=100 height=50 flex-shrink=0 intersect=seen intersect-margin="10% 0px 20px" testId="target"
+        box height=300 flex-shrink=0
+      text `${count}:${inside}:${ratio}` testId="facts"
+      scroll width=200 height=100 scrollTop=150 testId="initial-port"
+        box height=150 flex-shrink=0
+        box width=100 height=50 flex-shrink=0 intersect=initialSeen
+        box height=300 flex-shrink=0
+      text `${initialCount}:${initialInside}:${initialRatio}` testId="initial-facts"
+      scroll width=100 height=100 scrollTop=60 testId="sticky-port"
+        box height=200
+          box position="sticky" top=0 width=100 height=50
+            box width=100 height=50 intersect=stickySeen testId="sticky-target"
+        box height=300
+      text `${stickyCount}:${stickyInside}:${stickyRatio}` testId="sticky-facts"

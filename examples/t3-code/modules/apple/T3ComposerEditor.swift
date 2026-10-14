@@ -135,7 +135,10 @@ final class T3ComposerEditor {
     }
 
     private func textChanged() {
-        styler.press.close() // an edit closes a skill chip's details (the reference's popover holds the focus)
+        // An edit closes a skill chip's details (the reference's popover holds the focus). A citation's comment is the app's
+        // to settle: held open past 8,000 characters while the prompt has the focus, it stays open as the prompt is edited
+        // and follows its chip (T3ComposerChipPress.validate), as the reference's node view keeps its popover.
+        if styler.press.chip?.kind != "citation" { styler.press.close() }
         styler.restyle()
         refresh()
     }
@@ -210,8 +213,10 @@ final class T3ComposerEditor {
         guard view === textView, view.isEditable, !view.hasMarkedText() else { return false }
         // The prompt sample is ComposerPromptEditor with no command-key handler: Tab and ⇧Tab
         // keep walking the Settings page, and only the chips' own keys apply.
-        // Escape closes an open skill chip's details first (Base UI's Popover).
-        if selector == #selector(NSResponder.cancelOperation(_:)), styler.press.isOpen { styler.press.close(); return true }
+        // Escape closes an open skill chip's details first (Base UI's Popover). A citation's comment is the app's: the window's
+        // Escape (ChipPopoverEscape, before the prompt hears the key) closes it as Base UI's escape-key dismissal does, which
+        // keeps the chip and drops the draft (`finishCitation` with `escape`); the prompt's own Escape stays its own.
+        if selector == #selector(NSResponder.cancelOperation(_:)), styler.press.isOpen, styler.press.chip?.kind != "citation" { styler.press.close(); return true }
         if hatch != .t3Composer {
             switch selector {
             case #selector(NSResponder.insertTab(_:)): view.window?.selectNextKeyView(view); return true
@@ -319,6 +324,8 @@ final class T3ComposerEditor {
     /// (insertInlineContextReference).
     func insert(_ request: [String: Any]) -> [String: Any] {
         guard let view = textView else { return ["applied": false, "reason": "no composer"] }
+        // A caller naming its composer (a sidebar row's dropped files) never types into another thread's.
+        if let wanted = request["owner"] as? String, !wanted.isEmpty, wanted != owner { return ["applied": false, "reason": "another composer"] }
         let text = view.string as NSString
         // Terminal/file menus take focus, but the editor retains the user's insertion range.
         let selection = view.selectedRange()

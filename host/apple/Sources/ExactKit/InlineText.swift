@@ -11,6 +11,8 @@ struct InlineText {
     private let darkBackground: [Double]?
     private let colorRef: BatchValue?
     private let backgroundRef: BatchValue?
+    /// Its `color` is one its author fixed (`BatchValue.fixesInk`).
+    private let fixedInk: Bool
     private let paint: RunPaintRows
     let hasSchemeColor: Bool
     /// Whether a colour here is the view's tint (LLP 1095 D8).
@@ -32,6 +34,7 @@ struct InlineText {
         darkColor = style.darkColor
         darkBackground = style.darkBackground
         colorRef = style.colorRef; backgroundRef = style.backgroundRef
+        fixedInk = style.fixedInk
         paint = style.paint
         hasSchemeColor = style.paired || style.paint.paired
         self.handlers = handlers; self.paints = paints
@@ -46,6 +49,7 @@ struct InlineText {
         var value = lightRun
         if dark { value.color = darkColor; value.background = darkBackground }
         if let colorRef { value.color = colorRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
+        value.fixedInk = fixedInk
         if let backgroundRef { value.background = backgroundRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
         (value.shadow, value.stroke) = paint.resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
                                                      color: value.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
@@ -69,6 +73,7 @@ struct InlineText {
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
                                                                color: run.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
         run.hidden = style["visibility"]?.string == "hidden"
+        run.fixedInk = style["text_color"]?.fixesInk == true
         return run
     }
 }
@@ -96,6 +101,8 @@ struct InlineStyle {
     /// A platform colour by name, resolved when the run is read (LLP 1095 D5).
     var colorRef: BatchValue?
     var backgroundRef: BatchValue?
+    /// Whether `color` is one its author fixed, not a platform colour by name.
+    var fixedInk = false
     /// `text-shadow` and `-webkit-text-stroke`, computed for the run (LLP 1077).
     var paint = RunPaintRows()
     var paired = false
@@ -109,19 +116,34 @@ extension Presenter {
               node.inlineText.indices.contains(location.index) else { return nil }
         return node.inlineText[location.index]
     }
-    func inlineEnabled(_ id: UInt32) -> Bool {
-        guard let host = textHost(id), !host.inert, !host.disabled,
-              let value = inlineText(id), value.props["disabled"] != "true" else { return false }
-        var current: InlineText? = value
+    func inlineAriaUnavailable(_ id: UInt32) -> Bool {
+        var current = inlineText(id)
         while let run = current {
-            if run.props["inert"] == "true" { return false }
+            if let value = run.props["accessibilityDisabled"] { return value == "true" }
             current = inlineText(run.parent)
         }
-        return true
+        return textHost(id)?.ariaUnavailable == true
+    }
+    func inlineEnabled(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.disabled,
+              let value = inlineText(id), value.props["disabled"] != "true" else { return false }
+        return !inlineInert(id)
+    }
+    func inlineInert(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.inert, let value = inlineText(id) else { return true }
+        var current: InlineText? = value
+        while let run = current {
+            if run.props["inert"] == "true" { return true }
+            current = inlineText(run.parent)
+        }
+        return false
     }
     func forgetParagraph(_ node: NodeView) {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
+        #if os(iOS)
+        textSelection.remove(node) // its text interaction and selection go with it
+        #endif
     }
     func applyParagraph(_ id: UInt32, _ runs: [InlineText]) {
         guard let node = views[id] else { return }
@@ -150,6 +172,8 @@ extension Presenter {
         #if os(macOS)
         // Its `href` runs' pointing hand (`resetCursorRects`).
         if hadLinks || rows.contains(where: \.isLink) { node.window?.invalidateCursorRects(for: node) }
+        keyViewLoopStale = true
+        if !node.inlineKeyViews.isEmpty { _ = node.syncInlineKeyViews() }
         #endif
     }
 }

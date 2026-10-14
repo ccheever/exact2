@@ -156,12 +156,12 @@ export function memberActionLabel(member: LegacyMember, groupedCount: number): s
 /**
  * The project header's menu (handleProjectButtonContextMenu): Rename, Group into..., Copy Path,
  * Project settings, Remove; with several members each targeted row is a submenu of members.
- * A background environment's member is listed, but only its path can be copied from here.
+ * Every member's rows act on its own environment, a background one's included (no row is disabled).
  */
 export function legacyProjectMenuItems(members: readonly LegacyMember[]): MenuItem[] {
   const targeted = (action: string, label: string, destructive = false): MenuItem => {
     const leaf = (member: LegacyMember): MenuItem => ({ id: `${action}:${member.physicalKey}`, label: memberActionLabel(member, members.length),
-      ...(destructive ? { destructive: true } : {}), ...(member.remote && action !== 'copy-path' ? { disabled: true } : {}) });
+      ...(destructive ? { destructive: true } : {}) });
     if (members.length === 1) return { ...leaf(members[0]!), label };
     return { id: `${action}:submenu`, label, children: members.map(leaf) };
   };

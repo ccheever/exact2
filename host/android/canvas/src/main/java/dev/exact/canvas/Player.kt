@@ -74,6 +74,9 @@ internal class Player(private val fonts: Map<Int, Font>) {
     /** A node exact2's reader animates (op 29, [Layers]). */
     var layer: (Int) -> android.graphics.RenderNode? = { null }
     var group: ((Int) -> android.graphics.RenderNode)? = null
+    /** What is drawn in place of a scroller's own node, for one whose edge the reader stretches ([Scrolling]). */
+    var holder: ((Int) -> android.graphics.RenderNode?)? = null
+    private var grouped = 0
     var width = 0
     var height = 0
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -835,6 +838,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     val g = group!!(b.get(i + 1))
                     g.setPosition(0, 0, width, height)
                     node = g
+                    grouped = b.get(i + 1)
                     outer = c
                     c = g.beginRecording()
                     i += 2
@@ -843,7 +847,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     node?.let { g ->
                         g.endRecording()
                         c = outer!!
-                        c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(g); c.restore()
+                        c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(holder?.invoke(grouped) ?: g); c.restore()
                     }
                     node = null
                     i += 1

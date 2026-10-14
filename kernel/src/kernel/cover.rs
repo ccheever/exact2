@@ -103,14 +103,14 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
         Some(HostCover::Edges([top, right, bottom, left])) => {
             let top = top + header_inset(arena, slot, top);
             s.padding = taffy::geometry::Rect {
-                top: style.padding_top.plus(env, top).to_lp(env),
-                right: style.padding_right.plus(env, right).to_lp(env),
-                bottom: style.padding_bottom.plus(env, bottom).to_lp(env),
-                left: style.padding_left.plus(env, left).to_lp(env),
+                top: style.padding_top.floor_lp(env, top),
+                right: style.padding_right.floor_lp(env, right),
+                bottom: style.padding_bottom.floor_lp(env, bottom),
+                left: style.padding_left.floor_lp(env, left),
             };
         }
         Some(HostCover::Inset([top, bottom])) => {
-            s.padding.bottom = style.padding_bottom.plus(env, top + bottom).to_lp(env);
+            s.padding.bottom = style.padding_bottom.floor_lp(env, top + bottom);
         }
         None => {}
     }
@@ -134,7 +134,7 @@ pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
 pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if inset(arena, slot) {
         let (style, env) = (arena.style(slot), arena.env());
-        s.padding.bottom = style.padding_bottom.plus(env, 0.0).to_lp(env);
+        s.padding.bottom = style.padding_bottom.floor_lp(env, 0.0);
     }
 }
 
@@ -149,7 +149,7 @@ pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror,
 
 /// The top inset a box's replaced first child cleared for itself: that
 /// child is covered whole and pads its top by `env(safe-area-inset-top)`
-/// (or a comparison that reads it, LLP 1001 §2).
+/// (or a `calc()` or comparison that reads it, LLP 1001 §2).
 /// It counts only while a bar covers the box's top (`top > 0`); a scroller
 /// that goes under the bar is inset by the platform instead.
 pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
@@ -165,7 +165,9 @@ pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
             arena.env().inset(Edge::Top)
         }
         // `max(env(safe-area-inset-top), 12px)` clears the inset too.
-        (true, Some(HostCover::Whole), Dimension::Compare(c)) if c.reads(Edge::Top) => {
+        (true, Some(HostCover::Whole), Dimension::Compare(c))
+            if c.reads(Edge::Top, arena.env()) =>
+        {
             arena.env().inset(Edge::Top)
         }
         _ => 0.0,

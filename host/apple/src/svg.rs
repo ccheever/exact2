@@ -194,7 +194,11 @@ impl SvgState {
         let moved: Vec<ViewId> = self
             .sent
             .iter()
-            .filter(|(id, (_, bx))| kernel.node(**id).is_some_and(|n| content_box(&n) != *bx))
+            .filter(|(id, (_, bx))| {
+                kernel
+                    .node(**id)
+                    .is_some_and(|n| content_box(kernel, &n) != *bx)
+            })
             .map(|(id, _)| *id)
             .collect();
         self.dirty.extend(moved);
@@ -205,7 +209,7 @@ impl SvgState {
                 self.sent.remove(&root);
                 continue;
             };
-            let bx = content_box(&node);
+            let bx = content_box(kernel, &node);
             let scene = scene(kernel, engine, &self.pressable, &node, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);
@@ -1040,11 +1044,11 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
     }
     // LLP 1116.001 D2: the tint crosses as a reference, so the presenter
     // resolves it by the svg view's own tint (the nearest `accent-color`),
-    // the reported pair its fallback. macOS has no view tint.
+    // the reported pair its fallback: UIKit's inherited tint, and on the Mac
+    // the nearest authored accent up the view chain (LLP 1115.000 D3.4).
     if let ColorValue::Role(id) = paint.color {
-        if !cfg!(target_os = "macos")
-            && paint.pattern.is_none()
-            && exact_kernel::style::roles::follows_accent(id)
+        if paint.pattern.is_none()
+            && exact_kernel::style::roles::follows_accent(id, cfg!(target_os = "macos"))
         {
             s.push_str("{\"sys\":\"@tint");
             if paint.opacity < 1.0 {

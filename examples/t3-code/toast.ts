@@ -7,7 +7,7 @@ export type ToastKind = 'success' | 'error' | 'warning' | 'info' | 'loading';
 export type ToastAction = { label: string; op: string; id?: string; value?: string };
 export type Toast = { id: number; kind: ToastKind; title: string; description: string; action: ToastAction | null; timeoutMs: number;
   /** Optional presentation (ThreadToastData): a leading glyph instead of the kind icon, a second button, the stacked-end layout. */
-  leading?: string; secondary?: ToastAction | null; actionVariant?: 'default' | 'outline'; stacked?: boolean; hideCopy?: boolean;
+  leading?: string; secondary?: ToastAction | null; actionVariant?: 'default' | 'outline' | 'destructive'; stacked?: boolean; hideCopy?: boolean;
   /** ThreadToastData.secondaryActionVariant: `ghost` drops the outline button's border and fill. */
   secondaryVariant?: 'outline' | 'ghost';
   /** Called with the toast when it is dismissed by its × (ThreadToastData.onClose); with `closeOnAction`, by its buttons too. */
@@ -22,7 +22,7 @@ const queues = new WeakMap<T3Client, Toast[]>();
 let nextId = 1;
 
 export function pushToast(client: T3Client, toast: { kind: ToastKind; title: string; description?: string; action?: ToastAction; timeoutMs?: number;
-  leading?: string; secondary?: ToastAction; actionVariant?: 'default' | 'outline'; stacked?: boolean; hideCopy?: boolean; onClose?: () => void; key?: string;
+  leading?: string; secondary?: ToastAction; actionVariant?: 'default' | 'outline' | 'destructive'; stacked?: boolean; hideCopy?: boolean; onClose?: () => void; key?: string;
   details?: ToastDetail[]; expandLabels?: { expand: string; collapse: string }; secondaryVariant?: 'outline' | 'ghost'; closeOnAction?: boolean; extra?: ToastAction }): number {
   const queue = (queues.get(client) ?? []).filter(entry => !toast.key || entry.key !== toast.key);
   const id = nextId++;

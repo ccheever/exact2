@@ -22,6 +22,155 @@ fn plan(resource: Option<&str>) -> Vec<u8> {
     builder.finish().unwrap().encode()
 }
 
+#[test]
+fn the_first_preboot_launch_location_is_the_boot_fact() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.input_write(b"/first");
+    bridge.set_launch_location(6);
+    bridge.input_write(b"/second");
+    bridge.set_launch_location(7);
+    assert_eq!(bridge.launch.as_deref(), Some("/first"));
+}
+
+#[test]
+fn the_launch_time_is_the_last_valid_one_told_and_set_time_leaves_it() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.set_launch_time(1_790_000_000_000.0, -420.0);
+    bridge.set_launch_time(f64::NAN, 0.0);
+    bridge.set_time(1_800_000_000_000.0, 60.0);
+    let time = bridge.launch_facts.time.unwrap();
+    assert_eq!(
+        (time.epoch_at_zero, time.utc_offset),
+        (1_790_000_000_000.0, -420.0)
+    );
+}
+
+#[test]
+fn the_launch_place_is_the_last_valid_one_told() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    let told = |bridge: &mut Bridge<StorageModule>, text: &str| {
+        bridge.input_write(text.as_bytes());
+        bridge.set_launch_place(text.len());
+    };
+    told(&mut bridge, "fr-FR\0Europe/Paris\x007");
+    told(&mut bridge, "\0Europe/Paris\x007");
+    told(&mut bridge, "de-DE\0Europe/Berlin");
+    let place = bridge.launch_facts.place.clone().unwrap();
+    assert_eq!(
+        (place.locale.as_str(), place.time_zone.as_str(), place.seed),
+        ("fr-FR", "Europe/Paris", 7.0)
+    );
+}
+
+#[derive(Clone, Default)]
+struct DocumentOwnerSource {
+    owner: u64,
+}
+
+impl DataSource for DocumentOwnerSource {
+    fn app_id(&self) -> &str {
+        "test.exact.document.owner"
+    }
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn set_document_owner(&mut self, owner: u64) {
+        self.owner = owner;
+    }
+    fn preload(&self) -> Result<bool, DataError> {
+        assert_ne!(self.owner, 0);
+        Ok(true)
+    }
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        assert_ne!(self.owner, 0);
+        Ok(())
+    }
+    fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+        Ok(Self::default())
+    }
+}
+
+#[test]
+fn plan_and_module_reloads_keep_the_document_owner() {
+    let bytes = plan(None);
+    let mut registry = crate::abi::registry::Registry::<DocumentOwnerSource>::default();
+    let rt = registry.create();
+    let entry = registry.get(rt).unwrap();
+    let mut entry = entry.borrow_mut();
+    let bridge = &mut entry.bridge;
+    bridge.boot(
+        &bytes,
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    let file = std::env::temp_dir().join(format!("exact-document-owner-{rt}"));
+    std::fs::write(&file, b"owned").unwrap();
+    let request = format!(
+        r#"{{"op":"mintDocument","owner":{rt},"path":"{}"}}"#,
+        file.display()
+    );
+    let reply = bridge.host.as_mut().unwrap().answer_hold(&request).unwrap();
+    let doc = exact_runner::agent::field_str(&reply, "doc").unwrap();
+    let resolves = |bridge: &mut Bridge<DocumentOwnerSource>| {
+        use ibex2::stdlib::fs::{DocumentError, DocumentLease, FsOp, FsResult};
+        let owner = bridge.host.as_mut().unwrap().runner_mut().data().owner;
+        let grants = ibex2::grant::GrantSet::parse("fs.read doc:/").unwrap();
+        let result = ibex2::stdlib::fs::run_document(
+            &grants,
+            Some(&move |path, _access| {
+                let resolved =
+                    exact_data::documents::resolve(path, owner).map_err(DocumentError::from)?;
+                let guard = std::sync::Arc::new(());
+                match resolved {
+                    exact_data::documents::Resolved::Root(name) => DocumentLease::root(name, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: true,
+                    } => DocumentLease::selected_file(directory, path, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: false,
+                    } => DocumentLease::directory(directory, path, guard),
+                }
+            }),
+            FsOp::ReadFile,
+            &doc,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result, FsResult::Bytes(b"owned".to_vec()));
+        assert!(exact_data::documents::resolve(&doc, u64::from(rt) + 1).is_err());
+    };
+    resolves(bridge);
+    bridge.painted = true;
+    bridge.input_write(&bytes);
+    bridge.prepare_plan(
+        bytes.len(),
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    bridge.commit_plan();
+    resolves(bridge);
+    bridge.input_write(&bytes);
+    bridge.prepare_module(
+        [bytes.len(), 0, 0],
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    bridge.commit_plan();
+    resolves(bridge);
+    exact_data::documents::forget(u64::from(rt));
+    std::fs::remove_file(file).unwrap();
+}
+
 #[derive(Clone, Default)]
 struct StorageModule {
     configured: bool,
@@ -854,7 +1003,7 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     text = value
   view
     box
-      input testId="field" value=text change=edit
+      input testId="field" value=text input=edit change=edit
 "#,
     )
     .unwrap()
@@ -880,7 +1029,21 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    for kind in [44, 99, u32::MAX] {
+    // focusin and focusout (#283) carry a length-prefixed target and an
+    // optional related id; a payload that does not parse is refused.
+    for kind in [46, 47] {
+        let len = bridge.input_write(b"5:field0");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        // Decoded and named: the field has no such handler, not a bad kind.
+        assert!(out.contains("NoHandler"), "{out}");
+        let len = bridge.input_write(b"typed");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("invalid focus event"), "{out}");
+        assert_eq!(slots(&bridge), hello);
+    }
+    for kind in [45, 99, u32::MAX] {
         let len = bridge.input_write(b"typed");
         let n = bridge.dispatch(view, kind, len, 0.);
         let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
@@ -888,8 +1051,43 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
         assert_eq!(slots(&bridge), hello);
     }
     let len = bridge.input_write(b"typed");
+    let n = bridge.dispatch(view, 48, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("invalid field selection"), "{out}");
+    let len = bridge.input_write(b"5,5,none,range");
+    bridge.dispatch(view, 48, len, 0.);
+    assert_eq!(slots(&bridge), vec![("text".into(), Value::str("range"))]);
+    let len = bridge.input_write(b"typed");
     bridge.dispatch(view, 1, len, 0.);
     assert_eq!(slots(&bridge), vec![("text".into(), Value::str("typed"))]);
+}
+
+#[test]
+fn keycapture_abi_kind_reaches_the_runner() {
+    let bytes = contract::compile(
+        r#"component App
+  state heard = ""
+  action captured(k: string, e: KeyboardEvent)
+    heard = `${k}:${e.code}`
+  view
+    box keycapture=captured testId="root"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let key = host.runner().kernel().find_by_test_id("root")[0];
+    let view = host.runner().kernel().node_by_key(key).unwrap().id;
+    let len = bridge.input_write(b"x\nKeyX\nfalse");
+    let n = bridge.dispatch(view, 44, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(
+        bridge.host.as_ref().unwrap().carry().slots,
+        vec![("heard".into(), Value::str("x:KeyX"))]
+    );
 }
 
 #[test]

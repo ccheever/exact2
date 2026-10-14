@@ -105,42 +105,13 @@ impl<D: DataSource> Runner<D> {
         }
         let view = feedback.view;
         let mut tree = self.tree.take().expect("booted");
-        // @ref LLP 1010 §6.9 — the list's own padding and scroll padding,
-        // `env()` and a computed value resolved: the room a host scrolls
-        // before and past the rows, and the inset `scrollIntoView` aligns
-        // within. Not the layout's padding, which adds a route's cover (LLP
-        // 1075.003 §3.5) that Apple's hosts do not scroll.
-        if let Some(node) = self.kernel.node(view) {
-            let env = self.kernel.env();
-            let points = |d: exact_kernel::Dimension| match d.resolve(&env) {
-                exact_kernel::Dimension::Points(n) => n as f64,
-                _ => 0.0,
-            };
-            let (s, r) = (node.style, &node.style.rare);
-            tree.set_collection_insets(
-                view,
-                crate::instance::collection::Insets {
-                    padding: [
-                        s.padding_top,
-                        s.padding_right,
-                        s.padding_bottom,
-                        s.padding_left,
-                    ]
-                    .map(points),
-                    scroll: [
-                        r.scroll_padding_top,
-                        r.scroll_padding_right,
-                        r.scroll_padding_bottom,
-                        r.scroll_padding_left,
-                    ]
-                    .map(points),
-                },
-            );
-        }
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
+            let scroll_padding = |view| scroll_padding(&self.kernel, view);
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
             update.reuse = self.reuse;
+            update.scroll_padding = Some(&scroll_padding);
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
                     (
@@ -302,6 +273,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let shown = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
             tree.show_collection(&mut update, view, offset);
             update.shown
         };
@@ -443,4 +415,25 @@ impl<D: DataSource> Runner<D> {
         }
         renewed
     }
+}
+
+/// `view`'s `scroll-padding`, top, right, bottom, left, in points, as its
+/// committed style resolves it now ([`Update::scroll_padding`]): `env()` and a
+/// computed value resolved.
+pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let env = kernel.arena().env();
+    let r = &node.style.rare;
+    [
+        r.scroll_padding_top,
+        r.scroll_padding_right,
+        r.scroll_padding_bottom,
+        r.scroll_padding_left,
+    ]
+    .map(|d| match d.resolve(env) {
+        exact_kernel::Dimension::Points(n) => n as f64,
+        _ => 0.0,
+    })
 }

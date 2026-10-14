@@ -1,107 +1,73 @@
 # Recipe: a grouped form
 
-A settings-style form: an inset-grouped list of sections, fields without a border of
-their own, a switch, a pop-up menu and a date picker, validated after the first Save.
+A settings form: a grouped list with a text field, a quantity, a switch and a
+date picker, validated after the first Save.
 
 ```contract
 routes nav
   home "/"
 
-shape Ack
-  ok: bool
-
 component Profile
   state name = ""
-  state email = ""
+  state qty = "1"
   state reminders = true
-  state units = "metric"
   state birthday = ""
   state submitted = false
-  mutation saved as shape Ack
   derive nameError = trim(name) == "" ? "Enter your name." : ""
-  derive emailError = includes(email, "@") ? "" : "Enter an email address, like name@example.com."
-
   action editName(v: string)
     name = v
-  action editEmail(v: string)
-    email = v
+  action editQty(v: string)
+    qty = v
   action setReminders(on: bool)
     reminders = on
-  action setUnits(v: string)
-    units = v
   action setBirthday(v: string)
     birthday = v
   action save
     submitted = true
-    if nameError == "" and emailError == ""
-      send saved = saveProfile(trim(name), trim(email), reminders, units, birthday)
-
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
       each e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="form" position="absolute" inset=0
           display="flex" flex-direction="column"
-          header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-            text "Profile" role="heading" aria-level=1
-            button press=save disabled=pending(saved) testId="save"
+          header display="flex" align-items="center" padding="8px 16px"
+            text "Profile" role="heading" aria-level=1 flex=1
+            button press=save buttonStyle="filled" testId="save"
               text "Save"
           list id="form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
-              header
-                text "Name"
               row
                 column flex=1 min-width=0 gap=4
-                  input appearance="none" value=name input=editName placeholder="Required" aria-label="Name"
-                    autocomplete="name" testId="name"
+                  input value=name input=editName submit=save placeholder="Name" aria-label="Name"
+                    autocomplete="name" aria-invalid=(submitted and nameError != "") testId="name"
                   when submitted and nameError != ""
                     text nameError font="-exact-footnote" color="-exact-system-red" testId="name-error"
             section
-              header
-                text "Email"
               row
-                column flex=1 min-width=0 gap=4
-                  input appearance="none" type="email" value=email input=editEmail placeholder="name@example.com"
-                    aria-label="Email" autocapitalize="off" autocomplete="email" testId="email"
-                  when submitted and emailError != ""
-                    text emailError font="-exact-footnote" color="-exact-system-red" testId="email-error"
-            section
-              header
-                text "Preferences"
+                text "Quantity"
+                input type="number" value=qty input=editQty min=1 max=99 step=1 aria-label="Quantity" testId="qty"
               row
                 text "Reminders"
                 input type="checkbox" switch checked=reminders change=setReminders aria-label="Reminders" testId="reminders"
-              row
-                text "Units"
-                select value=units change=setUnits aria-label="Units" testId="units"
-                  option "Metric" value="metric"
-                  option "Imperial" value="imperial"
               row
                 text "Birthday"
                 input type="date" value=birthday change=setBirthday aria-label="Birthday" testId="birthday"
 ```
 
 ```contract-test
-test "errors show after the first Save and clear when fixed"
+test "an error shows after the first Save and clears when fixed"
   expect tree missing "name-error"
-  tap "save"
+  type "name" key "Enter"
   expect text "name-error" == "Enter your name."
   type "name" "Ada"
-  type "email" "ada@example.com"
-  type "units" "imperial"
-  type "reminders" "false"
   tap "save"
   expect tree missing "name-error"
-  expect state reminders == false
+  expect state submitted == true
 ```
 
-- A text field in a grouped row takes `appearance="none"`, or it draws its own rounded
-  box inside the card. Leave the switch, menu and date picker as they are: each is the
-  platform's control (`UISwitch`, a pop-up button, `UIDatePicker`).
-- A row of a `text` and a switch is a title and its accessory, as Settings draws it. Any
-  other row is yours, a flex row: vertical content goes in a `column flex=1`, and it
-  writes only `padding-top`/`padding-bottom` (`padding` or `width="100%"` runs it off
-  the card).
-- Validate a derive of the raw text, and show it only after the first Save, under the
-  field in its row, in `-exact-system-red`, saying what to do.
-- The list paints its own grouped background; don't set one. To keep a setting across
-  launches, see [persisted-setting](persisted-setting.md).
+- Leave a field in a grouped row unsaid: each platform draws its own, as it does a switch, a
+  date picker and a menu (`select` of `option "Metric" value="metric"`).
+- A quantity from 1 to 99 is `input type="number" min=1 max=99 step=1`: the platform draws its
+  stepper; the field stays editable and its `value` is text (`parseNumber` it).
+- A `text` and a control in a row are a title and its accessory; any other is a flex row.
+  Show a validation derive only after the first Save, under the field in `-exact-system-red`
+  with `aria-invalid`; `submit=save` makes Enter save (no `form`).

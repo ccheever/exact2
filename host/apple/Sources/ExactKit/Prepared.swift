@@ -58,18 +58,22 @@ struct FlatPaint: Equatable {
         "row_gap", "column_gap", "aspect_ratio", "box_sizing", "overflow_x", "overflow_y",
         "grid_auto_flow", "grid_template_columns", "grid_template_rows", "grid_column", "grid_row", "justify_items",
         "direction", "font_size", "font_weight", "font_style", "font_family", "line_height", "letter_spacing",
-        "font_variant_numeric", "line_clamp", "white_space", "field_sizing", "overflow_wrap",
+        "font_variant_numeric", "line_clamp", "white_space", "text_wrap_style", "field_sizing", "overflow_wrap",
         "border_style_top", "border_style_right", "border_style_bottom", "border_style_left", "text_transform",
         "text_color", "text_shadow", "text_stroke_width", "text_stroke_color", "text_align", "text_overflow", "text_decoration_line", "interpolate_size", "touch_action",
         "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left",
         // A fixed fill paints alike in either scheme (LLP 1034 §8).
         "color_scheme",
+        // Which rows the author wrote (LLP 1115.000 D2): nothing a leaf paints.
+        "written",
     ]
 
     init?(_ style: NodeStyle) {
         for (key, value) in style {
             // A percentage needs the final box; let the view paint it.
             if key.hasPrefix("border_radius_"), value.number == nil { return nil }
+            // Such a padding takes the content box layout sends, which a layer would not keep
+            if key.hasPrefix("padding_"), value.number == nil { return nil }
             if Self.inert.contains(key) { continue }
             switch key {
             case "position_type":

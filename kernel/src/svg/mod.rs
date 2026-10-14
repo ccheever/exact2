@@ -195,7 +195,8 @@ pub enum PaintFallback {
 }
 
 impl Paint {
-    /// `fill`'s initial value.
+    /// `stop-color`'s and `flood-color`'s initial value, SVG's own. `fill`'s
+    /// was this too; unsaid it is `currentcolor` now (LLP 1115.000 D3.8).
     pub const BLACK: Paint = Paint::Color(ColorValue::Fixed(Color(0x0000_00ff)));
     /// `lighting-color`'s initial value.
     pub const WHITE: Paint = Paint::Color(ColorValue::Fixed(Color(0xffff_ffff)));

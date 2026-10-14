@@ -73,6 +73,7 @@ class ShellMenuCase: XCTestCase {
         window.contentView!.addSubview(page)
         window.orderFrontRegardless()
         shell = T3TextContextMenu(agent: false)
+        shell.assistive = { false } // no VoiceOver: a `contextmenu` nothing raised opens nothing (SecondaryClickTests turn it on)
         popped = []
         shell.present = { [unowned self] menu, _, view in popped.append((T3ShellMenu.describe(menu), view)) }
         shell.install()

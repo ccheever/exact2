@@ -19,6 +19,14 @@ use exact_kernel::StyleId;
 use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
+mod counts;
+mod miswiring;
+mod parts;
+mod roles;
+mod screens;
+mod title;
+mod width;
+
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a
 /// repair of the first twenty would only show the next (rules/RULES.md,
@@ -29,35 +37,82 @@ pub const MAX_WARNINGS: usize = 20;
 pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     let mut out = Vec::new();
-    // Each node, and whether a navigation root (the outermost element with
-    // a `navigationKey`) encloses it: an element with a `navigationKey`
-    // inside one is a route.
-    let mut stack: Vec<(&Node, bool)> = root.view.iter().rev().map(|n| (n, false)).collect();
-    while let Some((node, in_root)) = stack.pop() {
-        let (children, in_root): (Vec<&Node>, bool) = match node {
+    // Each node, whether a navigation root (the outermost element with a
+    // `navigationKey`) encloses it, and the id that root's `navigationBack`
+    // names, when it is a literal: an element with a `navigationKey` inside
+    // a root is a route.
+    let mut stack: Vec<(&Node, bool, Option<&str>)> =
+        root.view.iter().rev().map(|n| (n, false, None)).collect();
+    let mut seen = BTreeSet::new();
+    while let Some((node, in_root, back)) = stack.pop() {
+        let (children, in_root, back): (Vec<&Node>, bool, Option<&str>) = match node {
             Node::Element {
-                attrs, children, ..
+                tag,
+                positional,
+                attrs,
+                children,
+                ..
             } => {
+                // A component used twice is inlined twice: one line for its source.
+                let span = node.span();
+                let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
+                // @ref LLP 1116.007 D3.1 — a symbol by another spelling than its role.
+                if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
+                    out.extend(crate::symbols::aliases(source));
+                }
+                let button = (tag == "button")
+                    .then(|| roles::unlabelled_button(attrs, children, span))
+                    .flatten();
+                out.extend(button.filter(|_| fresh));
+                out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
+                out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
-                if in_root && keyed && !has(attrs, "navigationBack") {
-                    route_header(children, &mut out);
+                // @ref LLP 1116.010 D5 — a name or a key that meets nothing.
+                miswiring::swipe(attrs, children, fresh, &mut out);
+                if tag == "image" {
+                    miswiring::image_source(positional.first(), fresh, &mut out);
+                }
+                if keyed && !in_root {
+                    let declared = checked.file.routes.as_ref().map(|r| r.span);
+                    miswiring::navigation_keys(attrs, children, declared, fresh, &mut out);
+                }
+                miswiring::navigation_split(tag, attrs, keyed, keyed && !in_root, fresh, &mut out);
+                let route = in_root && keyed && !has(attrs, "navigationBack");
+                // A route that says it has no bar (LLP 1115.000 D5.2) draws
+                // its header as written: nothing of it is the bar's to drop.
+                let no_bar = literal(attrs, "navigationBar") == Some("none");
+                if route && !no_bar {
+                    route_header(children, &[], &mut out);
+                }
+                if let (true, Some(name)) = (route, back) {
+                    drawn_back(attrs, children, name, &mut out);
                 }
                 if literal(attrs, "role") == Some("tablist") {
                     single_tab(node, &mut out);
                 }
-                (children.iter().collect(), in_root || keyed)
+                let back = if keyed && !in_root {
+                    literal(attrs, "navigationBack").filter(|name| !name.is_empty())
+                } else {
+                    back
+                };
+                (children.iter().collect(), in_root || keyed, back)
             }
             Node::When {
                 then, otherwise, ..
-            } => (then.iter().chain(otherwise).collect(), in_root),
-            Node::Each { body, .. } => (body.iter().collect(), in_root),
-            Node::Match { some, none, .. } => (some.1.iter().chain(none).collect(), in_root),
-            Node::Use { children, .. } => (children.iter().collect(), in_root),
-            Node::Children { .. } => (Vec::new(), in_root),
+            } => (then.iter().chain(otherwise).collect(), in_root, back),
+            Node::Each { body, .. } => (body.iter().collect(), in_root, back),
+            Node::Match { some, none, .. } => (some.1.iter().chain(none).collect(), in_root, back),
+            Node::Use { children, .. } => (children.iter().collect(), in_root, back),
+            Node::Children { .. } => (Vec::new(), in_root, back),
         };
-        stack.extend(children.into_iter().rev().map(|n| (n, in_root)));
+        stack.extend(children.into_iter().rev().map(|n| (n, in_root, back)));
     }
+    out.extend(screens::screen_by_state(checked));
+    out.extend(counts::count_plural(checked));
+    // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
+    out.extend(parts::round_button_label(checked));
     performance_now(root, &checked.file.fns, &mut out);
+    width::width_padding(&root.view, &checked.file.styles, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
             .into_iter()
@@ -112,7 +167,8 @@ enum Part {
     /// Not shown in the header on any host: `display="none"`, or a popover
     /// or dialog, which shows over the page when it opens.
     Hidden,
-    /// `text role="heading"` (or with `aria-level`): the bar's title.
+    /// `text role="heading"`: the bar's title. An `aria-level` with no role
+    /// is not one (LLP 1115.000 D12.5), there or to the bar.
     Heading,
     /// Another `text`: the subtitle when it is the first after the heading.
     Text,
@@ -150,7 +206,7 @@ fn part(node: &Node) -> Part {
         return Part::Pressable;
     }
     match tag.as_str() {
-        "text" if role == Some("heading") || has(attrs, "aria-level") => Part::Heading,
+        "text" if role == Some("heading") => Part::Heading,
         "text" => Part::Text,
         "input" if computed(attrs, "type") => Part::Doubt,
         "input" if literal(attrs, "type") == Some("search") => Part::Search,
@@ -219,8 +275,10 @@ fn glyph_line(node: &Node) -> bool {
 
 /// What the walk of one header has seen.
 #[derive(Default)]
-struct Bar {
+struct Bar<'a> {
     headings: usize,
+    /// The last heading counted: the bar's title when it is the one.
+    title: Option<&'a Node>,
     /// A `when`, `each`, `match`, use or slot, or a computed role: the
     /// headings counted may not be all.
     doubt: bool,
@@ -234,6 +292,14 @@ struct Bar {
     unplaced: Vec<(Span, String)>,
 }
 
+/// What iOS makes of a route whose `header` is not the bar (LLP 1115.000
+/// D5.2), in `lower-header-no-bar`'s words.
+const NOT_THE_BAR: &str = "the header is drawn in the page as written, and the bar has no title: a pushed route's holds the system Back button alone, above the header, and a stack's first route has no bar.";
+
+/// The other repair `lower-header-no-bar` names: the route's own chrome.
+const OR_NO_BAR: &str =
+    "; or, if this screen draws its own chrome, say `navigationBar=\"none\"` on the route";
+
 /// `lower-header-unplaced`: a node in a route's first `header` that the
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The
 /// bar takes one heading as its title, the first text after it as the
@@ -243,14 +309,16 @@ struct Bar {
 /// nothing and the header is shown as written, so nothing is dropped; that
 /// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). A `when` first
 /// among the route's children is read branch by branch: a branch's first
-/// node is the route's first child while it is taken.
-fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
+/// node is the route's first child while it is taken, and `after` the
+/// route's nodes past that `when`.
+fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
     if let Some(Node::When {
         then, otherwise, ..
     }) = children.first()
     {
-        route_header(then, out);
-        route_header(otherwise, out);
+        let rest: Vec<&Node> = children[1..].iter().chain(after.iter().copied()).collect();
+        route_header(then, &rest, out);
+        route_header(otherwise, &rest, out);
         return;
     }
     let Some(header @ Node::Element { tag, attrs, .. }) = children.first() else {
@@ -266,14 +334,18 @@ fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
             out.push(LowerError {
                 id: "lower-header-no-bar",
                 message: if bar.headings == 0 {
-                    "this route's `header` holds no heading, so on iOS it is not the navigation bar: the route shows no bar (no title, no Back button) and the header is drawn in the page as written. Give it one `text role=\"heading\"` (`aria-level=1` for a large title) — its buttons become the bar's items (docs/recipes/navigation-stack.md)".to_string()
+                    format!("this route's `header` holds no heading, so on iOS it is not the navigation bar: {NOT_THE_BAR} Give it one `text role=\"heading\"` (`aria-level=1` for a large title) — its buttons become the bar's items{OR_NO_BAR} (docs/recipes/navigation-stack.md)")
                 } else {
-                    format!("this route's `header` holds {} headings, so on iOS it is not the navigation bar: the route shows no bar (no title, no Back button) and the header is drawn in the page as written. Keep one `text role=\"heading\"` and make the others plain `text` (the first text after the heading is the bar's subtitle), or move them below the `header` (docs/recipes/navigation-stack.md)", bar.headings)
+                    format!("this route's `header` holds {} headings, so on iOS it is not the navigation bar: {NOT_THE_BAR} Keep one `text role=\"heading\"` and make the others plain `text` (the first text after the heading is the bar's subtitle), or move them below the `header`{OR_NO_BAR} (docs/recipes/navigation-stack.md)", bar.headings)
                 },
                 span: header.span(),
             });
         }
         return;
+    }
+    if let Some(title) = bar.title {
+        let content: Vec<&Node> = children[1..].iter().chain(after.iter().copied()).collect();
+        title::title_twice(title, &content, out);
     }
     for (span, what) in bar.unplaced {
         out.push(LowerError {
@@ -286,7 +358,7 @@ fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
     }
 }
 
-fn walk(nodes: &[Node], bar: &mut Bar) {
+fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
     for node in nodes {
         let span = node.span();
         match part(node) {
@@ -294,6 +366,7 @@ fn walk(nodes: &[Node], bar: &mut Bar) {
             Part::Hidden => {}
             Part::Heading => {
                 bar.headings += 1;
+                bar.title = Some(node);
                 bar.passed = true;
             }
             Part::Search if !bar.search => bar.search = true,
@@ -340,6 +413,98 @@ fn walk(nodes: &[Node], bar: &mut Bar) {
 
 fn has_press(node: &Node) -> bool {
     matches!(node, Node::Element { attrs, .. } if has(attrs, "press"))
+}
+
+/// The `header`s that may be a route's first child: its first node, or the
+/// first node of a branch of the `when`s and `match`es it opens with, each
+/// of which may yield nothing and leave the next to be first.
+fn first_headers<'a>(children: &'a [Node], out: &mut Vec<&'a Node>) {
+    for node in children {
+        match node {
+            Node::When {
+                then, otherwise, ..
+            } => {
+                first_headers(then, out);
+                first_headers(otherwise, out);
+            }
+            Node::Match { some, none, .. } => {
+                first_headers(&some.1, out);
+                first_headers(none, out);
+            }
+            Node::Element { tag, .. } => {
+                if tag == "header" {
+                    out.push(node);
+                }
+                return;
+            }
+            _ => return,
+        }
+    }
+}
+
+/// `lower-back-twice`: a route draws its own Back control (the element
+/// whose `id` the root's `navigationBack` names) where iOS shows the system
+/// Back too (LLP 1115.000 D5.2). Every pushed route has the navigation bar
+/// unless it says `navigationBar="none"`, and the bar's Back presses the
+/// authored control (LLP 1115 D5), so a control drawn in the page is a
+/// second Back on the same screen.
+///
+/// A control in the route's first `header` is not drawn there on iOS: when
+/// the header is the bar it is the bar's Back button, and a header that is
+/// no bar is `lower-header-no-bar`'s to name. A sheet (`modal`,
+/// `fullscreen`) is the first route of its own stack, with no system Back.
+/// A computed `navigationBar`, `navigationPresentation`, `id` or `display`
+/// is given the benefit of the doubt.
+fn drawn_back(route: &[Attr], children: &[Node], name: &str, out: &mut Vec<LowerError>) {
+    if has(route, "navigationBar") && literal(route, "navigationBar") != Some("auto") {
+        return;
+    }
+    if has(route, "navigationPresentation") && literal(route, "navigationPresentation") != Some("")
+    {
+        return;
+    }
+    let mut headers = Vec::new();
+    first_headers(children, &mut headers);
+    let mut stack: Vec<&Node> = children.iter().rev().collect();
+    while let Some(node) = stack.pop() {
+        if headers.iter().any(|h| std::ptr::eq(*h, node)) {
+            continue;
+        }
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                // Not drawn in the page: hidden, or shown over it when it
+                // opens. A `display` the compiler cannot read is the benefit.
+                if literal(attrs, "display") == Some("none")
+                    || computed(attrs, "display")
+                    || has(attrs, "popover")
+                    || tag == "dialog"
+                {
+                    continue;
+                }
+                if literal(attrs, "id") == Some(name) {
+                    out.push(LowerError {
+                        id: "lower-back-twice",
+                        message: format!("this is the route's Back control (`id=\"{name}\"`, which the root's `navigationBack` names), drawn in the page: on iOS a pushed route's navigation bar has the system Back button, which presses this one, so the screen shows two. Delete it, and the platform's Back still goes back (the bar's button, the edge swipe, the browser's Back), through the root's `navigate` or the router's own back; or move it into the route's `header` beside one `text role=\"heading\"`, where it is the bar's Back button; or, for a full-bleed screen that draws its own chrome, say `navigationBar=\"none\"` on the route (docs/recipes/navigation-stack.md)"),
+                        span: node.span(),
+                    });
+                    continue;
+                }
+                stack.extend(children.iter().rev());
+            }
+            Node::When {
+                then, otherwise, ..
+            } => stack.extend(then.iter().chain(otherwise).rev()),
+            Node::Each { body, .. } => stack.extend(body.iter().rev()),
+            Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none).rev()),
+            Node::Use { children, .. } => stack.extend(children.iter().rev()),
+            Node::Children { .. } => {}
+        }
+    }
 }
 
 /// `lower-single-tab`: a root tab bar (a `role="tablist"` whose tabs name

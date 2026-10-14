@@ -108,7 +108,7 @@ describe('about: the no-feed "Check for updates" control', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
   test('it is disabled, labelled, and in all three footers with its side-top tooltip', async () => {
     const pill = (await source('sidebar-icons.contract')).split('\ncomponent SidebarUpdatePill\n')[1]!;
-    expect(pill).toContain('button disabled=true aria-label="Check for updates" cursor="not-allowed" testId=testId');
+    expect(pill).toContain('button aria-disabled=true aria-label="Check for updates" cursor="not-allowed" testId=testId'); // round 12: aria-disabled, as the reference's (X70)
     expect(pill).toContain('opacity=0.6');
     expect(pill).not.toContain('press=');
     for (const file of ['sidebar.contract', 'legacy-sidebar.contract']) {

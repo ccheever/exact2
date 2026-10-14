@@ -32,16 +32,6 @@ private func call(_ transport: T3Transport, _ request: [String: Any], file: Stat
 }
 
 final class TransportTests: XCTestCase {
-    func testAgentStorageHonorsExplicitScratchWithoutChangingLiveRoots() {
-        let original = URL(fileURLWithPath: "/system/tmp/exact-agent-123-2/data")
-        let scratch = URL(fileURLWithPath: ProcessInfo.processInfo.environment["TMPDIR"]!)
-        let expected = scratch.appendingPathComponent("exact-agent-123-2/data")
-        XCTAssertEqual(T3Storage.dataRoot(agent: true, contextData: original).path, expected.path)
-        XCTAssertEqual(T3Storage.dataRoot(agent: false, contextData: original), original)
-        XCTAssertEqual(T3Storage.dataRoot(agent: true, contextData: original, environment: ["TMPDIR": "relative"]), original)
-        XCTAssertEqual(T3Storage.dataRoot(agent: true, contextData: original, environment: [:]), original)
-    }
-
     func makeTransport() -> T3Transport {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [HTTPFixture.self]

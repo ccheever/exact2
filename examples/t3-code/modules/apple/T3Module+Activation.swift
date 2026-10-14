@@ -36,7 +36,7 @@ extension T3Module {
     }
 
     func attachAppControl(_ context: ExactModuleContext) {
-        T3AppControl.shared.attach(self, dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), changed: context.changed)
+        T3AppControl.shared.attach(self, dataRoot: context.data, changed: context.changed)
     }
 
     func detachAppControl() { T3AppControl.shared.detach(self) }

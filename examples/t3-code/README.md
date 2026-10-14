@@ -481,7 +481,9 @@ with #99 if they still hold there.
   ease-out"`. A fixed-height child then retains its grid while the parent animates. A
   standalone macOS probe measured 105.88 pt at 100 ms and continuous reversal. (Terminal
   parity, framework height code identical to `origin/main` `a72661fd4`, 2026-10-07;
-  `host/apple/src/height.rs`.)
+  `host/apple/src/height.rs`.) Fixed on main by `6621ff898` (2026-10-13: a numeric height
+  transition animates with either box sizing and no keyword opt-in), adopted in round 12; the
+  terminal drawer keeps both attributes (harmless, not re-filmed).
 - **A one-edge border draws a 3 px frame, or a closed panel stays 3 px tall.**
   `border-style="solid"` enables every edge; unspecified widths retain CSS's `medium`
   default. Set `border-width=0` before the intended edge, for example `border-width=0

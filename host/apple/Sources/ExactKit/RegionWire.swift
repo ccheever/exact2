@@ -67,11 +67,14 @@ extension RegionTextSource {
             guard let size = row["size"] as? Double, size.isFinite, size >= 0,
                   let weight = row["weight"] as? Int, let family = row["family"] as? Int,
                   let spacing = row["spacing"] as? Double, spacing.isFinite else { return nil }
-            return Run(text: row["text"] as? String ?? "", size: size, weight: weight, family: family,
+            var run = Run(text: row["text"] as? String ?? "", size: size, weight: weight, family: family,
                 italic: row["italic"] as? Bool ?? false,
                 lineHeight: (row["lineHeight"] as? Double).map { CGFloat($0) }, letterSpacing: spacing,
                 color: row[dark ? "darkColor" : "color"] as? [Double],
                 decoration: row["decoration"] as? String ?? "", href: row["href"] as? String ?? "")
+            // The colour is one its author fixed, not a role (LLP 1115.000 D7.9).
+            run.fixedInk = row["fixed"] as? Bool == true
+            return run
         }
         let runs = rows.compactMap(run)
         guard runs.count == rows.count, let strut = run(strutRow),
@@ -83,6 +86,7 @@ extension RegionTextSource {
         spec.textBoxTrim = wire["textBoxTrim"] as? Int ?? 0
         spec.textBoxOver = wire["textBoxOver"] as? Int ?? 0
         spec.textBoxUnder = wire["textBoxUnder"] as? Int ?? 0
+        spec.balance = wire["textWrapStyle"] as? Int == 1
         return capture(spec, engine: engine)
     }
 }

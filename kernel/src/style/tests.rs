@@ -34,9 +34,9 @@ use taffy::prelude::{line, span};
 fn percent_converts_exactly_once() {
     let d = Dimension::Percent(50.0);
     let env = Env::default();
-    assert_eq!(d.to_taffy(&env), percent(0.5_f32));
+    assert_eq!(d.floor_taffy(&env), percent(0.5_f32));
     assert_eq!(d.to_lpa(&env), percent(0.5_f32));
-    assert_eq!(d.to_lp(&env), percent(0.5_f32));
+    assert_eq!(d.floor_lp(&env, 0.0), percent(0.5_f32));
 }
 
 #[test]
@@ -53,8 +53,13 @@ fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
         Dimension::parse_env("calc(env(safe-area-inset-bottom) + 12px)"),
         Some(Dimension::Env(Edge::Bottom, 12.0))
     );
+    // CSS requires whitespace around `-`: the unspaced form is invalid.
     assert_eq!(
         Dimension::parse_env("calc(env(safe-area-inset-right)-2.5px)"),
+        None
+    );
+    assert_eq!(
+        Dimension::parse_env("calc(env(safe-area-inset-right) - 2.5px)"),
         Some(Dimension::Env(Edge::Right, -2.5))
     );
     // Addition commutes: the length may come first (CSS's grammar).
@@ -70,27 +75,49 @@ fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
         "env(safe-area-inset-middle)",
         "env(keyboard-inset-height)",
         "calc(env(safe-area-inset-top) + 12)",
-        "calc(env(safe-area-inset-top) * 2)",
-        "calc(12px - env(safe-area-inset-top))",
         "calc(12px+env(safe-area-inset-top))",
         "calc(12px +env(safe-area-inset-top))",
         "calc(12 px + env(safe-area-inset-top))",
-        "calc(12px + env(safe-area-inset-top) + 1px)",
         "calc(12 + env(safe-area-inset-top))",
-        "env(safe-area-inset-top, 0px)",
         "12px",
         "auto",
     ] {
         assert_eq!(Dimension::parse_env(bad), None, "{bad}");
     }
+    // A fallback is CSS Environment Variables 1's, substituted where the
+    // variable is undefined before the row reads the value: held as written
+    let mut s = StyleProps::default();
+    s.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("env(safe-area-inset-top, 0px)".into()),
+    )
+    .unwrap();
+    assert!(matches!(s.width, Dimension::Compare(_)));
+    // One grammar for every calc(): these are valid CSS and reduce.
+    assert_eq!(
+        Dimension::parse_env("calc(12px + env(safe-area-inset-top) + 1px)"),
+        Some(Dimension::Env(Edge::Top, 13.0))
+    );
+    for tree in [
+        "calc(env(safe-area-inset-top) * 2)",
+        "calc(12px - env(safe-area-inset-top))",
+    ] {
+        assert!(
+            matches!(Dimension::parse_env(tree), Some(Dimension::Compare(..))),
+            "{tree}"
+        );
+    }
     let env = Env::new(62.0, 0.0, 34.0, 0.0);
-    assert_eq!(Dimension::Env(Edge::Top, 0.0).to_lp(&env), length(62.0_f32));
+    assert_eq!(
+        Dimension::Env(Edge::Top, 0.0).floor_lp(&env, 0.0),
+        length(62.0_f32)
+    );
     assert_eq!(
         Dimension::Env(Edge::Bottom, 12.0).to_lpa(&env),
         length(46.0_f32)
     );
     assert_eq!(
-        Dimension::Env(Edge::Left, 8.0).to_taffy(&env),
+        Dimension::Env(Edge::Left, 8.0).floor_taffy(&env),
         length(8.0_f32)
     );
     // Environment and explicit pixel lengths share dimension decoding.
@@ -445,30 +472,67 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
             "{text}"
         );
     }
+    // CSS Syntax 3 closes a block the text ends inside, as a browser does
+    assert_eq!(
+        Dimension::parse_calc("calc(100% - 89px"),
+        Some(Dimension::Calc(100.0, -89.0))
+    );
     for bad in [
         "calc(100%-89px)",
         "calc(100% -89px)",
         "calc(100% - 89)",
         "calc(100% - 0)",
-        "calc(100% * 2)",
-        "calc(50% + 50%)",
-        "calc(10px + 20px)",
-        "calc(100%)",
-        "calc(1e39% - 1px)",
         "calc(nan% - 1px)",
-        "calc(env(safe-area-inset-top) + 50%)",
-        "calc(100% - 89px",
         "100%",
         "89px",
     ] {
         assert_eq!(Dimension::parse_calc(bad), None, "{bad}");
     }
+    // Valid CSS one grammar reduces (CSS Values 4 §10): like terms add,
+    // a number scales, an environment length and a percentage may mix.
+    assert_eq!(
+        Dimension::parse_calc("calc(100% * 2)"),
+        Some(Dimension::Percent(200.0))
+    );
+    assert_eq!(
+        Dimension::parse_calc("calc(50% + 50%)"),
+        Some(Dimension::Percent(100.0))
+    );
+    assert_eq!(
+        Dimension::parse_calc("calc(10px + 20px)"),
+        Some(Dimension::Points(30.0))
+    );
+    assert_eq!(
+        Dimension::parse_calc("calc(100%)"),
+        Some(Dimension::Percent(100.0))
+    );
+    // A percentage beside an environment term is a tree the engine
+    // resolves against its basis at layout, under the layout's environment
+    let Some(Dimension::Compare(tree)) =
+        Dimension::parse_calc("calc(env(safe-area-inset-top) + 50%)")
+    else {
+        panic!("a percentage beside a term is a tree");
+    };
+    let taffy::style::ExpandedLengthPercentageAuto::Calc(tree_handle) =
+        Dimension::Compare(tree).to_lpa(&Env::default()).expand()
+    else {
+        panic!("a tree with a percentage is a calc handle");
+    };
+    {
+        let _layout = super::LayoutEnv::set(&Env::new(62.0, 0.0, 0.0, 0.0));
+        assert_eq!(resolve_calc(tree_handle, 400.0), 262.0);
+    }
+    assert_eq!(
+        resolve_calc(tree_handle, 400.0),
+        200.0,
+        "the environment outside a layout"
+    );
     let env = Env::default();
-    let width = Dimension::Calc(100.0, -89.0).to_taffy(&env);
-    assert_eq!(width, Dimension::Calc(100.0, -89.0).to_taffy(&env));
-    assert_ne!(width, Dimension::Calc(100.0, -88.0).to_taffy(&env));
+    let length = Dimension::Calc(100.0, -89.0).to_lpa(&env);
+    assert_eq!(length, Dimension::Calc(100.0, -89.0).to_lpa(&env));
+    assert_ne!(length, Dimension::Calc(100.0, -88.0).to_lpa(&env));
     let mut handle = None;
-    if let taffy::style::ExpandedDimension::Calc(h) = width.expand() {
+    if let taffy::style::ExpandedLengthPercentageAuto::Calc(h) = length.expand() {
         handle = Some(h);
     }
     let handle = handle.expect("a calc() is a calc handle");
@@ -482,13 +546,11 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
     .unwrap();
     assert_eq!(s.width, Dimension::Calc(100.0, -89.0));
     assert!(!uses_env(&s));
-    assert_eq!(
-        s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px + 2px)".into())),
-        Err(StyleValueError::WrongKind {
-            style: StyleId::Width,
-            expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp() of px, env(safe-area-inset-*) and viewport lengths",
-        })
-    );
+    // Unit algebra is refused by name, not valid Level 4 the kernel holds
+    assert!(matches!(
+        s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px * 2px)".into())),
+        Err(StyleValueError::BadComparison { reason, .. }) if reason.contains("a length times")
+    ));
 }
 
 /// LLP 1078 D3, D10: the viewport segment variables parse by CSS-ENV-1's
@@ -535,11 +597,6 @@ fn segment_lengths_parse_resolve_and_refuse_by_name() {
             EnvRefusal::IndexRange,
         ),
         (
-            "env(viewport-segment-width 0 0, 10px)",
-            EnvRefusal::Fallback,
-        ),
-        ("env(safe-area-inset-top, 0px)", EnvRefusal::Fallback),
-        (
             "env(viewport-segment-middle 0 0)",
             EnvRefusal::UnknownVariable,
         ),
@@ -550,7 +607,11 @@ fn segment_lengths_parse_resolve_and_refuse_by_name() {
             EnvRefusal::IndexCount,
         ),
     ] {
-        assert_eq!(env::parse(bad), Err(why), "{bad}");
+        let parsed = super::calc::parse(bad).map_err(|r| match r {
+            super::calc::Refused::Env(e) => e,
+            super::calc::Refused::Comparison(why) => panic!("{bad}: {why}"),
+        });
+        assert_eq!(parsed, Err(why), "{bad}");
         assert_eq!(Dimension::parse_env(bad), None, "{bad}");
         let mut s = StyleProps::default();
         assert_eq!(
@@ -724,10 +785,17 @@ fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() 
     let canvas_text = roles::role("CanvasText").unwrap();
     assert_eq!(s.text_color, ColorValue::Role(canvas_text));
     assert_eq!(roles::role_of(canvas_text).unwrap().ios, "labelColor");
-    // The tint is the platform's accent, which the host keeps dynamic.
+    // The tint is the platform's own for a symbol nobody tinted, which the
+    // host keeps dynamic (LLP 1115.000 D3.9): the view's tint on iOS, as
+    // UIKit draws a template image, and the secondary label colour on the
+    // Mac, as AppKit draws one. It was `AccentColor` on both.
+    let symbol = roles::role("-exact-symbol").unwrap();
+    assert_eq!(s.tint_color, Some(ColorValue::Role(symbol)));
+    assert_eq!(roles::role_of(symbol).unwrap().ios, "@tint");
+    assert_eq!(roles::role_of(symbol).unwrap().macos, "secondaryLabelColor");
+    // Where no host reports one it is the accent's pair, as it was.
     let accent = roles::role("AccentColor").unwrap();
-    assert_eq!(s.tint_color, Some(ColorValue::Role(accent)));
-    assert_eq!(roles::role_of(accent).unwrap().ios, "@tint");
+    assert_eq!(roles::role_fallback(symbol), roles::role_fallback(accent));
     // Everywhere else the role's pair: black on light, white on dark.
     assert_eq!(
         s.text_color.resolve(false),

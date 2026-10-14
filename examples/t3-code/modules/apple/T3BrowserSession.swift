@@ -145,6 +145,9 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     func navigate(_ url: URL) {
         failure = nil
         crashed = false
+        // URL-bar navigation hands the page back to the person; the agent's own navigation shares this path, and its next
+        // action marks the page again (Manager.ts `navigate`).
+        downloads.handBack("navigate")
         if web.url == url { web.reload() }
         else if let current = web.url, Self.sameDocument(url, current) { web.load(URLRequest(url: url)) } // a fragment jump: no load to wait for
         else { pending = url; web.load(URLRequest(url: url)) }

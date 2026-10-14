@@ -1,15 +1,18 @@
 // The desktop shell's context menu in the window (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/window/DesktopWindow.ts `installContextMenu`; the template is T3ShellMenu.swift). Electron raises
-// `context-menu` for every right-click the page did not take, and the shell answers it. Contract has no window-wide
-// context-menu hook, so this module finds the same clicks itself (realinput-1010d RD-4, shell-context-menu):
+// `context-menu` for every secondary click the page did not take, and the shell answers it. Contract has no window-wide
+// context-menu hook, so this module finds the same clicks itself (realinput-1010d RD-4, shell-context-menu). A secondary
+// click is a right-click or, on a Mac, a Control-click (Chromium sends both as `contextmenu`; ExactKit runs a node's
+// `contextmenu` for a Control-click since main #487, X85, adopted in round 11), and each case below takes both:
 //
 // - A text input (an `<input>`'s field, a `<textarea>`, the composer): AppKit's own editing menu would open, so a local
 //   right-click monitor takes the click, focuses the input as Chromium's mousedown does, selects the word (or the
 //   misspelling) under the pointer unless the click is inside the selection, and pops the shell's menu for the input:
 //   suggestions from NSSpellChecker where the input checks spelling, Cut, Copy, Paste and Select All by its state.
-// - Selected page text: ExactKit would show the menu an NSTextView shows for read-only text (Look Up, Copy, Speech,
-//   Services; its menu carries the Look Up action), so the monitor takes that click too and pops the shell's on the same
-//   text node: Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`).
+// - Selected page text: ExactKit would show the menu an NSTextView shows for read-only text (since main `6a7f16c6f`
+//   AppKit's own, from a text view holding the selection: Look Up, Translate, Search With, Copy, Share, Writing Tools,
+//   Speech, Services), so the monitor takes that click too and pops the shell's on the same text node: Copy (the node's
+//   `copy:`, its `copy` event first) and Select All (the node's `selectAll:`).
 // - Anywhere else on the page: the click goes on to ExactKit. A node with a `contextmenu` (or a context popover) answers
 //   it and ends it there, as `preventDefault` keeps Electron's event from firing; a click no node answers is passed up
 //   the responder chain to the window, and a responder placed after the window's content view (`T3ShellMenuTail`) pops
@@ -20,9 +23,19 @@
 // - A node whose `contextmenu` leaves the click to the shell (a reply's mailto, irc, xmpp or fragment link: ChatMarkdown's
 //   anchor returns before `preventDefault` when the link has no web host) asks for the shell's menu of that click
 //   (`shellMenu`, external-link-menu.ts; reply-links RL-1, RL-2), as Electron's `context-menu` then fires. The click is
-//   answered once, and only while it is the last input: a key (the ContextMenu key raises `contextmenu` on the focused
-//   node without a click) or another click ends it, and so does a menu that answered it (the tail's, or the app's own
-//   through T3ContextMenu: `pageClickAnswered`), for a path that sends no event (the agent's keys, VoiceOver's show menu).
+//   answered once, and only while it is the last input: a key or another click ends it, and so does a menu that answered
+//   it (the tail's, or the app's own through T3ContextMenu: `pageClickAnswered`), for a path that sends no event (the
+//   agent's keys). The ContextMenu key (ExactKit raises the focused node's `contextmenu` for it, MouseEventsMac
+//   `contextMenuKey`) is answered the same way: the monitor keeps the key, its window and the focused node, and
+//   `shellMenu` opens the shell's menu at that node, once, while it is the last input and still focused, and only for the
+//   link the request names when the node exposes its URL (`focusMenu`, reply-links-reference-behavior RL-6). A
+//   `contextmenu` that neither a fresh click nor a fresh ContextMenu key raised opens nothing. The agent's keys reach its
+//   window past NSApplication (AgentMac `win.sendEvent`), so under the agent a `contextmenu` with no click is taken as its
+//   ContextMenu key at the focus of the window it drives (the agent's right-click goes through NSApplication and is a
+//   click here). VoiceOver's show menu (AXShowMenu) runs the node's `contextmenu` with no event (main #486, X84, adopted in
+//   round 11), as Chromium fires it at the element: while an assistive technology that sends it is on, a `contextmenu` that
+//   neither a click nor a key raised is that request, and the shell's menu opens for the link it names, at the pointer as
+//   Electron pops its template (`assistiveMenu`).
 //
 // The monitor ends every click it answers (it returns nil, never `self?.handle(event) ?? event`: optional chaining
 // would flatten handle's nil back into the event and the host's menu would pop after the shell's). Under the agent
@@ -47,8 +60,9 @@ struct T3ShellSpelling {
 }
 
 final class T3TextContextMenu: NSObject {
-    /// ExactKit's read-only text menu's Look Up item (TextSelectionMac.swift `lookUpSelection(_:)`).
-    static let hostTextMenuAction = NSSelectorFromString("lookUpSelection:")
+    /// The text view whose own menu ExactKit gives for selected page text (TextMenuMac.swift, main `6a7f16c6f`): AppKit's
+    /// menu for a read-only text view holding the selection, its items pointed at that view.
+    static let hostTextMenuView = "SelectionMenuText"
     /// ExactView's Edit ▸ Speech ▸ Start Speaking, which it enables exactly while page text is selected.
     static let startSpeaking = NSSelectorFromString("startSpeaking:")
 
@@ -60,6 +74,16 @@ final class T3TextContextMenu: NSObject {
     /// The last right-click on the page that went on to ExactKit, and when (`shellMenu` answers it once, while fresh, and
     /// only while no key or other click has come after it and no menu has answered it).
     private var lastPageClick: (event: NSEvent, at: TimeInterval)?
+    /// The last ContextMenu key with no modifier (the one ExactKit answers), the window it went to and the node that had the
+    /// focus, and when: `shellMenu` with no fresh click answers it once, while fresh, last and that node still focused.
+    private var lastMenuKey: MenuKey?
+    private struct MenuKey {
+        weak var window: NSWindow?
+        weak var focus: NSView?
+        let at: TimeInterval
+    }
+    /// The ContextMenu key's virtual key (Carbon's kVK_ContextualMenu), which ExactKit names "ContextMenu" (KeyCodes.swift).
+    static let contextMenuKeyCode: UInt16 = 0x6E
     /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Without context-menu plug-ins:
     /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, and AutoFill for a text view, which
     /// Electron's menu (`popUpMenuPositioningItem`, DesktopWindow's template) has neither of (realinput-1010f RF-1,
@@ -75,6 +99,8 @@ final class T3TextContextMenu: NSObject {
         menu.allowsContextMenuPlugIns = false
         if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
     }
+    /// Whether an assistive technology that sends AXShowMenu is on (VoiceOver, Switch Control); the tests inject it.
+    var assistive: () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled || NSWorkspace.shared.isSwitchControlEnabled }
     /// The editors that are a contenteditable in the reference (the composer, Settings › Appearance's prompt sample):
     /// their Select All stays enabled when they are empty, a text control's does not.
     var richEditors: () -> [NSTextView] = { [] }
@@ -105,9 +131,15 @@ final class T3TextContextMenu: NSObject {
     /// The click ends here when the shell answers it (a text input, selected page text); the rest goes on, with the
     /// window's tail in place for a click no page node answers. A web view answers its own clicks.
     func handle(_ event: NSEvent) -> NSEvent? {
-        // Any key or click ends the last page click: a `contextmenu` after it was not raised by that click (`shellMenu`).
+        // Any key or click ends the last page click and the last ContextMenu key: a `contextmenu` after it was not raised by
+        // either (`shellMenu`).
         lastPageClick = nil
-        guard event.type == .rightMouseDown, let window = event.window, let content = window.contentView else { return event }
+        lastMenuKey = nil
+        if event.type == .keyDown, event.keyCode == Self.contextMenuKeyCode,
+           event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty, let window = event.window {
+            lastMenuKey = MenuKey(window: window, focus: window.firstResponder as? NSView, at: ProcessInfo.processInfo.systemUptime)
+        }
+        guard Self.isSecondaryClick(event), let window = event.window, let content = window.contentView else { return event }
         let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
         guard let hit = content.hitTest(point) else { return event }
         if Self.ancestors(hit).contains(where: { $0 is WKWebView }) { return event }
@@ -127,16 +159,84 @@ final class T3TextContextMenu: NSObject {
         return event
     }
 
+    /// A secondary click: the right button, or the primary with Control held, which a Mac takes as the secondary click
+    /// (Chromium sends it as `contextmenu` and no `click`; ExactKit since main #487, X85).
+    static func isSecondaryClick(_ event: NSEvent) -> Bool {
+        event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+    }
+
     /// The app showed its own menu for a node (`contextMenu`): that node took the last page click, as `preventDefault` keeps
     /// Electron's `context-menu` from firing, so `shellMenu` no longer answers it.
-    func pageClickAnswered() { lastPageClick = nil }
+    func pageClickAnswered() { lastPageClick = nil; lastMenuKey = nil }
 
     /// `shellMenu`: the node that took the last page click left it to the shell; the shell's menu for that click, as the
-    /// page shows it (`pageClick`). Nothing for no click, one already answered, or one older than a few seconds.
-    func shellMenuForLastClick(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
-        guard let click = lastPageClick, now - click.at < 5 else { return false }
+    /// page shows it (`pageClick`). With no such click (none, one already answered, or one older than a few seconds), the
+    /// last ContextMenu key's, for which Chromium raises `context-menu` at the focused anchor and the shell's menu opens
+    /// (reply-links-reference-behavior RL-6): the menu for the node it went to, while that node keeps the focus
+    /// (`focusMenu`). Under the agent, whose keys leave no record, the focus of the window it drives (`windows`, the
+    /// frontmost first). Otherwise a `contextmenu` neither raised is an assistive technology's show menu (main #486, X84):
+    /// while one is on, the shell's menu for the link it names (`assistiveMenu`); else nothing. `href` is the link the
+    /// request names.
+    func shellMenuForLastClick(href: String = "", now: TimeInterval = ProcessInfo.processInfo.systemUptime, windows: [NSWindow]? = nil) -> Bool {
+        let click = lastPageClick, key = lastMenuKey
         lastPageClick = nil
-        return pageClick(click.event)
+        lastMenuKey = nil
+        if let click, now - click.at < 5 { return pageClick(click.event) }
+        if let key, now - key.at < 5 {
+            guard let window = key.window, let focus = key.focus, window.firstResponder === focus else { return false }
+            return focusMenu(focus, in: window, href: href)
+        }
+        if agent {
+            for window in windows ?? NSApp.orderedWindows where window.isVisible {
+                guard let focus = window.firstResponder as? NSView else { continue }
+                if focusMenu(focus, in: window, href: href) { return true }
+            }
+            return false
+        }
+        guard assistive() else { return false }
+        return assistiveMenu(href: href, windows: windows ?? NSApp.orderedWindows)
+    }
+
+    /// VoiceOver's show menu on a link whose `contextmenu` leaves it to the shell: Chromium fires `contextmenu` at the
+    /// element and Electron's `context-menu` follows with the element's link (`params.linkURL`); DesktopWindow pops the
+    /// template with no position, so at the pointer. Here the frontmost window with a page: Copy Link for `href` where the
+    /// shell allows the URL, Copy while page text is selected, the roles on the page.
+    func assistiveMenu(href: String, windows: [NSWindow]) -> Bool {
+        for window in windows where window.isVisible {
+            guard let content = window.contentView, let page = Self.pageView(in: content),
+                  let event = NSEvent.mouseEvent(with: .rightMouseDown, location: window.mouseLocationOutsideOfEventStream, modifierFlags: [],
+                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+            var params = T3ShellMenuParams()
+            params.link = href.isEmpty ? nil : href
+            params.canCopy = Self.selectionExists(page)
+            show(T3ShellMenu.menu(params, T3ShellMenuActions(editTarget: page)), event, page)
+            return true
+        }
+        return false
+    }
+
+    /// The shell's menu for the focused page node `focus` (not the page itself or a text input, whose own menu is the
+    /// right-click's), as Chromium's keyboard `context-menu` has it: at the node's middle, Copy while page text is selected,
+    /// no Copy Link for a URL the shell refuses. Nothing when the node exposes a URL other than `href`: a `link` node's
+    /// `AXURL` is its `href` (X78, fixed on main by #455), so a focused link that is not the one whose `contextmenu` asked
+    /// opens nothing. The reference pops it with no position, so Electron places it at the pointer; a keyboard menu here
+    /// opens at the focus, as ExactKit's ContextMenu key and T3ContextMenu's `keyboard` do.
+    func focusMenu(_ focus: NSView, in window: NSWindow, href: String = "") -> Bool {
+        guard window.isVisible, let content = window.contentView, focus.isDescendant(of: content), let page = Self.page(focus),
+              focus !== page, Self.textInput(focus) == nil else { return false }
+        if !href.isEmpty, let url = focus.accessibilityURL(), url != URL(string: href) { return false }
+        // Where ExactKit's ContextMenu key raises the `contextmenu` (MouseEventsMac `contextMenuKey`): the middle of the node
+        // as clipped by the ancestors that clip (an `overflow: hidden` node's `clipsToBounds`, a scroll view's clip view),
+        // which `visibleRect` follows from macOS 14 (it can reach past the node's bounds there, hence the intersection);
+        // ExactKit also follows a CSS transform (its `plane`, which an app module cannot read), and a reply's links have none.
+        let visible = focus.visibleRect.intersection(focus.bounds)
+        guard !visible.isEmpty,
+              let event = NSEvent.mouseEvent(with: .rightMouseDown, location: focus.convert(NSPoint(x: visible.midX, y: visible.midY), to: nil),
+                                             modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                             context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return false }
+        show(Self.pageMenu(focus, event, selected: Self.selectionExists(page)), event, focus)
+        return true
     }
 
     // MARK: Selected page text (RD-4)
@@ -144,11 +244,19 @@ final class T3TextContextMenu: NSObject {
     /// The shell's menu for a right-click on selected page text and the text node it acts on, or nil where ExactKit shows
     /// no text menu (no selection under the pointer, a field, a node that wrote its own `contextmenu`, another window's view).
     static func replacement(for event: NSEvent) -> (NSMenu, NSView)? {
-        guard event.type == .rightMouseDown, let window = event.window, let content = window.contentView else { return nil }
+        guard isSecondaryClick(event), let window = event.window, let content = window.contentView else { return nil }
         let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-        guard let view = content.hitTest(point), let hostMenu = view.menu(for: event),
-              hostMenu.items.contains(where: { $0.action == hostTextMenuAction }) else { return nil }
+        guard let view = content.hitTest(point), let hostMenu = view.menu(for: event), isHostTextMenu(hostMenu) else { return nil }
         return (pageMenu(view, event, selected: true), view)
+    }
+
+    /// Whether `menu` is ExactKit's for selected page text: an item of it (a submenu's included) aims at the text view
+    /// ExactKit asked for AppKit's menu (`hostTextMenuView`). Under the agent ExactKit gives none (its tracking would hold
+    /// the agent's click), so there the click goes on to the tail's page menu, Copy enabled by the selection.
+    static func isHostTextMenu(_ menu: NSMenu) -> Bool {
+        menu.items.contains { item in
+            item.target.map { String(describing: type(of: $0)) == hostTextMenuView } == true || item.submenu.map(isHostTextMenu) == true
+        }
     }
 
     // MARK: The page
@@ -179,6 +287,13 @@ final class T3TextContextMenu: NSObject {
     /// ExactKit's root view (`ExactView`) above `view`, if the click is on an Exact page.
     static func page(_ view: NSView) -> NSView? {
         ancestors(view).first { String(describing: type(of: $0)) == "ExactView" }
+    }
+
+    /// ExactKit's root view at or under `view` (a window's content view).
+    static func pageView(in view: NSView) -> NSView? {
+        if String(describing: type(of: view)) == "ExactView" { return view }
+        for child in view.subviews { if let page = pageView(in: child) { return page } }
+        return nil
     }
 
     /// Whether page text is selected: ExactView validates Start Speaking by exactly that.
@@ -348,7 +463,8 @@ final class T3TextContextMenu: NSObject {
 
 /// The responder after the window's content view: a right-click no page node answered reaches it on its way to the
 /// window (NSView passes an unanswered `rightMouseDown` to its next responder; NSWindow drops it), and the shell's menu
-/// opens. AppKit does not retain a next responder, so the menu keeps it, and puts it back if the content view's chain was
+/// opens; so does a Control-click on a node that is not pressable (ExactKit takes a Control-click as a right-click only where
+/// a node wrote `contextmenu`, main #487, and passes such a node's `mouseDown` up the chain). AppKit does not retain a next responder, so the menu keeps it, and puts it back if the content view's chain was
 /// reset.
 final class T3ShellMenuTail: NSResponder {
     private weak var owner: T3TextContextMenu?
@@ -376,6 +492,10 @@ final class T3ShellMenuTail: NSResponder {
 
     override func rightMouseDown(with event: NSEvent) {
         if owner?.pageClick(event) != true { super.rightMouseDown(with: event) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if !(T3TextContextMenu.isSecondaryClick(event) && owner?.pageClick(event) == true) { super.mouseDown(with: event) }
     }
 }
 #endif

@@ -10,7 +10,9 @@
 // it, and for the reference's closeDelay after the pointer leaves it or its trigger, so the pointer can
 // cross into it (the root's hover grace). Drawn here, at the window level, it hears the pointer on macOS:
 // a hover card drawn beside its trigger lies outside the trigger's box, where the host gives it no
-// tracking and gives the trigger a leave as the pointer moves in (X62, #322), which closed #262's card.
+// tracking and gives the trigger a leave as the pointer moves in (X62, #322), which closed #262's card. Main #327 fixed
+// that (adopted in round 11: hover is the hit's ancestor path, overflowing children included); the layer stays for the
+// clipping (#251, #248) and as the reference's portal.
 //
 // Placement: Base UI's side, align and sideOffset 4 from the trigger's frame; a side that leaves no
 // room in the window flips (Base UI's collision flip; X17, #112: no position-try, so the layer works it
@@ -18,7 +20,8 @@
 
 shape HoverTip
   key: string
-  // "tip" (TooltipPopup: words, takes no pointer, closes with its trigger; "policy" is one after a 200 ms delay), "scopes" (AccessScopeSummary's
+  // "tip" (TooltipPopup: words, takes no pointer, closes with its trigger; "policy" is one after a 200 ms delay, "tooltip" one
+  // after Base UI's default 600 ms), "scopes" (AccessScopeSummary's
   // card), "freshness" (PullRequestBaseFreshnessWarning's card, drawn by T3Window from the open PR).
   kind: string
   text: string
@@ -40,8 +43,9 @@ fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshne
 
 // Base UI's open delay before a hover popover shows: AccessScopeSummary's delay={250}, the Usage segment's default 300;
 // the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
-// tip); a tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : 0))
+// tip); a Tooltip with no provider Base UI's 600 (kind "tooltip": ThreadAutomationsPanel's, thread-automations.contract); a
+// tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" ? 600 : 0)))
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 
@@ -70,7 +74,7 @@ component HoverLayer
   derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)
   derive top = tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem)
   derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
-  derive card = tip.kind != "tip" and tip.kind != "policy"
+  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip"
   view
     when place == "bottom"
       row position="absolute" left=left top=(tip.y + tip.height) width=(22.5 * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"

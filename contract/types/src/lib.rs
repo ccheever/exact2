@@ -24,9 +24,11 @@ mod checks;
 mod component;
 mod failure;
 mod geometry;
+mod injects;
 mod lists;
 mod literals;
 mod media;
+mod payload;
 mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
@@ -36,6 +38,7 @@ pub mod routes;
 mod selection;
 mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
+pub use payload::handler_arity_message;
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
@@ -45,7 +48,8 @@ use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr
 use exact_plan::Stdlib;
 use std::{collections::BTreeMap, sync::Arc};
 
-use checks::{check_injects, check_shape_cycles};
+use checks::check_shape_cycles;
+use injects::check_injects;
 
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -568,6 +572,8 @@ pub struct Types {
 impl Types {
     /// The component's declaration scope: props, slots, derives, resources, actions.
     pub fn component_scope(&self, c: &Component, ct: &ComponentTypes) -> Scope {
+        #[cfg(test)]
+        component::SCOPE_BUILDS.with(|count| count.set(count.get() + 1));
         let mut names = Vec::new();
         for (i, p) in c.props.iter().enumerate() {
             names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));

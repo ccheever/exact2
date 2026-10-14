@@ -54,13 +54,18 @@ export type TrackedToast = { toastId: number; renderedKey: string; phase: string
 
 const renderKey = (clone: Obj) => `${str(clone.phase)}:${str(clone.stage)}:${clone.percent ?? ''}:${str(clone.detail)}:${str(clone.error)}`;
 
-/** The toast for one snapshot; `openable` is false where Open project cannot reach the environment. */
-export function cloneToast(clone: Obj, environmentId: string, openable: boolean): CloneToast {
+/**
+ * The toast for one snapshot. Open project is the reference's openProject on every environment (handleNewThread with
+ * scopeProjectRef(environmentId, projectId)): `new-thread` with the project named on its environment, the sidebar's
+ * `fleet:<environmentId>:<id>` form (settings-b-fleet.ts parseFleetThreadId), so it opens that environment's draft even
+ * after the window moved to another environment (client-ops-threads.ts; scheduled-tasks-followups ST-2).
+ */
+export function cloneToast(clone: Obj, environmentId: string): CloneToast {
   const name = projectCloneDisplayName(clone), projectId = str(clone.projectId);
   const act = (label: string, op: string): ToastAction => ({ label, op, id: projectId, value: environmentId });
   if (clone.phase === 'running') return { kind: 'loading', title: `Cloning ${name}`, description: projectCloneProgressSummary(clone), timeoutMs: 0, action: act('Cancel', 'shell:clone-cancel'), secondary: null, hideCopy: true };
   if (clone.phase === 'done') return { kind: 'success', title: `Cloned ${name}`, description: str(clone.destinationPath), timeoutMs: 8000,
-    action: openable ? { label: 'Open project', op: 'new-thread', id: projectId, value: '' } : null, secondary: null, hideCopy: true };
+    action: { label: 'Open project', op: 'new-thread', id: `fleet:${environmentId}:${projectId}`, value: '' }, secondary: null, hideCopy: true };
   // Failed or cancelled: the project stays, pointing at an empty folder.
   const cancelled = clone.phase === 'cancelled';
   return { kind: cancelled ? 'info' : 'error', title: cancelled ? `Cancelled cloning ${name}` : `Failed to clone ${name}`,
@@ -73,7 +78,7 @@ export function cloneToast(clone: Obj, environmentId: string, openable: boolean)
  * redraw skipped, the toast stepping aside while that project's draft is viewed, and a clone
  * that leaves the list taking its toast with it unless it settled into the timed success toast.
  */
-export function syncCloneToasts(tracked: Map<string, TrackedToast>, clones: Obj[], environmentId: string, viewingProjectId: string, port: ToastPort, openable = true): void {
+export function syncCloneToasts(tracked: Map<string, TrackedToast>, clones: Obj[], environmentId: string, viewingProjectId: string, port: ToastPort): void {
   const seen = new Set<string>();
   for (const clone of clones) {
     const projectId = str(clone.projectId);
@@ -84,7 +89,7 @@ export function syncCloneToasts(tracked: Map<string, TrackedToast>, clones: Obj[
       continue;
     }
     if (current?.renderedKey === key) continue;
-    const toast = cloneToast(clone, environmentId, openable);
+    const toast = cloneToast(clone, environmentId);
     // The entry is the one the toast's onClose holds, so it changes in place.
     if (current && (current.dismissed || port.live(current.toastId))) {
       if (!current.dismissed) port.update(current.toastId, toast);

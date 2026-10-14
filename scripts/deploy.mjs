@@ -53,10 +53,10 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, parse, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } from './rust.mjs';
-import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree, shaderWatchRoots } from './app.mjs';
+import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
-import { filesystemLock } from './filesystem.mjs';
+import { filesystemLock, removePrivateTree } from './filesystem.mjs';
 import { listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -190,9 +190,27 @@ function cargoDependencyRoots(app, exactRoot) {
  * repository, captured beside the app's so a relative link still reaches it.
  * A registry package is not: the captured bun.lock pins its bytes, and the
  * materialized install restores exactly those. */
-function contractSources(appDir, exactRoot) {
-  const result = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(appDir, 'app.contract')], {
-    cwd: exactRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+const contractCompilers = new Map();
+export function contractCompiler(exactRoot) {
+  const root = canonicalPath(exactRoot);
+  const target = resolve(root, process.env.CARGO_TARGET_DIR ?? 'target');
+  assertOwnTarget(target, root);
+  const key = JSON.stringify([root, target, process.env.CARGO_BUILD_TARGET ?? null]);
+  if (contractCompilers.has(key)) return contractCompilers.get(key);
+  const result = spawnSync('cargo', ['build', '--locked', '--offline', '-q', '--manifest-path', resolve(root, 'Cargo.toml'), '-p', 'contract', '--bin', 'contract', '--message-format=json-render-diagnostics'], {
+    cwd: root, env: { ...process.env, CARGO_TARGET_DIR: target }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) refuse(`${root}: could not build the Contract compiler: ${(result.stderr || result.error?.message || '').trim()}`);
+  const artifacts = result.stdout.split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const binary = artifacts.find(message => message.reason === 'compiler-artifact' && message.target.name === 'contract' && message.target.kind.includes('bin'))?.executable;
+  if (!binary) refuse(`${root}: Cargo did not report the Contract compiler executable`);
+  contractCompilers.set(key, binary);
+  return binary;
+}
+
+function contractSources(appDir, exactRoot, env = process.env, compiler = contractCompiler(exactRoot)) {
+  const result = spawnSync(compiler, ['sources', resolve(appDir, 'app.contract')], {
+    cwd: exactRoot, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   let graph;
   try { graph = JSON.parse(result.stdout); }
@@ -225,7 +243,7 @@ export function assertCapturedContractSources(graph, sourceRoot) {
   }
 }
 
-function contractPackageRoots(app, exactRoot) {
+function contractPackageRoots(app, exactRoot, compiler) {
   // A library installed by an absolute `file:` path or a `link:` would be
   // reinstalled from the live tree after capture: only a relative `file:`
   // path moves with the snapshot.
@@ -239,7 +257,7 @@ function contractPackageRoots(app, exactRoot) {
   }
   const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
   const repos = new Set();
-  for (const pkg of contractSources(app.dir, exactRoot).packages) {
+  for (const pkg of contractSources(app.dir, exactRoot, process.env, compiler).packages) {
     if (installedContractPackage(app.dir, pkg.root)) continue;
     const repo = repoTop(pkg.root, `Contract package ${pkg.name}`);
     if (!owned.has(repo)) repos.add(repo);
@@ -367,6 +385,7 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
  * they are under a precise generated-output root. */
 export function snapshotOf(app, opts, exactRoot = ROOT) {
   app.prepare?.(true);
+  const compiler = opts.compiler ? resolve(opts.compiler) : contractCompiler(exactRoot);
   const sourceRoots = [
     { role: 'app', cwd: canonicalPath(app.dir) },
     { role: 'exact2', cwd: canonicalPath(exactRoot) },
@@ -395,7 +414,7 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
   };
   discover(sourceRoots);
   discover(cargoDependencyRoots(app, exactRoot));
-  discover(contractPackageRoots(app, exactRoot));
+  discover(contractPackageRoots(app, exactRoot, compiler));
   const sourceList = [...repos.values()].map((source) => ({ ...source,
     roles: [...source.roles].sort() }));
   const common = commonParent(sourceList.map((source) => source.repo));
@@ -419,7 +438,8 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
     if (opts.snapshot && !id.startsWith(opts.snapshot.toLowerCase())) refuse(`the source snapshot is ${id}, not --snapshot ${opts.snapshot}: the dry run and its --yes must name the same complete source set (LLP 1030.000 D3)`);
     const sources = captured.map(({ repo, roles, commit, workingSha256, changes: sourceChanges }) => ({ repo, roles, commit, workingSha256, changes: sourceChanges }));
     const snapshot = { id, commit: sources[0].commit, dirty: changes.length > 0, changes, repo: sources[0].repo, sources };
-    snapshotCaptures.set(snapshot, { sources: captured, common, captureRoot, stagedSourceRoot,
+    snapshotCaptures.set(snapshot, { sources: captured, common, captureRoot, stagedSourceRoot, compiler,
+      compilerTarget: resolve(exactRoot, process.env.CARGO_TARGET_DIR ?? 'target'),
       appDir: canonicalPath(app.dir), appWorkspace: canonicalPath(app.workspace ?? app.dir), exactRoot: canonicalPath(exactRoot) });
     return snapshot;
   } catch (error) {
@@ -571,7 +591,7 @@ export function materializeSnapshot(snapshot, run, app, cache = null) {
   }
   // Every Contract file the bake will read is in the captured tree: an
   // installed library that still leads outside it is live bytes (LLP 1091 D10).
-  assertCapturedContractSources(contractSources(dir, ROOT), sourceRoot);
+  assertCapturedContractSources(contractSources(dir, exactRoot, sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: capture.compilerTarget }), capture.compiler), sourceRoot);
   return {
     exactRoot, sourceRoot,
     // Identity and policy are deliberately not copied from the launcher's

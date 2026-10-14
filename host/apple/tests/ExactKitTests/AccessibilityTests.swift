@@ -4,6 +4,8 @@ import XCTest
 @testable import ExactKit
 
 final class AccessibilityTests: XCTestCase {
+    /// These cases walk Tab through buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
     private func fixture() -> (Presenter, NSWindow, NodeView, NodeView) {
         _ = NSApplication.shared
         let p = Presenter()
@@ -92,10 +94,13 @@ final class AccessibilityTests: XCTestCase {
         let spacer = NodeView(id: 12, kind: "image", presenter: p)
         spacer.applyProps(set: [:], clear: [])
         let heading = NodeView(id: 13, kind: "text", presenter: p)
-        heading.applyProps(set: ["text": "Palo Alto", "accessibilityHeadingLevel": "1"], clear: [])
+        heading.applyProps(set: ["text": "Palo Alto", "accessibilityRole": "heading", "accessibilityHeadingLevel": "1"], clear: [])
         let body = NodeView(id: 14, kind: "text", presenter: p)
         body.applyProps(set: ["text": "Northbound"], clear: [])
-        for n in [logo, spacer, heading, body] {
+        // LLP 1115.000 D12.5: an `aria-level` with no `role="heading"` is not a heading.
+        let levelled = NodeView(id: 15, kind: "text", presenter: p)
+        levelled.applyProps(set: ["text": "Departures", "accessibilityHeadingLevel": "2"], clear: [])
+        for n in [logo, spacer, heading, body, levelled] {
             n.frame = NSRect(x: 0, y: 60, width: 100, height: 20)
             p.root.addSubview(n); p.views[n.id] = n
         }
@@ -118,6 +123,12 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(heading.accessibilityValue() as? Int, 1)
         XCTAssertEqual(heading.accessibilityLabel(), "Palo Alto")
         XCTAssertEqual(body.accessibilityRole(), .staticText)
+        XCTAssertEqual(levelled.accessibilityRole(), .staticText, "a level alone is text")
+        XCTAssertEqual(levelled.accessibilityValue() as? String, "Departures")
+        levelled.applyProps(set: ["accessibilityRole": "heading"], clear: [])
+        p.syncAccessibility()
+        XCTAssertEqual(levelled.accessibilityRole()?.rawValue, "AXHeading", "its role makes it one")
+        XCTAssertEqual(levelled.accessibilityValue() as? Int, 2)
 
         // What VoiceOver walks: element children from the window's content.
         var reached: [NSView] = []

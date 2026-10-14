@@ -15,7 +15,9 @@ fn style(id: ViewId, rows: &[(StyleId, StyleValue)]) -> Op {
 
 #[test]
 fn a_head_takes_no_space_in_a_gapped_row() {
-    let text = |s: &str| StyleValue::Text(s.into());
+    fn text(s: &str) -> StyleValue<'_> {
+        StyleValue::Text(s.into())
+    }
     let n = StyleValue::Number;
     let mut kernel = Kernel::with_monospace();
     kernel

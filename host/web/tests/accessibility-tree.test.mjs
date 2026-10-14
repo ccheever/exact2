@@ -60,6 +60,11 @@ async function fixtureControls(s) {
     const e = find(r, testId);
     expect(e && [e.role, e.name, e.via === 'self' || e.via === 'owner']).toEqual([role, name, true]);
   }
+  // LLP 1115.000 D12.5: a heading is `role="heading"`; an `aria-level` alone is words, and no element in Chrome's tree
+  // is a heading named by them.
+  expect(find(r, 'heading').states.level).toBe(2);
+  expect(r.ax.elements.filter(e => e.testId === 'level-only' || e.name === 'Level only').map(e => e.role).filter(role => role === 'heading')).toEqual([]);
+  expect(r.ax.elements.some(e => e.name === 'Level only')).toBe(true);
   // Coverage: one element per unignored node Chrome reported, the dropped kinds aside.
   const { nodes } = await s.carrier.call('Accessibility.getFullAXTree');
   expect(r.ax.elements.length).toBe(nodes.filter(n => !n.ignored && !['InlineTextBox', 'RootWebArea'].includes(n.role?.value)).length);

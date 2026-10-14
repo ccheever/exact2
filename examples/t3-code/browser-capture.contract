@@ -115,6 +115,9 @@ component BrowserMiniPlayer
     canvasWidth: number
     local: action
     gesture: action
+    // The player's pointerdown and pointerup: a primary press on it is outside the thread details popover under it (Base
+    // UI's outside press; app-window.contract detailsPlayerPointer).
+    outside: action
   // The pointer over the player (its box's hover) and the part of it under the pointer (its `pointermove`): the pill
   // shows on the handle and stays while the pointer is on its box (the group's hover takes the pill in while it shows).
   state over = false
@@ -172,7 +175,7 @@ component BrowserMiniPlayer
   derive edge = 0.25 * rem
   derive corner = 0.5 * rem
   view
-    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer role="region" aria-label="Floating browser preview" testId="browser-mini-player"
+    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside pointerup=outside role="region" aria-label="Floating browser preview" testId="browser-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
         t3-browser tab=mini.runtimeId url=mini.url profile=mini.profileId environment=mini.environment aria-label="Browser page" testId="browser-mini-page" position="absolute" left=0 top=0 right=0 bottom=0
         when not mini.hasWebContents
@@ -186,7 +189,7 @@ component BrowserMiniPlayer
       // the handle: a real pointer that came to rest on the 12 pt box often brought no enter there, so the pill waited for
       // another move (realinput-1010d RD-1), while the player's box has heard the pointer since it crossed the page. The
       // pill's buttons hear no hover of their own either: on macOS a hover node over another trades the hover with it on
-      // every move, and a child outside its parent's box gets none (X62, #322). Their tooltips follow the pointer's place.
+      // every move, and a child outside its parent's box got none before main #327 (X62, #322). Their tooltips follow the pointer's place.
       // The drag is a box behind the pill, not the handle that holds its buttons: the reference's buttons stop the
       // pointer-down, so a press on one never drags, while the dot and the pill's padding still do (the pill lets the
       // pointer through; only its buttons take it).

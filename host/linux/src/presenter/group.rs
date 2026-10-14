@@ -240,13 +240,22 @@ impl<D: DataSource> Presenter<D> {
         let mut accepted = false;
         let mut error = None;
         if drop && (self.group_live() || !ghost) {
-            let target = self
+            // Apply due effects and scroll requests before checking drop geometry.
+            let (effect_error, changed) = self.host.advance_effects(now);
+            let synchronized = if changed { self.after_commit() } else { None };
+            if let Some(e) = effect_error.or(synchronized) {
+                self.host.log(e);
+            }
+            // Pointer drops require current geometry; keyboard steps use logical gaps.
+            let geometry = self
                 .host
                 .runner()
                 .reorder_frame(token)
-                .and_then(|f| f.target);
-            if let Some(g) = target.and_then(|t| self.host.runner().reorder_geometry(t)) {
-                match self.host.group_drop(token, g) {
+                .and_then(|f| f.target)
+                .and_then(|t| self.host.runner().reorder_geometry(t))
+                .filter(|g| !ghost || self.reorder_facts_current(g));
+            if let Some(geometry) = geometry {
+                match self.host.group_drop(token, geometry) {
                     Ok(v) => accepted = v,
                     Err(e) => error = Some(e),
                 }

@@ -10,6 +10,9 @@ pub use implementation::*;
 #[cfg(any(unix, windows))]
 pub(crate) use implementation::{atomic_native, document};
 
+#[cfg(unix)]
+pub(crate) use implementation::remove_native;
+
 #[cfg(not(any(unix, windows)))]
 mod implementation {
     use crate::{
@@ -42,6 +45,56 @@ mod implementation {
             Err(unsupported())
         }
     }
+    pub(crate) fn document(
+        _root: &std::fs::File,
+        _path: &str,
+        _op: FsOp,
+        _data: Option<&[u8]>,
+    ) -> std::io::Result<FsResult> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "document filesystem unsupported",
+        ))
+    }
+    impl AppDirectories {
+        pub(crate) fn prepare_atomic(
+            &self,
+            _grants: &GrantSet,
+            _path: &str,
+        ) -> Result<AtomicTarget, HostError> {
+            Err(unsupported())
+        }
+        pub fn open_file(
+            &self,
+            _grants: &GrantSet,
+            _path: &str,
+        ) -> Result<std::fs::File, HostError> {
+            Err(unsupported())
+        }
+        pub fn read_capped(
+            &self,
+            _grants: &GrantSet,
+            _path: &str,
+            _cap: u64,
+        ) -> Result<Vec<u8>, HostError> {
+            Err(unsupported())
+        }
+        pub fn read_bounded(
+            &self,
+            _grants: &GrantSet,
+            _path: &str,
+            _cap: u64,
+            _canceled: &dyn Fn() -> bool,
+        ) -> Result<Vec<u8>, HostError> {
+            Err(unsupported())
+        }
+    }
+    pub(crate) struct AtomicTarget;
+    impl AtomicTarget {
+        pub(crate) fn write(self, _data: &[u8]) -> Result<(), HostError> {
+            Err(unsupported())
+        }
+    }
     pub fn resolve_sqlite(
         _grants: &GrantSet,
         _directories: Option<&AppDirectories>,
@@ -51,16 +104,6 @@ mod implementation {
     }
     pub(crate) fn atomic_native(_path: &Path, _data: &[u8]) -> Result<FsResult, HostError> {
         Err(unsupported())
-    }
-    pub(crate) fn document(
-        _root: &std::fs::File,
-        _path: &str,
-        _op: FsOp,
-        _data: Option<&[u8]>,
-    ) -> std::io::Result<FsResult> {
-        Err(std::io::Error::other(
-            "documents require native directory capabilities",
-        ))
     }
 }
 #[cfg(not(any(unix, windows)))]

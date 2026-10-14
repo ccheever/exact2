@@ -49,7 +49,9 @@ The trade-off: this proves the app's logic, layout and paint on Android's ABI, l
 
 > **Since (2026-10-11, LLP 1115.001 D2).** The reader is in the repository as `host/android/`,
 > and `bun scripts/agent-android.mjs build <app> --apk` builds an app's APK on it. The
-> `--reader` carrier is still to be written.
+> `--reader` carrier landed that day (`9b1e20122`): `bun scripts/agent.mjs android --reader --app
+> <app> …` drives that APK on a phone by this same protocol (`host/android/README.md`, "Driving
+> the reader").
 
 ### D2 — The CPU painter by default
 
@@ -76,7 +78,7 @@ The Rust target is installed once by hand (`rustup target add aarch64-linux-andr
 3. **The bench's Android cells**, once 1 and 2 exist:
    - **Where:** an adapter in the bench runner (`--platforms web,android`), with cells on a machine whose emulator runs (§4.5).
    - **How:** the trial's builder gets `bun exact.mjs agent android …` and `test android` verbs. The scripted graders run the same scenarios through `agent.mjs android`.
-4. **The reader carrier (D1's other half)**, when the Android lane moves its Kotlin reader into the repository.
+4. **The reader carrier (D1's other half)**: landed 2026-10-11 (`agent.mjs android --reader`, `9b1e20122`), with the reader in the repository.
 5. **The mini's toolchain (installed 2026-10-07; the emulator does not run yet).**
    - **Installed under `~/android`, no sudo:**
      - a JDK (Temurin 21, 336 MB);

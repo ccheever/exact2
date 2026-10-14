@@ -1,45 +1,128 @@
 //! LLP 1021 (Menus): HTML's `hr`, a menu's separator row, and the shape a
 //! confirmation must have to present natively — refused here where it can
 //! be seen, rather than at the tap on the iOS host (`MenusIOS.swift`,
-//! `openConfirmation`, which logs `confirmation <id> refused: <why>`).
+//! `openConfirmation`, which logs `confirmation <id> refused: <why>`). And
+//! what its shape implies of its outside (LLP 1115.000 D13.4): an alert has
+//! none.
 
 use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
-/// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1):
-/// the UA stylesheet's `margin: 0.5em auto; overflow: hidden`, and in place
-/// of its two-toned `inset` 1px box a single solid top edge in the
-/// separator role (`-exact-separator`: `separatorColor` on Apple). The edge
-/// is `currentcolor`, so an author's `color` or `border-*` still wins
-/// (LLP 1021 D1).
+/// LLP 1021 §5.3: a root's bounded opt-out from the Mac's standard items.
+pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerError> {
+    const IDS: &[&str] = &[
+        "close-all",
+        "autofill",
+        "show-tab-bar",
+        "show-all-tabs",
+        "enter-full-screen",
+        "minimize",
+        "zoom",
+        "bring-all-to-front",
+        "show-previous-tab",
+        "show-next-tab",
+        "move-tab-to-new-window",
+        "merge-all-windows",
+    ];
+    for attr in attrs.iter().filter(|a| a.name == "-exact-menu-remove") {
+        if !root
+            || !matches!(&attr.value, Expr::Str(value, _) if value.split_whitespace().all(|id| IDS.contains(&id)))
+        {
+            return err("lower-menu-remove", format!(
+                "`-exact-menu-remove` belongs to a root and takes a literal whitespace-separated list from: {}",
+                IDS.join(", ")
+            ), attr.span);
+        }
+    }
+    Ok(())
+}
+
+/// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1; LLP
+/// 1115.000 D10.3): one hairline, a single solid top edge one device pixel
+/// thick (`-exact-hairline`) in the separator role (`-exact-separator`:
+/// `separatorColor` on Apple), with no margin of its own, as `Divider()` and
+/// a table's separator have none and the common resets zero an `hr`'s. In
+/// place of the UA stylesheet's `margin: 0.5em auto` and its two-toned
+/// `inset` 1px box, which the web's sheet resets (`host/web/index.html`);
+/// its `overflow: hidden` stays. The edge is `currentcolor`, so an author's
+/// `color`, `border-*` or `margin` still wins (LLP 1021 D1).
 pub(crate) const HR: &[(StyleId, &str)] = &[
-    (StyleId::MarginTop, "0.5em"),
-    (StyleId::MarginBottom, "0.5em"),
-    (StyleId::MarginLeft, "auto"),
-    (StyleId::MarginRight, "auto"),
     (StyleId::BorderStyleTop, "solid"),
-    (StyleId::BorderWidthTop, "1"),
+    (StyleId::BorderWidthTop, "-exact-hairline"),
     (StyleId::TextColor, "-exact-separator"),
     (StyleId::OverflowX, "hidden"),
     (StyleId::OverflowY, "hidden"),
 ];
 
 /// A `dialog` whose role is `alertdialog` is presented as the platform's
-/// confirmation, which a tap outside dismisses: its `closedby` is `any`
-/// unless written (LLP 1115 D6), so the web's `dialog` behaves the same.
-/// The attributes with it added, or `None` when nothing is implied.
-pub(crate) fn implied_closedby(tag: &str, attrs: &[Attr], span: Span) -> Option<Vec<Attr>> {
+/// confirmation, and its `closedby`, unless written, is what that
+/// confirmation does (LLP 1115 D6; LLP 1115.000 D13.4), so every host and
+/// the web's `dialog` behave alike. `alert` is whether its rows are an
+/// alert's ([`Lowerer::check_menu_shapes`]). **An alert has no outside:**
+/// `closerequest`, so Escape and Back cancel it and a tap outside does
+/// nothing, as `UIAlertController(.alert)`, `NSAlert` and Material's dialog
+/// do. Any other shape is the platform's chooser (an action sheet, a menu),
+/// which a tap outside dismisses: `any`. The attributes with it added, or
+/// `None` when nothing is implied.
+pub(crate) fn implied_closedby(
+    tag: &str,
+    attrs: &[Attr],
+    span: Span,
+    alert: bool,
+) -> Option<Vec<Attr>> {
     if tag != "dialog" || literal(attrs, "role") != Some("alertdialog") || has(attrs, "closedby") {
         return None;
     }
     let mut attrs = attrs.to_vec();
     attrs.push(Attr {
         name: "closedby".into(),
-        value: Expr::Str("any".into(), span),
+        value: Expr::Str(if alert { "closerequest" } else { "any" }.into(), span),
         span,
+        written: crate::IMPLIED,
     });
     Some(attrs)
+}
+
+/// The most of `rows` that can show at once: rows on different arms of one
+/// `when` or `match` never show together, so a choice counts its fullest
+/// arm. `depth` is how far along each row's path of arms this looks.
+fn most(rows: &[&Row], depth: usize) -> usize {
+    let mut here = 0;
+    let mut choices: std::collections::BTreeMap<
+        usize,
+        std::collections::BTreeMap<usize, Vec<&Row>>,
+    > = Default::default();
+    for row in rows {
+        match row.arms.get(depth) {
+            None => here += 1,
+            Some(&(choice, arm)) => choices
+                .entry(choice)
+                .or_default()
+                .entry(arm)
+                .or_default()
+                .push(row),
+        }
+    }
+    let fullest = |arms: &std::collections::BTreeMap<usize, Vec<&Row>>| {
+        arms.values().map(|rows| most(rows, depth + 1)).max()
+    };
+    here + choices.values().filter_map(fullest).sum::<usize>()
+}
+
+/// Whether a confirmation's rows, as written, are an alert's: the shape
+/// rule every host presents by (`exact_kernel::confirmation::is_alert`),
+/// read off the source. It counts the most rows that can show at once: a
+/// text on any arm is its text, and a button under `each` can be any
+/// number of buttons, so it is a chooser's. Where a `when` leaves a state
+/// that is not an alert's, the host that meets it presents what it finds.
+fn alert_shaped(rows: &[Row]) -> bool {
+    let of = |keep: &dyn Fn(&Row) -> bool| rows.iter().filter(|r| keep(r)).collect::<Vec<_>>();
+    let texts = of(&|r| r.tag == "text");
+    let actions = of(&|r| r.tag == "button" && has(&r.attrs, "press"));
+    let cancels = of(&|r| r.tag == "button" && !has(&r.attrs, "press"));
+    !actions.iter().chain(&cancels).any(|r| r.repeats)
+        && exact_kernel::confirmation::is_alert(texts.len(), most(&actions, 0), most(&cancels, 0))
 }
 
 fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
@@ -89,14 +172,16 @@ impl Lowerer<'_> {
     /// Its rows are text, actions (a `button` with `press` that hides it)
     /// and at most one cancel (a `button` without `press` that hides it),
     /// with at least one action. What a literal shows breaks that is refused;
-    /// a value known only at run time is left to the host.
+    /// a value known only at run time is left to the host. Returns whether
+    /// it is a confirmation whose rows are an alert's ([`alert_shaped`]),
+    /// which decides the `closedby` a `dialog` implies and may take.
     pub(crate) fn check_menu_shapes(
         &self,
         tag: &str,
         attrs: &[Attr],
         children: &[Node],
         span: Span,
-    ) -> Result<(), LowerError> {
+    ) -> Result<bool, LowerError> {
         if tag == "hr" {
             if let Some(child) = children.first() {
                 return err(
@@ -108,23 +193,37 @@ impl Lowerer<'_> {
         }
         let dialog = tag == "dialog";
         if literal(attrs, "role") != Some("alertdialog") || !(dialog || has(attrs, "popover")) {
-            return Ok(());
-        }
-        let Some(id) = literal(attrs, "id") else {
-            return Ok(());
-        };
-        // An unwritten `closedby` is implied (`implied_closedby`); one written
-        // otherwise asks for what the native confirmation cannot do.
-        let closedby = attrs.iter().rev().find(|a| a.name == "closedby");
-        if dialog && closedby.is_some_and(|c| matches!(&c.value, Expr::Str(v, _) if v != "any")) {
-            return err(
-                "lower-alertdialog",
-                format!("alertdialog `dialog` `{id}` cannot take this `closedby`: a native confirmation is dismissed by a tap outside it, so it is `closedby=\"any\"` (leave it unwritten)"),
-                span,
-            );
+            return Ok(false);
         }
         let mut rows = Vec::new();
         self.rows(children, false, &mut Vec::new(), &mut rows);
+        let alert = alert_shaped(&rows);
+        let Some(id) = literal(attrs, "id") else {
+            return Ok(alert);
+        };
+        // An unwritten `closedby` is implied (`implied_closedby`); one written
+        // otherwise asks for what the native confirmation of this shape
+        // cannot do (LLP 1115.000 D13.4). An alert has no outside and always
+        // has its cancel: `closerequest`, or `any` for the platform's
+        // dismissible form. A chooser is dismissed by a tap outside: `any`.
+        let closedby = attrs.iter().rev().find(|a| a.name == "closedby");
+        if let Some(Expr::Str(value, _)) = closedby.filter(|_| dialog).map(|c| &c.value) {
+            let refused = match (alert, value.as_str()) {
+                (_, "any") | (true, "closerequest") => None,
+                (true, "none") => Some("an alert always has its cancel, which Escape and Back press, so it is `closedby=\"closerequest\"` (leave it unwritten: a tap outside does nothing), or `closedby=\"any\"` for the platform's dismissible form, an action sheet or a light-dismiss dialog"),
+                (true, _) => Some("an alert's is `closerequest` (leave it unwritten: Escape and Back cancel it, a tap outside does nothing) or `any`, the platform's dismissible form"),
+                (false, _) => Some("with no explanatory text, no cancel, more than three buttons or a button under `each` it is the platform's chooser (an action sheet, a menu), which a tap outside dismisses, so it is `closedby=\"any\"` (leave it unwritten)"),
+            };
+            if let Some(why) = refused {
+                return err(
+                    "lower-alertdialog",
+                    format!(
+                        "alertdialog `dialog` `{id}` cannot take `closedby=\"{value}\"`: {why}"
+                    ),
+                    span,
+                );
+            }
+        }
         // How it hides this one: the popover's `popovertarget` with
         // `popovertargetaction="hide"`, the dialog's `commandfor` with
         // `command="close"`. `None` when a value is not a literal.
@@ -177,8 +276,8 @@ impl Lowerer<'_> {
                     _ => cancels.push(row),
                 },
                 // An author laying a modal out (onboarding's Delete account?
-                // in a `column` of rows) wants `role="dialog"`: say so.
-                other => return refuse(row, format!("a `{other}` row is not text, an action or the cancel; to lay the dialog out yourself, give it `role=\"dialog\"` (with `aria-modal=true`), which takes any content and is drawn as written")),
+                // in a `column` of rows) wants a sheet: say so.
+                other => return refuse(row, format!("a `{other}` row is not text, an action or the cancel; a modal you lay out yourself is a sheet, a route with `navigationPresentation=\"modal\"` (docs/recipes/navigation-stack.md)")),
             }
         }
         for (i, later) in cancels.iter().enumerate() {
@@ -195,7 +294,7 @@ impl Lowerer<'_> {
                 span,
             );
         }
-        Ok(())
+        Ok(alert)
     }
 
     /// The element rows `nodes` produce, through `each`, `when` and `match`;

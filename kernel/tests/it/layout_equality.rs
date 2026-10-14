@@ -1116,7 +1116,9 @@ fn measured_baselines_include_padding_and_inherited_direction_relayouts_boxes() 
         }
     };
     let n = StyleValue::Number;
-    let t = |s: &str| StyleValue::Text(s.into());
+    fn t(s: &str) -> StyleValue<'_> {
+        StyleValue::Text(s.into())
+    }
     let mut k = Kernel::new(Box::new(Measurer));
     let ops = vec![
         Op::CreateView {

@@ -197,13 +197,13 @@ component R5AttachmentMarkdown
     documents: list<ChatDocument>
     scheme: string
     local: action
-  action noCite(blockId: string, s: Selection)
+  action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   view
     scroll flex=1 min-height=0 width="100%" testId="attachment-markdown"
       column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
         each document in filter(documents, (entry) => entry.id == `attachment:${att.id}`) key=document.id
-          DiagramBlocks(document=document, local=local, code=att.code, diagrams=att.diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=att.codeCopied, copiedNonce=att.codeCopyNonce, env=att.md, urls=att.mdUrls, source="", cite=noCite)
+          DiagramBlocks(document=document, local=local, code=att.code, diagrams=att.diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=att.codeCopied, copiedNonce=att.codeCopyNonce, env=att.md, urls=att.mdUrls, source="", cite=noCite, markStart=-1, markEnd=-1)
 
 component R5AttachmentHeader
   props

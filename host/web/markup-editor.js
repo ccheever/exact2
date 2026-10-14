@@ -13,7 +13,7 @@ const STYLES = [[1, 'md-b'], [2, 'md-i'], [4, 'md-c'], [8, 'md-s'], [16, 'md-a']
 const CSS = `
 .exact-markdown-editor { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; caret-color: currentColor; cursor: text; }
 .exact-markdown-editor, .exact-markdown-editor * { position: relative; }
-.exact-markdown-editor.md-empty::before { content: attr(placeholder); position: absolute; pointer-events: none; color: light-dark(#3c3c4380, #ebebf580); }
+.exact-markdown-editor.md-empty::before { content: attr(placeholder); position: absolute; pointer-events: none; color: var(--exact-placeholder-color, light-dark(#3c3c4380, #ebebf580)); }
 .md-hide, .md-collapsed { display: none; }
 .md-b { font-weight: 700; } .md-i { font-style: italic; } .md-s { text-decoration: line-through; }
 .md-c { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: light-dark(#0000000f, #ffffff14); border-radius: 4px; padding: 1px 3px; }
@@ -396,7 +396,7 @@ function installMarkupEditor(textarea, host) {
   el.addEventListener('compositionstart', () => { selectionChanged(); rememberNativeSelection(); composing = true; });
   el.addEventListener('compositionend', () => { composing = false; queueMicrotask(() => { reconcile(); flush(); }); });
   el.addEventListener('keydown', e => {
-    if (e.isComposing || destroyed) return;
+    if (e.isComposing || destroyed || e.defaultPrevented || e.exactStopped || e.$stopped) return;
     const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     let command = null;
     if (mod && !e.altKey) {

@@ -21,6 +21,8 @@ component ListInset
   state hi = 100
   state said = 4
   state pad = 24
+  state header = 92
+  state leading = 92
   derive shown = filter(cards, c => c.n < hi)
   derive lines = filter(cards, c => c.n < said)
   action later
@@ -29,13 +31,25 @@ component ListInset
     said = said + 3
   action top
     scrollIntoView("long", "c0", block="start")
+  action startof
+    scrollIntoView("long", "c30", block="start")
   action endof
     scrollIntoView("long", "c30", block="end")
   action grow
     pad = pad + 26
+  action taller
+    header = header + 58
+  action inset
+    leading = leading + 48
+  action collapse
+    header = 40
+    scrollIntoView("long", "c30", block="start")
+  action near
+    header = 0
+    scrollIntoView("long", "c30", block="nearest")
   view
     column testId="root" height="100%" display="flex" flex-direction="column"
-      row gap=8 padding=8 flex-shrink=0
+      row gap=8 padding=8 height=36 box-sizing="border-box" flex-shrink=0
         button appearance="none" press=say testId="say"
           text "say"
         button appearance="none" press=top testId="top"
@@ -45,8 +59,19 @@ component ListInset
         button appearance="none" press=grow testId="grow"
           text "grow"
         text `${hi} rows, ${length(lines)} lines` testId="summary"
+      row gap=8 padding=8 height=36 box-sizing="border-box" flex-shrink=0
+        button appearance="none" press=taller testId="taller"
+          text "grow header"
+        button appearance="none" press=inset testId="inset"
+          text "grow padding"
+        button appearance="none" press=collapse testId="collapse"
+          text "collapse and go"
+        button appearance="none" press=startof testId="startof"
+          text "start 30"
+        button appearance="none" press=near testId="near"
+          text "near 30"
       column flex=1 min-height=0 position="relative"
-        list id="long" virtualized=true reachend=later estimated-item-height=48 testId="long" height="100%" width="100%" overflow-x="hidden" padding-top=92 padding-bottom=83 scroll-padding="92 0 83"
+        list id="long" virtualized=true reachend=later estimated-item-height=48 testId="long" height="100%" width="100%" overflow-x="hidden" padding-top=leading padding-bottom=83 scroll-padding-top=header scroll-padding-bottom=83
           each c in shown key=c.id
             row testId=`row-${c.n}` height=48 box-sizing="border-box" padding-left=12 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
               column width=12 height=12 border-radius=6 background-color=c.color

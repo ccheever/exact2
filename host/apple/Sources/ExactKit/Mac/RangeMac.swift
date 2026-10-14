@@ -1,15 +1,15 @@
 // @ref LLP 1069.001 D5 — `input type="range"` is an `NSSlider`: HTML's
 // `input` as the knob moves, `change` as the mouse lifts, each value clamped
-// and snapped to `step` as HTML sanitizes it. The bound value is written
-// into it when it changes, as the web build writes an input's `value`: an
-// action that has not written it leaves the knob where the person put it
-// (LLP 1069.001 D4, amended 2026-10-04).
+// and snapped to `step` as HTML sanitizes it, and the knob with it. The bound
+// value is written into it when it changes, as the web build writes an
+// input's `value`: an action that has not written it leaves the knob where
+// the person put it (LLP 1069.001 D4, amended 2026-10-04).
 #if os(macOS)
 import AppKit
 
 extension ControlHost {
     func makeRange() -> NSControl {
-        let slider = NSSlider(value: 0, minValue: 0, maxValue: 100, target: nil, action: nil)
+        let slider = SliderMac(value: 0, minValue: 0, maxValue: 100, target: nil, action: nil)
         slider.isContinuous = true
         return slider
     }
@@ -34,6 +34,8 @@ extension ControlHost {
         let id = UInt32(slider.tag)
         guard let owner = presenter.views[id] else { return }
         let value = RangeSpec.format(RangeSpec(owner.props).sanitize(slider.doubleValue))
+        // Snap the knob here: AppKit's own stepping draws a tick mark for every step
+        if let snapped = Double(value), slider.doubleValue != snapped { slider.doubleValue = snapped }
         let released = NSApp.currentEvent.map { $0.type == .leftMouseUp || $0.type == .keyDown } ?? true
         if value != lastRange[id] {
             lastRange[id] = value
@@ -57,5 +59,16 @@ extension ControlHost {
         // What it shows, as the web's reply says.
         return ["typed": Int(node.id), "value": RangeSpec.format(RangeSpec(node.props).sanitize(slider.doubleValue)), "delivery": "host-activation", "native": "control"]
     }
+}
+
+/// A range's slider, AppKit's own, but for a Control-click its node's
+/// `contextmenu` answers (X85, `contextClicked`).
+final class SliderMac: NSSlider {
+    override class var cellClass: AnyClass? { get { SliderCellMac.self } set {} }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif

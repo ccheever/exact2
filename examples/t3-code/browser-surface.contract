@@ -226,7 +226,7 @@ component BrowserMore
         BsIcon(name="ellipsis-vertical", size=14, color="light-dark(#71717b, #a1a1aa)")
       KeyMenuOpen(menuId="browser-more-menu", armed=keyArmed, opened=keyOpened)
       TipBubble(label="More", side="bottom", align="end", offset=28, inset=0, shown=over)
-      column id="browser-more-menu" popover="auto" position="absolute" margin-top="0.375rem" width="17.5rem" margin-left="-16rem"
+      column id="browser-more-menu" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="0.375rem" width="17.5rem" margin-left="-16rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Preview menu" testId="browser-more-popup"
           KeyMenu(menuId="browser-more-keys", items=(view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload"), KmItem(id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window")), KmItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar")), KmItem(id="browser-more-appearance", label="Appearance"), KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")] : [KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")]), keyed=keyed, gap="0px", modal=true)
             BsMenuItem(keysId="browser-more-keys", id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
@@ -312,7 +312,7 @@ component BrowserAppearanceItem
       button id="browser-more-appearance" popovertarget="browser-appearance-menu" hover=hover focus=focused(true) blur=focused(false) disabled=(not view.hasWebContents) role="menuitem" aria-haspopup="menu" testId="browser-more-appearance" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(view.hasWebContents ? 1 : 0.64) background-color=(lit and view.hasWebContents ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         text "Appearance" flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
-      column id="browser-appearance-menu" popover="auto" position="absolute" margin-top="-1.75rem" margin-left="-10.5rem" width="10rem"
+      column id="browser-appearance-menu" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="-1.75rem" margin-left="-10.5rem" width="10rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Appearance" testId="browser-appearance-popup"
           BrowserRadioItem(id="system", label="System", checked=(view.colorScheme == "system"), press=local("surface-browser-color-scheme", view.tabId, "system"))
           BrowserRadioItem(id="light", label="Light", checked=(view.colorScheme == "light"), press=local("surface-browser-color-scheme", view.tabId, "light"))
@@ -515,7 +515,7 @@ component BrowserAddItem
         text surface.shortcut flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.075rem" color="light-dark(#71717b, #818181)"
       button popovertarget="r4-browser-profiles" hover=chevronHover aria-label="Open browser in a profile" tabindex=-1 testId="add-surface-browser-profiles" position="absolute" right="0.125rem" top="0.125rem" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(chevronOver ? "light-dark(#27272914, #f5f5f514)" : "#00000000") title=""
         BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
-      column id="r4-browser-profiles" popover="auto" position="absolute" margin-top="-1.75rem" margin-left="11.75rem" width="10rem"
+      column id="r4-browser-profiles" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="-1.75rem" margin-left="11.75rem" width="10rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="browser-profile-menu"
           each profile in profiles key=profile.id
             BrowserProfileItem(profile=profile, open=local("surface-browser-open", "", profile.id))
@@ -576,7 +576,7 @@ component BrowserLauncherProfiles
         svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#71717b, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="m6 9 6 6 6-6"
       KeyMenuOpen(menuId="launcher-browser-profiles", armed=keyArmed, opened=keyOpened)
-      column id="launcher-browser-profiles" popover="auto" key=listKey position="absolute" position-area="bottom span-right" margin-top="0.375rem" margin-left="-12.5rem" width="14rem"
+      column id="launcher-browser-profiles" popover="auto" position-try-fallbacks="none" key=listKey position="absolute" position-area="bottom span-right" margin-top="0.375rem" margin-left="-12.5rem" width="14rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="launcher-browser-profile-menu"
           KeyMenu(menuId="launcher-browser-profiles-keys", items=map(profiles, (profile) => KmItem(id=`launcher-browser-profile-${profile.id}`, label=profile.name)), keyed=keyed, gap="0px", modal=true)
             each profile in profiles key=profile.id

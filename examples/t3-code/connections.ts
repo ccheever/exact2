@@ -11,7 +11,7 @@ import { ClientError, bridgeReply, environmentFetchFailure, parsePairing, type N
 import { fleet, environmentKey, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
 import { isPrimaryEnvironment, primary, primaryEntry, primaryPhase, sessionScopes, withoutPrimaryDuplicates } from './local-primary';
 import { applyLocalSetting, thisMachine } from './this-machine';
-import { emptyNetworkView, networkPage, runNetworkOp, NETWORK_OPS } from './connections-network'; // this-machine-network-access
+import { closedNetworkView, networkPage, runNetworkOp, NETWORK_OPS } from './connections-network'; // this-machine-network-access
 import { pushToast } from './toast';
 import { runSshOp, sshTargets, formatSshTarget, SSH_OPS, type SshTarget } from './settings-b-ssh';
 import type { T3Client } from './client';
@@ -220,7 +220,9 @@ export function connectionsProjection(host: ConnectionHost, saved: Obj[], entrie
     connected: host.connection === 'connected', state: host.connection, adminAccess: sessionScopes(host.environmentId, host.scopes).includes('access:write'),
     activeLabel: str(obj(host.config.environment).label) || hostOf(host.origin),
     thisMachine: thisMachine(local, local ? savedRow(local, 0, ssh, probes) : null), // this-machine.ts: the "This machine" section
-    network: emptyNetworkView(), // connections-network.ts: Network access, Tailscale HTTPS, Authorized clients (connectionsPage fills it)
+    // connections-network.ts: Network access, Tailscale HTTPS, Authorized clients (connectionsPage fills it). Closed, it
+    // keeps the dialogs' serials, so a dialog that closed stays closed on every other page (NR-2).
+    network: closedNetworkView(),
     environments: rows, updateCount: rows.filter(row => row.update === 'Update').length,
     machines: machines.length >= 2 ? machines : [],
     loadBalancing: prefs.loadBalancingEnabled,

@@ -112,7 +112,8 @@ component EnvironmentRoutes
         op("environment-route-move", rowKey, `${key}>`)
   view
     column width="100%" margin-top="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId=`environment-routes-${environmentId}`
-      list id=`environment-routes-list-${environmentId}` reorderdrop=dropRoute virtualized=true max-height="15rem" width="100%" overflow-x="hidden" role="list" aria-label=listLabel
+      // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
+      list appearance="none" id=`environment-routes-list-${environmentId}` reorderdrop=dropRoute virtualized=true max-height="15rem" width="100%" overflow-x="hidden" role="list" aria-label=listLabel
         each route in routes key=route.id
           RouteRow(route=route, listId=`environment-routes-list-${environmentId}`, environmentId=environmentId, busy=busy, remove=remove)
       row width="100%" box-sizing="border-box" padding="0.25rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"

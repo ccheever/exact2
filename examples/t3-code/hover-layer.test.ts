@@ -112,7 +112,7 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
     expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(4);
     expect(page).toContain('  action toggle(id: string)\n    if held == id\n      hoverTipAt(noHoverTip(), "", true)');
     // A press elsewhere in the window (the sidebar, a toast) closes a hover-opened popover too, until the next enter:
-    // macOS can hand the segment an enter while the pointer is elsewhere (X62, #322), and Base UI's outside press
+    // macOS could hand the segment an enter while the pointer was elsewhere (X62, #322, before main #327), and Base UI's outside press
     // closes the popover however it opened.
     expect(page).toContain('state hoverAt = 0');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
@@ -145,7 +145,7 @@ describe('the layer and its timing', () => {
       hoverUntil = until
       hoverHold(until)`);
     // Base UI's open delay (nothing drawn before it) and closeDelay, on the root's hover clock.
-    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : 0))');
+    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" ? 600 : 0)))');
     const lines = window.split('\n');
     const overlays = lines.findIndex(line => line.startsWith('        WindowOverlays('));
     const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
@@ -190,7 +190,7 @@ describe('settings-rows-and-labels S1-16, S2-7: one "Background policy details" 
     expect(body).toContain('button id=tipId hover=hover focus=focusTip(true) blur=focusTip(false) aria-label="Background policy details" aria-description=tip testId=tipId');
     // A policy tip is a tooltip: it takes no pointer and closes with its trigger.
     const layer = await component('hover-layer.contract', 'HoverLayer');
-    expect(layer).toContain('derive card = tip.kind != "tip" and tip.kind != "policy"');
+    expect(layer).toContain('derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip"');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
   });
   test('General, Providers and Source Control use it beside the row title, with the reference words', async () => {

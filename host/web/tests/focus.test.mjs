@@ -151,22 +151,27 @@ test('declared shortcuts support named keys and leave text input and composition
   } finally {Object.assign(globalThis,previous);}
 });
 
-// LLP 1104 D3/D6: exercise the shipped stylesheet in Chrome, beside UA controls.
-test('bare fields restore keyboard focus and disabled native ink comes from the UA', async () => {
+// LLP 1104 D3/D6: exercise the shipped stylesheet in Chrome. A disabled native
+// field's ink is the look's grey (the role table's `GrayText`, which the
+// neutral sheet carries; LLP 1116 D1's look left it to the user agent), never
+// the page's own colour.
+test('bare fields restore keyboard focus and a disabled native field is the look\'s grey, not the page\'s ink', async () => {
   const {readFileSync} = await import('node:fs');
   const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
   const {chromium} = await import('playwright-core');
+  const {DEFAULT_LOOK, withLook} = await import('../look.mjs');
   const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
   try {
     const page = await browser.newPage();
-    const css = readFileSync(new URL('../index.html', import.meta.url), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+    const css = withLook(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), DEFAULT_LOOK).match(/<style>([\s\S]*?)<\/style>/)[1];
     for (const scheme of ['light', 'dark']) {
       await page.setContent(`<style>${css}#exact-root#exact-root{.c1{outline-style:none}}</style><div id="exact-root" style="color:red;color-scheme:${scheme}">
         <input id="bare"><textarea id="area"></textarea><textarea id="markdown" markup="markdown"></textarea>
         <input id="native" data-native disabled value="Disabled"><textarea id="native-area" data-native disabled>Disabled</textarea>
         <input id="authored" data-native disabled style="color:rgb(0,128,0)">
         <input id="quiet" style="outline-style:none"><textarea id="quiet-area" class="c1"></textarea><input id="quiet-native" data-native class="c1">
-      </div><iframe srcdoc='<style>html {color-scheme:${scheme}}</style><input id="ua" disabled><textarea id="ua-area" disabled></textarea>'></iframe>`);
+        <span id="gray" style="color:var(--exact-gray-text)"></span>
+      </div>`);
       for (const id of ['bare', 'area']) {
         await page.keyboard.press('Tab');
         expect(await page.evaluate(() => document.activeElement.id)).toBe(id);
@@ -176,9 +181,10 @@ test('bare fields restore keyboard focus and disabled native ink comes from the 
         expect(outline[2]).toBe('2px');
       }
       const color = id => page.$eval(`#${id}`, el => getComputedStyle(el).color);
-      const ua = id => page.$eval('iframe', (frame, id) => frame.contentWindow.getComputedStyle(frame.contentDocument.getElementById(id)).color, id);
-      expect(await color('native')).toBe(await ua('ua'));
-      expect(await color('native-area')).toBe(await ua('ua-area'));
+      const gray = await color('gray');
+      expect(gray).not.toBe('rgb(255, 0, 0)'); // the sheet carries the role: the probe does not inherit the page's red
+      expect(await color('native')).toBe(gray);
+      expect(await color('native-area')).toBe(gray);
       expect(await color('authored')).toBe('rgb(0, 128, 0)');
       // Source mode retains the Markdown editor's existing focus treatment.
       await page.keyboard.press('Tab');
@@ -199,12 +205,13 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
   const {readFileSync} = await import('node:fs');
   const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
   const playwright = await import('playwright-core');
+  const {DEFAULT_LOOK, withLook} = await import('../look.mjs');
   const browser = await playwright[engine].launch({headless: true,
     ...(engine === 'chromium' ? {executablePath: browserPath().executable} : {})});
   try {
     const page = await browser.newPage();
     const reference = await browser.newPage();
-    const css = readFileSync(new URL('../index.html', import.meta.url), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+    const css = withLook(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), DEFAULT_LOOK).match(/<style>([\s\S]*?)<\/style>/)[1];
     const tab = engine === 'webkit' ? 'Alt+Tab' : 'Tab';
     const outline = (page, id) => page.$eval(`#${id}`, el => {
       const s = getComputedStyle(el);
@@ -248,3 +255,114 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
     }
   } finally { await browser.close(); }
 }, 30000);
+
+// #282: the real HTML dialog path, reached through the JS target's commands.
+test('action dialog commands keep modal focus and preserve bare close as window close', async () => {
+  const {readFileSync} = await import('node:fs');
+  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
+  const {chromium} = await import('playwright-core');
+  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
+    const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*;$/m, '').replace('export const commands', 'const commands');
+    await page.addScriptTag({content: `${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
+    const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
+    const runtime = readFileSync(new URL('../../web-js/rt.js', import.meta.url), 'utf8');
+    await page.addScriptTag({content: `(() => {
+      const el = document.querySelector('#form'), views = new Map([[1, el]]), retiredViews = new Set(), inputReady = true, page = null;
+      window.wasmClosed = []; window.jsClosed = [];
+      const now = () => 0, send = () => {}, wasm = {exact_dispatch: (id, kind) => wasmClosed.push([id, kind])};
+      ${glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('))}
+      attach(el, 1, ['close']);
+      const clock = {agent: true, now: 0, timers: []}, start = 0, Mutations = [], OnHooks = {}, Owner = null;
+      const onEnd = () => {};
+      ${runtime.slice(runtime.indexOf('export function on('), runtime.indexOf('// Each event family')).replace('export function', 'function')}
+      on(el, 'close', () => jsClosed.push(document.activeElement.id));
+    })();`});
+    const closed = async n => {
+      await page.waitForFunction(n => wasmClosed.length === n && jsClosed.length === n, n);
+      expect(await page.evaluate(() => wasmClosed.every(([id, kind]) => id === 1 && kind === 49))).toBe(true);
+      expect(await page.evaluate(() => jsClosed.every(id => id === 'opener'))).toBe(true);
+    };
+    await page.focus('#opener');
+    await page.evaluate(() => hostCommands.showModal('form'));
+    expect(await page.evaluate(() => [document.querySelector('#form').matches(':modal'), document.activeElement.id])).toEqual([true, 'first']);
+    await page.evaluate(() => hostCommands.showModal('form'));
+    expect(await page.evaluate(() => journal.splice(0))).toEqual(['showModal "form" ignored: dialog is already open']);
+    const trace = async () => {
+      const focus = [];
+      for (const key of ['Shift+Tab', 'Tab', 'Tab', 'Tab']) {
+        await page.keyboard.press(key);
+        focus.push(await page.evaluate(() => document.activeElement.id));
+      }
+      return focus;
+    };
+    const actual = await trace();
+    await page.evaluate(() => { hostCommands.close('form'); hostCommands.close('form'); });
+    await closed(1);
+    await page.focus('#opener');
+    await page.evaluate(() => document.querySelector('#form').showModal());
+    const reference = await trace();
+    expect(actual).toEqual(reference); // Chrome includes its own browser-focus boundary.
+    expect(actual).not.toContain('outside');
+    expect(actual).toContain('first');
+    expect(actual).toContain('last');
+    await page.evaluate(() => document.querySelector('#first').focus());
+    await page.focus('#outside');
+    expect(await page.evaluate(() => document.activeElement.id)).toBe('first');
+    await page.evaluate(() => hostCommands.close('form'));
+    expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id, quit])).toEqual([false, 'opener', 0]);
+    await closed(2);
+    await page.evaluate(() => hostCommands.showModal('form'));
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id])).toEqual([false, 'opener']);
+    await closed(3);
+    await page.evaluate(() => { hostCommands.showModal('box'); hostCommands.showModal('missing'); hostCommands.close(); });
+    expect(await page.evaluate(() => [journal.length, quit])).toEqual([2, 1]);
+    expect(await page.evaluate(() => journal.every(line => line.includes('refused')))).toBe(true);
+  } finally { await browser.close(); }
+}, 60000);
+
+test('a queued dialog close cannot act after its conditional scope ends', async () => {
+  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
+  const {chromium} = await import('playwright-core');
+  const server = Bun.serve({port: 0, hostname: '127.0.0.1', async fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === '/') return new Response('<div id="exact-root"><button id="opener">Open</button><div id="branch"></div></div>', {headers: {'Content-Type': 'text/html'}});
+    if (path === '/host/web-js/names.js') return new Response('export const sourceTypes = [];', {headers: {'Content-Type': 'text/javascript'}});
+    if (!path.startsWith('/host/')) return new Response(null, {status: 404});
+    const local = Bun.file(new URL(`../../..${path}`, import.meta.url));
+    const file = await local.exists() ? local : Bun.file(new URL(`../../..${path.replace('/web-js/', '/web/')}`, import.meta.url));
+    return await file.exists() ? new Response(file) : new Response(null, {status: 404});
+  }});
+  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  try {
+    const page = await browser.newPage();
+    for (const retain of [false, true]) {
+      await page.goto(server.url.href);
+      const result = await page.evaluate(async retain => {
+        const {scope, when, sig, write, commit, on} = await import('/host/web-js/rt.js');
+        const mounted = sig(true), opener = document.querySelector('#opener');
+        let closed = 0, dialog;
+        scope(() => when(document.querySelector('#branch'), mounted, parent => {
+          dialog = document.createElement('dialog');
+          dialog.innerHTML = '<button autofocus>Close</button>';
+          parent.append(dialog);
+          on(dialog, 'close', () => closed++);
+        }));
+        opener.focus();
+        dialog.showModal();
+        opener.addEventListener('focus', () => commit(() => write(mounted.n, false)), {once: true});
+        const delivered = new Promise(resolve => dialog.addEventListener('close', resolve, {once: true}));
+        dialog.close();
+        const detached = !dialog.isConnected;
+        // An exit animation can retain a retired element in the DOM.
+        if (retain) document.body.append(dialog);
+        await delivered;
+        return {closed, detached, focused: document.activeElement.id};
+      }, retain);
+      expect(result).toEqual({closed: 0, detached: true, focused: 'opener'});
+    }
+  } finally { await browser.close(); server.stop(true); }
+}, 60000);

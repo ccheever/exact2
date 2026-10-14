@@ -1,7 +1,8 @@
 // T3Module's Browser ops (T3Module.swift routes them; browser-surface part 1): the data module's live sessions,
 // a tab's navigation and its chrome row's commands, answered by the page registry (T3BrowserSessions.swift).
 // Part 5: the previewAutomation host's plans (`browserAutomation`, T3BrowserAutomation.swift), which answer
-// `previewAutomation.respond` on the focused connection, and a tab's Mute (`browserMute`).
+// `previewAutomation.respond` on the focused connection, and a tab's Mute (`browserMute`). A recording the agent stops is
+// uploaded to its environment natively (`browserRecordingUpload`, T3BrowserAutomationRecording.swift).
 import Foundation
 
 extension T3Module: T3BrowserSessionOwner {
@@ -12,6 +13,10 @@ extension T3Module: T3BrowserSessionOwner {
         case "browserAutomation":
             let plan = request["plan"] as? [String: Any] ?? [:]
             return DispatchQueue.main.async { [browserAutomation] in reply.send(["ok": true, "generation": generation, "value": browserAutomation.perform(plan)]) }
+        case "browserRecordingUpload":
+            return DispatchQueue.main.async { [browserAutomation] in
+                browserAutomation.recordingUpload(request) { value in reply.send(["ok": true, "generation": generation, "value": value]) }
+            }
         case "browserMute":
             let tab = request["tab"] as? String ?? "", muted = request["muted"] as? Bool == true
             return DispatchQueue.main.async { [browserAutomation] in reply.send(["ok": true, "generation": generation, "value": ["done": browserAutomation.setMuted(tab, muted)]]) }
@@ -28,11 +33,16 @@ extension T3Module: T3BrowserSessionOwner {
         browserSessions.created = { [weak browserAutomation] session in browserAutomation?.prepare(session) }
         browserSessions.ended = { [weak browserAutomation] id in browserAutomation?.forget(id) }
         browserAutomation.changed = { [weak browserSessions] in browserSessions?.publish() }
-        browserAutomation.rpc = { [weak transport, weak fleet] method, payload, generation, key, done in
-            let request: [String: Any] = ["op": "request", "method": method, "payload": payload, "generation": generation]
+        browserAutomation.send = { [weak transport, weak fleet] request, generation, key, done in
+            var request = request
+            request["generation"] = generation
             if let key { guard let fleet else { return done(["ok": false]) }; return fleet.perform(key, request, completion: done) }
             guard let transport else { return done(["ok": false]) }
             transport.perform(request, completion: done)
+        }
+        browserAutomation.rpc = { [weak browserAutomation] method, payload, generation, key, done in
+            guard let browserAutomation else { return done(["ok": false]) }
+            browserAutomation.send(["op": "request", "method": method, "payload": payload], generation, key, done)
         }
     }
 }

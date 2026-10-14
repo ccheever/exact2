@@ -1,9 +1,12 @@
 // @ref LLP 1075.003 §9.10 — what a route's authored header and the root's
 // tablist say about the bars beyond a title and items, declared, with no
 // module: the heading's group as a richer title (an avatar, a subtitle, a
-// press), the bar hidden for a route with no header, and the tab bar hidden
-// for a route pushed while the authored tablist is. The web, macOS, Linux
-// and the agent paint what is authored, which is where each rule comes from.
+// press), and the tab bar hidden for a route pushed while the authored
+// tablist is. The web, macOS, Linux and the agent paint what is authored,
+// which is where each rule comes from.
+// @ref LLP 1115.000 D5.2, D5.3 — which routes show the bar (`routeShowsBar`,
+// by `NavigationRules.bar`): each route's own header, the system Back alone
+// on a pushed route with none, and no bar where the route says so.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -33,6 +36,7 @@ struct HeaderTitle: Equatable {
     struct Glyph: Equatable { let symbol: String?; let text: String }
     /// The element a tap on the title presses.
     let tap: UInt32?
+    let accessibilityDisabled: Bool
 
     init?(header: NodeView, heading: NodeView, tap: NodeView?, apart: [NodeView]) {
         // The heading's ancestors below the header, innermost first.
@@ -116,6 +120,7 @@ struct HeaderTitle: Equatable {
         self.spoken = spoken ?? subtitle
         self.rtl = rtl
         self.tap = tap?.id
+        accessibilityDisabled = tap?.ariaUnavailable == true
     }
 
     /// Whether the title is a drawn title view rather than UIKit's own
@@ -128,22 +133,26 @@ struct HeaderTitle: Equatable {
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0):\(accessibilityDisabled)" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
         node.container.subviews.contains { child in
             guard let child = child as? NodeView else { return false }
-            return (child.isParagraph && child.headingLevel != nil) || holdsHeading(child)
+            return child.isHeading || holdsHeading(child)
         }
     }
 }
 
 extension HeaderShape {
-    /// The shape, unless its header is hidden as authored (`display: none`):
-    /// a route whose header the web does not show has no bar (§9.10).
-    static func shown(_ shape: HeaderShape) -> HeaderShape? {
-        shape.header.style["display"]?.string == "none" ? nil : shape
+    /// The header a route's bar is projected from in the app: its shape,
+    /// unless the route says it has no bar (`navigationBar="none"`, LLP
+    /// 1115.000 D5.2), where its header paints in the page as written, or
+    /// its header is hidden as authored (`display: none`): a header the web
+    /// does not show is no bar's (§9.10), and its route is one with no
+    /// header. Both are the shared rule's (`HeaderRule`, `projected`).
+    static func bar(of route: NodeView, back: String? = nil, backIsUIKits: Bool = true) -> HeaderShape? {
+        HeaderShape(route: route, back: back, backIsUIKits: backIsUIKits, projected: true)
     }
 
     /// The heading's group as the bar shows it (§9.10). A tablist's
@@ -162,6 +171,7 @@ extension HeaderShape {
     /// header, or one the web does not show either (`display: none`), is
     /// not the bar's to judge.
     func presents(_ node: NodeView) -> Bool {
+        if authored.contains(where: { node === $0 || node.isDescendant(of: $0) }) { return true }
         guard node === header || node.isDescendant(of: header) else { return true }
         var at: UIView? = node
         while let view = at, view !== header.superview {
@@ -274,7 +284,7 @@ final class HeaderTitleView: UIControl {
         isEnabled = group.tap != nil
         accessibilityLabel = text
         accessibilityValue = group.subtitle.isEmpty ? nil : group.spoken
-        accessibilityTraits = group.tap == nil ? .header : .button
+        accessibilityTraits = group.tap == nil ? .header : group.accessibilityDisabled ? [.button, .notEnabled] : .button
         accessibilityIdentifier = group.testId
         invalidateIntrinsicContentSize()
     }
@@ -300,7 +310,7 @@ extension NavigationHost {
         for nav in allNavigations where stacks[ObjectIdentifier(nav)]?.showsBar == true {
             for (index, controller) in nav.viewControllers.enumerated() {
                 guard let c = controller as? RouteController,
-                      let shape = HeaderShape(route: c.node, back: back, backIsUIKits: index > 0).flatMap(HeaderShape.shown) else { continue }
+                      let shape = HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) else { continue }
                 func walk(_ node: NodeView) {
                     for case let child as NodeView in node.container.subviews {
                         if !shape.presents(child) { out[child.id] = Self.unshownReason }
@@ -313,10 +323,27 @@ extension NavigationHost {
         return out
     }
 
-    /// Whether a route shows its stack's bar: the stack has one and the
-    /// route's header is shaped for it and shown (§9.10).
+    /// Whether the platform's bar has a Back button for a pushed route to
+    /// show alone: tvOS's has none (its Back is the remote's Menu).
+    #if os(tvOS)
+    static let barHasBackButton = false
+    #else
+    static let barHasBackButton = true
+    #endif
+
+    /// What a route shows of the bar, where its stack's routes may show it
+    /// (`NavigationRules.bar`, LLP 1115.000 D5.2): its header, the system
+    /// Back alone, or nothing.
+    func bar(of route: NodeView, pushed: Bool) -> NavigationRules.Bar {
+        if HeaderRule.keepsAuthoredHeader(route) { return .hidden }
+        return NavigationRules.bar(asked: route.props["navigationBar"], header: HeaderShape.bar(of: route) != nil,
+                                   pushed: pushed, backButton: Self.barHasBackButton)
+    }
+
+    /// Whether a route shows the bar: its stack's routes may, and the route
+    /// has something to show in it.
     func routeShowsBar(_ c: RouteController, in nav: UINavigationController) -> Bool {
-        barShows(nav) && HeaderShape(route: c.node, back: nil).flatMap(HeaderShape.shown) != nil
+        barShows(nav) && bar(of: c.node, pushed: c.pushed) != .hidden
     }
 
     /// Whether the bar is UIKit's for now on a route's account: its header
@@ -385,7 +412,7 @@ extension NavigationHost {
     /// `setTabBarHidden` (iOS 18), as Signal hides its tab bar for the chat
     /// list's multi-select.
     func followTablist(_ routes: [RouteController], in nav: UINavigationController) {
-        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
+        guard !ExactEnv.authoredChrome, let key = selectedKey,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"
@@ -457,7 +484,7 @@ extension NavigationHost {
     /// A transition settled (`didShow`): the root, if it is on top now,
     /// reconciles the bar with its tablist.
     func settleTablist(_ nav: UINavigationController) {
-        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
+        guard !ExactEnv.authoredChrome, let key = selectedKey,
               let root = nav.viewControllers.first as? RouteController, root.key == key, nav.topViewController === root,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }

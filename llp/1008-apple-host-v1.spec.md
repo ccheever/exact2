@@ -131,7 +131,10 @@ from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw
 per line, flush by alignment inside the CSS content box. Borders and padding
 are excluded from the wrapping width and added to the painted origin; the
 paragraph cache keys that content width, even when its outer frame is unchanged.
-AppKit selection and link hits use the same origin and alignment. The padded
+AppKit selection and link hits use the same origin and alignment. Inline
+`frame()` reads and agent `layout` use the union of the run's fragments on
+AppKit and UIKit, through the paragraph's viewport conversion (LLP 1051.000
+D1). Collapsed whitespace at a soft wrap contributes no width to that union. The padded
 paragraph/container comparison, padding mutation and recreation, and Messages
 quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
 Painting still snaps baselines to the logical point

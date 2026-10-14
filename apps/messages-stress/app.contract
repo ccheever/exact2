@@ -197,7 +197,7 @@ component MessagesStress
             text "Latest page" font-size=12
           text `${offset + 1}–${offset + 100} of ${count}` testId="page-range" font-size=12
       when windowed or bounded
-        list virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not paged or cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
+        list appearance="none" virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not paged or cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
           each m in history.rows key=m.id
             column padding-left=12 padding-right=12 padding-top=5 padding-bottom=5 width="100%" box-sizing="border-box"
               box testId=`reply-hit-${m.id}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"

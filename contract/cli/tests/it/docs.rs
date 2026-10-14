@@ -305,12 +305,13 @@ fn every_pattern_passes_its_tests_on_the_web() {
     std::fs::create_dir_all(&parent).unwrap();
     let app = parent.join("patterns-check");
     let run = |cwd: &Path, args: &[&str]| {
-        let output = std::process::Command::new("bun")
-            .args(args)
-            .current_dir(cwd)
-            .env_remove("EXACT_APP_DIR")
-            .output()
-            .expect("bun runs");
+        let output =
+            std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+                .args(args)
+                .current_dir(cwd)
+                .env_remove("EXACT_APP_DIR")
+                .output()
+                .expect("bun runs");
         let said = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
@@ -347,26 +348,31 @@ fn every_pattern_passes_its_tests_on_the_web() {
 }
 
 /// A recipe builders copy carries no tells (LLP 1116 D3 §6.5): `no-tells`
-/// passes over every recipe's `contract` blocks and start-here's, and over
-/// every pattern's (LLP 1116.001 D3).
+/// passes over every recipe's `contract` blocks and start-here's, over
+/// every pattern's (LLP 1116.001 D3), and over `README.md`'s, the first
+/// Contract a reader meets (Charlie, 2026-10-12).
 #[test]
 #[ignore = "async lane: launches Bun for scripts/no-tells.mjs; bun scripts/async.mjs runs it"]
-fn the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
+fn the_readme_the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let readme = root.join("README.md");
     let guides: Vec<PathBuf> = documents()
         .into_iter()
         .filter(|doc| {
-            doc.parent().is_some_and(|dir| dir.ends_with("recipes"))
+            *doc == readme
+                || doc.parent().is_some_and(|dir| dir.ends_with("recipes"))
                 || doc.ends_with("start-here.md")
         })
         .collect();
-    assert!(guides.len() > 1, "no recipes found under docs/recipes");
-    let output = std::process::Command::new("bun")
-        .arg(root.join("scripts/no-tells.mjs"))
-        .args(&guides)
-        .args(patterns().iter().map(|dir| dir.join("app.contract")))
-        .output()
-        .expect("bun runs scripts/no-tells.mjs");
+    assert!(guides.contains(&readme), "README.md is not a guide");
+    assert!(guides.len() > 2, "no recipes found under docs/recipes");
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .arg(root.join("scripts/no-tells.mjs"))
+            .args(&guides)
+            .args(patterns().iter().map(|dir| dir.join("app.contract")))
+            .output()
+            .expect("bun runs scripts/no-tells.mjs");
     assert!(
         output.status.success(),
         "{}{}",

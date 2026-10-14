@@ -1,13 +1,9 @@
 # Recipe: a number field
 
-`inputmode="decimal"` gives the iPhone's number pad with a decimal point, and
-`inputmode="numeric"` digits only. Without one, a number field gets the full keyboard,
-with QuickType inserting words. The field holds raw text; a derive parses it.
+`inputmode="decimal"` is the iPhone's number pad with a decimal point, `"numeric"` digits only;
+without one the field gets the full keyboard. The field holds raw text; a derive parses it.
 
 ```contract
-routes nav
-  home "/"
-
 fn amount(s: string): number = match parseNumber(s) { case some(n) => n, case none => -1 }
 
 component Split
@@ -16,7 +12,6 @@ component Split
   state peopleText = "2"
   derive bill = amount(billText)
   derive billError = billText != "" and bill < 0 ? "Enter an amount, like 42.50." : ""
-
   action editBill(v: string)
     billText = v
   action editPeople(v: string)
@@ -26,32 +21,25 @@ component Split
     let next = n >= 1 ? n : people
     people = next
     peopleText = `${next}`
-
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` navigationScroll="form" position="absolute" inset=0
-          display="flex" flex-direction="column"
-          header display="flex" align-items="center" padding="8px 16px"
-            text "Split" role="heading" aria-level=1
-          list id="form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-            section
-              row
-                column flex=1 min-width=0 gap=4
-                  row gap=8
-                    text "Bill"
-                    input appearance="none" value=billText input=editBill inputmode="decimal" placeholder="0.00"
-                      aria-label="Bill" text-align="end" testId="bill" flex=1 min-width=0
-                  when billError != ""
-                    text billError font="-exact-footnote" color="-exact-system-red" testId="bill-error"
-              row
-                text "People"
-                input appearance="none" value=peopleText input=editPeople change=commitPeople inputmode="numeric"
-                  aria-label="People" text-align="end" testId="people" flex=1 min-width=0
-            section
-              row
-                text "Each Pays"
-                text (bill > 0 ? toFixed(bill / people, 2) : "—") font-variant-numeric="tabular-nums" testId="share"
+    list appearance="auto" listStyle="inset-grouped" height="100%" testId="app"
+      section
+        row
+          column flex=1 min-width=0 gap=4
+            row gap=8
+              text "Bill"
+              input value=billText input=editBill inputmode="decimal" placeholder="0.00"
+                aria-label="Bill" text-align="end" testId="bill" flex=1 min-width=0
+            when billError != ""
+              text billError font="-exact-footnote" color="-exact-system-red" testId="bill-error"
+        row
+          text "People"
+          input value=peopleText input=editPeople change=commitPeople inputmode="numeric"
+            aria-label="People" text-align="end" testId="people" flex=1 min-width=0
+      section
+        row
+          text "Each Pays"
+          text (bill > 0 ? toFixed(bill / people, 2) : "—") font-variant-numeric="tabular-nums" testId="share"
 ```
 
 ```contract-test
@@ -68,42 +56,14 @@ test "a bad amount says so, and people commit on Enter"
   expect text "share" == "28.00"
 ```
 
-- `input` writes the raw text to state on every keystroke, and validation reads a
-  derive of it. Normalize only in `change` (Enter or blur), never as the person types:
-  rewriting the text mid-edit puts the next keystroke in the wrong place.
-- `parseNumber` answers an option: `none` for `""`, `"12px"` or `"1.2.3"`. Show a
-  hint in words; leave the text as typed.
-- The number pad has no Return key, so `change` comes on blur. A `scroll` with
-  `keyboardDismissMode="on-drag"` lets a drag put the keyboard away.
-
-## A value that can be negative
-
-The decimal pad has no minus key. Say the field's range: a `min` below zero gives it a ±
-key on iOS, in the keyboard's bar, as a hand-built converter adds one (the web's keyboard
-has a minus). Never `inputmode="text"` for a number: that is a letter keyboard.
-
-```contract
-component Convert
-  state celsiusText = ""
-  derive celsius = parseNumber(celsiusText)
-  action edit(v: string)
-    celsiusText = v
-  view
-    column gap=8 padding=16
-      input value=celsiusText input=edit inputmode="decimal" min="-273.15" enterkeyhint="done"
-        placeholder="0" aria-label="Celsius" testId="celsius"
-      text (match celsius { case some(c) => `${toFixed(c * 9 / 5 + 32, 1)} °F`, case none => "Enter °C" })
-        font-variant-numeric="tabular-nums" testId="fahrenheit"
-```
-
-```contract-test
-test "below zero converts"
-  type "celsius" "-40"
-  expect text "fahrenheit" == "-40.0 °F"
-```
-
-- **Putting the keyboard away** is the field's, not a permanent Done button in the bar:
-  `enterkeyhint="done"` gives the pad a Done key that puts it away (and fires `change`),
-  `blur()` does from the action that uses the value, and `keyboardDismissMode` lets a
-  drag do it.
-- Show money with [money](money.md), and a big result with [numeric-readout](numeric-readout.md).
+- `input` writes the raw text on every keystroke; normalize only in `change` (Enter or blur),
+  never as the person types: rewriting the text mid-edit puts the next keystroke in the wrong
+  place. `parseNumber` answers `none` for `""`, `"12px"`, `"1.2.3"`: show a hint in words and
+  leave the text as typed.
+- The number pad has no Return key, so iOS gives it a Done bar that puts it away (and fires
+  `change`); a drag on the scroller that reaches the keyboard does too.
+- A value that can be negative: the decimal pad has no minus key, so say the range: `min=-273.15`
+  (bare, a number as `min=0` is) gives iOS a ± key in the keyboard's bar. Never `inputmode="text"` for a number.
+- A number in a form that saves: `submit=save` on the field (Enter saves; there is no `form`),
+  `aria-invalid` while the text is bad and `aria-describedby` naming the error, `disabled` on Save
+  ([grouped-form](grouped-form.md)). Money: [money](money.md); a big result: [numeric-readout](numeric-readout.md).

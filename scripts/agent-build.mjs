@@ -26,7 +26,7 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readdirS
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
-import { CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, receiptChanges, refuseStale } from './agent-launch.mjs';
+import { compilerWarnings, CONFIG_JSON, DECLARATIONS, depInfoInputs, moduleGraph, newerThan, notBuildInput, receiptChanges, refuseStale } from './agent-launch.mjs';
 import { claimLive, developmentBuildEnv, resolveApp, shaderWatchRoots } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -64,7 +64,9 @@ export function rebuildCommand(app, verb) {
   const own = app.dir && !resolve(app.dir).startsWith(`${ROOT}/`) && existsSync(resolve(app.dir, 'exact.mjs'));
   if (!own) return `bun host/apple/build.mjs${verb === 'ios' ? ' --ios' : ''} ${app.crate('apple')}`;
   const command = `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs ${verb})`;
-  return readFileSync(resolve(app.dir, 'exact.mjs'), 'utf8').includes('agent-build.mjs') ? command
+  const runner = readFileSync(resolve(app.dir, 'exact.mjs'), 'utf8');
+  // A launcher (LLP 1116.006 D7) runs this checkout's app-cli.mjs, which builds first.
+  return runner.includes('agent-build.mjs') || runner.includes('scripts/app-cli.mjs') ? command
     : `${command} (after bun exact.mjs update, test and agent build it themselves)`;
 }
 
@@ -219,7 +221,7 @@ export async function makeOverride(host, app, state, { bake = bakePlan, log } = 
   rmSync(stage, { recursive: true, force: true });
   mkdirSync(dirname(dir), { recursive: true });
   try {
-    const { code, output, tool } = await bake(app, stage, log);
+    const { code, output = '', tool } = await bake(app, stage, log);
     if (tool) return { refusal: `the bake tool did not build (exit ${code}; its log: ${shown(log)})` };
     if (code) return { failed: output.trim() || `the bake exited ${code}` };
     const why = moduleRefusal(builtModule(app, receipt), JSON.parse(readFileSync(resolve(stage, 'app.module.json'), 'utf8')));
@@ -228,7 +230,7 @@ export async function makeOverride(host, app, state, { bake = bakePlan, log } = 
     writeFileSync(resolve(stage, 'override.json'), JSON.stringify({ version: 1, receipt: digestOf(state.receipt), sources, changed: state.changed }, null, 2) + '\n');
     rmSync(dir, { recursive: true, force: true });
     renameSync(stage, dir);
-    return { made: true };
+    return { made: true, output };
   } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
@@ -248,8 +250,8 @@ async function waitForBuild(app, say) {
  * exit code. A fresh build runs nothing and says nothing; nor does one whose
  * plan-only edit is already baked beside it. A new plan-only edit is baked
  * instead of built, in one line; what its bake refuses fails the command, as
- * the build would have. */
-export async function buildFirst(host, app, { sim, say = line => console.error(line), build = appleBuild, wait = waitForBuild, bake = bakePlan } = {}) {
+ * the build would have. A build another process claims first is waited for and the check made again. */
+export async function buildFirst(host, app, { sim, say = line => console.error(line), build = appleBuild, wait = waitForBuild, bake = bakePlan, retries = 2 } = {}) {
   host = host === 'ios' ? 'ios' : 'macos';
   if (host === 'macos' && process.env.EXACT_MAC_BIN) return 0; // the caller's own binary: the driver says it did not check
   await wait(app, say);
@@ -262,6 +264,7 @@ export async function buildFirst(host, app, { sim, say = line => console.error(l
     const log = resolve(app.dir, '.exact', `${host}-plan.log`), made = await makeOverride(host, app, state, { bake, log }), what = named(app, state.changed);
     if (made.made) {
       say(`${label(host)}: ${what} changed; running the new plan on the existing build (no native rebuild)`);
+      for (const warning of compilerWarnings(made.output)) say(warning);
       return 0;
     }
     if (made.failed) {
@@ -274,7 +277,11 @@ export async function buildFirst(host, app, { sim, say = line => console.error(l
   const log = resolve(app.dir, '.exact', `${host}-build.log`);
   say(`building for ${label(host)}: ${reason}; its log: ${shown(log)}`);
   const { code, output } = await build(buildArgs(host, app, sim), log);
+  // Another build took the claim between the check and this one (two started together): wait for it, then decide again.
+  if (code && retries > 0 && /Apple build busy for/.test(output)) return buildFirst(host, app, { sim, say, build, wait, bake, retries: retries - 1 });
   if (code) say(failureSummary(output, { host, code, log: shown(log) }));
+  // The compiler's warnings, which Cargo said for the bake's build script (LLP 1116.004 D7).
+  else for (const warning of compilerWarnings(output)) say(warning);
   return code;
 }
 

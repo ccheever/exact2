@@ -11,6 +11,32 @@
 
 Preserve Charlie's selected next core investment: invoker-popover position-area and flip-block/inline/start fallback order. Amend LLP 1021 no-flip scope; resolve macOS-only clamp against CSS. Check all edges/scroll/resize against Chrome; coordinate #127 without admitting all anchor CSS.
 
+### First slice (2026-10-13)
+
+Implemented: the `position-try-fallbacks` row with ordered `flip-block` and
+`flip-inline` combinations; physical opposite-side spans and corners; CSS
+margin-box fit and margin exchange; no unconditional clamp on an authored
+edge-aligned area. Both web targets pass CSS through. The shared Apple painted
+placement reads it, and a non-menu macOS popover with an authored fallback row
+uses that layer instead of `NSPopover`'s screen-based placement. Adding or
+removing the row while open switches presentation and preserves focus and
+text selection; `PopoverNativeMacTests` covers both directions. Native menus
+and confirmations retain platform placement. A fitting fallback survives resize
+and invoker movement; a style change clears the remembered choice.
+
+Remaining: `flip-start`; logical areas and remaining CSS spellings;
+area-dependent sizes, nonzero insets and self-alignment; full CSS scroll-offset
+bookkeeping; general Linux popover presentation; UIKit runtime qualification.
+This issue stays open until those pieces are implemented and qualified. The
+admitted first slice and its limits are in LLP 1021 D2.
+
+Qualification: the Contract regression first failed with `lower-unknown-attr`
+and now passes. The compiled-JS browser test exercises scrolling, resize and
+dynamic fallbacks, and compares 13 placements from the production Swift helper
+with Chrome. `PositionAreaTests` and `PopoverMacTests` pass (35 tests), including
+the open macOS popover's scroll and resize behavior. The semantic differential
+check could not run because this machine has no `lake` executable.
+
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
 ## Original report

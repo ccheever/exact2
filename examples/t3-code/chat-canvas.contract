@@ -22,4 +22,7 @@ shape ChatCanvasView
   overlapsDetailsCard: bool
   cardShown: bool
   cardHeight: number
+  popover: bool // ThreadDetailsCard's mode: the header's popover where no inline placement is left
+  popoverEpoch: number // the mode's switches: a popover opened before one stays closed
+  density: string // full, compact or essential (resolveThreadDetailsCardDensity)
   mini: ChatCanvasMini

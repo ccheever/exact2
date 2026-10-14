@@ -783,7 +783,9 @@ fn main() {
                 Codec::U32 => "s.u32()".to_string(),
                 Codec::I32 => "s.i32()".to_string(),
                 Codec::F64 => "s.f64()".to_string(),
-                Codec::Bool => "s.u8() != 0".to_string(),
+                // 0 or 1, nothing else: a corrupted byte is not a `true`
+                // (a binding's `written` is a claim about its author).
+                Codec::Bool => format!("{{ let v = s.u8(); match v {{ 0 => false, 1 => true, _ => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, false) }} }}", t.name, f.name),
                 Codec::Str => "StrId(s.u32())".to_string(),
                 Codec::Enum(e) => format!("{{ let v = s.u8(); match {e}::from_wire(v) {{ Some(e) => e, None => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, {e}::ALL[0]) }} }}", t.name, f.name),
                 Codec::Idx(tt) => format!("{}Id(s.u32())", pascal(&tt)),

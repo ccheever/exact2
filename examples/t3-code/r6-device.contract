@@ -259,20 +259,20 @@ component R6DeviceWorkspaceView
         when ws.rail.menu != ""
           button press=closeRailMenu aria-label="Close menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" z-index=20 testId="device-menu-backdrop" title=""
         when ws.rail.menu == "text"
+          column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Device text size" testId="device-text-menu"
             KeyMenu(menuId="device-text-keys", items=[KmItem(id="device-text-small", label="Small"), KmItem(id="device-text-default", label="Default"), KmItem(id="device-text-large", label="Large"), KmItem(id="device-text-extra-large", label="Extra large")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
-            column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Device text size" testId="device-text-menu"
               R6MenuItem(keysId="device-text-keys", icon="", label="Small", checked=(ws.rail.textSize == "small"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "small", 0), testId="device-text-small")
               R6MenuItem(keysId="device-text-keys", icon="", label="Default", checked=(ws.rail.textSize == "default"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "default", 0), testId="device-text-default")
               R6MenuItem(keysId="device-text-keys", icon="", label="Large", checked=(ws.rail.textSize == "large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "large", 0), testId="device-text-large")
               R6MenuItem(keysId="device-text-keys", icon="", label="Extra large", checked=(ws.rail.textSize == "extra-large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "extra-large", 0), testId="device-text-extra-large")
         when ws.rail.menu == "rotate"
+          column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Rotate device" testId="device-rotate-menu"
             KeyMenu(menuId="device-rotate-keys", items=[KmItem(id="device-rotate-portrait", label="Portrait"), KmItem(id="device-rotate-landscape", label="Landscape")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
-            column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Rotate device" testId="device-rotate-menu"
               R6MenuItem(keysId="device-rotate-keys", icon="", label="Portrait", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "portrait"), testId="device-rotate-portrait")
               R6MenuItem(keysId="device-rotate-keys", icon="", label="Landscape", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "landscape_left"), testId="device-rotate-landscape")
         when ws.rail.menu == "more"
+          column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="More device actions" testId="device-more-menu"
             KeyMenu(menuId="device-more-keys", items=[KmItem(id="device-float", label="Float device over chat"), KmItem(id="device-close-panel", label="Close device panel"), KmItem(id="device-power-off", label="Power off device")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
-            column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="More device actions" testId="device-more-menu"
               R6MenuItem(keysId="device-more-keys", icon="float", label="Float device over chat", checked=false, destructive=false, press=local("surface-r6dev-float", "", ""), testId="device-float")
               R6MenuItem(keysId="device-more-keys", icon="x", label="Close device panel", checked=false, destructive=false, press=local("surface-r6dev-close-panel", "", ""), testId="device-close-panel")
               box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color=r6devBorder()
@@ -301,6 +301,9 @@ component R6DeviceMiniPlayer
     still: bool
     local: action
     gesture: action
+    // The player's pointerdown and pointerup: a primary press on it is outside the thread details popover under it (Base
+    // UI's outside press; app-window.contract detailsPlayerPointer).
+    outside: action
   state dotOver = false
   state pillOver = false
   state pillFocus = ""
@@ -336,7 +339,7 @@ component R6DeviceMiniPlayer
   derive edge = 0.25 * rem
   derive corner = 0.5 * rem
   view
-    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 role="region" aria-label="Floating device preview" testId="device-mini-player"
+    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 pointerdown=outside pointerup=outside role="region" aria-label="Floating device preview" testId="device-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
         box hatch="t3-media" data-media-kind=`device-${mini.platform}` data-device-id=mini.deviceId data-device-host=mini.hostId position="absolute" left=0 top=0 right=0 bottom=0 role="application" aria-label=(mini.platform == "ios" ? "iOS Simulator screen" : "Android Emulator screen") testId="device-mini-screen"
         when mini.stream.status != "streaming"

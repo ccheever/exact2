@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { highlight, messageCodeBlocks } from './timeline-highlight';
-import { shikiLanguage, shikiTokens, SHIKI_MAX_CHARS } from './r12-render-highlight';
+import { fileLanguage, resetHighlightSlicing, shikiLanguage, shikiTokens, SHIKI_MAX_CHARS } from './r12-render-highlight';
 import { lineTokens } from './timeline-diff-syntax';
 import { codeLines } from './r4-surfaces-files';
 
@@ -25,6 +25,9 @@ const SHIKI: [string, string, string, string][] = [["type-alias right-hand sides
   ["shell: an if with a quoted command word (a lookbehind Hermes needs rewritten)","shellscript","if \"$interactive\" && [ -z \"${NO_COLOR:-}\" ]; then\n  echo hi >&2\nfi","i#d32a61/#ff678d f#d32a61/#ff678d \"#693acf/#9d6afb $#d47628/#ffa359 i#d47628/#ffa359 n#d47628/#ffa359 t#d47628/#ffa359 e#d47628/#ffa359 r#d47628/#ffa359 a#d47628/#ffa359 c#d47628/#ffa359 t#d47628/#ffa359 i#d47628/#ffa359 v#d47628/#ffa359 e#d47628/#ffa359 \"#693acf/#9d6afb &#636363/#636363 &#636363/#636363 [#636363/#636363 -#08c0ef/#08c0ef z#08c0ef/#08c0ef \"#199f43/#5ecc71 $#636363/#636363 {#636363/#636363 N#d47628/#ffa359 O#d47628/#ffa359 _#d47628/#ffa359 C#d47628/#ffa359 O#d47628/#ffa359 L#d47628/#ffa359 O#d47628/#ffa359 R#d47628/#ffa359 :#636363/#636363 -#636363/#636363 }#636363/#636363 \"#199f43/#5ecc71 ]#636363/#636363 ;#636363/#636363 t#d32a61/#ff678d h#d32a61/#ff678d e#d32a61/#ff678d n#d32a61/#ff678d e#693acf/#9d6afb c#693acf/#9d6afb h#693acf/#9d6afb o#693acf/#9d6afb h#199f43/#5ecc71 i#199f43/#5ecc71 >#636363/#636363 &#636363/#636363 2#636363/#636363 f#d32a61/#ff678d i#d32a61/#ff678d"],
   ["JSON keys and values","json","{ \"name\": \"x\", \"n\": 1, \"ok\": true, \"none\": null }","{#636363/#636363 \"#d5512f/#ff855e n#d5512f/#ff855e a#d5512f/#ff855e m#d5512f/#ff855e e#d5512f/#ff855e \"#d5512f/#ff855e :#636363/#636363 \"#199f43/#5ecc71 x#199f43/#5ecc71 \"#199f43/#5ecc71 ,#636363/#636363 \"#d5512f/#ff855e n#d5512f/#ff855e \"#d5512f/#ff855e :#636363/#636363 1#1ca1c7/#68cdf2 ,#636363/#636363 \"#d5512f/#ff855e o#d5512f/#ff855e k#d5512f/#ff855e \"#d5512f/#ff855e :#636363/#636363 t#1ca1c7/#68cdf2 r#1ca1c7/#68cdf2 u#1ca1c7/#68cdf2 e#1ca1c7/#68cdf2 ,#636363/#636363 \"#d5512f/#ff855e n#d5512f/#ff855e o#d5512f/#ff855e n#d5512f/#ff855e e#d5512f/#ff855e \"#d5512f/#ff855e :#636363/#636363 n#1ca1c7/#68cdf2 u#1ca1c7/#68cdf2 l#1ca1c7/#68cdf2 l#1ca1c7/#68cdf2 }#636363/#636363"]];
 
+// code-highlighting-languages: an app test may leave slicing on, and a language's first use then defers its tokens.
+beforeEach(() => resetHighlightSlicing());
+
 describe('the shared highlighter against Shiki 4.2 (r12-render)', () => {
   for (const [name, lang, code, expected] of SHIKI) test(name, () => {
     const tokens = highlight(code, lang);
@@ -34,13 +37,17 @@ describe('the shared highlighter against Shiki 4.2 (r12-render)', () => {
   test('fence names and file paths pick the grammar @pierre/diffs and Shiki pick', () => {
     expect(['ts', 'tsx', 'js', 'sh', 'zsh', 'py', 'yml', 'md', 'rs', 'go', 'swift', 'jsonc'].map(shikiLanguage))
       .toEqual(['typescript', 'tsx', 'javascript', 'shellscript', 'shellscript', 'python', 'yaml', 'markdown', 'rust', 'go', 'swift', 'jsonc']);
-    expect(['src/a.mts', 'a/b.tsx', 'x.cjs', 'run.bash', 'c.yaml', 'Cargo.toml', 'page.htm', 'notes.unknown', 'Makefile', 'ruby'].map(shikiLanguage))
-      .toEqual(['typescript', 'tsx', 'javascript', 'shellscript', 'yaml', 'toml', 'html', '', 'make', 'ruby']);
+    expect(['src/a.mts', 'a/b.tsx', 'x.cjs', 'run.bash', 'c.yaml', 'Cargo.toml', 'page.htm', 'notes.unknown', 'ruby'].map(shikiLanguage))
+      .toEqual(['typescript', 'tsx', 'javascript', 'shellscript', 'yaml', 'toml', 'html', '', 'ruby']);
+    // code-highlighting-languages: a bare name is a file only where the caller says so (fileLanguage).
+    expect([shikiLanguage('Makefile'), fileLanguage('Makefile')]).toEqual(['', 'make']);
     // shiki-residuals: the added grammars, by fence word and by file name.
     expect(['c', 'java', 'kt', 'cs', 'c#', 'xml', 'diff', 'dockerfile', 'makefile', 'rb', 'cobol'].map(shikiLanguage))
-      .toEqual(['c', 'java', 'kotlin', 'csharp', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', '']);
-    expect(['src/main.c', 'A.java', 'b/C.kt', 'D.cs', 'pom.xml', 'fix.patch', 'docker/Dockerfile', 'lib/x.mk', 'Gemfile', 'a/b.gemspec', 'x.h'].map(shikiLanguage))
-      .toEqual(['c', 'java', 'kotlin', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', 'ruby', '']);
+      .toEqual(['c', 'java', 'kotlin', 'csharp', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', 'cobol']);
+    // code-highlighting-languages: @pierre/diffs gives .h to objective-cpp, which is here now.
+    // A whole name matches only as the whole path, as @pierre/diffs matches it: a nested Dockerfile has no language.
+    expect(['src/main.c', 'A.java', 'b/C.kt', 'D.cs', 'pom.xml', 'fix.patch', 'Dockerfile', 'docker/Dockerfile', 'lib/x.mk', 'Gemfile', 'a/b.gemspec', 'x.h'].map(fileLanguage))
+      .toEqual(['c', 'java', 'kotlin', 'csharp', 'xml', 'diff', 'docker', '', 'make', 'ruby', 'ruby', 'objective-cpp']);
   });
   test('every surface reaches it: chat fences, the diff panel, the Files panel', () => {
     const block = messageCodeBlocks('```tsx\nconst v = <b>{x}</b>;\n```')[0]!;

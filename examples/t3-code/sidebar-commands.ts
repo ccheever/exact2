@@ -23,6 +23,9 @@ import { discardDraft, draftChoice, draftMenu } from './r11-upstream-drafts';
 import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
 import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // legacy-sidebar: the "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
+import { backgroundWorktreePlan, isBackground, removeBackground } from './legacy-sidebar-fleet'; // legacy-sidebar-full LS-6
+import { openBranchDraft } from './legacy-sidebar-links'; // legacy-sidebar-full LS-5
+import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup'; // thread-commands-and-keys: G5
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { mostRecentProjectId } from './pages-home';
@@ -169,6 +172,7 @@ export async function archive(client: T3Client, native: Native, id: string): Pro
  * in place while the "Delete the worktree too?" dialog is open.
  */
 export async function remove(client: T3Client, native: Native, storage: Files, id: string, deleted: ReadonlySet<string> = new Set(), answer?: boolean): Promise<'deleted' | 'prompt' | 'missing'> {
+  if (isBackground(client, id)) return removeBackground(client, native, id, deleted, answer); // legacy-sidebar-full LS-6: a background environment's row
   const thread = threadOf(client, id);
   if (!thread) return 'missing';
   const plan = worktreePlan(client, id, deleted);
@@ -214,7 +218,7 @@ export async function deleteThreads(client: T3Client, native: Native, storage: F
     },
   });
   if (outcome.pausedAt >= 0) {
-    const threadId = ids[outcome.pausedAt]!, plan = worktreePlan(client, threadId, outcome.deletedThreadKeys);
+    const threadId = ids[outcome.pausedAt]!, plan = isBackground(client, threadId) ? backgroundWorktreePlan(client, threadId, outcome.deletedThreadKeys) : worktreePlan(client, threadId, outcome.deletedThreadKeys);
     if (plan) {
       setWorktreePrompt(client, { threadId, plan, queue: ids.slice(outcome.pausedAt), deleted: outcome.deletedThreadKeys, bulk, firstFailure: outcome.firstFailure });
       session.dialog = { kind: 'delete-worktree', threadIds: [threadId], title: plan.display };
@@ -352,6 +356,8 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
   commitExpiredUndos(client); // r11-upstream: the notice's expiry repaint commits what can no longer be undone
   scheduleProviderPill(client, wall(client), delay => { void nativeHandle.later({ op: 'sidebarNotify', delay }).catch(() => undefined); });
   await syncFavicons(client, nativeHandle);
+  await watchRowPorts(client, nativeHandle); // legacy-sidebar-full LS-2: the legacy rows' discovered ports
+  await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
 }
 /** After a thread opens: the server visit lands at once for an unseen completion. */
 export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); }
@@ -519,10 +525,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
     case 'copy-branch': if (thread.branch) await copy(client, nativeHandle, str(thread.branch), 'Branch copied'); return '';
     case 'copy-thread-id': await copy(client, nativeHandle, id, 'Thread ID copied'); return '';
     case 'project-settings': session.navigate = { kind: 'project-settings', projectId: str(thread.projectId) }; return 'sidebar:navigate';
-    case 'new-thread-on-branch':
-      try { await (client as unknown as Navigator).openDraft?.(nativeHandle, str(thread.projectId)); }
-      catch (error) { toast(client, 'Could not create thread', error); }
-      return 'sidebar:new-thread';
+    case 'new-thread-on-branch': return openBranchDraft(client, nativeHandle, thread, str(thread.projectId)); // legacy-sidebar-full LS-5: Sidebar.tsx carries the branch the same way
     case 'archive':
       if (settings?.confirmThreadArchive) { session.dialog = { kind: 'archive', threadIds: [id], title: str(thread.title) }; return ''; }
       await attempt(client, 'Failed to archive thread', () => archive(client, nativeHandle, id)); return '';

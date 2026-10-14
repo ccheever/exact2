@@ -62,6 +62,45 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             XCTAssertNotNil(c.preferredSymbolConfigurationForImage, name)
         }
     }
+    /// LLP 1116.007 D3.10: the ink on an accent fill is chosen for contrast, as the web draws it (LLP 1116.003
+    /// D3.1): black once white falls under 3:1 on the accent as the scheme resolves it, UIKit's own white on the
+    /// system blue and the darker hues; only the filled styles; an authored colour wins.
+    func testAFilledButtonOnAPaleAccentTakesDarkInkAndTheRestKeepUIKitsWhite() throws {
+        func rgb(_ r: Double, _ g: Double, _ b: Double) -> UIColor { UIColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1) }
+        // iOS 27's measured system colours, light (LLP 1115.000 D3.2).
+        let accents: [(String, UIColor, Bool)] = [("blue", rgb(0, 136, 255), false), ("indigo", rgb(97, 85, 245), false), ("red", rgb(255, 56, 60), false),
+                                                  ("brown", rgb(172, 127, 94), false), ("orange", rgb(255, 141, 40), true), ("yellow", rgb(255, 204, 0), true),
+                                                  ("green", rgb(52, 199, 89), true), ("teal", rgb(0, 195, 208), true)]
+        for style in ["filled", "borderedProminent", "tinted", "gray"] {
+            var face = ButtonFace(); face.title = "Go"; face.ios = style; face.iosBefore26 = style
+            for (name, accent, pale) in accents {
+                let b = UIButton(configuration: ControlHost.configuration(face).0)
+                ButtonConfigurationIOS.apply(face, to: b, traits: UITraitCollection(userInterfaceStyle: .light), accent: accent)
+                let ink = b.configuration?.baseForegroundColor
+                if pale && (style == "filled" || style == "borderedProminent") {
+                    XCTAssertEqual(ink.flatMap(rgba), [0, 0, 0, 1], "\(style) on \(name): dark ink")
+                } else {
+                    XCTAssertNil(ink, "\(style) on \(name): the factory's")
+                }
+            }
+            // No accent of the app's: UIKit's own tint, and its white.
+            let b = UIButton(configuration: ControlHost.configuration(face).0)
+            ButtonConfigurationIOS.apply(face, to: b, traits: b.traitCollection, accent: nil)
+            XCTAssertNil(b.configuration?.baseForegroundColor, style)
+        }
+        // An authored title colour wins over the chosen ink.
+        var face = ButtonFace(); face.title = "Go"; face.ios = "filled"; face.iosBefore26 = "filled"
+        face.rows.title["text_color"] = .array([.number(255), .number(0), .number(0), .number(255)])
+        let b = UIButton(configuration: ControlHost.configuration(face).0)
+        ButtonConfigurationIOS.apply(face, to: b, traits: b.traitCollection, accent: rgb(255, 204, 0))
+        XCTAssertEqual(b.configuration?.baseForegroundColor.flatMap(rgba), [1, 0, 0, 1])
+    }
+    /// A colour's sRGB components (UIColor.black is a gray-space colour, with two).
+    private func rgba(_ c: UIColor) -> [CGFloat]? {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        return c.getRed(&r, green: &g, blue: &b, alpha: &a) ? [r, g, b, a] : nil
+    }
+
     func testClearingControlSizeRestoresTheFactorySize() throws {
         for style in ["plain", "gray", "tinted", "filled", "bordered", "glass"] {
             var f = ButtonFace(); f.title = "Size"; f.ios = style
@@ -90,14 +129,21 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         f.rows.button["control_size"] = .string("large")
         // The kernel resolved 1em against the already scaled large control font.
         f.rows.title["font_size"] = .number(Double(expected.pointSize))
-        f.rows.title["font_size_resolved"] = .number(1)
         let actual = UIButton(configuration: .filled()); surface.addSubview(actual)
         ButtonConfigurationIOS.apply(f, to: actual, traits: surface.traitCollection, accent: nil)
         XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize, expected.pointSize, accuracy: 0.01)
+        // LLP 1115.000 D12.1: an authored absolute size is the author's
+        // number at every Dynamic Type size, as it is on a `text` or a field,
+        // where the button had scaled it through `UIFontMetrics` (13 to 30
+        // at this size). The symbol and the subtitle likewise.
+        XCTAssertGreaterThan(UIFontMetrics(forTextStyle: .body).scaledValue(for: 13, compatibleWith: surface.traitCollection), 20, "this size scales")
         f.rows.title = ["font_size": .number(13)]
+        f.rows.symbol = ["font_size": .number(31), "font_weight": .number(700)]
+        f.symbol = "lock"
         ButtonConfigurationIOS.apply(f, to: actual, traits: surface.traitCollection, accent: nil)
-        XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize,
-            UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 13), compatibleWith: surface.traitCollection).pointSize, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize, 13, accuracy: 0.01, "the author's 13, not Dynamic Type's")
+        XCTAssertEqual(actual.configuration?.preferredSymbolConfigurationForImage,
+                       UIImage.SymbolConfiguration(font: UIFont.systemFont(ofSize: 31, weight: .bold)), "its symbol's 31 likewise")
     }
     func testNonuniformResolvedCornersReportAStandIn() throws {
         var f = ButtonFace(); f.title = "Corners"
@@ -219,7 +265,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         XCTAssertEqual(b.titleLabel?.font.pointSize ?? 0, 23, accuracy: 0.01)
         XCTAssertEqual(b.configuration?.image?.renderingMode, .alwaysOriginal)
         let symbol = try XCTUnwrap(b.configuration?.preferredSymbolConfigurationForImage)
-        XCTAssertEqual(symbol, UIImage.SymbolConfiguration(font: UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont.systemFont(ofSize: 31, weight: .bold))))
+        XCTAssertEqual(symbol, UIImage.SymbolConfiguration(font: UIFont.systemFont(ofSize: 31, weight: .bold)))
         f.rows.title = ["font_weight": .number(700)]
         let reference = UIButton(configuration: .filled()); reference.configuration?.title = "Title"
         ButtonConfigurationIOS.apply(f, to: b, traits: b.traitCollection, accent: nil)
@@ -395,7 +441,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
                 var output = input
                 if let font = input.uiKit.font {
                     output.uiKit.font = small
-                        ? UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont.systemFont(ofSize: 13, weight: .semibold))
+                        ? UIFont.systemFont(ofSize: 13, weight: .semibold)
                         : UIFont.systemFont(ofSize: font.pointSize, weight: .semibold)
                 }
                 return output
@@ -417,7 +463,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         c.imagePadding = standardSpacing()
         c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont)
         if name == "control-tile" {
-            c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 28, weight: .semibold)))
+            c.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: .systemFont(ofSize: 28, weight: .semibold))
         }
         if name == "control-tile" || name == "disabled-authored" { c.image = c.image?.withTintColor(UIColor(red: 0, green: 128.0 / 255, blue: 0, alpha: 1), renderingMode: .alwaysOriginal) }
         button.configuration = c

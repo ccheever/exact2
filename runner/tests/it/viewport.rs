@@ -192,3 +192,40 @@ fn page_focus_reanswers_only_the_readers_of_it() {
     assert!(online.set_page(offline).unwrap().is_some());
     assert_eq!(online.resource("onLine").cloned(), one(false));
 }
+
+#[test]
+fn display_mode_changes_reanswer_without_resize_or_app_data() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    let shape = b.record("Viewport", &[("displayMode", string)]);
+    b.resource("viewport", "exactViewport", &[], shape, None);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut runner = Runner::boot(
+        b.finish().unwrap(),
+        Deferred::default(),
+        Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
+    for (bits, expected) in [
+        (0, "standalone"),
+        (2 << 11, "fullscreen"),
+        (0, "standalone"),
+    ] {
+        let preferences = exact_runner::Preferences::from_bits(bits);
+        runner.set_preferences(preferences).unwrap();
+        assert_eq!(
+            runner.resource("viewport"),
+            Some(&Value::record(vec![Value::str(expected)]))
+        );
+        assert!(runner.set_preferences(preferences).unwrap().is_none());
+        let state = exact_runner::agent::state(&runner);
+        assert!(
+            state.contains(&format!("\"displayMode\":\"{expected}\"")),
+            "{state}"
+        );
+    }
+    assert_eq!(runner.viewport().width, 390.0);
+    assert!(runner.data().queries.is_empty());
+}

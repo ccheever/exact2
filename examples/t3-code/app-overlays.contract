@@ -21,8 +21,8 @@ use ToastStack from "./shell-toast.contract"
 use TitleMenu from "./shell-panels.contract"
 use AppConfirm from "./shell-panels.contract"
 use R4DeviceSetup from "./r4-surfaces.contract"
-use ShellDetails from "./shell-shapes.contract"
 use ThreadDetailsPanel from "./shell-details.contract"
+use ShellDetails from "./shell-shapes.contract"
 use R4GitLayers from "./r4-git.contract"
 use R6PrLayers from "./r6-pr.contract"
 use R4PublishDialog from "./r4-git-publish.contract"
@@ -148,12 +148,11 @@ component WindowOverlays
     paletteHover: action
     paletteClose: action
     paletteFlag: action
-    detailsOpen: bool
     details: ShellDetails
-    rightPanel: bool
-    narrowDiff: bool
-    sidebarWidth: number
-    conversationWidth: number
+    // The header's thread details popover over a right panel sheet (a narrow window), above the sheet; elsewhere the
+    // chat column draws it, under the floating player (app-main.contract ChatColumn).
+    detailsSheet: bool
+    detailsDensity: string
     detailsEditors: bool
     detailsAct: action
     titleMenuOpen: bool
@@ -181,10 +180,10 @@ component WindowOverlays
       ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
     when paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
-    when detailsOpen and conversationWidth < 984 and scheme == "dark"
-      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
-    when detailsOpen and conversationWidth < 984 and scheme != "dark"
-      ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+    when detailsSheet and scheme == "dark"
+      ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0, maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+    when detailsSheet and scheme != "dark"
+      ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0, maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
     R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
     R6PrLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
     PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // pr-header-actions-and-stacks: the panel's confirmations

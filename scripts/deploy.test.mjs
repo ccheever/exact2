@@ -18,7 +18,7 @@ import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyStaticTreeIfPresent, webEnvelope } from '../host/web/serve.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
-import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf, streamHead } from './deploy.mjs';
+import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256 } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
 // behavior is tested independently with declared requirements.
@@ -413,6 +413,10 @@ async function rejects(action, matches) {
 // separate stage, and generated ids in the same clock tick do not collide.
 {
   const fixture = mkdtempSync(join(tmpdir(), 'exact-source-snapshot-'));
+  const compiler = join(fixture, 'contract-stub');
+  writeFileSync(compiler, '#!/usr/bin/env bun\nconsole.log(JSON.stringify({packages:[],sources:[{origin:"app",path:process.argv.at(-1)}],consulted:[],errors:[]}));\n');
+  chmodSync(compiler, 0o755);
+  const snapshotOf = (app, opts, exactRoot) => capturedSnapshotOf(app, { ...opts, compiler }, exactRoot);
   const init = (repo, files) => {
     mkdirSync(repo, { recursive: true });
     spawnSync('git', ['init', '-q'], { cwd: repo });
@@ -946,4 +950,3 @@ async function rejects(action, matches) {
       && none.length === 1,
     shown.join('\n'));
 }
-

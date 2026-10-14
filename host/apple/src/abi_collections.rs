@@ -5,35 +5,48 @@ impl<D: DataSource> Bridge<D> {
     /// What native containers cover of boxes (LLP 1075.003 §3.5), from the
     /// input buffer's first `len` bytes: LE records of (u32 view, u32 kind —
     /// 0 clears, 1 edges, 2 whole, 3 a scroller's platform inset (top and
-    /// bottom) — and f32 top, right, bottom, left), one layout.
+    /// bottom) — and f32 top, right, bottom, left), one layout. And the
+    /// containing blocks they give subtrees (LLP 1115.002 D8.2): kind 4
+    /// with f32 width, height and, for each, 1 where it is a maximum and 0
+    /// where it is the size; kind 5 takes a block back.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let out = if bytes.len() % 24 != 0 {
             "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"covers: truncated record\"}"
                 .to_string()
         } else {
-            let covers: Vec<_> = bytes
-                .chunks_exact(24)
-                .map(|r| {
-                    let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
-                    let edge = |i: usize| f32::from_le_bytes(word(i));
-                    let cover = match u32::from_le_bytes(word(4)) {
-                        1 => Some(exact_kernel::HostCover::Edges([
-                            edge(8),
-                            edge(12),
-                            edge(16),
-                            edge(20),
-                        ])),
-                        2 => Some(exact_kernel::HostCover::Whole),
-                        3 => Some(exact_kernel::HostCover::Inset([edge(8), edge(16)])),
-                        _ => None,
-                    };
-                    (u32::from_le_bytes(word(0)), cover)
-                })
-                .collect();
+            let (mut covers, mut blocks) = (Vec::new(), Vec::new());
+            for r in bytes.chunks_exact(24) {
+                let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
+                let edge = |i: usize| f32::from_le_bytes(word(i));
+                let (view, kind) = (u32::from_le_bytes(word(0)), u32::from_le_bytes(word(4)));
+                let axis = |length: usize, most: usize| match edge(most) != 0.0 {
+                    true => exact_kernel::BlockAxis::AtMost(edge(length)),
+                    false => exact_kernel::BlockAxis::Is(edge(length)),
+                };
+                match kind {
+                    4 | 5 => {
+                        let block = exact_kernel::HostBlock {
+                            width: axis(8, 16),
+                            height: axis(12, 20),
+                        };
+                        blocks.push((view, (kind == 4).then_some(block)));
+                    }
+                    1 => {
+                        let edges = [edge(8), edge(12), edge(16), edge(20)];
+                        covers.push((view, Some(exact_kernel::HostCover::Edges(edges))));
+                    }
+                    2 => covers.push((view, Some(exact_kernel::HostCover::Whole))),
+                    3 => {
+                        let inset = exact_kernel::HostCover::Inset([edge(8), edge(16)]);
+                        covers.push((view, Some(inset)));
+                    }
+                    _ => covers.push((view, None)),
+                }
+            }
             self.host
                 .as_mut()
-                .map_or_else(not_booted, |h| h.set_covers(&covers))
+                .map_or_else(not_booted, |h| h.set_claims(&covers, &blocks))
         };
         self.emit(out)
     }
@@ -127,7 +140,11 @@ impl<D: DataSource> Bridge<D> {
         let text = self
             .host
             .as_ref()
-            .and_then(|h| h.runner().list_text(view, range).ok())
+            .and_then(|h| {
+                h.runner()
+                    .list_text(view, range, exact_runner::ListTextPolicy::MacOS)
+                    .ok()
+            })
             .unwrap_or_default();
         self.emit(text)
     }

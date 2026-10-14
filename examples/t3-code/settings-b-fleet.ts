@@ -24,6 +24,7 @@ import { automationFleetEvent } from './browser-automation';
 import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the primary's handoff stream
 import { providerSetupEvent } from './provider-setup';
 import { fleetSetupHost } from './codex-fleet-host'; // managed-codex-chatgpt: a background computer's Codex setup streams
+import { fleetPortsEvent, fleetPortsPass } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2: a background environment's discovered ports
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -162,6 +163,7 @@ export class EnvironmentFleet {
     await this.watchTerminals(remote, entry);
     await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
     await keepAliveFleetPass(request => this.call(remote, entry, request), entry); // keep-alive.ts: running threads' detail streams, the primary's lifecycle
+    await fleetPortsPass(request => this.call(remote, entry, request), entry); // legacy-sidebar-ports.ts: the legacy rows' discovered ports
   }
 
   private async call(remote: Native, entry: FleetEntry, request: Obj): Promise<Obj> {
@@ -201,6 +203,7 @@ export class EnvironmentFleet {
         if (seq <= entry.lastEvent) continue;
         through = Math.max(through, seq);
         if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
+        if (fleetPortsEvent(entry, event)) { this.revision++; continue; } // legacy-sidebar-ports.ts
         if (keepAliveFleetEvent(entry, event)) { this.revision++; continue; } // keep-alive.ts
         if (automationFleetEvent(entry, event)) { this.revision++; continue; } // browser-automation.ts: this environment's previewAutomation host
         if (usageFleetEvent(entry, event)) { this.revision++; continue; } // usage-replies.ts: the Usage page's detached requests
@@ -310,6 +313,22 @@ export async function focusFleetThread(client: { local: { selections: Record<str
   if (!thread) throw new Error('That thread is no longer available.');
   client.local.selections[parsed.environmentId] = { projectId: str(thread.projectId), threadId: parsed.threadId };
   handoffKeptThread(client, entry, parsed.threadId); // keep-alive.ts: a running thread opens from its kept detail, no replay
+  return refocus(native, entry, source);
+}
+/**
+ * Open a background environment's project on its new-thread draft (useNewThreadHandler with another environment's
+ * project ref: a clone toast's Open project, scheduled-tasks-followups ST-2): that environment's selection is the
+ * project's draft, then T3Client reconnects there. The project need not be in the entry's shell yet: a clone's project
+ * is the server's from projectClone.start on, and the reconnected shell reads it.
+ */
+export async function focusFleetProject(client: { local: { selections: Record<string, { projectId: string; threadId: string }> } }, native: Native, environmentId: string, projectId: string, source: EnvironmentFleet = fleet): Promise<{ value: Obj; generation: number }> {
+  const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
+  if (!entry) throw new Error('That environment is no longer connected.');
+  client.local.selections[environmentId] = { projectId, threadId: '' };
+  return refocus(native, entry, source);
+}
+/** The window moves to a background environment: its fleet transport stops and T3Client connects there. */
+async function refocus(native: Native, entry: FleetEntry, source: EnvironmentFleet): Promise<{ value: Obj; generation: number }> {
   source.forget(entry.key);
   await native.later({ op: 'fleetStop', fleet: entry.key }).catch(() => {});
   const reply = await bridgeReply(native, { op: 'connect', origin: entry.origin, ...(entry.primary ? { primary: true } : { credential: '' }) });

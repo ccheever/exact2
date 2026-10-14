@@ -1,10 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- A development shell, as the benchmark's apps were: it shows over the keyguard, turns the screen on and is
-         direct-boot aware, because the phones it is driven on stay PIN-locked. A shipping app wants none of the three. -->
-    <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true" android:directBootAware="true">
+    <!-- An app, not the benchmark's harness (LLP 1115.001 §3): it does not show over the keyguard, turn the screen on
+         or run before the phone's first unlock. It still signs with the debug key and has no icon. -->
+    <!-- The shell packages any app, so it asks for the network for every one: without it a data module's `fetch` and a
+         remote picture fail at the name lookup. What an app may reach is still its own grants' to say (`net.fetch`),
+         which exact2 enforces; this is only the platform's door. A normal permission: nothing is asked of the person. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true">
         <profileable android:shell="true" />
-        <activity android:name=".MainActivity" android:exported="true" android:directBootAware="true" android:showWhenLocked="true" android:turnScreenOn="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+        <!-- The changes the host takes in place (LLP 1115.001 D15.1), so that none of them makes the activity again:
+             a rotation or a resize, night mode, font scale and bold text, the locale and its direction, the display's
+             density, a keyboard attached. Any other still makes it again, and its view then adopts the host that runs. -->
+        <activity android:name=".MainActivity" android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|density|keyboard|keyboardHidden|navigation">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

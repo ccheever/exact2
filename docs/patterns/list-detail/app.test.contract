@@ -47,7 +47,7 @@ test "the items survive a relaunch, newest first"
   expect state lib.0 .title == "Cherries"
   expect state lib.1 .title == "Bread"
 
-test "a wide window shows the list beside the detail"
+test "a wide window opens an item, beside the list on the web"
   size 1000x700
   tap "add-item"
   clock settle
@@ -57,5 +57,36 @@ test "a wide window shows the list beside the detail"
   clock data
   clock settle
   tap "item-1"
+  clock settle
   expect text "detail-title" == "Eggs"
   expect text "detail-notes" == "A dozen"
+  expect state selected == "1"
+
+test "a locked item shows its badge, and Delete is disabled, saying why"
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "delete-reason" == ""
+  type "lock-item" "true"
+  clock data
+  expect state lib.0 .locked == true
+  expect text "delete-reason" == "Unlock this item to delete it."
+  type "lock-item" "false"
+  clock data
+  expect state lib.0 .locked == false
+
+test "an id that names nothing says so, and Back returns to the list"
+  clock data
+  type "app" "/item/999"
+  clock settle
+  expect text "detail-title" == "Not Found"
+  expect tree has "missing-back"
+  tap "missing-back"
+  clock settle
+  expect tree has "add-item"
+  expect tree missing "missing-back"

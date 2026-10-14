@@ -6,6 +6,7 @@ use ibex2::{
     stdlib::{
         app_fs::{self, AppDirectories},
         fs::{self, FsOp, FsResult},
+        fs_image::{self, ImageJob, ImageRequest, ImageService, ImageWork},
         sqlite::{self, Location, Provider},
     },
 };
@@ -146,9 +147,13 @@ fn execute(
     if path.starts_with("app:/") && destination.is_some_and(|d| !d.starts_with("app:/")) {
         return Err("portable storage needs an app:/ destination".into());
     }
-    let result = fs::run(
+    let result = fs::run_with_limits(
         grants,
         directories,
+        None,
+        fs::ResultLimits {
+            bytes: exact_data::storage::MAX_BYTES,
+        },
         operation,
         path,
         destination,
@@ -191,20 +196,28 @@ fn compress_image(
     };
     let (max_dimension, max_bytes) =
         exact_data::image::check_limits(number("maxDimension")?, number("maxBytes")?)?;
-    let file = fs::compress_image(
-        grants,
-        directories,
-        // Only where there is a codec (LLP 1069.002 A1.3).
-        cfg!(target_vendor = "apple").then_some(&image_codec as &fs::ImageCodec),
+    let service = cfg!(target_vendor = "apple")
+        .then(|| ImageService::new(std::sync::Arc::new(ImageCodec), image_limits()))
+        .transpose()
+        .map_err(error)?;
+    let work = ImageWork::new(image_limits());
+    let job = ImageJob::prepare(
+        &work,
+        service.as_ref(),
+        directories.cloned().map(std::sync::Arc::new),
+        std::sync::Arc::new(grants.clone()),
         from,
         to,
-        max_dimension,
-        max_bytes,
-        // This worker runs the request to its end and no one gives up on it
-        // (data/host/src/lib.rs): there is no right to write to take away.
-        None,
+        ImageRequest {
+            max_dimension,
+            max_bytes,
+        },
     )
     .map_err(error)?;
+    let handle = job.handle();
+    let result = job.execute();
+    handle.take_outcome();
+    let file = result.map_err(error)?;
     Ok(json!({
         "path": to,
         "type": "image/jpeg",
@@ -213,20 +226,49 @@ fn compress_image(
         "height": file.height
     }))
 }
-/// [`exact_data::image::compress`] as ibex2's codec.
-fn image_codec(
-    bytes: &[u8],
-    max_dimension: u32,
-    max_bytes: u64,
-    deadline: std::time::Instant,
-) -> Result<fs::CompressedImage, String> {
-    exact_data::image::compress(bytes, max_dimension, max_bytes, deadline).map(|c| {
-        fs::CompressedImage {
+/// Exact owns the platform codec and its admission budget; Ibex owns work
+/// identity, bounded source reads and the publication decision.
+struct ImageCodec;
+fn image_limits() -> fs_image::WorkLimits {
+    fs_image::WorkLimits {
+        max_job_bytes: 640 << 20,
+        max_dimension: exact_data::image::MAX_DIMENSION,
+        ..fs_image::WorkLimits::default()
+    }
+}
+impl fs_image::ImageCodec for ImageCodec {
+    fn limits(&self) -> fs_image::CodecLimits {
+        fs_image::CodecLimits {
+            max_pixels: exact_data::image::MAX_SOURCE_PIXELS,
+            max_scratch_bytes: 512 << 20,
+        }
+    }
+    fn encode(
+        &self,
+        bytes: &[u8],
+        request: ImageRequest,
+        control: &fs_image::WorkControl,
+    ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
+        exact_data::image::compress_controlled(
+            bytes,
+            request.max_dimension,
+            request.max_bytes,
+            control.deadline(),
+            &|| {
+                control
+                    .check()
+                    .map_err(|e| exact_data::image::failure("timeout", e))
+            },
+            control.limits().max_pixels,
+            control.limits().max_scratch_bytes,
+        )
+        .map(|c| fs_image::CompressedImage {
             bytes: c.bytes,
             width: c.width,
             height: c.height,
-        }
-    })
+        })
+        .map_err(ibex2::boundary::HostError::Failed)
+    }
 }
 fn fs_value(result: FsResult) -> Value {
     match result {
@@ -247,20 +289,47 @@ fn fs_value(result: FsResult) -> Value {
 /// A `doc:` path (LLP 1069.010 D1): the file or folder the person chose,
 /// through ibex2's one executor for documents, the one a TypeScript
 /// source's `storage.fs` runs, so a grant means the same in either language.
-fn document_request(grants: &GrantSet, op: &str, args: &Value) -> Result<Value, String> {
+fn document_request(
+    grants: &GrantSet,
+    op: &str,
+    args: &Value,
+    owner: u64,
+) -> Result<Value, String> {
     let path = text(args, "path")?;
     let (operation, _, data) = operation(op, args)?;
-    fs::run_document(grants, Some(&documents), operation, path, data.as_deref())
-        .map(fs_value)
-        .map_err(error)
+    fs::run_with_limits(
+        grants,
+        None,
+        Some(&move |path, _access| documents(path, owner)),
+        fs::ResultLimits {
+            bytes: exact_data::storage::MAX_BYTES,
+        },
+        operation,
+        path,
+        None,
+        data.as_deref(),
+    )
+    .map(fs_value)
+    .map_err(error)
 }
 /// [`exact_data::documents`] as ibex2's table.
-fn documents(path: &str) -> Result<fs::Document, String> {
+fn documents(path: &str, owner: u64) -> Result<fs::DocumentLease, fs::DocumentError> {
     use exact_data::documents::{resolve, Resolved};
-    Ok(match resolve(path)? {
-        Resolved::Root(name) => fs::Document::Root(name),
-        Resolved::Real { directory, path } => fs::Document::Real { directory, path },
-    })
+    let resolved = resolve(path, owner).map_err(fs::DocumentError::from)?;
+    let guard = std::sync::Arc::new(());
+    match resolved {
+        Resolved::Root(name) => fs::DocumentLease::root(name, guard),
+        Resolved::Real {
+            directory,
+            path,
+            selected_file: true,
+        } => fs::DocumentLease::selected_file(directory, path, guard),
+        Resolved::Real {
+            directory,
+            path,
+            selected_file: false,
+        } => fs::DocumentLease::directory(directory, path, guard),
+    }
 }
 /// A scripted drive's answer when it names no scratch store: the web's
 /// refusal, word for word (`storage-environment.js`, `storage-request.js`),
@@ -292,7 +361,12 @@ pub(super) fn independent_storage(payload: &[u8]) -> bool {
                 .is_some_and(|op| native_filesystem(op, &r["args"]))
     })
 }
-pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> Outcome {
+pub(super) fn run(
+    paths: Option<&Directories>,
+    grants: &str,
+    payload: &[u8],
+    owner: u64,
+) -> Outcome {
     let result = (|| {
         if payload.len() > exact_data::storage::MAX_BYTES {
             return Err("storage request exceeds its byte limit".into());
@@ -316,7 +390,7 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
             .as_str()
             .is_some_and(exact_data::documents::is_document)
         {
-            return document_request(&grants, op, args);
+            return document_request(&grants, op, args, owner);
         }
         if native_filesystem(op, args) {
             return execute(&grants, None, op, args);
@@ -342,6 +416,12 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
                 }
             } else {
                 Outcome::Storage(bytes)
+            }
+        }
+        Err(message) if message.contains("storage result exceeds its byte limit") => {
+            Outcome::Failed {
+                kind: FailureKind::Unsupported,
+                message: "storage result exceeds its byte limit".into(),
             }
         }
         Err(message) => Outcome::Storage(serde_json::to_vec(&json!({"error":message})).unwrap()),

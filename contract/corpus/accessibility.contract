@@ -46,7 +46,10 @@ component Accessibility
       column role="img" aria-label="Chart" testId="chart"
         button press=increment testId="chart-button"
           text "Inside"
-      text "Section" aria-level=2 testId="heading"
+      text "Section" role="heading" aria-level=2 testId="heading"
+      // LLP 1115.000 D12.5: a level with no `role="heading"` is no heading to assistive technology on any host.
+      // This line earns `lower-level-without-heading`, which is what it is here to be.
+      text "Level only" aria-level=2 testId="level-only"
       text testId="para"
         text "Read the "
         text "guide" href="https://example.com/" testId="guide"

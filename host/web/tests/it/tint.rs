@@ -125,7 +125,9 @@ fn untinted_rasters_with_box_paint_stay_bare_in_batches_and_documents() {
 
 /// LLP 1116.001 D2: `AccentColor` (and `LinkText`) is the nearest authored
 /// `accent-color`, as UIKit's inherited tint: the page reads the
-/// `--exact-accent` the accent writes, else the browser's own colour.
+/// `--exact-accent` the accent writes, else the browser's own accent. A link
+/// is the accent with none authored too (LLP 1115.000 D3.5): one blue for
+/// links, where the browser's own `LinkText` was a second.
 #[test]
 fn the_accent_colour_role_is_the_nearest_accent_color() {
     let plan = contract::compile(
@@ -162,7 +164,7 @@ fn the_accent_colour_role_is_the_nearest_accent_color() {
     );
     let ink = create("ink");
     assert!(
-        ink.contains("color:var(--exact-accent, LinkText);"),
+        ink.contains("color:var(--exact-linktext, var(--exact-accent, AccentColor));"),
         "{ink}"
     );
     let plain = create("plain");

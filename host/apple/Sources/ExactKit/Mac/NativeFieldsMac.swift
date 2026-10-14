@@ -8,7 +8,7 @@ extension NodeView {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
     }
     func nativeEditorRect(in proposed: NSRect) -> NSRect? {
-        guard isNativeTextControl, let rect = nativeFieldContent else { return nil }
+        guard isNativeTextControl, let rect = kernelContentBox else { return nil }
         var content = proposed.insetBy(left: rect.minX, top: rect.minY,
             right: max(0, bounds.width - rect.maxX), bottom: max(0, bounds.height - rect.maxY))
         // NSTextFieldCell top-aligns a tall title rect. Centre its one line
@@ -22,8 +22,10 @@ extension NodeView {
         return content
     }
     func layoutField() {
-        guard let field else { return }
+        // A field the window's toolbar hosts is AppKit's to place and to style (LLP 1115.002 D2).
+        guard let field, pageField == nil else { return }
         field.frame = isNativeTextControl ? bounds : contentBox()
+        layoutStepper() // a number input's stepper takes the field's trailing end (LLP 1116.007 D4)
         field.needsDisplay = true
     }
     /// The AppKit class an input's field is: a password's secure field; a
@@ -38,7 +40,7 @@ extension NodeView {
     /// A different class on AppKit, so a changed `type` or appearance remakes
     /// the field in place.
     func remakeFieldIfNeeded() {
-        guard let f = field else { return }
+        guard let f = field, pageField == nil else { return }
         let wanted = wantedFieldClass
         guard FieldClass(f) != wanted else { return }
         let n = makeField(wanted)
@@ -54,14 +56,17 @@ extension NodeView {
     }
     func styleNativeField() {
         remakeFieldIfNeeded()
-        guard let field else { return }
+        guard let field, pageField == nil else { return }
         let native = isNativeTextControl
+        // @ref LLP 1115.002 D6 — a grouped form's field has no bezel, no
+        // ground and no ring: the row is the field, as SwiftUI's `Form` has it.
+        let bezel = native && !fieldInCell
         let standard = FieldChromeCache.platformField(kind: FieldClass(field).chromeKind)
-        field.isBezeled = native
+        field.isBezeled = bezel
         field.bezelStyle = standard.bezelStyle
-        field.drawsBackground = native && standard.drawsBackground
-        field.backgroundColor = native ? standard.backgroundColor : .clear
-        field.focusRingType = outlineNone ? .none : native ? .default : .exterior
+        field.drawsBackground = bezel && standard.drawsBackground
+        field.backgroundColor = bezel ? standard.backgroundColor : .clear
+        field.focusRingType = outlineNone || (native && fieldInCell) ? .none : native ? .default : .exterior
         restyleFieldFocus()
         field.alignment = fieldAlignment
         if native, field.currentEditor() == nil {
@@ -99,10 +104,11 @@ extension NodeView {
         applyTextChecking(editor)
     }
     func applyFieldContent(_ payload: [String: Any]) {
-        if let r = payload["rect"] as? [Double], r.count == 4 {
-            nativeFieldContent = NSRect(x: r[0], y: r[1], width: r[2], height: r[3])
-        } else { nativeFieldContent = nil }
-        layoutField(); layoutTextArea()
+        let r = payload["rect"] as? [Double]
+        let box = r.flatMap { $0.count == 4 ? NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
+        applyKernelContentBox(box)
+        let cell = box != nil && payload["cell"] as? Bool == true
+        if cell != fieldInCell { fieldInCell = cell; styleNativeField() }
     }
 }
 
@@ -127,13 +133,13 @@ enum FieldClass {
 /// the kernel's content rect (measured from this same class,
 /// `FieldChromeCache`), its buttons where AppKit puts them.
 final class SearchFieldCell: NSSearchFieldCell {
-    private lazy var clipboardEditor: FieldEditor = {
-        let editor = FieldEditor(frame: .zero)
-        editor.isFieldEditor = true
-        return editor
-    }()
+    /// The input's node is its field's delegate, in the page and in the
+    /// window's toolbar alike (LLP 1115.002 D2): there too it edits in the
+    /// session's editor, which tells the node of a composition and of a
+    /// copy, cut or paste. The rectangles below are the page's: a field
+    /// the toolbar hosts has no node above it, and its geometry is AppKit's.
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+        ((controlView as? NSTextField)?.delegate as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
@@ -144,11 +150,60 @@ final class SearchFieldCell: NSSearchFieldCell {
     override func searchTextRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.searchTextRect(forBounds: rect)
     }
+    private var node: NodeView? { (controlView as? NSTextField)?.delegate as? NodeView }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
-        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { node?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+        node?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+}
+
+// @ref LLP 1115.002 D2 — a header's search input in the window's toolbar.
+// The toolbar's search item holds a field (`NSSearchToolbarItem.searchField`,
+// which SwiftUI gives a subclass of its own too), and that field is this
+// node's: one of the node's own class with the node its delegate, so its
+// value, its editing, its focus and every event are the input's as in the
+// page. It is made here and never styled by the page, so the item draws
+// and places it as its own. The page's field waits in the node meanwhile.
+extension NodeView {
+    /// Whether this input has a field the window's toolbar can host: a
+    /// native search field. One the author draws (`appearance: none`) is
+    /// theirs to draw. What decides that a header holding it is the bar's
+    /// is exactly what `lendFieldToBar` then answers.
+    var lendsFieldToBar: Bool { wantedFieldClass == .search && (pageField != nil ? field is NSSearchField : field is SearchField) }
+    /// This search input's field for the window's toolbar, the node's own
+    /// while it is there.
+    func lendFieldToBar() -> NSSearchField? {
+        guard lendsFieldToBar else { return nil }
+        if pageField != nil { return field as? NSSearchField }
+        guard let page = field as? SearchField else { return nil }
+        let bar = SearchField(frame: .zero)
+        (bar as NSTextField).delegate = self
+        bar.formatter = TextInputFormatter(self)
+        bar.stringValue = page.stringValue
+        bar.isEnabled = page.isEnabled
+        bar.isEditable = page.isEditable
+        pageField = page
+        field = bar
+        return bar
+    }
+    /// The page has its field again, holding what the toolbar's held, in
+    /// the page's look, which was not written while the toolbar had it.
+    func reclaimFieldFromBar() {
+        guard let page = pageField else { return }
+        if let bar = field, page.stringValue != bar.stringValue { page.stringValue = bar.stringValue }
+        (field, pageField) = (page, nil)
+        applyStyle(style)
+        applyProps(set: [:], clear: [])
+    }
+    /// What the page says of the field the toolbar hosts: its placeholder
+    /// and its names. Everything else of it is AppKit's.
+    func syncBarField() {
+        guard pageField != nil, let bar = field else { return }
+        if let words = props["placeholder"], !words.isEmpty, bar.placeholderString != words { bar.placeholderString = words }
+        if bar.accessibilityIdentifier() != props["testId"] ?? "" { bar.setAccessibilityIdentifier(props["testId"]) }
+        if bar.accessibilityLabel() != authoredLabel { bar.setAccessibilityLabel(authoredLabel) }
     }
 }
 #endif

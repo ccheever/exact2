@@ -28,8 +28,8 @@ describe('S2-6: the base branch trigger says origin/ only for a listed local bra
     expect(page).toContain('fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = baseRef == "" ? "Select ref" : (startFromOrigin and local ? `From origin/${baseRef}` : `From ${baseRef}`)');
     const editor = await component('settings-scheduled.contract', 'ScheduledEditor');
     // The loaded page first, then the lookup by name (scheduled-view.ts `selected`; live-automations.test.ts).
-    expect(editor).toContain('derive baseLocal = length(filter(data.branches, (group) => group.projectId == projectId and (length(filter(group.refs, (ref) => ref.value == baseRef and not ref.remote)) > 0 or length(filter(group.selected, (ref) => ref.value == baseRef and not ref.remote)) > 0))) > 0');
-    expect(editor).toContain('text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size');
+    expect(editor).toContain('derive baseLocal = length(filter(data.branches, (group) => group.projectId == chosenProject and (length(filter(group.refs, (ref) => ref.value == baseRef and not ref.remote)) > 0 or length(filter(group.selected, (ref) => ref.value == baseRef and not ref.remote)) > 0))) > 0');
+    expect(editor).toContain('                  text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size'); // a plain text since round 11 (X64, X82)
     // Another project asks again (selectedRefQuery is keyed by project): the root's page looks the base up when that
     // project's list lacks it (audit-wave-followups-2: the picker's project, base and search travel as `taskPicker`).
     expect(page).toContain('fn taskPicker(key: string, project: string, ref: string, query: string): string = `key=${encodeURIComponent(key)}&project=${encodeURIComponent(project)}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`');

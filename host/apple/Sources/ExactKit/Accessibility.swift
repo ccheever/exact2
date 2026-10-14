@@ -38,6 +38,23 @@ extension NodeView {
         return text.isEmpty ? nil : text
     }
     var accessibleName: String { authoredLabel ?? accessibleText }
+    /// ARIA disabled applies to focusable descendants, without changing input.
+    package var ariaUnavailable: Bool {
+        #if os(macOS)
+        var ancestor: NSView? = self
+        #else
+        var ancestor: UIView? = self
+        #endif
+        while let view = ancestor {
+            if let value = (view as? NodeView)?.props["accessibilityDisabled"] { return value == "true" }
+            #if os(macOS)
+            ancestor = presenter?.menus.parent(of: view) ?? view.superview
+            #else
+            ancestor = presenter?.accessibilityParent(of: view) ?? view.superview
+            #endif
+        }
+        return false
+    }
     /// A button to assistive technology: a `button`, or a box whose ARIA
     /// role is `button` or `link`, as the web's tree has a `div` with one
     /// (chat F14: a message bubble with `role="button"` was no button natively).
@@ -68,13 +85,14 @@ extension NodeView {
         }
         return props["accessibilityHint"].flatMap { $0.isEmpty ? nil : $0 }
     }
-    /// The ARIA states AppKit has no property for, under the attribute
-    /// names browsers serve them by: WebKit's `AXInvalid` (onboarding F22),
+    /// The ARIA states served under AppKit attribute names: `AXEnabled`
+    /// for ARIA disabled, WebKit's `AXInvalid` (onboarding F22),
     /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20), WebKit's
     /// `AXARIACurrent` (Depot: a navigation link's `aria-current`). A
     /// `false` (or absent) state serves none.
     func ariaAttribute(_ name: String) -> Any? {
         switch name {
+        case "AXEnabled": return ariaUnavailable ? false : nil
         case "AXInvalid": return props["accessibilityInvalid"].flatMap { ["", "false"].contains($0) ? nil : $0 }
         case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
         case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
@@ -82,7 +100,7 @@ extension NodeView {
         default: return nil
         }
     }
-    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    static let ariaAttributes = ["AXEnabled", "AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
     /// ARIA's live-region roles with an implicit `aria-live` (WAI-ARIA 1.2):
     /// `status` is polite, `alert` assertive.
     static let liveRoles = ["status": "polite", "alert": "assertive"]
@@ -160,6 +178,8 @@ extension NodeView {
         // A control's typed values are what AppKit serves its cell.
         let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
         let required = props["accessibilityRequired"] == "true"
+        let enabled = !disabled && !ariaUnavailable
+        if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
         if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
         if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
         // An `input`'s `aria-label` names its field, as a text area's names it.
@@ -167,6 +187,8 @@ extension NodeView {
         #else
         // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
+        if disabled || ariaUnavailable { target.accessibilityTraits.insert(.notEnabled) }
+        else { target.accessibilityTraits.remove(.notEnabled) }
         if target.accessibilityHint != description { target.accessibilityHint = description }
         #endif
     }
@@ -177,14 +199,13 @@ extension NodeView {
 /// the ARIA states AppKit has no property for (`NodeView.ariaAttribute`),
 /// read from the node that holds the field.
 final class FieldCell: NSTextFieldCell {
-    private lazy var clipboardEditor: FieldEditor = {
-        let editor = FieldEditor(frame: .zero)
-        editor.isFieldEditor = true
-        return editor
-    }()
-    /// Its own editor while a clipboard event would be heard (`FieldEditor`, #125).
+    private var numberField: Field? {
+        guard let field = controlView as? Field, field.accessibilityRole() == .incrementor else { return nil }
+        return field
+    }
+    /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
@@ -194,9 +215,28 @@ final class FieldCell: NSTextFieldCell {
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+            + (numberField != nil ? [.minValue, .maxValue] : [])
     }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+        if let field = numberField {
+            switch attribute {
+            case .role: return NSAccessibility.Role.incrementor.rawValue
+            case .minValue: return field.accessibilityMinValue()
+            case .maxValue: return field.accessibilityMaxValue()
+            default: break
+            }
+        }
+        return (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+    override func accessibilityActionNames() -> [NSAccessibility.Action] {
+        super.accessibilityActionNames() + (numberField != nil ? [.increment, .decrement] : [])
+    }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
+        if let field = numberField {
+            if action == .increment { _ = field.accessibilityPerformIncrement(); return }
+            if action == .decrement { _ = field.accessibilityPerformDecrement(); return }
+        }
+        super.accessibilityPerformAction(action)
     }
 }
 /// A password field's, as `FieldCell`.
@@ -278,6 +318,27 @@ extension NodeView {
     }
 }
 
+extension NodeView {
+    /// VoiceOver's show menu (AXShowMenu, VO-⇧-M) is the ContextMenu key's
+    /// request at this node (X84), as Chrome sends both through Blink's
+    /// `ShowNonLocatedContextMenu`: its `contextmenu`, then its
+    /// `contextPopover`'s menu, at its drawn middle.
+    package override func accessibilityPerformShowMenu() -> Bool {
+        guard offersShowMenu, let presenter, let point = presenter.contextPoint(self) else { return false }
+        return presenter.contextMenu(self, at: point)
+    }
+    /// AppKit offers every action whose method the class implements; show
+    /// menu only where something answers it, as AppKit offers it only on a
+    /// view with a `menu` (no node has one).
+    package override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        selector == #selector(accessibilityPerformShowMenu) ? offersShowMenu : super.isAccessibilitySelectorAllowed(selector)
+    }
+    private var offersShowMenu: Bool {
+        guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil else { return false }
+        return answersContextMenu
+    }
+}
+
 extension NSView {
     /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
     /// or 2 (mixed); `role` when `pressed` is nil.
@@ -303,17 +364,19 @@ extension UIView {
         if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
         accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
     }
-    /// A checkable role as Safari's VoiceOver reads one: a checkbox or
-    /// switch is a button whose value is `checked` or `unchecked` (as the
+    /// A checkable role as UIKit reads one (LLP 1115.000 D13.3): a checkbox
+    /// or switch is a toggle, the `toggleButton` trait with UIKit's value,
+    /// "1" or "0", which VoiceOver speaks in the reader's language (as the
     /// native checkbox, `ControlsIOS`); a radio is a button, selected while
     /// checked. Called after `setAccessibilityToggle`, which it overrides.
     func setAccessibilityChecked(_ role: String, _ checked: Bool) {
-        accessibilityTraits.remove(.toggleButton)
         if role == "radio" {
+            accessibilityTraits.remove(.toggleButton)
             accessibilityValue = nil
             if checked { accessibilityTraits.insert(.selected) }
         } else {
-            accessibilityValue = checked ? "checked" : "unchecked"
+            accessibilityTraits.insert(.toggleButton)
+            accessibilityValue = checked ? "1" : "0"
         }
     }
 }
@@ -352,11 +415,18 @@ extension NodeView {
 }
 
 extension Presenter {
+    #if !os(macOS)
+    /// Native presentations carry views out of their authored ancestry.
+    func accessibilityParent(of view: UIView) -> UIView? {
+        menus.logicalParent(of: view) ?? groupedLists?.logicalParent(of: view)
+            ?? (view as? NodeView).flatMap { navigation.logicalParent(of: $0) } ?? view.superview
+    }
+    #endif
     /// Names, live regions and autofocus. `changed` limits the pass to the
     /// views a batch touched and their ancestors — a button's name reads its
     /// subtree — plus every live region and pending autofocus; nil reads
     /// every view.
-    func syncAccessibility(changed: Set<UInt32>? = nil) {
+    func syncAccessibility(changed: Set<UInt32>? = nil, disabledRoots: Set<UInt32> = []) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
             return
@@ -364,7 +434,25 @@ extension Presenter {
         let nodes: [NodeView]
         if let changed {
             let indexed = chrome.ids("accessibilityLive").union(chrome.ids("role:status")).union(chrome.ids("role:alert")).union(chrome.ids("autofocus"))
-            nodes = changed.union(indexed).compactMap { views[$0] }.sorted { $0.id < $1.id }
+            var ids = changed.union(indexed)
+            if !disabledRoots.isEmpty {
+                for node in views.values {
+                    #if os(macOS)
+                    var ancestor: NSView? = node
+                    #else
+                    var ancestor: UIView? = node
+                    #endif
+                    while let view = ancestor {
+                        if let owner = view as? NodeView, disabledRoots.contains(owner.id) { ids.insert(node.id); break }
+                        #if os(macOS)
+                        ancestor = menus.parent(of: view)
+                        #else
+                        ancestor = accessibilityParent(of: view)
+                        #endif
+                    }
+                }
+            }
+            nodes = ids.compactMap { views[$0] }.sorted { $0.id < $1.id }
         } else {
             autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
             nodes = views.values.sorted(by: { $0.id < $1.id })
@@ -444,10 +532,69 @@ extension Presenter {
             _ = target.becomeFirstResponder()
             #endif
         }
-        #if os(iOS) || os(tvOS)
+        #if os(macOS)
+        let modal = macAccessibilityModal.map(ObjectIdentifier.init)
+        if modal != announcedModal {
+            announcedModal = modal
+            NSAccessibility.post(element: viewport, notification: .layoutChanged)
+        }
+        #else
         syncModal()
         #endif
     }
+    #if os(macOS)
+    var macModalAccessibilityChildren: [NodeView]? {
+        guard let modal = macAccessibilityModal else { return nil }
+        // In its sheet the dialog is that window's (LLP 1115.002 D7.2): the page behind it exposes nothing.
+        if modal.window !== viewport.window { return [] }
+        return [modal] + menus.presented(within: modal).filter { $0 !== modal && $0.window === viewport.window }
+    }
+    /// The frontmost exposed authored modal, or the dialog in HTML's top
+    /// layer. The viewport serves it directly so AppKit cannot flatten a
+    /// scroll or a native control beside it into the accessible page.
+    var macAccessibilityModal: NodeView? {
+        if let active = dialogs.active, active.accessibilityVisible,
+           active.props["accessibilityElementsHidden"] != "true", !active.isAccessibilityHidden(),
+           leaving[active.id] == nil { return active }
+        func path(_ view: NSView) -> [NSView] {
+            Array(sequence(first: view, next: \.superview).prefix { $0 !== viewport }.reversed())
+        }
+        func inFront(_ a: NSView, of b: NSView) -> Bool {
+            if a.isDescendant(of: b) { return true }
+            if b.isDescendant(of: a) { return false }
+            for (left, right) in zip(path(a), path(b)) where left !== right {
+                if left.layer?.zPosition != right.layer?.zPosition { return (left.layer?.zPosition ?? 0) > (right.layer?.zPosition ?? 0) }
+                let siblings = left.superview?.subviews ?? []
+                return (siblings.firstIndex(of: left) ?? 0) > (siblings.firstIndex(of: right) ?? 0)
+            }
+            return false
+        }
+        func exposed(_ node: NodeView) -> Bool {
+            guard node.props["accessibilityModal"] == "true", node.accessibilityVisible,
+                  !node.isAccessibilityHidden(), leaving[node.id] == nil else { return false }
+            for view in sequence(first: node as NSView, next: \.superview) {
+                if view.isAccessibilityHidden() { return false }
+                guard let parent = view.superview else { break }
+                if parent.subviews.contains(where: { sibling in
+                    guard sibling !== view, let cover = sibling as? NodeView,
+                          !cover.cssVisibilityHidden, !cover.isHidden, !cover.isAccessibilityHidden(),
+                          !isLeaving(cover), cover.alphaValue == 1, let layer = cover.layer,
+                          layer.opacity == 1, layer.backgroundColor?.alpha == 1,
+                          layer.cornerRadius == 0, layer.mask == nil, CATransform3DIsIdentity(layer.transform)
+                    else { return false }
+                    // Only a painted opaque rectangle covering the entire
+                    // dialog establishes occlusion. Intersecting boxes do not.
+                    // AppKit's visibleRect can extend beyond an unclipped box.
+                    return cover.convert(cover.visibleRect.intersection(cover.bounds), to: node).contains(node.bounds) && inFront(cover, of: view)
+                }) { return false }
+                if view === viewport { break }
+            }
+            return true
+        }
+        return chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }.filter(exposed)
+            .max { inFront($1, of: $0) }
+    }
+    #endif
     #if os(iOS) || os(tvOS)
     /// `aria-modal` (LLP 1080.003), after a batch and after a native
     /// transition settles. A view is modal while its prop is true and it is
@@ -584,6 +731,9 @@ extension Presenter {
             guard let self, !launchAutofocusReleased, session?.state != .destroyed else { return }
             launchAutofocusReleased = true
             syncAccessibility()
+            #if os(macOS)
+            focusInitialKeyView() // LLP 1115.000 D7.5, after the author's `autofocus` had its say
+            #endif
         }
     }
 

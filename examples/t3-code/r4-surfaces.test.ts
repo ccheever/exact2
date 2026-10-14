@@ -313,6 +313,37 @@ describe('Device setup', () => {
     await watchDevice(client, native);
     expect(calls.filter(call => call.method === 'subscribe').length).toBe(1);
   });
+  test('the Device panel lists the devices each time it shows, once the state has loaded with the hub enabled (DevicePanel)', async () => {
+    const { client, calls, replies } = fakeClient();
+    const ready = { hosts: [{ id: 'local', label: 'This machine', kind: 'local', platforms: [{ platform: 'ios', available: true }] }], hostStatus: 'ready', hostStatuses: { local: { status: 'ready' } },
+      devices: [] as unknown[], sessions: [], onboardingCompleted: true, agentAccessEnabled: false };
+    replies['device.list'] = () => ({ ...ready, devices: [{ hostId: 'local', id: 'D1', name: 'Fixture iPhone', platform: 'ios', version: 'iOS 26.0', booted: true }] });
+    const lists = () => calls.filter(call => call.method === 'device.list').length;
+    await watchDevice(client, native);
+    deviceStateEvent(client, { subscriptionId: '1-7', key: DEVICE_STATE_KEY, value: ready });
+    await surfaceLocal(client, native, 'open', 'm', '');
+    expect((await panelView(client, native, 0)).deviceSetup).toBe(false);
+    expect(lists()).toBe(1);
+    await Promise.resolve();
+    // One list per stint: the panel's later answers do not ask again; the answer lists the hub's devices.
+    const view = await panelView(client, native, 0);
+    expect(lists()).toBe(1);
+    expect(view.device.groups.map(group => group.devices.map(device => device.name))).toEqual([['Fixture iPhone']]);
+    // Hidden and shown again, it lists again.
+    await surfaceLocal(client, native, 'hide', '', '');
+    await panelView(client, native, 0);
+    await surfaceLocal(client, native, 'show', '', '');
+    await panelView(client, native, 0);
+    expect(lists()).toBe(2);
+  });
+  test('a hub that is off is not asked: the panel lists nothing while device support is disabled', async () => {
+    const { client, calls } = fakeClient();
+    await watchDevice(client, native);
+    deviceStateEvent(client, { subscriptionId: '1-7', key: DEVICE_STATE_KEY, value: { hosts: [], hostStatus: 'disabled', hostStatuses: {}, devices: [], sessions: [], onboardingCompleted: true, agentAccessEnabled: false } });
+    await surfaceLocal(client, native, 'open', 'm', '');
+    await panelView(client, native, 0);
+    expect(calls.some(call => call.method === 'device.list')).toBe(false);
+  });
   test('M on a draft opens Device for the draft\'s own thread id, allocated as it opens (PA-1)', async () => {
     const { client } = fakeClient({ threadId: '', local: { clientSettings: { wordWrap: true }, composerControls: {} } });
     expect(availability(client).device).toBe(true);

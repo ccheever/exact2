@@ -1,11 +1,83 @@
 import XCTest
 import ImageIO
 import CoreGraphics
+import UniformTypeIdentifiers
 @testable import ExactKit
 
 /// LLP 1100 D13: a photo the picker converts to JPEG keeps its color
 /// profile and, where the system can encode one, its gain map.
 final class PickerColorTests: XCTestCase {
+    func testUnrestrictedFileInputOffersAnyItem() {
+        XCTAssertEqual(Picker.types([]), [.item])
+        XCTAssertEqual(Picker.types(["*/*"]), [.item])
+        XCTAssertEqual(Picker.types(["image/*"]), [.image])
+    }
+
+    #if os(macOS)
+    func testUnrestrictedPanelHasNoTypeFilter() {
+        for accept in [[], ["*/*"], ["image/jpeg", "*/*"]] {
+            let request = Picker.Request(view: 1, id: "attach", accept: accept, multiple: false)
+            XCTAssertTrue(Picker.panel(for: request).allowedContentTypes.isEmpty, "\(accept) must leave the panel unrestricted")
+        }
+        let request = Picker.Request(view: 1, id: "photo", accept: ["image/jpeg"], multiple: false)
+        XCTAssertEqual(Picker.panel(for: request).allowedContentTypes, [.jpeg])
+    }
+    #endif
+
+    func testUnknownFileIsCopiedAndMixedWildcardKeepsHEICBytes() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let unknown = directory.appendingPathComponent("archive.xyz")
+        try Data("any bytes".utf8).write(to: unknown)
+        let copied = directory.appendingPathComponent("copied.xyz")
+        try Picker.copy(unknown, to: copied, accept: [])
+        XCTAssertEqual(try Data(contentsOf: copied), Data("any bytes".utf8))
+
+        let original = Self.dir.appendingPathComponent("p3.heic")
+        let preserved = directory.appendingPathComponent("photo.heic")
+        try Picker.copy(original, to: preserved, accept: ["image/jpeg", "*/*"])
+        XCTAssertEqual(try Data(contentsOf: preserved), try Data(contentsOf: original))
+    }
+
+    #if os(macOS)
+    func testAnsweredCopiesAnUnknownFileWithNoAcceptIntoAppTmp() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = """
+        component App
+          state picked = "none"
+          action onPick(files: list<Picked>)
+            picked = match first(files) { case some(f) => f.path, case none => "empty" }
+          view
+            column
+              input type="file" id="attach" change=onPick
+              text picked
+        """
+        try source.write(to: directory.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", directory.appendingPathComponent("app.contract").path, "-o", directory.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "any-file")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: directory.appendingPathComponent("app.plan")), size: CGSize(width: 300, height: 100)).error)
+        let request = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"picker","id":"attach"}"#).utf8)) as? [String: Any])?["view"] as? NSNumber)
+        let file = directory.appendingPathComponent("archive.xyz")
+        try Data("any bytes".utf8).write(to: file)
+        XCTAssertNil(session.presenter.views[request.uint32Value]?.props["accept"])
+        session.picker.answered(["capability": "pick", "node": request, "answered": "value"], request: ["text": file.path])
+        let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any])
+        let slots = try XCTUnwrap(state["slots"] as? [String: Any])
+        let path = try XCTUnwrap(slots["picked"] as? String)
+        XCTAssertTrue(path.hasPrefix("app:/tmp/picked/") && path.hasSuffix(".xyz"), path)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(AppFiles.url(path))), Data("any bytes".utf8))
+    }
+    #endif
+
     private static let dir = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/fixtures/color")

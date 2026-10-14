@@ -39,7 +39,7 @@ test "they stack on a phone"
 - To choose a different layout, not just a different wrap, read the window:
   `resource viewport = exactViewport() as shape Viewport` (`width: number`) and
   `when viewport.width >= 720`. A list and its detail side by side when wide, pushed on
-  a phone: `pattern list-detail`.
+  a phone, needs none of this: its rows draw the `forward-chevron` (`pattern list-detail`).
 - A horizontal board on a phone is a `scroll overflow-x="scroll"` of fixed-width
   columns instead; never three columns squeezed into a third of a phone each.
 - Look at both sizes: `agent web --size 390x844 "screenshot .exact/phone.png"` and

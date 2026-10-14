@@ -172,11 +172,21 @@ shape MarkdownEnv
   runCommands: list<string>
 fn noUrls(): list<AttachmentUrl> = []
 // diff-review (Cite): an answer's text as the reference reads it (readAssistantText: each block's
-// displayed text, a line break between blocks), and where a block starts in it.
-fn citeBlockText(b: ChatBlock): string = b.kind == "code" ? b.text : join(map(b.runs, (r) => r.text), "")
-fn citeStream(blocks: list<ChatBlock>): string = join(map(blocks, (b) => citeBlockText(b)), "\n")
-fn citeOffset(blocks: list<ChatBlock>, blockId: string): number = indexOf(map(blocks, (b) => b.id), blockId) <= 0 ? 0 : length(join(slice(map(blocks, (b) => citeBlockText(b)), 0, indexOf(map(blocks, (b) => b.id), blockId)), "\n")) + 1
+// displayed text, a line break between blocks), and where a block starts in it. diff-cite-popover DC-2: a code block's
+// header reads its language when no file icon stands for it (MarkdownCodeBlockTitleContent), a line before the code.
+fn citeCodeLabel(b: ChatBlock, code: list<CodeHighlight>): string = b.kind == "code" and length(filter(code, (hl) => hl.code == b.text and hl.icon != "")) == 0 ? b.href : ""
+fn citeBlockText(b: ChatBlock, code: list<CodeHighlight>): string = b.kind == "code" ? (citeCodeLabel(b, code) != "" ? `${citeCodeLabel(b, code)}\n${b.text}` : b.text) : join(map(b.runs, (r) => r.text), "")
+fn citeStream(blocks: list<ChatBlock>, code: list<CodeHighlight>): string = join(map(blocks, (b) => citeBlockText(b, code)), "\n")
+fn citeOffset(blocks: list<ChatBlock>, code: list<CodeHighlight>, blockId: string): number = indexOf(map(blocks, (b) => b.id), blockId) <= 0 ? 0 : length(join(slice(map(blocks, (b) => citeBlockText(b, code)), 0, indexOf(map(blocks, (b) => b.id), blockId)), "\n")) + 1
+// Where a selectable text starts in its block (diff-cite-popover DC-2): a code block's code after its label's line, a word
+// or code span of a block laid out word by word (FlowRuns) after the runs before it; a whole block's text at its start.
+fn citeRunOffset(blocks: list<ChatBlock>, code: list<CodeHighlight>, blockId: string, runId: string): number = runId == "" ? 0 : runId == "code" ? length(join(map(filter(blocks, (b) => b.id == blockId), (b) => citeCodeLabel(b, code) != "" ? `${citeCodeLabel(b, code)}\n` : ""), "")) : length(join(map(filter(blocks, (b) => b.id == blockId), (b) => join(map(slice(b.runs, 0, max(0, indexOf(map(b.runs, (r) => r.id), runId))), (r) => r.text), "")), ""))
 fn noChips(): list<ChipView> = []
+// diff-cite-popover DC-1: where run `id` starts in its block's text (the runs before it), and where token `id` starts in
+// its code; with the cited text's [start, end) in the same offsets (`ms`, `me`; -1 when nothing is marked there).
+fn runAt(runs: list<ChatRun>, id: string): number = length(join(map(slice(runs, 0, max(0, indexOf(map(runs, (r) => r.id), id))), (r) => r.text), ""))
+fn tokenAt(tokens: list<CodeToken>, id: string): number = length(join(map(slice(tokens, 0, max(0, indexOf(map(tokens, (t) => t.id), id))), (t) => t.text), ""))
+fn citeMarks(ms: number, me: number, at: number, size: number): bool = ms >= 0 and me > at and ms < at + size
 
 component ChatMarkdown
   props
@@ -190,6 +200,12 @@ component ChatMarkdown
 // An answer or plan in the transcript: its settled Mermaid fences draw as
 // diagrams, painted for the colour scheme.
 component AnswerMarkdown
+  inject
+    // diff-cite-popover DC-1: the open citation comment's answer (its bare message id) and quote, and the quote's start in
+    // this answer's text stream when Cite measured it (-1: the quote's first place), from the window.
+    citeMessage: string
+    citeQuote: string
+    citeAt: number
   props
     document: ChatDocument
     local: action
@@ -204,24 +220,31 @@ component AnswerMarkdown
     cite: action
     // media-actions: signed URLs for the answer's host-path media (timeline-attachments.ts).
     urls: list<AttachmentUrl>
-  // The selected part of each prose block, in the message's text stream (AssistantSelectionToolbar).
+  // The selected part of each text of the answer, in the message's text stream (AssistantSelectionToolbar): a prose
+  // block's, and (diff-cite-popover DC-2) each word or code span of a block laid out word by word and a code block's code.
+  // `block` is the text's id suffix (`cite-<source>-<block>`): the block, the block and its run, or the block and "code".
   state parts = filter([CitePart(block="", start=0, end=0)], (p) => p.end > 0)
   state anchor = 0
-  action selected(blockId: string, s: Selection)
-    let offset = citeOffset(document.blocks, blockId)
-    let rest = filter(parts, (p) => p.block != blockId)
+  action selected(blockId: string, runId: string, s: Selection)
+    let key = runId == "" ? blockId : `${blockId}-${runId}`
+    let offset = citeOffset(document.blocks, code, blockId) + citeRunOffset(document.blocks, code, blockId, runId)
+    let rest = filter(parts, (p) => p.block != key)
     let row = frame(`cite-root-${source}`)
-    let block = frame(`cite-${source}-${blockId}`)
-    parts = s.text == "" ? rest : concat(rest, [CitePart(block=blockId, start=offset + s.start, end=offset + s.end)])
+    let block = frame(`cite-${source}-${key}`)
+    parts = s.text == "" ? rest : concat(rest, [CitePart(block=key, start=offset + s.start, end=offset + s.end)])
     if s.text != "" and not row.unavailable and not block.unavailable
       anchor = block.y + block.height - row.y + 4
   action dismiss
     parts = []
+  // The quote's place in this answer while its comment is open (the reference resolves it with
+  // resolveAssistantCitationRange), or -1.
+  derive citeMarked = source != "" and citeQuote != "" and citeMessage != "" and (indexOf(source, `${citeMessage}"]`) >= 0 or source == citeMessage)
+  derive markStart = citeMarked ? (citeAt >= 0 ? citeAt : indexOf(citeStream(document.blocks, code), citeQuote)) : -1
   view
     column width="100%" position="relative" id=`cite-root-${source}`
-      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected)
+      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected, markStart=markStart, markEnd=(markStart < 0 ? -1 : markStart + length(citeQuote)))
       when source != "" and length(parts) > 0
-        CiteButton(parts=parts, stream=citeStream(document.blocks), source=source, top=anchor, cite=cite, dismiss=dismiss)
+        CiteButton(parts=parts, stream=citeStream(document.blocks, code), source=source, top=anchor, cite=cite, dismiss=dismiss)
 
 // UserMessageBody: the same Markdown in the message's own ink, single
 // newlines kept as line breaks and context references drawn as chips.
@@ -237,10 +260,10 @@ component UserMarkdown
     copiedNonce: number
     env: MarkdownEnv
     urls: list<AttachmentUrl>
-  action noCite(blockId: string, s: Selection)
+  action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   view
-    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose=ink, fit=true, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source="", cite=noCite)
+    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose=ink, fit=true, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source="", cite=noCite, markStart=-1, markEnd=-1)
 
 // Markdown blocks at the stock settings (13pt code, wrapped), for a document
 // with no MarkdownEnv of its own.
@@ -253,7 +276,7 @@ component MarkdownBlocks
     code: list<CodeHighlight>
     prose: string
     fit: bool
-  action noCite(blockId: string, s: Selection)
+  action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   view
     // A sent message's bubble fits its text (fit); an answer fills the lane.
@@ -261,9 +284,9 @@ component MarkdownBlocks
       each block in document.blocks key=block.id
         column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
           when block.kind == "code"
-            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true, canRun=false)
+            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true, canRun=false, source="", cite=noCite, ms=-1, me=-1)
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite)
+            BlockBody(block=block, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
 
 // The same blocks under Settings → Appearance (MarkdownEnv).
 component EnvBlocks
@@ -276,16 +299,16 @@ component EnvBlocks
     prose: string
     fit: bool
     env: MarkdownEnv
-  action noCite(blockId: string, s: Selection)
+  action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
         column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
           when block.kind == "code"
-            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and includes(env.runCommands, `${block.href}:${block.text}`)))
+            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and includes(env.runCommands, `${block.href}:${block.text}`)), source="", cite=noCite, ms=-1, me=-1)
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite)
+            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
 
 // The transcript's blocks: a settled ```mermaid fence draws its diagram.
 component DiagramBlocks
@@ -305,6 +328,9 @@ component DiagramBlocks
     urls: list<AttachmentUrl>
     source: string
     cite: action
+    // diff-cite-popover DC-1: the cited text's [start, end) in the answer's text stream (-1: none), each block's share.
+    markStart: number
+    markEnd: number
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
@@ -314,9 +340,9 @@ component DiagramBlocks
               each entry in filter(diagrams, (entry) => entry.code == block.text) key=entry.id
                 MermaidBlock(block=block, local=local, diagram=entry, scheme=scheme, copied=(copiedText == block.text ? copiedNonce : 0), codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap)
             else
-              CodeBlock(block=block, local=local, code=code, copiedText=copiedText, copiedNonce=copiedNonce, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and includes(env.runCommands, `${block.href}:${block.text}`)))
+              CodeBlock(block=block, local=local, code=code, copiedText=copiedText, copiedNonce=copiedNonce, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and includes(env.runCommands, `${block.href}:${block.text}`)), source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce, source=source, cite=cite)
+            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce, source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
 
 // Every block but a code fence: headings, list items, rules, tables, images, quotes and prose.
 component BlockBody
@@ -335,14 +361,17 @@ component BlockBody
     // diff-review (Cite): a prose block's selection reports to the answer (`source` "" outside answers).
     source: string
     cite: action
+    // diff-cite-popover DC-1: the cited text in this block's offsets while its comment is open (-1: none).
+    ms: number
+    me: number
   view
     when block.kind == "heading"
       when block.flow
         box role="heading" aria-level=block.depth width="100%"
-          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
+          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
       else
-        text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id) width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
-          ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
+        text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+          ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, ms=ms, me=me)
     when block.kind == "item"
       row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
         when block.task != ""
@@ -353,38 +382,38 @@ component BlockBody
         when block.task == "" and block.marker != "•"
           text block.marker width="1.25rem" flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
         when block.flow
-          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
+          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
         else
-          text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" line-height="1.421875rem" color=prose
-            ChatRuns(runs=block.runs, size=14, weight=400)
+          text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" color=prose
+            ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
     when block.kind == "rule"
       box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
     when block.kind == "table-row"
       row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
         each cell in block.cells key=cell.id
           text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height=1.625 color=prose
-            ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400))
+            ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400), ms=-1, me=-1)
     when block.kind == "table"
       MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
     when block.kind == "image"
       // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
       when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
         each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)
+          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     when block.kind == "quote"
       when block.flow
         box width="100%" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
-          FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
+          FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
       else
-        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="1.421875rem" color="light-dark(#71717b, #818181)"
-          ChatRuns(runs=block.runs, size=14, weight=400)
+        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="1.421875rem" color="light-dark(#71717b, #818181)"
+          ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
     when not includes(["heading", "item", "rule", "table-row", "table", "image", "quote"], block.kind) and block.flow
-      FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
+      FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400, source=source, blockId=block.id, cite=cite, ms=ms, me=me)
     when not includes(["heading", "item", "rule", "table-row", "table", "image", "quote"], block.kind) and not block.flow
-      text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" line-height="1.421875rem" color=prose
-        ChatRuns(runs=block.runs, size=14, weight=400)
+      text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" color=prose
+        ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
 
 // markdown-links-and-files-preview PA-3: GFM's task checkbox in place of the list marker (`li.task-list-item`:
 // list-style none, the checkbox in the 1.25rem gutter with 0.35em after it), as Electron draws an `input` checkbox on
@@ -419,9 +448,10 @@ component TaskBox
           box position="absolute" left=2 top=1.5 width=9 height=9
             TimelineIcon(name="check-mark", size=9, color="#ffffff")
 
-// Inline runs in one text node; only a web link keeps its href (a chip's
-// href is how its ChipView finds it, not a destination).
-// A web link's right-click is the app's link menu (ChatMarkdown's anchor onContextMenu; external-link-menu.ts).
+// Inline runs in one text node (a chip's href is how its ChipView finds it, not a destination). Every link with a
+// destination is the anchor's: its press is the link's (`linkOpen`: a web link follows "Open links in", a mailto, irc or
+// xmpp link opens nothing, a fragment leaves for the new-thread draft; reply-links-reference-behavior RL-4, RL-5) and its
+// right-click the anchor's onContextMenu (external-link-menu.ts); an emptied anchor is link-coloured text with neither.
 component ChatRuns
   inject
     linkOpen: action
@@ -430,6 +460,9 @@ component ChatRuns
     runs: list<ChatRun>
     size: number
     weight: number
+    // diff-cite-popover DC-1: the cited text in these runs' offsets (-1: none).
+    ms: number
+    me: number
   view
     each run in runs key=run.id
       when run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
@@ -437,15 +470,39 @@ component ChatRuns
       when run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
         text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
       when not run.mono
-        when (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
+        when (run.kind == "link" or run.kind == "link-start") and run.href != ""
           text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
-        when (run.kind == "link" or run.kind == "link-start") and not webLink(run.href)
-          text run.text href=run.href font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+        when (run.kind == "link" or run.kind == "link-start") and run.href == ""
+          text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
         when run.kind != "link" and run.kind != "link-start"
-          text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+          when ms < 0
+            text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+          else
+            text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+              MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
+
+// diff-cite-popover DC-1: the cited text's highlight while its comment is open (AssistantCitationSource.tsx
+// observeAssistantCitationCommentSource: `::highlight(t3-assistant-citation-comment)`, the primary at 45%), within one
+// piece of text that starts at `at` in its block: the piece before, the marked part, the piece after.
+component MarkedText
+  props
+    value: string
+    at: number
+    ms: number
+    me: number
+  derive a = max(0, min(length(value), ms - at))
+  derive b = max(a, min(length(value), me - at))
+  view
+    text
+      text slice(value, 0, a)
+      text slice(value, a, b) background-color="light-dark(#1b4ed873, #346bf173)"
+      text slice(value, b, length(value))
 
 // browser-surface part 5: an http(s) link follows "Open links in" (its press); any other scheme stays the shell's.
 fn webLink(href: string): bool = startsWith(href, "http://") or startsWith(href, "https://")
+// A link whose click does something on every word: a web link opens, a fragment leaves for the new-thread draft
+// (reply-links-reference-behavior RL-4); a mailto, irc or xmpp link's click opens nothing, word or not.
+fn pressLink(href: string): bool = webLink(href) or startsWith(href, "#")
 // A run of a link that is not a pull request link (a pull request link's words are each a link of their own, PrLinkRun).
 fn linkRun(run: ChatRun, chips: list<ChipView>): bool = (run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) == 0
 
@@ -464,6 +521,14 @@ component FlowRuns
     chips: list<ChipView>
     urls: list<AttachmentUrl>
     local: action
+    // diff-cite-popover DC-2: each word and code span reports its part of a selection to the answer (Cite), as the
+    // reference's text nodes of one block are one stream (`source` "" outside answers).
+    source: string
+    blockId: string
+    cite: action
+    // diff-cite-popover DC-1: the cited text in this block's offsets while its comment is open (-1: none).
+    ms: number
+    me: number
   view
     row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
       each run in runs key=run.id
@@ -471,9 +536,11 @@ component FlowRuns
         // first word or code span; the link's other words and code spans follow as nodes hidden from assistive tech (their
         // `label` is the same), so a reader meets one link with its URL, not words (realinput-1010g RG-4). A press anywhere
         // opens it. Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost); a mailto,
-        // irc, xmpp or fragment link's press opens nothing and its menu is the shell's, as the desktop shell's window-open
-        // handler opens none of them (reply-links RL-1, RL-2; browser-links.ts openLinkFromUi, external-link-menu.ts). A
-        // code span is part of its link (RL-3: `.chat-markdown code` inside the `<a>`, after the favicon).
+        // irc or xmpp link's press opens nothing, as the desktop shell's window-open handler opens none of them, and a
+        // fragment's leaves for the new-thread draft (Electron's hash router; reply-links RL-1, reply-links-reference-
+        // behavior RL-4; browser-links.ts openLinkFromUi); their menu is the shell's, at the click or, for the ContextMenu
+        // key, at the focused link (RL-6; external-link-menu.ts). A code span is part of its link (RL-3: `.chat-markdown
+        // code` inside the `<a>`, after the favicon).
         when run.kind == "link-start" and linkRun(run, chips)
           link href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start"
             when webLink(run.href)
@@ -483,18 +550,19 @@ component FlowRuns
               text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
             else
               text run.text margin-top="0.153125rem" font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-        // A web link's later word or code span: its press and menu are the link's.
-        when run.kind == "link" and linkRun(run, chips) and webLink(run.href)
-          box press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
+        // A web or fragment link's later word or code span: its press and menu are the link's. Only a web link's is a Tab
+        // stop (as it was); a fragment's is not, the `<a>` being one stop (its link node above).
+        when run.kind == "link" and linkRun(run, chips) and pressLink(run.href)
+          box press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) tabindex=(webLink(run.href) ? 0 : -1) aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
             when not run.mono
               text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
             else
               text run.text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-        // Any other code span (one in a pull request link too); a mailto or fragment link's later one is hidden as its words
-        // are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
-        when run.mono and not (linkRun(run, chips) and (run.kind == "link-start" or webLink(run.href)))
+        // Any other code span (one in a pull request link too); a mailto, irc or xmpp link's later one is hidden as its
+        // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
+        when run.mono and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
-            text run.text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+            text run.text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), length(run.text)) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#fafafa, #ffffff08)") color="light-dark(#27272a, #f5f5f5)"
         when not run.mono and (run.kind == "file" or chipAccent(run.kind) != "")
           when length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0
             each chip in filter(chips, (chip) => chip.href == run.href) key=chip.id
@@ -505,15 +573,26 @@ component FlowRuns
             ContextChipBox(run=run)
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind == "break"
           box width="100%" height=0 flex-shrink=0
+        // media-signed-urls-and-attachment-markdown MD-1: an image inside a line of text (ChatMarkdownImage, not
+        // standalone), or the only content of its paragraph, list item or quote (standalone: its `icon`), through its
+        // media chip (media-views.ts markdownInlineImages); a surface with no media chips (a pull request's text) keeps
+        // its alt text.
+        when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0
+          each chip in filter(chips, (chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"))
         // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
           each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
             PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(run.weight > weight ? run.weight : weight))
-        // Prose, an emptied anchor's text, and a mailto or fragment link's later words: no href of their own, so a click
+        // Prose, an emptied anchor's text, and a mailto, irc or xmpp link's later words: no href of their own, so a click
         // follows nothing (the link node above is the link); a link's words keep its pointer (an emptied anchor has no
         // `label`, and an `<a>` with no href shows none).
-        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind != "link-start" and not (run.kind == "link" and webLink(run.href))
-          text run.text aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0)
+          when ms < 0
+            text run.text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+          else
+            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+              MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
 // A pull request link in a pull request's text (pr-links-previews-and-routing; ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it
@@ -647,7 +726,7 @@ component TerminalContextChip
     button popovertarget=popupId aria-label=`Terminal excerpt, ${chip.label}. Show details` testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder("context-terminal") background-color="#009f6e1c"
       TimelineIcon(name="square-terminal", size=14, color=chipInk("context-terminal"))
       text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk("context-terminal")
-    column id=popupId popover="auto" position="absolute" position-area="top" padding-bottom="0.25rem" width="24rem" max-width="100vw" testId="terminal-context-popover"
+    column id=popupId popover="auto" position-try-fallbacks="none" position="absolute" position-area="top" padding-bottom="0.25rem" width="24rem" max-width="100vw" testId="terminal-context-popover"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=`Terminal excerpt, ${chip.label}`
         column width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" overflow="hidden"
           row width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)"
@@ -747,9 +826,17 @@ component CodeBlock
     codeFont: string
     codeSize: number
     wrapDefault: bool
+    // diff-cite-popover DC-2: the code reports its part of a selection to the answer (Cite; `source` "" outside answers).
+    source: string
+    cite: action
+    // diff-cite-popover DC-1: the cited text in this block's offsets while its comment is open (-1: none); the code starts
+    // after its header's language line (citeRunOffset), at `codeAt`.
+    ms: number
+    me: number
   // readInitialWordWrapSetting: Settings → Word wrap decides; the toggle flips it.
   state flipped = false
   derive wrap = flipped ? not wrapDefault : wrapDefault
+  derive codeAt = ms < 0 ? 0 : length(citeCodeLabel(block, code)) + (citeCodeLabel(block, code) != "" ? 1 : 0)
   action toggleWrap
     flipped = not flipped
   view
@@ -773,20 +860,36 @@ component CodeBlock
             CopyCodeButton(block=block, local=local, copied=(copiedText == block.text ? copiedNonce : 0))
       when length(filter(code, (hl) => hl.code == block.text)) == 0
         when wrap
-          text block.text width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+          when ms < 0
+            text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+          else
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+              MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
-            text block.text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+            when ms < 0
+              text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+            else
+              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+                MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
       each hl in filter(code, (hl) => hl.code == block.text) key=hl.id
         when wrap
-          text width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
             each token in hl.tokens key=token.id
-              text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
+              when ms < 0
+                text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
+              else
+                text color=synColor(token.cls) font-style=synSlant(token.cls)
+                  MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
-            text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
               each token in hl.tokens key=token.id
-                text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
+                when ms < 0
+                  text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
+                else
+                  text color=synColor(token.cls) font-style=synSlant(token.cls)
+                    MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
 // MarkdownMermaidCodeBlock: a settled ```mermaid fence draws its diagram with
 // no card, centred and fit to the lane, a "Show code" toggle and Copy beneath;
 // "Show code" turns it back into the code block, its toolbar led by "Show
@@ -953,10 +1056,10 @@ component TableCell
       when not (length(filter(cell.runs, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0) and (header or not expanded)
         // One line, cut with an ellipsis at the column's edge (text-overflow: ellipsis).
         text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
-          ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400))
+          ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
       when not (length(filter(cell.runs, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0) and not (header or not expanded)
         text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 overflow-wrap="anywhere" color=prose text-align=column.align
-          ChatRuns(runs=cell.runs, size=12, weight=400)
+          ChatRuns(runs=cell.runs, size=12, weight=400, ms=-1, me=-1)
       box height=0 overflow="hidden" aria-hidden=true
         when column.capped
           box width="22.5rem" height=0
@@ -964,7 +1067,7 @@ component TableCell
           CellRuns(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, nowrap=true, shown=false, justify="flex-start")
         when not column.capped and not (length(filter(column.sizer, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0)
           text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space="nowrap" opacity=0
-            ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400))
+            ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400), ms=-1, me=-1)
 
 // A cell holding code spans: its runs side by side, each code span 12pt SF
 // Mono in its 1pt-bordered, 5.6pt-padded box on the cell's 19.5pt line.

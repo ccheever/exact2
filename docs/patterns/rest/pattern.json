@@ -1,5 +1,0 @@
-{
-  "commands": {
-    "api-test": ["bun", "test.mjs"]
-  }
-}

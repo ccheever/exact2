@@ -169,7 +169,7 @@ component HostRowView
         box position="relative" align-self="flex-start"
           button popovertarget=`device-host-tools-${host.id}` aria-label=`${host.label} device tools` testId=`device-host-versions-${host.id}` padding=0 border-width=0 background-color="#00000000"
             text host.versions font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
-          column id=`device-host-tools-${host.id}` popover="auto" position="absolute" margin-top="0.25rem" width="20rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" role="dialog" aria-label="Device tools"
+          column id=`device-host-tools-${host.id}` popover="auto" position-try-fallbacks="none" position="absolute" margin-top="0.25rem" width="20rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" role="dialog" aria-label="Device tools"
             text "Device tools" font-size="0.875rem" font-weight=600 line-height="0.875rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             when host.toolsKnown
               column margin-top="1rem"

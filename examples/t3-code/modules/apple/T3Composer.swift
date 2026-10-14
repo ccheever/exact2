@@ -98,6 +98,13 @@ final class T3Composer {
         changed("t3.status")
     }
 
+    /// The composer's Send, pressed as its Return presses it (a citation comment's ⌘↵, submitCitationAndSend).
+    func pressSend() -> Bool {
+        guard let send, send.isLive else { return false }
+        send.click()
+        return true
+    }
+
     private func stopMonitoring() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil

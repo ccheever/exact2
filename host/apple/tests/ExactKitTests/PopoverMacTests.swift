@@ -4,12 +4,172 @@ import XCTest
 @testable import ExactKit
 
 final class PopoverMacTests: XCTestCase {
+    func testContextMenuCommandsSeeAndCancelNativeTracking() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "this regression exercises NSMenu")
+        for command in ["hidePopover", "togglePopover"] {
+            let (p, _) = menuFixture()
+            defer { p.menus.reset() }
+            let source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+            source.props["contextPopover"] = "form"
+            try XCTUnwrap(windows.last).orderFrontRegardless()
+            var tracked = false, ended = false
+            let began = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Share" }) else { return }
+                RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                    tracked = true
+                    XCTAssertTrue(p.menus.isOpen(pop), "a context menu has the same command lifetime")
+                    p.menus.action(command, ["form"])
+                    XCTAssertFalse(p.menus.isOpen(pop), command)
+                    // A fallback keeps a regression from hanging native tracking.
+                    RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+                }
+            }
+            let finished = NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in ended = true }
+            defer { NotificationCenter.default.removeObserver(began); NotificationCenter.default.removeObserver(finished) }
+            p.menus.context(source, at: .zero)
+            let end = Date(timeIntervalSinceNow: 20)
+            while !ended && Date() < end { RunLoop.main.run(mode: .default, before: end) }
+            XCTAssertTrue(tracked && ended)
+            XCTAssertFalse(p.menus.isOpen(pop))
+        }
+    }
+
+    func testFocusAfterShowHighlightsTheRequestedNativeMenuRow() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "this regression exercises NSMenu")
+        let (p, _) = menuFixture()
+        defer { p.menus.reset() }
+        try XCTUnwrap(windows.last).orderFrontRegardless()
+        p.views[2]?.props["id"] = "trigger"
+        p.views[2]?.props.removeValue(forKey: "popovertarget")
+        p.views[11]?.props["id"] = "second"
+        var tracked = false
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Share" }) else { return }
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                XCTAssertEqual(menu.highlightedItem?.title, "Share", "focus selects the non-first row")
+                tracked = true
+                menu.cancelTracking()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        p.menus.action("showPopover", ["form", "trigger"])
+        p.focusElement(["second"])
+        let end = Date(timeIntervalSinceNow: 20)
+        while !tracked && Date() < end { RunLoop.main.run(mode: .default, before: end) }
+        XCTAssertTrue(tracked)
+    }
+
+    func testActionCommandsAnchorAndReportCoalescedToggleEvents() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        p.views[2]?.props["id"] = "trigger"
+        pop.handlers.insert("toggle")
+        var events: [String] = []
+        p.onClipboard = { id, kind, payload in
+            XCTAssertEqual(id, pop.id); XCTAssertEqual(kind, 50); events.append(payload)
+        }
+        func delivered(_ count: Int) {
+            let limit = Date(timeIntervalSinceNow: 20)
+            while events.count < count && Date() < limit { RunLoop.main.run(mode: .default, before: limit) }
+            XCTAssertEqual(events.count, count)
+        }
+        p.menus.action("showPopover", ["form", "trigger"])
+        p.menus.action("showPopover", ["form", "trigger"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertEqual(p.menus.observation?["source"] as? Int, 2)
+        p.views[5]?.props["id"] = "first"
+        p.focusElement(["first"])
+        XCTAssertTrue(window.firstResponder === p.views[5])
+        delivered(1); XCTAssertEqual(events, ["closed,open"])
+        p.menus.action("hidePopover", ["form"])
+        delivered(2); XCTAssertEqual(events.last, "open,closed")
+        p.menus.action("togglePopover", ["form", "trigger"])
+        delivered(3)
+        XCTAssertTrue(p.menus.key(key(window)))
+        _ = p.menus.key(key(window, up: true))
+        delivered(4); XCTAssertEqual(events.last, "open,closed")
+        p.menus.action("showPopover", ["form"])
+        XCTAssertTrue(p.menus.observation?["source"] is NSNull)
+        p.menus.action("hidePopover", ["form"])
+        delivered(5); XCTAssertEqual(events.last, "closed,closed")
+        p.menus.action("showPopover", ["missing"])
+        p.menus.action("showPopover", ["trigger"])
+        XCTAssertFalse(p.menus.isOpen(pop))
+        p.press(2); delivered(6)
+        pointer(p, .leftMouseDown, p.views[6]!); pointer(p, .leftMouseUp, p.views[6]!)
+        delivered(7); XCTAssertEqual(events.last, "open,closed")
+    }
+
+    func testPointerOnlyPopoverContentDoesNotPressThePageBehindIt() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        let behind = try XCTUnwrap(p.views[6])
+        p.views[1]?.handlers = ["press"]; behind.handlers = ["press"]
+        p.press(2)
+        // A plain child, neither a control nor selectable text, forwards
+        // through the popover. The page's responder chain must not hear it.
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 7]],
+            ["op": "frame", "id": 7, "x": 120, "y": 80, "w": 100, "h": 40]]))
+        let child = try XCTUnwrap(p.views[7])
+        let at = child.convert(NSPoint(x: 20, y: 20), to: nil)
+        var presses: [UInt32] = [], pointers: [UInt32] = []
+        p.onPress = { presses.append($0) }; p.onPointer = { id, _, _ in pointers.append(id) }
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(behind)
+        clicksArriveAsInTheKeyWindow()
+        for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            window.sendEvent(event)
+        }
+        XCTAssertEqual(pointers, [7, 7])
+        XCTAssertEqual(presses, [], "no page ancestor or focused page control is activated")
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+    func testAuthoredFlipOrderPlacesTheOpenPopoverAndTracksItsInvoker() throws {
+        let p = fixture(), source = try XCTUnwrap(p.views[2]), pop = try XCTUnwrap(p.views[3])
+        let window = try XCTUnwrap(p.viewport.window)
+        defer { p.menus.reset() }
+        p.menus.painted = false
+        window.setContentSize(NSSize(width: 420, height: 600))
+        window.orderFrontRegardless()
+        p.apply(wireBatch([
+            ["op": "frame", "id": 2, "x": 332, "y": 560, "w": 80, "h": 32],
+            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 322, "h": 122],
+            ["op": "style", "id": 3, "style": ["position_area": "bottom span-right", "position_try_fallbacks": "flip-block, flip-inline, flip-block flip-inline"]],
+        ]))
+        p.menus.show(pop, from: source)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        XCTAssertNil(p.menus.entries.first?.native, "authored CSS placement wins over NSPopover's screen-based choice")
+        XCTAssertEqual(pop.frame, CGRect(x: 90, y: 438, width: 322, height: 122))
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0, "y": 0, "w": 420, "h": 1200]]))
+        p.viewport.contentView.scroll(to: NSPoint(x: 0, y: 10))
+        p.viewport.reflectScrolledClipView(p.viewport.contentView)
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: 90, y: 428), "scroll notifications move the open popover")
+        p.viewport.contentView.scroll(to: .zero)
+        p.viewport.reflectScrolledClipView(p.viewport.contentView)
+        window.setContentSize(NSSize(width: 800, height: 800))
+        p.menus.layout()
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: 90, y: 438), "a fitting fallback survives resize, as Chrome keeps it")
+        source.setFrameOrigin(CGPoint(x: 8, y: 8))
+        p.menus.layout()
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: 8, y: 40), "the open popover follows its invoker")
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["position_area": "top span-left", "position_try_fallbacks": "none"]]]))
+        XCTAssertEqual(pop.frame.origin, CGPoint(x: -234, y: -114), "none keeps the overflowing base")
+    }
+
     private var windows: [NSWindow] = []
     override func tearDown() { windows.forEach { $0.close() }; windows.removeAll() }
+    /// Tab leaves a popover's form for the page's buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private func fixture() -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
+        // The popover painted in the page's top layer, as the driver's own
+        // chrome shows it; AppKit's popover is `PopoverNativeMacTests`.
+        p.menus.painted = true
+        p.dialogs.painted = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -155,6 +315,93 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertEqual(p.pointerHeld, 3, "the popover hears the pointer and keeps the press")
         row.mouseUp(with: mouse(p, .leftMouseUp, row))
         XCTAssertEqual(log, ["down 1", "up 1"])
+    }
+    func testManualPopoverKeepsItsLayerAfterAnOutsideClick() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["popover": "manual"], "clear": []]]))
+        p.press(2)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        pointer(p, .leftMouseDown, try XCTUnwrap(p.views[6]))
+        pointer(p, .leftMouseUp, try XCTUnwrap(p.views[6]))
+        XCTAssertTrue(p.menus.isOpen(pop), "manual popovers do not light-dismiss")
+        p.press(5)
+        XCTAssertFalse(p.menus.isOpen(pop), "the popover's own close control still works")
+    }
+    func testOutsideClickClosesAutoBeneathManualWithoutClosingManual() throws {
+        let p = fixture(), auto = try XCTUnwrap(p.views[3]), outside = try XCTUnwrap(p.views[6])
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "view", "props": ["popover": "manual", "id": "manual"]],
+            ["op": "create", "id": 8, "kind": "button", "props": ["popovertarget": "manual"]],
+            ["op": "create", "id": 9, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 8]],
+            ["op": "children", "id": 7, "ids": [9]],
+            ["op": "children", "id": 1, "ids": [2, 6, 3, 7]],
+            ["op": "frame", "id": 8, "x": 10, "y": 115, "w": 80, "h": 30],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 100, "h": 70],
+        ]))
+        let manual = try XCTUnwrap(p.views[7])
+        p.press(2); p.press(8)
+        XCTAssertEqual(p.menus.presented.map(\.id), [auto.id, manual.id])
+        pointer(p, .leftMouseDown, outside)
+        pointer(p, .leftMouseUp, outside)
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id], "manual remains in the top layer")
+        XCTAssertTrue(auto.isHidden, "the auto popover light-dismissed")
+        XCTAssertTrue(manual.superview != nil)
+        p.menus.sync()
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id], "a later batch keeps the manual presentation")
+        p.menus.close(manual)
+        p.press(2)
+        outside.props["popovertarget"] = "manual"
+        p.press(outside.id)
+        XCTAssertEqual(p.menus.presented.map(\.id), [auto.id, manual.id], "opening manual leaves auto open")
+        p.menus.close(auto)
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id], "explicitly hiding auto also preserves manual")
+        p.press(2)
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id, auto.id])
+        pointer(p, .leftMouseDown, manual)
+        pointer(p, .leftMouseUp, manual)
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id], "a sibling manual does not shield auto")
+    }
+    func testEscapeClosesAutoBeneathManualAndLeavesManualOpen() throws {
+        let p = fixture(), auto = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "view", "props": ["popover": "manual", "id": "manual"]],
+            ["op": "create", "id": 8, "kind": "button", "props": ["popovertarget": "manual"]],
+            ["op": "children", "id": 1, "ids": [2, 6, 8, 3, 7]],
+            ["op": "frame", "id": 8, "x": 100, "y": 340, "w": 80, "h": 30],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 100, "h": 70],
+        ]))
+        let manual = try XCTUnwrap(p.views[7])
+        p.press(2); p.press(8)
+        XCTAssertEqual(p.menus.presented.map(\.id), [auto.id, manual.id])
+        XCTAssertTrue(p.menus.key(key(window)))
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id])
+        XCTAssertTrue(p.menus.key(key(window, up: true)))
+        XCTAssertFalse(p.menus.key(key(window)), "manual alone does not light-dismiss")
+        XCTAssertTrue(p.menus.isOpen(manual))
+    }
+    func testClickInsideManualChildOfAutoKeepsTheAutoAncestor() throws {
+        let p = fixture(), auto = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "view", "props": ["popover": "manual", "id": "manual"]],
+            ["op": "create", "id": 8, "kind": "button", "props": ["popovertarget": "manual"]],
+            ["op": "create", "id": 9, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4, 5, 8, 7]],
+            ["op": "children", "id": 7, "ids": [9]],
+            ["op": "frame", "id": 8, "x": 10, "y": 115, "w": 80, "h": 30],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 100, "h": 70],
+            ["op": "frame", "id": 9, "x": 0, "y": 0, "w": 100, "h": 70],
+        ]))
+        let manual = try XCTUnwrap(p.views[7])
+        p.press(2); p.press(8)
+        XCTAssertEqual(p.menus.presented.map(\.id), [auto.id, manual.id])
+        pointer(p, .leftMouseDown, manual)
+        pointer(p, .leftMouseUp, manual)
+        XCTAssertEqual(p.menus.presented.map(\.id), [auto.id, manual.id])
+        p.menus.close(auto)
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id])
+        p.menus.sync()
+        XCTAssertEqual(p.menus.presented.map(\.id), [manual.id], "manual descendants stay shown after auto closes")
     }
     func testRemovalInertAndResetRetireTheTopLayer() {
         let p = fixture(), pop = p.views[3]!
@@ -466,19 +713,56 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertEqual(trackingAtPress, false, "pressed after the menu's tracking ended")
         XCTAssertNil(p.views[2], "the invoker is unmounted")
     }
+    func testNativeContextAndButtonMenusKeepTheMainQueueRunningWhileTracking() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "agent menus are painted")
+        for context in [false, true] {
+            let (p, _) = menuFixture()
+            try XCTUnwrap(windows.last).orderFrontRegardless()
+            var tracking = false, tracked = false, ranDuring = false
+            var fallback: Timer?
+            let center = NotificationCenter.default
+            let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Share" }) else { return }
+                tracking = true; tracked = true
+                // Native module calls use this same queue. A menu opened
+                // inside a dispatch callout used to starve it until close.
+                DispatchQueue.main.async {
+                    if tracking { ranDuring = true }
+                    menu.cancelTracking()
+                }
+                let timer = Timer(timeInterval: 0.25, repeats: false) { _ in menu.cancelTracking() }
+                fallback = timer; RunLoop.main.add(timer, forMode: .common)
+            }
+            let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { _ in tracking = false }
+            defer { center.removeObserver(begin); center.removeObserver(end); fallback?.invalidate(); p.menus.reset() }
+            if context {
+                p.views[2]?.props["contextPopover"] = "form"
+                p.menus.context(try XCTUnwrap(p.views[2]), at: .zero)
+            } else { p.press(2) }
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while (!tracked || tracking) && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertTrue(tracked, "a real NSMenu tracked")
+            XCTAssertTrue(ranDuring, context ? "context menu" : "button menu")
+        }
+    }
     func testNestedAutoPopoversKeepOnlyTheirAncestorBranch() {
         let p = fixture()
         p.apply(wireBatch([
             ["op": "create", "id": 7, "kind": "view", "props": ["popover": "auto", "id": "nested"]],
             ["op": "create", "id": 8, "kind": "input"],
             ["op": "create", "id": 9, "kind": "button", "props": ["popovertarget": "nested"]],
-            ["op": "children", "id": 7, "ids": [8]],
+            ["op": "create", "id": 10, "kind": "view", "props": ["popover": "auto", "id": "third"]],
+            ["op": "create", "id": 11, "kind": "button", "props": ["popovertarget": "third"]],
+            ["op": "children", "id": 7, "ids": [8, 11]],
             ["op": "children", "id": 3, "ids": [4, 5, 9]],
-            ["op": "children", "id": 1, "ids": [2, 6, 3, 7]],
+            ["op": "children", "id": 1, "ids": [2, 6, 3, 7, 10]],
             ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 100, "h": 70],
+            ["op": "frame", "id": 10, "x": 0, "y": 0, "w": 100, "h": 70],
         ]))
         p.press(2); p.press(9)
         XCTAssertEqual(p.menus.presented.map(\.id), [3, 7])
+        p.press(11)
+        XCTAssertEqual(p.menus.presented.map(\.id), [3, 7, 10], "a third-level auto popover keeps both ancestors open")
         p.menus.close(p.views[3]!)
         XCTAssertTrue(p.menus.presented.isEmpty)
         p.press(2)

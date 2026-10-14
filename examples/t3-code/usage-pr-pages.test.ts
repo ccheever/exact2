@@ -158,14 +158,14 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
 
   test('the page\'s popovers and menus hold Escape as modals while they show (PG-7, X66)', async () => {
     // Popovers (Base UI Popover stops the Escape it dismisses with) while they show; menus already are (KeyMenu modal).
-    expect(await source('pages-pr-quick.contract')).toContain('row id=popId popover="auto" aria-modal=true position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`\n        column width="20rem"');
-    expect(await source('pages-pr-compose.contract')).toContain('row id=popId popover="auto" aria-modal=true ');
-    expect(await source('pages-pr-actions.contract')).toContain('row id="pr-freshness" popover="auto" aria-modal=true ');
+    expect(await source('pages-pr-quick.contract')).toContain('row id=popId popover="auto" position-try-fallbacks="none" aria-modal=true position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`\n        column width="20rem"');
+    expect(await source('pages-pr-compose.contract')).toContain('row id=popId popover="auto" position-try-fallbacks="none" aria-modal=true ');
+    expect(await source('pages-pr-actions.contract')).toContain('row id="pr-freshness" popover="auto" position-try-fallbacks="none" aria-modal=true ');
     const meta = await source('pages-pr-meta.contract');
-    expect(meta).toContain('row id=pickerId popover="auto" aria-modal=true ');
-    expect(meta).toContain('column id=menuId popover="auto" aria-modal=true ');
+    expect(meta).toContain('row id=pickerId popover="auto" position-try-fallbacks="none" aria-modal=true ');
+    expect(meta).toContain('column id=menuId popover="auto" position-try-fallbacks="none" aria-modal=true ');
     // The Usage page's narrow selects are Base UI Select popups, modal too.
-    expect(await component('pages-usage.contract', 'UsageSelect')).toContain('column id=menuId popover="auto" aria-modal=true ');
+    expect(await component('pages-usage.contract', 'UsageSelect')).toContain('column id=menuId popover="auto" position-try-fallbacks="none" aria-modal=true ');
   });
 
   test('a pull request editor holds Escape from Back while its field has the focus, never as a modal (PG-7)', async () => {

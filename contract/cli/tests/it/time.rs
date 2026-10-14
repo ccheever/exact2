@@ -49,6 +49,90 @@ fn the_date_arrives_as_one_commit_and_bad_facts_are_refused() {
     assert_eq!(text(&r), "1790000000000/120");
 }
 
+/// A host that knows the date at launch boots under it: the first frame
+/// reads it, and telling the same fact after commits nothing; an invalid
+/// fact boots on zero, as before.
+#[test]
+fn a_date_known_at_launch_is_read_from_the_first_frame() {
+    let plan = contract::bake(contract::compile(APP).unwrap(), NoData).unwrap();
+    let boot = |time| {
+        exact_runner::time::launching(time, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: -420.0,
+    };
+    let mut r = boot(Some(at));
+    assert_eq!(text(&r), "1790000000000/-420");
+    assert!(r.set_time(1_790_000_000_000.0, -420.0).unwrap().is_none());
+    let bad = exact_runner::time::WallTime {
+        epoch_at_zero: f64::NAN,
+        utc_offset: 0.0,
+    };
+    assert_eq!(text(&boot(Some(bad))), "0/0");
+    // Outside `launching`, nothing is left behind, a panic inside included.
+    let outside = || {
+        Runner::boot(
+            plan.clone(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    assert_eq!(text(&outside()), "0/0");
+    let unwound = std::panic::catch_unwind(|| {
+        exact_runner::time::launching(Some(at), || panic!("a boot that fails"))
+    });
+    assert!(unwound.is_err());
+    assert_eq!(text(&outside()), "0/0");
+}
+
+/// Where the viewer is, known at launch: the first frame reads the locale,
+/// zone and seed, and the same place told after commits nothing; a place
+/// that does not validate boots on the defaults.
+#[test]
+fn a_place_known_at_launch_is_read_from_the_first_frame() {
+    const PLACE_APP: &str = "shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.timeZone}/${time.seed}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(PLACE_APP).unwrap(), NoData).unwrap();
+    let boot = |place: Option<exact_runner::time::Place>| {
+        let launch = exact_runner::time::Launch { time: None, place };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let place = |locale: &str| exact_runner::time::Place {
+        locale: locale.into(),
+        time_zone: "America/Los_Angeles".into(),
+        seed: 7.0,
+    };
+    let mut r = boot(Some(place("fr-FR")));
+    assert_eq!(text(&r), "fr-FR/America/Los_Angeles/7");
+    assert!(r
+        .set_place("fr-FR", "America/Los_Angeles", Some(7.0))
+        .unwrap()
+        .is_none());
+    assert_eq!(text(&boot(Some(place("")))), "en-US/UTC/0");
+    assert_eq!(text(&boot(None)), "en-US/UTC/0");
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]
@@ -122,7 +206,14 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
         .set_place("en-GB", "Europe/London", Some(123_456_789.0))
         .unwrap()
         .is_none());
-    for bad in [-1.0, 0.5, f64::NAN, 9_007_199_254_740_992.0] {
+    // Below 2^32 (LLP 1116.005 D5): a seed past it is refused, not wrapped.
+    for bad in [
+        -1.0,
+        0.5,
+        f64::NAN,
+        4_294_967_296.0,
+        9_007_199_254_740_991.0,
+    ] {
         assert!(matches!(
             r.set_place("fr-FR", "Europe/Paris", Some(bad)),
             Err(RunnerError::InvalidPlace)
@@ -133,6 +224,9 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
             "bad seed refuses the whole place"
         );
     }
+    r.set_place("en-GB", "Europe/London", Some(4_294_967_295.0))
+        .unwrap();
+    assert_eq!(text(&r), "4294967295|en-GB", "2^32 - 1 is the largest seed");
 }
 
 // ---------------------------------------------------------------- gated tasks

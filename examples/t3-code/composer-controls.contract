@@ -209,14 +209,7 @@ component ModelTrigger
       // The tooltip (label · ⇧⌘M) belongs to the label, 4pt above it (ProviderModelPicker TooltipTrigger).
       when label
         box position="relative" display="flex" flex-direction="row" min-width=0 flex-shrink=1
-          // realinput-1010c-fixes RC-2: the label names its own text node (X64, #316): on macOS a label that shrinks below
-          // the text-raster size ("Claude Fable 5.1, Claude Sonnet 5.5" to "Claude Sonnet 5.5" after a Shift+click) kept
-          // painting its old raster in the window, clipped to the new box, while the tree and the capture had the new one.
-          // The key holds the size too: a resting composer (`xs`, a thread's only) draws the same text at 12/400 in at most
-          // 10.5rem instead of 14/500, which shrinks a long label (a custom model's name above about 205 pt) below the
-          // raster size as well.
-          each shown in [(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel)] key=`${xs}:${shown}`
-            text shown font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
+          text (data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
           TipBubble(label=data.composer.modelTip, side="top", align="center", offset=(xs ? 20 : 24), inset=0, shown=over)
       box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=(xs ? 0.5 : 1)
         CcIcon(name="chevron-down", size=(xs ? 12 : 14), color="light-dark(#71717a, #818181)", weight=2.25)
@@ -378,6 +371,9 @@ component AttachButton
 component PrimaryActions
   inject
     rem: number
+    // diff-cite-popover DC-1: a citation comment's textarea owns ⌘↵ (save and send) while it shows, as the reference's editor
+    // stops the key: Send declares no chord then (app-window.contract `citeShown`).
+    citeOpen: bool
   props
     data: Snapshot
     sendable: bool
@@ -431,7 +427,7 @@ component PrimaryActions
                 SendGlyph(icon="play", spinner=data.composer.sendSpinner)
           else
             box position="relative" display="flex" flex-shrink=0 hover=hover("send")
-              button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(busy or not sendable ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" box-shadow=(busy or not sendable ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff" title=""
+              button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") aria-keyshortcuts=(citeOpen ? "" : data.composer.sendChords) disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(busy or not sendable ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" box-shadow=(busy or not sendable ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff" title=""
                 SendArt()
                 SendGlyph(icon=(sendable ? data.composer.sendIcon : "arrow"), spinner=data.composer.sendSpinner)
               TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(over == "send" and overThread == data.threadId))
@@ -443,6 +439,9 @@ component PrimaryActions
 component ComposerFooter
   inject
     rem: number
+    // diff-cite-popover DC-1: a citation comment's textarea owns ⌘↵ (save and send) while it shows, as the reference's editor
+    // stops the key: Send declares no chord then (app-window.contract `citeShown`).
+    citeOpen: bool
   props
     data: Snapshot
     viewportWidth: number
@@ -505,7 +504,7 @@ component ComposerFooter
         PrimaryActions(data=data, sendable=sendable, hasText=(text != ""), busy=busy, tipShift=tipShift, send=send, stop=stop, command=command, openOptions=openOptions)
     when resting
       box position="absolute" right="0.5rem" top="0.4375rem" width="2rem" height="2rem" display="flex" hover=sendHover
-        button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff" title=""
+        button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=(citeOpen ? "" : data.composer.sendChords) disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff" title=""
           SendArt()
           SendGlyph(icon="arrow", spinner=data.composer.sendSpinner)
         TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(sendOver and sendThread == data.threadId))
@@ -913,13 +912,17 @@ component QueuedControl
   state dragSeq = -1
   action toggle
     collapsed = collapsed == data.threadId ? "" : data.threadId
+  // A press on another run's grip, or the first move after the last drop (queueDropSeq), starts a drag: fresh, as the
+  // reference's dragstart sets a new dragState. An action reads the values from before it, so the move's offset is
+  // bound first (followups-1012 FU-1: the old body added the move to the dragDy its start branch had just reset, so a
+  // drag after an earlier one started at that drag's offset; queued-drag.test.ts).
   action drag(id: string, index: number, dx: number, dy: number)
-    if dragRun != id or dragSeq != data.composer.queueDropSeq
+    let fresh = dragRun != id or dragSeq != data.composer.queueDropSeq
+    if fresh
       dragRun = id
       dragFrom = index
-      dragDy = 0
       dragSeq = data.composer.queueDropSeq
-    dragDy = dragDy + dy
+    dragDy = (fresh ? 0 : dragDy) + dy
   derive count = length(data.composer.queued)
   derive dragLive = dragRun != "" and dragSeq == data.composer.queueDropSeq
   // Rows are 24pt, 1pt apart: over a row's upper half inserts before it, else after it.

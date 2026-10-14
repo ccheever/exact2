@@ -72,6 +72,8 @@ export function captureHost(client: T3Client): Host {
 }
 /** Every answer that can reach the browser hands its native over; calls in flight keep theirs. */
 export function adoptCaptureNative(client: T3Client, native: Native): void { captureHost(client).native = native; }
+/** A module op through the newest answer's native (the agent's recordings, browser-automation-recording.ts). */
+export const captureNativeCall = (client: T3Client, request: Obj): Promise<Obj> => nativeCall(captureHost(client), request);
 
 async function nativeCall(host: Host, request: Obj): Promise<Obj> {
   const native = host.native;

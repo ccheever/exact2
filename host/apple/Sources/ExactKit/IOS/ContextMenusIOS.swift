@@ -33,6 +33,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         let point: CGPoint
         /// Whether the source's own `contextmenu` has fired (once, lazily).
         var fired = false
+        var toggled = false
         weak var configuration: UIContextMenuConfiguration?
         weak var interaction: UIContextMenuInteraction?
         /// The lifted row; the popover it is a row of, the container it
@@ -54,6 +55,14 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
         }
     }
     private(set) var open: Open?
+
+    func isOpen(_ pop: NodeView) -> Bool { open?.popover === pop && open?.toggled == true }
+    func close(_ pop: NodeView) {
+        guard let owner = open, owner.popover === pop else { return }
+        open = nil
+        restore(owner)
+        owner.interaction?.dismissMenu()
+    }
 
     init(presenter: Presenter, menus: MenuHost) {
         self.presenter = presenter; self.menus = menus
@@ -185,6 +194,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     /// Whether `node` is the row lifted into a preview: a children op on its
     /// popover leaves it there.
     func lifts(_ node: NodeView) -> Bool { open?.preview === node }
+    func logicalParent(of view: UIView) -> UIView? {
+        guard let owner = open, owner.preview === view, !owner.dropped else { return nil }
+        return owner.inPopover ? owner.homePopover?.container : owner.container
+    }
     func children(_ parent: UIView, _ wanted: [NodeView]) {
         guard let owner = open, let preview = owner.preview else { return }
         if let i = wanted.firstIndex(where: { $0 === preview }) {
@@ -218,6 +231,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let menus, let source = interaction.view as? NodeView, live(source),
               let name = source.props["contextPopover"], menus.eligible(source) else { return nil }
+        // A long press on selectable text inside the source selects: the
+        // menu declines, which is what lets the text's own gesture go on
+        // (LLP 1115.000 D11.6, measured against a table row's menu).
+        if source.selectableText(at: location) != nil { return nil }
         guard let pop = popover(named: name) else { log("context menu \(name) refused: no popover has that id"); return nil }
         // A press released before its menu showed never reached `willEnd`.
         if let previous = open { restore(previous) }
@@ -267,6 +284,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
 
     /// The lifted row back in its popover, hidden with it.
     private func restore(_ owner: Open) {
+        if let pop = owner.popover, owner.toggled { owner.toggled = false; presenter?.popoverEvents.changed(pop, open: false) }
         guard let row = owner.preview else { return }
         owner.preview = nil
         row.removeFromSuperview()
@@ -366,12 +384,14 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     /// the software keyboard up over the menu (MenuFocusIOS.swift).
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         menus?.focus.setAside()
+        if let owner = open, let pop = owner.popover { owner.toggled = true; presenter?.popoverEvents.changed(pop, open: true) }
     }
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         let focus: () -> Void = { [weak self] in self?.menus?.focus.restore() }
         if let animator { animator.addCompletion(focus) } else { focus() }
         guard let owner = open, owner.configuration === configuration else { return }
+        if let pop = owner.popover, owner.toggled { owner.toggled = false; presenter?.popoverEvents.changed(pop, open: false) }
         let finish = { [weak self, weak owner] in
             guard let self, let owner, self.open === owner else { return }
             self.restore(owner)

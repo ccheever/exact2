@@ -107,6 +107,13 @@ impl Kernel {
             }
             self.arena.flags_mut(*slot).insert(NodeFlags::STYLE_DIRTY);
         }
+        // A replayed row checks its styles, which a handle leaves as they
+        // were, not what the handle now resolves to
+        if !users.is_empty() {
+            if let Some(tree) = self.layout.as_deref_mut().and_then(|l| l.tree()) {
+                tree.forget_memo();
+            }
+        }
         let mut controls_dirty = false;
         let mut unmirrored = Unmirrored;
         let layout = self.layout.as_deref_mut().unwrap_or(&mut unmirrored);

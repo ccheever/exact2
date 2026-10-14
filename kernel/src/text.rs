@@ -202,6 +202,10 @@ pub struct Paragraph {
     pub overflow_wrap: OverflowWrap,
     /// CSS whitespace preservation/collapsing.
     pub white_space: crate::WhiteSpace,
+    /// CSS `text-wrap-style`: `balance` breaks the lines before the first
+    /// forced break at the narrowest width that keeps their count
+    /// ([`exact_textflow::balanced_width`]), up to six lines.
+    pub text_wrap_style: crate::TextWrapStyle,
     /// CSS `text-indent` in points: the first line starts this far in from
     /// the start edge (right under `rtl`) and has that much less room.
     pub text_indent: f32,
@@ -259,6 +263,7 @@ impl Paragraph {
             text_overflow: p.text_overflow,
             overflow_wrap: p.overflow_wrap,
             white_space: p.white_space,
+            text_wrap_style: p.text_wrap_style,
             text_indent: p.text_indent,
             hyphens: p.hyphens,
             text_box_trim: p.text_box_trim,
@@ -277,6 +282,7 @@ impl Paragraph {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
             text_indent: s.text_indent,
             hyphens: s.hyphens,
             text_box_trim: s.text_box_trim,
@@ -468,6 +474,18 @@ impl Paragraph {
     }
 }
 
+/// A system symbol to measure: an image whose source is `symbol:<role>`,
+/// drawn at its computed font size and weight.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SymbolRequest<'a> {
+    /// The role after `symbol:`: `sf/<name>`, or a portable role.
+    pub role: &'a str,
+    /// The image's computed font size, in points.
+    pub font_size: f32,
+    /// Its computed font weight, 1–1000.
+    pub font_weight: u16,
+}
+
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
     /// Revision of host measuring traits (scale, content size, legibility,
@@ -483,6 +501,18 @@ pub trait TextMeasurer {
         crate::FieldChrome::default()
     }
 
+    /// A text control's own text, where the host's control sets it with a
+    /// text engine of its own (LLP 1115.001 D8: Android's `EditText`): its
+    /// width, height and first baseline at the offer, asked during layout.
+    /// `None`, the default, measures it as any paragraph.
+    fn field_text(
+        &mut self,
+        _kind: crate::FieldKind,
+        _request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        None
+    }
+
     /// Native button border-box size, including its platform chrome and
     /// authored content insets (LLP 1069.011.001 D11). None preserves the
     /// default size / set_intrinsic_size path for existing hosts.
@@ -490,6 +520,14 @@ pub trait TextMeasurer {
         &mut self,
         _request: &crate::ButtonMeasureRequest,
     ) -> Option<crate::ButtonMeasure> {
+        None
+    }
+
+    /// A system symbol's natural size, as the host draws it, measured before
+    /// the layout that places it, so the first frame has its box. `None` when
+    /// this host cannot say; the image's size is then the one its host
+    /// reports once its view is made.
+    fn symbol_size(&mut self, _request: &SymbolRequest<'_>) -> Option<(f32, f32)> {
         None
     }
 
@@ -871,6 +909,7 @@ impl MonospaceMeasurer {
 }
 
 /// What [`TextStyle::from_style`] reads, gathered row by row.
+#[derive(Clone, Copy)]
 struct TextRows {
     font_size: f32,
     font_weight: u16,
@@ -929,14 +968,74 @@ impl TextRows {
     }
 }
 
+/// Computed run rows carried down one inline tree. Keep line-height unresolved
+/// until a leaf: an inherited unitless value scales with that leaf's font size.
+#[derive(Clone, Copy)]
+pub(crate) struct RunRows {
+    text: TextRows,
+    pub hyphens: crate::Hyphens,
+    pub transform: crate::TextTransform,
+    mask: StyleMask,
+}
+
+impl RunRows {
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in TextStyle::ROWS {
+            rows.set(id);
+        }
+        rows.set(StyleId::Hyphens);
+        rows.set(StyleId::TextTransform);
+        let mut out = Self {
+            text: TextRows::of(own),
+            hyphens: own.hyphens,
+            transform: own.text_transform,
+            mask: own.mask,
+        };
+        inherit(rows, &mut |from, mask| {
+            out.take(from, mask);
+            out.mask = out.mask.union(mask);
+        });
+        out
+    }
+
+    /// Only Text children participate in an inline traversal, so control
+    /// typography boundaries have already been resolved at the traversal root.
+    pub fn child(mut self, own: &StyleProps) -> Self {
+        // A row set nowhere retains the child's own initial value, unmarked,
+        // exactly as computed_style does (including arena-only test styles).
+        self.take(own, own.mask.union(StyleMask::INHERITED.minus(self.mask)));
+        self.mask = self.mask.union(own.mask);
+        self
+    }
+
+    fn take(&mut self, from: &StyleProps, mask: StyleMask) {
+        self.text.take(from, mask);
+        if mask.has(StyleId::Hyphens) {
+            self.hyphens = from.hyphens;
+        }
+        if mask.has(StyleId::TextTransform) {
+            self.transform = from.text_transform;
+        }
+    }
+
+    pub fn style(&self) -> TextStyle {
+        self.text.style()
+    }
+}
+
 /// The paragraph rows [`Paragraph::from_style`] reads besides its strut.
-const PARAGRAPH_ROWS: [StyleId; 10] = [
+const PARAGRAPH_ROWS: [StyleId; 11] = [
     StyleId::Direction,
     StyleId::TextAlign,
     StyleId::LineClamp,
     StyleId::TextOverflow,
     StyleId::OverflowWrap,
     StyleId::WhiteSpace,
+    StyleId::TextWrapStyle,
     StyleId::TextIndent,
     StyleId::Hyphens,
     StyleId::TextBoxTrim,
@@ -950,6 +1049,7 @@ struct ParagraphRows {
     text_overflow: crate::TextOverflow,
     overflow_wrap: crate::OverflowWrap,
     white_space: crate::WhiteSpace,
+    text_wrap_style: crate::TextWrapStyle,
     text_indent: f32,
     hyphens: crate::Hyphens,
     text_box_trim: crate::TextBoxTrim,
@@ -965,6 +1065,7 @@ impl ParagraphRows {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
             text_indent: s.text_indent,
             hyphens: s.hyphens,
             text_box_trim: s.text_box_trim,
@@ -989,6 +1090,9 @@ impl ParagraphRows {
         }
         if mask.has(StyleId::WhiteSpace) {
             self.white_space = s.white_space;
+        }
+        if mask.has(StyleId::TextWrapStyle) {
+            self.text_wrap_style = s.text_wrap_style;
         }
         if mask.has(StyleId::TextIndent) {
             self.text_indent = s.text_indent;
@@ -1055,6 +1159,7 @@ mod tests {
             text_overflow: TextOverflow::Clip,
             overflow_wrap: OverflowWrap::Normal,
             white_space: crate::WhiteSpace::Normal,
+            text_wrap_style: crate::TextWrapStyle::Auto,
             text_indent: 0.0,
             hyphens: crate::Hyphens::Manual,
             text_box_trim: crate::TextBoxTrim::None,

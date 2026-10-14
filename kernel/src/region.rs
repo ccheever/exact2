@@ -313,11 +313,20 @@ impl RegionOffset {
 pub(crate) struct RegionGeometry {
     frames: Vec<RegionFrame>,
     offsets: Vec<RegionOffset>,
-    // Local editor boxes belong to this immutable pass, not every retained node.
-    // An empty map allocates nothing for regions without native text fields.
-    field_content: crate::id::IdMap<NodeKey, Frame>,
-    button_bases: crate::id::IdMap<NodeKey, Option<f32>>,
+    facts: BoxFacts,
     provisional_chrome: bool,
+}
+
+/// What a few boxes of a pass have beside their frames, by node, so a region
+/// without them allocates nothing: a native field's editor box, a native
+/// button's containing width, and a padding or border other than none, each
+/// as this pass resolved it. They belong to the immutable pass, not every
+/// retained node.
+#[derive(Clone, Default)]
+pub(crate) struct BoxFacts {
+    pub(crate) field_content: crate::id::IdMap<NodeKey, Frame>,
+    pub(crate) button_bases: crate::id::IdMap<NodeKey, Option<f32>>,
+    pub(crate) insets: crate::id::IdMap<NodeKey, crate::id::BoxInset>,
 }
 impl RegionGeometry {
     fn validate(&self, origin: Frame) -> Result<(), LayoutError> {
@@ -409,7 +418,7 @@ impl RegionPublication {
     /// unchanged when frames are projected at another origin, and never reads
     /// live arena styles or aliases a node whose slot was reused.
     pub fn field_content_rect(&self, node: NodeKey) -> Option<Frame> {
-        self.geometry.field_content.get(&node).copied()
+        self.geometry.facts.field_content.get(&node).copied()
     }
     /// Default: all retained offers. Split profile: final paint owners only.
     pub fn artifacts(&self) -> &[RegionArtifact] {

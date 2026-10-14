@@ -1,21 +1,29 @@
-// The number pads' bar on iOS (LLP 1116.003 D7): the decimal and number pads
-// have no minus key and no Return key, so a field on one gets the keys it
-// needs in the keyboard's accessory bar, as a hand-built converter adds them,
-// and only those: ± where its `min` is below zero (round 5's unit converter
-// wrote `inputmode="text"` to reach a minus and got a letter keyboard), and
-// Done where Return would act — `enterkeyhint="done"` or a `submit` handler.
-// ± flips the sign of what the field holds and fires its `input` as a
-// keystroke does; Done does what Return does (commit, submit) and puts the
-// keyboard away. Neither: no bar.
+// The number pads' bar on iOS (LLP 1116.003 D7): the decimal, number and
+// phone pads have no Return key (and the decimal and number pads no minus
+// key), so a field on one gets the keys it needs in the keyboard's accessory
+// bar, as a hand-built form adds them: Done always (LLP 1116.008 D8: a pad
+// with no way to put it away left expense-tracker's builder tapping a
+// category to dismiss it, where Return would have acted only for a field with
+// `enterkeyhint="done"` or a `submit` handler), and ± where its `min` is
+// below zero (round 5's unit converter wrote `inputmode="text"` to reach a
+// minus and got a letter keyboard). ± flips the sign of what the field holds
+// and fires its `input` as a keystroke does; Done does what Return does
+// (commit, submit) and puts the keyboard away.
 #if os(iOS)
 import UIKit
 
 extension NodeView {
-    /// The keys this field's pad lacks that it asks for.
+    /// The keys this field's pad lacks: Done on every pad with no Return key,
+    /// ± on the decimal and number pads where `min` is below zero.
     var padKeys: (sign: Bool, done: Bool) {
-        guard let f = field, f.keyboardType == .decimalPad || f.keyboardType == .numberPad else { return (false, false) }
-        let sign = props["min"].flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.map { $0 < 0 } ?? false
-        return (sign, props["enterKeyHint"] == "done" || handlers.contains("submit"))
+        guard let f = field else { return (false, false) }
+        switch f.keyboardType {
+        case .decimalPad, .numberPad:
+            let sign = props["min"].flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.map { $0 < 0 } ?? false
+            return (sign, true)
+        case .phonePad: return (false, true)
+        default: return (false, false)
+        }
     }
 
     /// The bar follows the field's props and handlers: made for the keys it
@@ -43,15 +51,17 @@ extension NodeView {
     }
 
     /// Done: what Return does (the key its handlers hear, the commit, an
-    /// implicit submission), then the keyboard goes away, as its label says.
+    /// implicit submission, then the keyboard goes away unless the action
+    /// focused the field again, LLP 1115.000 D9.2). A Return a `key`
+    /// handler prevented does none of that, and Done still says done.
     @objc func padDone() {
         guard let f = field else { return }
         _ = textFieldShouldReturn(f)
-        if f.isFirstResponder { f.resignFirstResponder() }
+        if f.isFirstResponder, presenter?.focusAsked !== self { f.resignFirstResponder() }
     }
 }
 
-/// The bar over the pad: ± at its leading edge, Done at its trailing one, each only when asked for.
+/// The bar over the pad: ± at its leading edge where the field asks for it, Done at its trailing one.
 final class PadBar: UIToolbar {
     weak var owner: NodeView?
     let sign: Bool, done: Bool

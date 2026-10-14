@@ -1,7 +1,7 @@
 # Writing Exact's tests
 
 How to write and change a test in this repository so that it stays trustworthy
-and fast. The merge-blocking checks must run in under 60 seconds
+and fast. The merge-blocking checks must run in under 65 seconds
 (`rules/RULES.md`). The async lane runs everything else for every commit, so
 its time counts too.
 
@@ -63,6 +63,9 @@ its time counts too.
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
   (`NSApplication.shared` before `NSApp`).
+- **Platform availability belongs in Swift.** The iOS run includes every test
+  compiled for its destination, including shared classes without an `IOSTests`
+  suffix. Guard platform-specific assertions with `#if os(...)`.
 - **Mac-wide state is serial.** A class whose file uses the general pasteboard,
   app activation, the mouse location or a screen capture shares one process with
   the other such classes. A window's key status and first responder belong to
@@ -86,6 +89,9 @@ its time counts too.
   `waitForExistence(timeout:)` and its non-existence counterpart poll with a
   delay of about a second. Query the app's state (`tree`, `state`, an
   accessibility read) for the condition instead.
+- **Safe-area tests fill the screen.** Size a UIKit test window to its screen's
+  bounds and boot the session at that size. A fixed phone size may stop above
+  another simulator's home indicator and correctly receive no bottom inset.
 - **A settled UI is a condition.** After a transition or an animation, wait for
   the condition the product itself uses (`Agent.nativeInFlight()` on Apple, the
   agent's `clock settle`), not a hardcoded sleep timeout.

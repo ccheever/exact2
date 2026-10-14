@@ -75,25 +75,6 @@ fn link_href(href: &str) -> String {
     }
 }
 
-/// AttachmentFilePreview's ChatMarkdown has no `cwd` (audit-wave-followups-3 FW-2):
-/// resolveMarkdownFileLinkTarget finds no folder for a relative destination, so the
-/// anchor is a plain one, which the desktop window opens nowhere (its window-open
-/// handler passes only safe external URLs): link-coloured text with no target, as an
-/// emptied anchor is. An absolute path or a `file:` URL is still a chip.
-fn link_href_without_cwd(href: &str) -> String {
-    let resolved = link_href(href);
-    match resolved.strip_prefix(FILE_LINK) {
-        Some(target)
-            if !target.to_ascii_lowercase().starts_with("file:")
-                && !target.starts_with('/')
-                && !windows_drive(target) =>
-        {
-            NO_HREF.to_string()
-        }
-        _ => resolved,
-    }
-}
-
 /// `- [ ] `, `1. [x] `: the `[` of a list item's task marker (GFM wants whitespace and
 /// some text after it), from the item's text after its bullet. `more`: the text goes on
 /// in later runs (`- [ ] **Write**`: emphasis, code or a link right after the marker).
@@ -406,11 +387,17 @@ mod link_tests {
         );
         assert_eq!(blocks[1][16].as_str(), Some("done"));
         assert_eq!(blocks[1][17], Value::Number(-1.0));
-        assert_eq!(
-            link_href_without_cwd("C:/repo/a.ts"),
-            format!("{FILE_LINK}C:/repo/a.ts")
-        );
-        assert_eq!(link_href_without_cwd("./a.ts"), NO_HREF);
+        let mut drive =
+            markdown_parse::parse("[d](C:/repo/a.ts) [r](./a.ts)", &|href| link_href(href));
+        links_without_cwd(&mut drive.blocks);
+        let hrefs: Vec<&str> = drive.blocks[0]
+            .runs
+            .iter()
+            .map(|run| run.href.as_str())
+            .filter(|href| !href.is_empty())
+            .collect();
+        let chip = format!("{FILE_LINK}C:/repo/a.ts");
+        assert_eq!(hrefs, vec![chip.as_str(), NO_HREF]);
     }
 
     #[test]

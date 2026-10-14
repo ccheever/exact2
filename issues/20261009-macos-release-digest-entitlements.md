@@ -11,6 +11,23 @@
 
 Fix signing-before-hashing first; coordinate #334. Amend LLP 1069.008 for scoped capability-derived helper entitlements and copied staging files. Arbitrary preseal callbacks are not approved; require a real signed/notarized helper proof.
 
+## Implementation, 2026-10-12
+
+The digest-order slice is implemented: `exact release` passes its identity into
+the build, GPU modules receive hardened-runtime signatures before the bake hashes
+them, and the release signing walk verifies and preserves baked GPU/Rust code.
+Mach-O code in content-addressed assets is refused with a message naming
+`host.macos.resources`. A directory merely named `*.bundle` is not treated as a
+code bundle without its executable declaration. `scripts/exact.test.mjs` has
+regressions for the asset refusal and preserved primary/named GPU and Rust module
+digests, using real Mach-O files and `codesign --verify --deep --strict`.
+
+The existing `host.macos.resources` copy already handles staging files before
+sealing. Scoped capability-derived helper runtime exceptions remain outstanding;
+LLP 1069.008 records that boundary. This issue stays open. The verification Mac
+has only an Apple Development identity, so a Developer ID/notarized helper proof
+has not been run.
+
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
 ## Original report

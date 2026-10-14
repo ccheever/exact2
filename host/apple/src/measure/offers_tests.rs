@@ -422,6 +422,7 @@ mod storage {
             && actual.overflow_wrap == expected.overflow_wrap
             && actual.text_indent.to_bits() == expected.text_indent.to_bits()
             && actual.hyphens == expected.hyphens
+            && actual.text_wrap_style == expected.text_wrap_style
             && same_run(&actual.strut, &expected.strut)
             && !actual.runs.is_null();
         if probe.exact {
@@ -534,6 +535,9 @@ mod storage {
         paragraph.overflow_wrap = OverflowWrap::Anywhere;
         paragraph.text_indent = [0.0, 24.5, -12.0, 2.0][variant];
         paragraph.hyphens = exact_kernel::Hyphens::ALL[variant % 3];
+        if variant % 2 == 1 {
+            paragraph.text_wrap_style = exact_kernel::TextWrapStyle::Balance;
+        }
         let request = TextMeasureRequest {
             exclusions: &[],
             runs: &runs[..count],
@@ -567,6 +571,7 @@ mod storage {
                 text_box_trim: 0,
                 text_box_over: 0,
                 text_box_under: 0,
+                text_wrap_style: (variant % 2) as u8,
             },
             calls: 0,
             exact: true,

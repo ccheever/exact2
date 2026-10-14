@@ -125,6 +125,28 @@ package enum PageFacts {
         #endif
     }()
 
+    /// What an agent's `prefer display-scale` set in place of the display's
+    /// own; nil reads the display.
+    nonisolated(unsafe) static var agentDisplayScale: Double? {
+        didSet { changed() }
+    }
+
+    /// The scale of the display `view` is drawn on, device pixels a point
+    /// (LLP 1115.000 D10.3): UIKit's `displayScale` (3 or 2 on a phone), the
+    /// window's `backingScaleFactor` on the Mac (2 on a Retina display, 1
+    /// where there is none or no window yet). A hairline (`-exact-hairline`)
+    /// is one device pixel of it, so it is told to the kernel as the root
+    /// font size is. Under the agent it is still the display's, which is the
+    /// simulator's or the Mac's own, unless the drive names one.
+    static func displayScale(_ view: PlatformView?) -> Double {
+        if let agentDisplayScale { return agentDisplayScale }
+        #if os(macOS)
+        return Double(max(1, view?.window?.backingScaleFactor ?? 1))
+        #else
+        return Double(max(1, view?.traitCollection.displayScale ?? 1))
+        #endif
+    }
+
     /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
     /// pickers, bit 4 without focus.
@@ -166,6 +188,30 @@ package enum PageFacts {
     }
     static func forget(_ tokens: [NSObjectProtocol]) {
         tokens.forEach(NotificationCenter.default.removeObserver)
+    }
+}
+
+extension ExactSession {
+    /// LLP 1115.000 D10.3: the display's scale, told with the page's facts
+    /// after every boot and again when the view's display changes
+    /// (`ExactViewIOS`, `ExactViewMac`); the same scale again commits
+    /// nothing, and a new one only where a row is a hairline.
+    func tellDisplayScale() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setDisplayScale(PageFacts.displayScale(presenter.viewport)))
+    }
+}
+
+extension ExactSession {
+    /// The window `document.hasFocus()` is read of: the session's view's. On
+    /// macOS, the one of the session's windows that is key when one is: a
+    /// `dialog`'s sheet holds the keyboard for its page (LLP 1115.002 D7.2),
+    /// which another app's sheet (an open panel) does not.
+    var pageWindow: FocusWindow? {
+        #if os(macOS)
+        if let key = NSApp.keyWindow, presenter.hosts(key) { return key }
+        #endif
+        return view?.window
     }
 }
 

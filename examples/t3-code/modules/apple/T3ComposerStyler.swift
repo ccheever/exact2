@@ -283,10 +283,32 @@ final class T3ComposerStyler {
     }
     func chipWidth(_ chip: T3ComposerChip, font: NSFont) -> CGFloat {
         let size = font.pointSize * 0.86
-        let label = (displayLabel(chip) as NSString).size(withAttributes: [.font: chipFont(font)]).width
+        let label = labelWidth(chip, font: font)
         let suffix = chipSuffix(chip)
-        let extra = suffix.isEmpty ? 0 : size * 0.33 + ceil((suffix as NSString).size(withAttributes: [.font: suffixFont(font)]).width * 10) / 10
+        var extra = suffix.isEmpty ? 0 : size * 0.33 + ceil((suffix as NSString).size(withAttributes: [.font: suffixFont(font)]).width * 10) / 10
+        // diff-cite-popover DC-1: a citation ends with its comment button (ContextChipAction: the chip's 0.33em gap, ml-[0.17em], size-[1.17em]).
+        if chip.kind == "citation" { extra += size * (0.33 + 0.17 + 1.17) }
         return 2 + size * 0.5 * 2 + size * 1.17 + size * 0.33 + ceil(label * 10) / 10 + extra
+    }
+    /// The label's drawn width: a citation's ContextChipLabel is `max-w-[16em]` and truncates past it.
+    func labelWidth(_ chip: T3ComposerChip, font: NSFont) -> CGFloat {
+        let width = (displayLabel(chip) as NSString).size(withAttributes: [.font: chipFont(font)]).width
+        return chip.kind == "citation" ? min(width, font.pointSize * 0.86 * 16) : width
+    }
+    /// A citation chip's comment button (ContextChipAction), in the text view's coordinates.
+    func citationActionRect(_ chip: T3ComposerChip) -> NSRect? {
+        guard chip.kind == "citation", let rect = chipRect(chip) else { return nil }
+        let size = (baseFont ?? NSFont.systemFont(ofSize: 14)).pointSize * 0.86, box = size * 1.17
+        return NSRect(x: rect.maxX - 1 - size * 0.5 - box, y: rect.midY - box / 2, width: box, height: box)
+    }
+    /// The citation chip whose comment button is under `point` (text view coordinates): the button with the 0.5em
+    /// gap and margin before it, the chip's full height, as the press target.
+    func citationAction(at point: NSPoint) -> T3ComposerChip? {
+        chips.first { chip in
+            guard let button = citationActionRect(chip), let rect = chipRect(chip) else { return false }
+            let size = (baseFont ?? NSFont.systemFont(ofSize: 14)).pointSize * 0.86
+            return NSRect(x: button.minX - size * 0.5, y: rect.minY, width: rect.maxX - button.minX + size * 0.5, height: rect.height).contains(point)
+        }
     }
     /// The chip's pill as the underlay draws it (ContextChip's inline-flex box, `h-[1.41em]`, middle
     /// aligned), in the text view's coordinates.
@@ -314,10 +336,8 @@ final class T3ComposerStyler {
         return fields.count > 2 ? T3ComposerImageChip.entry(directory: imageDirectory, id: String(fields[2])) : nil
     }
     func displayLabel(_ chip: T3ComposerChip) -> String {
-        if chip.kind == "citation" {
-            let quote = chip.label.split(whereSeparator: \.isNewline).joined(separator: " ")
-            return quote.count > 40 ? String(quote.prefix(39)) + "…" : quote
-        }
+        // AssistantCitationChip's label (T3ComposerText.citationLabel): the comment or the quote, 64 units at most.
+        if chip.kind == "citation" { return chip.label }
         // A skill reads as ComposerPromptEditorTiptap's skillLabelFor names it: the provider's skill
         // of that name by formatProviderSkillDisplayName (its display name), else the name as
         // formatProviderSkillDisplayName title-cases one without: `$frontend-design` is "Frontend Design".
@@ -707,9 +727,17 @@ final class T3ComposerUnderlay: NSView {
         let suffix = styler.chipSuffix(chip) as NSString
         let suffixFont = styler.suffixFont(font)
         let suffixWidth = suffix.length > 0 ? suffix.size(withAttributes: [.font: suffixFont]).width : 0
-        let labelEnd = rect.maxX - 1 - size * 0.5 - (suffix.length > 0 ? suffixWidth + size * 0.33 : 0)
+        let action = chip.kind == "citation" ? size * (0.33 + 0.17 + 1.17) : 0
+        let labelEnd = rect.maxX - 1 - size * 0.5 - (suffix.length > 0 ? suffixWidth + size * 0.33 : 0) - action
+        // A citation's label truncates at its 16em (ContextChipLabel `truncate`).
+        let clip = NSMutableParagraphStyle(); clip.lineBreakMode = chip.kind == "citation" ? .byTruncatingTail : .byClipping
         label.draw(in: NSRect(x: x, y: rect.midY - labelSize.height / 2, width: labelEnd - x + 1, height: labelSize.height),
-                   withAttributes: [.font: labelFont, .foregroundColor: ink])
+                   withAttributes: [.font: labelFont, .foregroundColor: ink, .paragraphStyle: clip])
+        // diff-cite-popover DC-1: the comment button's pencil (PencilIcon at 0.85em in the 1.17em ContextChipAction), in the chip's ink.
+        if chip.kind == "citation" {
+            let pencil = size * 0.85, box = size * 1.17, midX = rect.maxX - 1 - size * 0.5 - box / 2
+            T3ComposerIcons.draw("pencil", in: NSRect(x: midX - pencil / 2, y: rect.midY - pencil / 2, width: pencil, height: pencil), color: ink, dark: dark)
+        }
         if suffix.length > 0 {
             let suffixHeight = suffix.size(withAttributes: [.font: suffixFont]).height
             suffix.draw(at: NSPoint(x: rect.maxX - 1 - size * 0.5 - suffixWidth, y: rect.midY - suffixHeight / 2), withAttributes: [.font: suffixFont, .foregroundColor: ink])

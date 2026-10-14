@@ -142,7 +142,7 @@ export function applyDeviceSetting(local: LocalPrefs, key: string, value: string
   }
   return false;
 }
-/** Reference "Restore device defaults": every device-local General/Appearance value. */
+/** Every device-local key off its default, KEPT_ON_RESTORE's and Plan mode's too; restoreLabels lists only RESTORE_ROWS' of them. */
 export function changedDeviceLabels(local: LocalPrefs): string[] {
   const prefs = local.clientSettings || decodeClientPrefs({});
   const labels: string[] = [];
@@ -151,9 +151,14 @@ export function changedDeviceLabels(local: LocalPrefs): string[] {
   if (local.groupingMode !== 'repository') labels.push('projectGrouping');
   return labels;
 }
+/** What useSettingsRestore leaves alone (SettingsPanels.tsx restoreDefaults: its one updateSettings patch and useTheme's keys):
+ *  Font smoothing, Sidebar (legacy), the legacy thread sort, Plan mode (legacy), and typography's Advanced switch, which the
+ *  reference keeps in its own local storage key (TypographySection), outside the settings (restore-defaults-and-timeline-glyph RD-1). */
+export const KEPT_ON_RESTORE = ['fontSmoothing', 'legacySidebarEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced'] as const;
 export function restoreDeviceDefaults(local: LocalPrefs): void {
-  Object.assign(local.deviceSettings, DEVICE_DEFAULTS);
-  local.clientSettings = decodeClientPrefs({});
+  const prefs = local.clientSettings || decodeClientPrefs({}), planModeEnabled = local.deviceSettings.planModeEnabled;
+  Object.assign(local.deviceSettings, DEVICE_DEFAULTS, { planModeEnabled });
+  local.clientSettings = { ...decodeClientPrefs({}), ...Object.fromEntries(KEPT_ON_RESTORE.map(key => [key, prefs[key]])) };
   local.groupingMode = 'repository';
   restoreBrowserTabDefaults({ local }); // browser-surface part 4: the default viewport, zoom and appearance (browser-defaults.ts)
 }
@@ -612,8 +617,8 @@ const THEME_MIX = 'themeMix';
 /**
  * useSettingsRestore's changedSettingLabels in its order (SettingsPanels.tsx): each label with the keys it reads, `device` from this
  * app's preferences (changedDeviceLabels) and `server` from the scope's settings. `browser` is getChangedBrowserSettingLabels' place.
- * A font's label counts its family and its size (getChangedTypographySettingLabels). Font smoothing stays listed after the fonts: the
- * reference neither lists nor resets it, but this app's restore resets it, so the list names it (audit-wave-followups-4).
+ * A font's label counts its family and its size (getChangedTypographySettingLabels). Font smoothing is neither listed nor reset, as
+ * on the reference (KEPT_ON_RESTORE).
  */
 const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser', readonly string[]])[] = [
   ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Theme mix', 'device', [THEME_MIX]], ['Contrast', 'device', ['appearanceContrast']],
@@ -626,7 +631,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Auto-resume limited threads', 'server', ['autoResumeLimitedThreads']], ['Snooze limited threads', 'server', ['snoozeLimitedThreads']],
   ['Word wrap', 'device', ['wordWrap']], ['Composer context', 'device', ['persistComposerContextStrip']],
   ['Interface font', 'device', ['fontFamilySans', 'fontSizeInterface']], ['Prompt font', 'device', ['fontFamilyComposer', 'fontSizePrompt']],
-  ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']], ['Font smoothing', 'device', ['fontSmoothing']],
+  ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']],
   ['Default diff file state', 'device', ['diffFilesCollapsed']], ['Diff whitespace changes', 'device', ['diffIgnoreWhitespace']], ['Diff layout', 'device', ['diffLayout']],
   ['Proactive panels', 'device', ['proactivePanelsEnabled']], ['Show skills in slash menu', 'device', ['showSkillsInSlashMenu']],
   ['Collapse composer on scroll', 'device', ['composerCollapseOnScroll']], ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],

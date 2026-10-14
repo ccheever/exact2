@@ -18,10 +18,13 @@
   var FunctionCall = Function.prototype.call;
   var FunctionBind = Function.prototype.bind;
   function uncurry(fn) { return FunctionCall.call(FunctionBind, FunctionCall, fn); }
+  var functionCall = uncurry(Function.prototype.call);
   var WeakMapCtor = WeakMap;
   var weakMapGet = uncurry(WeakMapCtor.prototype.get);
   var weakMapSet = uncurry(WeakMapCtor.prototype.set);
   var platformBrands = new WeakMapCtor();
+  var headerHandles = new WeakMapCtor();
+  var iteratorStates = new WeakMapCtor();
   global.__ibex2_brand = function (value, kind, data) {
     weakMapSet(platformBrands, value, { kind: kind, data: data });
     return value;
@@ -30,6 +33,12 @@
     return weakMapGet(platformBrands, value);
   };
   var brand = global.__ibex2_brand;
+
+  function requireHandle(value) {
+    var handle = weakMapGet(headerHandles, value);
+    if (handle === undefined) throw new TypeError("not a Headers object");
+    return handle;
+  }
 
   // Captured, then removed from the global object: the ops take integer
   // handles, and a module that could reach them could read any header list
@@ -57,7 +66,12 @@
     if (init === undefined || init === null) {
       return;
     }
-    if (init instanceof Headers) {
+    var sourceHandle = weakMapGet(headerHandles, init);
+    if (sourceHandle !== undefined) {
+      // The Headers constructor deliberately gets the source's iterator: WPT
+      // requires an own @@iterator override on a genuine Headers object to be
+      // observed. The private brand check above prevents a forged receiver
+      // from turning that required callback boundary into handle access.
       for (var entry of init) {
         headers.append(entry[0], entry[1]);
       }
@@ -97,6 +111,7 @@
         enumerable: false,
         writable: false,
       });
+      weakMapSet(headerHandles, this, handle);
       // NativeState is private engine storage: collecting this wrapper drops
       // its Rust registry row without exposing another handle operation.
       h.own(handle, this);
@@ -109,42 +124,55 @@
   }
 
   Headers.prototype.append = function (name, value) {
+    var handle = requireHandle(this);
     name = String(name);
     value = String(value);
     requireValidName(name);
     requireValidValue(value);
-    h.append(this._handle, name, value);
+    h.append(handle, name, value);
   };
 
   Headers.prototype.set = function (name, value) {
+    var handle = requireHandle(this);
     name = String(name);
     value = String(value);
     requireValidName(name);
     requireValidValue(value);
-    h.set(this._handle, name, value);
+    h.set(handle, name, value);
   };
 
   Headers.prototype.get = function (name) {
+    var handle = requireHandle(this);
     name = String(name);
     requireValidName(name);
-    return h.get(this._handle, name);
+    return h.get(handle, name);
   };
 
   Headers.prototype.has = function (name) {
+    var handle = requireHandle(this);
     name = String(name);
     requireValidName(name);
-    return h.has(this._handle, name);
+    return h.has(handle, name);
   };
 
   Headers.prototype["delete"] = function (name) {
+    var handle = requireHandle(this);
     name = String(name);
     requireValidName(name);
-    h.remove(this._handle, name);
+    h.remove(handle, name);
   };
 
   Headers.prototype.forEach = function (callback, thisArg) {
-    for (var entry of this) {
-      callback.call(thisArg, entry[1], entry[0], this);
+    var handle = requireHandle(this);
+    if (typeof callback !== "function") throw new TypeError("callback must be a function");
+    for (var index = 0; index < h.count(handle); index++) {
+      functionCall(
+        callback,
+        thisArg,
+        h.valueAt(handle, index),
+        h.nameAt(handle, index),
+        this
+      );
     }
   };
 
@@ -157,40 +185,40 @@
   );
   var HeadersIteratorPrototype = Object.create(IteratorPrototype);
   HeadersIteratorPrototype.next = function () {
-    var handle = this._headers._handle;
-    if (this._index >= h.count(handle)) {
+    var state = weakMapGet(iteratorStates, this);
+    if (state === undefined) throw new TypeError("not a Headers iterator");
+    var handle = requireHandle(state.headers);
+    if (state.index >= h.count(handle)) {
       return { done: true, value: undefined };
     }
-    var name = h.nameAt(handle, this._index);
-    var value = h.valueAt(handle, this._index);
-    this._index += 1;
-    return { done: false, value: this._pick(name, value) };
+    var name = h.nameAt(handle, state.index);
+    var value = h.valueAt(handle, state.index);
+    state.index += 1;
+    return {
+      done: false,
+      value: state.kind === 0 ? [name, value] : state.kind === 1 ? name : value
+    };
   };
 
-  function makeIterator(headers, pick) {
+  function makeIterator(headers, kind) {
+    requireHandle(headers);
     var iterator = Object.create(HeadersIteratorPrototype);
-    Object.defineProperties(iterator, {
-      _headers: { value: headers, enumerable: false },
-      _index: { value: 0, enumerable: false, writable: true },
-      _pick: { value: pick, enumerable: false },
+    weakMapSet(iteratorStates, iterator, {
+      headers: headers,
+      index: 0,
+      kind: kind
     });
     return brand(iterator, "HeadersIterator");
   }
 
   Headers.prototype.entries = function () {
-    return makeIterator(this, function (name, value) {
-      return [name, value];
-    });
+    return makeIterator(this, 0);
   };
   Headers.prototype.keys = function () {
-    return makeIterator(this, function (name) {
-      return name;
-    });
+    return makeIterator(this, 1);
   };
   Headers.prototype.values = function () {
-    return makeIterator(this, function (_, value) {
-      return value;
-    });
+    return makeIterator(this, 2);
   };
   Headers.prototype[Symbol.iterator] = Headers.prototype.entries;
 
