@@ -29,19 +29,41 @@ fn larger_programs_compile() {
 }
 
 /// Compile `n` cases, print the first few refusals in full and every
-/// refusal's message, and fail if there were any.
+/// refusal's message, and fail if there were any. A case is a function of its
+/// seed alone, so the seeds are compiled across the cores, each thread taking
+/// the next seed, and the refusals are reported in seed order.
 fn refusals(size: &Size, n: u64) {
-    let mut refused = Vec::new();
-    for seed in 0..n {
-        let c = case(seed, size);
-        if let Err(e) = contract::compile(&c.source) {
-            if refused.len() < 5 {
-                eprintln!("--- seed {seed}: {e}\n{}", c.source);
-            }
-            refused.push((seed, e.to_string()));
-        }
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let next = AtomicU64::new(0);
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let mut refused: Vec<(u64, String, String)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut refused = Vec::new();
+                    loop {
+                        let seed = next.fetch_add(1, Ordering::Relaxed);
+                        if seed >= n {
+                            break refused;
+                        }
+                        let c = case(seed, size);
+                        if let Err(e) = contract::compile(&c.source) {
+                            refused.push((seed, e.to_string(), c.source));
+                        }
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap())
+            .collect()
+    });
+    refused.sort_by_key(|(seed, ..)| *seed);
+    for (seed, e, source) in refused.iter().take(5) {
+        eprintln!("--- seed {seed}: {e}\n{source}");
     }
-    for (seed, e) in &refused {
+    for (seed, e, _) in &refused {
         eprintln!("seed {seed}: {e}");
     }
     assert!(
