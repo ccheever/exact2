@@ -771,8 +771,8 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
     );
     k.set_content_region(Some(binding)).unwrap();
     k.set_content_region(None).unwrap();
-    // An auto-height header paints decoration even with no stored paint rows;
-    // the existing multicol refusal must keep that box whole.
+    // With the size floor disabled, an auto-height header still paints
+    // decoration; the existing multicol refusal must keep that box whole.
     let mut k = Kernel::with_monospace();
     k.apply(
         0,
@@ -792,6 +792,7 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
                     (StyleId::ColumnFill, "auto"),
                 ],
             ),
+            style(2, &[(StyleId::MinHeight, "0")]),
             style(3, &[(StyleId::Height, "80px")]),
             children(1, &[2]),
             children(2, &[3]),
