@@ -7,3 +7,7 @@ tap black
 tap swap
 # The second axis: the accent token is a colour of its own, in both boxes.
 tap plain
+# The pin's own colour cleared: the page's token text, in the pin's tuple.
+tap clear
+tap dim
+tap clear

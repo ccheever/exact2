@@ -110,18 +110,18 @@ fn a_boundary_carries_its_rows_and_pin_and_a_class_its_channels() {
     assert!(js.contains("\"data-x-b\":\"1\""), "{js}");
     assert!(
         out.css
-            .contains("color:rgba(18,52,86,1);color-scheme:light;display:block;--x-i0:-1;"),
+            .contains("color:rgba(18,52,86,1);color-scheme:light;display:block;--xi0:-1;"),
         "{}",
         out.css
     );
     assert!(
         out.css
-            .contains("color:var(--x-text-primary);position:relative;--x-i0:0;"),
+            .contains("color:var(--x-text-primary);position:relative;--xi0:0;"),
         "{}",
         out.css
     );
     assert!(js.contains("P(") && js.contains(",\"data-x-pin\","), "{js}");
-    assert!(js.contains("[\"var(--x-text-primary)\"]"), "{js}");
+    assert!(js.contains("[\"color:var(--x-text-primary)\"]"), "{js}");
 }
 
 #[test]
@@ -174,8 +174,85 @@ fn a_plan_with_no_modes_loads_none() {
         out.js
     );
     assert!(
-        !out.css.contains("data-x-modes") && !out.css.contains("--x-i"),
+        !out.css.contains("data-x-modes") && !out.css.contains("--xi"),
         "{}",
         out.css
+    );
+}
+
+#[test]
+fn a_bound_colour_on_a_boundary_is_the_runtimes_to_say() {
+    let out = emitted(
+        "bound-own",
+        DESIGN,
+        "component App\n  state c: string = \"#123456\"\n  view\n    column color=\"text.primary\"\n      column -exact-mode=\"dark-style=dim\" color=c testId=\"pin\"\n        text \"a\"\n",
+    );
+    // Its CSS sets no row: while the binding is unset the row is written again.
+    assert!(
+        out.js
+            .contains("\"data-x-b\":\"0\",\"data-x-pin\":\"dark-style=dim\""),
+        "{}",
+        out.js
+    );
+    assert!(out.js.contains("Sx(S,"), "{}", out.js);
+}
+
+#[test]
+fn an_accent_naming_its_own_token_names_no_property_on_a_boundary() {
+    let design = "tamber t\n\naxes\n  ink = tint | plain\n\ntheme\n  accent.mix = AccentColor\n    when ink=plain: #000000\n";
+    let out = emitted(
+        "accent-own",
+        design,
+        "component App\n  view\n    column\n      column accent-color=\"accent.mix\" testId=\"plain\"\n        text \"a\"\n      column accent-color=\"accent.mix\" -exact-mode=\"ink=plain\" testId=\"pinned\"\n        text \"b\"\n",
+    );
+    // Elsewhere it reads the token from above, and is no boundary.
+    assert!(
+        out.css
+            .contains("accent-color:var(--x-accent-mix);--exact-accent:var(--x-accent-mix);"),
+        "{}",
+        out.css
+    );
+    assert!(
+        out.js.contains("\"data-testid\":\"plain\"") && !out.js.contains("\"data-x-b\":\"127\""),
+        "{}",
+        out.js
+    );
+    // On a pin, which declares the token, the accent around stands.
+    assert_eq!(
+        out.css.matches("accent-color:var(--x-accent-mix);").count(),
+        2,
+        "{}",
+        out.css
+    );
+    assert!(
+        out.css
+            .matches("--exact-accent:var(--x-accent-mix);")
+            .count()
+            == 1,
+        "{}",
+        out.css
+    );
+}
+
+#[test]
+fn each_varying_token_has_its_own_property() {
+    let design = "tamber t\n\naxes\n  ink = tint | plain\n\ntheme\n  a-b-2 = #000001\n    when ink=plain: #000002\n  a.b = #000003\n    when ink=plain: #000004\n  a-b = #000005\n    when ink=plain: #000006\n";
+    let out = emitted(
+        "names",
+        design,
+        "component App\n  view\n    column color=\"a-b-2\" background-color=\"a.b\" border-color=\"a-b\" border-width=1\n      text \"a\"\n",
+    );
+    let rule = &out.css[out.css.find(":root,").expect(&out.css)..];
+    let props: Vec<&str> = rule[..rule.find('}').unwrap()]
+        .split(['{', ';'])
+        .filter_map(|d| d.split_once(':').map(|(p, _)| p))
+        .filter(|p| p.starts_with("--x-"))
+        .collect();
+    assert_eq!(props.len(), 3, "{rule}");
+    assert!(
+        props
+            .iter()
+            .all(|p| props.iter().filter(|q| *q == p).count() == 1),
+        "{rule}"
     );
 }

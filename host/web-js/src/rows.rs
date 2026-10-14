@@ -353,12 +353,22 @@ impl Em<'_> {
             "S"
         });
         // @ref LLP 1121 D7 — an inherited colour row says whether it read
-        // a token (modes.js `Sx`), which a boundary below writes again.
+        // a token (modes.js `Sx`), which a boundary below writes again (a
+        // stroke's shorthand as itself). A boundary declares the tokens, so
+        // its `--exact-accent` naming one would name itself: the one around
+        // stands, as css.rs leaves a self-reference out.
         for (name, unit, map) in writes {
+            let modes = crate::modes::active(plan);
             let channel = crate::modes::CHANNELS
                 .iter()
-                .position(|(_, p)| *p == name || name == "--exact-accent" && *p == "accent-color")
-                .filter(|_| crate::modes::active(plan));
+                .position(|(_, p)| {
+                    *p == name || name == "-webkit-text-stroke" && *p == "-webkit-text-stroke-color"
+                })
+                .filter(|_| modes);
+            let map = match map {
+                Some(m) if modes && name == "--exact-accent" => Some(format!("v=>(v=({m})(v))!=null&&/var\\(--x-/.test(v)&&{e}.hasAttribute(\"data-x-b\")?null:v")),
+                map => map,
+            };
             let value = match map {
                 Some(m) => format!("()=>({m})(({f})())"),
                 None => f.to_string(),

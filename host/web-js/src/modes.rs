@@ -52,7 +52,7 @@ pub fn active(plan: &Plan) -> bool {
 
 /// Each token that varies by an app axis, by its theme row's name, and its
 /// custom property: its name with each character no identifier takes as
-/// `-`, or `s<n>` for a synthetic token, `-<n>` added for a clash.
+/// `-`, or `s<n>` for a synthetic token, `-<n>` added until it is unique.
 pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for (i, row) in plan.theme.iter().enumerate() {
@@ -73,8 +73,11 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
                     .collect::<String>()
             ),
         };
-        if out.iter().any(|(_, p)| *p == prop) {
-            prop = format!("{prop}-{i}");
+        let base = prop.clone();
+        let mut n = i;
+        while out.iter().any(|(_, p)| *p == prop) {
+            prop = format!("{base}-{n}");
+            n += 1;
         }
         out.push((name.to_string(), prop));
     }
@@ -85,9 +88,9 @@ pub fn properties(plan: &Plan) -> Vec<(String, String)> {
 pub struct Modes {
     /// Each varying token: its name, its property and its sentinel's CSS.
     tokens: Vec<(String, String, [String; 2])>,
-    /// Whether a varying token's value names the accent in some tuple: an
-    /// element with its own `accent-color` declares them again.
-    accent: bool,
+    /// The varying tokens whose value names the accent in some tuple, by
+    /// property: an element with its own `accent-color` declares them again.
+    accent: Vec<String>,
     /// What the rows read from a token write, by index: a class's channel.
     pub texts: Vec<String>,
 }
@@ -104,7 +107,7 @@ impl Modes {
             .collect();
         let mut modes = Modes {
             tokens,
-            accent: false,
+            accent: Vec::new(),
             texts: Vec::new(),
         };
         modes.accent = modes.rule(plan).1;
@@ -180,14 +183,14 @@ impl Modes {
             .filter(|b| b.kind == BindingKind::Style)
             .collect();
         let has = |id: StyleId| rows.iter().find(|b| b.id == id as u16);
+        // The rows its CSS sets: a bound one is the runtime's to say (`Sx`).
         let mut own = 0u32;
         let mut channels = String::new();
         for (j, (id, prop)) in CHANNELS.iter().enumerate() {
-            let declared = declaration(&p.css, prop).map(str::to_string);
-            if has(*id).is_some() || declared.is_some() {
-                own |= 1 << j;
-            }
-            let Some(value) = declared else { continue };
+            let Some(value) = declaration(&p.css, prop).map(str::to_string) else {
+                continue;
+            };
+            own |= 1 << j;
             // What the literal read: a token, or none (a host's own colour).
             let named = has(*id).is_some_and(|b| {
                 crate::style::literal(plan, plan.code(b.expr)).is_some_and(|v| {
@@ -198,17 +201,30 @@ impl Modes {
                 })
             });
             let at = match named {
-                true => self.text(&value) as i64,
+                true => self.text(&format!("{prop}:{value}")) as i64,
                 false => -1,
             };
-            let _ = write!(channels, "--x-i{j}:{at};");
+            let _ = write!(channels, "--xi{j}:{at};");
         }
         p.css.push_str(&channels);
         let pin = has(StyleId::Mode);
-        let accent = self.accent && has(StyleId::AccentColor).is_some();
+        let boundary = pin.is_some() || has(StyleId::ColorScheme).is_some();
+        // An accent that is a token naming the accent: on a boundary, which
+        // declares the token itself, `--exact-accent` would name itself (as
+        // css.rs leaves `var(--exact-accent, AccentColor)` out), so the one
+        // around stands; elsewhere it reads the token from above.
+        let names_accent = declaration(&p.css, "accent-color")
+            .is_some_and(|v| self.accent.iter().any(|a| v.contains(&format!("var({a})"))));
+        if names_accent && boundary {
+            if let Some(v) = declaration(&p.css, "--exact-accent").map(str::to_string) {
+                p.css = p.css.replace(&format!("--exact-accent:{v};"), "");
+            }
+        }
+        let accent =
+            !self.accent.is_empty() && has(StyleId::AccentColor).is_some() && !names_accent;
         // An accent alone declares the tokens again and writes no row: an
         // inherited colour is the one its parent computed, as the kernel's.
-        if pin.is_some() || has(StyleId::ColorScheme).is_some() {
+        if boundary {
             p.props.insert("data-x-b".into(), own.to_string());
         } else if accent {
             p.props
@@ -232,8 +248,9 @@ impl Modes {
         }
     }
 
-    /// The page's tuple rules, and whether a token names the accent.
-    fn rule(&self, plan: &Plan) -> (String, bool) {
+    /// The page's tuple rules, and the properties of the tokens that name
+    /// the accent.
+    fn rule(&self, plan: &Plan) -> (String, Vec<String>) {
         let axes: Vec<(&str, Vec<&str>)> = plan
             .axes
             .iter()
@@ -244,7 +261,7 @@ impl Modes {
                 .iter()
                 .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
         );
-        let (mut css, mut accent) = (String::new(), false);
+        let (mut css, mut accent) = (String::new(), Vec::new());
         if axes.is_empty() {
             return (css, accent);
         }
@@ -269,7 +286,9 @@ impl Modes {
                     Some(c) => exact_kernel::gradient::color_css(&mut text, c),
                     None => text.push_str("transparent"),
                 }
-                accent |= text.contains("--exact-accent");
+                if text.contains("--exact-accent") && !accent.contains(prop) {
+                    accent.push(prop.clone());
+                }
                 let _ = write!(css, "{prop}:{text};");
             }
             css.push('}');
@@ -304,7 +323,7 @@ impl Modes {
         for (i, c) in classes.iter().enumerate() {
             let mut each = Vec::new();
             for j in 0..CHANNELS.len() {
-                let tag = format!("--x-i{j}:");
+                let tag = format!("--xi{j}:");
                 if let Some(at) = c.find(&tag) {
                     let rest = &c[at + tag.len()..];
                     each.push(format!(

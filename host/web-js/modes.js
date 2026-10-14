@@ -10,11 +10,13 @@
 // `setMode`. Like the runner's, the window's modes do not persist (§9 Q5).
 import { After, PropHooks, inflight, say } from "./rt.js";
 
-// The rows by bit (`modes.rs` `CHANNELS`); an accent writes the property
-// buttons read too, as css.rs does.
+// The rows by bit (`modes.rs` `CHANNELS`).
 const CH = ["color", "caret-color", "fill", "stroke", "accent-color", "text-shadow", "-webkit-text-stroke-color"];
-let Axes = [], Classes = {}, Texts = [], Vars = {}, Win = [], Pending = false, Adopted = false;
+// A value that sets no row: the row is the one around (`StyleValue::text_unsets`).
+const UNSETS = /^\s*(unset|inherit)\s*$/i;
+let Axes = [], Classes = {}, Texts = [], Vars = {}, Win = [], Pending = false;
 const key = d => Axes.map(([a, values], i) => `${a}=${values[d[i]]}`).join(",");
+const rendering = () => typeof document === "undefined" || !!globalThis.__exactRender;
 
 /** The digits `text`'s pins make over `base` (`bridge::pinned`): `null` for
  * none, or one naming no axis or value, or an axis twice. */
@@ -28,8 +30,8 @@ function pinned(text, base) {
   return pins.length ? d : null;
 }
 
-/** Row `j`'s channel at `e`: the text's index from the nearest element that
- * sets the row, -1 when that one read no token or none sets it. */
+/** Row `j` at `e`, as the nearest element that sets it wrote it: the text's
+ * index when it read a token, -1 when it read none or none sets it. */
 function channel(e, j) {
   for (; e?.nodeType === 1; e = e.parentElement) {
     const own = e.$xi?.[j];
@@ -39,55 +41,81 @@ function channel(e, j) {
   return -1;
 }
 
+/** The boundaries under `root`, in document order (the render DOM has no
+ * selectors). */
+function boundaries(root, out = []) {
+  if (!rendering()) return root.querySelectorAll("[data-x-b]");
+  for (const c of root.childNodes ?? []) if (c.nodeType === 1) { if (c.getAttribute("data-x-b") != null) out.push(c); boundaries(c, out); }
+  return out;
+}
+const around = b => { for (let e = b.parentElement; e; e = e.parentElement) if (e.$xd) return e.$xd; return Win; };
+
 function apply() {
   Pending = false;
-  // A page rendered ahead wrote its classes inline (rt.js `adopt`), a
-  // token's default tuple's value: the class's `var()` is the one.
-  if (!Adopted) {
-    Adopted = true;
-    for (const c in Vars) for (const e of document.getElementsByClassName(c)) for (const p of Vars[c]) e.style.removeProperty(p);
+  // A page rendered ahead wrote its classes inline (rt.js `adopt`): a baked
+  // value gives way to the class's `var()`; one that is a `var()` (a
+  // symbol's, emit.rs) stays.
+  if (!rendering()) {
+    for (const c in Vars) for (const e of document.getElementsByClassName(c)) {
+      if (e.$xc) continue;
+      e.$xc = true;
+      for (const p of Vars[c]) { const v = e.style.getPropertyValue(p); if (v && !v.includes("var(--x-")) e.style.removeProperty(p); }
+    }
   }
   if (Axes.length) set(document.documentElement, key(Win));
   // Document order: a boundary's tuple is known before those inside it.
-  for (const b of document.querySelectorAll("[data-x-b]")) {
-    const base = b.parentElement?.closest("[data-x-b]")?.$xd ?? Win, pin = b.getAttribute("data-x-pin");
-    let d = pin == null ? base : pinned(pin, base);
+  for (const b of boundaries(document.getElementById("exact-root") ?? document)) {
+    const base = around(b), pin = b.getAttribute("data-x-pin");
+    let d = pin == null || UNSETS.test(pin) ? base : pinned(pin, base);
     if (!d) { if (b.$xbad !== pin) say(`invalid -exact-mode value ${JSON.stringify(pin)}: an axis of the app's design and one of its values, each axis once; unset`); b.$xbad = pin; d = base; }
     else b.$xbad = undefined;
     b.$xd = d;
     if (Axes.length) set(b, key(d));
     const own = Number(b.getAttribute("data-x-b")), was = b.$xs ??= [];
     for (let j = 0; j < CH.length; j++) {
-      if (own & 1 << j) continue;
+      // Its own row stands, from its CSS or a binding that sets it now.
+      if (own & 1 << j || b.$xi?.[j] !== undefined) { was[j] = undefined; continue; }
       const at = channel(b.parentElement, j), text = at >= 0 ? Texts[at] : null;
       if (was[j] === text) continue;
+      write(b, j, was[j], text);
       was[j] = text;
-      for (const p of j === 4 ? [CH[j], "--exact-accent"] : [CH[j]]) {
-        if (text == null) b.style.removeProperty(p); else b.style.setProperty(p, text);
-      }
     }
   }
 }
 const set = (e, k) => { if (e.getAttribute("data-x-modes") !== k) e.setAttribute("data-x-modes", k); };
 
-// A page rendered ahead (render.mjs) has no styles to resolve: the page
-// that adopts it gives each boundary its tuple after its first commit.
+/** Row `j` written again on `b` as `text` (`property:value`), over `was`. An
+ * accent names the property buttons read too unless it names a property
+ * (it would name itself here, as css.rs leaves it out). */
+function write(b, j, was, text) {
+  const decl = t => { const at = t.indexOf(":"); return [t.slice(0, at), t.slice(at + 1)]; };
+  if (was != null) { const [p] = decl(was); b.style.removeProperty(p); if (j === 4) b.style.removeProperty("--exact-accent"); }
+  if (text == null) return;
+  const [p, v] = decl(text);
+  b.style.setProperty(p, v);
+  if (j === 4 && !v.includes("var(")) b.style.setProperty("--exact-accent", v);
+}
+
 function schedule() {
-  if (typeof document === "undefined" || globalThis.__exactRender || Pending) return;
+  if (Pending) return;
+  // A page rendered ahead resolves its boundaries as it is built.
+  if (rendering()) return typeof document === "undefined" ? undefined : apply();
   Pending = true; inflight.n++;
   queueMicrotask(() => { try { apply(); } finally { inflight.n--; } });
 }
 
 /** A bound inherited colour row (`S`, `Sm` or `Sr` as `s`): its value as
- * the binding writes it, and whether it read a token (the theme map says,
- * style.rs `theme_map`), which the boundaries below read. */
+ * the binding writes it, and whether it set the row and read a token (the
+ * theme map says, style.rs `theme_map`), which the boundaries below read.
+ * A reference (`url(#…)`) is resolved per instance (`Sr`): no boundary
+ * writes it again. */
 export function Sx(s, e, prop, unit, f, j) {
   s(e, prop, unit, () => {
     const x = globalThis.exact ??= {};
     x.$th = 0;
     const v = f(), text = v == null ? null : typeof v === "number" ? v + unit : String(v);
-    let at = text == null ? undefined : -1;
-    if (text != null && x.$th) { at = Texts.indexOf(text); if (at < 0) at = Texts.push(text) - 1; }
+    let at = text == null || UNSETS.test(text) || j === 0 && /^\s*currentcolor\s*$/i.test(text) ? undefined : -1;
+    if (at === -1 && x.$th && !text.includes("url(")) { const t = `${prop}:${text}`; at = Texts.indexOf(t); if (at < 0) at = Texts.push(t) - 1; }
     const xi = e.$xi ??= {};
     if (xi[j] !== at) { xi[j] = at; schedule(); }
     return v;
@@ -106,8 +134,9 @@ const refused = pins => {
 };
 
 /** `axes`: [name, values] as declared, the first value the default;
- * `classes`: each class's rows by bit, the text's index or -1; `texts`;
- * `vars`: each class's properties that name a varying token. */
+ * `classes`: each class's rows by bit, the text's index or -1; `texts`,
+ * each `property:value`; `vars`: each class's properties that name a
+ * varying token. */
 export function modes(axes, classes, texts, vars) {
   Axes = axes; Classes = classes; Texts = texts; Vars = vars; Win = axes.map(() => 0);
   After.push(schedule);
@@ -121,7 +150,7 @@ export function modes(axes, classes, texts, vars) {
       const why = refused(pins);
       if (why) return why;
       for (const [a, v] of pins) { const i = Axes.findIndex(([n]) => n === a); Win[i] = Axes[i][1].indexOf(v); }
-      if (typeof document !== "undefined" && !globalThis.__exactRender) apply();
+      if (typeof document !== "undefined") apply();
       return null;
     },
     // The app's `setMode(axis, value)` (commands.js), as the runner takes it.
@@ -132,4 +161,3 @@ export function modes(axes, classes, texts, vars) {
     },
   };
 }
-

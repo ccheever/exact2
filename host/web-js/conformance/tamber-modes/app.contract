@@ -2,15 +2,20 @@
 // is a token, inherited by every box below; a Dim pin holds a Black pin, each
 // box's text its own tuple's; a Light card on the page, with `color-scheme`,
 // keeps light text; a text under a box with its own `accent-color` reads a
-// token that names the accent in that accent. `setMode` and a bound pin move them.
+// token that names the accent in that accent, and a box whose accent is that
+// token keeps it, on a Light card too; a pin's own bound colour, cleared, is
+// the page's text in the pin's tuple. `setMode` and a bound pin move them.
 component App
   state pin: string = "dark-style=black"
+  state own: bool = true
   action dim
     setMode("dark-style", "dim")
   action black
     setMode("dark-style", "black")
   action plain
     setMode("ink", "plain")
+  action clear
+    own = !own
   action swap
     pin = pin == "dark-style=black" ? "dark-style=dim" : "dark-style=black"
   view
@@ -21,6 +26,7 @@ component App
         button "Black" press=black testId="black"
         button "Swap" press=swap testId="swap"
         button "Plain" press=plain testId="plain"
+        button "Clear" press=clear testId="clear"
       column -exact-mode="dark-style=dim" background-color="surface.card" border-color="border.hairline" border-width=1 padding=8 gap=6 testId="dim-box"
         text "Dim, inherited" testId="dim-text"
         column -exact-mode="dark-style=black" background-color="surface.card" padding=8 testId="black-box"
@@ -29,7 +35,13 @@ component App
         text "A Light card" testId="light-text"
       column -exact-mode=pin background-color="surface.card" padding=8 testId="bound-box"
         text "A bound pin" testId="bound-text"
+      column -exact-mode="dark-style=dim" color=(own ? "light-dark(#b00020, #ff8a80)" : "unset") background-color="surface.card" padding=8 testId="own-box"
+        text "Its own colour, then the page's in Dim" testId="own-text"
       column padding=8 gap=4 testId="accent-box"
         text "The page's accent" color="accent.text" testId="accent-page"
         column accent-color="light-dark(#e0245e, #f91880)" testId="tinted"
           text "Its own accent" color="accent.text" testId="accent-own"
+          column accent-color="accent.text" testId="token-accent"
+            text "The token's accent" color="accent.text" testId="accent-token"
+          column accent-color="accent.text" color-scheme="light" background-color="surface.card" testId="token-accent-light"
+            text "The token's accent, Light" color="accent.text" testId="accent-token-light"
