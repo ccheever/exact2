@@ -120,20 +120,34 @@ fn a_worker_instance_is_stopped_through_its_template() {
     placed.activate().unwrap();
     let stop = placed.interrupt().expect("the template's interrupt");
     let mut s = Store::new("", []);
-    let token = match placed.answer(&mut s, "words", &named("spin")).unwrap() {
-        Answer::Later(request) => request.continuation.expect("a turn"),
-        Answer::Now(v) => panic!("a worker answers later, not {v:?}"),
-    };
-    let Dispatch::Run(Work::Later(work)) = placed.dispatch(token, &s) else {
-        panic!("a turn for the owner");
-    };
-    let (tx, rx) = std::sync::mpsc::channel();
-    work(Reply::new(move |outcome| {
-        let _ = tx.send(outcome);
-    }));
-    std::thread::sleep(Duration::from_millis(100));
+    // One worker turn, its outcome sent back on a channel
+    macro_rules! turn {
+        ($name:expr) => {{
+            let token = match placed.answer(&mut s, "words", &named($name)).unwrap() {
+                Answer::Later(request) => request.continuation.expect("a turn"),
+                Answer::Now(v) => panic!("a worker answers later, not {v:?}"),
+            };
+            let Dispatch::Run(Work::Later(work)) = placed.dispatch(token, &s) else {
+                panic!("a turn for the owner");
+            };
+            let (tx, rx) = std::sync::mpsc::channel();
+            work(Reply::new(move |outcome| {
+                let _ = tx.send(outcome);
+            }));
+            rx
+        }};
+    }
+    // A calm turn answered proves the worker's instance has loaded, so the
+    // interrupt below meets the spin (or, if it comes first, the spin as the
+    // next call) and never the load
+    let calm = turn!("calm")
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the owner answers a calm turn");
+    let calm = placed.parse(&mut s, "words", &named("calm"), calm);
+    assert_eq!(words(calm), ["hello", "calm"]);
+    let spin = turn!("spin");
     stop.trigger();
-    let outcome = rx
+    let outcome = spin
         .recv_timeout(Duration::from_secs(30))
         .expect("the owner's turn ends when interrupted");
     let refused = placed.parse(&mut s, "words", &named("spin"), outcome);
