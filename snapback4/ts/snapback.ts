@@ -49,6 +49,11 @@ export interface Read<T = Json> {
   [key: string]: unknown;
 }
 
+/** Narrow a device Read without treating a refusal or an unavailable page as data. */
+export function hasData<T>(read: Read<T>): read is Read<T> & { data: T } {
+  return !read.denied && Object.hasOwn(read, 'data') && read.data !== undefined;
+}
+
 /** Every row of a query (`readAll`), and whether that is all of them:
  * `complete` false when a page was not the whole answer; `offline` true when
  * a page was the device's partial with the server unreached. */
@@ -70,7 +75,11 @@ export type Write =
 export interface Refused { id: string; op: string; args: Json; argsOmitted?: boolean; why: Refusal; at: number }
 
 /** What became of a write. `result` is the server's, while remembered. */
-export interface Outcome<R = Json> { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: R; why?: Refusal }
+export type Outcome<R = Json> =
+  | { id: string; state: 'pending'; seq?: number; result?: never; why?: never }
+  | { id: string; state: 'sent'; seq?: number; result?: R; why?: never }
+  | { id: string; state: 'failed'; seq?: number; result?: never; why: Refusal }
+  | { id: string; state: 'unknown'; seq?: number; result?: never; why?: never };
 
 /** What `send` came to: the write's fate after its round, and the round
  * (absent when the device refused the write, which then never went out).
