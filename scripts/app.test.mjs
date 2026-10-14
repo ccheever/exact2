@@ -1106,7 +1106,7 @@ test('each Apple TypeScript destination checks its own Hermes bundle, device inc
   ]);
   assert.equal(hermesCrossTargets('darwin', 'x64')[0].target, 'x86_64-apple-ios');
   assert.deepEqual(hermesCrossTargets('linux', 'x64'), []);
-  assert.deepEqual(hermesSetupTargets('darwin', 'arm64'), ['aarch64-apple-ios-sim', 'aarch64-apple-tvos-sim']);
+  assert.deepEqual([false, true].map(sdk => hermesSetupTargets('darwin', 'arm64', sdk)).concat([hermesSetupTargets('linux', 'x64', true)]), [['aarch64-apple-ios-sim', 'aarch64-apple-tvos-sim'], ['aarch64-apple-ios-sim', 'aarch64-apple-ios', 'aarch64-apple-tvos-sim'], []]); // the device's with the iphoneos SDK
   const calls = [];
   const execute = (command, args) => { calls.push(args); return {status: 0, stdout: 'Verified', stderr: ''}; };
   checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']);
