@@ -3,11 +3,11 @@ name: 20261014-legacy-sidebar-parity
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-legacy-sidebar-parity
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/557
 verified_commit: null
 ---
 
@@ -538,13 +538,27 @@ prelaunch snapshot and absence of the account. `AGENT-HANDOFF.md` records that f
 Later checks use the module’s in-memory credentials under `EXACT_AGENT=1`. No provider
 run, GitHub mutation, normal user-project change or OS-global input was used.
 
+### Publication and merge readback
+
+PR [#557](https://github.com/ccheever/exact2/pull/557) merged into
+`feat(example)/t3-code` on 2026-10-14 at 07:06:56 UTC, squash commit
+`4520b0124b36cf24481a973f59a414ae8753dab1`. Its published head was
+`6f40c58f82736f355712a0ddae7507113d1da38c`, containing implementation
+`dbd2cb3970c89306672371ee4f21064df9ee466e` and the feature branch's documentation-only
+dialog cleanup record. Both remote Socket checks passed. The coordinator read back
+the merged state and integration head, then matched all 23 runtime/test file hashes
+against fingerprint `50c11104961f002747f3d7b9dc7f5be64b2571e2a9c010219b25fd497fc7158f`.
+The [published proof](https://github.com/ccheever/exact2/blob/741e9780b1bbcbfff1cf3d0905d75eea4246c4f1/legacy-sidebar-parity/20261014/README.md)
+includes the native capture and bounded before/after readbacks. Delivery is merged;
+full task verification remains open.
+
 ## Next action
 
-Hand the frozen source and selected evidence to the coordinator for authorized
-publication and merge. Resume the seven physical-input qualifications only when screen
-input is authorized and available. Keep this task active and unverified until those
-checks are actually run; the application code and bounded automated/native-agent proof
-are ready for review.
+Continue `connections-network-settings` from the actual merged feature branch.
+Resume the seven physical-input qualifications only when screen input is authorized
+and available. Keep this task active and unverified until those checks are actually
+run. The squash merge preserves the tested implementation and does not close its
+remaining acceptance items.
 
 The user has already authorized continuing this fix wave through publication and
 merge of solvable application repairs. The coordinator owns those external actions.
