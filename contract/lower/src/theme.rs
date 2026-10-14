@@ -27,8 +27,10 @@ pub(crate) struct ThemeEntry {
     /// The role it overrides, as a row writes it (`-exact-secondary-label`,
     /// `Canvas`).
     pub role: Option<String>,
-    /// The colour text.
+    /// The colour text, the default app tuple's.
     pub value: String,
+    /// Its text for every full app tuple (LLP 1121 D5) when it varies.
+    pub slices: Vec<String>,
 }
 
 /// A role's id, as a row writes it (`-exact-label`, `CanvasText`) or as a
@@ -151,6 +153,7 @@ impl Lowerer<'_> {
         file: &File,
         root: &Component,
     ) -> exact_kernel::style::theme::ThemeScope {
+        AXES.with(|axes| axes.borrow_mut().clear());
         let Some((mut design, origin)) = self.design(file) else {
             return exact_kernel::style::theme::declarations([]);
         };
@@ -229,26 +232,59 @@ impl Lowerer<'_> {
             {
                 continue;
             }
-            // A profile's colour, carried as written.
-            let value = match profiled
+            // A profile's colour, carried as written, is the default's.
+            let profile = profiled
                 .iter()
-                .find(|p| synthetic.is_none() && p.name == name)
-            {
-                Some(p) => p.value.clone(),
-                None => value.css(),
-            };
+                .find(|p| synthetic.is_none() && p.name == name);
+            let mut slices: Vec<String> = t.values.iter().map(|v| v.css()).collect();
+            // Every tuple the default stands in, which no `when` replaced.
+            if let Some(p) = profile {
+                let stand_in = slices[0].clone();
+                for s in slices.iter_mut().filter(|s| **s == stand_in) {
+                    *s = p.value.clone();
+                }
+            }
+            let value = slices[0].clone();
+            if slices.iter().all(|s| *s == value) {
+                slices.clear();
+            }
+            // A role crosses to the hosts once, for the surfaces they draw
+            // (LLP 1095 D4's reach): it has one value, whatever the modes.
+            if role.is_some() && !slices.is_empty() {
+                self.push(LowerError {
+                    id: "tamber-role-axis",
+                    message: format!("`{name}` overrides a role and varies by an app axis: a role has one value, which the hosts' own surfaces read; vary a token the rows name instead (LLP 1121 D5)"),
+                    span: self.token_span(&origin, at.line, at.col),
+                });
+                continue;
+            }
             entries.push(ThemeEntry {
                 name,
                 role: role.map(|(_, row)| row),
                 value,
+                slices,
             });
         }
         self.theme = entries;
+        // The app's axes, which a pin and `setMode` name (D5).
+        for axis in &folding.design.axes {
+            let values: Vec<&str> = axis.values.iter().map(String::as_str).collect();
+            self.b.axis(&axis.name.value, &values);
+        }
+        AXES.with(|axes| {
+            *axes.borrow_mut() = folding
+                .design
+                .axes
+                .iter()
+                .map(|a| (a.name.value.clone(), a.values.clone()))
+                .collect()
+        });
         // D7's retention: what the view may name, and every role override.
         for e in &self.theme {
             if e.role.is_some() || said.computed || said.names(&e.name) {
+                let slices: Vec<&str> = e.slices.iter().map(String::as_str).collect();
                 self.b
-                    .theme_entry(&e.name, e.role.as_deref().unwrap_or(""), &e.value);
+                    .theme_token(&e.name, e.role.as_deref().unwrap_or(""), &e.value, &slices);
             }
         }
         exact_kernel::style::theme::declarations(self.theme.iter().flat_map(|e| {
@@ -477,6 +513,63 @@ impl Lowerer<'_> {
             self.errors.push(e);
         }
     }
+}
+
+thread_local! {
+    /// The app's axes while its styles are lowered, each with its values:
+    /// what a `-exact-mode` pin may name.
+    static AXES: std::cell::RefCell<Vec<(String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `-exact-mode`'s pins (LLP 1121 D5): `axis=value`, space- or
+/// comma-separated, each axis once, every one the design's. A computed pin
+/// is the runner's to read; one it cannot is unset, as an invalid row is.
+pub(crate) fn mode_pins(a: &Attr) -> Result<(), LowerError> {
+    let mut literals = Vec::new();
+    scan::literal_leaves(&a.value, &mut literals);
+    for (text, span) in literals {
+        AXES.with(|axes| check_pins(&text, &axes.borrow()))
+            .map_err(|message| LowerError {
+                id: "tamber-mode",
+                message: format!("`-exact-mode=\"{text}\"`: {message}"),
+                span,
+            })?;
+    }
+    Ok(())
+}
+
+/// Each pin of `text` in `axes`; the reason one is not.
+pub(crate) fn check_pins(text: &str, axes: &[(String, Vec<String>)]) -> Result<(), String> {
+    let mut seen = Vec::new();
+    for pin in text.split([' ', ',']).filter(|p| !p.is_empty()) {
+        let Some((axis, value)) = pin.split_once('=') else {
+            return Err(format!("`{pin}` is no pin: write `axis=value`"));
+        };
+        let Some((_, values)) = axes.iter().find(|(name, _)| name == axis) else {
+            let known: Vec<&str> = axes.iter().map(|(n, _)| n.as_str()).collect();
+            return Err(match known.is_empty() {
+                true => format!("this app's design declares no axes, so `{axis}` is none"),
+                false => format!(
+                    "`{axis}` is no axis of this app's design ({})",
+                    known.join(", ")
+                ),
+            });
+        };
+        if !values.iter().any(|v| v == value) {
+            return Err(format!(
+                "`{value}` is no value of `{axis}` ({})",
+                values.join(" | ")
+            ));
+        }
+        if seen.contains(&axis) {
+            return Err(format!("`{axis}` is pinned twice"));
+        }
+        seen.push(axis);
+    }
+    if seen.is_empty() {
+        return Err("pins no axis".into());
+    }
+    Ok(())
 }
 
 /// The app's colours as `theme` entries, for the passes that read them

@@ -1124,6 +1124,8 @@ mod tests {
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::DynamicRangeLimit, text("constrained")),
             (StyleId::ColorScheme, text("dark")),
+            // LLP 1121 D5: the app tuple, plus one.
+            (StyleId::Mode, number(2.0)),
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),

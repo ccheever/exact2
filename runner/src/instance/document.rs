@@ -398,6 +398,12 @@ impl Build<'_> {
             // sizes; the fold doesn't.
             return Err(DocTreeError::Unsupported("a relative length (rem, em)"));
         }
+        if !plan.axes.is_empty() {
+            // A token's slice is the tuple around the node and a mode
+            // boundary's implied rows, which the instance tree keeps
+            // (LLP 1121 D7); the fold doesn't.
+            return Err(DocTreeError::Unsupported("a design with app modes"));
+        }
         patch
             .validate_domain()
             .map_err(|e| DocTreeError::Refused(format!("view {}: {e:?}", n.view)))?;

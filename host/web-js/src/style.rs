@@ -660,6 +660,8 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         map: Some(map),
     };
     Ok(match row {
+        // A mode boundary's tuple: its rows are set in it (LLP 1121 D7).
+        StyleId::Mode => Vec::new(),
         StyleId::FontSize => vec![Write {
             name: "font-size".into(),
             unit: "px".into(),

@@ -410,3 +410,195 @@ fn a_when_at_the_default_modes_cannot_replace_a_profile_colour() {
     assert_eq!(e.id, "lower-theme-value", "{e:?}");
     assert_eq!(e.span.line, 8, "{e:?}");
 }
+
+const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n";
+
+#[test]
+fn a_pin_selects_its_slice_and_a_boundary_sets_inherited_text_again() {
+    let path = app(
+        "modes",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      text \"a\" testId=\"outer\"\n      column testId=\"card\" -exact-mode=\"dark-style=dim\" background-color=\"page\"\n        text \"b\" testId=\"inner\"\n"),
+        ],
+    );
+    let plan = contract::compile_path(&path).unwrap();
+    assert_eq!(plan.axes.len(), 1);
+    let black = parsed("light-dark(#ffffff, #000000)");
+    let dim = parsed("light-dark(#ffffff, #161e27)");
+    assert_eq!(
+        colour(plan.clone(), "page", StyleId::BackgroundColor),
+        black
+    );
+    assert_eq!(colour(plan.clone(), "card", StyleId::BackgroundColor), dim);
+    // Text whose colour the page set: the page's slice outside, the pin's in.
+    assert_eq!(
+        colour(plan.clone(), "outer", StyleId::TextColor),
+        parsed("light-dark(#111111, #eeeeee)")
+    );
+    assert_eq!(
+        colour(plan, "inner", StyleId::TextColor),
+        parsed("light-dark(#111111, #cccccc)")
+    );
+}
+
+fn booted(plan: Plan) -> Runner<NoData> {
+    let plan = contract::bake(plan, NoData).unwrap();
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
+    let key = r.kernel().find_by_test_id(id)[0];
+    match r.kernel().node_by_key(key).unwrap().computed(style) {
+        RowValue::ColorValue(c) => c,
+        RowValue::Color(c) => ColorValue::Fixed(c),
+        other => panic!("{id}: {other:?}"),
+    }
+}
+
+#[test]
+fn a_changed_pin_sets_its_subtrees_themed_rows_again() {
+    let path = app(
+        "pin-change",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  state dim = false\n  action flip\n    dim = not dim\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column testId=\"card\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n        column testId=\"deep\" background-color=\"page\"\n          text \"b\" testId=\"inner\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let (black, dim) = (
+        parsed("light-dark(#ffffff, #000000)"),
+        parsed("light-dark(#ffffff, #161e27)"),
+    );
+    assert_eq!(row(&r, "deep", StyleId::BackgroundColor), black);
+    assert_eq!(
+        row(&r, "inner", StyleId::TextColor),
+        parsed("light-dark(#111111, #eeeeee)")
+    );
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    // A node below the pin that reads no state is set again in its slice.
+    assert_eq!(row(&r, "deep", StyleId::BackgroundColor), dim);
+    assert_eq!(
+        row(&r, "inner", StyleId::TextColor),
+        parsed("light-dark(#111111, #cccccc)")
+    );
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), black);
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(row(&r, "deep", StyleId::BackgroundColor), black);
+}
+
+/// LLP 1121 stage 2's gate (theme1's condition): a one-token edit on a
+/// 1,000-row list sets only the rows that read the token, moves no
+/// geometry, and costs no more than a mode switch over the same list.
+#[test]
+fn a_token_edit_sets_only_its_rows_and_paints() {
+    let rows: Vec<String> = (0..1000).map(|i| i.to_string()).collect();
+    let view = format!("component App\n  state dim = false\n  state rows: number[] = [{}]\n  action flip\n    dim = not dim\n  view\n    column testId=\"root\" -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\"\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
+    let path = app(
+        "token-edit",
+        &[("app.tamber", MODES), ("app.contract", &view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let started = std::time::Instant::now();
+    let (receipt, set) = r
+        .set_token(
+            "ink",
+            "light-dark(#ff0000, #00ff00)",
+            &[
+                "light-dark(#ff0000, #00ff00)",
+                "light-dark(#ff0000, #0000ff)",
+            ],
+        )
+        .unwrap();
+    let edit = started.elapsed();
+    assert_eq!(set, 1000, "only the rows that read `ink`");
+    assert!(!receipt.layout_invalidated, "a colour moves no geometry");
+    assert_eq!(
+        row(&r, "text-7", StyleId::TextColor),
+        parsed("light-dark(#ff0000, #00ff00)")
+    );
+    assert_eq!(
+        row(&r, "row-7", StyleId::BackgroundColor),
+        parsed("light-dark(#ffffff, #000000)")
+    );
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    let started = std::time::Instant::now();
+    let receipt = r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    let switch = started.elapsed();
+    assert!(
+        !receipt.layout_invalidated,
+        "a mode switch moves no geometry"
+    );
+    assert_eq!(
+        row(&r, "text-7", StyleId::TextColor),
+        parsed("light-dark(#ff0000, #0000ff)")
+    );
+    eprintln!("token edit {edit:?} ({set} rows), mode switch {switch:?}");
+}
+
+#[test]
+fn a_role_override_has_one_value_and_a_pin_names_the_designs_axes() {
+    let path = app(
+        "role-axis",
+        &[
+            ("app.tamber", "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  Canvas = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n"),
+            ("app.contract", "component App\n  view\n    text \"a\"\n"),
+        ],
+    );
+    assert_eq!(
+        contract::compile_path(&path).unwrap_err().id,
+        "tamber-role-axis"
+    );
+    for pin in [
+        "dark-style=grey",
+        "contrast=high",
+        "dark-style",
+        "dark-style=dim dark-style=black",
+    ] {
+        std::fs::write(path.with_file_name("app.tamber"), MODES).unwrap();
+        std::fs::write(
+            &path,
+            format!("component App\n  view\n    column -exact-mode=\"{pin}\"\n      text \"a\"\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            contract::compile_path(&path).unwrap_err().id,
+            "tamber-mode",
+            "{pin}"
+        );
+    }
+}
+
+#[test]
+fn a_virtualized_lists_rows_are_in_the_modes_around_it() {
+    let path = app(
+        "pinned-list",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  state rows: number[] = [1, 2, 3]\n  view\n    column -exact-mode=\"dark-style=dim\" color=\"ink\"\n      list virtualized=true estimated-item-height=40 height=400\n        for i in rows key=i\n          row testId=`row-${i}` background-color=\"page\"\n            text `${i}` testId=`text-${i}`\n"),
+        ],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    assert_eq!(
+        row(&r, "row-2", StyleId::BackgroundColor),
+        parsed("light-dark(#ffffff, #161e27)")
+    );
+    assert_eq!(
+        row(&r, "text-2", StyleId::TextColor),
+        parsed("light-dark(#111111, #cccccc)")
+    );
+}
