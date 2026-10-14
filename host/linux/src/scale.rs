@@ -40,10 +40,10 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// An app mode (LLP 1121 D5, the agent's `prefer mode`): the window's
+    /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's
     /// slice set again in one commit, which paints.
-    pub fn set_mode(&mut self, axis: &str, value: &str) -> Option<String> {
-        match self.runner.set_mode(axis, value) {
+    pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> Option<String> {
+        match self.runner.set_modes(pins) {
             Ok(Some(receipt)) => self.commit(
                 &[Timed {
                     at_ms: self.now_ms,

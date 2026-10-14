@@ -769,3 +769,40 @@ fn set_mode_sets_the_windows_slice_in_its_actions_commit() {
     std::fs::write(&path, "component App\n  action go\n    setMode(\"density\", \"compact\")\n  view\n    button press=go\n      text \"go\"\n").unwrap();
     assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-mode");
 }
+
+#[test]
+fn set_mode_takes_one_axis_and_value_and_the_last_of_an_action_wins() {
+    let path = app(
+        "set-mode-many",
+        &[
+            ("app.tamber", TWO_AXES),
+            ("app.contract", "component App\n  state sneaky: string = \"dim,density:compact\"\n  action both\n    setMode(\"dark-style\", \"dim\")\n    copyText(\"x\")\n    setMode(\"density\", \"compact\")\n  action sneak\n    setMode(\"dark-style\", sneaky)\n  view\n    column\n      button press=both testId=\"both\"\n        text \"both\"\n      button press=sneak testId=\"sneak\"\n        text \"sneak\"\n      text \"a\" testId=\"text\" color=\"ink\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    press(&mut r, "both");
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#444444"));
+    // A value holding pins is no value: refused, nothing moved.
+    press(&mut r, "sneak");
+    assert_eq!(
+        r.modes(),
+        [
+            ("dark-style".to_string(), "dim".to_string()),
+            ("density".to_string(), "compact".to_string())
+        ]
+    );
+    // A literal axis the design lacks is refused whatever the value.
+    std::fs::write(&path, "component App\n  state v: string = \"dim\"\n  action go\n    setMode(\"contrast\", v)\n  view\n    button press=go\n      text \"go\"\n").unwrap();
+    assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-mode");
+    // Several at once are checked whole: one bad pin moves none.
+    std::fs::write(
+        &path,
+        "component App\n  view\n    text \"a\" testId=\"text\" color=\"ink\"\n",
+    )
+    .unwrap();
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    assert!(r
+        .set_modes(&[("dark-style", "dim"), ("density", "loose")])
+        .is_err());
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#111111"));
+}

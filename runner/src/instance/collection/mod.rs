@@ -408,7 +408,11 @@ impl Collection {
             }
         }
         let mut this = Box::new(Self {
-            around: u.theme.clone(),
+            // What a later row is in, not the visit's re-theme of the rest.
+            around: super::theme::Around {
+                retheme: false,
+                ..u.theme.clone()
+            },
             preview: None,
             incoming: None,
             hidden: None,

@@ -1175,6 +1175,13 @@ fn prefer_mode_sets_the_apps_modes() {
     .unwrap();
     let refused = handle(&mut p, r#"{"op":"prefer","mode":{"dark-style":"grey"}}"#);
     assert!(refused.contains("\"error\""), "{refused}");
+    // A refused fact beside a good pin applies nothing.
+    let refused = handle(
+        &mut p,
+        r#"{"op":"prefer","mode":{"dark-style":"dim"},"media":{"color-gamut":"p3"}}"#,
+    );
+    assert!(refused.contains("\"error\""), "{refused}");
+    assert_eq!(p.host().runner().modes()[0].1, "black");
     let reply: serde_json::Value = serde_json::from_str(&handle(
         &mut p,
         r#"{"op":"prefer","mode":{"dark-style":"dim"}}"#,

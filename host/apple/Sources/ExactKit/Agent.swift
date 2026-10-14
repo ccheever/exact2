@@ -427,12 +427,6 @@ public final class Agent {
         let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
         let mode = req["mode"] as? [String: String]
         guard media != nil || page != nil || fold != nil || mode != nil else { return ["error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
-        // @ref LLP 1121 D13 — the mode group: the app's `setMode`, each pin; the scheme stays the system's.
-        for (axis, value) in mode ?? [:] {
-            let batch = session.runtime.setMode(axis: axis, value: value)
-            if let error = batch.error { return ["error": "prefer mode \(axis): \(error)"] }
-            session.apply(batch)
-        }
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
@@ -474,6 +468,16 @@ public final class Agent {
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
         }
+        // @ref LLP 1121 D13 — the mode group, once every other fact is known:
+        // the app's `setMode` for all its pins in one commit, each checked
+        // before any is set; the scheme stays the system's.
+        var modes: [String: String]?
+        if let mode, !mode.isEmpty {
+            let batch = session.runtime.setModes(mode)
+            session.apply(batch)
+            if let error = batch.error { return ["error": "prefer mode: \(error)"] }
+            modes = batch.modes
+        }
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
         session.displayModeOverride = displayMode
@@ -504,7 +508,7 @@ public final class Agent {
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": pageFacts,
                 "fold": presenter.fold.env]
-        if let mode { reply["mode"] = mode }
+        if let modes { reply["mode"] = modes }
         return reply
     }
 

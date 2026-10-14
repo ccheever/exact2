@@ -41,10 +41,11 @@ fn filter_refers(list: &FilterList, text: ColorValue) -> bool {
 }
 
 impl<D: DataSource> Host<D> {
-    /// An app mode (LLP 1121 D5, the agent's `prefer mode`): the window's
-    /// slice set again in one commit, which paints.
-    pub fn set_mode(&mut self, axis: &str, value: &str) -> String {
-        match self.runner.set_mode(axis, value) {
+    /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's
+    /// slice set again in one commit, which paints; the batch says the
+    /// window's modes after it.
+    pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> String {
+        let batch = match self.runner.set_modes(pins) {
             Ok(Some(receipt)) => self.commit(
                 &[exact_runner::Timed {
                     at_ms: self.now_ms,
@@ -53,8 +54,10 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => self.commit(&[], None),
-            Err(e) => exact_runner::agent::error(&format!("mode: {e:?}")),
-        }
+            Err(e) => return exact_runner::agent::error(&format!("mode: {e:?}")),
+        };
+        // An object, as every batch is: the modes go first.
+        format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
     }
 
     /// Take the presenter's resolutions; when anything resolves differently,

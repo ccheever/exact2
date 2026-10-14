@@ -1225,7 +1225,10 @@ impl NodeInst {
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
         if let Some(collection) = &mut self.collection {
-            collection.around = u.theme.clone();
+            collection.around = theme::Around {
+                retheme: false,
+                ..u.theme.clone()
+            };
             let follow = u
                 .env
                 .plan

@@ -91,9 +91,9 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
-    /// An app mode (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
-    pub fn set_mode(&mut self, axis: &str, value: &str) -> Option<String> {
-        let error = self.host.set_mode(axis, value);
+    /// App modes (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
+    pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> Option<String> {
+        let error = self.host.set_modes(pins);
         if error.is_some() {
             return error;
         }

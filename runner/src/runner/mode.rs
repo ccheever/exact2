@@ -23,13 +23,38 @@ impl<D: DataSource> Runner<D> {
         out
     }
 
-    /// The window's tuple with `axis` at `value`; `None` when the plan has
-    /// no such axis or value.
-    fn window_with(&self, axis: &str, value: &str) -> Option<u32> {
-        crate::bridge::pinned(
-            &self.plan,
-            &format!("{axis}:{value}"),
-            self.ids.theme.window,
+    /// The window's tuple with each `(axis, value)` of `pins`; `None` when
+    /// one names no axis or value of the plan's, or an axis twice.
+    fn window_with(&self, pins: &[(&str, &str)]) -> Option<u32> {
+        let axes: Vec<(&str, Vec<&str>)> = self
+            .plan
+            .axes
+            .iter()
+            .map(|a| {
+                (
+                    self.plan.str(a.name),
+                    self.plan.str(a.values).split('|').collect(),
+                )
+            })
+            .collect();
+        let mut digits = vec![0u32; axes.len()];
+        let mut rest = self.ids.theme.window;
+        for (i, (_, values)) in axes.iter().enumerate().rev() {
+            digits[i] = rest % values.len() as u32;
+            rest /= values.len() as u32;
+        }
+        let mut seen = vec![false; axes.len()];
+        for (axis, value) in pins {
+            let i = axes.iter().position(|(name, _)| name == axis)?;
+            if std::mem::replace(&mut seen[i], true) {
+                return None;
+            }
+            digits[i] = axes[i].1.iter().position(|v| v == value)? as u32;
+        }
+        Some(
+            axes.iter()
+                .zip(&digits)
+                .fold(0, |tuple, ((_, values), d)| tuple * values.len() as u32 + d),
         )
     }
 
@@ -64,7 +89,7 @@ impl<D: DataSource> Runner<D> {
             [axis, value] => axis
                 .as_str()
                 .zip(value.as_str())
-                .and_then(|(axis, value)| self.window_with(axis, value)),
+                .and_then(|pin| self.window_with(&[pin])),
             _ => None,
         };
         match tuple {
@@ -88,28 +113,61 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Set app mode `axis` to `value` and commit what it moves (the agent's
-    /// `prefer mode`, D13): `None` when it is the window's already.
-    pub fn set_mode(
+    /// Set the app modes `pins` names, each axis to its value, and commit
+    /// what they move in one commit (the agent's `prefer mode`, D13): every
+    /// pin is checked before any is set. `None` when they are the window's
+    /// already.
+    pub fn set_modes(
         &mut self,
-        axis: &str,
-        value: &str,
+        pins: &[(&str, &str)],
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let tuple = self
-            .window_with(axis, value)
+            .window_with(pins)
             .ok_or_else(|| RunnerError::InvalidValue {
                 event: "setMode",
-                reason: format!("`{axis}:{value}` is no axis and value of the app's design"),
+                reason: format!(
+                    "{} names an axis or value the app's design lacks, or an axis twice",
+                    pins.iter()
+                        .map(|(a, v)| format!("`{a}:{v}`"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
             })?;
         let previous = self.ids.theme.window;
         if !self.set_window(tuple) {
             return Ok(None);
         }
         let result = self.commit_again(Vec::new(), "app mode");
-        if result.is_err() {
+        // A refused commit put the tree back: so is the tuple, set again in
+        // the next visit. A poisoned runner keeps the tree it wrote.
+        if result.is_err() && !self.poisoned {
             self.ids.theme.window = previous;
             self.ids.theme.moved = true;
         }
         result.map(Some)
+    }
+
+    /// [`Runner::set_modes`] for one axis.
+    pub fn set_mode(
+        &mut self,
+        axis: &str,
+        value: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.set_modes(&[(axis, value)])
+    }
+
+    /// The window's modes as JSON, `{"axis": "value", …}`, for a host's reply.
+    pub fn modes_json(&self) -> String {
+        let mut out = String::from("{");
+        for (i, (axis, value)) in self.modes().into_iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            crate::agent::quote(&axis, &mut out);
+            out.push(':');
+            crate::agent::quote(&value, &mut out);
+        }
+        out.push('}');
+        out
     }
 }

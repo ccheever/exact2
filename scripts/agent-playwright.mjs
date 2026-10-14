@@ -325,14 +325,15 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
-      async prefer(media, pageFacts) {
+      async prefer(media, pageFacts, fold = {}, mode = {}) {
         const unsupported = Object.entries(media).find(([key, value]) => key === 'display-mode' || (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
         if (pageFacts['display-scale'] != null && pageFacts['display-scale'] !== 1) throw new Error(`${name} prefer cannot set display-scale ${pageFacts['display-scale']}: a browser's scale is fixed when it launches, and Playwright's is 1 here`);
         Object.assign(emulated, media);
         const options = { colorScheme: emulated['prefers-color-scheme'], reducedMotion: emulated['prefers-reduced-motion'], contrast: emulated['prefers-contrast'] };
         if (Object.keys(options).length) { await page.emulateMedia(options); await frame(); }
-        const pageReply = Object.keys(pageFacts).length ? await ask({ op: 'prefer', page: pageFacts }) : null;
+        const hasMode = Object.keys(mode).length > 0; // @ref LLP 1121 D13 — the page's own `setMode`s, as the Chrome carrier sends them
+        const pageReply = Object.keys(pageFacts).length || hasMode ? await ask({ op: 'prefer', ...(Object.keys(pageFacts).length ? { page: pageFacts } : {}), ...(hasMode ? { mode } : {}) }) : null;
         if (pageReply?.error) throw new Error(pageReply.error);
         if (pageReply) await frame();
         const current = await page.evaluate(() => {
@@ -342,7 +343,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
           };
           return Object.fromEntries(Object.entries(choices).map(([key, values]) => [key, values.find(value => matchMedia(`(${key}: ${value})`).matches) ?? values.at(-1)]));
         });
-        return { media: current, ...(pageReply ? { page: pageReply.page } : {}) };
+        return { media: current, ...(pageReply ? { page: pageReply.page, ...(hasMode ? { mode: pageReply.mode } : {}) } : {}) };
       },
       async input(id, kind, opts) {
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }

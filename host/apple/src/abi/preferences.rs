@@ -7,17 +7,25 @@ use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
-    /// An app mode, `axis:value` in the input buffer (LLP 1121 D5).
+    /// App modes, `axis:value` pins comma-separated in the input buffer
+    /// (LLP 1121 D5), set in one commit.
     pub fn set_mode(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
-        let Some((axis, value)) = text.split_once(':') else {
-            return self.emit(exact_runner::agent::error("mode: expected axis:value"));
+        let pins: Option<Vec<(String, String)>> = text
+            .split(',')
+            .map(|pin| {
+                pin.split_once(':')
+                    .map(|(a, v)| (a.to_owned(), v.to_owned()))
+            })
+            .collect();
+        let Some(pins) = pins else {
+            return self.emit(exact_runner::agent::error("mode: expected axis:value pins"));
         };
-        let (axis, value) = (axis.to_owned(), value.to_owned());
+        let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
         let out = self
             .host
             .as_mut()
-            .map_or_else(not_booted, |h| h.set_mode(&axis, &value));
+            .map_or_else(not_booted, |h| h.set_modes(&pins));
         self.emit(out)
     }
 

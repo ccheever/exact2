@@ -556,17 +556,43 @@ pub(crate) fn mode_pins(a: &Attr) -> Result<(), LowerError> {
 }
 
 /// `setMode(axis, value)`'s literal arguments name an axis of the design
-/// and one of its values (LLP 1121 D5); computed ones are the runner's.
+/// and one of its values (LLP 1121 D5): an axis literal by itself, a value
+/// with its axis; a computed one is the runner's.
 pub(crate) fn set_mode_args(args: &[Expr], span: Span) -> Result<(), LowerError> {
-    let [Expr::Str(axis, _), Expr::Str(value, _)] = args else {
+    let [axis, value] = args else {
         return Ok(());
     };
-    AXES.with(|axes| check_pins(&format!("{axis}={value}"), &axes.borrow()))
-        .map_err(|message| LowerError {
+    let Expr::Str(axis, _) = axis else {
+        return Ok(());
+    };
+    let value = match value {
+        Expr::Str(v, _) => Some(v.as_str()),
+        _ => None,
+    };
+    let refused = AXES.with(|axes| {
+        let axes = axes.borrow();
+        let Some((_, values)) = axes.iter().find(|(name, _)| name == axis) else {
+            let known: Vec<&str> = axes.iter().map(|(n, _)| n.as_str()).collect();
+            return Some(match known.is_empty() {
+                true => format!("this app's design declares no axes, so `{axis}` is none"),
+                false => format!(
+                    "`{axis}` is no axis of this app's design ({})",
+                    known.join(", ")
+                ),
+            });
+        };
+        value
+            .filter(|v| !values.iter().any(|x| x == v))
+            .map(|v| format!("`{v}` is no value of `{axis}` ({})", values.join(" | ")))
+    });
+    match refused {
+        Some(message) => Err(LowerError {
             id: "tamber-mode",
-            message: format!("`setMode(\"{axis}\", \"{value}\")`: {message}"),
+            message: format!("`setMode`: {message}"),
             span,
-        })
+        }),
+        None => Ok(()),
+    }
 }
 
 /// Each pin of `text` in `axes`; the reason one is not.

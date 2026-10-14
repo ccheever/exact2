@@ -49,6 +49,8 @@ pub struct Bridge<D: DataSource> {
     output: Vec<u8>,
 }
 
+mod mode;
+
 impl<D: DataSource> Bridge<D> {
     /// Empty; `boot` fills it.
     pub const fn new() -> Bridge<D> {
@@ -725,22 +727,6 @@ impl<D: DataSource> Bridge<D> {
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
             |h| h.set_display_scale(scale),
-        );
-        self.emit(out)
-    }
-
-    /// An app mode, `axis:value` in the input buffer (LLP 1121 D5).
-    pub fn set_mode(&mut self, len: usize) -> u32 {
-        let Ok(pin) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
-            return self.emit(exact_runner::agent::error("mode: invalid UTF-8"));
-        };
-        let Some((axis, value)) = pin.split_once(':') else {
-            return self.emit(exact_runner::agent::error("mode: write axis:value"));
-        };
-        let (axis, value) = (axis.to_owned(), value.to_owned());
-        let out = self.host.as_mut().map_or_else(
-            || exact_runner::agent::error("not booted"),
-            |h| h.set_mode(&axis, &value),
         );
         self.emit(out)
     }
