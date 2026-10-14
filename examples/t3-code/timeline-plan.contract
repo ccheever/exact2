@@ -17,7 +17,7 @@ use Icon from "./icons.contract"
 component PlanCard
   props
     message: Message
-    documents: list<ChatDocument>
+    documents: ChatDocument[]
     local: action
     scheme: string
   state expanded = false
@@ -55,11 +55,11 @@ component PlanCard
                   PlanMenuItem(keysId=`plan-menu-${message.id}-keys`, label="Save to workspace", menuId=`plan-menu-${message.id}`, itemId=`plan-save-${message.id}`, disabled=false, choose=local("plan-save-open", message.id, ""))
         column width="100%" margin-top="1rem"
           column width="100%" position="relative" max-height=(message.collapsible and not expanded ? "26rem" : "6250rem") overflow="hidden"
-            each document in filter(documents, (doc) => doc.id == (message.collapsible and not expanded ? `${message.id}#preview` : message.id)) key=document.id
+            for document in documents.filter((doc) => doc.id == (message.collapsible and not expanded ? `${message.id}#preview` : message.id)) key=document.id
               AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source="", urls=noUrls())
-            when message.collapsible and not expanded
+            if message.collapsible and not expanded
               box position="absolute" left=0 right=0 bottom=0 height="6rem" pointer-events="none" background-color="light-dark(#fefefe, #121212)" mask-image="linear-gradient(to top, #000000f2 0%, #000000cc 50%, #00000000 100%)" aria-hidden=true
-          when message.collapsible
+          if message.collapsible
             row width="100%" margin-top="1rem" justify-content="center"
               button press=toggle testId=`plan-expand-${message.id}` height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                 text (expanded ? "Collapse plan" : "Expand plan") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"

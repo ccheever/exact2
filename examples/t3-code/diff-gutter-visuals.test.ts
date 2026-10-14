@@ -24,17 +24,17 @@ describe('a selected line takes the reference\'s blue, not amber', () => {
     expect(cell).toContain('testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? diffSel("gutter") : tone == "deletion"');
     // The number moved out of the cell into DiffNumber (diff-gutter-selection-followups GS-1); its colour is the same.
     expect(component(rows, 'DiffNumber')).toContain('font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion"');
-    expect(cell).toContain('when selected\n          box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")');
-    expect(cell).toContain('when tone == "addition" and not selected\n');
-    expect(cell).toContain('when tone == "deletion" and not selected\n');
+    expect(cell).toContain('if selected\n          box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")');
+    expect(cell).toContain('if tone == "addition" and not selected\n');
+    expect(cell).toContain('if tone == "deletion" and not selected\n');
   });
   test('a comment under a selected line takes the row\'s colour and the bar, in both panels', () => {
     const row = component(rows, 'DiffRow');
     expect(row).toContain('column width="100%" position="relative" background-color=(item.selected ? diffSel("row") : "#00000000")');
     expect(row).toContain('DiffDraftCard(rangeLabel=item.label, text=draftText, selected=item.selected,');
-    expect(row).toContain('when item.selected\n            box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")');
+    expect(row).toContain('if item.selected\n            box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")');
     const code = source('pages-pr-code.contract');
-    expect(code).toContain('when item.kind == "pr-thread" or item.kind == "pr-pending" or item.kind == "pr-draft"\n        // What sits under a selected line');
+    expect(code).toContain('if item.kind == "pr-thread" or item.kind == "pr-pending" or item.kind == "pr-draft"\n        // What sits under a selected line');
     expect(code).toContain('PrdCodeDraft(rangeLabel=item.label, text=draftText, selected=item.selected,');
     for (const [file, name] of [['diff-comments.contract', 'DiffDraftCard'], ['pages-pr-threads.contract', 'PrdCodeDraft']]) {
       expect(component(source(file!), name!)).toContain(`background-color=(selected ? "light-dark(${REFERENCE.row.join(', ')})" : "light-dark(#fcfcfc, #0a0a0a)")`);
@@ -63,6 +63,6 @@ describe('the "+" sits at the number\'s right, as Pierre\'s gutter utility', () 
   test('#413\'s handlers and placement stay as they were', () => {
     expect(plus).toContain('button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line}`');
     expect(plus).toContain('opacity=(pin or (hovering and not pinned) ? 1 : 0)');
-    expect(cell).toContain('when line > 0 and not open and (pin or not pinned or dragging)\n        button press=comment');
+    expect(cell).toContain('if line > 0 and not open and (pin or not pinned or dragging)\n        button press=comment');
   });
 });

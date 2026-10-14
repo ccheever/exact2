@@ -10,7 +10,6 @@ import { prCommand, pullRequestDetail } from './pages-pr-detail';
 import { linkedThreadItems, notePreviewHover, openLink, readPreview, threadPickerView } from './pages-pr-links';
 import { paletteView } from './palette-view';
 import { contractComponent } from './contract-action-fixture';
-import type { PaletteRow } from './palette';
 
 type Reply = (payload: Obj) => unknown;
 const URL7 = 'https://github.com/lane/sandbox/pull/7';
@@ -124,10 +123,7 @@ describe('Link to thread (PullRequestThreadLinks display="menu-item" and the pic
       ['', ['flow', 'pr-link-thread', 't1']],
     ] as const) {
       const view = threadPickerView(client, query, false);
-      const { tOp, tArg, tArg2 } = picker.derives({}, { view, highlight: -1, scheme: 'light', viewport: { width: 1280 }, min: Math.min,
-        filter: (rows: PaletteRow[], predicate: (row: PaletteRow) => boolean) => rows.filter(predicate),
-        map: (rows: PaletteRow[], project: (row: PaletteRow) => string) => rows.map(project),
-        join: (values: string[], separator: string) => values.join(separator) });
+      const { tOp, tArg, tArg2 } = picker.derives({}, { view, highlight: -1, scheme: 'light', viewport: { width: 1280 }, min: Math.min });
       expect([query, [tOp, tArg, tArg2]]).toEqual([query, expected]);
     }
   });

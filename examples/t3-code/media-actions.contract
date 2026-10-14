@@ -76,7 +76,7 @@ component MediaPreviewActions
     nodeId: string
   action hover(inside: bool)
     if tip != ""
-      hoverTipAt(hoverTipAtFrame(nodeId, "code", tip, [], "top", "center", frame(nodeId), (floor(length(tip) / 68) + 1) * 1.1171875 * rem + 0.625 * rem, "media-tooltip"), "trigger", inside)
+      hoverTipAt(hoverTipAtFrame(nodeId, "code", tip, [], "top", "center", frame(nodeId), (floor(tip.length / 68) + 1) * 1.1171875 * rem + 0.625 * rem, "media-tooltip"), "trigger", inside)
   action pointerMenu
     hover(false)
     focus(nodeId)
@@ -102,7 +102,7 @@ component MediaTip
     label: string
     shown: bool
   view
-    when label != ""
+    if label != ""
       row position="absolute" bottom="100%" left="-15rem" right="-15rem" padding-bottom="0.25rem" justify-content="center" pointer-events="none" z-index=140 aria-hidden=true
         column max-width="30rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" testId="media-tooltip"
           text label font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" text-align="left" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
@@ -116,7 +116,7 @@ component MediaOpenLink
     dark: bool
     testId: string
   view
-    when url != ""
+    if url != ""
       link href=url aria-label=label testId=testId height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(dark ? "#ffffff29" : "light-dark(#d4d4d8, #ffffff14)") background-color=(dark ? "#ffffff1a" : "light-dark(#f4f4f5, #ffffff0f)") display="flex" flex-direction="row" align-items="center" text-decoration-line="none"
         ShellIcon(name=icon, size=14, color=(dark ? "#ffffff" : "light-dark(#27272a, #f5f5f5)"))
         text label font-size="0.8125rem" line-height="1.125rem" font-weight=500 white-space="nowrap" color=(dark ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
@@ -136,7 +136,7 @@ component MediaVideoFailure
         ShellIcon(name="triangle-alert", size=14, color=(dark ? "#ffffff" : "light-dark(#71717b, #818181)"))
         text media.failText font-size="0.875rem" line-height="1.25rem" text-align="center" line-clamp=2 color=(dark ? "#ffffff" : "light-dark(#71717b, #818181)") testId=`${testId}-label`
       row flex-wrap="wrap" gap="0.5rem" align-items="center" justify-content="center"
-        when media.retryKey != ""
+        if media.retryKey != ""
           button press=local("media-retry", media.retryKey, media.url) disabled=media.retrying aria-label=(media.retrying ? "Retrying…" : "Retry video") testId=`${testId}-retry` height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(dark ? "#ffffff29" : "light-dark(#d4d4d8, #ffffff14)") background-color=(dark ? "#ffffff1a" : "light-dark(#f4f4f5, #ffffff0f)") opacity=(media.retrying ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
             svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" stroke=(dark ? "#ffffff" : "light-dark(#27272a, #f5f5f5)") stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
               path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"
@@ -149,22 +149,22 @@ component FilesMedia
     media: MediaView
     local: action
   view
-    when media.state == "loading"
+    if media.state == "loading"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" role="status" aria-label=(media.kind == "video" ? "Loading video" : "Loading image") testId="file-media-loading"
         ShellIcon(name="loader", size=24, color="light-dark(#71717b, #818181)")
-    when media.state == "failed" and media.kind == "image"
+    if media.state == "failed" and media.kind == "image"
       MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-failed")
         column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box"
           text media.failText text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-image-error"
-    when media.state == "ready" and media.kind == "image"
+    if media.state == "ready" and media.kind == "image"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="auto" padding="1rem" box-sizing="border-box" testId="file-image"
         MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-actions")
           image media.url aria-label=media.name error=local("media-image-error", media.url) max-width="100%" max-height="100%" object-fit="contain" testId="file-image-picture"
-    when media.kind == "video" and media.state != "loading"
+    if media.kind == "video" and media.state != "loading"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" padding="1rem" box-sizing="border-box" testId="file-video"
         column width="100%" max-width="64rem" align-items="center"
           MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-video-actions")
-            when media.state == "failed"
+            if media.state == "failed"
               MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
             else
               video media.url controls=true playsinline=true preload="metadata" aria-label=media.name error=local("media-video-error", media.url) width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"

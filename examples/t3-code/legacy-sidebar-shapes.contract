@@ -40,7 +40,7 @@ shape LegacyProjectRow
   remoteMachine: string
   remoteLabel: string
   remoteTooltip: string
-  threads: list<LegacyThreadRow>
+  threads: LegacyThreadRow[]
   showEmpty: bool
   showMore: bool
   showLess: bool
@@ -52,7 +52,7 @@ shape LegacyProjectRow
   enter: bool
 shape LegacySidebarView
   enabled: bool
-  projects: list<LegacyProjectRow>
+  projects: LegacyProjectRow[]
   manual: bool
   projectSort: string
   threadSort: string

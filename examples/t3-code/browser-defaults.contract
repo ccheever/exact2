@@ -35,16 +35,16 @@ shape BrowserDefaultsView
   viewportHeight: number
   rotateLabel: string
   viewportReset: bool
-  viewportOptions: list<BdViewportOption>
+  viewportOptions: BdViewportOption[]
   zoomLabel: string
   zoomReset: bool
-  zoomOptions: list<SelectOption>
+  zoomOptions: SelectOption[]
   appearanceLabel: string
   appearanceReset: bool
-  appearanceOptions: list<SelectOption>
+  appearanceOptions: SelectOption[]
   frameRateLabel: string
   frameRateReset: bool
-  frameRateOptions: list<SelectOption>
+  frameRateOptions: SelectOption[]
   keyPresses: bool
   mousePresses: bool
   autoShow: bool
@@ -66,7 +66,7 @@ component BdRow
         row min-height="1.25rem" align-items="center" gap="0.375rem"
           text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
-            when reset
+            if reset
               button press=resetPress aria-label=`Reset ${resetLabel} to default` testId=`reset-browser-default-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
         text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
@@ -86,7 +86,7 @@ component BrowserTabDefaultRows
     column width="100%" testId="browser-defaults"
       BdRow(rowId="viewport", title="Default browser viewport", description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar.", reset=view.viewportReset, resetLabel="default browser viewport", resetPress=pick("reset", "viewport"))
         BdViewportSelect(label=view.viewportLabel, width=(176 * rem / 16), options=view.viewportOptions, choose=pick("viewport"))
-        when view.viewportSized
+        if view.viewportSized
           BdViewportSize(view=view, pick=pick)
       BdRow(rowId="zoom", title="Default browser zoom", description="Page zoom applied to new browser tabs.", reset=view.zoomReset, resetLabel="default browser zoom", resetPress=pick("reset", "zoom"))
         SettingsSelect(selectId="browser-default-zoom", label="Default browser zoom", valueLabel=view.zoomLabel, value="", width=(160 * rem / 16), disabled=false, options=view.zoomOptions, choose=pick("zoom"))
@@ -106,7 +106,7 @@ component BdViewportSelect
   props
     label: string
     width: number
-    options: list<BdViewportOption>
+    options: BdViewportOption[]
     choose: action
   state keyed = 0
   state keyArmed = false
@@ -123,9 +123,9 @@ component BdViewportSelect
         text label font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
         LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
       KeyMenuOpen(menuId="browser-default-viewport-menu", armed=keyArmed, opened=keyOpened)
-      SkPopup(menuId="browser-default-viewport-menu", label="Default browser viewport", width=(278 * width / 176), list=true, endAlign=width, items=map(options, (option) => KmItem(id=`browser-default-viewport-option-${option.value}`, label=option.label)), keyed=keyed)
-        each option in options key=option.value
-          when option.heading != ""
+      SkPopup(menuId="browser-default-viewport-menu", label="Default browser viewport", width=(278 * width / 176), list=true, endAlign=width, items=options.map((option) => KmItem(id=`browser-default-viewport-option-${option.value}`, label=option.label)), keyed=keyed)
+        for option in options key=option.value
+          if option.heading != ""
             text option.heading padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="presentation" testId="browser-default-viewport-group"
           BdViewportItem(keysId="browser-default-viewport-menu-keys", option=option, choose=choose(option.value))
 
@@ -146,7 +146,7 @@ component BdViewportItem
   view
     button id=`browser-default-viewport-option-${option.value}` press=choose popovertarget="browser-default-viewport-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="option" aria-selected=option.selected testId=`browser-default-viewport-option-${option.value}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="1.25rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(option.selected ? "light-dark(#27272a14, #f5f5f514)" : lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
       text option.label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color="light-dark(#27272a, #f5f5f5)"
-      when option.detail != ""
+      if option.detail != ""
         text option.detail flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)"
 
 // The sized viewport's width × height (committed on Enter or when the field is left) and Rotate.
@@ -164,7 +164,7 @@ component BdViewportSize
   view
     row align-items="center" gap="0.25rem" min-width=0
       // Keyed by the stored size, so a refused entry shows the stored value again.
-      each size in [`${view.viewportWidth}x${view.viewportHeight}`] key=size
+      for size in [`${view.viewportWidth}x${view.viewportHeight}`] key=size
         input value=`${view.viewportWidth}` change=width inputmode="numeric" aria-label="Default viewport width" spellcheck="false" testId="browser-default-viewport-width" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
         text "×" font-size="0.75rem" color="light-dark(#71717b, #818181)"
         input value=`${view.viewportHeight}` change=height inputmode="numeric" aria-label="Default viewport height" spellcheck="false" testId="browser-default-viewport-height" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"

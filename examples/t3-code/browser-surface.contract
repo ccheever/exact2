@@ -34,7 +34,7 @@ keyframes bsLoading
   to translate="-10% 0%"
 
 // Lucide 0.553 (ISC) glyphs the chrome draws, one path each.
-fn bsPath(name: string): string = includes(["arrow-left", "arrow-right", "refresh-cw", "external-link", "mouse-pointer-click"], name) ? (name == "arrow-left" ? "M12 19l-7-7 7-7M19 12H5" : name == "arrow-right" ? "M5 12h14M12 5l7 7-7 7" : name == "refresh-cw" ? "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5" : name == "external-link" ? "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" : "M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z") : includes(["camera", "picture-in-picture-2", "ellipsis-vertical", "minus", "plus"], name) ? (name == "camera" ? "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4zM9 13a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "picture-in-picture-2" ? "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Z" : name == "ellipsis-vertical" ? "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" : name == "minus" ? "M5 12h14" : "M5 12h14M12 5v14") : includes(["rotate-ccw", "globe", "earth", "chevron-right", "history"], name) ? (name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "globe" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" : name == "earth" ? "M21.54 15H17a2 2 0 0 0-2 2v4.54M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" : name == "chevron-right" ? "M9 18l6-6-6-6" : "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2") : includes(["radio-tower", "x", "check"], name) ? (name == "radio-tower" ? "M4.9 16.1C1 12.2 1 5.8 4.9 1.9M7.8 4.7a6.14 6.14 0 0 0-.8 7.5M10 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M16.2 4.8c2 2 2.26 5.11.8 7.47M19.1 1.9a9.96 9.96 0 0 1 0 14.1M9.5 18h5M8 22l4-11 4 11" : name == "x" ? "M18 6 6 18M6 6l12 12" : "M20 6 9 17l-5-5") : ""
+fn bsPath(name: string): string = ["arrow-left", "arrow-right", "refresh-cw", "external-link", "mouse-pointer-click"].includes(name) ? (name == "arrow-left" ? "M12 19l-7-7 7-7M19 12H5" : name == "arrow-right" ? "M5 12h14M12 5l7 7-7 7" : name == "refresh-cw" ? "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5" : name == "external-link" ? "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" : "M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z") : ["camera", "picture-in-picture-2", "ellipsis-vertical", "minus", "plus"].includes(name) ? (name == "camera" ? "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4zM9 13a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "picture-in-picture-2" ? "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Z" : name == "ellipsis-vertical" ? "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" : name == "minus" ? "M5 12h14" : "M5 12h14M12 5v14") : ["rotate-ccw", "globe", "earth", "chevron-right", "history"].includes(name) ? (name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "globe" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" : name == "earth" ? "M21.54 15H17a2 2 0 0 0-2 2v4.54M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" : name == "chevron-right" ? "M9 18l6-6-6-6" : "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2") : ["radio-tower", "x", "check"].includes(name) ? (name == "radio-tower" ? "M4.9 16.1C1 12.2 1 5.8 4.9 1.9M7.8 4.7a6.14 6.14 0 0 0-.8 7.5M10 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M16.2 4.8c2 2 2.26 5.11.8 7.47M19.1 1.9a9.96 9.96 0 0 1 0 14.1M9.5 18h5M8 22l4-11 4 11" : name == "x" ? "M18 6 6 18M6 6l12 12" : "M20 6 9 17l-5-5") : ""
 
 component BsIcon
   props
@@ -73,15 +73,15 @@ component BrowserBody
   view
     column flex=1 min-height=0 width="100%" testId="browser-surface"
       // One chrome per tab: a draft typed in one tab's field never carries over to another.
-      each tabKey in [view.tabId] key=tabKey
+      for tabKey in [view.tabId] key=tabKey
         BrowserChrome(view=view, local=local, urlFocus=urlFocus, pw=pw, ph=ph)
       box flex=1 min-height=0 position="relative" overflow="hidden" resize=measured
         // The page stays mounted under the load-failed page, as the reference's slot does (its keys keep working).
-        when view.live or view.failed
+        if view.live or view.failed
           BrowserStage(view=view, pw=pw, ph=ph, urlFocused=urlFocused, local=local)
-        when view.empty
+        if view.empty
           BrowserEmpty(view=view, local=local)
-        when view.failed
+        if view.failed
           BrowserLoadFailed(view=view, local=local)
 
 // PreviewChromeRow: 40pt, 8pt sides, 4pt gaps, a hairline under it; Back, Forward and Refresh, the
@@ -117,7 +117,7 @@ component BrowserChrome
     draft = text
     touched = true
   action go
-    if trim(draft) != ""
+    if draft.trim() != ""
       local("surface-browser-navigate", view.tabId, draft)
       touched = false
       blur()
@@ -136,13 +136,13 @@ component BrowserChrome
           // The reference names the button Stop while a page loads, and pressing it reloads (PreviewManager.refresh).
           BsButton(icon="refresh-cw", label=(view.loading ? "Stop" : "Refresh"), tip=(view.loading ? "Loading…" : "Refresh"), disabled=view.refreshDisabled, pressed=false, spin=(view.loading and not still), align="center", press=local("surface-browser-refresh", view.tabId, ""), testId="browser-refresh")
         // leadingActions: the tab's profile, only when it is not the configured default (part 4), its name on hover.
-        when view.showProfile
+        if view.showProfile
           BsProfileBadge(name=view.profileName)
         // InputGroup ghost (h-7): transparent until hovered (muted/40) or focused (the background and a ring).
         row flex=1 min-width=0 height="1.75rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(focused ? "light-dark(#a1a1aa, #71717a)" : "#00000000") box-shadow=(focused ? "0 0 0 3px light-dark(#a1a1aa3d, #71717a3d)" : "none") background-color=(focused ? "light-dark(#ffffff, #0a0a0a)" : addressOver ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000") hover=addressHover role="group" testId="browser-address"
           input id="browser-url" value=(focused or touched ? draft : view.url) input=edit submit=go key=fieldKey focus=focusField(true) blur=focusField(false) placeholder="Search or enter URL" aria-label="Search or enter URL" autocorrect="off" spellcheck="false" testId="browser-url" flex=1 min-width=0 height="1.625rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
           // Revealed on hover, so a resting address bar reads as plain text, and while it has the focus.
-          when not focused
+          if not focused
             BsRevealButton(shown=addressOver, press=local("surface-browser-external", view.tabId, ""))
         // Part 3 (browser-surface-capture): Annotate, Capture (Shift-click records) and Float preview (browser-capture.contract).
         BrowserCaptureButtons(view=view.capture, tabId=view.tabId, local=local)
@@ -267,9 +267,9 @@ component BsMenuItem
   view
     button id=id press=press popovertarget="browser-more-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=id display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit and not disabled ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-      when note != ""
+      if note != ""
         text note flex-shrink=0 font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      when chevron
+      if chevron
         BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
 
 component BsZoomButton
@@ -327,7 +327,7 @@ component BrowserRadioItem
   view
     button id=`browser-appearance-${id}` press=press hover=hover focus=hover(true) blur=hover(false) role="menuitemradio" aria-checked=checked testId=`browser-appearance-${id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       box width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
-        when checked
+        if checked
           BsIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)")
       text label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
@@ -339,24 +339,24 @@ component BrowserEmpty
     view: BrowserPanel
     local: action
   view
-    when length(view.recents) > 0 or length(view.servers) > 0
+    if view.recents.length > 0 or view.servers.length > 0
       scroll position="absolute" left=0 top=0 right=0 bottom=0 height="100%" testId="browser-empty-lists"
         column width="100%" max-width="36rem" padding-left="1.25rem" padding-right="1.25rem" padding-top="2rem" padding-bottom="2rem" gap="1.5rem" box-sizing="border-box" align-self="center"
-          when length(view.recents) > 0
+          if view.recents.length > 0
             column width="100%" gap="0.75rem" testId="browser-recents"
               row align-items="center" gap="0.5rem"
                 BsIcon(name="history", size=16, color="light-dark(#71717b, #818181)")
                 text "Recently used" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)" role="heading" aria-level=2
               column width="100%" gap="1px" overflow="hidden" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#e4e4e799, #ffffff0f)"
-                each entry in view.recents key=entry.url
+                for entry in view.recents key=entry.url
                   BrowserRecentRow(entry=entry, open=local("surface-browser-open-url", view.tabId, entry.url), remove=local("surface-browser-remove-recent", view.tabId, entry.url))
-          when length(view.servers) > 0
+          if view.servers.length > 0
             column width="100%" gap="0.75rem" testId="browser-servers"
               row align-items="center" gap="0.5rem"
                 BsIcon(name="radio-tower", size=16, color="light-dark(#71717b, #818181)")
                 text "Local servers" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)" role="heading" aria-level=2
               column width="100%" gap="1px" overflow="hidden" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#e4e4e799, #ffffff0f)"
-                each server in view.servers key=server.key
+                for server in view.servers key=server.key
                   BrowserServerRow(server=server, open=local("surface-browser-open-url", view.tabId, server.url))
               text "Select a live local server to open it in this browser tab." padding-left="0.25rem" padding-right="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="browser-servers-hint"
     else
@@ -440,7 +440,7 @@ component BrowserLoadFailed
           path d="M52 8 L12 56" stroke-linecap="round"
         text "This site can’t be reached" margin-bottom="0.75rem" font-size="1.5rem" line-height="1.875rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 testId="browser-failed-title"
         text `${view.failHost}: ${view.failMessage}.` font-size="0.875rem" line-height="1.4375rem" color="light-dark(#71717b, #818181)" testId="browser-failed-text"
-        when showDetails
+        if showDetails
           column margin-top="1.5rem" padding="1rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f566, #ffffff0a)" testId="browser-failed-details"
             text "Try:" margin-bottom="0.5rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             column gap="0.25rem" role="list"
@@ -474,9 +474,9 @@ component BrowserTabIcon
     failedFallback = source == fallback ? fallback : failedFallback
   view
     box width=`${size / 16}rem` height=`${size / 16}rem` position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 testId=(source == "" ? "browser-tab-globe" : loaded == source ? "browser-tab-favicon" : "browser-tab-favicon-loading")
-      when loaded != source or source == ""
+      if loaded != source or source == ""
         BsIcon(name="earth", size=size, color=color)
-      when source != ""
+      if source != ""
         image source width=`${size / 16}rem` height=`${size / 16}rem` object-fit="contain" border-radius="0.125rem" aria-hidden=true load=didLoad error=didFail position=(loaded == source ? "relative" : "absolute") left=0 top=0 visibility=(loaded == source ? "visible" : "hidden")
 
 // The "+" menu's Browser row (RightPanelTabs MenuSubTrigger): the row opens a tab under the default profile;
@@ -487,7 +487,7 @@ component BrowserAddItem
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
     keysId: string
     surface: ShellSurface
-    profiles: list<BrowserProfileChoice>
+    profiles: BrowserProfileChoice[]
     choose: action
     local: action
   state hovered = false
@@ -514,7 +514,7 @@ component BrowserAddItem
         BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
       column id="r4-browser-profiles" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="-1.75rem" margin-left="11.75rem" width="10rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="browser-profile-menu"
-          each profile in profiles key=profile.id
+          for profile in profiles key=profile.id
             BrowserProfileItem(profile=profile, open=local("surface-browser-open", "", profile.id))
 
 component BrowserProfileItem
@@ -544,7 +544,7 @@ component BsProfileBadge
 // the row opens the default profile, the chevron the list (the same choice as the "+" menu's submenu).
 component BrowserLauncherProfiles
   props
-    profiles: list<BrowserProfileChoice>
+    profiles: BrowserProfileChoice[]
     local: action
   state over = false
   state keyed = 0
@@ -575,8 +575,8 @@ component BrowserLauncherProfiles
       KeyMenuOpen(menuId="launcher-browser-profiles", armed=keyArmed, opened=keyOpened)
       column id="launcher-browser-profiles" popover="auto" position-try-fallbacks="none" key=listKey position="absolute" position-area="bottom span-right" margin-top="0.375rem" margin-left="-12.5rem" width="14rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="launcher-browser-profile-menu"
-          KeyMenu(menuId="launcher-browser-profiles-keys", items=map(profiles, (profile) => KmItem(id=`launcher-browser-profile-${profile.id}`, label=profile.name)), keyed=keyed, gap="0px", modal=true)
-            each profile in profiles key=profile.id
+          KeyMenu(menuId="launcher-browser-profiles-keys", items=profiles.map((profile) => KmItem(id=`launcher-browser-profile-${profile.id}`, label=profile.name)), keyed=keyed, gap="0px", modal=true)
+            for profile in profiles key=profile.id
               BrowserLauncherProfileItem(keysId="launcher-browser-profiles-keys", profile=profile, open=local("surface-browser-open", "", profile.id))
 
 component BrowserLauncherProfileItem

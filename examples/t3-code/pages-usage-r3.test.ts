@@ -194,7 +194,7 @@ test('Model prices draws its X, + and chevron in the drawn appearance\'s colour'
   const lines = text.split('\n');
   const body = lines.slice(lines.indexOf('component UsageSchemeIcon'), lines.indexOf('component UsageSchemeIcon') + 14).map(line => line.trim());
   expect(body.filter(line => line.startsWith('PgIcon('))).toEqual(['PgIcon(name=name, size=size, color=`light-dark(${light}, ${dark})`)']);
-  expect(body).not.toContain('when scheme == "dark"');
+  expect(body).not.toContain('if scheme == "dark"');
   const dialogs = await Bun.file(new URL('./pages-usage-dialogs.contract', import.meta.url)).text();
   expect(dialogs).toContain('UsageSchemeIcon(name="x", size=16, scheme=scheme, light="#27272a", dark="#f5f5f5")');
   expect(text.match(/UsageSchemeIcon\(name=(?:"chevron-down"|icon), size=14, scheme=scheme, light="#27272a", dark="#f5f5f5"\)/g)?.length).toBe(2);

@@ -37,26 +37,26 @@ component SettingsADialogs
     deliveryActivate()
   view
     // getDesktopUpdateInstallConfirmationMessage, before the staged update is applied.
-    when core.updateConfirm
+    if core.updateConfirm
       SettingsConfirm(title="Install update and restart T3 Code?", description="Any running tasks will be interrupted. Make sure you're ready before continuing.", confirmLabel="Confirm", destructive=false, busy=busy, error=error, dialogId="update-install", cancel=commit("update", "cancel", ""), confirm=installUpdate)
     // Integrations → Device hosts: the Add/Edit device host dialog.
-    when core.hostEditor.open
+    if core.hostEditor.open
       DeviceHostDialog(editor=core.hostEditor, checks=core.hostChecks, busy=busy, error=error, rest=rest)
     // ResourceTelemetryDiagnostics / DiagnosticsSettings signalProcess: SIGKILL asks first.
-    when core.killConfirm.pid != ""
+    if core.killConfirm.pid != ""
       SettingsConfirm(title=`Send SIGKILL to process ${core.killConfirm.pid}?`, description="This cannot be handled by the process.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="signal-kill", cancel=raw("rest:diag-kill-cancel", ":", ""), confirm=raw("rest:diag-kill", ":", ""))
     // useThreadActions confirmAndDeleteThread, after the archive row's context menu.
-    when core.archiveConfirm.id != ""
+    if core.archiveConfirm.id != ""
       SettingsConfirm(title=`Delete thread "${core.archiveConfirm.title}"?`, description="This permanently clears conversation history for this thread.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="archive-context-delete", cancel=raw("rest:archive-cancel", "", ""), confirm=raw("rest:archive-delete", core.archiveConfirm.id, ""))
-    when kind == "background-activity"
+    if kind == "background-activity"
       BackgroundActivityDialog(core=core, viewportHeight=viewportHeight, busy=busy, error=error, menu=menu, openMenu=openMenu, close=close, commit=commit)
-    when kind == "remove"
-      each card in core.themes key=card.id
-        when card.id == subject and card.collection
+    if kind == "remove"
+      for card in core.themes key=card.id
+        if card.id == subject and card.collection
           CollectionRemoveDialog(card=card, pal=core.palette, busy=busy, error=error, close=close, pick=local, change=change)
-        when card.id == subject and not card.collection
+        if card.id == subject and not card.collection
           SettingsConfirm(title=`Remove “${card.label}”?`, description="You can bring it back anytime by importing its JSON file.", confirmLabel="Remove theme", destructive=true, busy=busy, error=error, dialogId="theme-remove", cancel=close, confirm=change("theme-remove", "", card.id))
-    when kind == "import"
+    if kind == "import"
       AddThemeDialog(data=core.themeImport, pal=core.palette, viewportHeight=viewportHeight, busy=busy, error=error, close=close, commit=commit, change=change)
     // The theme editor is hosted at the window root (ThemeEditorHost, settings-appearance-editor.contract; D16).
 
@@ -81,7 +81,7 @@ component SaDialog
         DialogOpenFocus(target=first)
         column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem" flex-shrink=0
           text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color=pal.text role="heading" aria-level=2 id="paint-SaDialog-3" data-paint="text" data-pick="text"
-          when description != ""
+          if description != ""
             text description font-size="0.875rem" line-height="1.25rem" color=pal.muted id="paint-SaDialog-4" data-paint="mutedForeground" data-pick="mutedForeground"
         children
         button id=`${dialogId}-close` press=close aria-label="Close" aria-keyshortcuts="Escape" class=SettingsGhost position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" border-radius="0.5rem" testId=`${dialogId}-close` title=""
@@ -146,7 +146,7 @@ component SaNumberField
         CorePaintIcon(ownId=`paint-icon-SaNumberField-1-${label}`, paint="text", name="minus", size=16, color=pal.text)
       // AppKit fields ignore text-align, so the field is sized to its digits and centred.
       row flex=1 min-width=0 height="1.625rem" align-items="center" justify-content="center"
-        input value=(editing ? draft : `${value}`) input=edit change=commit blur=leave disabled=disabled inputmode="numeric" spellcheck="false" aria-label=`${label} in seconds` width=(min(56, max(1, length(editing ? draft : `${value}`)) * 8.6 + 4) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color=pal.text font-variant-numeric="tabular-nums" testId=`${fieldId}-input` autocorrect="off" id=`${fieldId}-input` data-paint="text" data-pick="text"
+        input value=(editing ? draft : `${value}`) input=edit change=commit blur=leave disabled=disabled inputmode="numeric" spellcheck="false" aria-label=`${label} in seconds` width=(min(56, max(1, (editing ? draft : `${value}`).length) * 8.6 + 4) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color=pal.text font-variant-numeric="tabular-nums" testId=`${fieldId}-input` autocorrect="off" id=`${fieldId}-input` data-paint="text" data-pick="text"
       button press=commit(`${value + step}`) disabled=disabled aria-label=`Increase ${label}` class=SettingsGhost width="2.125rem" height="1.625rem" testId=`${fieldId}-increase` title=""
         CorePaintIcon(ownId=`paint-icon-SaNumberField-2-${label}`, paint="text", name="plus", size=16, color=pal.text)
 
@@ -201,12 +201,12 @@ component BackgroundActivityDialog
             SaIntervalRow(title="Host power monitor", description="Poll host power state while clients are active.", label="active host power interval", value=core.background.active, min=5, step=5, divided=true, pal=core.palette, disabled=(busy or not core.background.available), commit=commit("background-advanced", "active"), fieldId="background-active-interval")
             SaIntervalRow(title="Idle host monitor", description="Poll host power state when no foreground client is active.", label="idle host power interval", value=core.background.idle, min=5, step=30, divided=true, pal=core.palette, disabled=(busy or not core.background.available), commit=commit("background-advanced", "idle"), fieldId="background-idle-interval")
             row width="100%" flex-wrap="wrap" border-top-width=1 border-top-style="solid" border-color=core.palette.border id="paint-BackgroundActivityDialog-4" data-paint="border" data-pick="border"
-              each toggle in core.background.switches key=toggle.id
+              for toggle in core.background.switches key=toggle.id
                 row width="50%" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="0.75rem" align-items="center" justify-content="space-between" box-sizing="border-box" border-top-width=0 border-left-width=0 border-right-width=(toggle.id == "locked" or toggle.id == "client-low-power" ? 1 : 0) border-bottom-width=(toggle.id == "locked" or toggle.id == "host-low-power" ? 1 : 0) border-style="solid" border-color=core.palette.border id=`paint-BackgroundActivityDialog-5-${toggle.id}` data-paint="border" data-pick="border"
                   text toggle.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=core.palette.text id=`paint-BackgroundActivityDialog-6-${toggle.id}` data-paint="text" data-pick="text"
                   button press=commit("background-advanced", toggle.id, toggle.checked ? "false" : "true") role="switch" aria-checked=toggle.checked aria-label=toggle.label disabled=(busy or not core.background.available) class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(toggle.checked ? core.palette.accent : core.palette.switchOff) testId=`background-switch-${toggle.id}` title="" id=`background-switch-${toggle.id}` data-paint=`${(toggle.checked ? "accent" : "input")}` data-pick=((toggle.checked ? "accent" : "input") != "" ? (toggle.checked ? "accent" : "input") : "")
                     box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=core.palette.thumb margin-left=(toggle.checked ? "0.75rem" : "0px") box-shadow="0 1px 3px #0000000d" id=`paint-BackgroundActivityDialog-8-${toggle.id}` data-paint="canvas" data-pick="canvas"
-          when error != ""
+          if error != ""
             text error role="alert" font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" testId="background-activity-error"
       SaDialogFooter(pal=core.palette)
         SaOutlineButton(label="Reset all", pal=core.palette, disabled=(busy or not core.background.available), press=commit("background-advanced", "reset", ""), buttonId="background-reset-all")

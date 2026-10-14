@@ -50,12 +50,7 @@ function toJs(expr: string, shapes: string[]): string {
   return s.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
 }
 
-const std = {
-  min: Math.min, max: Math.max, length: (x: { length: number }) => x.length, at: (xs: unknown[], i: number) => xs.at(i),
-  slice: (x: string | unknown[], a: number, b?: number) => x.slice(a, b), filter: (xs: unknown[], f: (x: never) => boolean) => xs.filter(f as never),
-  map: (xs: unknown[], f: (x: never) => unknown) => xs.map(f as never), join: (xs: unknown[], j: string) => xs.join(j),
-  concat: (a: unknown[], b: unknown[]) => [...a, ...b], indexOf: (xs: unknown[] | string, x: never) => xs.indexOf(x),
-};
+const std = { min: Math.min, max: Math.max };
 
 /** Every one-line `fn` of a `.contract` file as JavaScript, each seeing the others. */
 function contractFns(file: string, extra: Env = {}): Record<string, (...args: never[]) => unknown> {
@@ -392,7 +387,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   });
 
   test('Cite is drawn by the window above the timeline (the reference portals it to the body), not inside the answer', () => {
-    expect(source('app-window.contract')).toContain('when citeShows\n          CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))');
+    expect(source('app-window.contract')).toContain('if citeShows\n          CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))');
     expect(source('markdown.contract')).toContain('column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys\n      DiagramBlocks(');
     expect(source('diff-cite.contract')).toMatch(/button id="cite-action" retainFocus=true press=press key=keys hover=hover focus=focusChanged\(true\) blur=focusChanged\(false\) disabled=tooLong aria-label=\(tooLong \? "Selection is too long to cite" : "Cite selection in composer"\) testId=`cite-\$\{offer.source\}` position="absolute" left=citeActionLeft\(offer.x, viewportWidth, tooLong\) top=citeActionTop\(offer.y, viewportHeight\) z-index=50/);
   });

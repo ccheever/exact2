@@ -128,7 +128,7 @@ describe('ST-1: Runs on switches a new task to another environment', () => {
     const dialogs = await component('app-settings.contract', 'ProjectDialogs');
     expect(dialogs).toContain('SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, open=restOpen, taskBase=taskBase)');
     // A new task closing after a Runs on change gives the focus back to New task.
-    expect(dialogs).toContain('target=(restEditor == "task" ? (restSubject == "" or startsWith(restSubject, "new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)');
+    expect(dialogs).toContain('target=(restEditor == "task" ? (restSubject == "" or restSubject.startsWith("new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)');
     expect(await source('app-window.contract')).toContain('restClose=restClose, restOpen=restOpen, sbPicker=sbPicker,');
   });
   test('the labels a Runs on change rewrites are plain texts the host repaints (X64 #327 and X82 #494, fixed on main; round 11)', async () => {
@@ -187,7 +187,7 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
   test('each button hands its frame to the window layer as a 600 ms top tooltip on hover and keyboard focus', async () => {
     const button = await component('thread-automations.contract', 'AutomationButton');
     expect(button).toContain('  inject\n    rem: number\n    hoverTipAt: action');
-    expect(button).toContain('hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)');
+    expect(button).toContain('hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(tip.length / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)');
     expect(button).toContain('action hover(over: bool)\n    hovered = over\n    show(over)');
     expect(button).toContain('button id=testKey press=pressed hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey');
     // No AppKit help tag beside the drawn tooltip.

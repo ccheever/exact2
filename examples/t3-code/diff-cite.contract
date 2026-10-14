@@ -40,27 +40,27 @@ shape CiteOffer
   lh: number
 
 // A text's part, with its last selected line from the text's top-left.
-fn citePart(key: string, start: number, end: number, rects: list<Geometry>, box: Geometry): CitePart = match at(rects, -1) { case some(r) => CitePart(block=key, start=start, end=end, lx=r.x - box.x, ly=r.y - box.y, lw=r.width, lh=r.height), case none => CitePart(block=key, start=start, end=end, lx=0, ly=0, lw=-1, lh=0) }
+fn citePart(key: string, start: number, end: number, rects: Geometry[], box: Geometry): CitePart = match rects.at(-1) { case some(r) => CitePart(block=key, start=start, end=end, lx=r.x - box.x, ly=r.y - box.y, lw=r.width, lh=r.height), case none => CitePart(block=key, start=start, end=end, lx=0, ly=0, lw=-1, lh=0) }
 
 // The part holding the selection's end (the greatest end offset), as a list of none or one.
-fn citeEnd(parts: list<CitePart>): list<CitePart> = slice(filter(parts, (p) => length(filter(parts, (q) => q.end > p.end)) == 0), 0, 1)
+fn citeEnd(parts: CitePart[]): CitePart[] = parts.filter((p) => parts.filter((q) => q.end > p.end).length == 0).slice(0, 1)
 
 // The id suffix of the text holding the selection's end ("" for none).
-fn citeEndKey(parts: list<CitePart>): string = join(map(citeEnd(parts), (p) => p.block), "")
+fn citeEndKey(parts: CitePart[]): string = citeEnd(parts).map((p) => p.block).join("")
 
 // The selection's last line's right edge and bottom in the window, from the end text's frame `box` (its own frame when the
 // host reported no line).
-fn citeLineRight(parts: list<CitePart>, box: Geometry): number = match at(citeEnd(parts), 0) { case some(p) => (p.lw < 0 ? box.x + box.width : box.x + p.lx + p.lw), case none => box.x + box.width }
-fn citeLineBottom(parts: list<CitePart>, box: Geometry): number = match at(citeEnd(parts), 0) { case some(p) => (p.lw < 0 ? box.y + box.height : box.y + p.ly + p.lh), case none => box.y + box.height }
+fn citeLineRight(parts: CitePart[], box: Geometry): number = match citeEnd(parts).at(0) { case some(p) => (p.lw < 0 ? box.x + box.width : box.x + p.lx + p.lw), case none => box.x + box.width }
+fn citeLineBottom(parts: CitePart[], box: Geometry): number = match citeEnd(parts).at(0) { case some(p) => (p.lw < 0 ? box.y + box.height : box.y + p.ly + p.lh), case none => box.y + box.height }
 
 // resolveSelectionActionPosition's hold on one axis: within the timeline's box [lo, lo + size] (`unmeasured`: no box).
 fn citeAxis(v: number, lo: number, size: number, unmeasured: bool): number = unmeasured ? v : min(max(lo, v), lo + size)
 
 // The selection's length in UTF-16 units.
-fn citeSize(parts: list<CitePart>, stream: string): number = length(join(map(parts, (p) => slice(stream, p.start, p.end)), ""))
+fn citeSize(parts: CitePart[], stream: string): number = parts.map((p) => stream.slice(p.start, p.end)).join("").length
 
 // The offer for `parts` with Cite's top-left at (x, y).
-fn citeOfferFor(source: string, parts: list<CitePart>, stream: string, x: number, y: number): CiteOffer = match at(citeEnd(parts), 0) { case some(p) => CiteOffer(source=source, ranges=join(map(parts, (q) => `${q.start}-${q.end}`), ","), stream=stream, size=citeSize(parts, stream), x=x, y=y, end=`cite-${source}-${p.block}`, lx=p.lx, ly=p.ly, lw=p.lw, lh=p.lh), case none => CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0) }
+fn citeOfferFor(source: string, parts: CitePart[], stream: string, x: number, y: number): CiteOffer = match citeEnd(parts).at(0) { case some(p) => CiteOffer(source=source, ranges=parts.map((q) => `${q.start}-${q.end}`).join(","), stream=stream, size=citeSize(parts, stream), x=x, y=y, end=`cite-${source}-${p.block}`, lx=p.lx, ly=p.ly, lw=p.lw, lh=p.lh), case none => CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0) }
 
 // The window frame Cite sends, "x,y,width,height" (the comment opens under it, align end): the selection's last line, its
 // text measured again at the press (the timeline may have moved); the text's own frame when the host reported no line.

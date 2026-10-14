@@ -132,8 +132,7 @@ describe('PA-6: the comparison target', () => {
       const body = found[2]!.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
       return `function ${name}(${params.join(', ')}) { return ${body}; }`;
     });
-    const stdlib = 'const length = x => x.length, indexOf = (x, y) => x.indexOf(y), slice = (x, a, b) => x.slice(a, b), join = (x, s) => x.join(s), concat = (x, y) => x.concat(y), trim = s => s.trim();';
-    return new Function(`${stdlib}\n${decls.join('\n')}\nreturn { ${names.join(', ')} };`)() as {
+    return new Function(`${decls.join('\n')}\nreturn { ${names.join(', ')} };`)() as {
       dbKeys: (refIds: string[], query: string) => string[];
       dbMove: (keys: string[], current: string, down: boolean, query: string) => string;
       dbReturn: (keys: string[], current: string, query: string) => string;
@@ -173,7 +172,7 @@ describe('PA-6: the comparison target', () => {
     expect(await drive([main, feature, release], '', '↓ ↓ ↓ ↓', 'automatic')).toEqual([main, feature, release, '-']);
     // The picker's search uses them: its keys are dbKeys of the rows, ↓/↑ dbMove, and Return acts only when not "stay".
     const picker = (await Bun.file(new URL('./diff.contract', import.meta.url)).text()).split('\ncomponent DiffBasePicker\n')[1]!.split('\ncomponent ')[0]!;
-    expect(picker).toContain('derive keys = dbKeys(map(data.diffBaseRefs, (r) => r.id), query)');
+    expect(picker).toContain('derive keys = dbKeys(data.diffBaseRefs.map((r) => r.id), query)');
     expect(picker).toContain('let next = dbMove(keys, highlight, k == "ArrowDown", query)');
     expect(picker).toContain('let outcome = dbReturn(keys, highlight, query)\n    if outcome != "stay"\n      pickedAt = session');
     expect(picker).toContain('if outcome == "pick" and pickValue != ""\n        command("diff-base", "", pickValue, 0)');

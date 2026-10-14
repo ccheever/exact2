@@ -22,7 +22,7 @@ describe('RC-2: the model picker trigger after a Shift+click removes a model', (
 describe('RC-6: Add profile\'s keyboard walks every enabled row', () => {
   test('Blank profile, then each browser it can import from, as Base UI\'s list navigation', async () => {
     const profiles = await source('browser-profiles.contract');
-    expect(profiles).toContain('fn bpAddItems(view: BrowserProfilesView): list<KmItem> = concat((view.hydrated and not view.atLimit ? [KmItem(id="browser-profiles-blank", label="Blank profile")] : []), (view.sourcesState == "ready" and view.canImport ? map(view.sources, (source) => KmItem(id=`browser-import-source-${source.id}`, label=source.name)) : []))');
+    expect(profiles).toContain('fn bpAddItems(view: BrowserProfilesView): KmItem[] = (view.hydrated and not view.atLimit ? [KmItem(id="browser-profiles-blank", label="Blank profile")] : []).concat((view.sourcesState == "ready" and view.canImport ? view.sources.map((source) => KmItem(id=`browser-import-source-${source.id}`, label=source.name)) : []))');
     expect(profiles).toContain('SkPopup(menuId="browser-profiles-add-menu", label="Add profile", width=216, list=false, endAlign=116, items=bpAddItems(view), keyed=keyed)');
     // The rows the items name are the source rows' own ids (SkMenuItem `id=itemId`), enabled exactly when they are items.
     expect(profiles).toContain('itemId=`browser-import-source-${source.id}`, selected=false, check=false, destructive=false, disabled=(not view.canImport)');

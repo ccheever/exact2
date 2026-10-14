@@ -112,7 +112,7 @@ describe('RD-1: Restore defaults resets what the reference resets', () => {
 describe('TG-1: a lifecycle row draws the pull request glyph on the rail', () => {
   test('the lifecycle rows use the icon marker whatever the actor; the actor is named beside the label', async () => {
     const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
-    const start = lines.findIndex(line => line.trim() === 'when row.kind == "opened" or row.kind == "merged" or row.kind == "closed"');
+    const start = lines.findIndex(line => line.trim() === 'if row.kind == "opened" or row.kind == "merged" or row.kind == "closed"');
     expect(start).toBeGreaterThan(-1);
     const end = lines.findIndex((line, index) => index > start && /^\S/.test(line));
     const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));

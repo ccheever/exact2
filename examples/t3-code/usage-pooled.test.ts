@@ -584,7 +584,7 @@ describe('the reset confirm gives the segment the focus back (#298 item 12)', ()
       + '  action usageCommand(op: string, id: string, value: string, n: number)\n    usageClosing = ""\n    command(op, id, value, n)\n'
       + '  action usageConfirm(op: string, id: string, value: string, n: number)\n    usageClosing = id\n    command(op, id, value, n)');
     // The confirm's buttons (Cancel, its Escape, Use credit) go through usageConfirm; the page's ask through usageCommand.
-    expect(cover).toContain('    when pageCover and utilityPage == "usage" and usageConfirmOpen\n'
+    expect(cover).toContain('    if pageCover and utilityPage == "usage" and usageConfirmOpen\n'
       + '      ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)');
     expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.includes('command=usageCommand, confirmOpen=usageConfirmOpen,'))).toEqual([true]);
     const page = await component('pages-usage.contract', 'UsagePage');

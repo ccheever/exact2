@@ -43,7 +43,7 @@ const readOnlySettings = (request: Obj) => request.op === 'localNetworkFacts' ? 
   : request.op === 'desktopSettingsSet' ? { ok: false, generation: 1, error: { kind: 'DesktopSettings', message: 'Failed to persist desktop server exposure mode network-accessible.' } } : undefined;
 
 /**
- * NetworkDialogs' own open rules, run: each `when <rule>` of its view (connections-network-dialogs.contract) and the dialog
+ * NetworkDialogs' own open rules, run: each `if <rule>` of its view (connections-network-dialogs.contract) and the dialog
  * it draws, the rule as JavaScript (Contract's `==`, `!=`, `and`, `or`, `not` outside strings; a template literal is one in
  * both) over the props `remove` (the root's `connectionRemove`) and `net` (the section's view). A reworded rule runs as written.
  */
@@ -53,7 +53,7 @@ const dialogRules = (() => {
   const end = lines.findIndex((line, index) => index > view && /^\S/.test(line));
   const rules: { dialog: string; open: (remove: string, net: NetworkView) => boolean }[] = [];
   for (let index = view + 1; index < end; index++) {
-    const rule = /^    when (.+)$/.exec(lines[index]!)?.[1];
+    const rule = /^    if (.+)$/.exec(lines[index]!)?.[1];
     const dialog = /^      (\w+)\(/.exec(lines[index + 1] ?? '')?.[1];
     if (!rule || !dialog) continue;
     const js = rule.split(/(`[^`]*`|"[^"]*")/).map((part, at) => at % 2 ? part

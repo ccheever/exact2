@@ -10,7 +10,7 @@ component FocusGuard
   props
     guardId: string
     target: string
-  derive start = includes(guardId, "-guard-start")
+  derive start = guardId.includes("-guard-start")
   action enter
     if target != ""
       focus(target)

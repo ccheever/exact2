@@ -181,7 +181,7 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
   test('a guard whose target cannot take the focus keeps it: the key that would leave the dialog stays on the guard', () => {
     const guard = source('dialog-trap.contract');
     // Shift+Tab leaves from the start guard, Tab from the end guard; the other way goes on into the dialog.
-    expect(guard).toContain('derive start = includes(guardId, "-guard-start")');
+    expect(guard).toContain('derive start = guardId.includes("-guard-start")');
     expect(guard).toContain('action hold(k: string, e: KeyboardEvent)\n    if k == "Tab" and e.shiftKey == start\n      preventDefault()\n      stopPropagation()\n      if target != ""\n        focus(target)');
   });
 
@@ -360,7 +360,7 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     'palette.contract view.testId': ['"palette-input"', 'ui/command.tsx: CommandInput autoFocus (the link-PR dialog\'s field is its first stop too)'],
     'settings-b-actions.contract "project-action-dialog"': ['"action-name"', 'projectScriptEditor.tsx: the Name input autoFocus'],
     'timeline-attachments.contract "image-preview"': ['"image-preview-close"', 'chat/ExpandedImageDialog.tsx: initialFocus={closeButtonRef}'],
-    'pages-welcome.contract "welcome-dialog"': ['(step == "connect" and pairOpen ? "welcome-pairing-link" : (step == "connect" and view.ready and not busy ? "welcome-continue" : (step != "connect" and not view.importing ? "welcome-step-1" : (step == "import" ? "welcome-skip-import" : (length(view.computers) > 0 ? "welcome-computer-0" : "welcome-add-computer")))))',
+    'pages-welcome.contract "welcome-dialog"': ['(step == "connect" and pairOpen ? "welcome-pairing-link" : (step == "connect" and view.ready and not busy ? "welcome-continue" : (step != "connect" and not view.importing ? "welcome-step-1" : (step == "import" ? "welcome-skip-import" : (view.computers.length > 0 ? "welcome-computer-0" : "welcome-add-computer")))))',
       'onboarding/WelcomeWizard.tsx: initialFocus onboarding-pairing-url, else Continue (autoFocus) while it is enabled, else the first stop'],
   };
   // Where the reference autofocuses the first Tab stop itself (the same element either way): checked so that a change to
@@ -473,7 +473,7 @@ describe('every modal dialog gives the focus back as it closes (Base UI\'s final
     'settings-b-icons.contract "project-icon-dialog"': { final: ['app-settings.contract', '"project-choose-icon"'] },
     'settings-b-icons.contract "project-favicon-picker"': { final: ['app-settings.contract', '"project-choose-file"'] },
     'settings-core-body.contract "restore-defaults-dialog"': { final: ['app-settings.contract', '"settings-restore-defaults"'] },
-    'settings-scheduled.contract "scheduled-task-dialog"': { final: ['app-settings.contract', '(restSubject == "" or startsWith(restSubject, "new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)'] },
+    'settings-scheduled.contract "scheduled-task-dialog"': { final: ['app-settings.contract', '(restSubject == "" or restSubject.startsWith("new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)'] },
     'snapshot.contract "snapshot-setup-dialog"': { final: ['app-settings.contract', 'snapshotSetupFrom'] },
     'ssh-prompt.contract "ssh-password-dialog"': { own: ['app.contract', 'focus("ssh-connect")'] },
     'timeline-attachments.contract "image-preview"': { none: 'opened from a message\'s image, a video\'s play button or a context chip, and the view keeps only the image' },
@@ -495,7 +495,7 @@ describe('every modal dialog gives the focus back as it closes (Base UI\'s final
     'shell-panels.contract "app-confirm"': 'callers',
     'sidebar-overlays.contract "sidebar-snooze"': { own: ['sidebar-overlays.contract', 'focus(data.sidebar.dialogReturn)'] },
     'this-machine.contract "local-environment-dialog"': { own: ['this-machine.contract', 'focus("local-environment-switch")'] },
-    'usage-bars.contract "reset-credit-dialog"': { own: ['app.contract', 'focus(slice(result.message, 6))'] }, // the command's `focus:usage-reset-<n>` (composer-controls-usage.ts)
+    'usage-bars.contract "reset-credit-dialog"': { own: ['app.contract', 'focus(result.message.slice(6))'] }, // the command's `focus:usage-reset-<n>` (composer-controls-usage.ts)
   };
   const finals = [...sources].flatMap(([file, text]) => text.split('\n').flatMap((line, index) =>
     line.trim().startsWith('DialogFinalFocus(') ? [{ file, index, line: line.trim() }] : []));

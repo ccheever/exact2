@@ -15,15 +15,15 @@ component ProjectIconMark
     src: string
     size: number
   view
-    when kind == "lucide"
+    if kind == "lucide"
       svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=ink fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
         path d=d
     else
-      when kind == "emoji"
+      if kind == "emoji"
         box width=`${size / 16}rem` height=`${size / 16}rem` display="flex" align-items="center" justify-content="center" flex-shrink=0 testId="project-icon-preview"
           text emoji font-size=`${size * 0.8 / 16}rem` line-height=`${size * 0.8 / 16}rem`
       else
-        when src != ""
+        if src != ""
           image src width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` object-fit="contain" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
         else
           MonogramTile(text=text, width=textWidth, ink=ink, surface=surface, size=size)

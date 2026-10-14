@@ -34,9 +34,9 @@ component SettingsConfirm
         DialogOpenFocus(target=`${dialogId}-cancel`)
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          when description != ""
+          if description != ""
             text description font-size="0.875rem" line-height="1.25rem" white-space="pre-line" color="light-dark(#71717b, #818181)"
-          when error != ""
+          if error != ""
             text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId=`${dialogId}-error`
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button id=`${dialogId}-cancel` press=cancel key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape" testId=`${dialogId}-cancel` display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
@@ -59,14 +59,14 @@ component SettingsRestDialogs
     open: action
     taskBase: action
   view
-    when editor == "task"
-      each draft in scheduled.editors key=draft.key
+    if editor == "task"
+      for draft in scheduled.editors key=draft.key
         ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest, lookupBase=taskBase, runsOn=open("task"))
-    when editor == "project-remove" and subject == ""
+    if editor == "project-remove" and subject == ""
       SettingsConfirm(title=projects.confirmTitle, description=projects.confirmDescription, confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove", cancel=close, confirm=raw("remove-group", label, ""))
-    when editor == "project-remove" and subject != ""
+    if editor == "project-remove" and subject != ""
       SettingsConfirm(title=projects.confirmTitle, description=projects.confirmDescription, confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove", cancel=close, confirm=raw("remove-group-member", subject, label))
-    when editor == "project-remove-member"
+    if editor == "project-remove-member"
       SettingsConfirm(title=`Remove checkout "${label}"?`, description="This permanently clears conversation history for those threads and any archived threads.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove-member", cancel=close, confirm=raw("remove-group-member", subject, projects.key))
-    when editor == "archive-delete"
+    if editor == "archive-delete"
       SettingsConfirm(title=`Delete thread "${label}"?`, description="This permanently clears conversation history for this thread.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="archive-delete", cancel=close, confirm=raw("delete-archived-thread", subject, ""))

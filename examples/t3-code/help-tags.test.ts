@@ -6,7 +6,7 @@
 // - a button is the `button` and `link` tags (both lower to Pressable, which the Apple host mounts as kind "button");
 // - it is labelled by a non-empty `aria-label` or by `aria-labelledby` (Accessibility.swift `authoredLabel`);
 // - its accessible text is NodeView.accessibleText: the text of its mounted children that are not `aria-hidden`. A
-//   `when` arm is mounted only sometimes, an `each` may mount nothing, and an `aria-hidden` that is an expression may
+//   `if` arm is mounted only sometimes, a `for` may mount nothing, and an `aria-hidden` that is an expression may
 //   hide; so a button has text for this guard only when some `text` is mounted on every arm.
 //
 // The walk inlines components from T3Code as view-depth.test.ts does (a use inlines its view; `children` is the use's
@@ -122,16 +122,16 @@ function untitledLabelledButtons(dir: string, root = 'T3Code'): { found: Untitle
       while (end < lines.length && lines[end]!.indent > head.indent) end++;
       const body = lines.slice(i + 1, end);
       const text = head.text;
-      const when = /^(else )?when (.*)$/.exec(text);
-      if (when) {
-        if (!when[1]) close(false);
+      const branch = /^(else )?if (.*)$/.exec(text);
+      if (branch) {
+        if (!branch[1]) close(false);
         (chain ??= []).push(block(body, file, fill));
       } else if (text === 'else') {
         (chain ??= []).push(block(body, file, fill));
         close(true);
       } else {
         close(false);
-        if (/^each /.test(text)) result = or(result, { always: false, maybe: block(body, file, fill).maybe });
+        if (/^for /.test(text)) result = or(result, { always: false, maybe: block(body, file, fill).maybe });
         else if (text === 'children') { if (fill) result = or(result, block(fill.lines, fill.file, fill.fill)); }
         else if (/^[A-Z]/.test(text)) {
           const name = /^\w+/.exec(text)![0];

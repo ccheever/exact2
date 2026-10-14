@@ -380,8 +380,8 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
   test('Archive stays mounted (opacity 0, no pointer) and shows on hover or while the focus is in the row', () => {
     expect(thread).toContain('derive revealed = (pointed or inside) and not t.running');
     expect(thread).toContain('        box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
-    expect(thread).toContain('shown=(not confirmShown and not t.running), relay=innerHover)\n            when not confirmShown and not t.running\n              button cursor="pointer" press=archive');
-    expect(thread).not.toContain('when over and not t.running');
+    expect(thread).toContain('shown=(not confirmShown and not t.running), relay=innerHover)\n            if not confirmShown and not t.running\n              button cursor="pointer" press=archive');
+    expect(thread).not.toContain('if over and not t.running');
     for (const target of ['press=open(t.id, "click")', 'press=run("legacy-pr"', 'press=run("legacy-port"', 'press=archive']) {
       const at = thread.indexOf(target);
       expect(at).toBeGreaterThan(0);
@@ -397,7 +397,7 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
     expect(project).toContain('derive revealed = pointed or inside');
     expect(project).toContain('opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
     expect(project).toContain('opacity=(revealed ? 0 : 1) pointer-events="none" role="img" aria-label=p.remoteLabel');
-    expect(project).not.toContain('when over\n          box position="absolute" right="0.125rem"');
+    expect(project).not.toContain('if over\n          box position="absolute" right="0.125rem"');
   });
 });
 
@@ -520,7 +520,7 @@ describe('review: a thread change focuses the composer (ChatView\'s effect on ac
     terminalUiStore(client).getState().setTerminalOpen({ environmentId: 'local', threadId: 'thread-2' }, true);
     expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('sidebar:opened');
     const app = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
-    expect(app).toContain('if startsWith(result.message, "sidebar:opened")');
+    expect(app).toContain('if result.message.startsWith("sidebar:opened")');
     expect(app).toContain('if result.message == "sidebar:opened:focus"\n            focus("composer")');
   });
 });
@@ -664,7 +664,7 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
     const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
     const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('// A legacy row\'s or project header\'s tooltip trigger'));
     const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
-    const shown = [...`${thread}${project}`.matchAll(/LegacyRowTip\([^\n]*shown=([^\n]*?), relay=innerHover\)\n( *)when (.+)/g)].map(m => [m[1], m[3]]);
+    const shown = [...`${thread}${project}`.matchAll(/LegacyRowTip\([^\n]*shown=([^\n]*?), relay=innerHover\)\n( *)if (.+)/g)].map(m => [m[1], m[3]]);
     expect(shown).toEqual([['(t.prIcon != "")', 't.prIcon != ""'], ['(t.portLabel != "")', 't.portLabel != ""'], ['t.worktree', 't.worktree'],
       ['(t.terminalCount > 0)', 't.terminalCount > 0'], ['(not confirmShown and not t.running)', 'not confirmShown and not t.running'],
       ['(not p.expanded and p.statusLabel != "")', 'not p.expanded and p.statusLabel != ""']]);

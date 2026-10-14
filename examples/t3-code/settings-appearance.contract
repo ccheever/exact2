@@ -12,8 +12,8 @@ use ThemeOrbView from "./settings-a-collections.contract"
 
 component AppearanceLibrary
   props
-    tiles: list<ModeTile>
-    themes: list<ThemeCard>
+    tiles: ModeTile[]
+    themes: ThemeCard[]
     pal: CorePalette
     busy: bool
     change: action
@@ -28,11 +28,11 @@ component AppearanceLibrary
       SettingsSrHeading(title="Colors & themes", level=2)
       text "Color scheme" font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading padding-left="1rem" padding-right="1rem" role="heading" aria-level=3 id="paint-AppearanceLibrary-1" data-paint="text" data-pick="text"
       row width="100%" gap="0.75rem" role="group" aria-label="Appearance mode"
-        each tile in tiles key=tile.id
+        for tile in tiles key=tile.id
           button press=change("appearance-mode", "appearanceMode", tile.id) hover=hover(tile.id) aria-label=tile.aria aria-checked=tile.selected role="radio" disabled=busy class=SettingsGhost flex=1 min-width=0 flex-direction="column" align-items="stretch" gap="0.375rem" padding="0.5rem" border-radius="0.75rem" border-width=1 border-style="solid" border-color=(tile.selected ? pal.accent : pal.cardBorder) background-color=(tile.selected ? pal.tileActive : (hovered == tile.id ? pal.tileActive : pal.card)) id=(tile.id == "system" ? "setting-appearance" : `setting-appearance-${tile.id}`) testId=`setting-appearance-${tile.id}` data-paint=`${(tile.selected ? "accent" : "border")} ${(tile.selected ? "accentSurface" : (hovered == tile.id ? "accentSurface" : "surface"))}` data-pick=((tile.selected ? "accentSurface" : (hovered == tile.id ? "accentSurface" : "surface")) != "" ? (tile.selected ? "accentSurface" : (hovered == tile.id ? "accentSurface" : "surface")) : ((tile.selected ? "accent" : "border") != "" ? (tile.selected ? "accent" : "border") : ""))
             box position="relative" width="100%" height="8.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder overflow="hidden" box-sizing="border-box" id=`paint-AppearanceLibrary-3-${tile.id}` data-paint="border" data-pick="border"
               WirePane(colors=tile.left, offset=0)
-              when tile.split
+              if tile.split
                 box position="absolute" top=0 bottom=0 left="50%" right=0 overflow="hidden" padding-left=1
                   WirePane(colors=tile.right, offset=1)
             text tile.label font-size="0.75rem" font-weight=500 line-height="1rem" text-align="center" color=(tile.selected ? pal.text : pal.muted) id=`paint-AppearanceLibrary-4-${tile.id}` data-paint=`${(tile.selected ? "text" : "mutedForeground")}` data-pick=((tile.selected ? "text" : "mutedForeground") != "" ? (tile.selected ? "text" : "mutedForeground") : "")
@@ -47,20 +47,20 @@ component AppearanceLibrary
             text "Add theme" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text id="paint-AppearanceLibrary-9" data-paint="text" data-pick="text"
       // grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)).
       box width="100%" display="grid" gap="0.5rem" grid-template-columns="repeat(auto-fit, minmax(256px, 1fr))"
-        each card in themes key=card.id
+        for card in themes key=card.id
           column min-width=0 border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card overflow=(card.collection ? "visible" : "hidden") box-sizing="border-box" testId=`theme-card-${card.id}` id=`theme-card-${card.id}` data-paint="border surface" data-pick="surface"
             // settings-a: an imported collection's light and dark variant pickers.
-            when card.collection
+            if card.collection
               CollectionOrbs(card=card, pal=pal, busy=busy, change=change)
             row min-height="4rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.75rem" gap="0.625rem" align-items="center" justify-content="center" display=(card.collection ? "none" : "flex")
-              each orb in card.orbs key=orb.mode
+              for orb in card.orbs key=orb.mode
                 button press=change("theme-half", orb.mode == "light" ? "themeLight" : "themeDark", card.id) aria-label=`Use ${card.label} ${orb.mode} mode` aria-checked=orb.picked role="checkbox" disabled=busy class=SettingsGhost position="relative" width="4.25rem" height="4.25rem" padding="0.25rem" border-radius="2.125rem" box-shadow=(orb.picked ? `inset 0 0 0 2px ${pal.accent}` : "none") testId=`theme-orb-${card.id}-${orb.mode}` title=""
                   ThemeOrbView(orb=orb, id=`${card.id}-${orb.mode}`, ring=pal.thumb)
-                  when orb.picked
+                  if orb.picked
                     box position="absolute" right="0.125rem" bottom="0.125rem" width="1.25rem" height="1.25rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.thumb display="flex" align-items="center" justify-content="center" box-shadow="0 1px 2px #0000001a" id=`paint-AppearanceLibrary-11-${card.id}-${orb.mode}` data-paint="border canvas" data-pick="canvas"
                       CorePaintIcon(ownId=`paint-icon-AppearanceLibrary-3-${card.id}-${orb.mode}`, paint="text", name=(orb.mode == "light" ? "sun" : "moon"), size=12, color=pal.text)
             row padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" padding-top="0.5rem" gap="0.5rem" align-items="center"
-              when card.collection
+              if card.collection
                 // "Use the first variants for light and dark".
                 button press=change("theme-collection", "", card.collectionId) aria-label=`Use ${card.label}, ${card.primaryLabel} variant` role="radio" aria-checked=false disabled=busy class=SettingsGhost padding=0 justify-content="flex-start" flex=1 min-width=0 testId=`theme-use-${card.id}`
                   text card.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text line-clamp=1 id=`paint-AppearanceLibrary-12-${card.id}` data-paint="text" data-pick="text"
@@ -71,7 +71,7 @@ component AppearanceLibrary
               row flex-shrink=0 gap="0.25rem" align-items="center"
                 // A collection's actions act on its selected variant (card.primary).
                 ThemeCardAction(icon="copy", label=`Duplicate ${card.primaryLabel}`, tip="Duplicate theme", destructive=false, pal=pal, busy=busy, press=dialog("duplicate", card.primary), actionId=`theme-duplicate-${card.id}`)
-                when card.custom
+                if card.custom
                   ThemeCardAction(icon="pen-line", label=`Edit ${card.primaryLabel}`, tip="Edit theme", destructive=false, pal=pal, busy=busy, press=dialog("edit", card.primary), actionId=`theme-edit-${card.id}`)
                   ThemeCardAction(icon="upload", label=`Export ${card.primaryLabel}`, tip="Export theme file", destructive=false, pal=pal, busy=busy, press=change("theme-export", "", card.primary), actionId=`theme-export-${card.id}`)
                   ThemeCardAction(icon="trash-2", label=(card.collection ? `Remove themes from ${card.label}` : `Remove ${card.label}`), tip=(card.collection ? "Remove themes" : "Remove theme"), destructive=true, pal=pal, busy=busy, press=dialog("remove", card.id), actionId=`theme-remove-${card.id}`)
@@ -130,5 +130,5 @@ component ThemeCardAction
     box position="relative" width="1.5rem" height="1.5rem" flex-shrink=0
       button id=actionId press=press hover=hover focus=focusTip(true) blur=focusTip(false) aria-label=label disabled=busy class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.375rem" background-color=(hovered ? pal.highlight : "#00000000") testId=actionId title="" data-paint=`${(hovered ? "text" : "")}` data-pick=((hovered ? "text" : "") != "" ? (hovered ? "text" : "") : "")
         CorePaintIcon(ownId=`paint-icon-ThemeCardAction-1-${actionId}`, paint=(destructive and hovered ? "" : (hovered ? "text" : "mutedForeground")), name=icon, size=14, color=(destructive and hovered ? "light-dark(#e7000b, #ff6467)" : (hovered ? pal.text : pal.muted)))
-      when hovered or focused
-        text tip position="absolute" bottom="1.75rem" left=((12 - (length(tip) * 6.3 + 18) / 2) * rem / 16) width=((length(tip) * 6.3 + 18) * rem / 16) z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" text-align="center" role="tooltip" id=`paint-ThemeCardAction-2-${actionId}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+      if hovered or focused
+        text tip position="absolute" bottom="1.75rem" left=((12 - (tip.length * 6.3 + 18) / 2) * rem / 16) width=((tip.length * 6.3 + 18) * rem / 16) z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" text-align="center" role="tooltip" id=`paint-ThemeCardAction-2-${actionId}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"

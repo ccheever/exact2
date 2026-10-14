@@ -49,7 +49,7 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
     expect(section).toContain('hoverId=sweepRowHover(sweepLive, sweepRest, sweepRestSeq, hoverSeq, hoverId)');
     const cancel = action(section, 'cancelSweep');
     expect(cancel).toContain('sweepCancelled = true');
-    expect(cancel).toMatch(/sweepRest = join\(map\(filter\(rows, \(t\) => frame\(`row-\$\{t\.id\}`\)\.y <= sweepAt and .* > sweepAt\), \(t\) => t\.hoverKey\), ""\)/);
+    expect(cancel).toMatch(/sweepRest = rows\.filter\(\(t\) => frame\(`row-\$\{t\.id\}`\)\.y <= sweepAt and .* > sweepAt\)\.map\(\(t\) => t\.hoverKey\)\.join\(""\)/);
     expect(cancel).toContain('sweepRestSeq = hoverSeq');
     // A new sweep forgets it. The pointer's first move (out of the section too) ends it through the window's hover
     // count: the host sends the leave of the control it kept hovered through the pan.
@@ -88,7 +88,7 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
 
   test('Escape still cancels a live sweep from anywhere in the window, and only while it is live', async () => {
     const section = await component('sidebar.contract', 'ThreadSection');
-    expect(section).toMatch(/\n      when sweepLive\n        button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" tabindex=-1/);
+    expect(section).toMatch(/\n      if sweepLive\n        button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" tabindex=-1/);
     // The release of a cancelled sweep says so, and the client applies nothing (r12-sidebar.test.ts).
     expect(section).toContain('sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : "")');
   });
@@ -99,12 +99,12 @@ describe('PS-1: the Pull Requests list across a window refocus', () => {
     const pages = await component('app-main.contract', 'PagesCover');
     const view = pages.slice(pages.indexOf('\n  view\n'));
     const mount = view.slice(0, view.indexOf('PrList(controlsLeft'));
-    const conditions = [...mount.matchAll(/\n\s*when ([^\n]+)/g)].map(match => match[1]);
+    const conditions = [...mount.matchAll(/\n\s*if ([^\n]+)/g)].map(match => match[1]);
     expect(conditions).toEqual(['pageCover', 'utilityPage == "usage"', 'utilityPage == "pull-requests"']);
     // Its rows are keyed by group and row; the scroll keeps no offset of its own, so a re-read moves nothing.
     const list = await component('pages-prs.contract', 'PrList');
-    expect(list).toContain('each group in page.groups key=group.key');
-    expect(list).toContain('each row in group.rows key=row.key');
+    expect(list).toContain('for group in page.groups key=group.key');
+    expect(list).toContain('for row in group.rows key=row.key');
     expect(list).toMatch(/scroll flex=1 min-height=0 width="100%" testId="pull-requests-scroll"\n/);
   });
 });
