@@ -294,6 +294,17 @@ component CoreIcon
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" color=color flex-shrink=0 aria-hidden=true
       path d=coreIconPath(name) stroke=color stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
 
+component CorePaintIcon
+  props
+    ownId: string
+    paint: string
+    name: string
+    size: number
+    color: string
+  view
+    svg id=ownId data-paint=paint data-pick=paint width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" color=color flex-shrink=0 aria-hidden=true
+      path d=coreIconPath(name) stroke=color stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
+
 component CoreMark
   props
     label: string
@@ -334,51 +345,51 @@ component SettingsNav
     blur()
     back()
   view
-    column width=width height="100%" flex-shrink=0 position="relative" background-color=pal.sidebar border-right-width=1 border-right-style="solid" border-color=pal.sidebarBorder testId="settings-navigation"
+    column width=width height="100%" flex-shrink=0 position="relative" background-color=pal.sidebar border-right-width=1 border-right-style="solid" border-color=pal.sidebarBorder testId="settings-navigation" id="settings-navigation" data-paint="sidebar border" data-pick="sidebar"
       when artwork
         NightlyBackdrop()
       row height=52 flex-shrink=0 padding-left=controlsLeft padding-right="0.5rem" gap="0.75rem" align-items="center" position="relative"
         button press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle sidebar" testId="settings-toggle-sidebar" title=""
-          CoreIcon(name="panel-left-close", size=16, color=(artwork ? "#d8daed" : pal.sidebarMuted))
+          CorePaintIcon(ownId=`paint-icon-SettingsNav-1-${route}`, paint=(artwork ? "" : "mutedForeground"), name="panel-left-close", size=16, color=(artwork ? "#d8daed" : pal.sidebarMuted))
         button press=back aria-label="Go to threads" class=SettingsGhost padding=0 gap="0.25rem" testId="settings-go-to-threads"
           Wordmark()
-          text "Code" font-size="0.875rem" font-weight=500 letter-spacing=-0.35 color=(artwork ? "#c4c3d2" : pal.sidebarText)
+          text "Code" font-size="0.875rem" font-weight=500 letter-spacing=-0.35 color=(artwork ? "#c4c3d2" : pal.sidebarText) id=`paint-SettingsNav-2-${route}` data-paint=`${(artwork ? "" : "sidebar")}` data-pick=((artwork ? "" : "sidebar") != "" ? (artwork ? "" : "sidebar") : "")
       column flex=1 min-height=0 padding="0.5rem" gap="0.5rem" position="relative"
         row height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" align-items="center" box-sizing="border-box"
-          CoreIcon(name="search", size=16, color=pal.sidebarMuted)
+          CorePaintIcon(ownId=`paint-icon-SettingsNav-2-${route}`, paint="mutedForeground", name="search", size=16, color=pal.sidebarMuted)
           // The host paints no placeholder colour: "Search" is drawn under the transparent field
           // in the reference's placeholder:text-muted-foreground (sidebar muted) while it is empty.
           box flex=1 min-width=0 height="1.3125rem" position="relative"
             when query == ""
-              text "Search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" color=pal.sidebarMuted white-space="nowrap" position="absolute" left=0 top=0 testId="settings-search-placeholder"
-            input value=query input=edit key=onKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText autocorrect="off"
+              text "Search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" color=pal.sidebarMuted white-space="nowrap" position="absolute" left=0 top=0 testId="settings-search-placeholder" id="settings-search-placeholder" data-paint="mutedForeground" data-pick="mutedForeground"
+            input value=query input=edit key=onKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText autocorrect="off" data-paint="sidebar" data-pick="sidebar"
           when query != ""
             button press=clear class=SettingsGhost width="1.25rem" height="1.25rem" min-height="1.25rem" padding="0.25rem" border-radius="0.375rem" aria-label="Clear settings search" testId="clear-settings-search" title=""
-              CoreIcon(name="x", size=12, color=pal.sidebarMuted)
+              CorePaintIcon(ownId=`paint-icon-SettingsNav-3-${route}`, paint="mutedForeground", name="x", size=12, color=pal.sidebarMuted)
           else
-            box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=pal.kbd display="flex" align-items="center" justify-content="center"
-              text "/" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
+            box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=pal.kbd display="flex" align-items="center" justify-content="center" id=`paint-SettingsNav-5-${route}` data-paint="sidebar" data-pick="sidebar"
+              text "/" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted id=`paint-SettingsNav-6-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
         when nav.searching and nav.count == 0
-          text "No settings found" role="status" font-size="0.75rem" color=pal.sidebarMuted text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" testId="settings-search-empty"
+          text "No settings found" role="status" font-size="0.75rem" color=pal.sidebarMuted text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" testId="settings-search-empty" id="settings-search-empty" data-paint="mutedForeground" data-pick="mutedForeground"
         scroll flex=1 min-height=0 width="100%" testId="settings-navigation-scroll"
           column gap="0.25rem" width="100%" role=(nav.searching ? "listbox" : "list") aria-label=(nav.searching ? "Settings search results" : "Settings sections")
             each item in nav.items key=item.id
               when nav.searching
-                button press=pick(item.route, item.target, item.scope, item.id) hover=hover(item.id) role="option" aria-selected=(item.id == hovered or (hovered == "" and item.active)) class=SettingsGhost justify-content="flex-start" align-items="flex-start" width="100%" min-height="3.25rem" padding="0.5rem" gap="0.5rem" border-radius="0.625rem" background-color=((item.id == hovered or (hovered == "" and item.active)) ? pal.rowActive : "#00000000") testId=`settings-${item.id}`
+                button press=pick(item.route, item.target, item.scope, item.id) hover=hover(item.id) role="option" aria-selected=(item.id == hovered or (hovered == "" and item.active)) class=SettingsGhost justify-content="flex-start" align-items="flex-start" width="100%" min-height="3.25rem" padding="0.5rem" gap="0.5rem" border-radius="0.625rem" background-color=((item.id == hovered or (hovered == "" and item.active)) ? pal.rowActive : "#00000000") testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "")}` data-pick=(((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") != "" ? ((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") : "")
                   box padding-top="0.125rem"
-                    CoreIcon(name=item.icon, size=14, color=((item.id == hovered or (hovered == "" and item.active)) ? pal.sidebarText : pal.sidebarIcon))
+                    CorePaintIcon(ownId=`paint-icon-SettingsNav-4-${route}-${item.id}`, paint=((item.id == hovered or (hovered == "" and item.active)) ? "sidebar" : "mutedForeground"), name=item.icon, size=14, color=((item.id == hovered or (hovered == "" and item.active)) ? pal.sidebarText : pal.sidebarIcon))
                   column flex=1 min-width=0 gap=0 align-items="flex-start"
-                    text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarText line-clamp=1
-                    text item.section font-size="0.6875rem" font-weight=500 line-height="1rem" color=pal.sectionMuted line-clamp=1
+                    text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarText line-clamp=1 id=`paint-SettingsNav-9-${route}-${item.id}` data-paint="sidebar" data-pick="sidebar"
+                    text item.section font-size="0.6875rem" font-weight=500 line-height="1rem" color=pal.sectionMuted line-clamp=1 id=`paint-SettingsNav-10-${route}-${item.id}` data-paint="mutedForeground" data-pick="mutedForeground"
               else
-                button press=pick(item.route, "", "", item.id) hover=hover(item.id) aria-selected=(route == item.route or (item.route == "general" and route == "open-source-licenses")) class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}`
-                  CoreIcon(name=item.icon, size=16, color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarIcon))
-                  text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarMuted) line-clamp=1
+                button press=pick(item.route, "", "", item.id) hover=hover(item.id) aria-selected=(route == item.route or (item.route == "general" and route == "open-source-licenses")) class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${(route == item.route or (item.route == "general" and route == "open-source-licenses") ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : ""))}` data-pick=((route == item.route or (item.route == "general" and route == "open-source-licenses") ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) != "" ? (route == item.route or (item.route == "general" and route == "open-source-licenses") ? "sidebarRowSelected" : (item.id == hovered ? "sidebarRowSelected" : "")) : "")
+                  CorePaintIcon(ownId=`paint-icon-SettingsNav-5-${route}-${item.id}`, paint=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? "sidebar" : "mutedForeground"), name=item.icon, size=16, color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarIcon))
+                  text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarMuted) line-clamp=1 id=`paint-SettingsNav-12-${route}-${item.id}` data-paint=`${(route == item.route or (item.route == "general" and route == "open-source-licenses") ? "sidebar" : "mutedForeground")}` data-pick=((route == item.route or (item.route == "general" and route == "open-source-licenses") ? "sidebar" : "mutedForeground") != "" ? (route == item.route or (item.route == "general" and route == "open-source-licenses") ? "sidebar" : "mutedForeground") : "")
       // SidebarUtilityMenu on a utility page: Back (flex-1), then SidebarUpdatePill (ml-auto).
       row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.25rem" align-items="center" flex-shrink=0
-        button press=leave hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape") class=SettingsGhost justify-content="flex-start" flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(hovered == "back" ? pal.rowHover : "#00000000") testId="close-settings"
-          CoreIcon(name="arrow-left", size=16, color=pal.sidebarIcon)
-          text "Back" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarMuted
+        button press=leave hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape") class=SettingsGhost justify-content="flex-start" flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(hovered == "back" ? pal.rowHover : "#00000000") testId="close-settings" id="close-settings" data-paint=`${(hovered == "back" ? "sidebarRowSelected" : "")}` data-pick=((hovered == "back" ? "sidebarRowSelected" : "") != "" ? (hovered == "back" ? "sidebarRowSelected" : "") : "")
+          CorePaintIcon(ownId=`paint-icon-SettingsNav-6-${route}`, paint="mutedForeground", name="arrow-left", size=16, color=pal.sidebarIcon)
+          text "Back" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarMuted id=`paint-SettingsNav-14-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
         box hover=updateTip("settings-update") margin-left="auto" flex-shrink=0 display="flex" testId="tip-settings-update"
           SidebarUpdatePill(color=pal.sidebarIcon, testId="settings-check-updates")
       button press=onKey("/") aria-keyshortcuts="/" aria-label="Focus settings search" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-search-shortcut" title=""
@@ -401,19 +412,19 @@ component SettingsTopBar
     row height=52 min-height=52 flex-shrink=0 align-items="center" gap="0.75rem" padding-left=(navOpen ? 1.25 * rem : controlsLeft) padding-right="1.25rem" box-sizing="border-box" width="100%" testId="settings-header"
       when not navOpen
         button press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle sidebar" testId="settings-header-toggle-sidebar" title=""
-          CoreIcon(name="panel-left-close", size=16, color=pal.muted)
+          CorePaintIcon(ownId=`paint-icon-SettingsTopBar-1-${route}`, paint="mutedForeground", name="panel-left-close", size=16, color=pal.muted)
       row role="navigation" aria-label="Settings breadcrumb" gap="0.75rem" align-items="center" min-width=0
         when crumb != "Settings"
-          text "Settings" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0
-          text "/" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0 aria-hidden=true
-        text crumb font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text line-clamp=1 testId="settings-breadcrumb-current"
+          text "Settings" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0 id=`paint-SettingsTopBar-1-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
+          text "/" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0 aria-hidden=true id=`paint-SettingsTopBar-2-${route}` data-paint="mutedForeground" data-pick="mutedForeground"
+        text crumb font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text line-clamp=1 testId="settings-breadcrumb-current" id="settings-breadcrumb-current" data-paint="text" data-pick="text"
       box flex=1
       when route == "general"
         // Ghost xs: px 7, the icon's -mx-0.5 inside mx-1, gap 1; disabled:opacity-64 dims icon and label.
         button id="settings-restore-defaults" press=restore class=SettingsGhost height="1.5rem" min-height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" gap="0.125rem" border-radius="0.5rem" disabled=(busy or not restorable) opacity=(restorable ? 1 : 0.64) aria-label="Restore device defaults" testId="restore-device-defaults"
           svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" flex-shrink=0 aria-hidden=true
             path d=coreIconPath("rotate-ccw") stroke=pal.muted stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
-          text "Restore device defaults" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text
+          text "Restore device defaults" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text id=`paint-SettingsTopBar-4-${route}` data-paint="text" data-pick="text"
 
 style SettingsGhost
   cursor="pointer"

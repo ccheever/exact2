@@ -27,6 +27,7 @@ shape EditorView
   filter: string
   rows: list<EditorRow>
   groups: list<EditorGroup>
+  allRows: list<EditorRow>
   canSave: bool
   session: string
 
@@ -68,3 +69,13 @@ shape ImportView
   fileName: string
   json: string
   popular: list<string>
+
+// Scene query results: the live mounted nodes using each editable color family.
+shape ThemeUse
+  id: string
+  frame: Geometry
+shape ThemeRoleUsage
+  role: string
+  label: string
+  primaryIds: list<string>
+  nodes: list<ThemeUse>

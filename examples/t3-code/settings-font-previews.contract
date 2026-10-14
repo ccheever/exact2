@@ -27,12 +27,12 @@ component FontCodePreview
         row gap="8px" align-items="center" min-width=0
           DiffGlyph(name=preview.status, size=16, color=(preview.status == "deleted" ? diffInk(preview.scheme, "del") : preview.status == "added" ? diffInk(preview.scheme, "add") : "#009fff"))
           text preview.path font-size=size line-height="20px" color="light-dark(#0a0a0a, #fafafa)" white-space="nowrap" min-width=0 line-clamp=1
-        row gap=(7.83 * size / 13) align-items="center" flex-shrink=0 font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded")
+        row gap=(7.83 * size / 13) align-items="center" flex-shrink=0 font-family=family
           when preview.deletions > 0
             text `-${preview.deletions}` font-size=size line-height="20px" color=diffInk(preview.scheme, "del")
           when preview.additions > 0
             text `+${preview.additions}` font-size=size line-height="20px" color=diffInk(preview.scheme, "add")
-      column width="100%" padding-bottom="8px" box-sizing="border-box" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded")
+      column width="100%" padding-bottom="8px" box-sizing="border-box" font-family=family
         each line in preview.lines key=line.id
           FontDiffRow(line=line, scheme=preview.scheme, size=size)
 component FontDiffRow

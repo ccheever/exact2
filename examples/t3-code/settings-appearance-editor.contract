@@ -8,6 +8,7 @@ use CoreIcon from "./settings-core.contract"
 use CorePalette from "./settings-core.contract"
 use SettingsGhost from "./settings-core.contract"
 use EditorRow from "./settings-appearance-editor-shapes.contract"
+use ThemeRoleUsage from "./settings-appearance-editor-shapes.contract"
 use EditorView from "./settings-appearance-editor-shapes.contract"
 use SettingsCore from "./settings-core.contract"
 use Viewport from "./shapes.contract"
@@ -18,6 +19,8 @@ use ThemeColorSwatch from "./theme-color-picker.contract"
 // Settings; each session is a fresh panel (keyed by its id), as `key={session.id}`.
 component ThemeEditorHost
   props
+    usage: list<ThemeRoleUsage>
+    reveal: action
     kind: string
     core: SettingsCore
     viewport: Viewport
@@ -34,7 +37,7 @@ component ThemeEditorHost
   view
     when (kind == "create" or kind == "duplicate" or kind == "edit") and core.editor.open
       each editor in [core.editor] key=editor.session
-        ThemeEditorPanel(editor=editor, pal=core.palette, vw=viewport.width, vh=viewport.height, reduced=viewport.prefersReducedMotion, busy=busy, error=error, close=close, commit=commit, live=live, save=save, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
+        ThemeEditorPanel(reveal=reveal, usage=usage, editor=editor, pal=core.palette, vw=viewport.width, vh=viewport.height, reduced=viewport.prefersReducedMotion, busy=busy, error=error, close=close, commit=commit, live=live, save=save, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
 
 // The panel's place and size are its own state (ThemeEditorPanel.tsx:296-360, 1073-1150):
 // null parks it bottom-right 16; a drag or the corner grip gives an explicit top-left,
@@ -47,6 +50,8 @@ component ThemeEditorPanel
     rem: number
   props
     editor: EditorView
+    usage: list<ThemeRoleUsage>
+    reveal: action
     pal: CorePalette
     vw: number
     vh: number
@@ -60,6 +65,48 @@ component ThemeEditorPanel
     outsideDown: action
     outsideUp: action
     outsideFocus: action
+  state selected = ""
+  state inspecting = false
+  state hoveredId = ""
+  state hoveredRole = ""
+  derive selection = filter(usage, (group) => group.role == selected)
+  action selectRole(role: string)
+    selected = selected == role ? "" : role
+    inspecting = false
+  action pickRole(role: string)
+    selected = role
+    inspecting = false
+  action toggleAdvanced
+    if editor.advanced and selected != "canvas" and selected != "accent"
+      selected = ""
+    commit("theme-editor", "advanced", editor.advanced ? "false" : "true")
+  action armInspect
+    inspecting = not inspecting
+    hoveredId = ""
+    hoveredRole = ""
+  action cancelInspect
+    inspecting = false
+    selected = ""
+    hoveredId = ""
+    hoveredRole = ""
+  action inspectPointer(pick: bool, e: PointerEvent)
+    let hits = elementsFromPoint(e.clientX, e.clientY)
+    let matches = filter(hits, (id) => length(filter(usage, (group) => includes(map(group.nodes, (node) => node.id), id))) > 0)
+    let hitId = join(slice(matches, 0, 1), "")
+    let roles = filter(usage, (group) => includes(group.primaryIds, hitId))
+    let role = join(map(slice(roles, 0, 1), (group) => group.role), "")
+    hoveredId = hitId
+    hoveredRole = role
+    if pick and role != ""
+      preventDefault()
+      selected = role
+      inspecting = false
+      commit("theme-editor", "inspect", role)
+      reveal(role)
+  action inspectorKey(k: string, e: KeyboardEvent)
+    if k == "Escape" and inspecting
+      preventDefault()
+      cancelInspect()
   state minimized = false
   state name = ""
   state named = false
@@ -122,6 +169,15 @@ component ThemeEditorPanel
     rx = placed ? min(max(rx, 8), max(8, w - width - 8)) : rx
     ry = placed ? min(min(max(ry, 8), max(8, h - 48)), max(8, h - height - 8)) : ry
   view
+    // The pane stays usable above the inspecting layer. Its hits have no paint tags.
+    when inspecting
+      box position="absolute" left=0 top=0 width=vw height=vh z-index=109 cursor="crosshair" pointermove=inspectPointer(false) pointerdown=inspectPointer(false) pointerup=inspectPointer(true) key=inspectorKey tabindex=-1 autofocus id="theme-inspector" testId="theme-inspector" aria-label="Inspect app colors"
+      button press=cancelInspect aria-keyshortcuts="Escape" position="absolute" width=1 height=1 opacity=0 z-index=109 aria-label="Cancel color inspection" testId="theme-inspector-cancel"
+    each group in usage key=group.role
+      when (not inspecting and group.role == selected) or (inspecting and group.role == hoveredRole)
+        each node in group.nodes key=node.id
+          when (not inspecting or node.id == hoveredId) and node.frame.width > 0 and node.frame.height > 0
+            box position="absolute" left=node.frame.x top=node.frame.y width=node.frame.width height=node.frame.height border-width=2 border-style="solid" border-color="#3b82f6" border-radius=3 box-sizing="border-box" pointer-events="none" aria-hidden=true z-index=109 testId=`theme-usage-${node.id}`
     column position="absolute" left=(placed ? left : "auto") top=(placed ? top : "auto") right=(placed ? "auto" : "1rem") bottom=(placed ? "auto" : "1rem") width=boxW height=(sized and not minimized ? boxH : "auto") max-height=(minimized ? vh : (sized ? vh - rem : capH)) border-radius="0.875rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a" box-sizing="border-box" overflow="hidden" z-index=110 role="dialog" aria-label=editor.title id="theme-editor" testId="theme-editor"
       // Sized to the window, clipped by the panel and inert: only its resize event matters (X22, #127).
       box position="absolute" left=0 top=0 width=vw height=vh inert=true aria-hidden=true resize=windowSized testId="theme-editor-window-tracker"
@@ -129,7 +185,15 @@ component ThemeEditorPanel
         row flex=1 min-width=0 gap="0.5rem" align-items="baseline"
           text editor.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=2 flex-shrink=0
           when not minimized
-            text "Select a color below" font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
+            when inspecting
+              text "Select an element · Esc to cancel" testId="theme-editor-usage" font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
+            else when length(selection) > 0
+              each selectedGroup in selection key=selectedGroup.role
+                text `${selectedGroup.label} · ${length(selectedGroup.nodes)} ${length(selectedGroup.nodes) == 1 ? "use" : "uses"}` testId="theme-editor-usage" font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
+            else
+              text "Select a color below" testId="theme-editor-usage" font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
+        button press=armInspect aria-label="Inspect app colors" aria-pressed=inspecting class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" background-color=(inspecting ? pal.highlight : "#00000000") testId="theme-editor-inspect" title="Inspect app colors"
+          CoreIcon(name="search", size=14, color=pal.muted)
         button press=toggleMinimized aria-label=(minimized ? "Expand the theme editor" : "Minimize the theme editor") aria-expanded=(not minimized) class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-minimize" title=""
           // f2cc80a7 MorphIcon ChevronDown↔ChevronUp: a half turn on morphicons' snappy spring (none under reduced motion).
           box rotate=(minimized ? "180deg" : "0deg") transition=(reduced ? "none" : "rotate -exact-spring(420, 30, 1)")
@@ -159,12 +223,13 @@ component ThemeEditorPanel
                     text "Two colors, rest derived" font-size="0.75rem" line-height="1rem" color=pal.muted
                 row flex=1 min-width=0 gap="0.75rem" align-items="flex-start"
                   when editor.advanced
-                    EditorFilter(value=editor.filter, pal=pal, commit=commit("theme-editor", "filter"), touched=outsideFocus)
+                    each filterValue in [editor.filter] key=filterValue
+                      EditorFilter(value=filterValue, pal=pal, commit=commit("theme-editor", "filter"), touched=outsideFocus)
                   else
                     box flex=1
                   row gap="0.5rem" align-items="center" padding-top="0.125rem" flex-shrink=0
                     text "Advanced" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
-                    button press=commit("theme-editor", "advanced", editor.advanced ? "false" : "true") role="switch" aria-checked=editor.advanced aria-label="Advanced Use advanced theme colors" class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(editor.advanced ? pal.accent : pal.switchOff) testId="theme-editor-advanced" title=""
+                    button press=toggleAdvanced role="switch" aria-checked=editor.advanced aria-label="Advanced Use advanced theme colors" class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(editor.advanced ? pal.accent : pal.switchOff) testId="theme-editor-advanced" title=""
                       box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=pal.thumb margin-left=(editor.advanced ? "0.75rem" : "0px")
               when editor.advanced
                 column width="100%" gap="1.25rem"
@@ -173,13 +238,13 @@ component ThemeEditorPanel
                       text group.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=4
                       column width="100%" gap="0.25rem"
                         each row in group.rows key=row.id
-                          EditorColorRow(row=row, session=editor.session, pal=pal, vh=vh, commit=commit, live=live, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
+                          EditorColorRow(pick=pickRole, selected=(selected == row.role), select=selectRole, row=row, session=editor.session, pal=pal, vh=vh, commit=commit, live=live, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
                   when length(editor.groups) == 0
                     text "No matches." font-size="0.75rem" line-height="1rem" color=pal.muted
               else
                 column width="100%" gap="0.25rem"
                   each row in editor.rows key=row.id
-                    EditorColorRow(row=row, session=editor.session, pal=pal, vh=vh, commit=commit, live=live, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
+                    EditorColorRow(pick=pickRole, selected=(selected == row.role), select=selectRole, row=row, session=editor.session, pal=pal, vh=vh, commit=commit, live=live, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
             when error != ""
               text error role="alert" font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" testId="theme-editor-error"
         row flex-shrink=0 justify-content="flex-end" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" border-top-width=1 border-top-style="solid" border-color=pal.divider box-sizing="border-box"
@@ -223,6 +288,9 @@ component EditorFilter
 // ThemeColorField: the family label, the swatch (opens the picker) and the hex value.
 component EditorColorRow
   props
+    selected: bool
+    select: action
+    pick: action
     row: EditorRow
     session: string
     pal: CorePalette
@@ -243,7 +311,8 @@ component EditorColorRow
   action leave
     editing = false
   view
-    row width="100%" height="2.75rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" align-items="center" box-sizing="border-box" border-radius="0.625rem" hover=hover background-color=(hovered ? pal.highlight : "#00000000") testId=`theme-editor-row-${row.id}`
-      text row.label font-size="0.875rem" line-height="1.25rem" color=(hovered ? pal.text : pal.muted) flex=1 min-width=0 line-clamp=1
-      ThemeColorSwatch(row=row, session=session, pal=pal, vh=vh, live=live, outsideDown=outsideDown, outsideUp=outsideUp)
+    row width="100%" height="2.75rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" align-items="center" box-sizing="border-box" border-radius="0.625rem" hover=hover background-color=(selected or hovered ? pal.highlight : "#00000000") id=`theme-editor-row-${row.role}` testId=`theme-editor-row-${row.id}`
+      button press=select(row.role) aria-pressed=selected aria-label=`Highlight ${row.label} uses` testId=`theme-editor-select-${row.id}` flex=1 min-width=0 padding=0 border-width=0 background-color="#00000000" text-align="left"
+        text row.label font-size="0.875rem" line-height="1.25rem" color=(selected or hovered ? pal.text : pal.muted) line-clamp=1
+      ThemeColorSwatch(select=pick(row.role), row=row, session=session, pal=pal, vh=vh, live=live, outsideDown=outsideDown, outsideUp=outsideUp)
       input value=(editing ? draft : row.value) input=edit change=commit("theme-editor", `color:${row.role}`) focus=outsideFocus blur=leave aria-label=`${row.label} hex value` spellcheck="false" width="7rem" height="1.875rem" flex-shrink=0 padding-top="0.25rem" padding-bottom="0.25rem" line-height="1.25rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-family="ui-monospace" font-size="0.75rem" color=pal.text testId=`theme-editor-hex-${row.id}` autocorrect="off"

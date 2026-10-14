@@ -904,20 +904,20 @@ component CodeBlock
       when length(filter(code, (hl) => hl.code == block.text)) == 0
         when wrap
           when ms < 0
-            text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+            text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
           else
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
               MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             when ms < 0
-              text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+              text block.text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
             else
-              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
                 MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
       each hl in filter(code, (hl) => hl.code == block.text) key=hl.id
         when wrap
-          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
             each token in hl.tokens key=token.id
               when ms < 0
                 text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
@@ -926,7 +926,7 @@ component CodeBlock
                   MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
               each token in hl.tokens key=token.id
                 when ms < 0
                   text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
@@ -970,10 +970,10 @@ component MermaidBlock
             Tip(label="Copy code", side="top", align="center", offset=28)
               CopyCodeButton(block=block, local=local, copied=copied)
         when wrap
-          text block.text width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
+          text block.text width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
-            text block.text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
+            text block.text padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
     else
       column width="100%" testId=`mermaid-${block.id}`
         when diagram.diagram == "rendered"

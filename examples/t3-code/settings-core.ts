@@ -4,6 +4,8 @@
 // packages/shared/src/projectSettings.ts. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
+import { installedFonts } from './appearance-fonts';
+import { pushToast } from './toast';
 import { arr, num, obj, str, type Json, type Obj } from './domain';
 import { ClientError, providerAvailable, type Native } from './protocol';
 import { projectIdentity, providerBadge } from './presentation';
@@ -687,6 +689,11 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
       const size = FONT_SIZE_KEYS[value];
       if (size) applyDeviceSetting(local, size, String(CLIENT_DEFAULTS[size as keyof typeof CLIENT_DEFAULTS]));
     } else if (target.part === 'notificationMode' && !(await notificationPermission(client, native, value))) { // shell-notify.ts permission gate
+      return '';
+    } else if ((target.part === 'fontFamilyCode' || target.part === 'fontFamilyTerminal') && value.trim() &&
+      (await installedFonts(client, native)).some(font => font.family.toLowerCase() === value.trim().toLowerCase() && !font.monospace)) {
+      pushToast(client, { kind: 'error', title: `"${value}" isn't monospace`,
+        description: 'Code and terminal need a fixed-width font, so the current font was kept.', stacked: true });
       return '';
     } else if (!applyDeviceSetting(local, target.part, value)) throw new ClientError('Unsupported setting.');
     seedDiffState(client, (client as unknown as { diffState: DiffState }).diffState);
