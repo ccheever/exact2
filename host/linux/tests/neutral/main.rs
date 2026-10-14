@@ -1163,7 +1163,7 @@ fn route_header_padding_is_the_containing_width_of_a_windowed_list() {
   view
     column navigationKey="route" width=320
       header {padding}
-        list virtualized=true height=100 width="100%" box-sizing="border-box" padding="10%" testId="feed"
+        list virtualized=true height=100 width="100%" box-sizing="border-box" padding-left="10%" padding-right="10%" testId="feed"
           for item in rows key=item
             row height=24 testId=`row-${{item}}`
 "#
@@ -1188,6 +1188,9 @@ fn route_header_padding_is_the_containing_width_of_a_windowed_list() {
                 assert!(p.pump(p.host().now()).is_none());
                 if p.dirty() {
                     p.frame();
+                }
+                if !p.dirty() && !p.host().collection(feed).unwrap().pending {
+                    break;
                 }
             }
             let snapshot = p.host().collection(feed).unwrap();
