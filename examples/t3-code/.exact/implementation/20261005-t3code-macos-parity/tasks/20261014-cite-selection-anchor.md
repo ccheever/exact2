@@ -2,13 +2,13 @@
 name: 20261014-cite-selection-anchor
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
+verification: verified-with-unverified-rows
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-cite-selection-anchor
 pr_url: null
-verified_commit: null
+verified_commit: 18b934b1d
 ---
 
 # Cite: Tab to Cite, Cite and its comment at the selection's last line, the pencil's popover
@@ -156,4 +156,38 @@ Launch this branch's bundle as a lane copy with the Cite fixture answer seeded (
   (the command's value, then `removeAllRanges()`), Cite drawn by the window; the root's wait and focus-loss count; DCP-E's
   rule against both apps' numbers.
 - `diff-cite-popover.test.ts`: its DC-2 wiring test no longer reads the old in-answer button (moved to the test above).
+- `usage-pooled.test.ts`: the pointer inventory names the answer's box, which hands each press on to the window's
+  `outsidePressDown` / `outsidePressUp` (as the theme editor's colour controls do).
+
+## Checks
+
+On `18b934b1d` (the feature branch had no new commits; nothing to merge). The cargo checks ran on `f7a654d4a`, whose
+tree differs only in `app.contract`'s argument order in one call and two test files (no Rust).
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4874 pass, 1 skip, 0 fail (329 files); the first run had 3 source guards fail (two read T3Window's call from its first argument, the pointer inventory lacked the answer's box): fixed |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 33,811,060 bytes (base 33,309,129); `app.contract` 1,468 lines |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust or Swift changed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,353 passed, 0 failed |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | on `f43c88ba7` (the first after drive) and on `10fdff230` (the final drive); `18b934b1d` changes no app behaviour (the same plan bytes) |
+
+## Not done / not verified
+
+- The real-input batch steps above (G4-03 with a real double-click, Tab and drag; DCP-E's pencil): the coordinator's
+  session.
+
+## Delivery
+
+Draft PR into `feat(example)/t3-code`: see `pr_url`.
+
+## Next action
+
+The coordinator: review the draft PR, run the real-input batch steps, merge.
 
