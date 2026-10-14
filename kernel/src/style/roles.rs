@@ -270,6 +270,11 @@ thread_local! {
     static OVERRIDES: std::cell::RefCell<Vec<(u8, ColorValue)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// The overridden roles as set, for a caller that puts them back.
+pub fn overrides() -> Vec<(u8, ColorValue)> {
+    OVERRIDES.with(|t| t.borrow().clone())
+}
+
 /// Replace the overridden roles; the reported generation moves, so every
 /// session re-presents what it resolved from the old ones. `true` when a
 /// different, non-empty set is replaced.
@@ -369,7 +374,9 @@ pub(crate) fn painted_override(c: ColorValue) -> Option<ColorValue> {
     } else {
         id
     };
-    overridden(id).filter(|o| *o != ColorValue::Role(id))
+    // Never a tint role again (the compiler refuses one as the tint; a
+    // built plan that names one is read as no override).
+    overridden(id).filter(|o| !matches!(o, ColorValue::Role(r) if *r == id || tint(*r)))
 }
 
 /// `AccentColor`'s id.

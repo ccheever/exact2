@@ -187,6 +187,8 @@ fn a_theme_is_checked_where_it_is_declared() {
         ("  link = \"#000\"\n", "lower-theme-tint"),
         ("  none = \"#000\"\n", "lower-theme-name"),
         ("  inherit = \"#000\"\n", "lower-theme-name"),
+        ("  top = \"#000\"\n", "lower-theme-name"),
+        ("  AccentColor = \"LinkText\"\n", "lower-theme-tint"),
     ] {
         let src = format!("theme\n{body}\ncomponent App\n  view\n    text \"a\"\n");
         let errors = contract::compile(&src).unwrap_err();
@@ -294,6 +296,7 @@ fn names_are_exact_profiles_are_colours_and_the_lint_reads_the_theme() {
         lint("theme\n  Canvas = \"#fbf3e9\"\n\ncomponent App\n  view\n    text \"a\"\n") > 0,
         "a page role replaced in one scheme"
     );
+    assert!(lint("theme\n  base = \"#ffffff\"\n  card = \"base\"\n\ncomponent App\n  view\n    column background-color=\"card\"\n      text \"a\"\n") > 0, "through an alias");
     assert_eq!(lint("theme\n  card = \"light-dark(#f1f3f5, #0f1419)\"\n  Canvas = \"light-dark(#fff, #000)\"\n\ncomponent App\n  view\n    column background-color=\"card\"\n      text \"a\"\n"), 0);
 }
 
@@ -317,4 +320,29 @@ fn clearing_another_plans_overrides_is_said() {
     assert!(plain
         .journal()
         .any(|l| l.contains("replace another plan's")));
+}
+
+/// A boot the runner refuses puts back the overrides it took: a session
+/// still running keeps its own.
+#[test]
+fn a_refused_boot_keeps_the_threads_overrides() {
+    let run = |src: &str| {
+        Runner::boot(
+            contract::compile(src).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+    };
+    let kept = run(
+        "theme\n  CanvasText = \"#010101\"\n\ncomponent App\n  view\n    text \"a\" testId=\"t\"\n",
+    )
+    .unwrap();
+    let refused = run("theme\n  CanvasText = \"#020202\"\n\ncomponent App\n  state n = 0\n  state bad = 1 / n\n  view\n    text \"a\"\n");
+    assert!(refused.is_err(), "the fixture is refused at boot");
+    assert_eq!(
+        colour(&kept, "t", StyleId::TextColor).resolve(false),
+        Color::parse("#010101").unwrap()
+    );
 }

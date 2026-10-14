@@ -131,6 +131,8 @@ impl Lowerer<'_> {
                 return None;
             }
         }
+        // CSS's keywords, and the words a colour-bearing value (a gradient,
+        // a shadow) writes beside its colours, which a name would shadow.
         let reserved = [
             "none",
             "auto",
@@ -140,6 +142,32 @@ impl Lowerer<'_> {
             "revert",
             "revert-layer",
             "currentcolor",
+            "to",
+            "top",
+            "bottom",
+            "left",
+            "right",
+            "center",
+            "at",
+            "inset",
+            "circle",
+            "ellipse",
+            "closest-side",
+            "closest-corner",
+            "farthest-side",
+            "farthest-corner",
+            "from",
+            "in",
+            "repeat",
+            "no-repeat",
+            "solid",
+            "dashed",
+            "dotted",
+            "double",
+            "hidden",
+            "thin",
+            "medium",
+            "thick",
         ];
         if role.is_none() && reserved.contains(&entry.name.to_ascii_lowercase().as_str()) {
             let message = format!(
@@ -187,6 +215,14 @@ impl Lowerer<'_> {
         };
         path.pop();
         let value = value?;
+        // The tint is a colour: the tint's own roles stand for it.
+        if role.as_ref().is_some_and(|(id, _)| *id == roles::accent())
+            && roles::role(&value).is_some_and(roles::tint)
+        {
+            let message = format!("`{}=\"{value}\"` names a role drawn in the tint itself: the tint is a colour, a platform colour or another role", entry.name);
+            self.refuse(entry, "lower-theme-tint", message);
+            return None;
+        }
         resolved[i] = Some(ThemeEntry {
             name: entry.name.clone(),
             role: role.map(|(_, row)| row),

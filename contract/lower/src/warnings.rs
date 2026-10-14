@@ -910,6 +910,19 @@ struct Leaves<'a> {
 }
 
 impl Leaves<'_> {
+    /// The colour text a theme name stands for: a name exactly, a role's
+    /// spelling without case (LLP 1095 D4).
+    fn entry(&self, word: &str) -> Option<&str> {
+        self.theme
+            .iter()
+            .find(|(name, _)| {
+                *name == word
+                    || exact_kernel::style::roles::role(name).is_some()
+                        && name.eq_ignore_ascii_case(word)
+            })
+            .map(|(_, value)| *value)
+    }
+
     /// The literal colours `e` may be: its string leaves, through `?:`,
     /// `match`, a template's text, a `fn`'s body and a derive. A name the
     /// view binds, a state, a field or a call of the stdlib is given the
@@ -919,12 +932,12 @@ impl Leaves<'_> {
             Expr::Str(text, _) => {
                 literal_colours(text, out);
                 for word in text.split(|c: char| c.is_whitespace() || c == ',') {
-                    if let Some((_, value)) = self
-                        .theme
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case(word))
-                    {
+                    // Through aliases (`card = "base"`), a few steps.
+                    let mut word = word;
+                    for _ in 0..8 {
+                        let Some(value) = self.entry(word) else { break };
                         literal_colours(value, out);
+                        word = value.trim();
                     }
                 }
             }

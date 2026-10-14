@@ -416,6 +416,11 @@ fn theme_map(plan: &Plan) -> Option<String> {
         return None;
     }
     let _theme = exact_kernel::style::theme::bind(&exact_runner::bridge::theme_table(plan));
+    let _profiles = exact_kernel::style::profiled::declarations(
+        plan.profiles
+            .iter()
+            .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+    );
     let (mut names, mut roles) = (Vec::new(), Vec::new());
     for row in &plan.theme {
         let value = plan.str(row.value);
@@ -449,7 +454,7 @@ fn theme_map(plan: &Plan) -> Option<String> {
     // name inside one (a `light-dark()` half, LLP 1095 D1); a gradient's
     // stops and a shadow's colour are components, read as names.
     Some(format!(
-        r#"((N,R)=>v=>typeof v==="string"?v.replace(/(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\((?:[^()]|\([^()]*\))*\)|url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-\uffff]+\(?/gi,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t):v)({{{}}},{{{}}})"#,
+        r#"((N,R)=>v=>typeof v==="string"?v.replace(/(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-\uffff]+\(?/gi,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t):v)({{{}}},{{{}}})"#,
         names.join(","),
         roles.join(",")
     ))

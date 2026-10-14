@@ -259,6 +259,15 @@ pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table
 /// none clears them. `true` when they replace a different set another plan
 /// made (a second session's, a reload's), which the runner says.
 pub fn set_role_overrides(plan: &exact_plan::Plan) -> bool {
+    // A plan this thread boots or emits is the one its rows are set from
+    // next: the cached table is rebuilt for it (never another plan's whose
+    // buffers it reuses).
+    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+    let _profiles = exact_kernel::style::profiled::declarations(
+        plan.profiles
+            .iter()
+            .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+    );
     let overrides = plan
         .theme
         .iter()
@@ -433,6 +442,28 @@ impl KeyframesTable {
         .into_iter()
         .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
         .collect()
+    }
+}
+
+/// The thread's role overrides from before a boot, put back unless the boot
+/// succeeds and clears it (LLP 1095 D4).
+pub(crate) struct RestoreOverrides(pub(crate) Option<Vec<(u8, exact_kernel::ColorValue)>>);
+
+impl RestoreOverrides {
+    /// Set `plan`'s overrides, keeping the thread's to put back; and whether
+    /// they replace another plan's.
+    pub(crate) fn set(plan: &exact_plan::Plan) -> (RestoreOverrides, bool) {
+        let previous = exact_kernel::style::roles::overrides();
+        let replaced = set_role_overrides(plan);
+        (RestoreOverrides(Some(previous)), replaced)
+    }
+}
+
+impl Drop for RestoreOverrides {
+    fn drop(&mut self) {
+        if let Some(previous) = self.0.take() {
+            let _ = exact_kernel::style::roles::set_overrides(previous);
+        }
     }
 }
 
