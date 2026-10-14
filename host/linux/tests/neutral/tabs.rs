@@ -256,8 +256,7 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
             assert_eq!(
                 bar.computed_row(StyleId::BackgroundColor, |s| s
                     .background_color
-                    .resolve(scheme == "dark")
-                    .a()),
+                    .map_or(0, |color| color.resolve(scheme == "dark").a())),
                 if present { 255 } else { 0 }
             );
             assert!(!bar.style.mask.has(StyleId::BackgroundColor));
@@ -297,8 +296,7 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
                 assert_eq!(
                     bar.computed_row(StyleId::BackgroundColor, |s| s
                         .background_color
-                        .resolve(scheme == "dark")
-                        .a()),
+                        .map_or(0, |color| color.resolve(scheme == "dark").a())),
                     if present { 255 } else { 0 }
                 );
                 assert_eq!(
