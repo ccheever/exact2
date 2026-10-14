@@ -301,7 +301,19 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
                 );
                 assert_eq!(
                     bar.computed_row(StyleId::BorderWidthTop, |s| s.border_width_top),
-                    if present { 1.0 } else { 0.0 }
+                    if present {
+                        1.0
+                    } else {
+                        exact_kernel::StyleProps::default().border_width_top
+                    }
+                );
+                assert_eq!(
+                    bar.computed_row(StyleId::BorderStyleTop, |s| s.border_style_top),
+                    if present {
+                        exact_kernel::BorderStyle::Solid
+                    } else {
+                        exact_kernel::BorderStyle::None
+                    }
                 );
                 for row in [
                     StyleId::BackgroundColor,
