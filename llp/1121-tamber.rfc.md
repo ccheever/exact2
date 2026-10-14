@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** Draft r7, 2026-10-13. r7 is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stage 1 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -14,7 +14,7 @@
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-13
-**Implementer:** Claude (Opus 5.5), stage 2, starting the day it is accepted (it waits on stage 1's landing). Stages 3–12 are not accepted until each has an implementer and a date (`rules/RULES.md` §Scope).
+**Implementer:** x2-perf3 (Claude, Opus 5.5), stages 1 and 2, from 2026-10-13; the RFC's owner (theme1, Claude, Opus 5.5) reviews each stage's commits against it and amends it as built. Stages 3–12 are accepted in direction but not scheduled until each has an implementer and a date (`rules/RULES.md` §Scope).
 **Related:**
 - LLP 1095 (platform colours): D1 the interned reference and its fallback pair, D4 `theme`, D5 per-view resolution, D6 trait changes transition, D9 keyframes, D10 `color-mix()` and relative colour, D11 the web role sheet, §3 the wire, §5 item 6 (the theme port and the reach ruling).
 - LLP 1115 (write the web, ship the platform), LLP 1115.000 D6 (press and disabled feedback; the 2026-10-13 ruling, built as `contract/lower/src/disabled_look.rs`), D10.3 (the hairline), D12.3 (Bold Text), D16 (a list row's highlight), D17 and the schema's `_metrics` (looks as data).
@@ -1325,25 +1325,36 @@ an app with a design.
 
 **Ruled (2026-10-13):** an API is the way a design changes, public and versioned, with the
 design tool its main client and the files its storage (D13, D14); the system is named
-**Tamber** (provisional), with `.tamber` files, and the design tool will be named separately; a component
-library and a base scale are wanted later (stages 11 and 12); components declare their params
-in Contract (D15); a DSL in files is right.
+**Tamber** (provisional), with `.tamber` files ("probably fine"), and the design tool will
+be named separately; a component library and a base scale are wanted later (stages 11 and
+12); components declare their params in Contract (D15); a DSL in files is right; build it
+("Can we start building tamber").
+
+Each question below has a **provisional default**, the RFC's current recommendation, which
+the implementation follows until Charlie rules otherwise.
 
 1. **How generative?** D4 keeps dials but expects a brand to be hand-tuned literals with a
    few dials, and defers `ramp()`. More (a brand from three dials) or less?
+   *Provisional default:* as D4 says: dials, literals, no `ramp()` until an app asks.
 2. **References.** Token references as bare names (as LLP 1095 D4 built) or CSS's
    `var(--name)` with custom-property inheritance (subtree overrides for free, but a
-   cascade)?
+   cascade)? *Provisional default:* bare names (D3).
 3. **DEFERRED admissions.** The protocol server and design tool (stage 3, against §Tooling)
    and the live table (stage 4, a development-only hot revision of values, against
-   §Runtime). Admit both? What take?
+   §Runtime). Admit both? What take? *Provisional default:* not admitted until he rules;
+   stages 1 and 2 need neither.
 4. **Remote and collaborative clients.** D13 proposes pairing with scoped, revocable,
    attributed tokens, and leaves a hosted relay out. Is that the model, and does a team
-   relay belong in this program?
+   relay belong in this program? *Provisional default:* local clients only; pairing as D13
+   proposes when stage 10 comes; no relay.
 5. **Persistence and contrast.** Should `setMode` and the root-size percentage persist and
    apply before the first frame (so Dim never flashes Black)? Is an authored contrast
-   variant for app colours wanted (D5)?
+   variant for app colours wanted (D5)? *Provisional default:* neither persists, as
+   `setRootFontSize` does not today: the app keeps the choice and sets it from a mount task
+   (LLP 1069.000 D3); no authored contrast variant.
 6. **State parts** amend LLP 1061 D1. Acceptable as parts with paint rows only, or named rows
-   (`-exact-pressed-background-color` and the like) and no block?
+   (`-exact-pressed-background-color` and the like) and no block? *Provisional default:*
+   parts with paint rows only (D8).
 7. **Figma.** Is a Variables writer wanted beside the plugin bridge, and is Enterprise access
-   (which Variables writes need) available?
+   (which Variables writes need) available? *Provisional default:* DTCG export and
+   import-as-proposals only; no Variables writer.
