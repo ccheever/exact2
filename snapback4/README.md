@@ -771,7 +771,9 @@ Generate the declaration, start `bun exact.mjs backend`, and run
 `bun exact.mjs test web`. The same UI works on `serve`; omit `fresh` there
 and use a unique signup email. `restore(now)` validates stored sessions and
 refreshes within 60 seconds of expiry; `refreshSession(now)` rotates explicitly.
-Use a different secret key for each origin. Await `logout` before another
+Use a different secret key for each origin. Auth operations serialize across Exact's
+per-source secret facades; a late auth reply never overwrites a changed session.
+Await `logout` before another
 sign-in; its `ok` confirms server revocation, and `offline` means that could
 not be confirmed. Reads and writes interrupted by an account change throw
 `E_STALE`; query denials with `E_AUTH` forget the matching stored token.

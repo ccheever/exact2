@@ -1382,3 +1382,10 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - **EX5 upload progress (2026-10-13):** Exact fetch has no loaded/total upload events.
   Determinate adapter progress needs a transport event surface shared by web/native
   executors (including exactBodyFrom); keep current progress indeterminate until then.
+
+- **EX7 broader game verification (2026-10-14):** three `game/new.test.mjs`
+  failures reproduce against `6c00a417e`: the new-game file list omits the emitted
+  `.vscode`, the shell CLI fixture omits `scripts/app.mjs`, and the SDK union lock
+  is stale. Repair those fixtures/lock in the game lane. Root gates and the
+  affected app/tooling suites pass; baseline evidence is in
+  `target/ex7-verification/game-baseline.log` in the farm's Exact checkout.

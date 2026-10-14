@@ -807,6 +807,7 @@ component App
   derive forwarded = live
   resource direct = read(performanceNow()) as shape Reply else empty()
   resource indirect = read(forwarded) as shape Reply else empty()
+  resource context = read() with performanceNow() as shape Reply else empty()
   resource sampled = read(sampledAt) as shape Reply else empty()
   action tick
     sampledAt = performanceNow()
@@ -816,9 +817,10 @@ component App
     )
     .unwrap();
     let warnings = contract_analyze::resource_clock_warnings(&file);
-    assert_eq!(warnings.len(), 2);
+    assert_eq!(warnings.len(), 3);
     assert!(warnings[0].message.contains("`direct`"));
     assert!(warnings[1].message.contains("`indirect`"));
+    assert!(warnings[2].message.contains("`context`"));
     assert!(warnings
         .iter()
         .all(|w| w.id == "analyze-resource-clock" && w.message.contains("sample")));

@@ -722,7 +722,7 @@ fn check_controls(nodes: &[Node], in_canvas: bool) -> Result<(), AnalyzeError> {
     Ok(())
 }
 
-/// Advice for reactive resource identities that depend on the frame clock.
+/// Advice for reactive resource arguments that depend on the frame clock.
 /// State stops the dependency walk: an action samples it once, rather than every frame.
 /// @ref LLP 1086 D12 — EX7 resource freshness diagnostics.
 pub fn resource_clock_warnings(file: &File) -> Vec<AnalyzeError> {
@@ -797,11 +797,7 @@ pub fn resource_clock_warnings(file: &File) -> Vec<AnalyzeError> {
             }
         }
         for r in &c.resources {
-            if r.args
-                .iter()
-                .take(r.identity.unwrap_or(r.args.len()))
-                .any(|e| live(e, &scope))
-            {
+            if r.args.iter().any(|e| live(e, &scope)) {
                 out.push(AnalyzeError { id: "analyze-resource-clock", span: r.span, related: Vec::new(),
                     message: format!("resource `{}`: performanceNow() changes its arguments every frame and re-requests data; sample the clock into state in an action, then pass that state (or refresh on one shared timer)", r.name) });
             }

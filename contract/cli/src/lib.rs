@@ -537,7 +537,7 @@ pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError
     })
 }
 
-/// Non-blocking advice for resource identities fed by a live frame clock.
+/// Non-blocking advice for resource arguments fed by a live frame clock.
 /// Includes imported derives and functions, with the authored resource location.
 pub fn resource_clock_warnings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
     let src = read_source(path).map_err(|e| vec![e])?;

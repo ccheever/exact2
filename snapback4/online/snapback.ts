@@ -27,7 +27,9 @@ export interface SessionStore { get(key: string): string | null; set(key: string
 export interface AuthOptions { store: SessionStore; key: string; now: number }
 export type SignedIn = { ok: true; session: Session } | { ok: false; why: Refusal };
 export type Refreshed = { ok: true; session: Session } | { ok: false; denied: Refusal; offline?: boolean };
-const authJobs = new WeakMap<SessionStore, Map<string, Promise<unknown>>>();
+// Exact creates a new secret facade per source answer; facade identity is not store identity.
+// A module realm belongs to one app. Only scheduling is shared, never session values.
+const authJobs = new Map<string, Promise<unknown>>();
 function sessionFrom(raw: string | null, now: number): Session | null {
   if (!Number.isFinite(now) || now < 0) throw refused({code: 'E_CLIENT', message: 'Pass Contract epoch milliseconds to restore/refreshSession.'});
   try {
@@ -92,12 +94,11 @@ export class Snapback {
     return this.options.auth;
   }
   private authWork<T>(work: () => Promise<T>): Promise<T> {
-    const {store, key} = this.auth();
-    let jobs = authJobs.get(store);
-    if (!jobs) authJobs.set(store, jobs = new Map());
-    const next = (jobs.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
-    jobs.set(key, next);
-    const clear = () => { if (jobs!.get(key) === next) jobs!.delete(key); };
+    const {key} = this.auth();
+    const id = JSON.stringify([this.options.origin.replace(/\/+$/, ''), key]);
+    const next = (authJobs.get(id) ?? Promise.resolve()).catch(() => undefined).then(work);
+    authJobs.set(id, next);
+    const clear = () => { if (authJobs.get(id) === next) authJobs.delete(id); };
     next.then(clear, clear);
     return next;
   }
@@ -107,6 +108,10 @@ export class Snapback {
     return () => {
       if (auth && raw !== auth.store.get(auth.key)) throw refused({code: 'E_STALE', message: 'The session changed while this request was in flight; read again.'});
     };
+  }
+  private unchanged(raw: string | null): void {
+    const auth = this.auth();
+    if (auth.store.get(auth.key) !== raw) throw refused({code: 'E_STALE', message: 'The session changed while authentication was in flight; restore the current account.'});
   }
   private invalidate(token: string | undefined): void {
     const auth = this.options.auth;
@@ -125,7 +130,9 @@ export class Snapback {
   private async signIn(path: string, email: string, password: string): Promise<SignedIn> {
     const auth = this.auth();
     if (this.session) throw refused({code: 'E_AUTH', message: 'Logout before signing in as another account.'});
+    const raw = auth.store.get(auth.key);
     const reply = await this.authRequest(path, {email, password});
+    this.unchanged(raw);
     const session = sessionFrom(JSON.stringify(reply.body.session ?? null), auth.now);
     if (!reply.ok || !session) return {ok: false, why: reply.body.denied ?? {code: 'E_SERVER', message: 'Invalid sign-in reply.'}};
     auth.store.set(auth.key, JSON.stringify(session));
@@ -147,7 +154,9 @@ export class Snapback {
     const auth = this.auth(); sessionFrom(null, now); auth.now = Math.floor(now);
     const session = this.session;
     if (!session) return {ok: false, denied: {code: 'E_AUTH', message: 'Sign in again.'}};
+    const raw = auth.store.get(auth.key);
     const reply = await this.authRequest('/auth/refresh');
+    this.unchanged(raw);
     const renewed = sessionFrom(JSON.stringify(reply.body.session ?? null), now);
     if (reply.ok && renewed && renewed.principal === session.principal) {
       auth.store.set(auth.key, JSON.stringify(renewed));
@@ -162,9 +171,10 @@ export class Snapback {
     return this.authWork(async () => {
       const auth = this.auth();
       if (!this.session) { auth.store.forget(auth.key); return {ok: true}; }
+      const raw = auth.store.get(auth.key);
       let reply;
       try { reply = await this.authRequest('/auth/logout'); }
-      finally { auth.store.forget(auth.key); }
+      finally { this.unchanged(raw); auth.store.forget(auth.key); }
       return {ok: reply.ok, ...(reply.body.denied ? {denied: reply.body.denied} : {}), ...(reply.body.denied?.code === 'E_OFFLINE' ? {offline: true} : {})};
     });
   }
@@ -224,7 +234,7 @@ export class Snapback {
     return { state: 'sent', result: body.result as ResultOf<O> };
   }
   async upload(file: string | ArrayBuffer | ArrayBufferView, options: UploadOptions = {}): Promise<Uploaded> {
-    const check = this.fence();
+    const check = this.fence(), token = this.session?.token;
     const headers = { ...this.headers(), 'content-type': options.file?.type ?? 'application/octet-stream' };
     const query = options.file ? `?as=file&name=${encodeURIComponent(options.file.name)}` : '';
     const init: RequestInit & { exactBodyFrom?: string } = typeof file === 'string'
@@ -235,6 +245,7 @@ export class Snapback {
     try { response = await fetch(`${this.options.origin.replace(/\/+$/, '')}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
     const body = await response.json().catch(() => null) as { asset?: Asset; denied?: Refusal } | null;
     check();
+    if (body?.denied?.code === 'E_AUTH') this.invalidate(token);
     if (response.ok && body?.asset?.id) return { ok: true, asset: body.asset };
     return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered the upload with HTTP ${response.status}` } };
   }
@@ -247,7 +258,7 @@ export class Snapback {
    * until the app removes it, so give a `once` asset (one view per
    * principal, which this download spends) a path under `app:/tmp`. */
   async download(id: string, path?: string): Promise<Downloaded> {
-    const check = this.fence();
+    const check = this.fence(), token = this.session?.token;
     const fs = this.options.storage?.fs;
     if (!fs) return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: 'download writes an app file: pass the dispatcher\'s `storage`, and grant fs.write for the path' } };
     let response: Response;
@@ -255,6 +266,8 @@ export class Snapback {
     check();
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
+      check();
+      if (body?.denied?.code === 'E_AUTH') this.invalidate(token);
       return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered asset ${id} with HTTP ${response.status}` } };
     }
     const type = (response.headers.get('content-type') ?? '').split(';')[0].trim();
@@ -268,6 +281,7 @@ export class Snapback {
     check();
     const file = path ?? `app:/cache/snapback4-${encodeURIComponent(this.options.name ?? 'online')}-${encodeURIComponent(id)}${filename ? `-${filename}` : `.${EXTENSIONS[type] ?? 'bin'}`}`;
     try { await fs.writeFile(file, bytes); } catch (error) { return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: `could not write ${file}: ${error instanceof Error ? error.message : String(error)}` } }; }
+    check();
     return { ok: true, path: file, type, bytes: bytes.byteLength, ...(name === undefined ? {} : { name }) };
   }
 

@@ -503,7 +503,7 @@ optional failures/results, shared state/action names and sampled resource clocks
 **EX7 amendment (Charlie’s wave-12 E1–E5/H2 task, 2026-10-14; implementer Codex):**
 The online adapter adds `signup`, `login`, `logout`, `restore(now)` and explicit
 `refreshSession(now)`, using Exact's `secret.keep` store and Contract epoch time.
-Auth operations sharing a store/key serialize; requests fenced by the stored session
+Auth operations sharing an origin/key serialize across per-answer secret facades; requests fenced by the stored session
 reject after identity changes. A refused current token is forgotten; offline logout
 still forgets locally. `readAll` follows opaque cursors, preserves every page's
 completeness/cut, and throws on any page refusal, non-list data, repeated cursors or
@@ -520,7 +520,7 @@ constant in `app.ts` feeds both the adapter and `net.fetch`; `test web` resolves
 `fail fetch "backend"` / `pass fetch "backend"` from that built grant at runtime,
 refusing ambiguity. Literal URLs retain their meaning; `snapback --port` still
 migrates older literal prefixes and `backend` derives its launch port from the constant.
-`analyze-resource-clock` warns on live clock resource identities, including derives
+`analyze-resource-clock` warns on live clock resource arguments (including `with` context), derives
 and functions, while sampled state stops the dependency. Advice stays on stderr;
 `contract build --json` keeps one diagnostic array and a successful exit.
 

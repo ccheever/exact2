@@ -163,3 +163,55 @@ test('online readAll preserves cuts, refuses later denials, limits and looping c
     await expect(db.readAll(op, {case: 'complete'}, 'page', 1)).rejects.toMatchObject({code: 'E_CLIENT'});
   } finally {server.stop(true);}
 });
+
+test('online auth serializes different Exact secret facades and rejects stale refresh replies', async () => {
+  const store = secretStore();
+  // A source gets a fresh facade, even though the underlying Exact store is shared.
+  const facade = () => ({get: (key: string) => store.get(key), set: (key: string, value: string) => store.set(key, value), forget: (key: string) => store.forget(key)});
+  let signups = 0, entered!: () => void, release!: () => void;
+  const started = new Promise<void>(ok => {entered = ok;}), held = new Promise<void>(ok => {release = ok;});
+  const alice = {principal: 'alice', kind: 'password', token: 'alice', expiresAt: 100_000};
+  const server = Bun.serve({hostname: '127.0.0.1', port: 0, async fetch(request) {
+    await request.arrayBuffer();
+    if (new URL(request.url).pathname === '/auth/refresh') {entered(); await held; return Response.json({session: {...alice, token: 'alice-renewed'}});}
+    signups++; return Response.json({session: alice});
+  }});
+  const db = () => new Snapback({origin: `http://127.0.0.1:${server.port}/`, auth: {store: facade(), key: 'session', now: 1}});
+  try {
+    const results = await Promise.allSettled([db().signup('alice@example.com', 'password'), db().signup('bob@example.com', 'password')]);
+    expect(signups).toBe(1);
+    expect(results[0]).toMatchObject({status: 'fulfilled', value: {ok: true}});
+    expect(results[1]).toMatchObject({status: 'rejected', reason: {code: 'E_AUTH'}});
+    const refreshing = db().refreshSession(1);
+    await started;
+    store.set('session', JSON.stringify({...alice, principal: 'bob', token: 'bob'}));
+    release();
+    await expect(refreshing).rejects.toMatchObject({code: 'E_STALE'});
+    expect(db().session?.principal).toBe('bob');
+  } finally {release(); server.stop(true);}
+});
+
+test('online assets forget revoked sessions and discard results after a disk-write account change', async () => {
+  const store = secretStore(), alice = {principal: 'alice', kind: 'password', token: 'alice', expiresAt: 100_000};
+  const reset = () => store.set('session', JSON.stringify(alice));
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(ok => {entered = ok;}), held = new Promise<void>(ok => {release = ok;});
+  const server = Bun.serve({hostname: '127.0.0.1', port: 0, async fetch(request) {
+    await request.arrayBuffer();
+    if (new URL(request.url).pathname === '/assets/private') return new Response('Alice private bytes', {headers: {'content-type': 'text/plain'}});
+    return Response.json({denied: {code: 'E_AUTH', message: 'Revoked'}}, {status: 401});
+  }});
+  const db = new Snapback({origin: `http://127.0.0.1:${server.port}`, auth: {store, key: 'session', now: 1},
+    storage: {fs: {async writeFile() {entered(); await held;}}}});
+  try {
+    reset(); expect(await db.upload(new Uint8Array([1]))).toMatchObject({ok: false, why: {code: 'E_AUTH'}});
+    expect(store.get('session')).toBeNull();
+    reset(); expect(await db.download('revoked')).toMatchObject({ok: false, why: {code: 'E_AUTH'}});
+    expect(store.get('session')).toBeNull();
+    reset(); const downloading = db.download('private');
+    await started;
+    store.set('session', JSON.stringify({...alice, principal: 'bob', token: 'bob'})); release();
+    await expect(downloading).rejects.toMatchObject({code: 'E_STALE'});
+    expect(db.session?.principal).toBe('bob');
+  } finally {release(); server.stop(true);}
+});
