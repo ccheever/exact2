@@ -3,7 +3,7 @@
 //! chevron (`Runner::stack_split`). The Mac's split view reads it; the web's
 //! own rule (`host/web/navigation.js` `splitOf`) is its own until it moves.
 
-use exact_kernel::{Kernel, ViewId};
+use exact_kernel::{Kernel, Op, PropId, PropValue, ViewId};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Event, Runner, StackSplit};
 
@@ -151,20 +151,49 @@ fn the_outer_press_owns_a_row_even_when_it_or_its_child_links_to_a_route() {
 }
 
 #[test]
-fn list_search_and_row_search_keep_their_distinct_boundaries_and_priority() {
+fn the_kernel_reader_prunes_route_keys_before_lists_but_not_inside_their_rows() {
     let link = "                link href=\"/item/a\"\n                  text \"A\"";
-    let later = "            list testId=\"later\"\n              link href=\"/item/a\"\n                text \"A\"";
-    let cases = [
+    for (lists, expected) in [
         (
-            format!("            column navigationKey=\"nested\"\n              list testId=\"inner\"\n{link}"),
-            false,
+            format!("            column testId=\"boundary\"\n              list testId=\"inner\"\n{link}"),
             None,
         ),
         (
-            format!("            list testId=\"rows\"\n              column navigationKey=\"nested\"\n{link}"),
-            false,
+            format!("            list testId=\"rows\"\n              column testId=\"boundary\"\n{link}"),
             Some("rows"),
         ),
+    ] {
+        let source =
+            app("", "", "").replace("            list testId=\"rows\" \n", &format!("{lists}\n"));
+        let mut r = boot(&source);
+        assert!(split(&r).is_some());
+        // Authored nested routes are refused by the compiler. Set this fact
+        // directly to distinguish the shared reader's two kernel-tree walks.
+        let id = view(&r, "boundary");
+        r.kernel_mut()
+            .apply(
+                0,
+                0,
+                &[Op::SetProp {
+                    id,
+                    prop: PropId::NavigationKey,
+                    value: PropValue::Str("nested".into()),
+                }],
+            )
+            .unwrap();
+        assert_eq!(
+            split(&r).and_then(|s| s.list),
+            expected.map(|name| view(&r, name)),
+            "{lists}"
+        );
+    }
+}
+
+#[test]
+fn list_search_respects_candidate_boundaries_and_retained_empty_priority() {
+    let link = "                link href=\"/item/a\"\n                  text \"A\"";
+    let later = "            list testId=\"later\"\n              link href=\"/item/a\"\n                text \"A\"";
+    let cases = [
         (
             format!("            list testId=\"rows\"\n              list testId=\"inner\"\n{link}"),
             false,
