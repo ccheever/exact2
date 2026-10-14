@@ -309,7 +309,7 @@ fn a_design_tokens_refusal_and_warning_are_at_its_line() {
         e.file.as_deref().is_some_and(|f| f.ends_with("app.tamber")),
         "{e:?}"
     );
-    assert_eq!(e.span.line, 5, "{e:?}");
+    assert_eq!((e.span.line, e.span.col), (5, 3), "{e:?}");
     std::fs::write(
         path.with_file_name("app.tamber"),
         "tamber shelf\n\ntheme\n  Canvas = #fbf3e9\n",
@@ -325,4 +325,74 @@ fn a_design_tokens_refusal_and_warning_are_at_its_line() {
         "{w:?}"
     );
     assert_eq!(w.span.line, 4, "{w:?}");
+}
+
+#[test]
+fn a_profile_token_is_still_declared_and_an_alias_may_spell_its_role() {
+    let profile = "color-profile --brand src=\"assets/brand.icc\"\n\ntheme\n  -exact-secondary-label = \"color(--brand 0.1 0.2 0.3 0.4)\"\n  ink = \"secondary-label\"\n";
+    let plan = contract::compile(&format!(
+        "{profile}\ncomponent App\n  view\n    text \"a\" color=\"ink\"\n"
+    ))
+    .unwrap();
+    assert!(
+        table(&plan)
+            .iter()
+            .any(|(n, _, v)| n == "ink" && v == "color(--brand 0.1 0.2 0.3 0.4)"),
+        "{:?}",
+        table(&plan)
+    );
+    // Its name is checked as any token's.
+    let e = contract::compile("color-profile --brand src=\"assets/brand.icc\"\n\ntheme\n  red = \"color(--brand 0.1 0.2 0.3 0.4)\"\n\ncomponent App\n  view\n    text \"a\"\n").unwrap_err();
+    assert_eq!(e.id, "tamber-name-reserved", "{e:?}");
+}
+
+#[test]
+fn only_what_a_colour_row_is_must_fold_and_an_action_call_is_read() {
+    let theme = "theme\n  brand = \"#c8102e\"\n  card = \"#000000\"\n\n";
+    // A condition's string is not the row's colour.
+    contract::compile(&format!(
+        "{theme}component App\n  state label: string = \"x\"\n  view\n    text \"a\" color=(label == \"light-dark(brand, CanvasText)\" ? \"brand\" : \"card\")\n"
+    ))
+    .unwrap();
+    // A colour an action call carries reaches the plan's table.
+    let pair = "light-dark(brand, card)";
+    let plan = contract::compile(&format!(
+        "{theme}component App\n  state c: string = \"brand\"\n  action set(v: string)\n    c = v\n  action choose\n    set(\"{pair}\")\n  view\n    button press=choose color=c\n      text \"a\"\n"
+    ))
+    .unwrap();
+    assert!(
+        table(&plan).iter().any(|(n, ..)| n == pair),
+        "{:?}",
+        table(&plan)
+    );
+}
+
+#[test]
+fn a_profile_role_is_aliased_in_any_spelling_and_may_vary_by_an_axis() {
+    let profile = "color-profile --brand src=\"assets/brand.icc\"\n\ntheme\n  Canvas = \"color(--brand 0.1 0.2 0.3 0.4)\"\n  ink = \"canvas\"\n";
+    let plan = contract::compile(&format!(
+        "{profile}\ncomponent App\n  view\n    text \"a\" color=\"ink\"\n"
+    ))
+    .unwrap();
+    assert!(
+        table(&plan)
+            .iter()
+            .any(|(n, _, v)| n == "ink" && v == "color(--brand 0.1 0.2 0.3 0.4)"),
+        "{:?}",
+        table(&plan)
+    );
+    let path = app(
+        "profile-axis",
+        &[
+            ("app.tamber", "tamber shelf\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = color(--brand 0.1 0.2 0.3 0.4)\n    when dark-style=dim: #112233\n  other = #abcdef\n"),
+            ("app.contract", "color-profile --brand src=\"assets/brand.icc\"\n\ncomponent App\n  view\n    column\n      text \"a\" color=\"ink\"\n      text \"b\" color=\"other\"\n"),
+        ],
+    );
+    let rows = table(&contract::compile_path(&path).unwrap());
+    assert!(
+        rows.iter()
+            .any(|(n, _, v)| n == "ink" && v == "color(--brand 0.1 0.2 0.3 0.4)"),
+        "{rows:?}"
+    );
+    assert!(rows.iter().any(|(n, ..)| n == "other"), "{rows:?}");
 }

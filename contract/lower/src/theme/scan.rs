@@ -92,7 +92,12 @@ impl Said {
             for a in attrs {
                 let colour = colour_attr(&a.name);
                 computed |= colour && !literal(&a.value);
-                exprs(&a.value, &mut |e| strings(e, colour, &mut literals));
+                // A colour row's own value must fold; a literal elsewhere in
+                // it (a condition's, a call's argument) may not be one.
+                if colour {
+                    values(&a.value, &mut literals);
+                }
+                exprs(&a.value, &mut |e| strings(e, false, &mut literals));
             }
         };
         for s in &file.styles {
@@ -187,6 +192,22 @@ fn literal(e: &Expr) -> bool {
     }
 }
 
+/// The literals a value is, through `?:`, `match` and `let`: strict.
+fn values(e: &Expr, out: &mut Vec<(String, Span, bool)>) {
+    match e {
+        Expr::Ternary(_, yes, no, _) => {
+            values(yes, out);
+            values(no, out);
+        }
+        Expr::Match { some, none, .. } => {
+            values(some, out);
+            values(none, out);
+        }
+        Expr::Let { body, .. } => values(body, out),
+        other => strings(other, true, out),
+    }
+}
+
 /// A string literal's text, or a template's, with its place.
 fn strings(e: &Expr, strict: bool, out: &mut Vec<(String, Span, bool)>) {
     match e {
@@ -274,7 +295,11 @@ fn stmts(body: &[Stmt], f: &mut dyn FnMut(&Expr)) {
                 stmts(&some.1, f);
                 stmts(none, f);
             }
-            _ => {}
+            Stmt::Call { args, body, .. } => {
+                args.iter().for_each(&mut *f);
+                stmts(body, f);
+            }
+            Stmt::Refresh { .. } => {}
         }
     }
 }

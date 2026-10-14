@@ -120,6 +120,11 @@ const RESERVED: &[&str] = &[
     "decreasing",
 ];
 
+/// One token's name, whatever role spelling it is written in.
+fn same_name(a: &str, b: &str) -> bool {
+    a == b || matches!((role_named(a), role_named(b)), (Some((x, _)), Some((y, _))) if x == y)
+}
+
 /// Where a design's token was written, for its refusals.
 enum Origin {
     /// The design file: its source id.
@@ -136,7 +141,6 @@ const SYNTHETIC: u32 = 1 << 30;
 struct Profiled {
     name: String,
     value: String,
-    line: u32,
 }
 
 impl Lowerer<'_> {
@@ -154,7 +158,7 @@ impl Lowerer<'_> {
         let profiled = self.profiles(&mut design, &origin);
         // An expression over a profile's colour is not the build's to fold.
         said.synthetic.retain(|s| {
-            let named = scan::words(&s.expr).any(|w| profiled.iter().any(|p| p.name == w));
+            let named = scan::words(&s.expr).any(|w| profiled.iter().any(|p| same_name(&p.name, w)));
             if named && s.strict {
                 self.errors.push(LowerError {
                     id: "lower-theme-value",
@@ -219,27 +223,25 @@ impl Lowerer<'_> {
                 None => folding.design.tokens[i].name.value.clone(),
             };
             let role = synthetic.is_none().then(|| role_named(&name)).flatten();
-            let line = folding.design.tokens[i].name.line;
+            let at = &folding.design.tokens[i].name;
             if synthetic.is_none()
-                && !self.admitted(&name, role.as_ref(), Some(value), line, &origin)
+                && !self.admitted(&name, role.as_ref(), value, (at.line, at.col), &origin)
             {
                 continue;
             }
+            // A profile's colour, carried as written.
+            let value = match profiled
+                .iter()
+                .find(|p| synthetic.is_none() && p.name == name)
+            {
+                Some(p) => p.value.clone(),
+                None => value.css(),
+            };
             entries.push(ThemeEntry {
                 name,
                 role: role.map(|(_, row)| row),
-                value: value.css(),
+                value,
             });
-        }
-        for p in profiled {
-            let role = role_named(&p.name);
-            if self.admitted(&p.name, role.as_ref(), None, p.line, &origin) {
-                entries.push(ThemeEntry {
-                    name: p.name,
-                    role: role.map(|(_, row)| row),
-                    value: p.value,
-                });
-            }
         }
         self.theme = entries;
         // D7's retention: what the view may name, and every role override.
@@ -324,37 +326,46 @@ impl Lowerer<'_> {
         Some((design, Origin::Inline(spans)))
     }
 
-    /// Takes the profile colours (LLP 1100 D3) out of `design`: an entry
-    /// that is one, and an entry naming such an entry whole. Another use of
-    /// one's name is refused, as the crate cannot fold it.
+    /// Takes the profile colours (LLP 1100 D3) out of the crate's fold: an
+    /// entry that is one, and an entry naming such an entry whole, are
+    /// declared to it as `transparent` (so their names are still checked)
+    /// and carried as written. Another use of one's name is refused, as the
+    /// crate cannot fold it.
     fn profiles(&mut self, design: &mut tamber::Design, origin: &Origin) -> Vec<Profiled> {
+        let same = same_name;
         let mut out: Vec<Profiled> = Vec::new();
         loop {
+            // A profile's colour is the default app tuple's, which is all the
+            // plan carries until it carries the axes (stage 2, commit 3).
             let found = design.tokens.iter().position(|t| {
                 let text = t.value.value.trim();
-                t.whens.is_empty()
+                !out.iter().any(|p| same(&p.name, &t.name.value))
                     && (text.to_ascii_lowercase().starts_with("color(--") && parses(text)
-                        || out.iter().any(|p| p.name == text))
+                        || t.whens.is_empty() && out.iter().any(|p| same(&p.name, text)))
             });
             let Some(i) = found else { break };
-            let t = design.tokens.remove(i);
+            let t = &mut design.tokens[i];
             let text = t.value.value.trim().to_string();
-            let value = match out.iter().find(|p| p.name == text) {
+            let value = match out.iter().find(|p| same(&p.name, &text)) {
                 Some(p) => p.value.clone(),
                 None => text,
             };
             out.push(Profiled {
-                name: t.name.value,
+                name: t.name.value.clone(),
                 value,
-                line: t.name.line,
             });
+            t.value.value = "transparent".into();
         }
         for t in &design.tokens {
-            let values = std::iter::once(&t.value).chain(t.whens.iter().map(|w| &w.value));
-            if values
-                .into_iter()
-                .any(|v| scan::words(&v.value).any(|w| out.iter().any(|p| p.name == w)))
-            {
+            // A profile token's default is taken; its `when` values are read.
+            let profile = out.iter().any(|p| p.name == t.name.value);
+            let values = std::iter::once(&t.value)
+                .filter(|_| !profile)
+                .chain(t.whens.iter().map(|w| &w.value));
+            let names = |v: &tamber::At<String>| {
+                scan::words(&v.value).any(|w| out.iter().any(|p| same(&p.name, w)))
+            };
+            if values.into_iter().any(names) {
                 let span = self.token_span(origin, t.name.line, t.name.col);
                 self.push(LowerError {
                     id: "lower-theme-value",
@@ -372,11 +383,11 @@ impl Lowerer<'_> {
         &mut self,
         name: &str,
         role: Option<&(u8, String)>,
-        value: Option<&tamber::Folded>,
-        line: u32,
+        value: &tamber::Folded,
+        (line, col): (u32, u32),
         origin: &Origin,
     ) -> bool {
-        let span = self.token_span(origin, line, 1);
+        let span = self.token_span(origin, line, col);
         let refuse = |id: &'static str, message: String| LowerError { id, message, span };
         let error = match role {
             None if RESERVED.contains(&name.to_ascii_lowercase().as_str()) => Some(refuse(
@@ -390,7 +401,7 @@ impl Lowerer<'_> {
                 format!("`{name}` is drawn in the app's tint: a theme sets the tint with `AccentColor`"),
             )),
             Some((id, _)) if *id == roles::accent() => match value {
-                Some(tamber::Folded::Host(tamber::Host::Role(row)))
+                tamber::Folded::Host(tamber::Host::Role(row))
                     if roles::role(row).is_some_and(roles::tint) =>
                 {
                     Some(refuse("lower-theme-tint", format!("`{name}=\"{row}\"` names a role drawn in the tint itself: the tint is a colour, a platform colour or another role")))

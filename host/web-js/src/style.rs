@@ -454,8 +454,9 @@ fn theme_map(plan: &Plan) -> Option<String> {
     // name inside one (a `light-dark()` half, LLP 1095 D1), unless it is a
     // synthetic token's, which is named by that text (LLP 1121 D3); a
     // gradient's stops and a shadow's colour are components, read as names.
+    // A `url()` or a quoted string is copied through whole.
     Some(format!(
-        r#"((N,R)=>{{const F=/(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w.\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}const f=v.slice(m.index,j);o+=M(v.slice(at,m.index))+(Object.hasOwn(N,f)?N[f]:f);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}})"#,
+        r#"((N,R)=>{{const F=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w.\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{if(m[0].slice(-1)!=="("){{o+=M(v.slice(at,m.index))+m[0];at=F.lastIndex;continue}}let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}const f=v.slice(m.index,j);o+=M(v.slice(at,m.index))+(Object.hasOwn(N,f)?N[f]:f);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}})"#,
         names.join(","),
         roles.join(",")
     ))
@@ -1032,6 +1033,7 @@ pub(crate) mod tests {
             "light-dark(brand, surface.card)",
             "linear-gradient(light-dark(brand, surface.card), #fff)",
             "1.5px",
+            "url(\"a/light-dark(brand, surface.card).png\") brand",
         ];
         assert_eq!(
             run(&color_map(&plan), &values),
@@ -1040,7 +1042,8 @@ pub(crate) mod tests {
                 "0 1px 2px #000000ff",
                 "light-dark(#c8102eff, #000000ff)",
                 "linear-gradient(light-dark(#c8102eff, #000000ff), #fff)",
-                "1.5px"
+                "1.5px",
+                "url(\"a/light-dark(brand, surface.card).png\") #c8102eff"
             ])
         );
     }
