@@ -126,16 +126,26 @@ fn plan_opening(
 struct Harness {
     plan: Plan,
     slots: Vec<Value>,
+    /// The plan's interned strings and site index, built once as a runner builds them
+    strings: &'static [Value],
+    sites: crate::instance::SiteIndex,
     tree: Tree,
     ids: Ids,
     kernel: Kernel,
     batch: u64,
 }
 fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
+    // Test harnesses outlive every Env they build; leak one table per call.
+    env_with(
+        plan,
+        slots,
+        Box::leak(crate::vm::intern(plan).into_boxed_slice()),
+    )
+}
+fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a [Value]) -> Env<'a> {
     Env {
         plan,
-        // Test harnesses outlive every Env they build; leak one table per call.
-        strings: Box::leak(crate::vm::intern(plan).into_boxed_slice()),
+        strings,
         slots,
         router: None,
         lists: Some(&crate::instance::LISTS),
@@ -170,20 +180,26 @@ impl Harness {
         Self::from_parts(plan, slots)
     }
     fn from_parts(plan: Plan, slots: Vec<Value>) -> Self {
+        Self::try_from_parts(plan, slots).unwrap()
+    }
+    fn try_from_parts(plan: Plan, slots: Vec<Value>) -> Result<Self, InstanceError> {
         let mut ids = Ids::default();
         let mut kernel = Kernel::with_monospace();
+        let strings: &'static [Value] = Box::leak(crate::vm::intern(&plan).into_boxed_slice());
         let sites = crate::instance::SiteIndex::new(&plan);
-        let mut u = Update::new(env(&plan, &slots), &sites, &mut ids);
-        let tree = Tree::create(&mut u).unwrap();
+        let mut u = Update::new(env_with(&plan, &slots, strings), &sites, &mut ids);
+        let tree = Tree::create(&mut u)?;
         kernel.apply(0, 1, &u.ops).unwrap();
-        Self {
+        Ok(Self {
             plan,
             slots,
+            strings,
+            sites,
             ids,
             tree,
             kernel,
             batch: 1,
-        }
+        })
     }
     fn snapshot(&self) -> CollectionSnapshot {
         self.tree.collections().pop().unwrap()
@@ -212,36 +228,55 @@ impl Harness {
         feedback: CollectionFeedback,
         fill: CollectionFill,
     ) -> Result<bool, InstanceError> {
-        let sites = crate::instance::SiteIndex::new(&self.plan);
-        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
-        let changed = self.tree.update_collection(&mut u, feedback, fill)?.0;
-        self.batch += 1;
-        self.kernel.apply(0, self.batch, &u.ops).unwrap();
-        Ok(changed)
+        self.feed(feedback, fill).map(|(changed, _)| changed)
     }
     fn send_filled(&mut self, feedback: CollectionFeedback, fill: CollectionFill) -> bool {
-        let sites = crate::instance::SiteIndex::new(&self.plan);
-        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
-        let changed = self
-            .tree
-            .update_collection(&mut u, feedback, fill)
-            .unwrap()
-            .0;
-        self.batch += 1;
-        self.kernel.apply(0, self.batch, &u.ops).unwrap();
-        assert_eq!(u.work.rows_keyed, 0, "geometry never keys records");
+        let (changed, rows_keyed) = self.feed(feedback, fill).unwrap();
+        assert_eq!(rows_keyed, 0, "geometry never keys records");
         changed
+    }
+    /// Feedback applied and its ops applied to the kernel: whether it changed the collection,
+    /// and how many records it keyed.
+    fn feed(
+        &mut self,
+        feedback: CollectionFeedback,
+        fill: CollectionFill,
+    ) -> Result<(bool, usize), InstanceError> {
+        let Self {
+            plan,
+            slots,
+            strings,
+            sites,
+            ids,
+            tree,
+            kernel,
+            batch,
+        } = self;
+        let mut u = Update::new(env_with(plan, slots, strings), sites, ids);
+        let changed = tree.update_collection(&mut u, feedback, fill)?.0;
+        *batch += 1;
+        kernel.apply(0, *batch, &u.ops).unwrap();
+        Ok((changed, u.work.rows_keyed))
     }
     fn update(&mut self) -> Result<(), InstanceError> {
         self.update_with(Default::default())
     }
     fn update_with(&mut self, rows: crate::instance::RowWrites) -> Result<(), InstanceError> {
-        let sites = crate::instance::SiteIndex::new(&self.plan);
-        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
+        let Self {
+            plan,
+            slots,
+            strings,
+            sites,
+            ids,
+            tree,
+            kernel,
+            batch,
+        } = self;
+        let mut u = Update::new(env_with(plan, slots, strings), sites, ids);
         u.rows = rows;
-        self.tree.update(&mut u)?;
-        self.batch += 1;
-        self.kernel.apply(0, self.batch, &u.ops).unwrap();
+        tree.update(&mut u)?;
+        *batch += 1;
+        kernel.apply(0, *batch, &u.ops).unwrap();
         Ok(())
     }
     fn collection(&self) -> &Collection {
