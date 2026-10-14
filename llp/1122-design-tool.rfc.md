@@ -1,7 +1,7 @@
 # LLP 1122: The design tool — shaping a running app through Tamber
 
 **Type:** RFC
-**Status:** Draft r3, 2026-10-13. Reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh): rounds 1 and 2 both RIGHT WITH CHANGES, round 2 with no blocker (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2}.{astra,grok}.md`); r2 and r3 take every finding (§0). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". It needs DEFERRED admissions before any stage starts (§9 Q2).
+**Status:** Draft r4, 2026-10-13. Three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES, rounds 2 and 3 with no blocker (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`). r2–r4 take every finding; round 3's are written in without another round, the last allowed (§0). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". It needs DEFERRED admissions before any stage starts (§9 Q2).
 **Systems:**
 - The design tool: an Exact app for the web's JS target, a `tamber/1` client (LLP 1121 D13, D14).
 - The Tamber server (LLP 1121 D13): the build relay and its tile sessions (D3), the provenance join (D5), scrubs and the live-or-rebuild answer (D6), `set-row` (D6), held proposals (D10), `commit` (D9).
@@ -134,6 +134,35 @@ taken:
   - a single mount is "this template · 1 instance" (D6);
   - a rebuild carries what the dev reload carries (D6).
 
+**Round 3** (r3 → r4, written in without another round). Astra: RIGHT WITH CHANGES, no
+BLOCKER (5 MAJOR, 2 MINOR). Grok: RIGHT WITH CHANGES, no BLOCKER (5 MAJOR, 4 MINOR). Both
+confirmed round 2's fixes. Each finding is taken:
+- **Styles are per file** (Grok M1): the style rung addresses the attribute on `style
+  <Name>` in the node's own file; its blast radius is that file's users (D6).
+- **The selection checks all five capture fields** (both): the carrier generation is stamped
+  into requests and echoed; the epoch, clock and design digest are sampled after the image
+  wait (D3, D5).
+- **Boundary rows** (Grok M3): reported as `authored` today, so an `authored` row the map
+  does not name is read-only; a `boundary` source is proposed (D5, §3).
+- **`commit`** (both): a baseline per file (HEAD, index entry, working-tree digest), every
+  foreign change watched, the real index's entries for committed paths updated and no
+  others; `.contract` files included (D9).
+- **Scrubs** (Grok M5, Astra M2): `write` only; one at a time; a competing write, a cancel,
+  a disconnect, the server's loss or 30 s idle ends one; tiles get the latest committed
+  snapshot; release is digest-checked; each tile resolves the branch edit for its own mode
+  (D6).
+- **Effective traits** (Astra M4): captures are labelled with the scheme and mode the tile
+  actually shows, read back; an app's own `setScheme` is detected (D3).
+- **Remote transport** (Astra M5): TLS or an explicitly trusted tunnel, or refused (D12).
+- **Minors:**
+  - holds are keyed by site and instance path, in a field named `holdState` (D8);
+  - the JS target's hit-test is `elementsFromPoint` with its own view id (D5);
+  - T2's gesture is an explicit dial or token choice, live when the server says so (§4);
+  - a shorthand is edited as the shorthand, and only written attributes are editable (D6);
+  - undo is a preimage restoration that bypasses fmt (D6);
+  - detaching a param removes the closure it alone kept reachable (D6);
+  - wasm rebuilds lose focus (D6).
+
 ## 1. Motivation
 
 - **Tamber makes a design data that swaps live** (LLP 1121 D7, D13). Something has to put a
@@ -199,12 +228,18 @@ modes, current plan digest and map, last capture.
 - **What a tile shows: a capture.** The server settles the tile (`clock settle`, bounded;
   an unsettled tile is shown as unsettled, not hidden), then takes `screenshot` and
   `layout`.
-  - **Identity.** The pair is accepted only if both replies report the same carrier
-    generation, incarnation, epoch, clock and applied design digest. A JS page restarts at
-    incarnation 1 with a fresh epoch, so the carrier generation is the server's own
-    counter, bumped on every relaunch or reload.
-  - **The barrier.** While a capture is in flight, the server holds back live-table batches
-    for that tile, and it retakes the pair if either reply disagrees.
+    - **Identity: five fields.** A capture is identified by its carrier generation, its
+    incarnation, its epoch, its clock and its applied design digest.
+    - A JS page restarts at incarnation 1 with a fresh epoch, so the **carrier generation**
+      is the server's own counter. It is bumped on every relaunch or reload, stamped into
+      each request and echoed in each reply, and a reply from an earlier carrier is
+      dropped.
+    - The pair is accepted only if both replies carry the same five fields.
+  - **The barrier.** The driver today stamps a screenshot reply's tags before it waits for
+    images and takes the PNG (`scripts/agent.mjs`). So the capture form samples the epoch,
+    clock and design digest **after** the image wait, in the same step as the pixels, and
+    then takes `layout`. While a capture is in flight, the server holds back live-table
+    batches for that tile. It retakes the pair if the fields disagree.
   - **Retaken** after each commit the tile reports (a live-table batch included) and after
     every driving request, so a scroll or a press never leaves a stale picture.
   - **Delivery.** The image travels to the tool as bytes on its authenticated socket (at
@@ -216,10 +251,18 @@ modes, current plan digest and map, last capture.
 - **A continuous mirror is not in r1** (§9 Q5): the agent API has no frame stream, and
   DEFERRED §Agent API holds the count at ten.
 - **Modes side by side.** A tile is pinned to one combination of:
-  - scheme and contrast (`prefer prefers-color-scheme dark`, LLP 1095 D7);
-  - an app mode (`prefer mode dark-style dim`, LLP 1121 D13);
+    - scheme and contrast (`prefer prefers-color-scheme dark`, LLP 1095 D7);
+  - an app mode (`prefer mode dark-style=dim`, LLP 1121 D13);
   - the platform's text size (`prefer root-font-size 21`, in px, a page fact);
-  - its window size (a web `resize` tap; a native tile keeps its device's size).
+  -   its window size (a web `resize` tap; a native tile keeps its device's size).
+
+  **Requested is not effective.** An app's own `setScheme` beats the device preference
+  (`scripts/agent.mjs`), so a tile asked for Light may stay dark. The server reads the
+  effective scheme, contrast and app mode back from the tile, through `layout`'s
+  environment and the root's rows, and labels each capture with the **effective** traits.
+  A tile whose effective traits differ from those requested is marked, not relabelled. For
+  an app that overrides the scheme, use D4's preview screens, or drive the app's own
+  appearance setting. After a reload, the server restores the pins and checks them again.
 
   The app's own text-size setting (LLP 1121 D6's percentage) is the app's, reached by
   driving the app, not by `prefer`. For a design with Bluesky's axes, the default canvas is
@@ -268,9 +311,14 @@ host answers with the view id its own hit test finds front-most at that point:
 - native hosts, the same hit test `tap` uses.
 
 The point is in viewport space, not `tap`'s target-local `at`. The server converts it from
-the capture's coordinates, the scale and any chrome inset. If
-the tile's epoch has moved since the capture, the selection is refused and the tile
-recaptured. Boxes from `layout` are used for outlines only.
+the capture's coordinates, the scale and any chrome inset. The point-pick carries the
+capture's five fields (D3), and the tile answers only if all five still match. Otherwise
+the selection is refused and the tile is recaptured. Boxes from `layout` are used for
+outlines only.
+
+On the JS target (T2b), the hit-test is `elementsFromPoint` with the JS runtime's own view
+id, since its elements carry no `data-view`. The wasm host's `exact_geometry.point` answers
+`id + 1`, with `0` for a miss.
 
 **The selection is the source.** The tool selects a source span, not a rendered copy. It
 outlines every mounted node whose site maps to that span: each copy in an `each`, and each
@@ -315,6 +363,13 @@ the map's source digest matches the file on disk (D6), and then only these rungs
   token, never as this node's edit;
 - **state part:** while a hold is active, the held state's winning overlay row (D8).
 
+**Boundary rows.** A mode boundary writes inherited colour tokens onto the boundary node as
+its own rows (LLP 1121 D7), so `layout` reports them today as `authored`, with a token
+beside them and no attribute in the map. Preview screens are boundaries (D4), so this
+matters. The kernel will flag an implied boundary row, and `layout` will report it as its
+own source (`boundary`), as §3 proposes. Until then, any `authored` row whose attribute the
+map does not name is read-only, and its token is shown as a link.
+
 Everything else is shown read-only, with its reason ("inherited from
 `app.contract:12`", "computed", "the tag's default", "set at a mode boundary"). This is
 exact1's rule: never write back through a value it cannot trace.
@@ -351,17 +406,24 @@ addition to `tamber/1`). The chip shows that answer before the gesture.
   node that renders once is "this template · 1 instance", since a second instance would
   inherit the edit.
 - **A scrub is a scrub session**, a server addition to `tamber/1`:
-  - It begins with a transaction template.
-  - While the gesture lasts, each value is sent to the tiles as a live-table batch and
-    written to no file.
-  - On release, the server writes once, as one transaction. On cancel, a disconnect or a
-    crash, it sends the tiles their snapshot back.
-  - The files and the tiles differ only for the gesture's length, and the tool shows
-    "previewing" meanwhile.
+  - **Who.** Opening or updating one needs `write`; a scrub drives running apps. `propose`
+    answers `live` or `rebuild` and never pushes a batch.
+  - **One at a time.** A second scrub is refused while one is open.
+  - **During the gesture.** Each value goes to the tiles as a live-table batch and is
+    written to no file. The batch is the branch edit, so each tile resolves it for its own
+    mode tuple: a Dim value never paints a Light tile.
+  - **Release.** The server writes once, as one transaction, checked against the digests
+    the scrub opened with. If that check fails, nothing is written and the tool says so.
+  - **End without release.** A competing write cancels the scrub first. So do a cancel, a
+    disconnect, the server's loss, and a scrub idle for 30 seconds. On any of them, every
+    tile gets the **latest committed** snapshot, not the gesture's starting one. A tile that
+    reconnects gets the committed snapshot too.
+  - **While open**, the files and the tiles differ, and the tool shows "previewing".
   - A rebuild-class edit has no scrub: it applies on release.
 - **A rebuild** carries what the dev reload carries (LLP 1007 §6: slots by name, settled
-  resources and the clock; the JS target's checkpoint also restores focus). What it does not
-  carry, such as scroll position, is lost, and the chip says "rebuilds" before the gesture.
+  resources and the clock). The JS target's checkpoint also restores focus; on a wasm tile
+  focus is lost. What it does not carry, such as scroll position, is lost, and the chip says
+  "rebuilds" before the gesture.
 - **Act first, re-scope after** (0158 §3.2). The chip on the last edit re-applies it at
   another rung, as one transaction: the inverse of that edit's transaction, then the new
   write. The blast radius is outlined as it happens.
@@ -373,9 +435,11 @@ addition to `tamber/1`). The chip shows that answer before the gesture.
   - **Param ↔ token:** between a param and the token it aliases directly
     (`radius = "radius.md"`). A param whose value is an expression offers the expression's
     inputs instead.
-  - **Detach param to template:** writes the literal at this source node. If this was the
-    param's last reader, the same transaction removes the param, so `tamber-param-unused`
-    never fires.
+    - **Detach param to template:** writes the literal at this source node. If that leaves
+    params unreachable (this one, and any it alone made reachable: `row → param.b →
+    param.a`), the same transaction removes that closure, listed in the proposal, so
+    `tamber-param-unused` never fires. If any param in that closure has an app value in the
+    `.tamber` file, the detach is refused.
   - **A `when`-specific value is never moved to an unconditional literal**, which would
     change every mode.
   - **No re-scope to a dial:** a colour derived from several dials has no unique dial value.
@@ -396,14 +460,25 @@ addition to `tamber/1`). The chip shows that answer before the gesture.
   (`docs/reference.md` "Source maps").
 - **Resolution.** The server finds the attribute in the file's syntax tree at that span,
   checks that it is the one attribute the row came from (else it refuses), parses the new
-  value as the row's type, and splices that one value token. A shorthand is edited as the
-  shorthand or refused, never split silently. The style rung addresses `style <Name>` and
-  its row, resolved in the package (style names are unique in a program), not by a use
-  site's span. Its blast radius is every node whose row's origin is that style.
+    value as the row's type, and splices that one value token.
+- **What it addresses.**
+  - **A shorthand:** when the row is an expansion, the control edits the shorthand's value
+    and is labelled as the shorthand (`padding`), never splitting it.
+  - **Written attributes only:** the template rung is offered only when the mapped span is
+    an attribute the author wrote. A row the compiler derived is reported `own` but has no
+    attribute, so it is read-only.
+  - **The style rung:** the attribute on `style <Name>` in the node's own file. Styles are
+    declared and resolved per file (`contract/lower/src/class.rs`), so two files may each
+    have a `style Card`. Its blast radius is the nodes in that file whose row's origin is
+    that style.
 - **Check.** The server compiles the candidate package before writing; a refused compile
   writes nothing.
-- **Write.** Through LLP 1121 D13's journaled commit. The original bytes are kept, so its
-  inverse restores the file byte for byte.
+- **Write.** Through LLP 1121 D13's journaled commit, which runs `contract fmt` on the
+  file. So the diff is one line only when the file was already formatted; otherwise the
+  review shows fmt's other changes, labelled as such.
+- **Undo restores the bytes.** The inverse is a **preimage restoration**: the server writes
+  back the exact bytes it replaced, guarded by the digest of what it wrote, and bypasses
+  fmt. A semantic inverse put through fmt would not restore an unformatted file.
 - **Refused:** tag-origin rows, computed rows, layout rows (D14), and rows that LLP 1121 D8
   does not allow in a state part. `border-radius` and `font` are allowed once LLP 1121
   stage 6 admits their kinds.
@@ -432,18 +507,23 @@ A component with no params shows its rows (D5) and an offer to promote one to a 
 - **Runner-known states** (`:disabled`, `:checked`) are data. A preview screen sets them,
   or the tool drives a tile into them.
 - **Host-known states** (`:active`, `:hover`, `:focus-visible`) use a new form of `tap`,
-  **a held state**: `{"op":"tap","id":V,"hold":"active"|"hover"|"focus-visible"}`. It holds
-  that host state on one node until cleared (`"hold":null`), in development builds only.
+    **a held state**: `{"op":"tap","id":V,"holdState":"active"|"hover"|"focus-visible"}`. It
+  holds that host state on one node until cleared (`"holdState":null`), in development
+  builds only.
   DEFERRED: "a new input is a form of `tap`". Its semantics:
-    - **Each hold is its own state.** `active` holds the press on the node the press
+      - **The field is `holdState`**, so it cannot be read as `tap`'s existing contact phase
+    `hold`: `{"op":"tap","id":V,"holdState":"active"}`.
+  - **Each hold is its own state.** `active` holds the press on the node the press
     resolves to, the innermost with a `press` handler (LLP 1121 D8). `hover` and
     `focus-visible` hold those overlays on the named node, which needs no press handler.
     Each applies only that state's overlay, with the host's ease, under Reduce Motion as
     the real state would.
   - **Ownership.** The server's tile session that set it; one held state per node.
   - **Cleared** by an explicit clear, by the node's retirement, and by real input on that
-    node, which always wins. After a reload (a `set-state` rebuild among them), the server
-    re-applies its tile's holds to the same source node, so the strip shows the new look.
+    node, which always wins. A hold is keyed by its site and its `layout` `instance` path, not
+    by a view id, which does not survive a reload. After a reload (a `set-state` rebuild
+    among them), the server re-applies it to the mount with that site and instance path, so
+    the strip shows the new look. It is dropped if that mount no longer exists.
   - **Disabled** nodes refuse all three holds, as they take none of those states.
   - **Unsupported** on a host that cannot hold that state, answered by name. iOS has no
     pointer, so it answers `hover` that way.
@@ -467,14 +547,24 @@ A component with no params shows its rows (D5) and an offer to promote one to a 
 - **The session changeset**: the design files' diff since the session began, as edits in
   plain words with the lines under each.
 - **`commit`**, a server addition to `tamber/1`:
-  - It commits the design files the session wrote, with a message listing the edits and
-    their authors (person or agent).
-    - **The guard.** Each file's current content must equal the version the server last
-    wrote; a hand edit made since means "commit by hand". The file's HEAD version must equal
-    the one at the session's start. Otherwise it refuses, naming the file, so a commit never
-    sweeps in unrelated work.
+    - **What.** The files the session wrote, `.tamber` and `.contract` alike, with a message
+    listing the edits and their authors (person or agent).
+  - **The baseline.** When a session first touches a file, the server records HEAD, the
+    file's index entry and its working-tree digest. It also watches the file and records
+    every change it did not make.
+  - **The guard.** It refuses, naming the file, if any of these holds:
+    - the working tree or the index differed from HEAD at the baseline;
+    - HEAD has moved since;
+    - any change the server did not make was seen, even one a later server write
+      overwrote;
+    - the working tree now differs from the server's last write.
+
+    So a commit never sweeps in work that isn't the session's; such a file is committed by
+    hand.
   - **The index.** It commits through a temporary index holding HEAD plus exactly those
-    files, so whatever the developer has staged elsewhere stays staged and uncommitted.
+    files. It then updates the real index's entries for those paths to the new commit's
+    blobs and touches no other entry, so the developer's staging elsewhere stays as it
+    was.
   - It never pushes.
 - **History** is the git log of the design files, read as edits. "Revert" proposes a past
   commit's inverse.
@@ -522,7 +612,10 @@ is undone in one step.
 - **Local first.** Several clients on one machine edit through one server, serialized by
   digests (LLP 1121 D13). The tool lists connected clients. Live presence (each client's
   selection) is not in v1.
-- **Remote, by pairing** (LLP 1121 D13). Captures reach it as bytes on its authenticated
+- **Remote, by pairing** (LLP 1121 D13), **only over an encrypted transport**:
+  authenticated TLS, or a tunnel the developer explicitly trusts. The dev loop serves plain
+  HTTP (`host/web-js/dev.mjs`), so a remote connection that arrives unprotected is refused,
+  pairing included. Captures reach it as bytes on its authenticated
   socket, so it needs no URL on the developer's machine, and its access ends when its token
   is revoked or expires. A paired client gets the observe group of the relay
   at `read` and `propose`, and the drive group only at `write`. It sees the developer's
@@ -573,8 +666,9 @@ is undone in one step.
 | the JS runtime reporting a row's token | this RFC D5 → the web JS target | proposed |
 | `set-row`, `commit`, held proposals, scrub sessions, `propose`'s live-or-rebuild answer | this RFC D6, D9, D10 → LLP 1121 D13 | proposed |
 | a held state's overlay rows in `layout`'s node answer | this RFC D8 → LLP 1035.002 | proposed |
+| a `boundary` row source in `layout`, flagged by the kernel | this RFC D5 → LLP 1121 D7, LLP 1035.002 | proposed |
 | attribute spans and source digests in maps | this RFC D6 → the compiler | proposed |
-| source maps; `layout <id>` with sources | `contract build --map`; LLP 1035.002 D1 | built |
+| source maps; `layout <id>` with `authored`, `dynamic`, `inherited` and `initial` sources | `contract build --map`; LLP 1035.002 D1 | built |
 
 ## 4. Staging and gates
 
@@ -588,10 +682,12 @@ or after the Tamber stage it needs.
 
    **Gate:**
    - every control comes from declared metadata;
-   - an edit is a one-line diff, and undo restores the bytes;
+      - an edit to a formatted file is a one-line diff, and undo restores the bytes exactly,
+     even for a file that was not formatted;
    - an agent's write appears attributed;
    - a stale inverse names who changed the file;
-   - `commit` refuses a file dirty before the session, and never pushes.
+      - `commit` refuses a file that was dirty or staged at its baseline, or hand-edited
+     between two server writes; it leaves other staging untouched, and never pushes.
 2. **T1a, import review** (with Tamber 3a–3d), D11. **Gate:** a shadcn theme reviews with
    overrides off until ticked, every unmapped value listed, and one transaction to accept.
 3. **T2, the web canvas and inspect** (with Tamber stage 4):
@@ -602,7 +698,10 @@ or after the Tamber stage it needs.
 
    **Gate:**
    - six web tiles in Light, Dim and Black at two text sizes;
-   - a dial drag updates them all with no reload;
+      - a dial or token drag, chosen explicitly (token and dial are never the default rung,
+     and the param, template and style rungs come at T3 and T5), updates every tile with no
+     reload whenever the server classified the change `live`, each tile showing its own
+     mode's value;
    - a click on an overlapped or clipped node selects the node the host hit-tests;
    - a stale capture's click is refused and recaptured;
       - a token row shows its chain;
@@ -632,7 +731,8 @@ or after the Tamber stage it needs.
    - promote to param and to token are each one transaction;
    - a `class:` row edits the style.
 9. **T6, remote** (with Tamber stage 10): D12. **Gate:** a paired `propose` client observes
-   but cannot drive or write; revocation cuts it off.
+   but cannot drive, scrub or write; revocation cuts it off; an unencrypted remote
+   connection is refused, pairing included.
 
 ## 5. Non-goals
 
