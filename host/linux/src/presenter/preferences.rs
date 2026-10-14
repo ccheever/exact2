@@ -91,6 +91,15 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
+    /// An app mode (LLP 1121 D5): `setMode` from the agent's `prefer mode`.
+    pub fn set_mode(&mut self, axis: &str, value: &str) -> Option<String> {
+        let error = self.host.set_mode(axis, value);
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
     /// The root font size `rem` lengths follow (LLP 1069.000 D3): 16, a
     /// browser's `medium`, until the device's shell says its font scale
     /// ([`Presenter::set_device`]: 16 times it) or an agent a size.

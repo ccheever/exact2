@@ -479,7 +479,7 @@ export function install(exact) {
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
       // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
       // The driver's fetch faults (LLP 1103 D3), a form of `prefer`: the page's table, as glue.js answers it.
-      case 'prefer': if (req.faults) return faultOp(req.faults); try { return { page: (exact.page ?? ownPage()).prefer(req.page ?? {}), fold: !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null) }; } catch (e) { return { error: e.message }; }
+      case 'prefer': if (req.faults) return faultOp(req.faults); if (req.mode) return { error: 'prefer mode: this target shows the default modes for now (LLP 1121 stage 2, commit 6)' }; try { return { page: (exact.page ?? ownPage()).prefer(req.page ?? {}), fold: !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null) }; } catch (e) { return { error: e.message }; }
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

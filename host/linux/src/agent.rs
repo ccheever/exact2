@@ -525,10 +525,18 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let empty = serde_json::Map::new();
     let group = |name: &str| request.get(name).and_then(|m| m.as_object());
     let (media, page_facts, fold) = (group("media"), group("page"), group("fold"));
-    if media.is_none() && page_facts.is_none() && fold.is_none() {
+    let mode = group("mode");
+    if media.is_none() && page_facts.is_none() && fold.is_none() && mode.is_none() {
         return error(
-            "prefer needs media, page or fold: {\"prefers-reduced-motion\": \"reduce\", …}",
+            "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}",
         );
+    }
+    // @ref LLP 1121 D13 — the mode group: the app's `setMode`, each pin;
+    // the scheme stays the system's.
+    for (axis, value) in mode.into_iter().flatten() {
+        if let Some(e) = p.set_mode(axis, value.as_str().unwrap_or_default()) {
+            return error(&format!("prefer mode {axis}: {e}"));
+        }
     }
     if let Some(fold) = fold {
         if let Some(e) = prefer_fold(p, fold) {
@@ -644,7 +652,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "horizontal-viewport-segments": fold.cols,
         "vertical-viewport-segments": fold.rows,
         "viewport-segments": p.segments.iter().map(|r| [r.x, r.y, r.width, r.height]).collect::<Vec<_>>(),
-    }})
+    }, "mode": p.host().runner().modes().into_iter().map(|(a, v)| (a, v.into())).collect::<serde_json::Map<String, serde_json::Value>>()})
     .to_string()
 }
 

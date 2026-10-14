@@ -425,7 +425,14 @@ public final class Agent {
     /// refuses them — it decides.
     func prefer(_ req: [String: Any]) -> [String: Any] {
         let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
-        guard media != nil || page != nil || fold != nil else { return ["error": "prefer needs media, page or fold: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        let mode = req["mode"] as? [String: String]
+        guard media != nil || page != nil || fold != nil || mode != nil else { return ["error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        // @ref LLP 1121 D13 — the mode group: the app's `setMode`, each pin; the scheme stays the system's.
+        for (axis, value) in mode ?? [:] {
+            let batch = session.runtime.setMode(axis: axis, value: value)
+            if let error = batch.error { return ["error": "prefer mode \(axis): \(error)"] }
+            session.apply(batch)
+        }
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
@@ -488,7 +495,7 @@ public final class Agent {
         pageFacts["keyboard-navigation"] = KeyboardNavigation.on
         #endif
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
-        return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
+        var reply: [String: Any] = ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
                           "prefers-contrast": DisplayPreferences.contrast,
                           "prefers-color-scheme": systemDark ? "dark" : "light",
@@ -497,6 +504,8 @@ public final class Agent {
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": pageFacts,
                 "fold": presenter.fold.env]
+        if let mode { reply["mode"] = mode }
+        return reply
     }
 
     /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and

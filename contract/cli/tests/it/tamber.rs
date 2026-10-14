@@ -731,3 +731,41 @@ fn a_boundarys_own_colour_going_restores_its_implied_row() {
     press(&mut r, "flip");
     assert_eq!(row(&r, "text", StyleId::TextColor), dim);
 }
+
+#[test]
+fn set_mode_sets_the_windows_slice_in_its_actions_commit() {
+    let path = app(
+        "set-mode",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  action black\n    setMode(\"dark-style\", \"black\")\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      button press=black testId=\"black\"\n        text \"black\"\n      column -exact-mode=\"dark-style:black\" testId=\"pinned\" background-color=\"page\"\n        text \"p\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let (black, dim) = (
+        parsed("light-dark(#ffffff, #000000)"),
+        parsed("light-dark(#ffffff, #161e27)"),
+    );
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), black);
+    press(&mut r, "dim");
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), dim);
+    assert_eq!(
+        row(&r, "pinned", StyleId::BackgroundColor),
+        black,
+        "a pin keeps its own"
+    );
+    assert_eq!(r.modes(), [("dark-style".to_string(), "dim".to_string())]);
+    press(&mut r, "black");
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), black);
+    // The agent's `prefer mode`.
+    assert!(r.set_mode("dark-style", "dim").unwrap().is_some());
+    assert_eq!(row(&r, "page", StyleId::BackgroundColor), dim);
+    assert!(
+        r.set_mode("dark-style", "dim").unwrap().is_none(),
+        "the same mode commits nothing"
+    );
+    assert!(r.set_mode("dark-style", "grey").is_err());
+    // A literal the design lacks is refused where it is written.
+    std::fs::write(&path, "component App\n  action go\n    setMode(\"density\", \"compact\")\n  view\n    button press=go\n      text \"go\"\n").unwrap();
+    assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-mode");
+}

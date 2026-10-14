@@ -464,6 +464,12 @@ pub struct Update<'a> {
 impl<'a> Update<'a> {
     /// A context over `env` with no ops yet.
     pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
+        // A visit starts in the window's modes (LLP 1121 D5).
+        let theme = theme::Around {
+            tuple: ids.theme.window,
+            retheme: std::mem::take(&mut ids.theme.moved),
+            ..Default::default()
+        };
         Update {
             env,
             fonts: None,
@@ -489,7 +495,7 @@ impl<'a> Update<'a> {
             frame_buffers: Vec::new(),
             scroll_padding: None,
             scroll_margin: None,
-            theme: theme::Around::default(),
+            theme,
         }
     }
 

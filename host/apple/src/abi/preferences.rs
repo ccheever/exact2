@@ -7,6 +7,20 @@ use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// An app mode, `axis:value` in the input buffer (LLP 1121 D5).
+    pub fn set_mode(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        let Some((axis, value)) = text.split_once(':') else {
+            return self.emit(exact_runner::agent::error("mode: expected axis:value"));
+        };
+        let (axis, value) = (axis.to_owned(), value.to_owned());
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_mode(&axis, &value));
+        self.emit(out)
+    }
+
     /// The user's display preferences changed or became known (LLP 1061
     /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark

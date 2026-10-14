@@ -37,6 +37,9 @@ export const commands = say => ({
   // `:root { font-size }` (LLP 1069.000 D3): the stylesheet's `rem` rows
   // follow it; checked here, where no runner checked it first.
   setRootFontSize: v => appRootFontSize(v, say),
+  // The window's app modes (LLP 1121 D5): this target has no runner to set
+  // a token's slice, and the page's own mode rules come with commit 6.
+  setMode: (axis, value) => say(`setMode(${JSON.stringify(axis)}, ${JSON.stringify(value)}): this target shows the default modes for now`),
   // The page's own reload: every web page has one, where a native host
   // needs its dev menu's.
   reload: () => location.reload(),

@@ -39,4 +39,20 @@ impl<D: DataSource> Host<D> {
             Err(e) => Some(format!("display scale: {e:?}")),
         }
     }
+
+    /// An app mode (LLP 1121 D5, the agent's `prefer mode`): the window's
+    /// slice set again in one commit, which paints.
+    pub fn set_mode(&mut self, axis: &str, value: &str) -> Option<String> {
+        match self.runner.set_mode(axis, value) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("mode: {e:?}")),
+        }
+    }
 }

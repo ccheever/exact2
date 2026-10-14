@@ -33,7 +33,8 @@ pub(super) struct Checkpoint {
     timers: Vec<super::Timer>,
     published: Option<Box<Published>>,
     commands: usize,
-    root_font: (super::root_font::RootFont, f32),
+    /// The root font size, and the window's app tuple (`setMode`).
+    root_font: (super::root_font::RootFont, f32, u32),
     /// Kept answers refused before this commit (`kept::refuse`).
     refused: usize,
 }
@@ -109,7 +110,11 @@ impl<D: DataSource> Runner<D> {
                     })
                 }),
             commands: self.commands.len(),
-            root_font: (self.root_font, self.kernel.root_font_size()),
+            root_font: (
+                self.root_font,
+                self.kernel.root_font_size(),
+                self.ids.theme.window,
+            ),
             refused: self.keeping.refused.len(),
         }
     }
@@ -181,6 +186,7 @@ impl<D: DataSource> Runner<D> {
                 self.keeping.refused.truncate(c.refused);
                 self.root_font = c.root_font.0;
                 let _ = self.kernel.set_root_font_size(c.root_font.1);
+                self.ids.theme.window = c.root_font.2;
             }
         }
         self.refused_unsent.clear();
@@ -910,6 +916,7 @@ impl<D: DataSource> Runner<D> {
                 self.plan.str(self.plan.mutations[*m].name),
             ));
         }
+        self.take_set_modes(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
         // commit's layout, and the command stays for a host that mirrors it;
         // a refused one is journaled as refused, never as a command.
@@ -963,27 +970,6 @@ impl<D: DataSource> Runner<D> {
             self.apply_sounds(first_command);
         }
         result
-    }
-
-    /// The voice table takes the commit's `playSound`, `playSounds` and
-    /// `stopSounds` once it stands, in the order they were issued; the
-    /// commands stay for the host, which skips them (LLP 1096 D5). A
-    /// `reload` ends every live voice first.
-    fn apply_sounds(&mut self, from: usize) {
-        let commands = &self.commands[from.min(self.commands.len())..];
-        let calls: Vec<_> = commands
-            .iter()
-            .filter_map(|c| crate::sound::Call::of(&c.name, &c.args))
-            .collect();
-        let mut lines = Vec::new();
-        if !calls.is_empty() {
-            self.sounds
-                .apply(&self.plan, self.now_ms, &calls, &mut lines);
-        }
-        if !self.plan.sounds.is_empty() && commands.iter().any(|c| c.name == "reload") {
-            self.sounds.reload(self.now_ms, &mut lines);
-        }
-        lines.into_iter().for_each(|l| self.log(l));
     }
 
     /// Whether `value` conforms to `ty`, checking only the list items not

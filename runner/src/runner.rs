@@ -26,7 +26,9 @@ mod reorder_group;
 pub use intersect::Intersection;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
+mod mode;
 mod root_font;
+mod sounds;
 mod theme;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,

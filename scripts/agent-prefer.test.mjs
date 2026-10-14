@@ -23,3 +23,10 @@ test('Chrome refuses display-mode emulation instead of reporting an unapplied ov
   await expect(preferWeb({ media: { 'display-mode': 'fullscreen' }, page: {} }))
     .rejects.toThrow('Chrome prefer cannot emulate display-mode fullscreen');
 });
+
+test('prefer mode is the app modes group (LLP 1121 D13): each pin, the scheme left alone', () => {
+  const { media, mode } = preferGroups({ mode: 'dark-style:dim, density=compact' });
+  expect(mode).toEqual({ 'dark-style': 'dim', density: 'compact' });
+  expect(media).toEqual({});
+  expect(() => preferGroups({ mode: 'dim' })).toThrow(/mode <axis>:<value>/);
+});

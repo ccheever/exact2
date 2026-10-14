@@ -41,6 +41,22 @@ fn filter_refers(list: &FilterList, text: ColorValue) -> bool {
 }
 
 impl<D: DataSource> Host<D> {
+    /// An app mode (LLP 1121 D5, the agent's `prefer mode`): the window's
+    /// slice set again in one commit, which paints.
+    pub fn set_mode(&mut self, axis: &str, value: &str) -> String {
+        match self.runner.set_mode(axis, value) {
+            Ok(Some(receipt)) => self.commit(
+                &[exact_runner::Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.commit(&[], None),
+            Err(e) => exact_runner::agent::error(&format!("mode: {e:?}")),
+        }
+    }
+
     /// Take the presenter's resolutions; when anything resolves differently,
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {

@@ -538,8 +538,8 @@ pub(crate) fn bind_axes(file: &File) {
     AXES.with(|a| *a.borrow_mut() = axes);
 }
 
-/// `-exact-mode`'s pins (LLP 1121 D5): `axis=value`, space- or
-/// comma-separated, each axis once, every one the design's. A computed pin
+/// `-exact-mode`'s pins (LLP 1121 D5): `axis:value` (or `axis=value`),
+/// space- or comma-separated, each axis once, every one the design's. A computed pin
 /// is the runner's to read; one it cannot is unset, as an invalid row is.
 pub(crate) fn mode_pins(a: &Attr) -> Result<(), LowerError> {
     let mut literals = Vec::new();
@@ -555,12 +555,26 @@ pub(crate) fn mode_pins(a: &Attr) -> Result<(), LowerError> {
     Ok(())
 }
 
+/// `setMode(axis, value)`'s literal arguments name an axis of the design
+/// and one of its values (LLP 1121 D5); computed ones are the runner's.
+pub(crate) fn set_mode_args(args: &[Expr], span: Span) -> Result<(), LowerError> {
+    let [Expr::Str(axis, _), Expr::Str(value, _)] = args else {
+        return Ok(());
+    };
+    AXES.with(|axes| check_pins(&format!("{axis}={value}"), &axes.borrow()))
+        .map_err(|message| LowerError {
+            id: "tamber-mode",
+            message: format!("`setMode(\"{axis}\", \"{value}\")`: {message}"),
+            span,
+        })
+}
+
 /// Each pin of `text` in `axes`; the reason one is not.
 pub(crate) fn check_pins(text: &str, axes: &[(String, Vec<String>)]) -> Result<(), String> {
     let mut seen = Vec::new();
     for pin in text.split([' ', ',']).filter(|p| !p.is_empty()) {
-        let Some((axis, value)) = pin.split_once('=') else {
-            return Err(format!("`{pin}` is no pin: write `axis=value`"));
+        let Some((axis, value)) = pin.split_once([':', '=']) else {
+            return Err(format!("`{pin}` is no pin: write `axis:value`"));
         };
         let Some((_, values)) = axes.iter().find(|(name, _)| name == axis) else {
             let known: Vec<&str> = axes.iter().map(|(n, _)| n.as_str()).collect();

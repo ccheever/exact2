@@ -56,6 +56,11 @@ pub struct ThemedRow {
 #[derive(Debug, Default)]
 pub struct ThemeIndex {
     rows: std::collections::HashMap<(ViewId, u16), ThemedRow>,
+    /// The window's app tuple (`setMode`), which a visit starts in.
+    pub window: u32,
+    /// The window's tuple moved since a visit last started: the next one
+    /// sets every themed row again.
+    pub moved: bool,
 }
 
 impl ThemeIndex {

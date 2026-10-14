@@ -1144,3 +1144,61 @@ fn an_orderly_exit_finishes_background_storage() {
     assert_eq!(p.host().runner().background_operations(), 0);
     assert!(!p.host().runner().has_pending());
 }
+
+/// `prefer mode` (LLP 1121 D13): the app's `setMode` for each pin, the
+/// scheme left as it is; an axis or value the design lacks is refused.
+#[test]
+fn prefer_mode_sets_the_apps_modes() {
+    let dir = std::env::temp_dir().join(format!("exact-linux-prefer-mode-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\naxes\n  dark-style = black | dim\n\ntheme\n  page = #000000\n    when dark-style=dim: #161e27\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    column background-color=\"page\" testId=\"page\"\n      text \"a\"\n",
+    )
+    .unwrap();
+    let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let (mut p, _) = Presenter::boot_with(
+        &bytes,
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let refused = handle(&mut p, r#"{"op":"prefer","mode":{"dark-style":"grey"}}"#);
+    assert!(refused.contains("\"error\""), "{refused}");
+    let reply: serde_json::Value = serde_json::from_str(&handle(
+        &mut p,
+        r#"{"op":"prefer","mode":{"dark-style":"dim"}}"#,
+    ))
+    .unwrap();
+    assert_eq!(reply["mode"]["dark-style"], "dim", "{reply}");
+    assert_eq!(
+        reply["media"]["prefers-color-scheme"], "light",
+        "the scheme stays"
+    );
+    let kernel = p.host().runner().kernel();
+    let page = kernel
+        .node_by_key(kernel.find_by_test_id("page")[0])
+        .unwrap();
+    assert_eq!(
+        format!(
+            "{:?}",
+            page.computed(exact_kernel::StyleId::BackgroundColor)
+        ),
+        format!(
+            "{:?}",
+            exact_kernel::RowValue::ColorValue(exact_kernel::ColorValue::Fixed(
+                exact_kernel::Color::parse("#161e27").unwrap()
+            ))
+        ),
+    );
+}

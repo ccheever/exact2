@@ -117,6 +117,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     // sets the root size `rem` follows, over the host's; `"medium"` hands it
     // back. The runner's own; the web also sets it on the document.
     "setRootFontSize",
+    // @ref LLP 1121 D5 — `setMode("dark-style", "dim")`: the window's app
+    // modes, as `setScheme` is its scheme. The runner's own.
+    "setMode",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's

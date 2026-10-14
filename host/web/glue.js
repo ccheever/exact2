@@ -1148,8 +1148,8 @@ function agentReply(request) {
       case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); // LLP 1103 D3: a fetch fault, a form of `prefer`
         // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
         try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message }; }
-        pageChanged(); foldChanged();
-        return tagged({ page: { ...pageFacts.read() }, fold: foldEnv() });
+        pageChanged(); foldChanged(); for (const [axis, value] of Object.entries(request.mode ?? {})) { const batch = JSON.parse(readOut(wasm.exact_set_mode(writeIn(`${axis}:${value}`)))); if (batch.error) return { error: `prefer mode ${axis}:${value}: ${batch.error}` }; applyBatch(batch); } // @ref LLP 1121 D13 — the mode group: the runner's `setMode` for each pin
+        return tagged({ page: { ...pageFacts.read() }, fold: foldEnv(), ...(request.mode ? { mode: request.mode } : {}) });
       }
       case "focus": {
         const el = views.get(request.id);

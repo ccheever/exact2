@@ -959,6 +959,23 @@ pub(super) fn check_command(
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);
     }
+    // @ref LLP 1121 D5 — an axis and its value; lowering checks literal
+    // ones against the design's axes.
+    if name == "setMode" {
+        let [axis, value] = args else {
+            return err("type-set-mode", "`setMode(axis, value)` takes an axis of the app's design and one of its values: `setMode(\"dark-style\", \"dim\")`", span);
+        };
+        for a in [axis, value] {
+            if !matches!(infer(a, scope, shapes)?, Ty::String) {
+                return err(
+                    "type-set-mode",
+                    "`setMode(axis, value)` takes two strings: `setMode(\"dark-style\", \"dim\")`",
+                    a.span(),
+                );
+            }
+        }
+        return Ok(());
+    }
     if matches!(name, "playSound" | "playSounds" | "stopSounds") {
         return sounds::args(name, args, scope, shapes, span);
     }
