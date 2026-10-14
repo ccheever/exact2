@@ -1,0 +1,25 @@
+tamber bluesky
+
+axes
+  dark-style = black | dim  under scheme=dark
+
+dials
+  accent: color = #1083fe
+
+theme
+  accent.fill = light-dark(accent, #208bfe)  // the app root writes accent-color="accent.fill"
+  surface.page = light-dark(#ffffff, #000000)
+    when dark-style=dim: light-dark(#ffffff, #161e27)
+  surface.raised = light-dark(#f1f3f5, #0f1419)
+    when dark-style=dim: light-dark(#f1f3f5, #1e2936)
+  text.primary = light-dark(#0b0f14, #f1f3f5)
+  border.hairline = light-dark(#d4dbe2, #2e4052)
+  accent.fill-pressed = light-dark(color-mix(in oklab, accent 88%, #0b0f14), color-mix(in oklab, #208bfe 88%, #f1f3f5))
+  accent.fill-faded = light-dark(color-mix(in srgb, accent 50%, #ffffff), color-mix(in srgb, #208bfe 50%, #000000))
+  accent.on-fill = #ffffff
+  type.body = -exact-body/1.35 "InterVariable"
+    radius.md = 12px
+  radius.full = 999px
+
+icons
+  icon.reply = icon(sf "bubble.left", svg "icons/reply.svg")

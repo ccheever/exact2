@@ -1580,6 +1580,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-tamber"
+version = "0.1.0"
+dependencies = [
+ "exact-color",
+ "exact-kernel",
+ "exact-num",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-terminal"
 version = "0.1.0"
 dependencies = [

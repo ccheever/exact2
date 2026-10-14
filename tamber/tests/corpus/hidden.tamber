@@ -1,0 +1,13 @@
+tamber hidden
+
+axes
+  dark-style = black | dim  under scheme=dark
+  density = default | compact
+  variant = a | b
+
+theme
+  t = light-dark(#ffffff, #000000)
+    when density=compact: light-dark(#eeeeee, #050505)
+    when dark-style=dim density=compact: light-dark(#eeeeee, #222222)
+    when dark-style=dim density=compact variant=a: light-dark(#eeeeee, #333333)
+    when dark-style=dim density=compact variant=b: light-dark(#eeeeee, #444444)

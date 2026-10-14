@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "digest": "93688751db8546f1",
+  "name": "mix",
+  "tuples": 1,
+  "axes": [],
+  "dials": [],
+  "tokens": [
+    {"name": "srgb.even", "kind": "color", "role": null, "values": ["color(srgb 0.5 0 0.5)"], "entries": null, "dials": [], "fallback": ["#800080ff", "#800080ff"]},
+    {"name": "srgb.weighted", "kind": "color", "role": null, "values": ["color(srgb 0.25 0 0.75)"], "entries": null, "dials": [], "fallback": ["#4000bfff", "#4000bfff"]},
+    {"name": "oklab", "kind": "color", "role": null, "values": ["oklab(0.5672846108292732 -0.0444723260393319 -0.17635085428853292)"], "entries": null, "dials": [], "fallback": ["#1574deff", "#1574deff"]},
+    {"name": "oklch.longer", "kind": "color", "role": null, "values": ["oklch(0.7 0.1 240)"], "entries": null, "dials": [], "fallback": ["#60a7d6ff", "#60a7d6ff"]},
+    {"name": "hsl", "kind": "color", "role": null, "values": ["color(srgb 0.9999999999999999 0 0.9999999999999999)"], "entries": null, "dials": [], "fallback": ["#ff00ffff", "#ff00ffff"]},
+    {"name": "faded", "kind": "color", "role": null, "values": ["color(srgb 0.6 0.6 0.6 / 0.5)"], "entries": null, "dials": [], "fallback": ["#99999980", "#99999980"]},
+    {"name": "over.pair", "kind": "color", "role": null, "values": ["light-dark(color(srgb 0.7509803921568627 0.7509803921568627 0.7509803921568627), color(srgb 0.25098039215686274 0.25098039215686274 0.25098039215686274))"], "entries": null, "dials": [], "fallback": ["#c0c0c0ff", "#404040ff"]},
+    {"name": "zero", "kind": "color", "role": null, "values": ["color(srgb 0.5 0 0.5 / 0)"], "entries": null, "dials": [], "fallback": ["#80008000", "#80008000"]},
+    {"name": "with.transparent", "kind": "color", "role": null, "values": ["color(srgb 0.06274509803921569 0.5137254901960784 0.996078431372549 / 0.4)"], "entries": null, "dials": [], "fallback": ["#1083fe66", "#1083fe66"]}
+  ],
+  "exports": null
+}

@@ -1,0 +1,6 @@
+9:5: tamber-under-light: the light side `#fefefeff` is not the default's `#ffffffff`: an axis `under scheme=dark` varies the dark side only
+11:5: tamber-under-role: `-exact-label` has no light side to keep under an axis `under scheme=dark`; write the light and dark colours in a `light-dark()`
+13:5: tamber-under-role: `-exact-secondary-label` has no light side to keep under an axis `under scheme=dark`; write the light and dark colours in a `light-dark()`
+14:3: tamber-under-kind: only a colour may vary by an axis `under scheme=dark`: the kernel picks a length's slice without knowing the scheme
+17:5: tamber-under-kind: only a colour may vary by an axis `under scheme=dark`: the kernel picks a length's slice without knowing the scheme
+19:5: tamber-under-light: the light side `#fefefeff` is not the default's `#ffffffff`: an axis `under scheme=dark` varies the dark side only
