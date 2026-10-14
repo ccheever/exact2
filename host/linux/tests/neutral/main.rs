@@ -324,7 +324,7 @@ component Header
     header class=(on ? Authored : Plain) height=20 min-height=0 padding=0 testId="head"
       text "Ink" testId="label"
 "##;
-    let plan = contract::compile(&source).unwrap();
+    let plan = contract::compile(source).unwrap();
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
         (),
@@ -349,6 +349,21 @@ component Header
         for name in ["head", "label"] {
             let node = k.node(id(&p, name)).unwrap();
             assert_eq!(node.says(StyleId::TextColor), authored);
+            let expected = if authored {
+                exact_kernel::Color::rgba(0xaa, 0, 0xcc, 255)
+            } else {
+                exact_kernel::Color::rgba(0, 0, 0, 255)
+            };
+            assert_eq!(
+                node.computed_row(StyleId::TextColor, |s| s.text_color.resolve(false)),
+                expected
+            );
+            assert_eq!(
+                node.computed_style(exact_kernel::StyleMask::INHERITED)
+                    .text_color
+                    .resolve(false),
+                expected
+            );
             assert_eq!(
                 node.source_of(StyleId::TextColor),
                 authored.then(|| id(&p, "head"))
@@ -437,6 +452,19 @@ fn route_header_context_changes_invalidate_retained_nodes() {
         let n = k.node(3).unwrap();
         assert_eq!(n.says(StyleId::TextColor), says);
         assert_eq!(n.source_of(StyleId::TextColor), source);
+        let expected = source.map_or(exact_kernel::Color::rgba(0, 0, 0, 255), |id| {
+            k.node(id).unwrap().style.text_color.resolve(false)
+        });
+        assert_eq!(
+            n.computed_row(StyleId::TextColor, |s| s.text_color.resolve(false)),
+            expected
+        );
+        assert_eq!(
+            n.computed_style(StyleMask::INHERITED)
+                .text_color
+                .resolve(false),
+            expected
+        );
     };
     check(&mut k, 21.0, false, None);
     let header = k.node(2).unwrap().key;
@@ -458,6 +486,21 @@ fn route_header_context_changes_invalidate_retained_nodes() {
             .unwrap();
         assert!(r.touched.contains(&header) && r.touched.contains(&leaf));
         check(&mut k, 21.0, written, written.then_some(1));
+        if written {
+            k.apply(
+                0,
+                1,
+                &[Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(style(&[(
+                        StyleId::TextColor,
+                        StyleValue::Text("#123456".into()),
+                    )])),
+                }],
+            )
+            .unwrap();
+            check(&mut k, 21.0, true, Some(1));
+        }
     }
     for present in [false, true] {
         let op = if present {
