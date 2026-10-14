@@ -784,7 +784,7 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
     assert_eq!(k.fragment_refusal(header), None);
 }
 
-// Chrome 154, 2026-10-14: ordinary emitted app, two widths and both schemes.
+// Chrome 155.0.8059.80, 2026-10-14: ordinary emitted app, two widths and both schemes.
 // These boxes distinguish a content minimum from a border-box minimum.
 const HEADER_GEOMETRY: &str = r##"style Own
   padding="2px 4px"
