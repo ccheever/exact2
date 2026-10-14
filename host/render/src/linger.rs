@@ -181,6 +181,13 @@ fn consume_wake(inbox: &mut Inbox, mut woken: impl Read) -> std::io::Result<()> 
     Ok(())
 }
 
+/// Mark a failed wake channel and take every socket not yet taken by the
+/// closing thread. The caller drops them after releasing the inbox lock.
+fn fail_wake(inbox: &mut Inbox) -> VecDeque<Held> {
+    inbox.gone = true;
+    std::mem::take(&mut inbox.arrived)
+}
+
 /// The closing thread, for as long as its server runs.
 pub(crate) struct Linger {
     closer: Closer,
@@ -253,8 +260,11 @@ fn run(inbox: &Mutex<Inbox>, woken: &WakeStream) {
             if let Err(e) = consume_wake(&mut inbox, woken) {
                 // The internal wake channel cannot recover. End instead of
                 // polling a failed socket forever, and make future hand-offs
-                // drop their sockets.
-                inbox.gone = true;
+                // drop their sockets. Release queued sockets outside the lock;
+                // `held` drops when the thread returns.
+                let arrived = fail_wake(&mut inbox);
+                drop(inbox);
+                drop(arrived);
                 eprintln!("render: close wake: {e}");
                 return;
             }
@@ -406,10 +416,56 @@ mod tests {
         assert!(!inbox.woken);
 
         inbox.woken = true;
+        let (server, mut client) = pair();
+        server.set_nonblocking(true).unwrap();
+        inbox.arrived.push_back(Held {
+            stream: server,
+            until: Instant::now() + HOLD,
+            read: 0,
+        });
         let mut ended = &[][..];
         let error = consume_wake(&mut inbox, &mut ended).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
         assert!(inbox.woken, "EOF did not masquerade as consumption");
+
+        let arrived = fail_wake(&mut inbox);
+        assert!(inbox.gone);
+        assert!(inbox.arrived.is_empty());
+        assert_eq!(arrived.len(), 1);
+        drop(arrived);
+        client.set_read_timeout(Some(BOUND)).unwrap();
+        assert_eq!(client.read(&mut [0u8; 1]).unwrap(), 0);
+    }
+
+    #[test]
+    fn the_wake_channel_is_empty_between_notifications() {
+        let (wake, mut woken) = wake_pair().unwrap();
+        wake.set_nonblocking(true).unwrap();
+        woken.set_nonblocking(true).unwrap();
+        let mut inbox = Inbox {
+            arrived: VecDeque::new(),
+            woken: false,
+            finish: false,
+            gone: false,
+        };
+
+        for _ in 0..2 {
+            wake_thread(&mut inbox, &wake);
+            assert!(inbox.woken);
+            let until = Instant::now() + BOUND;
+            while inbox.woken {
+                consume_wake(&mut inbox, &mut woken).unwrap();
+                assert!(Instant::now() < until, "wake byte was never readable");
+                std::thread::yield_now();
+            }
+            loop {
+                match woken.read(&mut [0u8; 1]) {
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                    result => panic!("a stale wake remained after consumption: {result:?}"),
+                }
+            }
+        }
     }
 
     #[test]
